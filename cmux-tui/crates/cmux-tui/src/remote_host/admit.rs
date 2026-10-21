@@ -4,6 +4,7 @@
 use std::net::IpAddr;
 
 use super::config::{Config, same_login};
+use super::grant::{self, Scope};
 use super::tailnet::Identity;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -12,6 +13,8 @@ pub(crate) enum Decision {
     Owner(Identity),
     /// A login on the allow list (full access, granted by name).
     Allowed(Identity),
+    /// A teammate grant (teammate-access-DESIGN.md): consented, scoped.
+    Guest(Identity, Vec<Scope>),
     /// Refused; the reason is logged on the host, never sent.
     Refused(&'static str),
 }
@@ -21,6 +24,7 @@ impl Decision {
         match self {
             Self::Owner(_) => Some("owner"),
             Self::Allowed(_) => Some("allowed"),
+            Self::Guest(..) => Some("guest"),
             Self::Refused(_) => None,
         }
     }
@@ -59,5 +63,8 @@ pub(crate) fn decide(
     if config.allow.iter().any(|allowed| same_login(allowed, login)) {
         return Decision::Allowed(identity);
     }
-    Decision::Refused("login is neither the owner nor allowed")
+    match grant::check(config, login) {
+        grant::Check::Granted(scopes) => Decision::Guest(identity, scopes),
+        grant::Check::Refused(reason) => Decision::Refused(reason),
+    }
 }

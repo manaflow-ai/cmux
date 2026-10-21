@@ -118,7 +118,7 @@ export function Composer({
       const refused = refusal(file);
       const item: PendingAttachment = { id, file, progress: { sent: 0, total: file.size } };
       if (refused) {
-        added.push({ ...item, error: t(refused === "type" ? "attach.typeRefused" : "attach.tooLarge") });
+        added.push({ ...item, error: t("attach.tooLarge") });
         continue;
       }
       added.push(item);
@@ -394,6 +394,7 @@ export function Composer({
         </ToolbarButton>
         <ToolbarButton
           label={t("emoji.title")}
+          tooltip={false}
           className="hc-tool"
           disabled={disabled}
           keepsFocus
@@ -406,6 +407,7 @@ export function Composer({
         {attachments && !editing && (
           <ToolbarButton
             label={t("attach.add")}
+            tooltip={false}
             className="hc-tool"
             disabled={disabled || files.length >= MAX_ATTACHMENTS}
             onPress={() => picker.current?.click()}
@@ -430,6 +432,7 @@ export function Composer({
         {people.length > 0 && (
           <ToolbarButton
             label={t("mention.title")}
+            tooltip={false}
             className="hc-tool"
             disabled={disabled}
             keepsFocus
@@ -459,6 +462,7 @@ export function Composer({
         ) : (
           <ToolbarButton
             label={t("composer.send")}
+            tooltip={false}
             className={`hc-send${empty || disabled || uploading ? "" : " ready"}`}
             disabled={empty || disabled || uploading}
             onPress={() => submit(editor.current?.value() ?? value)}

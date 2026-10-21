@@ -12,14 +12,14 @@
       "rows": [
         {
           "key": "sidebar.nowPlaying.enabled",
-          "note": "Off by default. Off: no Now Playing card in the sidebar and no player on the new chat page; a tab playing sound shows only its speaker in the tab strip.",
+          "note": "Off by default. Off: no Now Playing card in the sidebar; a tab playing sound shows only its speaker in the tab strip. The New Tab page's player is tabs.newTabNowPlaying.",
           "title": {
             "key": "settings.sidebar.nowPlaying.enabled",
             "text": "Show Now Playing"
           },
           "help": {
             "key": "settings.sidebar.nowPlaying.enabled.help",
-            "text": "A player for what is playing, at the bottom of the sidebar and on the new chat page."
+            "text": "A player for what is playing, at the bottom of the sidebar."
           },
           "kind": "toggle",
           "default": false,
@@ -31,6 +31,42 @@
             "spotify",
             "song",
             "sidebar"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "newTab",
+      "section": "general",
+      "group": {
+        "key": "settings.group.tabs",
+        "text": "Tabs"
+      },
+      "note": "The New Tab page's Now Playing player (Leo 2026-10-19: \"disableable\"): on by default; its right-click menu's Hide Now Playing turns it off.",
+      "rows": [
+        {
+          "key": "tabs.newTabNowPlaying",
+          "name": "newTab",
+          "note": "On by default (Leo 2026-10-19), apart from the sidebar card (sidebar.nowPlaying.enabled, off by default). Off: no player on the New Tab page and no space kept for it.",
+          "title": {
+            "key": "settings.tabs.newTabNowPlaying",
+            "text": "Show Now Playing on New Tab"
+          },
+          "help": {
+            "key": "settings.tabs.newTabNowPlaying.help",
+            "text": "A player for what is playing, on the New Tab page."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "music",
+            "now playing",
+            "player",
+            "media",
+            "spotify",
+            "song",
+            "new tab",
+            "new chat"
           ]
         }
       ]

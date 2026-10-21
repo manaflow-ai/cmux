@@ -1,0 +1,10 @@
+{
+ "video": "/Users/azizalbahar/cnx-ios-e2e/termqa-raw/tq12/n1-fix-wg-08.mp4",
+ "source_frames": 899,
+ "duration": 16.16,
+ "lit_median": 0.0492,
+ "black_runs": [],
+ "black_runs_over_17ms": [],
+ "frac_gaps_over_34ms": 0.0111,
+ "max_gap_ms": 560.0
+}

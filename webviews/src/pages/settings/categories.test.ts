@@ -23,11 +23,13 @@ test("the categories are the approved ones, in order", () => {
     "terminal",
     "editor",
     "agents",
+    "chief-pet",
     "notifications",
     "browser",
     "keyboard",
     "privacy",
     "accounts",
+    "mobile",
     "advanced",
     "experimental",
   ]);

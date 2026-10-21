@@ -13,6 +13,10 @@ import MessagesLabSidebar
 /// after every change and handles the choices.
 public final class HomeSidebarView: NSView {
     public var onSelect: (ConversationID) -> Void = { _ in }
+    /// The person opened a conversation: a plain click on its row or pinned tile (the selected one
+    /// too) or Return on the highlighted one. Called after ``onSelect``; Up/Down and Command- or
+    /// Shift-clicks only select. The page moves the keyboard into its message box.
+    public var onOpen: (ConversationID) -> Void = { _ in }
     public var onSetPinned: (Bool, ConversationID) -> Void = { _, _ in }
     /// A drag put a conversation at an index of the pinned grid (a new place, or a row pinned
     /// there); call `update` before returning so the tiles land smoothly.
@@ -44,9 +48,9 @@ public final class HomeSidebarView: NSView {
     /// (Home offers no other filter, so no menu).
     let unreadToggle = HomeHeaderButton(symbol: "line.3.horizontal.decrease.circle", onSymbol: "line.3.horizontal.decrease.circle.fill",
                                         label: CmuxSidebarView.unreadTitle, identifier: "cmux.home.sidebar.unread")
-    /// The search while the field does not fit beside the buttons: a click opens the field over the row.
-    let searchButton = HomeHeaderButton(symbol: "magnifyingglass", label: CmuxSidebarView.searchTitle,
-                                        identifier: "cmux.home.sidebar.searchButton")
+    /// Compose at the chat's top-left while the list shows avatars only (`HomeChatColumnView`, which
+    /// `HomeSidebarSplitView` places beside this list).
+    let chatCompose = HomeChatComposeButton(label: HomeConversationStrings.newMessage)
     /// The search field's capsule: a quiet fill and the composer's hairline rim, stepped toward
     /// the text while the field edits (the composer's focus, #22114), never AppKit's blue ring.
     let searchCapsule = HomeSearchCapsule()
@@ -57,6 +61,11 @@ public final class HomeSidebarView: NSView {
     /// "Message Requests (2)" under the list while there are requests (DESIGN 2.3); hidden otherwise.
     let requestsButton = NSButton(title: "", target: nil, action: nil)
     public private(set) var model = HomeSidebarModel(rows: [], pins: HomePins(), me: nil)
+    /// The New Message draft's row title (Messages' "New Message" row at
+    /// the top of the list while a draft is open or kept), or nil for none.
+    public private(set) var draftRowTitle: String?
+    /// The draft row's id in `onSelect` (the New Message page's).
+    public static let draftRowID = HomeNewMessageComposerSource.conversation
 
     public override init(frame: NSRect) {
         HomeReduceMotion.install()
@@ -74,7 +83,7 @@ public final class HomeSidebarView: NSView {
         requestsButton.bezelStyle = .accessoryBarAction
         requestsButton.isBordered = false
         requestsButton.alignment = .left
-        requestsButton.font = .systemFont(ofSize: NSFont.smallSystemFontSize, weight: .medium)
+        requestsButton.font = .systemFont(ofSize: TypeScale.caption, weight: TypeScale.emphasis)
         requestsButton.image = NSImage(systemSymbolName: "tray", accessibilityDescription: nil)
         requestsButton.imagePosition = .imageLeading
         requestsButton.target = self
@@ -86,6 +95,7 @@ public final class HomeSidebarView: NSView {
         // names, as Messages' pinned grid.
         list.neutralSelection = true
         list.onSelect = { [weak self] id in if let id { self?.onSelect(ConversationID(id)) } }
+        list.onOpen = { [weak self] id in self?.onOpen(ConversationID(id)) }
         list.onSetPinned = { [weak self] on, id in self?.onSetPinned(on, ConversationID(id)) }
         list.onPlacePinned = { [weak self] id, index in self?.onPlacePinned(ConversationID(id), index) }
         list.onSetRead = { [weak self] read, id in
@@ -118,12 +128,30 @@ public final class HomeSidebarView: NSView {
     public func update(_ model: HomeSidebarModel) {
         guard model != self.model else { return }
         self.model = model
-        list.show((model.pinned + model.rows).map(Self.entry), pinned: model.pinned.map(\.id.rawValue))
+        reshow()
         noteLabel.stringValue = model.note ?? ""
         if noteLabel.isHidden != (model.note == nil) {
             noteLabel.isHidden = model.note == nil
             needsLayout = true
         }
+    }
+
+    /// Shows or removes the New Message draft row (first under the pinned
+    /// grid, no time, as in Messages).
+    public func setDraftRow(_ title: String?) {
+        guard title != draftRowTitle else { return }
+        draftRowTitle = title
+        reshow()
+    }
+
+    private func reshow() {
+        var entries = (model.pinned + model.rows).map(Self.entry)
+        if let draftRowTitle {
+            entries.insert(CmuxSidebarEntry(id: Self.draftRowID.rawValue, title: draftRowTitle, people: [], preview: "", previewSender: nil,
+                                            lastAt: .distantPast, unreadCount: 0, pinned: false, muted: false, avatar: nil),
+                           at: model.pinned.count)
+        }
+        list.show(entries, pinned: model.pinned.map(\.id.rawValue))
     }
 
     /// Each pinned tile's and row's frame in window points from the top-left (`debug.home page`).
@@ -138,7 +166,7 @@ public final class HomeSidebarView: NSView {
         CmuxSidebarEntry(id: item.id.rawValue, title: item.title,
                          people: item.people.map { CmuxSidebarEntry.Person(id: $0.id, name: $0.name, initials: $0.initials) },
                          preview: item.preview, previewSender: nil, lastAt: item.lastAt, unreadCount: item.unreadCount,
-                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.backendBadge)
+                         pinned: item.isPinned, muted: item.isMuted, avatar: item.chiefAvatar.map(avatar), badge: item.listBadge ?? item.backendBadge)
     }
 
     /// The Chief's avatar as the list draws it: the picture, else its text
@@ -189,7 +217,7 @@ public final class HomeSidebarView: NSView {
         list.selectionColor = .labelColor
         list.neutralSelectionFill = performWithTheme { Palette.selectionFill }
         layer?.backgroundColor = performWithTheme { Palette.legibilityScrim.cgColor }
-        for button in [compose, unreadToggle, searchButton] { button.applyTint() }
+        for button in [compose, unreadToggle] { button.applyTint() }
         applySearchColors()
     }
 
@@ -211,18 +239,18 @@ public final class HomeSidebarView: NSView {
         field.font = .systemFont(ofSize: NSFont.systemFontSize)
         field.setAccessibilityIdentifier("cmux.home.sidebar.search")
         field.onEditingChange = { [weak self] _ in self?.searchEditingChanged() }
-        // An emptied field (its cancel button) closes a collapsed search that no longer edits.
+        // An emptied field (its cancel button) closes the search over an avatar-only list once it stops editing.
         field.onTextChange = { [weak self] in self?.list.headerView.needsLayout = true }
         searchCapsule.onClick = { [weak self] in self?.openSearch() }
         compose.target = self
         compose.action = #selector(newMessage)
         compose.contextMenu = { [weak self] in self?.composeMenu() }
+        chatCompose.target = self
+        chatCompose.action = #selector(newMessage)
+        chatCompose.contextMenu = { [weak self] in self?.composeMenu() }
         unreadToggle.target = self
         unreadToggle.action = #selector(toggleUnread)
-        searchButton.target = self
-        searchButton.action = #selector(openSearch)
-        // Over the field: a collapsed search's field sits under its icon button.
-        for button in [searchButton, unreadToggle, compose] { host.addSubview(button) }
+        for button in [unreadToggle, compose] { host.addSubview(button) }
         list.layoutHeader = { [weak self] bounds in self?.layoutHeader(bounds) ?? HomeSidebarHeaderLayout.band }
     }
 
@@ -233,34 +261,33 @@ public final class HomeSidebarView: NSView {
         let h = HomeSidebarHeaderLayout(width: bounds.width, searchOpen: searchOpen)
         header = h
         dragStrip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: h.listTop)
-        let collapsedClosed = h.searchButton != nil && !h.buttonsCovered
+        let compactClosed = h.compact && !h.buttonsCovered
         searchCapsule.frame = h.search
-        searchCapsule.isHidden = collapsedClosed
+        searchCapsule.isHidden = compactClosed
         searchCapsule.layer?.cornerRadius = h.search.height / 2
-        // The field inside its capsule, its text centred on the row. Collapsed and closed it waits
-        // under the icon button at full height (alpha 0), so ⌘F and type-to-search still reach it.
+        // The field inside its capsule, its text centred on the row. In the avatar-only list it
+        // waits closed at zero width (alpha 0), so ⌘F and type-to-search still reach it and open it
+        // over the band, and the band stays the window's drag area.
         let fieldHeight: CGFloat = 22
-        if collapsedClosed, let button = h.searchButton {
-            list.searchField.frame = CGRect(x: button.minX, y: button.midY - fieldHeight / 2, width: button.width, height: fieldHeight)
+        if compactClosed {
+            list.searchField.frame = CGRect(x: h.search.minX, y: h.search.midY - fieldHeight / 2, width: 0, height: fieldHeight)
             list.searchField.alphaValue = 0
-            list.searchField.setAccessibilityElement(false) // the icon button is the search for VoiceOver
+            list.searchField.setAccessibilityElement(false)
         } else {
             list.searchField.frame = CGRect(x: h.search.minX + 4, y: h.search.midY - fieldHeight / 2,
                                             width: max(0, h.search.width - 8), height: fieldHeight)
             list.searchField.alphaValue = 1
             list.searchField.setAccessibilityElement(true)
         }
-        searchButton.isHidden = h.searchButton == nil || h.buttonsCovered
-        searchButton.frame = h.searchButton ?? .zero
         unreadToggle.frame = h.filter
         compose.frame = h.compose
-        unreadToggle.isHidden = h.buttonsCovered
-        compose.isHidden = h.buttonsCovered
+        unreadToggle.isHidden = h.compact
+        compose.isHidden = h.compact
         return h.listTop
     }
 
-    /// Focus moves into or out of the field: the ring steps, the caret takes the accent, and a
-    /// collapsed search opens over the row or closes back to its icon.
+    /// Focus moves into or out of the field: the ring steps, the caret takes the accent, and in
+    /// the avatar-only list the search opens over the band or closes.
     private func searchEditingChanged() {
         applySearchColors()
         list.headerView.needsLayout = true
@@ -302,7 +329,7 @@ public final class HomeSidebarView: NSView {
     }
 
     #if DEBUG
-    /// Screenshots: true gives the search field the keyboard (a collapsed search opens), false
+    /// Screenshots: true gives the search field the keyboard (it opens over an avatar-only list), false
     /// ends the search and takes the keyboard back.
     public func debugSearch(_ open: Bool) {
         if open {
@@ -318,7 +345,8 @@ public final class HomeSidebarView: NSView {
     /// a divider drag is), selects the `select`-th row (0 first, below the pinned tiles), sets
     /// the Unread toggle, opens or ends the search (`debugSearch`). The answer is a
     /// `JSONSerialization` graph: the list's `width` and the `header` (each frame as [x, y, width,
-    /// height], NSNull when not shown, and `buttonsCovered`); nil when `select` names no row, and
+    /// height], `compact`, `buttonsCovered`, and `chatCompose`, the chat's compose button in window
+    /// points from the top-left or NSNull while hidden); nil when `select` names no row, and
     /// nothing changes then.
     public func debugLook(width: Double?, select: Int?, unread: Bool?, search: Bool?) -> [String: Any]? {
         if let select, !model.rows.indices.contains(select) { return nil }
@@ -333,13 +361,19 @@ public final class HomeSidebarView: NSView {
         (split?.superview ?? self).layoutSubtreeIfNeeded()
         func frame(_ r: CGRect?) -> Any { r.map { [$0.minX, $0.minY, $0.width, $0.height].map(Double.init) } ?? NSNull() }
         let h = header
+        var chat: CGRect?
+        if !chatCompose.isHidden, let window, let height = window.contentView?.bounds.height {
+            let r = chatCompose.convert(chatCompose.bounds, to: nil)
+            chat = CGRect(x: r.minX, y: height - r.maxY, width: r.width, height: r.height)
+        }
         return ["width": Double(split?.sidebarWidth ?? bounds.width),
-                "header": ["search": frame(h.search), "searchButton": frame(h.searchButton), "filter": frame(h.filter),
-                           "compose": frame(h.compose), "buttonsCovered": h.buttonsCovered] as [String: Any]]
+                "header": ["search": frame(h.search), "filter": frame(h.filter), "compose": frame(h.compose),
+                           "compact": h.compact, "buttonsCovered": h.buttonsCovered,
+                           "chatCompose": frame(chat)] as [String: Any]]
     }
     #endif
 
-    /// The collapsed search's icon: the field opens over the row with the keyboard.
+    /// The search capsule's click: the field takes the keyboard.
     @objc func openSearch() {
         // An edit already under way keeps its caret and selection.
         guard !list.searchField.isEditing else { return }

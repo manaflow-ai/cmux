@@ -3,6 +3,16 @@
 use super::*;
 
 impl Mux {
+    /// Forget the layout-undo history of `pane`'s screen: its layout was
+    /// rebuilt for the user (a reopened screen), not changed by them, so
+    /// undo must not fold those splits back.
+    pub(crate) fn forget_layout_undo(&self, pane: PaneId) {
+        let mut state = self.state.lock().unwrap();
+        if let Some((workspace, screen)) = state.screen_of(pane) {
+            state.workspaces[workspace].screens[screen].invalidate_layout_undo();
+        }
+    }
+
     /// Undo the latest structural layout transaction on `pane`'s screen.
     ///
     /// Transactions that created panes return a confirmation preview first.

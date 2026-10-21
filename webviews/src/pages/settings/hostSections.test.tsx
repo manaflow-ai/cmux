@@ -109,3 +109,16 @@ test("a space and a browser profile with a stored image or SVG icon draw it from
   expect(avatar.textContent).toBe("");
   browser.unmount();
 });
+
+test("Machines offers Add Server…, which opens the Add Server card through the palette's action", async () => {
+  // u3849: pairing left the menu bar; Settings is one of the ways to add a server by hand. The page
+  // passes no code, so it only opens the card and never approves a server itself.
+  const page = await renderPage({ path: "/settings/machines" });
+  const button = page.container.querySelector<HTMLButtonElement>('[data-card="machines"] [data-add-server]');
+  expect(button).not.toBeNull();
+  await act(async () => button!.click());
+  await settle();
+  const run = page.provider.log.filter((entry) => entry.op === "cmux.app.action.run").at(-1)!;
+  expect(run.params).toEqual({ action: "server.addServer", args: {} });
+  page.unmount();
+});
