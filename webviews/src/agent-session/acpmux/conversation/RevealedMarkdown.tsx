@@ -21,31 +21,25 @@ export type Reveal = { id: number; count: number; born: number };
 /// How long newly revealed text fades in (acp-streaming.md "Reveal animation").
 export const FADE_MS = 160;
 
-type Shown = { length: number; fresh: Reveal[]; now: number; settled: boolean };
+type Shown = { length: number; fresh: Reveal[]; now: number };
 /// React commits at most this often while revealing; fades run every display frame on the
 /// compositor, so 60 commits a second read the same as 120 at half the main-thread cost.
 const COMMIT_MS = 1000 / 60;
 
 /// The part of `text` to show this frame, and the steps still fading in.
-export function useStreamReveal(
-  text: string,
-  streaming: boolean,
-): { visible: string; fresh: Reveal[]; now: number; settled: boolean } {
+export function useStreamReveal(text: string, streaming: boolean): { visible: string; fresh: Reveal[]; now: number } {
   const reveal = useRef<StreamReveal | null>(null);
   const reduce = useRef<boolean | null>(null);
   reduce.current ??= reducedMotion();
   // Text there when the row mounts shows at once; only what arrives after it flows in.
   reveal.current ??= new StreamReveal({ initial: text, reduceMotion: reduce.current });
-  const [shown, setShown] = useState<Shown>(() => ({ length: text.length, fresh: [], now: 0, settled: true }));
+  const [shown, setShown] = useState<Shown>(() => ({ length: text.length, fresh: [], now: 0 }));
   const latest = useRef({ text, streaming, shown });
   latest.current = { text, streaming, shown };
   const nextId = useRef(0);
   useLayoutEffect(() => {
     const current = reveal.current!;
-    if (current.settled && shown.length >= text.length && !shown.fresh.length) {
-      if (!shown.settled) setShown({ ...shown, settled: true });
-      return;
-    }
+    if (current.settled && shown.length >= text.length && !shown.fresh.length) return;
     let handle = 0;
     let lastCommit: number | undefined;
     const tick = (now: number) => {
@@ -70,7 +64,7 @@ export function useStreamReveal(
       const fresh = away ? [] : before.fresh.filter((step) => now - step.born < FADE_MS);
       if (length > before.length && !reduce.current && !away)
         fresh.push({ id: (nextId.current += 1), count: length - before.length, born: now });
-      const next = { length, fresh, now, settled: current.settled };
+      const next = { length, fresh, now };
       latest.current.shown = next;
       setShown(next);
       if (!current.settled || fresh.length) handle = revealFrames.request(tick);
@@ -84,7 +78,6 @@ export function useStreamReveal(
     visible: text.slice(0, Math.min(shown.length, text.length)),
     fresh: shown.fresh,
     now: shown.now,
-    settled: shown.settled && shown.length >= text.length,
   };
 }
 
@@ -115,9 +108,9 @@ function Revealed({
   streaming: boolean;
   githubRepository?: string;
 }) {
-  const { visible, fresh, now, settled } = useStreamReveal(text, streaming);
+  const { visible, fresh, now } = useStreamReveal(text, streaming);
   return (
-    <Markdown streaming={streaming} fresh={fresh} now={now} waiting={settled} githubRepository={githubRepository}>
+    <Markdown streaming={streaming} fresh={fresh} now={now} githubRepository={githubRepository}>
       {visible}
     </Markdown>
   );
