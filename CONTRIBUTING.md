@@ -14,15 +14,13 @@ Only needed for the native app. Docs, translations, Python tooling, `cmux-tui` a
 
 - macOS 26 (the app's deployment target)
 - Xcode 26 (the pinned toolchain)
-- [Zig](https://ziglang.org/) (install via `brew install zig`)
-- [Rust](https://rustup.rs): `scripts/setup.sh` requires `rustup`. The official installer puts
-  `rustup` and `cargo` in `~/.cargo/bin`, which is where `setup.sh` looks:
+- Metal toolchain support. If Xcode has not installed it yet, run:
 
   ```bash
   xcodebuild -downloadComponent MetalToolchain
   ```
 
-- [Zig](https://ziglang.org/): `brew install zig`
+- [Zig](https://ziglang.org/) (install via `brew install zig`)
 - [Rust](https://rustup.rs). Every app build compiles the bundled `cmux-cua` engine
   with `cargo`, and `scripts/setup.sh` looks for `rustup` in `~/.cargo/bin`, where
   the official installer puts it:
