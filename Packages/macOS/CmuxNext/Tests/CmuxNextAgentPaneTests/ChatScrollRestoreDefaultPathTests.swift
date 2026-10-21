@@ -104,9 +104,10 @@ struct ChatScrollRestoreDefaultPathTests {
     /// own host has to send them to this seam; take that out of ``AgentPaneBridge`` and a chat
     /// stops keeping its place again, which is the bug.
     ///
-    /// A `WKScriptMessage` cannot be made outside WebKit, so the handler's whole chat-place branch
-    /// is `AgentPaneBridge.chatPlaceReply(for:)` and takes the same `message.body`. Deleting the
-    /// call to it leaves nothing that answers these, and this goes red.
+    /// A `WKScriptMessage` cannot be made outside WebKit, so this drives the seam the handler
+    /// calls — `AgentPaneBridge.chatPlaceReply(for:)`, which takes the same `message.body` — and
+    /// not the handler itself. That leaves the one call site uncovered by this test, so
+    /// ``theHandlerStillCallsThatSeam`` reads it out of the source instead.
     @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() throws {
         let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-route-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
@@ -139,5 +140,33 @@ struct ChatScrollRestoreDefaultPathTests {
             }
             #expect(named == method)
         }
+    }
+
+    /// The one line the test above cannot reach: `WKScriptMessage` has no public initializer, so
+    /// no test can send the handler a message, and every other test here calls the seam directly.
+    /// Delete the handler's branch and all of them stay green while a chat silently stops keeping
+    /// its place — the bug this suite exists for. So the call site is read out of the source.
+    ///
+    /// Renaming either symbol is fine; this test then names what to rewrite it to.
+    @Test func theHandlerStillCallsThatSeam() throws {
+        var root = URL(fileURLWithPath: #filePath)
+        for _ in 0 ..< 6 { root.deleteLastPathComponent() }
+        let bridge = root.appending(path: "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPaneBridge.swift")
+        // Read, not guessed: a missing or unreadable file fails rather than passing vacuously.
+        let source = try String(contentsOf: bridge, encoding: .utf8)
+        guard let handler = source.range(of: "func userContentController(") else {
+            Issue.record("AgentPaneBridge no longer has a userContentController handler")
+            return
+        }
+        // Inside the handler, not merely somewhere in the file: the next declaration ends it.
+        let rest = source[handler.lowerBound...]
+        let body = rest.range(of: "\n    /// ").map { String(rest[..<$0.lowerBound]) } ?? String(rest)
+        #expect(body.contains("chatPlaceReply"),
+                """
+                AgentPaneBridge.userContentController no longer calls chatPlaceReply, so the page's \
+                chat.scrollAnchor and chat.scrollAnchor.get reach AgentPaneModel, which has no case \
+                for them: a chat stops reopening where the reader left it. Route them again, or \
+                give AgentPaneModel the two ops and update this test.
+                """)
     }
 }

@@ -2,9 +2,11 @@ import Foundation
 
 extension AgentPaneBridge {
     /// This seam's reply to a page message, or nil when the message is not one of its ops and the
-    /// model should see it. The whole of what ``AgentPaneBridge`` does for a chat's place, so a
-    /// test can hold the route itself rather than only the answer: a `WKScriptMessage` cannot be
-    /// made outside WebKit, but this takes the same `message.body`.
+    /// model should see it. The whole of what ``AgentPaneBridge`` does for a chat's place, in one
+    /// place a test can drive: a `WKScriptMessage` cannot be made outside WebKit, but this takes
+    /// the same `message.body`. The handler is then one call, which
+    /// `ChatScrollRestoreDefaultPathTests.theHandlerStillCallsThatSeam` holds in the source,
+    /// because no test can send a message through the handler itself.
     static func chatPlaceReply(for body: Any) -> [String: Any]? {
         guard let object = body as? [String: Any], let method = object["method"] as? String,
               AgentPaneScrollAnchors.handles(method: method) else { return nil }
@@ -32,8 +34,11 @@ extension AgentPaneScrollAnchors {
     /// A chat's place is the chat's, not the pane's, so ``AgentPaneModel`` never sees these, as
     /// with `chat.tail`.
     static func reply(to method: String, params: [String: Any]?) -> [String: Any] {
-        // An op this seam does not serve, before anything else: a refusal must not depend on
-        // whether a store happens to exist, as it did while this guard came after the one below.
+        // An op this seam does not serve, before anything else, so that a refusal never depends on
+        // whether a store happens to exist — as it would if this came after the `shared` guard two
+        // below. Both callers already filter by `handles`, so nothing in the app reaches it today;
+        // it is here so that a third caller, or one that stops filtering, is refused and not
+        // answered `ok`.
         guard handles(method: method) else {
             return AgentPaneReply.failure(code: "native.invalid_request", message: "No such chat place request")
         }
