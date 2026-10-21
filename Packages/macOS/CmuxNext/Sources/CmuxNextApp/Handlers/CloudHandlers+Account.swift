@@ -101,20 +101,20 @@ extension CloudHandlers {
 
     static func diagnostics(_ context: AppActionContext) async -> Diagnostics {
         let cloud = context.services.cloud, machines = context.services.machines
-        var rows: [JSONValue] = []
+        var rows: [CmuxNextSettings.JSONValue] = []
         for session in machines.cloud {
             var row = AppControl.cloudMachineRow(session, machines)
             row["link_pid"] = .string(await session.link?.pid.map(String.init) ?? (session.appLink == nil ? "none" : "app server"))
             rows.append(.object(row))
         }
-        let report: JSONValue = .object([
+        let report: CmuxNextSettings.JSONValue = .object([
             "backend": .string(cloud.configuration.apiBaseURL.absoluteString),
             "backend_kind": .string(String(describing: cloud.configuration.backend)),
             "signed_in": .bool(cloud.isSignedIn),
-            "email": cloud.auth.user?.primaryEmail.map(JSONValue.string) ?? .null,
-            "team_id": cloud.auth.teamID.map(JSONValue.string) ?? .null,
-            "unavailable": cloud.unavailableReason.map(JSONValue.string) ?? .null,
-            "last_error": cloud.lastError.map(JSONValue.string) ?? .null,
+            "email": cloud.auth.user?.primaryEmail.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "team_id": cloud.auth.teamID.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "unavailable": cloud.unavailableReason.map(CmuxNextSettings.JSONValue.string) ?? .null,
+            "last_error": cloud.lastError.map(CmuxNextSettings.JSONValue.string) ?? .null,
             "machines": .array(rows),
         ])
         let details = (try? DeterministicJSON().string(report.foundationObject, pretty: true)) ?? ""
