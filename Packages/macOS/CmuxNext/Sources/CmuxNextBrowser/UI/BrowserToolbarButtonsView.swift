@@ -149,7 +149,7 @@ public final class BrowserToolbarButtonsView: NSStackView {
                 // Pressed while the menu is open, normal again when it closes (Chrome).
                 let pressed = anchor as? ChromeIconButton
                 pressed?.isMenuOpen = true
-                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(in: anchor, gap: 4), anchor)
+                self.popUpMenu(menu, CmuxPopoverAnchor.menuPoint(for: menu, in: anchor, gap: 4), anchor)
                 pressed?.isMenuOpen = false
             }
         }

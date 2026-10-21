@@ -1,7 +1,8 @@
 // The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the terminal glyph when
-// the call is a command. No mark blinks before it; the ticking time says the turn is alive. After
+// the call is a command; not while the call's own tool row is on screen, which names it already.
+// No mark blinks before it; the ticking time says the turn is alive. After
 // that it counts the work still going in the background, as Claude's phone app does ("Working… · 5
 // running tasks"): "· 2 agents · 1 command · 3 sessions", only subagents still running, background
 // commands that have not ended (the process registry's and the transcript's,
@@ -15,6 +16,7 @@ import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18
 import type { AcpmuxRow } from "../model";
 import type { BackgroundCounts } from "../summary/backgroundWork";
 import { TerminalSquare } from "./icons";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
@@ -59,6 +61,9 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
     return () => clearInterval(timer);
   }, [now, held]);
   const until = held ? row.at + row.durationMs! : time;
+  // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
+  const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
+  const doing = row.doingGroup && groupOpen ? undefined : row.doing;
   const parts = counts
     ? [
         counts.agents > 0 && {
@@ -82,14 +87,14 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   // line is not painted either: the call it names is matched on its own tool row.
   return (
     <div className="cv-worked has-divider" data-find-skip>
-      {row.doingCommand && (
+      {doing && row.doingCommand && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
         </span>
       )}
-      {row.doing ? (
+      {doing ? (
         <>
-          <span className="cv-worked__label cv-worked__doing">{row.doing}</span>
+          <span className="cv-worked__label cv-worked__doing">{doing}</span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (
