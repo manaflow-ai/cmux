@@ -669,24 +669,7 @@ async fn dispatch_request(
                 hub.refresh_models().await;
             }
             let mut cat = hub.models_catalog().await;
-            // Remote harnesses, labelled peer/agent, from each connected peer.
-            for peer in hub.connected_peers() {
-                if let Ok(remote) = peer.request("_acpmux/models", json!({})).await
-                    && let Some(hs) = remote.get("harnesses").and_then(Value::as_array)
-                {
-                    for h in hs {
-                        let mut h = h.clone();
-                        let agent =
-                            h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
-                        h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
-                        h["peer"] = Value::String(peer.name.clone());
-                        h["isDefault"] = Value::Bool(false);
-                        if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
-                            arr.push(h);
-                        }
-                    }
-                }
-            }
+            super::models_fanout::add_peer_harnesses(hub, conn.origin, &params, &mut cat).await;
             Ok(cat)
         }
         crate::catalog::RPC_GET => Ok(hub.catalog.get()),
