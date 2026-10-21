@@ -11,6 +11,8 @@ nonisolated enum ContextMenuEssentials {
         /// The group rows: one top-level section after `top`, between separators.
         var group: [ContextMenuEntry] = []
         let close: [ActionID]
+        /// The rows after the close rows, behind a separator (Chrome's Reopen Closed Tab).
+        var tail: [ActionID] = []
     }
 
     /// A choices row that always ends with this action, so its submenu shows with no choices
@@ -44,6 +46,21 @@ nonisolated enum ContextMenuEssentials {
                     close: ["closePane"]),
     ]
 
+    /// The workspace menu opened on one of several selected rows, as Chrome's menu on several
+    /// selected tabs (Leo 2026-10-20): New Workspace Below and Add to New Group; Duplicate, Move ▸,
+    /// Pin and Mute; More; then Close Workspaces, Close Other Workspaces and Close Workspaces Below,
+    /// which keep the selection (`WorkspaceBulkClose.keeping`); then Reopen Closed Workspace. Its
+    /// rows act on every selected row (`WindowMembershipHandlers.rowTargets`) and say so
+    /// (`NSMenu.namingWorkspaceSelection`).
+    static let selectionMenus: [ActionMenuContext: Rows] = [
+        // The color row becomes the header's swatches, which color every selected row (MenuIdentityHeader).
+        .workspaceRow: Rows(top: [.choices("palette.workspaceColor"), .action("workspace.newBelow"), .action("workspace.moveToNewGroup"), .separator,
+                                  .action("workspace.duplicate"), .folder(.move, []), .action("palette.toggleWorkspacePin"),
+                                  .action("workspace.toggleAudioMute"), .separator],
+                            close: ["closeWorkspace", "palette.closeOtherWorkspaces", "palette.closeWorkspacesBelow"],
+                            tail: ["reopenClosedWorkspace"]),
+    ]
+
     /// `entries` (a whole generated menu) as its essential rows, its group section, More, and
     /// its close rows. A listed row the menu does not place is left out; a listed folder is
     /// the menu's generated folder of that kind (left out when the menu has none).
@@ -51,13 +68,15 @@ nonisolated enum ContextMenuEssentials {
         let placed = Set(ContextMenuCatalog.referencedIDs(entries))
         let keep = { (entry: ContextMenuEntry) in ContextMenuCatalog.referencedIDs([entry]).allSatisfy(placed.contains) }
         let top = rows.top.compactMap { generated($0, in: entries) }.filter(keep), group = rows.group.filter(keep)
-        let close = rows.close.filter(placed.contains)
+        let close = rows.close.filter(placed.contains), tail = rows.tail.filter(placed.contains)
         // referencedIDs counts a choices row's trailer, so More drops New Group with Move to Group.
         // A section whose rows all went to the top leaves no empty section behind in More.
-        let rest = collapsingSeparators(inliningShortFolders(ContextMenuCatalog.removing(Set(ContextMenuCatalog.referencedIDs(top + group) + close), from: entries)))
+        let shown = Set(ContextMenuCatalog.referencedIDs(top + group) + close + tail)
+        let rest = collapsingSeparators(inliningShortFolders(ContextMenuCatalog.removing(shown, from: entries)))
         let more: [ContextMenuEntry] = rest.isEmpty ? [] : [.folder(.more, rest)]
         let groupSection: [ContextMenuEntry] = group.isEmpty ? [] : [.separator] + group + [.separator]
-        return top + groupSection + more + [.separator] + close.map(ContextMenuEntry.action)
+        let tailSection: [ContextMenuEntry] = tail.isEmpty ? [] : [.separator] + tail.map(ContextMenuEntry.action)
+        return top + groupSection + more + [.separator] + close.map(ContextMenuEntry.action) + tailSection
     }
 
     /// The most rows a folder inside More may have and still show as a section of More, between

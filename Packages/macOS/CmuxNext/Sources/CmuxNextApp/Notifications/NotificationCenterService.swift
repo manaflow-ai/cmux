@@ -140,6 +140,7 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followStatusRuns(store))
         tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
