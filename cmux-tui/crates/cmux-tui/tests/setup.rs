@@ -655,7 +655,7 @@ fn cmux_setup_machine_never_moves_a_peer_by_its_default_name() {
         assert_eq!(result["undo"], Value::Null);
         assert!(world.take_ssh_calls().is_empty(), "a taken name reached the machine");
     }
-    assert_eq!(daemon.peers(), [ws.clone()]);
+    assert_eq!(daemon.peers(), std::slice::from_ref(&ws));
 
     // A new name adds the machine beside it.
     let added = world.json(&["setup", "machine", "box.example", "--name", "box2"]);

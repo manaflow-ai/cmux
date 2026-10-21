@@ -68,6 +68,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var treeFold: SidebarTreeFold?
     /// The session tree: a folded parent's descendants by state, drawn as chips.
     public var rollUp: SidebarTreeRollUp?
+    /// The Priority view's chip (`SidebarWorkspace.agentChip`): the row view draws its word as the
+    /// name line's trailing text in the chip's color, in place of the age or one-line status.
+    public var chip: SidebarPriorityEntry.State?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
