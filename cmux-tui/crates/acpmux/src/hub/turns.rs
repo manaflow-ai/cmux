@@ -280,6 +280,7 @@ impl Hub {
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
@@ -289,8 +290,7 @@ impl Hub {
             trust_gate,
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
-            agent: super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref())
-                .as_deref(),
+            agent: agent.as_deref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
