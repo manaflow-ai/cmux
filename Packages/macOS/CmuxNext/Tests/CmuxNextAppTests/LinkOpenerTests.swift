@@ -30,12 +30,12 @@ import Testing
         return (services, pane)
     }
 
-    @Test func splitRightMakesTheItemForTheMoveToTheRightNotShownInTheSource() throws {
+    @Test func aCmdClickIsMadeForTheMoveToTheRightNotShownInTheSource() throws {
         let (services, pane) = try Self.pane()
         defer { pane.teardown() }
         services.linkOpener.placement = { .splitRight }
         var made: (PaneController, Bool)?
-        let opened = services.linkOpener.open(from: pane) { target, placed in
+        let opened = services.linkOpener.open(from: pane, cmdClick: true) { target, placed in
             made = (target, placed != nil)
             return true
         }

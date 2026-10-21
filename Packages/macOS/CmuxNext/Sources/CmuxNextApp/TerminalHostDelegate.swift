@@ -86,7 +86,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             case .file(let url, isDirectory: false)?:
                 LinkRouter.shared.record("file:\(url.path)")
                 guard let services = self?.services else { return }
-                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id))
+                services.linkOpener.openFile(url, from: services.linkOpener.source(tab: request.tab?.id), cmdClick: true)
             case nil: break
             }
         }
@@ -149,7 +149,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
             guard let services else { return }
             // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
             guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
-            services.linkOpener.openWeb(url, from: pane, background: background)
+            services.linkOpener.openWeb(url, from: pane, background: background, cmdClick: true)
         }
     }
 
