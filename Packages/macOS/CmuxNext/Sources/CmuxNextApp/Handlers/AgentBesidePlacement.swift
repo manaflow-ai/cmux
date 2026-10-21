@@ -12,7 +12,9 @@ import CmuxNextWakeups
 /// new tab is made in that pane without moving keyboard focus out of the
 /// chat: selected in the column right of the chat, or made unselected in the
 /// chat's pane and moved into a new column right of it, so the chat pane
-/// never shows it.
+/// never shows it. A person's click from the chat (the header's Changes,
+/// Preview or Files, ``ActionInvocation/besideTakesFocus``) lands the same
+/// way, but its tab takes the focus and its close gives it back to the chat.
 enum AgentBesidePlacement {
     /// How long the move waits for the new tab: its open, then the store's echo.
     static let openLimit: Duration = .seconds(30)
@@ -32,10 +34,14 @@ enum AgentBesidePlacement {
     @MainActor static func placed(_ invocation: ActionInvocation, pane anchor: PaneModel, controller: PaneController?,
                                   services: AppServices,
                                   then: (@MainActor (SurfaceID) -> Void)?) -> @MainActor (SurfaceID) -> Void {
+        // A person's click: the pane they clicked in, which the tab's close focuses again.
+        let clicked = invocation.besideTakesFocus ? (controller?.workspace ?? services.paneController(for: anchor)?.workspace) : nil
+        let intent = clicked?.beginFocusIntent(), from = clicked?.focusedPane?.layoutPaneID
         guard invocation.newColumnBeside else {
-            return { [weak controller] surface in
+            return { [weak controller, weak clicked, weak services] surface in
                 then?(surface)
                 controller?.selectWhenReportedKeepingFocus(surface: surface)
+                if let services, let clicked { focus(surface, returningTo: from, in: clicked, generation: intent, services: services) }
             }
         }
         // A lone chat docks left with the agent chat role and the new tab stays in its
@@ -74,7 +80,7 @@ enum AgentBesidePlacement {
                     }
                 }
                 guard docked else { return "beside-caller: the chat did not dock (see the app log)" }
-                // Keyboard focus stays in the chat, now in its dock.
+                // Keyboard focus stays in the chat, now in its dock; a person's click focuses the tab.
                 if chatHadFocus || content.focusedPane?.pane === anchor {
                     let chatID = chat.id
                     let listed = Task { @MainActor () -> Bool in
@@ -91,7 +97,9 @@ enum AgentBesidePlacement {
                     }
                     let moved = await listed.value
                     bound.cancel()
-                    if moved, let pane = services.locateTab(chatID)?.1 {
+                    if moved, let pane = services.locateTab(chatID)?.1, let clicked {
+                        focus(surface, returningTo: LayoutPaneID(pane.id), in: clicked, generation: intent, services: services)
+                    } else if moved, let pane = services.locateTab(chatID)?.1 {
                         // Not a view change of the run: the run moved the focused chat out of its
                         // pane, and focus follows the chat back to where the person had it (as
                         // FocusCoordinator.followMovedTab does for a person's move).
@@ -105,7 +113,9 @@ enum AgentBesidePlacement {
             }
             // Home's pinned dock alone takes no tab: the daemon made it in a new column right of
             // the dock (`pinned-dock-alone-v1`), so there is nothing to move.
+            let away = services.paneController(for: anchor)?.paneKey
             if services.locateTab(tab.id).map({ $0.1 !== anchor }) == true {
+                if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
                 await revealMoved(tab.id, from: anchor, services: services)
                 return nil
             }
@@ -114,6 +124,7 @@ enum AgentBesidePlacement {
                 TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: after, services: services) { done.resume(returning: $0) }
             }
             guard moved else { return "beside-caller: the move into a new column failed (see the app log)" }
+            if let clicked { focus(surface, returningTo: from, awayFrom: away, in: clicked, generation: intent, services: services) }
             await revealMoved(tab.id, from: anchor, services: services)
             return nil
         })
@@ -126,6 +137,15 @@ enum AgentBesidePlacement {
 }
 
 extension AgentBesidePlacement {
+    /// A person's click (``ActionInvocation/besideTakesFocus``): the focus goes to `surface`'s tab once
+    /// it lands (once it left pane `awayFrom`, a tab made there and moved), unless they acted after
+    /// `generation`; its close gives the focus back to pane `chat` (``LinkOpener/returnPane(closing:in:)``).
+    @MainActor static func focus(_ surface: SurfaceID, returningTo chat: LayoutPaneID?, awayFrom pane: String? = nil,
+                                 in content: WorkspaceContentController, generation: UInt64?, services: AppServices) {
+        if let chat { services.linkOpener.returnFocus(of: surface, to: chat, in: content) }
+        content.expectFocus(on: surface, awayFrom: pane, generation: generation)
+    }
+
     /// The column a tab beside `chat` follows: the chat's own scrolling column, so the new column
     /// opens right of the chat, where the chat keeping focus keeps it in view. The daemon's
     /// default is after the last column, past the panes already beside the chat and off screen
