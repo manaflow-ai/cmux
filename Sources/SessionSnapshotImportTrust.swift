@@ -100,8 +100,16 @@ enum SessionSnapshotImportTrust {
                 sanitizedPanel($0, builtIns: builtIns, isExistingDirectory: isExistingDirectory, report: &report)
             }
         }
+        // File imports are untrusted input. Apply the same structural limits
+        // used when writing snapshots before constructing any restore models;
+        // otherwise a valid but huge file can create an unbounded number of
+        // terminal/bootstrap surfaces before runtime pacing takes effect.
+        sanitized.windows = Array(sanitized.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot))
         for windowIndex in sanitized.windows.indices {
             var window = sanitized.windows[windowIndex]
+            window.tabManager.workspaces = Array(
+                window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+            )
             for workspaceIndex in window.tabManager.workspaces.indices {
                 var workspace = window.tabManager.workspaces[workspaceIndex]
                 if workspace.remote != nil || workspace.cloudVM != nil
@@ -115,15 +123,21 @@ enum SessionSnapshotImportTrust {
                 workspace.environment = nil
                 workspace.surfaceProjections = nil
                 workspace.cloudMachineTeams = nil
-                workspace.panels = sanitize(workspace.panels)
+                workspace.panels = sanitize(
+                    Array(workspace.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+                )
                 if var dock = workspace.dock {
-                    dock.panels = sanitize(dock.panels)
+                    dock.panels = sanitize(
+                        Array(dock.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+                    )
                     workspace.dock = dock
                 }
                 window.tabManager.workspaces[workspaceIndex] = workspace
             }
             if var dock = window.dock {
-                dock.panels = sanitize(dock.panels)
+                dock.panels = sanitize(
+                    Array(dock.panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+                )
                 window.dock = dock
             }
             sanitized.windows[windowIndex] = window

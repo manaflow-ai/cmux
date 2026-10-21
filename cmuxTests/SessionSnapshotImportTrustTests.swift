@@ -464,6 +464,27 @@ struct SessionSnapshotImportTrustTests {
         #expect(restoredTerminal.managedAgentResumeBinding == nil)
     }
 
+    @Test("untrusted imports clamp structural fan-out before restore")
+    func fileImportClampsStructuralFanOut() throws {
+        var snapshot = Self.snapshot(terminal: SessionTerminalPanelSnapshot())
+        var workspace = try #require(snapshot.windows[0].tabManager.workspaces.first)
+        let panelCount = SessionPersistencePolicy.maxPanelsPerWorkspace + 17
+        workspace.panels = (0..<panelCount).map { _ in
+            Self.panel(terminal: SessionTerminalPanelSnapshot())
+        }
+        workspace.focusedPanelId = workspace.panels[0].id
+        snapshot.windows[0].tabManager.workspaces[0] = workspace
+
+        let (restored, _) = SessionSnapshotImportTrust.snapshotForRestore(
+            snapshot,
+            source: Self.fileImport
+        )
+        let restoredWorkspace = try #require(
+            restored.windows.first?.tabManager.workspaces.first
+        )
+        #expect(restoredWorkspace.panels.count == SessionPersistencePolicy.maxPanelsPerWorkspace)
+    }
+
     @Test("a built-in Vault registration from the file is replaced by cmux's own definition")
     func builtInRegistrationIsReplaced() throws {
         var forgedAmp = CmuxVaultAgentRegistration.builtInAmp
