@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 type Field = {
@@ -168,6 +169,7 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(surface.field).first().waitFor();
     await page.evaluate(() => document.fonts.ready);
+    await installPaintedFrames(page);
     await page.click(surface.field);
     // Some running-turn fixtures intentionally arrive with a kept draft. This measurement starts
     // from an empty prompt so it tests wrapping and growth rather than inserting into the clicked
@@ -178,9 +180,15 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
   };
   const read = (page: Page, surface: (typeof surfaces)[number]) =>
     page.evaluate(measure, [surface.field, surface.scroller] as [string, string]);
+  /** Two painted frames: the field's React render, then any resize it sets off, are on screen. */
+  const painted = (page: Page) =>
+    page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await window.cmuxPaintFrame();
+    });
   const blur = async (page: Page) => {
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
-    await page.waitForTimeout(50);
+    await painted(page);
   };
 
   for (const [engine] of engines)
@@ -189,7 +197,7 @@ await requireBrowserLane("composer-draft-wrap.test.ts", async () => {
         test(`${engine}: ${surface.name} at ${width} px wraps a long one-line draft, whole, focused and blurred`, async () => {
           const page = await open(engine, surface, width);
           await page.keyboard.insertText(LONG);
-          await page.waitForTimeout(50);
+          await painted(page);
           const focused = await read(page, surface);
           await blur(page);
           const blurred = await read(page, surface);
