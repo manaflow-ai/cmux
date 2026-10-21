@@ -8,7 +8,7 @@ import ImageIO
 import UniformTypeIdentifiers
 
 /// DEBUG ONLY. `debug.window_record` {dir, seconds (at most 12), window?}, and
-/// `--record-launch` (``recordLaunch``) for the launch, before the control socket is up:
+/// `--record-launch` (``watchLaunch``) for the launch, before the control socket is up:
 /// the window as the window server composited it (`compositedSnapshot`,
 /// as `debug.window_snapshot`, plus the app's panels over it that are not
 /// its children, such as the palette opened with no key window), once per display frame of its screen (a
