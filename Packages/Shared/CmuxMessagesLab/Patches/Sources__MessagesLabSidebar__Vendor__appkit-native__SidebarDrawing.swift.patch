@@ -1,6 +1,61 @@
 --- a/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
 +++ b/Sources/MessagesLabSidebar/Vendor/appkit-native/SidebarDrawing.swift
-@@ -405,7 +405,8 @@
+@@ -236,11 +236,7 @@
+         case let .emoji(e):
+             g.setFillColor(p.groupDisc)
+             g.fillEllipse(in: r)
+-            let font = emojiFont(r.width * 0.5) // held, not made per draw (cx-qpqs)
+-            let l = line(e, font, CGColor(gray: 0, alpha: 1))
+-            var asc: CGFloat = 0, desc: CGFloat = 0
+-            let lw = CGFloat(CTLineGetTypographicBounds(l, &asc, &desc, nil))
+-            draw(l, x: r.midX - lw / 2, baseline: r.midY + (asc - desc) / 2, g)
++            emoji(e, in: r, g) // cmux: whole and centered by its drawn box, one share of the disc
+         case let .group(members):
+             g.setFillColor(p.groupDisc)
+             g.fillEllipse(in: r)
+@@ -262,7 +258,41 @@
+             }
+         }
+     }
++
++    /// cmux: an emoji avatar's drawn box (its glyph image bounds) spans this share of the disc's
++    /// diameter at every size, so the pinned tile and the row draw one avatar.
++    static let emojiShare: CGFloat = 0.6
+ 
++    /// cmux: `e` centered on the disc `r` by its drawn box, not by its advance. Drawn with a
++    /// flipped text matrix and placed by its advance, the Chief's 🫡 showed its hand and half its
++    /// face, cut by a straight edge, left of center (the user's screenshot, 2026-10-20). The text
++    /// matrix stays upright here and the context is flipped back around the draw, as
++    /// `TabUserIcon` draws emoji.
++    static func emoji(_ e: String, in r: CGRect, _ g: CGContext) {
++        let black = CGColor(gray: 0, alpha: 1)
++        let probe = drawnBounds(line(e, emojiFont(r.width * 0.5), black))
++        let side = max(probe.width, probe.height)
++        guard side > 0, side.isFinite else { return }
++        // Half points, so the held fonts stay few (cx-qpqs).
++        let size = max(1, (r.width * 0.5 * emojiShare * r.width / side * 2).rounded() / 2)
++        let l = line(e, emojiFont(size), black)
++        let b = drawnBounds(l)
++        g.saveGState()
++        g.translateBy(x: r.midX, y: r.midY)
++        g.scaleBy(x: 1, y: -1)
++        g.textMatrix = .identity
++        g.textPosition = CGPoint(x: -b.midX, y: -b.midY)
++        CTLineDraw(l, g)
++        g.restoreGState()
++    }
++
++    /// cmux: a line's drawn box (glyph bounds, y up from the baseline), else its typographic box.
++    static func drawnBounds(_ l: CTLine) -> CGRect {
++        let glyphs = CTLineGetBoundsWithOptions(l, .useGlyphPathBounds)
++        if glyphs.width > 0, glyphs.height > 0, glyphs.width.isFinite, glyphs.height.isFinite { return glyphs }
++        return CTLineGetBoundsWithOptions(l, [])
++    }
++
+     // MARK: Row
+ 
+     /// The row's parts, each its own layer: the avatar (shared avatar bitmap) and the unread
+@@ -405,7 +435,8 @@
      /// The avatar's rect in a tile (tile coordinates).
      static func tileAvatar(_ m: SidebarMetrics) -> CGRect {
          let d = m.pinAvatar
@@ -10,7 +65,7 @@
      }
  
      /// A pinned tile is layers: the avatar (one bitmap at the largest pin size, scaled), the
-@@ -432,7 +433,7 @@
+@@ -432,7 +463,7 @@
      /// The name, 16 pt tall, baseline 11 pt; `keyWidth` 0: natural width.
      static func tileNameImage(_ c: ConversationSummary, emphasized: Bool, keyWidth: CGFloat, ctx: SidebarRenderContext) -> CGImage? { // nil when the bitmap cannot be allocated
          let p = ctx.palette
@@ -19,7 +74,7 @@
          let full = line(tileName(c), pinNameFont, color)
          let l = keyWidth > 0 ? truncated(full, keyWidth, pinNameFont, color) : full
          let w = max(1, width(l).rounded(.up))
-@@ -488,6 +489,11 @@
+@@ -488,6 +519,11 @@
      /// The 12 pt unread dot on the tile's leading edge, left of the avatar, and below the bubble
      /// (`bubble`, nil: none) so a wide bubble never covers it (cmux-next's rule, 2026-10-08).
      static func tileUnreadDot(_ m: SidebarMetrics, bubble: CGRect?) -> CGRect {
@@ -31,7 +86,7 @@
          let d: CGFloat = 12
          let ar = tileAvatar(m)
          let cx = max(d / 2 + 1, ar.minX - d / 2 - 1)
-@@ -648,7 +654,7 @@
+@@ -648,7 +684,7 @@
          for d in lit { d.backgroundColor = p.typingDot; d.contentsScale = scale }
      }
      /// The dots pulse (tests: every lit dot has its animation, or the still phase is set).
@@ -40,7 +95,7 @@
      /// Still scenes: the dots stand at this phase of the pulse (0-1) instead of animating (nil: animate).
      static var stillPhase: Double?
      private static func level(_ i: Int, phase t: Double) -> Double {
-@@ -658,9 +664,12 @@
+@@ -658,9 +694,12 @@
      }
      /// Starts the pulse once. Phase-locked to whole periods of the media clock, so every bubble
      /// in the list pulses in step and a row that scrolls back in does not restart its cycle.

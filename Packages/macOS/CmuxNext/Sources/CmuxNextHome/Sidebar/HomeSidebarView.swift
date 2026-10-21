@@ -171,8 +171,8 @@ public final class HomeSidebarView: NSView {
 
     /// The Chief's avatar as the list draws it: the picture, else its text
     /// as a monogram (one or two letters) or on the grey disc (an emoji).
-    /// The disc draws an emoji at half its width, so two would spill past
-    /// it: a two-emoji avatar shows its first in the list.
+    /// The disc fits an emoji's drawn box to 60 % of its width, so two
+    /// would each draw small: a two-emoji avatar shows its first in the list.
     static func avatar(_ chief: HomeChiefAvatar) -> CmuxSidebarEntry.Avatar {
         switch chief {
         case .picture(let url): return .image(url.absoluteString)
