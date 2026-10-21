@@ -7406,6 +7406,8 @@
     "errorInvalidCode": "That code isn't valid. Check your email and try again.",
     "errorInvalidTotp": "That two-factor code isn't valid.",
     "errorSignUpNotAllowed": "New accounts can't be created right now.",
+    "errorEmailUnverified": "This email already has an account, but the address isn't verified yet. Sign in the way you signed up, then verify your email to use sign-in codes.",
+    "useEmailPasswordInstead": "Sign in with email & password",
     "errorPasskey": "Passkey sign-in didn't finish. Try again or use another method.",
     "errorGeneric": "Something went wrong. Try again."
   },
