@@ -112,9 +112,14 @@ const dbClientModule = await import("../db/client");
 const realCloudDb = dbClientModule.cloudDb;
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
+const identitySnapshotModule = await import("../services/auth/identitySnapshot");
+const realReadIdentitySnapshot = identitySnapshotModule.readIdentitySnapshot;
+const realWriteIdentitySnapshot = identitySnapshotModule.writeIdentitySnapshot;
+const realDeleteIdentitySnapshot = identitySnapshotModule.deleteIdentitySnapshot;
 
 let useWorkflowStubs = false;
 let useStubDb = false;
+let useIdentitySnapshotStub = false;
 let authTombstoneRows: Array<{ userIdHash: string; status: string; updatedAt: Date | null }> = [];
 
 function callMock(fn: unknown, args: unknown[]) {
@@ -220,6 +225,23 @@ mock.module("../db/client", () => ({
   },
 }));
 
+// VM routes deliberately fail closed when the shared membership fence cannot
+// be written. This route suite stubs the fence itself so its existing auth
+// fixtures can exercise Stack membership without needing Postgres, while the
+// inactive wrappers preserve isolation for other test files in the shard.
+mock.module("../services/auth/identitySnapshot", () => ({
+  ...identitySnapshotModule,
+  readIdentitySnapshot: ((...args: Parameters<typeof realReadIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve(null)
+    : realReadIdentitySnapshot(...args)) as typeof realReadIdentitySnapshot,
+  writeIdentitySnapshot: ((...args: Parameters<typeof realWriteIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve("stored" as const)
+    : realWriteIdentitySnapshot(...args)) as typeof realWriteIdentitySnapshot,
+  deleteIdentitySnapshot: ((...args: Parameters<typeof realDeleteIdentitySnapshot>) => useIdentitySnapshotStub
+    ? Promise.resolve()
+    : realDeleteIdentitySnapshot(...args)) as typeof realDeleteIdentitySnapshot,
+}));
+
 const { VmAttachTransportUnsupportedError, isVmWorkflowError } = await import("../services/vms/errors");
 const { GET, POST, withBillingReconcileDeadline } = await import("../app/api/vm/route");
 const baseOpenRoute = await import("../app/api/vm/base/open/route");
@@ -252,6 +274,7 @@ const { VmPublicationProviderError } = await import(
 beforeAll(() => {
   useWorkflowStubs = true;
   useStubDb = true;
+  useIdentitySnapshotStub = true;
   // POST /api/vm now awaits the provider connection probe. Keep this route
   // suite deterministic and local while still exercising that await.
   globalThis.fetch = (async () => new Response(null, { status: 204 })) as typeof globalThis.fetch;
@@ -260,6 +283,7 @@ beforeAll(() => {
 afterAll(() => {
   useWorkflowStubs = false;
   useStubDb = false;
+  useIdentitySnapshotStub = false;
   globalThis.fetch = originalFetch;
 });
 
