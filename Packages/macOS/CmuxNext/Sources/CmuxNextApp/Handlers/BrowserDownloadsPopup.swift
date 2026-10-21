@@ -253,6 +253,11 @@ private struct BrowserDownloadPopupRow: View {
     let model: BrowserDownloadsPopupModel
     @State private var hovered = false
 
+    private var failed: Bool {
+        if case .failed = download.status { return true }
+        return false
+    }
+
     var body: some View {
         HStack(spacing: 10) {
             Image(nsImage: BrowserDownloadsMenu.icon(for: download, size: 24))
@@ -265,7 +270,7 @@ private struct BrowserDownloadPopupRow: View {
                     .truncationMode(.middle)
                 Text(BrowserDownloadsMenu.status(download))
                     .font(Font(Typography.caption))
-                    .foregroundStyle(download.status == .failed ? model.colors.danger : model.colors.secondary)
+                    .foregroundStyle(failed ? model.colors.danger : model.colors.secondary)
                     .lineLimit(1)
             }
             Spacer(minLength: 0)
