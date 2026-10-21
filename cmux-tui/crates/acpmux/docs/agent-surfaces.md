@@ -46,8 +46,10 @@ acpmux new -n gui/composer \
 - **Sidebar.** `--group G` runs `cmux agent open SESSION --group G` with a
   workspace key derived from the session id, so a second run finds the same
   row and opens nothing. A failed sidebar step warns; the prompt is still sent.
-  It needs the cmux app on this machine; elsewhere leave it off and run
-  `cmux agent open` on the Mac.
+  It needs the cmux app on this machine. Another machine's session cannot
+  be opened in a group yet: `cmux agent open` takes only this Mac's session
+  ids (no `HOST/NAME`), and its `host` only a Chief home (`chief:<id>`).
+  Leave `--group` off on other machines until it can.
 
 ## What not to use for this
 

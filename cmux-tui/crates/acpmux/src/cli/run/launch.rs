@@ -82,8 +82,8 @@ impl Launch {
         }
         if let (Some(_), Some(host)) = (&args.group, &args.host) {
             bail!(
-                "--group shows a session of this machine only: run `cmux agent open {host}/NAME \
-                 --group G` on the Mac instead of --host {host}"
+                "--group shows a session of this machine only: leave it off with --host {host}; \
+                 the app cannot yet open another machine's session in a sidebar group"
             );
         }
         if args.report_to.is_some()
