@@ -1,8 +1,10 @@
 // An opened shell call: a "Shell" card with the folder it ran in (a leading `cd ~/wt/lanes/x &&`
 // reads as "x" beside the label), Wrap lines and Copy, the command line, its output (the end of a
-// long one) and, when the command failed, its exit code. Past eight lines it
-// shows its first ones under a fade, with Show all N lines (BlockParts.tsx). Output wraps by
-// default, each line hanging under its start; unwrapped, its right edge fades while more lies past.
+// long one) and, when the command failed, its exit code; a caller's `footer` closes the card. Past
+// eight lines it shows its first ones under a fade, with Show all N lines (BlockParts.tsx). Output
+// wraps by default, each line hanging under its start; unwrapped, its right edge fades while more
+// lies past.
+import type { ReactNode } from "react";
 import { useT } from "../i18n";
 import { useBlockWrap } from "./blockWrap";
 import { Lines, lineCount, PreviewMore, usePreview, useSidewaysRef, WrapButton } from "./BlockParts";
@@ -18,6 +20,8 @@ export function ShellBlock({
   exitCode,
   reveal,
   whole = false,
+  cut,
+  footer,
 }: {
   id?: string;
   /** Bumped when Find in Chat reveals the call: shows the whole output, not only its end. */
@@ -27,6 +31,10 @@ export function ShellBlock({
   exitCode?: number;
   /** Never cut to a preview (a command a permission ask is about). */
   whole?: boolean;
+  /** The output starts after the beginning of what the command printed (a read tail). */
+  cut?: boolean;
+  /** The card's last line, under the exit code (a background task's Open in terminal). */
+  footer?: ReactNode;
 }) {
   const t = useT();
   const raw = useOutput(output, reveal);
@@ -64,7 +72,7 @@ export function ShellBlock({
             <Lines text={`$ ${rest}`} />
           </span>
         )}
-        {shown.cut && (
+        {(shown.cut || Boolean(cut && shown.shown)) && (
           <span className="cv-output-cut" aria-hidden="true">
             …
           </span>
@@ -80,6 +88,7 @@ export function ShellBlock({
       {exitCode !== undefined && exitCode !== 0 && (
         <div className="cv-shell__exit">{t("shell.exit", { code: exitCode })}</div>
       )}
+      {footer}
     </div>
   );
 }

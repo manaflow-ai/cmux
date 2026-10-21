@@ -304,7 +304,8 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value,
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, needsYou: needsYou.value,
+                   needsYouPill: needsYouPill.value, turnPreviewCards: turnPreviewCards.value,
                    streamWords: streamWords.value)
     }
 
@@ -312,9 +313,12 @@ public nonisolated struct AgentPaneTunables {
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .viewport,
+                           needsYou: AgentPaneNeedsYouStyle = .pinned, needsYouPill: Bool = true,
                            turnPreviewCards: Bool = false,
                            streamWords: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
+        if needsYou != .pinned { attributes["needs-you"] = needsYou.rawValue }
+        if !needsYouPill { attributes["needs-you-pill"] = "off" }
         if foldLongThoughts { attributes["fold-long-thoughts"] = "on" }
         if thoughtFoldThreshold != .viewport { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
         if thoughtHeader != .duration { attributes["thought-header"] = thoughtHeader.rawValue }
@@ -399,6 +403,8 @@ public nonisolated struct AgentPaneTunables {
             liveLineBelow.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
+            needsYou.descriptor,
+            needsYouPill.descriptor,
             pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
@@ -410,6 +416,7 @@ public nonisolated struct AgentPaneTunables {
             sidebarPreviewVariant.descriptor,
             sideSessions.descriptor,
             streamWords.descriptor,
+            subagentTray.descriptor,
             suggestedTasks.descriptor,
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,
