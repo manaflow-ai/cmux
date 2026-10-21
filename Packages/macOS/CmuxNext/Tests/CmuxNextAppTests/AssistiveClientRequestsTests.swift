@@ -10,7 +10,8 @@ import Testing
         for attribute in ["AXEnhancedUserInterface", "AXManualAccessibility"] {
             var requests = AssistiveClientRequests()
             #expect(!requests.wantsAccessibility)
-            #expect(requests.set(NSNumber(value: true), for: attribute))
+            let changed = requests.set(NSNumber(value: true), for: attribute)
+            #expect(changed)
             #expect(requests.wantsAccessibility)
             #expect(requests.value(for: attribute) == true)
         }
@@ -29,7 +30,8 @@ import Testing
 
     @Test func otherAttributesAreNotAssistiveClientRequests() {
         var requests = AssistiveClientRequests()
-        #expect(!requests.set(true, for: "AXFocused"))
+        let changed = requests.set(true, for: "AXFocused")
+        #expect(!changed)
         #expect(requests.value(for: "AXFocused") == nil)
         #expect(!requests.wantsAccessibility)
     }
