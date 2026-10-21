@@ -27,6 +27,7 @@ dependencies = [
  "getrandom 0.3.4",
  "libc",
  "notify",
+ "plist",
  "pulldown-cmark",
  "ratatui",
  "regex",

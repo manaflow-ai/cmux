@@ -16,6 +16,7 @@ mod router_owner;
 pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
+mod dev_orphan;
 mod notify;
 #[cfg(windows)]
 mod windows;
@@ -410,6 +411,9 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     #[cfg(not(unix))]
     let ctrl_c = tokio::signal::ctrl_c();
+    // A DEV build's daemon whose app is gone (`daemon/dev_orphan.rs`); its
+    // bundle is read before the ready line.
+    let dev_orphan = dev_orphan::watch();
     if let Some(fd) = opts.ready_fd {
         write_ready(fd, &ready);
     }
@@ -463,11 +467,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 _ = next_signal(term.as_mut()) => {},
                 _ = next_signal(int.as_mut()) => {},
                 _ = hub.shutdown.notified() => {},
+                _ = dev_orphan => {},
             }
         }
         #[cfg(not(unix))]
         {
-            tokio::select! { _ = ctrl_c => {}, _ = hub.shutdown.notified() => {} }
+            tokio::select! {
+                _ = ctrl_c => {},
+                _ = hub.shutdown.notified() => {},
+                _ = dev_orphan => {},
+            }
         }
     };
     tokio::select! {
