@@ -160,6 +160,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_OFFER_SESSION, Request),
         untyped(method::MUX_OFFER_RESPOND, Request),
         // Sub-sessions (`server/subsessions.rs`).
+        untyped(method::MUX_SUBSESSION_ANSWER, Request),
         untyped(method::MUX_SUBSESSION_GET, Request),
         untyped(method::MUX_SUBSESSION_LIMITS, Request),
         untyped(method::MUX_SUBSESSION_LIST, Request),
