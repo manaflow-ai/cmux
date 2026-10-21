@@ -134,6 +134,10 @@ const looksLikeMarkupText = (text: string) => /<>|<\/?[A-Za-z][\w.-]*(?:\s[^<>]*
 
 /// How long after a focus with no click the browser's own caret placement is overruled.
 const KEEP_CARET_MS = 100;
+/// The soft band at a long draft's scrolled edges (markdownField.css reads it as
+/// `--acpmux-md-fade-band`). The caret reveal keeps the caret this far from the field's edge, so the
+/// caret's line never sits in the fade.
+const FADE_BAND_PX = 18;
 
 /** The document as the prompt's markdown, keeping the spaces typed at its end. */
 function promptMarkdown(editor: Editor | undefined, view: EditorView): string {
@@ -298,6 +302,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     // long paste left the field (it scrolls past eight lines) at the top. Set while a paste the
     // surface did not consume runs; the paste's dispatch is synchronous inside it.
     let pasting = false;
+    // A paste that ends the draft shows the field's whole end, its bottom inset too: the caret
+    // reveal stops a margin short in WebKit, which would leave the last line under the bottom fade
+    // (markdownField.css). Every paste path ends here.
+    const showPastedEnd = (state: EditorState) => {
+      if (Selection.atEnd(state.doc).to !== state.selection.to) return;
+      requestAnimationFrame(() => {
+        const field = root.parentElement;
+        if (!disposed && field) field.scrollTop = field.scrollHeight;
+      });
+    };
     // Keys reach the composer first, as a textarea's keydown would.
     const composerKeys = $prose(
       () =>
@@ -355,6 +369,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                 const { from, to } = editorView.state.selection;
                 editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
+                showPastedEnd(editorView.state);
                 return true;
               },
             },
@@ -365,6 +380,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (beforeInput(editorView, plain, true)) return true;
                 const { from, to } = editorView.state.selection;
                 editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
+                showPastedEnd(editorView.state);
                 return true;
               }
               // The surface sees the text as copied (a huge paste becomes the composer's chip as it
@@ -383,14 +399,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           appendTransaction: (transactions, _previous, state) => {
             if (!pasting || !transactions.some((tr) => tr.docChanged)) return null;
             pasting = false;
-            // A paste that ends the draft shows the field's whole end, its bottom inset too: the
-            // caret reveal stops a margin short in WebKit, which would leave the last line under
-            // the bottom fade (markdownField.css).
-            if (Selection.atEnd(state.doc).to === state.selection.to)
-              requestAnimationFrame(() => {
-                const field = root.parentElement;
-                if (!disposed && field) field.scrollTop = field.scrollHeight;
-              });
+            showPastedEnd(state);
             return transactions.some((tr) => tr.scrolledIntoView) ? null : state.tr.scrollIntoView();
           },
           // Report every document and caret change; the composer's menu follows the caret.
@@ -512,12 +521,12 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         }));
         // The field fills a box (the composer, a prompt editor) and its caret shows focus: a text
         // field is :focus-visible on every focus, so desktop.css's ring drew a rectangle inside it.
-        // The scroll margin covers the field's own padding, so a long draft scrolls the caret's
-        // whole line into view, not to 5px under the field's edge.
+        // The scroll margin covers the field's own padding and the fade band at a scrolled edge, so a
+        // long draft scrolls the caret's whole line into view, clear of the fade.
         ctx.update(editorViewOptionsCtx, (options) => ({
           ...options,
           attributes: { class: "acpmux-md", "data-focus-ring": "none" },
-          scrollMargin: 16,
+          scrollMargin: FADE_BAND_PX,
         }));
       })
       .use(composerKeys)
@@ -727,6 +736,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   return (
     <div
       className={`acpmux-md-field ${className ?? ""}`}
+      style={{ "--acpmux-md-fade-band": `${FADE_BAND_PX}px` } as React.CSSProperties}
       ref={(element: MarkdownFieldElement | null) => {
         wrapper.current = element;
         // A getter: the handle is made after this element attaches.

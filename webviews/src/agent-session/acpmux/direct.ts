@@ -996,6 +996,10 @@ export class AcpmuxDirectClient {
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
   /// `sessions` holds the daemon's list: its first page has been read.
   private listedSessions = false;
+  /// This page drew a chat from a kept tail (`drawKeptTail`), so those rows were on screen before
+  /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
+  /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
+  private drewKeptTail = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -1288,6 +1292,9 @@ export class AcpmuxDirectClient {
             keptThrough = this.drawKeptTail(sessionId);
           }
           if (keptThrough > 0) {
+            // Where the caller decides, not where the tail is read: a tail that drew no row is a
+            // cold open, and the host must not be told rows are on screen that are not.
+            this.drewKeptTail = true;
             this.emit("selected");
             this.releaseSnapshots(hold);
           }
@@ -1303,6 +1310,9 @@ export class AcpmuxDirectClient {
             forgetTail(sessionId);
             this.events = [];
             this.queue = [];
+            // Those rows are off screen again, so the frame the host shows is the failure, not a
+            // chat: it fades in as any first draw of a chat does.
+            this.drewKeptTail = false;
             this.rebuild();
             this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
           }
@@ -1352,6 +1362,8 @@ export class AcpmuxDirectClient {
     this.turnOpener = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
+    // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
+    this.drewKeptTail = false;
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
@@ -3105,6 +3117,7 @@ export class AcpmuxDirectClient {
       connection,
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
+      ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
@@ -4029,6 +4042,7 @@ export class AcpmuxDirectClient {
         keptThrough = this.drawKeptTail(sessionId);
     }
     if (keptThrough > 0) {
+      this.drewKeptTail = true;
       this.emit("selected");
       this.releaseSnapshots(hold);
     }
@@ -4045,6 +4059,7 @@ export class AcpmuxDirectClient {
         forgetTail(sessionId);
         this.events = [];
         this.queue = [];
+        this.drewKeptTail = false;
         this.rebuild();
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
       }
