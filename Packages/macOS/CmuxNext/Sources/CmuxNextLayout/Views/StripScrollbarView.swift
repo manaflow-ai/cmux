@@ -171,21 +171,8 @@ final class StripScrollbarView: NSView {
         syncOccluder()
     }
 
-    override func viewWillMove(toWindow newWindow: NSWindow?) {
-        // The window it leaves may be closing or deallocating: drop its occluder and the fade now,
-        // so no later sync reads it (a weak reference to a deallocating NSWindow aborts).
-        if newWindow !== window {
-            hideTimer.cancel()
-            if let old = occludedWindow { WindowOverlayHost.existingHost(for: old)?.setOccluder(id: occluderID, rect: nil) }
-            occludedWindow = nil
-        }
-        super.viewWillMove(toWindow: newWindow)
-    }
-
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // The only place the bar takes a window: a window a view moved into is alive.
-        occludedWindow = window
         syncOccluder()
     }
 
@@ -194,7 +181,11 @@ final class StripScrollbarView: NSView {
     /// when an ancestor moved without an `update` (a screen sliding in or out).
     func syncOccluder() {
         let rect = isShown && !isHiddenOrHasHiddenAncestor ? thumbRect.map { convert($0, to: nil) } : nil
-        guard let window = occludedWindow else { return }
+        if let old = occludedWindow, old !== window {
+            WindowOverlayHost.existingHost(for: old)?.setOccluder(id: occluderID, rect: nil)
+        }
+        occludedWindow = window
+        guard let window else { return }
         WindowOverlayHost.existingHost(for: window)?.setOccluder(id: occluderID, rect: rect)
     }
 
