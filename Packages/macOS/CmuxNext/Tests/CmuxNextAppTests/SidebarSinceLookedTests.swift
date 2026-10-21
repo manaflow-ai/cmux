@@ -36,7 +36,7 @@ import Testing
             SidebarTimelineEntry(kind: .failed, date: at(-50)),
         ]
         let text = WorkspaceHoverCardContent.sinceLooked(timeline, after: looked)
-        #expect(text == Strings.sinceLooked([Strings.sinceLookedDone(2), Strings.sinceLookedAsked(1)]
+        #expect(text == CmuxNextSidebar.Strings.sinceLooked([CmuxNextSidebar.Strings.sinceLookedDone(2), CmuxNextSidebar.Strings.sinceLookedAsked(1)]
             .joined(separator: WorkspaceRowContent.separator)))
         #expect(WorkspaceHoverCardContent.sinceLooked(timeline, after: at(400)) == nil, "nothing since: no line")
     }
