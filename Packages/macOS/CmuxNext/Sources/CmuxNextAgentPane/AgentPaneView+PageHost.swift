@@ -10,8 +10,8 @@ extension AgentPaneView {
         page.autoresizingMask = [.width, .height]
         page.onOpenExternal = { [weak self, weak page] url in
             guard let self else { return }
-            let other = LinkRouter.isOtherTarget(page?.externalLinkModifiers ?? [])
-            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, other) }
+            let modifiers = page?.externalLinkModifiers ?? []
+            _ = AgentPaneNavigation.openOutside(url, gestures: self.model.transport.gestures) { self.openURL($0, modifiers) }
         }
         page.onNavigate = { [weak self] navigation in
             guard let self else { return .cancel }
