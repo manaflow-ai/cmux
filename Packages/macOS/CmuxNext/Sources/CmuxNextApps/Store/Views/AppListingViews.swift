@@ -19,12 +19,13 @@ struct AppListingCard: View {
                 Text(listing.name.resolved()).font(Font(Typography.bodyEmphasized)).foregroundStyle(colors.primary)
                 Text(AppsStrings.publisher(listing.publisherName)).font(Font(Typography.caption)).foregroundStyle(colors.tertiary)
             }
+            // Three lines reserved, so cards in a row keep one height.
             Text(listing.description.resolved())
-                .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(3)
-                .frame(maxWidth: .infinity, minHeight: 40, alignment: .topLeading)
+                .font(Font(Typography.caption)).foregroundStyle(colors.secondary).lineLimit(3, reservesSpace: true)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .padding(Metrics.space4)
-        .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(hovered ? colors.selection : colors.hover))
+        .appStoreCard(hovered: hovered)
         .contentShape(Rectangle())
         .onHover { hovered = $0 }
         .onTapGesture { model.show(.discover, selection: listing.id) }
