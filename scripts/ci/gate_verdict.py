@@ -470,7 +470,7 @@ def selected(job: Job, needs: dict[str, Any], context: dict[str, Any], *,
     return True
 
 
-_VAR_REF = re.compile(r"\bvars\.([A-Za-z_][A-Za-z0-9_]*)")
+_VAR_REF = re.compile(r"\bvars\.([A-Za-z_][A-Za-z0-9_]*)", re.IGNORECASE)
 
 
 def _variable_choices(expression: str, current: dict[str, Any]) -> list[dict[str, Any]]:
@@ -481,7 +481,9 @@ def _variable_choices(expression: str, current: dict[str, Any]) -> list[dict[str
                 for match in re.finditer(r"'(?:[^']|'')*'", expression)]
     for name in sorted(set(_VAR_REF.findall(expression))):
         for value in ["", *literals, "x"]:
-            choices.append(_Vars({**current, name: value}))
+            # Replace the variable however its key is cased: lookups ignore case.
+            others = {key: item for key, item in current.items() if key.casefold() != name.casefold()}
+            choices.append(_Vars({**others, name: value}))
     return choices
 
 
