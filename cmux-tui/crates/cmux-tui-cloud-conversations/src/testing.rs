@@ -157,13 +157,13 @@ impl CloudBackend for FakeBackend {
     fn post(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
         body: &Value,
     ) -> Result<HttpReply, TransportError> {
         self.posted.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {
             url: url.to_string(),
-            bearer: bearer.to_string(),
+            bearer: bearer.unwrap_or_default().to_string(),
             client_version: client_version.map(str::to_string),
             body: body.clone(),
         });
@@ -173,12 +173,12 @@ impl CloudBackend for FakeBackend {
     fn get(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         client_version: Option<&str>,
     ) -> Result<HttpReply, TransportError> {
         self.got.lock().unwrap_or_else(PoisonError::into_inner).push(Posted {
             url: url.to_string(),
-            bearer: bearer.to_string(),
+            bearer: bearer.unwrap_or_default().to_string(),
             client_version: client_version.map(str::to_string),
             body: Value::Null,
         });
@@ -216,13 +216,13 @@ impl CloudBackend for FakeBackend {
     fn connect(
         &self,
         url: &str,
-        bearer: &str,
+        bearer: Option<&str>,
         _client_version: Option<&str>,
     ) -> Result<Box<dyn CloudWire>, ConnectError> {
-        self.connected
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .push(Connected { url: url.to_string(), bearer: bearer.to_string() });
+        self.connected.lock().unwrap_or_else(PoisonError::into_inner).push(Connected {
+            url: url.to_string(),
+            bearer: bearer.unwrap_or_default().to_string(),
+        });
         match self.wires.lock().unwrap_or_else(PoisonError::into_inner).pop_front() {
             Some(Ok(wire)) => Ok(Box::new(wire)),
             Some(Err(error)) => Err(error),
