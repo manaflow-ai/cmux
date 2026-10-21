@@ -1631,6 +1631,7 @@ mod tests {
 
     use super::*;
     use crate::client::WorkspaceClient;
+    use crate::crypto::ServiceAuthority;
     use crate::service::{ServiceMultiplexer, SessionEndpoint};
     use crate::session::ReceivedFrame;
 
@@ -1691,6 +1692,30 @@ mod tests {
                 generation: right_generation,
             }),
         )
+    }
+
+    #[tokio::test]
+    async fn service_authority_rejects_a_disallowed_open_before_dispatch() {
+        let (client_endpoint, daemon_endpoint) = endpoint_pair();
+        let client_mux = ServiceMultiplexer::new(client_endpoint, EndpointRole::Client);
+        let daemon_mux = ServiceMultiplexer::new(daemon_endpoint, EndpointRole::Daemon);
+        let stream = client_mux.open(Service::TcpTunnel, BTreeMap::new()).await.unwrap();
+        let incoming = daemon_mux.accept().await.unwrap().unwrap();
+
+        let admitted =
+            DaemonServices::authorize_service(&ServiceAuthority::none(), incoming).await.unwrap();
+
+        assert!(admitted.is_none(), "a disallowed service reached handler dispatch");
+        let response = stream.receive().await.unwrap().unwrap();
+        assert_eq!(
+            serde_json::from_slice::<ServiceControl>(&response.payload).unwrap(),
+            ServiceControl::Rejected {
+                code: "permission-denied".into(),
+                message: "the client grant does not allow tcp-tunnel".into(),
+            }
+        );
+        client_mux.shutdown().await;
+        daemon_mux.shutdown().await;
     }
 
     #[cfg(unix)]
