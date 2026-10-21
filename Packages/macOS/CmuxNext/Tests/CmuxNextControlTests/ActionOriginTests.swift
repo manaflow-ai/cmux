@@ -78,6 +78,8 @@ import Testing
         let list = try await router.handle(ControlRequest(id: "3", method: "action.list", params: [:])).get()
         let focusing = list["actions"]?.arrayValue?.filter { $0["focuses"] == true }.compactMap { $0["id"]?.stringValue } ?? []
         #expect(focusing.contains("tab.focus") && focusing.contains("focusLeft") && !focusing.contains("newTab"))
+        // Open Chief Subagent shows a subagent's tab or opens a workspace on it: a view change.
+        #expect(focusing.contains("chief.openSubagent"))
     }
 
     /// Import Passwords from CSV is a person's: the socket refuses it even
