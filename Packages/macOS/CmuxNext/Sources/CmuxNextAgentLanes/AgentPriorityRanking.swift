@@ -13,8 +13,10 @@ public nonisolated struct AgentPriorityRanking: Sendable {
     public init() {}
 
     /// The rows in rank order: snoozed and archived chats left out, and idle ones older than
-    /// `idleHorizon` unless pinned.
-    public func entries(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date) -> [SidebarPriorityEntry] {
+    /// `idleHorizon` unless pinned. `machine` is each row's machine tag (the lane's peer unless
+    /// the caller names its machine).
+    public func entries(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State, now: Date,
+                        machine: (AgentActivityLane) -> String? = { $0.peer }) -> [SidebarPriorityEntry] {
         let ranked = lanes.compactMap { lane -> (entry: SidebarPriorityEntry, tier: Int, since: Date)? in
             let stamp = AgentPriorityMarks.stamp(lane)
             guard !marks.archived.contains(lane.id), !marks.isSnoozed(lane.id, stamp: stamp, now: now) else { return nil }
@@ -22,7 +24,7 @@ public nonisolated struct AgentPriorityRanking: Sendable {
             let pinned = marks.pinned.contains(lane.id)
             let state = Self.state(lane, read: read)
             if state == .idle, !pinned, let since = lane.since, now.timeIntervalSince(since) > idleHorizon { return nil }
-            let entry = SidebarPriorityEntry(id: lane.id, title: lane.title, project: lane.project, machine: lane.peer,
+            let entry = SidebarPriorityEntry(id: lane.id, title: lane.title, project: lane.project, machine: machine(lane),
                                              preview: Self.preview(lane), state: state, unread: lane.unread && !read, pinned: pinned)
             return (entry, Self.tier(state), lane.since ?? .distantPast)
         }
