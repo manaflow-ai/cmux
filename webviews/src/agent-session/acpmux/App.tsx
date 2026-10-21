@@ -178,7 +178,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
-import { viewChangesBeside } from "./turnChanges/viewChanges";
+import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
@@ -3764,9 +3764,9 @@ function AcpmuxPane() {
   /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does
   /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
   /// same webpage"). False when the host cannot (a remote chat, Quick Chat, the gallery): the turn's
-  /// diff then opens in place, as it does for a turn that changed a file outside the chat folder,
-  /// which the folder's diff does not hold (turnChanges/viewChanges.ts). Set below, once the
-  /// header's actions exist.
+  /// diff then opens in place, as it does for a folder outside a repository and a turn that changed a
+  /// file outside the repository, which the folder's diff does not hold (turnChanges/viewChanges.ts).
+  /// Set below, once the header's actions exist.
   const diffBeside = useRef<(rowId: string) => Promise<boolean>>(async () => false);
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
@@ -5669,9 +5669,12 @@ function AcpmuxPane() {
     window.setTimeout(refreshTabState, 400);
   };
   diffBeside.current = async (rowId) => {
-    // A remote or cloud chat's folder is not on this Mac, Quick Chat's panel has no tab beside it, and
-    // a file the turn wrote outside the folder is not in the folder's diff.
-    if (quick || !localCwd || !viewChangesBeside(turnRowsRef.current, rowId, localCwd)) return false;
+    // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
+    if (quick || !localCwd) return false;
+    // The folder's diff is its repository's: a folder outside one, or a file the turn wrote outside
+    // the repository, opens the turn's own diff in place (turnChanges/viewChanges.ts).
+    const root = await repositoryRoot(localCwd, readFolderStatus);
+    if (!viewChangesBeside(turnRowsRef.current, rowId, root)) return false;
     const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
       id: HEADER_ACTIONS.changes,
       cwd: localCwd,

@@ -198,7 +198,8 @@ export function toolFiles(tools: readonly Tool[]): TurnFile[] {
           edits: [],
           additions: 0,
           deletions: 0,
-          created: change.oldText == null,
+          // A fragment has no whole-file text, so a missing old text is not proof of a new file.
+          created: change.oldText == null && !change.fragment,
         };
         files.set(change.path, file);
       }

@@ -134,11 +134,22 @@ export function changedByTools(
 }
 
 /// The tool calls' files at an absolute path outside the repository at `root`, which no checkpoint
-/// of it holds. A relative path is the agent's, under its folder, so it stays with the checkpoint.
-function outsideRepository(toolFiles: readonly TurnFile[], root: string | undefined): TurnFile[] {
+/// of it holds. A relative path is the agent's, under its folder, so it stays with the checkpoint, and
+/// so does a file a checkpoint file already matches (`changedByTools`), such as /tmp/x for a
+/// repository under /private/tmp, so no file lists twice.
+function outsideRepository(
+  toolFiles: readonly TurnFile[],
+  root: string | undefined,
+  checkpointFiles: readonly TurnFile[],
+): TurnFile[] {
   const top = root?.replace(/\/+$/, "");
   if (top === undefined) return [];
-  return toolFiles.filter((file) => file.path.startsWith("/") && !file.path.startsWith(`${top}/`));
+  return toolFiles.filter(
+    (file) =>
+      file.path.startsWith("/") &&
+      !file.path.startsWith(`${top}/`) &&
+      !checkpointFiles.some((checkpointFile) => changedByTools(checkpointFile, [file])),
+  );
 }
 
 /// What the Last turn view shows. A checkpoint that loads replaces the tool calls' edits, unless
@@ -173,7 +184,7 @@ export function turnDisplay(
       });
       // The checkpoint holds only its repository: a file a tool call wrote elsewhere (a new file in
       // /tmp) keeps its tool-call diff, or it would vanish from the card and the view.
-      return { files: [...files, ...outsideRepository(toolFiles, load.changeSet.root)], source: "checkpoint" };
+      return { files: [...files, ...outsideRepository(toolFiles, load.changeSet.root, files)], source: "checkpoint" };
     }
   }
 }
