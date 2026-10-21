@@ -119,12 +119,24 @@ async function openComposer(sent: Sent[] = [], onEdit?: (command: ComposerEditCo
     ),
   );
   // The editor is made asynchronously; its element takes the combobox role once it is.
-  for (let tries = 0; tries < 100 && !host.querySelector('[role="combobox"]'); tries += 1)
-    await act(async () => {
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    });
+  await until(() => !!host.querySelector('[role="combobox"]'), "the editor");
   return handle;
 }
+
+/// Yields to React until `ready()` holds; fails after 2 s with what it waited for.
+async function until(ready: () => boolean, what: string) {
+  const deadline = performance.now() + 2_000;
+  while (!ready()) {
+    if (performance.now() > deadline) throw new Error(`timed out waiting for ${what}`);
+    await settle();
+  }
+}
+
+/// One macrotask for React and the field to finish what an event started.
+const settle = () =>
+  act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
 
 const field = () => host.querySelector<HTMLElement>('[role="combobox"]')!;
 const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md-field")!.acpmuxMarkdownField!;
@@ -142,9 +154,7 @@ async function paste(plain: string, files: File[] = []) {
   await act(async () => {
     field().dispatchEvent(event);
   });
-  await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  await settle();
 }
 
 async function typeDraft(text: string) {
