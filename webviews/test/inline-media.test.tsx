@@ -51,6 +51,9 @@ describe("image-only paragraphs", () => {
     ["https image as a Markdown image", `![Tabs](${PR_MEDIA})`, [[PR_MEDIA, "Tabs"]]],
     ["data URL image", "![dot](data:image/png;base64,AAAA)", [["data:image/png;base64,AAAA", "dot"]]],
     ["a sentence is not image-only", "See /tmp/a.png for the result", undefined],
+    ["a sentence ending in a colon is prose, not a label", "I saved the new sidebar screenshot here: /tmp/a.png", undefined],
+    ["a sentence before a Markdown image is prose", "Here is what it looks like now: ![](/tmp/a.png)", undefined],
+    ["a two-word label", "Dark mode: /tmp/a.png", [["/tmp/a.png", "Dark mode"]]],
     ["a non-image path", "/tmp/build.log", undefined],
     ["a deny-listed image", "~/.ssh/key.png", undefined],
     ["a plain http image", "http://example.com/a.png", undefined],
@@ -85,6 +88,18 @@ describe("image paths in a sentence", () => {
   });
 });
 
+describe("long untrusted text stays fast", () => {
+  test("base64 and `a+b/` runs scan in linear time", () => {
+    const base64 = "iVBORw0KGgoAAAANSUhEUgAA+/".repeat(10_000);
+    const plus = "lib+1/x".repeat(5_000);
+    const started = performance.now();
+    textLinks(base64);
+    textLinks(plus);
+    proseImages(`see ${base64}`);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
 describe("file:line references", () => {
   test("a relative path with a line is a path chip that keeps its line", () => {
     const [link] = textLinks("fails at webviews/src/app.ts:42:7, see there");
@@ -111,9 +126,13 @@ describe("file:line references", () => {
 
 describe("repository aliases and commits", () => {
   test("hq#N links to cmuxterm-hq; another word glued to # stays text", () => {
-    expect(githubReferences("see hq#2713 and foo#12", REPO, "pull").map((ref) => [ref.text, ref.href])).toEqual([
+    expect(githubReferences("see hq#2713 and foo#12", REPO, "pull", true).map((ref) => [ref.text, ref.href])).toEqual([
       ["hq#2713", "https://github.com/manaflow-ai/cmuxterm-hq/pull/2713"],
     ]);
+  });
+  test("aliases are for agent replies only; the document editor and prototype keys never link", () => {
+    expect(githubReferences("see hq#2713", REPO)).toEqual([]);
+    expect(githubReferences("constructor#1 and toString#2", REPO, "pull", true)).toEqual([]);
   });
   test("an alias never becomes the transcript's repository", () => {
     expect(mentionedRepository("see hq#2713")).toBeUndefined();
@@ -239,6 +258,26 @@ describe("rendered replies", () => {
     const [prose, images] = [...container.querySelectorAll("p")];
     expect(prose!.querySelector(".cv-chip.is-path")).not.toBeNull();
     expect(images!.querySelector(".cv-thumb img")).not.toBeNull();
+    await unmount();
+  });
+
+  test("a sentence ending in a colon keeps its text; its image draws under it", async () => {
+    const { container, unmount } = await render("I saved the new screenshot here: /tmp/shots/before.png");
+    expect(container.textContent).toContain("I saved the new screenshot here:");
+    expect(container.querySelector(".cv-thumb img")).not.toBeNull();
+    await unmount();
+  });
+
+  test("a label alone on its line is the caption of its one image", async () => {
+    const { container, unmount } = await render("After: /tmp/shots/after.png");
+    expect(container.querySelector(".cv-thumbs__caption")?.textContent).toBe("After");
+    await unmount();
+  });
+
+  test("a commit inside a URL stays part of the URL's chip", async () => {
+    const { container, unmount } = await render("Loaded https://cdn.example.com/app.js?v=3a7bd3e2 fine.");
+    const hrefs = [...container.querySelectorAll("a")].map((anchor) => anchor.getAttribute("href"));
+    expect(hrefs).toEqual(["https://cdn.example.com/app.js?v=3a7bd3e2"]);
     await unmount();
   });
 

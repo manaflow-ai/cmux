@@ -22,7 +22,7 @@ import { MathDisplay, MathInline } from "./Math";
 import { normalizeMath } from "./mathDelimiters";
 import { IncrementalMarkdown, type KeyedBlock } from "./incrementalMarkdown";
 import { linkedText, PathChip, UrlChip } from "../chips/LinkChips";
-import { codePath, linkPath, pathName } from "../chips/paths";
+import { codePath, linkPath, pathName, textLinks } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
@@ -377,10 +377,15 @@ function lineLabel(path: string, written: string): string | undefined {
 function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
   if (!enabled) return linkedText(text, key);
   // A pull request address, so the chip opens the pull request card (an issue redirects there);
-  // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order, and a
-  // commit inside a reference's text never doubles it.
-  const issues = githubReferences(text, repository, "pull");
-  const refs = [...issues, ...commitReferences(text, repository)]
+  // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
+  // inside a reference, a URL or a path (`app.js?v=3a7bd3e2`) is part of that and never splits it.
+  const issues = githubReferences(text, repository, "pull", true);
+  const commits = commitReferences(text, repository);
+  const spans = commits.length ? textLinks(text) : [];
+  const refs = [
+    ...issues,
+    ...commits.filter((commit) => !spans.some((span) => commit.start < span.end && span.start < commit.end)),
+  ]
     .sort((a, b) => a.start - b.start)
     .filter((ref, index, all) => index === 0 || ref.start >= all[index - 1]!.end);
   if (!refs.length) return linkedText(text, key);
@@ -591,20 +596,17 @@ function InlineImage({ source, opts }: { source: string; opts: InlineOptions }) 
 
 /// Thumbnails of `items` (inlineMedia.ts): one alone, or a row where each has the same share of
 /// the width, so a before/after pair sits side by side, captioned by its label or alt text.
+/// A written label (`Before:`) is always its caption; an alt text is one only in a row.
 function Thumbs({ items, opts }: { items: ThumbItem[]; opts: InlineOptions }) {
-  const captioned = items.length > 1 && items.some((item) => item.alt);
+  const row = items.length > 1;
   return (
-    <span className={`cv-thumbs${items.length > 1 ? " is-row" : ""}`} data-count={items.length}>
+    <span className={`cv-thumbs${row ? " is-row" : ""}`} data-count={items.length}>
       {items.map((item, index) => {
-        const image = <InlineImage source={`![${item.alt}](${item.src})`} opts={opts} />;
-        return captioned ? (
+        const caption = item.label ?? (row ? item.alt : "");
+        return (
           <span key={index} className="cv-thumbs__item">
-            {image}
-            <span className="cv-thumbs__caption">{item.alt}</span>
-          </span>
-        ) : (
-          <span key={index} className="cv-thumbs__item">
-            {image}
+            <InlineImage source={`![${item.alt}](${item.src})`} opts={opts} />
+            {caption && <span className="cv-thumbs__caption">{caption}</span>}
           </span>
         );
       })}
@@ -667,8 +669,9 @@ function Block({
             <RemoteMedia url={link} alt="" fallback={inline(block.text)} />
           </p>
         );
-      // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails.
-      const images = imageOnlyItems(block.text);
+      // Only images (a before/after pair, a screenshot alone on its line): a row of thumbnails, once
+      // the paragraph has finished arriving (a half-written line may still turn into prose).
+      const images = tail ? undefined : imageOnlyItems(block.text);
       if (images)
         return (
           <p className={`cv-p cv-p--images${motion}`}>

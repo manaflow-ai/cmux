@@ -9,30 +9,34 @@ export type GithubReference = {
 // Not after a word, a path or URL (`x.com/#12`) or an HTML entity (`&#123;`). GitHub numbers
 // start at 1 and have at most ten digits (the pull request card's rule), so `#0`, `#012` and
 // `#12345678901` are not references.
-// A short name glued to the `#` (`hq#12`) is a reference only when it is a known alias
-// (REPOSITORY_ALIASES); any other word glued to a `#` (`foo#12`, `step#2`) stays text.
+// A short name glued to the `#` (`hq#12`) is a reference only when the caller takes aliases and
+// it is a known one (REPOSITORY_ALIASES); any other word glued to a `#` (`foo#12`) stays text.
 const REFERENCE =
   /(?<![\w./&-])(?:(?<repository>[A-Za-z0-9][A-Za-z0-9_.-]*\/[A-Za-z0-9][A-Za-z0-9_.-]*)(?<qualifiedNumber>#[1-9][0-9]{0,9})|(?<alias>[A-Za-z][A-Za-z0-9-]*)(?<aliasNumber>#[1-9][0-9]{0,9})|(?<bareNumber>#[1-9][0-9]{0,9}))(?![\w])/g;
 
-/// Short repository names agents write in place of `owner/repo` (`hq#2713`).
-export const REPOSITORY_ALIASES: Readonly<Record<string, string>> = {
-  hq: "manaflow-ai/cmuxterm-hq",
-};
+/// Short repository names agents write in place of `owner/repo` (`hq#2713`), in agent replies only.
+export const REPOSITORY_ALIASES: ReadonlyMap<string, string> = new Map([["hq", "manaflow-ai/cmuxterm-hq"]]);
 
 /**
  * Finds explicit `owner/repo#123` and, when known, bare `#123` references. `kind` picks the
  * address: `issues` (the markdown editor) or `pull` (agent replies, whose chips open the pull
  * request card); GitHub redirects either to the other when the number is the other kind.
+ * `aliases`: also `hq#123` and the other REPOSITORY_ALIASES (agent replies).
  */
 export function githubReferences(
   text: string,
   repository?: string,
   kind: "issues" | "pull" = "issues",
+  aliases = false,
 ): GithubReference[] {
   const out: GithubReference[] = [];
   for (const match of text.matchAll(REFERENCE)) {
     const alias = match.groups?.alias;
-    const repo = alias ? REPOSITORY_ALIASES[alias.toLowerCase()] : (match.groups?.repository ?? repository);
+    const repo = alias
+      ? aliases
+        ? REPOSITORY_ALIASES.get(alias.toLowerCase())
+        : undefined
+      : (match.groups?.repository ?? repository);
     if (!repo) continue;
     const number = match.groups?.qualifiedNumber ?? match.groups?.aliasNumber ?? match.groups?.bareNumber;
     if (!number) continue;
@@ -117,8 +121,6 @@ export function mentionedRepository(text: string): string | undefined {
   let at = -1;
   let repository: string | undefined;
   for (const ref of githubReferences(prose)) {
-    // An alias (`hq#12`) names another repository in passing; it never becomes the default.
-    if (!ref.text.includes("/")) continue;
     at = ref.start;
     repository = ref.text.slice(0, ref.text.indexOf("#"));
   }
