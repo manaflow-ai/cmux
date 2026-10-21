@@ -1,6 +1,25 @@
 import Foundation
 
+extension AgentPaneBridge {
+    /// This seam's reply to a page message, or nil when the message is not one of its ops and the
+    /// model should see it. The whole of what ``AgentPaneBridge`` does for a chat's place, so a
+    /// test can hold the route itself rather than only the answer: a `WKScriptMessage` cannot be
+    /// made outside WebKit, but this takes the same `message.body`.
+    static func chatPlaceReply(for body: Any) -> [String: Any]? {
+        guard let object = body as? [String: Any], let method = object["method"] as? String,
+              AgentPaneScrollAnchors.handles(method: method) else { return nil }
+        return AgentPaneScrollAnchors.reply(to: method, params: object["params"] as? [String: Any])
+    }
+}
+
 extension AgentPaneScrollAnchors {
+    /// The ops this seam answers, which is what ``AgentPaneBridge`` branches on. Named rather than
+    /// matched by prefix so a later `chat.scrollAnchor…` op added to ``AgentPaneRequest`` reaches
+    /// the model instead of being swallowed here.
+    static func handles(method: String) -> Bool {
+        method == "chat.scrollAnchor" || method == "chat.scrollAnchor.get"
+    }
+
     /// `chat.scrollAnchor {sessionId, rowId or null, offset}` and `chat.scrollAnchor.get
     /// {sessionId}` from the pane's own host (``AgentPaneBridge``), which hands bridged Foundation
     /// values over: the same two ops `AgentPageProvider+Scroll` serves on the shared page host,
@@ -12,14 +31,12 @@ extension AgentPaneScrollAnchors {
     ///
     /// A chat's place is the chat's, not the pane's, so ``AgentPaneModel`` never sees these, as
     /// with `chat.tail`.
-    /// The ops this seam answers, which is what ``AgentPaneBridge`` branches on. Named rather than
-    /// matched by prefix so a later `chat.scrollAnchor…` op added to ``AgentPaneRequest`` reaches
-    /// the model instead of being swallowed here.
-    static func handles(method: String) -> Bool {
-        method == "chat.scrollAnchor" || method == "chat.scrollAnchor.get"
-    }
-
     static func reply(to method: String, params: [String: Any]?) -> [String: Any] {
+        // An op this seam does not serve, before anything else: a refusal must not depend on
+        // whether a store happens to exist, as it did while this guard came after the one below.
+        guard handles(method: method) else {
+            return AgentPaneReply.failure(code: "native.invalid_request", message: "No such chat place request")
+        }
         guard let session = params?["sessionId"] as? String, !session.isEmpty else {
             return AgentPaneReply.failure(code: "native.invalid_request", message: "A chat's place needs a sessionId")
         }
@@ -28,9 +45,6 @@ extension AgentPaneScrollAnchors {
         if method == "chat.scrollAnchor.get" {
             guard let anchor = anchors.anchor(for: session) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["rowId": anchor.rowId, "offset": anchor.offset])
-        }
-        guard method == "chat.scrollAnchor" else {
-            return AgentPaneReply.failure(code: "native.invalid_request", message: "No such chat place request")
         }
         // At the latest message the page sends `rowId: null`, which forgets the place.
         let row = params?["rowId"] as? String

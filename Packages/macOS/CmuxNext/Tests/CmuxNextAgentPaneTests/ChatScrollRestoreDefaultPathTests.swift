@@ -101,22 +101,43 @@ struct ChatScrollRestoreDefaultPathTests {
     }
 
     /// The routing, not only the answer. ``AgentPaneModel`` has no case for either op, so the pane's
-    /// own host has to send them to this seam; take that branch out of ``AgentPaneBridge`` and a
-    /// chat stops keeping its place again, which is the bug. A `WKScriptMessage` cannot be made in
-    /// a test, so what is held is the predicate the bridge branches on and the model's lack of a
-    /// route — the two halves that have to agree.
-    @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() {
+    /// own host has to send them to this seam; take that out of ``AgentPaneBridge`` and a chat
+    /// stops keeping its place again, which is the bug.
+    ///
+    /// A `WKScriptMessage` cannot be made outside WebKit, so the handler's whole chat-place branch
+    /// is `AgentPaneBridge.chatPlaceReply(for:)` and takes the same `message.body`. Deleting the
+    /// call to it leaves nothing that answers these, and this goes red.
+    @Test func thePanesOwnHostRoutesTheseOpsHereBecauseTheModelHasNoneForThem() throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "anchors-route-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer {
+            AgentPaneScrollAnchors.shared = nil
+            try? FileManager.default.removeItem(at: directory)
+        }
+        AgentPaneScrollAnchors.shared = AgentPaneScrollAnchors(directory: directory)
+
+        // What the host does with a page message, body and all: it writes, and it reads back.
+        let wrote = try #require(AgentPaneBridge.chatPlaceReply(
+            for: ["method": "chat.scrollAnchor",
+                  "params": ["sessionId": "s-6", "rowId": "user-3", "offset": 9.0]] as [String: Any]))
+        #expect(wrote["ok"] as? Bool == true)
+        let read = try #require(AgentPaneBridge.chatPlaceReply(
+            for: ["method": "chat.scrollAnchor.get", "params": ["sessionId": "s-6"]] as [String: Any]))
+        #expect((read["value"] as? [String: Any])?["rowId"] as? String == "user-3")
+
+        // Anything else is the model's: the host passes it on rather than answering it here.
+        #expect(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.tail", "params": ["sessionId": "s-6"]] as [String: Any]) == nil)
+        #expect(AgentPaneBridge.chatPlaceReply(for: ["method": "chat.scrollAnchor.forget"]) == nil)
+        #expect(AgentPaneBridge.chatPlaceReply(for: "not a message") == nil)
+
+        // And the model really has no route of its own, so the branch above is not dead code.
         for method in ["chat.scrollAnchor", "chat.scrollAnchor.get"] {
-            #expect(AgentPaneScrollAnchors.handles(method: method))
-            let request = AgentPaneRequest(body: ["method": method, "params": ["sessionId": "s-1"]])
+            let request = AgentPaneRequest(body: ["method": method, "params": ["sessionId": "s-6"]] as [String: Any])
             guard case .unsupported(let named) = request else {
-                Issue.record("\(method) now decodes to \(request), so the bridge's route to this seam is dead code")
+                Issue.record("\(method) now decodes to \(request), so the host should stop intercepting it")
                 continue
             }
             #expect(named == method)
         }
-        // Everything else stays the model's to answer or to refuse.
-        #expect(AgentPaneScrollAnchors.handles(method: "chat.scrollAnchor.forget") == false)
-        #expect(AgentPaneScrollAnchors.handles(method: "chat.tail") == false)
     }
 }
