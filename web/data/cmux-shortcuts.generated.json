@@ -7962,6 +7962,41 @@
           "aliases": []
         },
         {
+          "id": "palette.forkAgentConversationRight",
+          "title": {
+            "en": "Fork Conversation to the Right",
+            "ar": "تفريع المحادثة إلى اليمين",
+            "bs": "Račvaj razgovor desno",
+            "da": "Fork samtale til højre",
+            "de": "Unterhaltung nach rechts abspalten",
+            "es": "Bifurcar conversación a la derecha",
+            "fr": "Dériver la conversation à droite",
+            "it": "Duplica conversazione a destra",
+            "ja": "会話を右にフォーク",
+            "km": "Fork ការសន្ទនាទៅខាងស្ដាំ",
+            "ko": "대화를 오른쪽으로 포크",
+            "no": "Forgren samtale til høyre",
+            "pl": "Rozwidl rozmowę w prawo",
+            "pt-BR": "Bifurcar Conversa à Direita",
+            "ru": "Форк беседы справа",
+            "th": "Fork บทสนทนาไปทางขวา",
+            "tr": "Konuşmayı Sağa Çatalla",
+            "uk": "Відгалузити розмову праворуч",
+            "vi": "Fork cuộc hội thoại sang phải",
+            "zh-CN": "将对话分叉到右侧",
+            "zh-TW": "將對話分支到右側"
+          },
+          "shortcut": {
+            "key": "y",
+            "modifiers": [
+              "opt",
+              "cmd"
+            ]
+          },
+          "chord": null,
+          "aliases": []
+        },
+        {
           "id": "agentPane.previousTurn",
           "title": {
             "en": "Previous Turn",
@@ -8098,27 +8133,27 @@
         {
           "id": "openTeamPicker",
           "title": {
-            "en": "Team Picker",
-            "ar": "منتقي الفريق",
-            "bs": "Odabir tima",
-            "da": "Teamvælger",
-            "de": "Team auswählen",
-            "es": "Selector de equipo",
-            "fr": "Sélecteur d’équipe",
-            "it": "Selettore team",
-            "ja": "チームを選択",
-            "km": "ជ្រើសក្រុម",
-            "ko": "팀 선택",
-            "no": "Teamvelger",
-            "pl": "Wybór zespołu",
-            "pt-BR": "Seletor de Equipe",
-            "ru": "Выбор команды",
-            "th": "ตัวเลือกทีม",
-            "tr": "Ekip Seçici",
-            "uk": "Вибір команди",
-            "vi": "Chọn nhóm",
-            "zh-CN": "团队选择器",
-            "zh-TW": "選擇團隊"
+            "en": "Team Picker…",
+            "ar": "منتقي الفريق…",
+            "bs": "Odabir tima…",
+            "da": "Teamvælger…",
+            "de": "Team auswählen…",
+            "es": "Selector de equipo…",
+            "fr": "Sélecteur d’équipe…",
+            "it": "Selettore team…",
+            "ja": "チームを選択…",
+            "km": "ជ្រើសក្រុម…",
+            "ko": "팀 선택…",
+            "no": "Teamvelger…",
+            "pl": "Wybór zespołu…",
+            "pt-BR": "Seletor de Equipe…",
+            "ru": "Выбор команды…",
+            "th": "ตัวเลือกทีม…",
+            "tr": "Ekip Seçici…",
+            "uk": "Вибір команди…",
+            "vi": "Chọn nhóm…",
+            "zh-CN": "团队选择器…",
+            "zh-TW": "選擇團隊…"
           },
           "shortcut": {
             "key": "t",
