@@ -296,6 +296,32 @@ import Testing
         )
     }
 
+    @Test func preparedCodexPromptContainingSubrouterTextRemainsRestorable() throws {
+        let prepared = [
+            "codex", "resume", sessionID,
+            "--prompt", "explain model_providers.subrouter without changing configuration",
+        ]
+        let request = AgentRestoreRequest(
+            mode: .resumeAgent,
+            kind: "codex",
+            checkpointID: sessionID,
+            source: "deferred-restore",
+            workingDirectory: "/tmp/project",
+            environment: [:],
+            launchCommand: AgentLaunchCommand(launcher: "codex", arguments: []),
+            preparedArguments: prepared,
+            observedPermissionMode: nil
+        )
+
+        let invocation = try #require(
+            AgentRestorePlanner(isExecutableFile: { _ in true }).invocation(
+                for: request,
+                ambientEnvironment: ["PATH": "/usr/bin:/bin"]
+            )
+        )
+        #expect(invocation.arguments == prepared)
+    }
+
     private func assertOmpRestoreKeepsExecutablePath(_ executable: String) throws {
         let request = AgentRestoreRequest(
             mode: .resumeAgent,
