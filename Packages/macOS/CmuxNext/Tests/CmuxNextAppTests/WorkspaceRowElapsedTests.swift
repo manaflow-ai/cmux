@@ -9,7 +9,9 @@ import Testing
 @MainActor
 struct WorkspaceRowElapsedTests {
     private func working(_ title: String, since: Date?) -> SidebarWorkspace {
-        var ws = SidebarWorkspace(id: WorkspaceID("ws"), title: title, agentWorking: true, activity: .working(progress: nil))
+        // An agent's last update gives the row an age, which the running time replaces.
+        var ws = SidebarWorkspace(id: WorkspaceID("ws"), title: title, lastActivity: Date(), agentWorking: true,
+                                  activity: .working(progress: nil))
         ws.detail.activitySince = since
         return ws
     }
@@ -53,6 +55,7 @@ struct WorkspaceRowElapsedTests {
         #expect(view.title.frame.maxX <= view.elapsedLabel.frame.minX)
         #expect(view.title.frame.width >= view.title.intrinsicContentSize.width)
         #expect(view.elapsedLabel.frame.maxX <= view.rowBadge.frame.minX)
+        #expect(view.timeLabel.isHidden)
         window.close()
     }
 
@@ -66,6 +69,17 @@ struct WorkspaceRowElapsedTests {
     @Test func underAMinuteShowsNothing() {
         let (view, window) = row(working("Fix the build", since: Date().addingTimeInterval(-10)), width: 320)
         #expect(view.elapsedLabel.isHidden)
+        #expect(view.timeLabel.isHidden)
+        window.close()
+    }
+
+    /// A quiet row keeps the age of its last change.
+    @Test func anIdleRowKeepsItsAge() {
+        var idle = working("Fix the build", since: nil)
+        (idle.agentWorking, idle.activity) = (false, .idle)
+        let (view, window) = row(idle, width: 320)
+        #expect(view.elapsedLabel.isHidden)
+        #expect(!view.timeLabel.isHidden)
         window.close()
     }
 }

@@ -176,6 +176,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTabs = nil
         onToggleAudio = nil
         title.stopMarquee()
+        stopElapsed()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -250,8 +251,11 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(row.detail ?? "")
         hasSubtitle = row.detail != nil
-        (isExpanded, timeText) = (shown.expanded, shown.trailingText)
-        timeLabel.setString(shown.trailingText ?? "")
+        // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
+        let trailingText = shown.workingSince != nil ? shown.trailingStatus : shown.trailingText
+        (isExpanded, timeText) = (shown.expanded, trailingText)
+        timeLabel.setString(trailingText ?? "")
+        if workingSince != shown.workingSince { elapsedTicker.cancel() }
         workingSince = shown.workingSince
         metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
