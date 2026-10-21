@@ -97,8 +97,8 @@ struct AcpmuxUnresponsiveWatchTests {
 
 /// A local acpmux that is alive but never answers: its socket takes connections and reads
 /// them. After three missed status calls spanning 20 s (one more with the longer deadline),
-/// the app stops it and starts a daemon. The hung daemon is `nc` copied to a file named
-/// `acpmux`, listening on the temp home's socket; the started daemon is a stand-in that only
+/// the app stops it and starts a daemon. The hung daemon is `nc` copied (and signed ad hoc) to a
+/// file named `acpmux`, listening on the temp home's socket; the started daemon is a stand-in that only
 /// records its launch. Never this app's acpmux.
 @Suite(.serialized, .timeLimit(.minutes(2)),
        .enabled(if: FileManager.default.isExecutableFile(atPath: "/usr/bin/nc"), "needs /usr/bin/nc"))
@@ -134,7 +134,9 @@ struct AcpmuxUnresponsiveRestartTests {
             try FileManager.default.copyItem(at: URL(fileURLWithPath: "/usr/bin/nc"), to: executable)
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/bin/bash")
-            process.arguments = ["-c", (ignoresTerm ? "trap '' TERM; " : "") + #"exec "$0" -dklU "$1""#, executable.path, socketPath]
+            // macOS 27 kills a copied system binary at exec; signed ad hoc, the copy runs.
+            process.arguments = ["-c", (ignoresTerm ? "trap '' TERM; " : "") + #"/usr/bin/codesign -f -s - "$0" 2>/dev/null; exec "$0" -dklU "$1""#,
+                                 executable.path, socketPath]
             process.standardInput = FileHandle.nullDevice
             process.standardOutput = FileHandle.nullDevice
             process.standardError = FileHandle.nullDevice

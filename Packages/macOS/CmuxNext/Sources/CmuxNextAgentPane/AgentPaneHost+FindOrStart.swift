@@ -48,8 +48,8 @@ extension AcpmuxHost {
                 throw AgentPaneHostError.daemonRefused(holder: holder, socketPath: environment.socketPath,
                                                        reason: "it serves the acpmux home \(status.home ?? ""), not \(environment.home.path)")
             }
-            // After an update the daemon may be the previous build's: this app's own daemon is
-            // handed off at a daemon start and at every reconnect (its agents keep running under
+            // After an update the daemon may be the previous build's: a daemon on this app's home
+            // is handed off at a daemon start and at every reconnect (its agents keep running under
             // their hosts) and ours starts below. One that is busy is handed off when quiet. At a
             // daemon start, a daemon no cmux install runs (`~/.local/bin/acpmux`) is taken over
             // first (`AcpmuxStrayDaemon`).

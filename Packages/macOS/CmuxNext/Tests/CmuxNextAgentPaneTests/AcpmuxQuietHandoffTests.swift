@@ -111,7 +111,7 @@ struct AcpmuxQuietHandoffTests {
         let whenQuiet = await AcpmuxVersionHandoff.handOffIfStale(status, environment: fixture.environment, quietWait: wait)
         #expect(whenQuiet == .stopped)
         #expect(fixture.daemon.shutDown.withLock { $0 })
-        #expect(!agentPaneProcessIsRunning(fixture.oldPid))
+        #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
     }
 
     /// A stale daemon with agent hosts and a running turn: the app keeps it, watches its
@@ -131,7 +131,7 @@ struct AcpmuxQuietHandoffTests {
         fixture.daemon.notify(kind: "turn_end")
         #expect(await fixture.eventually { fixture.launches == 1 }, "the turn's end did not hand the daemon off")
         #expect(fixture.daemon.shutDown.withLock { $0 })
-        #expect(!agentPaneProcessIsRunning(fixture.oldPid))
+        #expect(await fixture.eventually { !agentPaneProcessIsRunning(fixture.oldPid) })
     }
 
     /// An update replaces the bundled acpmux while the app and its daemon run (an in-place
@@ -211,7 +211,7 @@ struct QuietFixture {
         #!/bin/sh
         if [ "$1" = "--version" ]; then echo 'acpmux 0.1.0 (\(build))'; exit 0; fi
         echo started >> '\(root.path)/launches'
-        echo '{"ready":true,"webUrl":"ws://127.0.0.1:9/?token=t"}' >&3
+        echo '{"ready":true,"webUrl":"http://127.0.0.1:9/?token=t"}' >&3
         """
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
@@ -229,7 +229,8 @@ struct QuietFixture {
                    restartsUnresponsive: { false }, handsOffWhenQuiet: { true })
     }
 
-    /// Waits (bounded) until `condition` holds.
+    /// Waits (bounded) until `condition` holds. The old daemon's exit event can come before the
+    /// process table shows it gone.
     func eventually(_ condition: @escaping () -> Bool) async -> Bool {
         let deadline = ContinuousClock.now + .seconds(20)
         while !condition(), ContinuousClock.now < deadline { try? await Task.sleep(for: .milliseconds(50)) }
