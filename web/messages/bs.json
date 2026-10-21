@@ -5523,7 +5523,7 @@
     "errorInvalidCode": "Taj kod nije ispravan. Provjeri e-mail i pokušaj ponovo.",
     "errorInvalidTotp": "Taj kod za dvofaktorsku provjeru nije ispravan.",
     "errorSignUpNotAllowed": "Novi računi se trenutno ne mogu napraviti.",
-    "errorEmailUnverified": "Ovaj email već ima račun, ali adresa još nije potvrđena. Prijavi se na način na koji si se registrovao, a zatim potvrdi email da bi koristio kodove za prijavu.",
+    "errorEmailUnverified": "Ovaj email već ima račun, ali adresa još nije potvrđena. Prijavi se na isti način kao pri registraciji, a zatim potvrdi email da bi koristio kodove za prijavu.",
     "useEmailPasswordInstead": "Prijavi se emailom i lozinkom",
     "errorPasskey": "Prijava pristupnim ključem nije završena. Pokušaj ponovo ili koristi drugi način.",
     "errorGeneric": "Nešto nije u redu. Pokušaj ponovo."
