@@ -2,8 +2,8 @@
 // The virtualizer's first-layout estimates (model.ts layoutConversation) match what the transcript's
 // CSS draws (conversation/conversation.css, styles.css), so a row that mounts moves nothing below it
 // and scrolling up never jumps:
-//   - a reply right over its turn's footer (`.acpmux-row--before-footer`): its text and the 4px meta
-//     gap, with no 34px floor;
+//   - a reply right over its turn's footer (`.acpmux-row--before-footer`), or over the running turn's
+//     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
 //   - a turn's footer: its 24px line and the 24px turn gap, or the 8px message gap for the chat's
 //     last one (`.acpmux-row--last-footer`), so no band sits over the composer.
@@ -40,6 +40,17 @@ test("a reply over its footer is its text and the 4px meta gap, with no 34px flo
   const [short] = heightsOf([reply("b", "Done."), footer("g")]);
   expect(short!).toBeLessThan(34);
   expect(short! - 4).toBeGreaterThan(0);
+});
+
+test("a reply over its running turn's line is estimated as over the footer that takes its place", () => {
+  const long = "A longer answer that wraps. ".repeat(40);
+  // The running turn's line as its last row (conversation/turns.ts `below`): the footer's height.
+  const line = { id: "live", version: 1, at: 0, kind: "thinking", below: true };
+  const [running, lineHeight] = heightsOf([reply("a", long), line]);
+  const [ended, footerHeight] = heightsOf([reply("a", long), footer("f")]);
+  // The turn's end swaps the line for the footer and moves nothing above it.
+  expect(lineHeight).toBe(footerHeight);
+  expect(running).toBe(ended);
 });
 
 test("a reply estimated alone, then with its footer after it, is estimated again", () => {
