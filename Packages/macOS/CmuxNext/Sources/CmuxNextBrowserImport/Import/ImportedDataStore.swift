@@ -55,6 +55,12 @@ public actor ImportedDataStore {
         sources().first { $0.sourceKey == sourceKey }?.proposedProfileID
     }
 
+    /// Sources an import put into another profile than their own (source key to that profile).
+    public func movedSources() -> [String: String] {
+        let moved = sources().filter { $0.targetProfileID != $0.proposedProfileID }
+        return Dictionary(moved.map { ($0.sourceKey, $0.targetProfileID) }, uniquingKeysWith: { first, _ in first })
+    }
+
     /// Sources whose data still sits in the default profile (imports made
     /// before browser profiles existed).
     public func sourcesInDefaultProfile() -> [ImportSourceRecord] {

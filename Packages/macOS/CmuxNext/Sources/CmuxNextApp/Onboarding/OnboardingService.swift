@@ -139,21 +139,13 @@ final class OnboardingService {
     }
 }
 
-/// Saves each imported profile and adds it to the live omnibar history.
-struct AppImportDestination: ImportDestination {
-    let store: ImportedDataStore
-    /// The bookmarks model (`AppServices.importedBookmarkSink`), when present.
-    var bookmarks: (any ImportedBookmarkSink)?
-    /// The omnibar history of a browser profile id.
-    let history: @MainActor @Sendable (String) -> InMemoryBrowserHistory
-
-    func commit(_ batch: ImportBatch) async throws {
-        try await store.save(batch)
-        if let bookmarks, batch.kinds.contains(.bookmarks) {
-            try await bookmarks.replaceImportedBookmarks(batch.bookmarks, source: batch.source)
+extension SavingImportDestination {
+    /// Into this app: each batch's pages join its browser profile's omnibar history.
+    @MainActor static func app(_ services: AppServices, bookmarks: (any ImportedBookmarkSink)? = nil) -> SavingImportDestination {
+        let cache = services.cache
+        return SavingImportDestination(store: services.onboarding.importStore, bookmarks: bookmarks) { id, pages in
+            let entries = pages.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
+            await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).merge(entries) }
         }
-        let entries = OnboardingService.historyEntries(batch)
-        let target = batch.source.targetProfileID
-        await MainActor.run { history(target).merge(entries) }
     }
 }

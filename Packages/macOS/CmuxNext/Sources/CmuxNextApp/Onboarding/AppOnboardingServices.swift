@@ -32,11 +32,8 @@ final class AppOnboardingServices: OnboardingServices {
     func importPasswordsFromCSV(into profile: String?) { try? PasswordCSVFiles(services: services).chooseImport(profile: profile ?? BrowserProfileRecord.defaultID) }
 
     func runImport(_ plan: ImportPlan, progress: @escaping @MainActor (ImportProgress) -> Void) async throws -> ImportSummary {
-        let cache = services.cache
-        let destination = AppImportDestination(store: owner.importStore, bookmarks: services.importedBookmarkSink) { id in
-            cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default)
-        }
-        let cef = cache.cef
+        let destination = SavingImportDestination.app(services, bookmarks: services.importedBookmarkSink)
+        let cef = services.cache.cef
         // One Keychain prompt per browser for cookies and passwords together; the keys go when the run ends.
         let keys = OneReadSafeStorage(SafeStorageKeys().live())
         let cookies = CookieImporter(destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) },
@@ -73,14 +70,8 @@ final class AppOnboardingServices: OnboardingServices {
 
     func canImportPasswords() async -> Bool { await services.cache.cef.canImportPasswords() }
 
-    func importTargets() async -> [ImportTargetChoice] {
-        services.browserProfiles.ordered.map { ImportTargetChoice(id: $0.id, name: $0.name) }
-    }
-
-    func earlierImportTargets() async -> [String: String] {
-        let records = await owner.importStore.sources().filter { $0.targetProfileID != $0.proposedProfileID }
-        return Dictionary(records.map { ($0.sourceKey, $0.targetProfileID) }, uniquingKeysWith: { first, _ in first })
-    }
+    func importTargets() async -> [ImportTargetChoice] { services.browserProfiles.ordered.map { ImportTargetChoice(id: $0.id, name: $0.name) } }
+    func earlierImportTargets() async -> [String: String] { await owner.importStore.movedSources() }
 
     /// Touch ID, or the Mac's password where there is none. Only a Mac with
     /// no login password at all goes on without it; any other failure stops
