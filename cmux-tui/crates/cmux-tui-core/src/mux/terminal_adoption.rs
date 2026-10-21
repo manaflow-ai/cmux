@@ -141,7 +141,8 @@ impl Mux {
         // Every host's row and public id under one registry lock: taken per
         // host, the lock waits on other startup threads cost about 7 ms each.
         let mut prefetched = {
-            let registry = self.workspace_registry.lock().unwrap();
+            let registry =
+                self.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut rows = HashMap::new();
             for (_, record) in &records {
                 let row = registry.terminal_record(&record.terminal_id)?;
@@ -160,9 +161,13 @@ impl Mux {
             }
             let (mut terminal, public_id) = match prefetched.remove(&terminal_id) {
                 Some(prefetched) => prefetched,
-                None => {
-                    (self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?, None)
-                }
+                None => (
+                    self.workspace_registry
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .terminal_record(&terminal_id)?,
+                    None,
+                ),
             };
             if terminal.is_none()
                 && !template_claimed
@@ -256,7 +261,8 @@ impl Mux {
         // transaction: a commit each cost 2.6 ms per host before the first
         // answer (plans/cmux-next/service-start-PERF.md 5b).
         let marked = {
-            let mut registry = self.workspace_registry.lock().unwrap();
+            let mut registry =
+                self.workspace_registry.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let (marked, revision) = commit_terminals_adopting(&mut registry, &adopting)?;
             if let Some(revision) = revision {
                 self.emit_terminal_registry_changed(&registry, revision);
