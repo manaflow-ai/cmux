@@ -150,6 +150,7 @@ select_packages() {
     CmuxGit
     CmuxMobileTerminalKit
     CmuxMobileWorkspace
+    CmuxMemoryPressure
     CmuxNotifications
     CmuxSettings
     CmuxSettingsUI

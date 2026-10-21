@@ -1874,6 +1874,17 @@ struct ContentView: View {
             isFullScreen: isFullScreen,
             runtimeCache: workspacePresentationModeRuntimeCache
         ))
+        .background {
+            if let runawayWarnings = AppDelegate.shared?.runawayPaneWarningCenter {
+                RunawayPaneWarningOverlay(
+                    warning: runawayWarnings.warnings.first { warning in
+                        tabManager.tabs.contains { $0.id == warning.workspaceId }
+                    },
+                    onStop: { runawayWarnings.stopProcessTree($0) },
+                    onDismiss: { runawayWarnings.dismiss($0) }
+                )
+            }
+        }
     }
 
     private func terminalContentWithSidebarDropOverlay(appearance: WindowAppearanceSnapshot) -> some View {

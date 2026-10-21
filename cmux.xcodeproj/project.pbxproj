@@ -1710,6 +1710,7 @@
 		BD851D146EDC5373B7CE9E7A /* CmuxTopProcessSampler+Enrichment.swift in Sources */ = {isa = PBXBuildFile; fileRef = 855D3501F90E309B47A7F1F5 /* CmuxTopProcessSampler+Enrichment.swift */; };
 		6616B19B5A18036FCB0C24E9 /* CmuxTopProcessSampler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8233884D956BA614BAE101FF /* CmuxTopProcessSampler.swift */; };
 		0A1107110000000000000018 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0A1107110000000000000019 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift */; };
+		B22273000000000000000001 /* CmuxTopProcessSnapshot+RunawaySessionCensus.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22273000000000000000002 /* CmuxTopProcessSnapshot+RunawaySessionCensus.swift */; };
 		C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */; };
 		C7A509000000000000000003 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A509000000000000000004 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift */; };
 		C7A50F000000000000000002 /* CmuxTopProcessTreeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C7A50F000000000000000001 /* CmuxTopProcessTreeTests.swift */; };
@@ -3287,6 +3288,15 @@
 		F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */; };
 		FE003107 /* RovoDevTranscriptPreview.swift in Sources */ = {isa = PBXBuildFile; fileRef = FE003007 /* RovoDevTranscriptPreview.swift */; };
 		F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */; };
+		B22273000000000000000003 /* RunawayPaneTreeMemoryPressureResponder.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */; };
+		F0D5F6AB013F89B0FAF4A91C /* RunawayPaneTreeMemoryPressureResponderTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */; };
+		B22273000000000000000005 /* RunawayPaneTreeTarget.swift in Sources */ = {isa = PBXBuildFile; fileRef = B22273000000000000000006 /* RunawayPaneTreeTarget.swift */; };
+		0312E18AA811A0941EFC0A2E /* RunawayPaneTreeTerminator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BE508B1AB726E8989952D52 /* RunawayPaneTreeTerminator.swift */; };
+		FA8F453B4B42851A3212AD2B /* RunawayPaneWarning.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7BCF98563CBF7FAD9FC291F1 /* RunawayPaneWarning.swift */; };
+		1B5B68930406626D56C9FB68 /* RunawayPaneWarningBanner.swift in Sources */ = {isa = PBXBuildFile; fileRef = B2A66EE280AA533CAEEBB49A /* RunawayPaneWarningBanner.swift */; };
+		A3696F0F8042ECE33675CE18 /* RunawayPaneWarningCenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3A60C6670F74C20E48D00563 /* RunawayPaneWarningCenter.swift */; };
+		42F6D3FC75BC21D0E0F62FF7 /* RunawayPaneWarningCenterTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C15DA3ADDE62FD53233E5576 /* RunawayPaneWarningCenterTests.swift */; };
+		5E78C33484AF1879FDB9CBC4 /* RunawayPaneWarningOverlay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 431D8D86285EE4A9685D0C48 /* RunawayPaneWarningOverlay.swift */; };
 		C0DE1A080000000000000001 /* SavedLayoutDefinitionTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */; };
 		C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A020000000000000002 /* SavedLayoutStore.swift */; };
 		C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */; };
@@ -6396,6 +6406,7 @@
 		855D3501F90E309B47A7F1F5 /* CmuxTopProcessSampler+Enrichment.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessSampler+Enrichment.swift"; sourceTree = "<group>"; };
 		8233884D956BA614BAE101FF /* CmuxTopProcessSampler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessSampler.swift"; sourceTree = "<group>"; };
 		0A1107110000000000000019 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "CmuxTopProcessSnapshot+PromptAgentDetection.swift"; sourceTree = "<group>"; };
+		B22273000000000000000002 /* CmuxTopProcessSnapshot+RunawaySessionCensus.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "App/CmuxTopProcessSnapshot+RunawaySessionCensus.swift"; sourceTree = "<group>"; };
 		C7A512000000000000000001 /* CmuxTopProcessSnapshotCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessSnapshotCache.swift; sourceTree = "<group>"; };
 		C7A509000000000000000004 /* CmuxTopProcessSnapshotCaptureCoordinatorTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessSnapshotCaptureCoordinatorTests.swift; sourceTree = "<group>"; };
 		C7A50F000000000000000001 /* CmuxTopProcessTreeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CmuxTopProcessTreeTests.swift; sourceTree = "<group>"; };
@@ -7938,6 +7949,15 @@
 		F5300001A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevSessionIndexTests.swift; sourceTree = "<group>"; };
 		FE003007 /* RovoDevTranscriptPreview.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreview.swift; sourceTree = "<group>"; };
 		F5300003A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RovoDevTranscriptPreviewTests.swift; sourceTree = "<group>"; };
+		B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeMemoryPressureResponder.swift; sourceTree = "<group>"; };
+		30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunawayPaneTreeMemoryPressureResponderTests.swift"; sourceTree = "<group>"; };
+		B22273000000000000000006 /* RunawayPaneTreeTarget.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeTarget.swift; sourceTree = "<group>"; };
+		3BE508B1AB726E8989952D52 /* RunawayPaneTreeTerminator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneTreeTerminator.swift; sourceTree = "<group>"; };
+		7BCF98563CBF7FAD9FC291F1 /* RunawayPaneWarning.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneWarning.swift; sourceTree = "<group>"; };
+		B2A66EE280AA533CAEEBB49A /* RunawayPaneWarningBanner.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneWarningBanner.swift; sourceTree = "<group>"; };
+		3A60C6670F74C20E48D00563 /* RunawayPaneWarningCenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneWarningCenter.swift; sourceTree = "<group>"; };
+		C15DA3ADDE62FD53233E5576 /* RunawayPaneWarningCenterTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = "RunawayPaneWarningCenterTests.swift"; sourceTree = "<group>"; };
+		431D8D86285EE4A9685D0C48 /* RunawayPaneWarningOverlay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = App/RunawayPaneWarningOverlay.swift; sourceTree = "<group>"; };
 		C0DE1A080000000000000002 /* SavedLayoutDefinitionTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutDefinitionTests.swift; sourceTree = "<group>"; };
 		C0DE1A020000000000000002 /* SavedLayoutStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStore.swift; sourceTree = "<group>"; };
 		C0DE1A070000000000000002 /* SavedLayoutStoreTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SavedLayoutStoreTests.swift; sourceTree = "<group>"; };
@@ -10534,6 +10554,9 @@
 				8997D0018997D0018997D001 /* AgentHibernationController+MemoryPressure.swift */,
 				8997D0028997D0028997D002 /* AgentHibernationMemoryPressureResponder.swift */,
 				A42100010000000000000002 /* AggregateMemoryPressureResponder.swift */,
+				B22273000000000000000006 /* RunawayPaneTreeTarget.swift */,
+				B22273000000000000000002 /* CmuxTopProcessSnapshot+RunawaySessionCensus.swift */,
+				B22273000000000000000004 /* RunawayPaneTreeMemoryPressureResponder.swift */,
 				D36A00010000000000000002 /* AgentHibernationController.swift */,
 				A12123000000000000000004 /* AgentHibernationSessionEndResolution.swift */,
 				F65760160000000000000002 /* AgentHibernationPlanner.swift */,
@@ -12615,6 +12638,11 @@
 				C41EF9F30D3D234EDE8E6303 /* ChiefSettingsBrainHint.swift */,
 				C41EF7D7932443B6545F740A /* ChiefPreviewText.swift */,
 				30AA2D44945B6C4A24A6D837 /* TerminalController+BrowserEmulation.swift */,
+				3BE508B1AB726E8989952D52 /* RunawayPaneTreeTerminator.swift */,
+				7BCF98563CBF7FAD9FC291F1 /* RunawayPaneWarning.swift */,
+				B2A66EE280AA533CAEEBB49A /* RunawayPaneWarningBanner.swift */,
+				3A60C6670F74C20E48D00563 /* RunawayPaneWarningCenter.swift */,
+				431D8D86285EE4A9685D0C48 /* RunawayPaneWarningOverlay.swift */,
 				F1C6800D38EC5F238A2994FC /* DockSplitStore+ChiefPane.swift */,
 				7947118FF892144AE54C82D2 /* ChiefPaneDragPayload.swift */,
 				0D10F73113F55349CE0E475D /* ChiefHomeConversationRows.swift */,
@@ -14248,6 +14276,8 @@
 				F152960A3E2799807D8DD3EE /* VaultClaudeCustomTitleTests.swift */,
 				745FF9094E4E0023E0EFB065 /* SidebarWorkspaceSnapshotTests.swift */,
 				ED0B9F5049CC27EC7AAA3419 /* CMUXCLIRestoreRecordRefreshTests.swift */,
+				30F5443EBD5F6684ECFA01A9 /* RunawayPaneTreeMemoryPressureResponderTests.swift */,
+				C15DA3ADDE62FD53233E5576 /* RunawayPaneWarningCenterTests.swift */,
 			);
 			path = cmuxTests;
 			sourceTree = "<group>";
@@ -15843,6 +15873,7 @@
 				BD851D146EDC5373B7CE9E7A /* CmuxTopProcessSampler+Enrichment.swift in Sources */,
 				6616B19B5A18036FCB0C24E9 /* CmuxTopProcessSampler.swift in Sources */,
 				0A1107110000000000000018 /* CmuxTopProcessSnapshot+PromptAgentDetection.swift in Sources */,
+				B22273000000000000000001 /* CmuxTopProcessSnapshot+RunawaySessionCensus.swift in Sources */,
 				C7A512000000000000000002 /* CmuxTopProcessSnapshotCache.swift in Sources */,
 				E95CE22E4D2DD0A4EAF1C5A4 /* CmuxTopSnapshot+AgentBackgroundWork.swift in Sources */,
 				C7A501000000000000000002 /* CmuxTopSnapshot.swift in Sources */,
@@ -16820,6 +16851,13 @@
 				C46790000000000000000005 /* RosettaNativeRelaunch.swift in Sources */,
 				FE003105 /* RovoDevIndex.swift in Sources */,
 				FE003107 /* RovoDevTranscriptPreview.swift in Sources */,
+				B22273000000000000000003 /* RunawayPaneTreeMemoryPressureResponder.swift in Sources */,
+				B22273000000000000000005 /* RunawayPaneTreeTarget.swift in Sources */,
+				0312E18AA811A0941EFC0A2E /* RunawayPaneTreeTerminator.swift in Sources */,
+				FA8F453B4B42851A3212AD2B /* RunawayPaneWarning.swift in Sources */,
+				1B5B68930406626D56C9FB68 /* RunawayPaneWarningBanner.swift in Sources */,
+				A3696F0F8042ECE33675CE18 /* RunawayPaneWarningCenter.swift in Sources */,
+				5E78C33484AF1879FDB9CBC4 /* RunawayPaneWarningOverlay.swift in Sources */,
 				C0DE1A020000000000000001 /* SavedLayoutStore.swift in Sources */,
 				F12748000000000000000003 /* SavingTextView+WordWrapShortcut.swift in Sources */,
 				E8BA79E246754A8B99A0B823 /* ScreenIdentity.swift in Sources */,
@@ -19256,6 +19294,8 @@
 				C46790000000000000000007 /* RosettaNativeRelaunchTests.swift in Sources */,
 				F5300000A1B2C3D4E5F60718 /* RovoDevSessionIndexTests.swift in Sources */,
 				F5300002A1B2C3D4E5F60718 /* RovoDevTranscriptPreviewTests.swift in Sources */,
+				F0D5F6AB013F89B0FAF4A91C /* RunawayPaneTreeMemoryPressureResponderTests.swift in Sources */,
+				42F6D3FC75BC21D0E0F62FF7 /* RunawayPaneWarningCenterTests.swift in Sources */,
 				C0DE1A080000000000000001 /* SavedLayoutDefinitionTests.swift in Sources */,
 				C0DE1A070000000000000001 /* SavedLayoutStoreTests.swift in Sources */,
 				3C3FDDC0C744FA3350DA1D9B /* ScrollbackTestTerminal.swift in Sources */,

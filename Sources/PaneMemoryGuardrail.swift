@@ -60,13 +60,23 @@ final class PaneMemoryGuardrail {
     // MARK: Settings
 
     private var isEnabled: Bool {
-        Self.enabledSetting.value(in: .standard)
+        Self.isConfiguredEnabled()
+    }
+
+    /// Whether the Runaway Memory Guardrail setting is on.
+    static func isConfiguredEnabled() -> Bool {
+        enabledSetting.value(in: .standard)
     }
 
     private func thresholdBytes() -> Int64 {
-        let raw = Self.thresholdGBSetting.value(in: .standard)
-        let gb = raw.isFinite ? min(max(raw, Self.thresholdRangeGB.lowerBound), Self.thresholdRangeGB.upperBound) : Self.defaultThresholdGB
-        return Int64(gb * Self.bytesPerGB)
+        Self.configuredThresholdBytes()
+    }
+
+    /// The configured per-pane process-tree threshold, clamped to its range.
+    static func configuredThresholdBytes() -> Int64 {
+        let raw = thresholdGBSetting.value(in: .standard)
+        let gb = raw.isFinite ? min(max(raw, thresholdRangeGB.lowerBound), thresholdRangeGB.upperBound) : defaultThresholdGB
+        return Int64(gb * bytesPerGB)
     }
 
     // MARK: Tick

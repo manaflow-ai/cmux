@@ -1,3 +1,4 @@
+import CmuxNotifications
 import Foundation
 
 extension AppDelegate {
@@ -6,7 +7,8 @@ extension AppDelegate {
     /// process-tree accounting timer; global pressure is handled through
     /// responder registration. Aggregate pressure is intentionally isolated to
     /// its idle-agent-hibernation responder. Resource diagnostics never enter
-    /// the user notification pipeline.
+    /// the user notification pipeline; the one exception is the runaway
+    /// terminal warning, which posts without hooks or notification commands.
     func startPaneMemoryGuardrailIfNeeded() {
         let guardrail = PaneMemoryGuardrail.shared
         guardrail.paneProvider = { [weak self] in
@@ -46,6 +48,11 @@ extension AppDelegate {
             )
         )
         monitor.registry.register(
+            RunawayPaneTreeMemoryPressureResponder { [weak self] in
+                self?.paneMemoryGuardrailDescriptors() ?? []
+            }
+        )
+        monitor.registry.register(
             AgentHibernationMemoryPressureResponder(
                 controller: AgentHibernationController.shared,
                 isPressureCritical: { [weak monitor] in
@@ -64,10 +71,48 @@ extension AppDelegate {
         let browserMemoryBudget = BrowserHiddenWebViewMemoryBudgetCoordinator { [weak self] in
             self?.allLiveBrowserPanels() ?? []
         }
+        let runawayWarnings = runawayPaneWarningCenter
+        runawayWarnings.paneProvider = { [weak self] in
+            self?.paneMemoryGuardrailDescriptors() ?? []
+        }
+        runawayWarnings.onNewWarning = { [weak self] warning in
+            self?.postRunawayPaneWarningNotification(warning)
+        }
         monitor.onSampleApplied = { sampledAt in
             browserMemoryBudget.enforceBudget(now: sampledAt)
+            // A system pressure event measures right away, between ticks.
+            runawayWarnings.evaluate()
         }
+        runawayWarnings.start()
         monitor.start()
+    }
+
+    /// Posts the runaway-terminal warning as a notification on that pane, so
+    /// it reaches the user while cmux is in the background. Clicking it opens
+    /// the terminal, where the banner offers Stop Process Tree.
+    private func postRunawayPaneWarningNotification(_ warning: RunawayPaneWarning) {
+        notificationStore?.addNotification(
+            tabId: warning.workspaceId,
+            surfaceId: warning.panelId,
+            title: String(
+                localized: "runawayPaneWarning.title",
+                defaultValue: "A terminal's processes are running away"
+            ),
+            subtitle: warning.locationText,
+            body: String.localizedStringWithFormat(
+                String(
+                    localized: "runawayPaneWarning.notification.body",
+                    defaultValue: "%@. Open the terminal to stop its process tree."
+                ),
+                warning.detailText
+            ),
+            cooldownKey: "runaway-pane-tree.\(warning.panelId.uuidString)",
+            cooldownInterval: 300,
+            // Hooks and notification commands spawn processes, which can fail
+            // or add load while the process table or memory is exhausted.
+            resolvedHooks: [],
+            effects: TerminalNotificationPolicyEffectsPatch(command: false)
+        )
     }
 
     /// Every live browser panel, each once: workspace panes plus the panes of
