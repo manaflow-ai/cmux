@@ -69,11 +69,13 @@ test("a delivered prompt's row reads its age, two ticks, Copy, Edit and Fork, in
     edit: { seqs: new Map([["user-4", 3]]), send: async () => true },
     fork: (seq: number) => forked.push(seq),
     forkAny: true,
+    // Fork goes through the prompt's own turn, the one its summary closes.
+    promptTurns: new Map([["user-4", 5]]),
   });
   expect(labels()).toEqual(["1 hour ago", "Delivered", "Copy", "Edit", "Fork from here"]);
   expect(host.querySelector("time.cv-user__time")?.getAttribute("dateTime")).toBe(new Date(row.at).toISOString());
   act(() => host.querySelector<HTMLButtonElement>('button[aria-label="Fork from here"]')!.click());
-  expect(forked).toEqual([3]);
+  expect(forked).toEqual([5]);
 });
 
 test("a prompt still being sent has no ticks yet, and one that cannot fork offers no Fork", async () => {
