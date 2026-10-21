@@ -38,6 +38,7 @@ pub(super) fn create_workspace(
     client: u64,
     name: Option<String>,
     key: Option<String>,
+    places_by_setting: bool,
     current: Option<String>,
     mutation: MutationRequest,
 ) -> anyhow::Result<Value> {
@@ -46,10 +47,12 @@ pub(super) fn create_workspace(
     {
         anyhow::bail!("workspace key must be a lowercase UUID");
     }
-    // A current workspace that is no workspace key is ignored (the active one places it).
+    // A current workspace that is no workspace key counts as none.
     let current = current.filter(|key| crate::workspace_registry::is_canonical_workspace_key(key));
+    let placed_by = (places_by_setting || current.is_some())
+        .then(|| crate::state::personal_order::ClientCurrent(current));
     let workspace_mutation = workspace_mutation(mux, client, &mutation)?;
-    let placement = crate::state::personal_order::with_client_current(current, || {
+    let placement = crate::state::personal_order::with_client_current(placed_by, || {
         mux.create_empty_workspace_with_mutation(
             name,
             key,

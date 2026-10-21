@@ -300,13 +300,17 @@ fn a_new_workspace_follows_the_creating_clients_current_workspace() {
     use crate::user_settings::NewWorkspacePlacement;
     let session = Session::new("new-client-current");
     let mux = session.open();
-    let create = |name: &str, current: Option<&str>| {
-        let key =
-            crate::state::personal_order::with_client_current(current.map(str::to_string), || {
-                mux.create_empty_workspace(Some(name.to_string()), None, None)
-            })
-            .unwrap()
-            .key;
+    // `client`: None, a create that names no current workspace; Some(current), the client's
+    // current workspace (None: the window shows a top page).
+    let create = |name: &str, client: Option<Option<&str>>| {
+        let client = client.map(|current| {
+            crate::state::personal_order::ClientCurrent(current.map(str::to_string))
+        });
+        let key = crate::state::personal_order::with_client_current(client, || {
+            mux.create_empty_workspace(Some(name.to_string()), None, None)
+        })
+        .unwrap()
+        .key;
         let id = mux
             .personal_state_read(|connection| {
                 crate::state::values::workspace_public_id_for_key(connection, &key)
@@ -324,18 +328,23 @@ fn a_new_workspace_follows_the_creating_clients_current_workspace() {
     // Personal order now: b, then Work [a]. The session's active workspace is a.
     mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a");
     let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
-    let (_, c) = create("c", Some(&b_key));
+    let (_, c) = create("c", Some(Some(&b_key)));
     drop(after);
     let top = NewWorkspacePlacement::Top.set_for_test();
-    let (_, d) = create("d", Some(&a_key));
+    let (_, d) = create("d", Some(Some(&a_key)));
     drop(top);
     let bottom = NewWorkspacePlacement::Bottom.set_for_test();
-    let (_, e) = create("e", Some(&a_key));
+    let (_, e) = create("e", Some(Some(&a_key)));
     drop(bottom);
-    let ids = [&a, &b, &c, &d, &e].map(String::as_str);
+    // A window on a top page names no current workspace: the top, not beside the active one.
+    mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a-again");
+    let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
+    let (_, f) = create("f", Some(None));
+    drop(after);
+    let ids = [&a, &b, &c, &d, &e, &f].map(String::as_str);
     assert_eq!(
         listed(&mux, Some("personal"), &ids),
-        [b.as_str(), c.as_str(), a.as_str(), d.as_str(), e.as_str()]
+        [f.as_str(), b.as_str(), c.as_str(), a.as_str(), d.as_str(), e.as_str()]
     );
     let placements = read(&mux, "workspace.placement.list", json!({}));
     let group_of = |id: &str| {
@@ -351,6 +360,7 @@ fn a_new_workspace_follows_the_creating_clients_current_workspace() {
         group_of(&c).is_null(),
         "after the client's loose current workspace, not the active grouped one"
     );
+    assert!(group_of(&f).is_null(), "no current workspace: the top, not the active one's group");
     assert_eq!(group_of(&d), json!(work), "top from a grouped workspace: in its group");
     assert_eq!(group_of(&e), json!(work), "bottom from a grouped workspace: last in its group");
     mux.shutdown();

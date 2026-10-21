@@ -58,7 +58,7 @@ enum AgentSessionWorkspace {
         if let rule { NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, windows: windows) }
         return Task { @MainActor in
             do {
-                _ = try await WorkspaceCreation.create(key, name: name, current: rule?.current, on: connection, repair: repair) { workspace in
+                _ = try await WorkspaceCreation.create(key, name: name, placedBy: rule, on: connection, repair: repair) { workspace in
                     try await connection.createTerminal(in: workspace, cwd: cwd)
                 }
                 // The workspace's first pane once the store mirrors it, found

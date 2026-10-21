@@ -5,24 +5,33 @@ public struct CreateWorkspaceRequest: DaemonRequest {
     public static let command = "create-workspace"
     public var name: String?
     public var key: WorkspaceKey?
-    /// The workspace the creating window shows: the daemon places the new one by
-    /// `workspaces.newPlacement` against it, as the app does, not against the
-    /// session's active workspace. An older daemon ignores it.
+    /// The app places the new workspace by `workspaces.newPlacement` against
+    /// `current`, the workspace the creating window shows (nil: none, the window
+    /// shows a top page). The daemon then places it there too, not against the
+    /// session's active workspace, so its first place is the final one. An
+    /// older daemon ignores both.
+    public var placesBySetting: Bool
     public var current: WorkspaceKey?
     public var mutation: MutationIdentity?
 
-    public init(name: String? = nil, key: WorkspaceKey? = nil, current: WorkspaceKey? = nil, mutation: MutationIdentity?) {
+    public init(name: String? = nil, key: WorkspaceKey? = nil, placesBySetting: Bool = false, current: WorkspaceKey? = nil,
+                mutation: MutationIdentity?) {
         self.name = name
         self.key = key
+        self.placesBySetting = placesBySetting
         self.current = current
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case name, key, current }
+    enum CodingKeys: String, CodingKey {
+        case name, key, current
+        case placesBySetting = "places_by_setting"
+    }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(key, forKey: .key)
+        if placesBySetting { try c.encode(true, forKey: .placesBySetting) }
         try c.encodeIfPresent(current, forKey: .current)
         try MutationFields(identity: mutation).encode(to: encoder)
     }

@@ -64,20 +64,28 @@ pub(crate) fn sidebar_workspace_ids(connection: &Connection) -> anyhow::Result<V
     Ok(ids)
 }
 
+/// The current workspace a creating client names for `workspaces.newPlacement`
+/// (`create-workspace {places_by_setting, current}`): the key of the workspace
+/// its window shows, or none (the window shows a top page). Its own focus
+/// state holds it; the session's `active_workspace_id` is only a legacy default.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct ClientCurrent(pub(crate) Option<String>);
+
 thread_local! {
-    /// The workspace the creating client shows (`create-workspace {current}`),
-    /// set around a creation on this thread ([`with_client_current`]).
-    static CLIENT_CURRENT: RefCell<Option<String>> = const { RefCell::new(None) };
+    /// Set around a creation on this thread ([`with_client_current`]).
+    static CLIENT_CURRENT: RefCell<Option<ClientCurrent>> = const { RefCell::new(None) };
 }
 
-/// Runs `body` with `current` (a workspace key) as the current workspace of
-/// every workspace this thread creates meanwhile: the workspace the creating
-/// client's window shows, which its own focus state holds (the session's
-/// `active_workspace_id` is only a legacy default). So the daemon places the
-/// new row where the client does, and the client's placement after it moves
-/// nothing.
-pub(crate) fn with_client_current<T>(current: Option<String>, body: impl FnOnce() -> T) -> T {
-    struct Restore(Option<String>);
+/// Runs `body` with `current` as the current workspace of every workspace this
+/// thread creates meanwhile, so the daemon places the new row where the client
+/// does and the client's placement after it moves nothing. A commit that may
+/// run on another thread captures it at prepare ([`client_current`]) and runs
+/// its apply under this again, as `NewWorkspacePlacement::scoped` is carried.
+pub(crate) fn with_client_current<T>(
+    current: Option<ClientCurrent>,
+    body: impl FnOnce() -> T,
+) -> T {
+    struct Restore(Option<ClientCurrent>);
     impl Drop for Restore {
         fn drop(&mut self) {
             CLIENT_CURRENT.with(|cell| *cell.borrow_mut() = self.0.take());
@@ -85,6 +93,12 @@ pub(crate) fn with_client_current<T>(current: Option<String>, body: impl FnOnce(
     }
     let _restore = Restore(CLIENT_CURRENT.with(|cell| cell.replace(current)));
     body()
+}
+
+/// The client current set on this thread ([`with_client_current`]), for a
+/// commit to carry to the thread that applies it.
+pub(crate) fn client_current() -> Option<ClientCurrent> {
+    CLIENT_CURRENT.with(|cell| cell.borrow().clone())
 }
 
 /// The workspaces a patch creates, read before it applies.
@@ -123,10 +137,9 @@ pub(crate) fn created_workspaces(
             }
         }
     }
-    let client =
-        if keys.is_empty() { None } else { CLIENT_CURRENT.with(|cell| cell.borrow().clone()) };
-    if let Some(current) = client {
-        return Ok(CreatedWorkspaces { keys, current: Some(current), from_client: true });
+    let client = if keys.is_empty() { None } else { client_current() };
+    if let Some(ClientCurrent(current)) = client {
+        return Ok(CreatedWorkspaces { keys, current, from_client: true });
     }
     let current = if keys.is_empty() {
         None

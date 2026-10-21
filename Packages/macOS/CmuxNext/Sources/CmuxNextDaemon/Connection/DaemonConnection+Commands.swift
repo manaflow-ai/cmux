@@ -21,8 +21,9 @@ extension DaemonConnection {
     // Workspaces
 
     @discardableResult
-    public func createWorkspace(name: String? = nil, key: WorkspaceKey = .generate(), current: WorkspaceKey? = nil) async throws -> WorkspaceMutationResult {
-        try await request(CreateWorkspaceRequest(name: name, key: key, current: current, mutation: mutation()))
+    public func createWorkspace(name: String? = nil, key: WorkspaceKey = .generate(), placesBySetting: Bool = false,
+                                current: WorkspaceKey? = nil) async throws -> WorkspaceMutationResult {
+        try await request(CreateWorkspaceRequest(name: name, key: key, placesBySetting: placesBySetting, current: current, mutation: mutation()))
     }
 
     @discardableResult

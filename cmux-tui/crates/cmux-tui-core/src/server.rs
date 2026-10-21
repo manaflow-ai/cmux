@@ -1255,9 +1255,13 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
-        /// The key of the workspace the creating window shows: the current
-        /// workspace of `workspaces.newPlacement`, so the new workspace's first
-        /// place is the one that client gives it. Absent: the session's active one.
+        /// The creating client places the new workspace by
+        /// `workspaces.newPlacement` against `current`, the key of the workspace
+        /// its window shows (absent: none, the window shows a top page), so the
+        /// daemon places it there too and its first place is the final one.
+        /// False with no `current`: the session's active workspace.
+        #[serde(default)]
+        places_by_setting: bool,
         #[serde(default)]
         current: Option<String>,
         #[serde(flatten)]
