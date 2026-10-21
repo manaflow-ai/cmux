@@ -11,9 +11,35 @@ nonisolated extension RefusalStrings {
 
     /// A link carried parameters cmux does not use: a name no link of its kind reads, a repeated
     /// one, or a hint whose value it cannot read. The link opened; this names what was left out.
+    ///
+    /// The names are whatever wrote the link — another app, a page, an agent's message — so they
+    /// are shown the way the web page shows them (schemas/deeplinks/agent-link.json
+    /// `ignoredOrder` leaves how to show them to each reader): each name inside the charset a
+    /// parameter name may have and cut to ``shownNameLimit``, at most ``shownNames`` of them. A
+    /// crafted link therefore cannot put its own sentence, newlines or writing-direction marks
+    /// into cmux's own chrome.
     public static func linkParametersIgnored(_ names: [String]) -> String {
-        format("handlers.refusal.linkParametersIgnored", "opened the link and ignored parameters it doesn't use: %@",
-               truncatedLinkText(names.joined(separator: ", ")))
+        let shown = names.prefix(shownNames).map(displayedParameterName)
+        return format("handlers.refusal.linkParametersIgnored",
+                      "opened the link and ignored parameters it doesn't use: %@",
+                      truncatedLinkText(shown.joined(separator: ", ")))
+    }
+
+    /// How many ignored names a refusal names, as the page names eight.
+    static let shownNames = 8
+
+    /// The most of one ignored name a refusal shows.
+    static let shownNameLimit = 32
+
+    /// `name` with everything a parameter name cannot hold dropped and cut to ``shownNameLimit``
+    /// characters; `?` when that leaves nothing, so an unprintable name is still counted.
+    static func displayedParameterName(_ name: String) -> String {
+        let kept = name.filter { character in
+            guard character.isASCII else { return false }
+            return character.isLetter || character.isNumber || character == "." || character == "_"
+                || character == "-"
+        }
+        return kept.isEmpty ? "?" : String(kept.prefix(shownNameLimit))
     }
 
     /// The most of an unrecognized link's text a refusal shows: it comes

@@ -105,4 +105,23 @@ struct ToastCopyTests {
             #expect(!message.isEmpty, "\(name)")
         }
     }
+
+    /// The names a deep link's ignored parameters are shown under come from whatever wrote the
+    /// link -- another app, a page, an agent's message -- so the toast shows them the way the web
+    /// page does (schemas/deeplinks/agent-link.json `ignoredOrder`): inside the charset a parameter
+    /// name may have, and at most eight. A crafted link cannot put its own sentence, a URL or a
+    /// writing-direction mark into cmux's own chrome.
+    @Test func anIgnoredParameterNameCannotCarryTextIntoTheToast() {
+        let crafted = "Your session expired, sign in again at https://cmux.example\u{202E} "
+        let message = RefusalStrings.linkParametersIgnored([crafted, "ok_name", "\u{2713}"])
+        #expect(!message.contains("sign in again"), "\(message)")
+        #expect(!message.contains("https://"), "\(message)")
+        #expect(!message.contains("\u{202E}"), "\(message)")
+        // A name the charset leaves nothing of is still counted, as the page counts it.
+        #expect(message.contains("ok_name, ?"), "\(message)")
+
+        let shown = RefusalStrings.linkParametersIgnored((1...12).map { "p\($0)" })
+        #expect(shown.contains("p8"), "\(shown)")
+        #expect(!shown.contains("p9"), "\(shown)")
+    }
 }
