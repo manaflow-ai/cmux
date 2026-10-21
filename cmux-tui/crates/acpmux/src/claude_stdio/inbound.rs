@@ -331,7 +331,9 @@ impl Translator {
                         // ACP content replaces the call's content: a finished edit
                         // keeps its diff, and a failed one says why.
                         let content = match self.edits.lock().await.remove(tool) {
-                            Some(diffs) if !is_err => diffs,
+                            Some(diffs) if !is_err => {
+                                settle_write(diffs, &text, line.get("tool_use_result"))
+                            }
                             _ => {
                                 json!([{"type": "content", "content": {"type": "text", "text": text}}])
                             }
@@ -990,6 +992,34 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     let mut update = background_task_update(tool, shell, "running");
     update["origin"] = json!(origin(shell));
     Some(shell_update(shell, update))
+}
+
+/// A finished Write's diff, which the tool call sent with no old text before
+/// Claude Code said whether the file was there. A diff with no old text reads
+/// as a file the turn created, which Undo moves to the Trash, so only a Write
+/// that created its file keeps it. An overwrite takes the file's text before
+/// it (`tool_use_result.originalFile`, for this diff's path); without that it
+/// is marked a fragment, so nothing is written back from it.
+fn settle_write(mut diffs: Value, text: &str, result: Option<&Value>) -> Value {
+    let field = |key: &str| result.and_then(|r| r.get(key)).and_then(Value::as_str);
+    let Some(items) = diffs.as_array_mut() else { return diffs };
+    for diff in items.iter_mut().filter(|d| d.get("oldText").is_some_and(Value::is_null)) {
+        let ours = field("filePath").is_some()
+            && field("filePath") == diff.get("path").and_then(Value::as_str);
+        let created = if ours && field("type").is_some() {
+            field("type") == Some("create")
+        } else {
+            text.trim_start().starts_with("File created successfully")
+        };
+        if created {
+            continue;
+        }
+        match field("originalFile").filter(|_| ours) {
+            Some(original) => diff["oldText"] = json!(original),
+            None => diff["_meta"] = json!({"acpmux": {"fragment": true}}),
+        }
+    }
+    diffs
 }
 
 /// How a shell got to the background: `background` when it started there,
