@@ -101,7 +101,7 @@ import Testing
         opaqueAppWithoutArt {
             #expect(WindowBackdrop.dragPreview(ThemeScope.app).isOpaque, "the fixture's app is opaque")
             let workspace = ThemeScope(level: .workspace)
-            workspace.pinBackdrop(.selection(.art(.goyaSaturn)))
+            workspace.pinBackdrop(.selection(.art(.friedrichForestMoonlight)))
             let glass = !Self.reducesTransparency
             #expect(WindowBackdrop.dragPreview(workspace).dragsOnGlass == glass)
 

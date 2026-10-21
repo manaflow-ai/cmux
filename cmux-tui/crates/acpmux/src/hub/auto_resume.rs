@@ -199,10 +199,13 @@ impl TurnInfo {
             started_at: super::now_ms(),
             client: client.to_owned(),
             prompt_preview: super::short_text(text, 200),
+            masked_preview: super::session::masked_preview(text, 200),
             turn_id: turn_id.to_owned(),
             prompt_id: prompt_id.to_owned(),
             turn_seq: 0,
             control,
+            activity: None,
+            plan_step: None,
         }
     }
 }

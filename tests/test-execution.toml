@@ -505,6 +505,10 @@ path = "tests/test_localization_catalog.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_next_line.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
@@ -790,7 +794,7 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_r2_upload_requests.py"
-lane = "legacy"
+lane = "linux-guard"
 
 [[test]]
 path = "tests/test_reconcile_entitlements_with_profile.py"
@@ -898,6 +902,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_webviews_tests_per_file.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_webviews_tests_new_reds.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1462,6 +1470,10 @@ path = "tests/test_ci_prune_media_derived_data.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tour_requirements.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_media_module_cache_stamp.py"
 lane = "linux-guard"
 
@@ -1646,11 +1658,11 @@ path = "tests/test_cmux_next_fast_gates.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_cmux_next_perf_source_guard.py"
+path = "tests/test_check_paths.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_crash_class_fast_gate.py"
+path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1658,9 +1670,21 @@ path = "tests/test_gallery_select.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_concurrency_generic_deinit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_crash_class_fast_gate.py"
+path = "tests/test_pr_lane_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_privacy.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_pool_sources.py"
 lane = "linux-guard"

@@ -182,6 +182,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           const reply = answer(ws, message.method, message.params ?? {});
           if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }));
+          for (const wake of waiting) wake();
         },
       },
     });
@@ -231,16 +232,46 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     await page.getByText("Fix the product grid layout shift").first().waitFor({ timeout: 60_000 });
     return page;
   }
-  async function waitUntil(done: () => boolean) {
-    for (let tries = 0; !done() && tries < 100; tries++) await Bun.sleep(50);
-    expect(done()).toBe(true);
+  /// The waits on the daemon's calls: each message it takes wakes them.
+  const waiting = new Set<() => void>();
+  /// Resolves once `done` holds, checked as the daemon takes each message; fails after 5 s.
+  function waitUntil(done: () => boolean) {
+    return new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!done()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`the daemon's calls never matched ${done.toString()} within 5 s`));
+      }, 5_000);
+      waiting.add(check);
+      check();
+    });
+  }
+  let marks = 0;
+  /// Returns once the page has drawn a reply chunk sent now, so it has handled and drawn everything
+  /// the daemon sent before it.
+  async function drawn(page: Page) {
+    const text = `Drawn mark ${++marks}.`;
+    const update = { sessionUpdate: "agent_message_chunk", content: { type: "text", text } };
+    const chunk = record(
+      "agent_message_chunk",
+      { method: "session/update", params: { sessionId: "agent-1", update } },
+      SESSION,
+      "in",
+    );
+    emit(socket!, chunk);
+    await page.getByText(text).waitFor({ timeout: 5_000 });
   }
   const card = (page: Page) => page.locator(".acpmux-tasks");
 
   describe("suggested tasks", () => {
     test("with neither the Debug toggle nor the experiment, the tasks draw nothing", async () => {
       const page = await openChat({ offered: group, experiment: "off" });
-      await page.waitForTimeout(500);
+      await drawn(page);
       expect(await card(page).count()).toBe(0);
       expect(await page.locator("body").innerText()).not.toContain(group[0]!.title);
       await page.close();
@@ -250,7 +281,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const page = await openChat({ offered: group, experiment: "off" });
       await page.waitForFunction(() => typeof window.cmuxAcpmuxBridge?.applySuggestedTasks === "function");
       await page.evaluate(() => window.cmuxAcpmuxBridge?.applyPreview?.(true));
-      await page.waitForTimeout(500);
+      await drawn(page);
       expect(await card(page).count()).toBe(0);
       await page.evaluate(() => window.cmuxAcpmuxBridge?.applySuggestedTasks?.(true));
       await card(page).getByText(group[0]!.title).waitFor({ timeout: 10_000 });
@@ -472,7 +503,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       emit(socket!, record("turn_result", { status: "completed", stopReason: "end_turn" }));
       emit(socket!, record("dequeued", { promptId }));
       emit(socket!, record("user_message", { text, client: "acpmux", promptId, _meta: { provenance } }));
-      await page.waitForTimeout(500);
+      await drawn(page);
       expect(await line.count()).toBe(1);
       expect(await page.locator("body").innerText()).not.toContain("Result from the suggested task");
       await page.close();
