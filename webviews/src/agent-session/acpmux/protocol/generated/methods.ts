@@ -32,6 +32,7 @@ export interface AcpmuxRequests {
   "_acpmux/rename": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: unknown; result: unknown };
+  "_acpmux/subsession/answer": { params: unknown; result: unknown };
   "_acpmux/subsession/get": { params: unknown; result: unknown };
   "_acpmux/subsession/limits": { params: unknown; result: unknown };
   "_acpmux/subsession/list": { params: unknown; result: unknown };
@@ -56,6 +57,7 @@ export interface AcpmuxRequests {
   "_acpmux/worktree/clean": { params: unknown; result: unknown };
   "_acpmux/worktree/restore": { params: unknown; result: unknown };
   "_acpmux/kill": { params: unknown; result: unknown };
+  "_acpmux/watch_take_over": { params: unknown; result: unknown };
   "_acpmux/archive": { params: unknown; result: unknown };
   "_acpmux/side": { params: unknown; result: unknown };
   "_acpmux/btw": { params: unknown; result: unknown };
@@ -228,6 +230,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/answer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/limits", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/list", kind: "request", acp: false, typed: false },
@@ -253,6 +256,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/worktree/restore", kind: "request", acp: false, typed: false },
   { name: "_acpmux/process_update", kind: "notification", acp: false, typed: false },
   { name: "_acpmux/kill", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/watch_take_over", kind: "request", acp: false, typed: false },
   { name: "_acpmux/archive", kind: "request", acp: false, typed: false },
   { name: "_acpmux/side", kind: "request", acp: false, typed: false },
   { name: "_acpmux/btw", kind: "request", acp: false, typed: false },

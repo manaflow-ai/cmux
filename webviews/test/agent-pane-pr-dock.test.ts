@@ -9,6 +9,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -169,6 +170,7 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
 
   test("the chat's pull requests show above the composer, newest first", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(CHAT));
     await page.getByText("Three PRs open, the first merged.").waitFor();
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 10_000 });
@@ -200,7 +202,8 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       const overlap = await page.evaluate(async () => {
         const scroller = document.querySelector(".acpmux-scroll")!;
         scroller.scrollTop = scroller.scrollHeight;
-        await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+        await window.cmuxPaintFrame();
+        await window.cmuxPaintFrame();
         const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
         const rows = [...scroller.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect());
         const last = Math.max(...rows.map((row) => Math.min(row.bottom, scroller.getBoundingClientRect().bottom)));

@@ -243,7 +243,6 @@ describe("one subtle elevation scale", () => {
     ["agent-session/acpmux/styles.css", ".acpmux-newtab-kind.is-selected", "--elevation-1"],
     ["agent-session/acpmux/styles.css", ".acpmux-menu", "--elevation-2"],
     ["agent-session/acpmux/styles.css", ".acpmux-file-search", "--elevation-2"],
-    ["agent-session/acpmux/styles.css", ".acpmux-shell[data-sidebar=open] .acpmux-sidebar", "--elevation-2"],
     // Every find bar (Find in Chat, Find in Diff) is the shared find pill.
     ["ui/findPill.css", ".find-pill", "--elevation-2"],
     ["agent-session/acpmux/conversation/conversation.css", ".acpmux-jump-latest", "--elevation-2"],

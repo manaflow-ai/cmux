@@ -38,6 +38,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                              keywords: ["chief", "subagent", "agent", "open", "show", "chat"], category: .agents, symbol: "person.2",
                              surfaces: [.keyboard], targets: [.sidebarItem],
                              surfacePlan: plan(cli: .exempt(.focusMove), exemption: .focusMove, palette: .exempt(.focusMove))),
+            // Pins or unpins a session tree history chat (target: sidebar-item:<chat key>), as its row's
+            // right-click menu does (`SidebarChatHistory`); the row retitles it Pin or Unpin.
+            ActionDescriptor(id: "sidebar.chat.togglePin", title: t("action.sidebar.chat.togglePin", "Pin or Unpin Chat"),
+                             keywords: ["sidebar", "chat", "history", "earlier", "pin", "unpin"], category: .sidebar, symbol: "pin",
+                             surfaces: [.keyboard], targets: [.sidebarItem],
+                             surfacePlan: plan(cli: .exempt(.guiOnly), exemption: .liveInput, palette: .exempt(.liveInput))),
             ActionDescriptor(
                 id: "sidebar.item.add", title: t("action.sidebar.item.add", "Add to Sidebar…"),
                 keywords: ["sidebar", "section", "pin", "settings", "account", "history", "bookmarks", "notifications"],
@@ -104,12 +110,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-scrolling",
                 surfacePlan: plan(menus: [p(.sidebarSection, .move, 110, folder: .move)])
             ),
-            ActionDescriptor(
-                id: "sidebar.section.moveToBottom", title: t("action.sidebar.section.moveToBottom", "Move Section to Bottom"),
-                keywords: ["sidebar", "section", "move", "bottom", "pinned"], category: .sidebar, symbol: "arrow.down.to.line",
-                surfaces: [.palette, .keyboard, .contextMenu], targets: section, cliName: "sidebar move-section-bottom",
-                surfacePlan: plan(menus: [p(.sidebarSection, .move, 120, folder: .move)])
-            ),
+            // No Move Section to Bottom: the sidebar has no bottom area (cx-n0i9), so a section
+            // after the workspaces would not draw; Move to Top and Move to Scrolling Area are the moves.
             ActionDescriptor(
                 id: "sidebar.section.useBuiltInLook", title: t("action.sidebar.section.useBuiltInLook", "Built-in Look"),
                 keywords: ["sidebar", "section", "look", "style", "chrome", "built-in"], category: .sidebar, symbol: "house",

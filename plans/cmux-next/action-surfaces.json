@@ -2740,7 +2740,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Edit Group Config…",
+      "title" : "Edit Group Config",
       "title_key" : "action.workspaceGroup.editConfig",
       "title_table" : "ActionCatalog"
     },
@@ -4384,7 +4384,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Close All Workspaces in Group",
+      "title" : "Close Workspaces in Group",
       "title_key" : "action.workspaceGroup.closeWorkspaces",
       "title_table" : "ActionCatalog"
     },
@@ -7319,9 +7319,9 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
+      "cli" : "offered",
       "cli_name" : "pane open-files-as",
-      "context_menu" : "unimplemented",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -7332,7 +7332,7 @@
       "default_shortcut" : null,
       "id" : "palette.openFilesPane",
       "main_menu" : null,
-      "mcp" : "unimplemented",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.pane",
@@ -7347,9 +7347,9 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
+      "cli" : "offered",
       "cli_name" : "pane open-find-as",
-      "context_menu" : "unimplemented",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -7360,7 +7360,7 @@
       "default_shortcut" : null,
       "id" : "palette.openFindPane",
       "main_menu" : null,
-      "mcp" : "unimplemented",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.pane",
@@ -10207,6 +10207,34 @@
       "title" : "Send Message…",
       "title_key" : "action.home.sendMessage",
       "title_table" : "HomeActions"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action home-stop-all-agents",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "home.stopAllAgents",
+      "main_menu" : "file",
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Stop All Agents",
+      "title_key" : "action.home.stopAllAgents",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "devOnly",
@@ -14600,7 +14628,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Clear Browser History",
+      "title" : "Clear Browser History…",
       "title_key" : "action.palette.browserClearHistory",
       "title_table" : "ActionCatalog"
     },
@@ -21042,8 +21070,8 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
-      "cli_name" : "action agent-chat-toggle-notification-mute",
+      "cli" : "offered",
+      "cli_name" : "tab toggle-chat-notifications",
       "context_menu" : "offered",
       "context_menus" : [
         "tab"
@@ -21055,7 +21083,7 @@
       "default_shortcut" : null,
       "id" : "agentChat.toggleNotificationMute",
       "main_menu" : null,
-      "mcp" : "unimplemented",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.agents",
@@ -21891,13 +21919,20 @@
       "cli_name" : "agent fork-conversation-to-right",
       "context_menu" : "offered",
       "context_menus" : [
-        "terminalSelection"
+        "terminalSelection",
+        "agentChat"
       ],
       "default_aliases" : [
 
       ],
       "default_chord" : null,
-      "default_shortcut" : null,
+      "default_shortcut" : {
+        "key" : "y",
+        "modifiers" : [
+          "opt",
+          "cmd"
+        ]
+      },
       "id" : "palette.forkAgentConversationRight",
       "main_menu" : null,
       "mcp" : "offered",
@@ -21919,7 +21954,8 @@
       "cli_name" : "agent fork-conversation-to-left",
       "context_menu" : "offered",
       "context_menus" : [
-        "terminalSelection"
+        "terminalSelection",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -21947,7 +21983,8 @@
       "cli_name" : "agent fork-conversation-above",
       "context_menu" : "offered",
       "context_menus" : [
-        "terminalSelection"
+        "terminalSelection",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -21975,7 +22012,8 @@
       "cli_name" : "agent fork-conversation-below",
       "context_menu" : "offered",
       "context_menus" : [
-        "terminalSelection"
+        "terminalSelection",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -22003,7 +22041,8 @@
       "cli_name" : "agent fork-conversation-to-new-tab",
       "context_menu" : "offered",
       "context_menus" : [
-        "terminalSelection"
+        "terminalSelection",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -22031,7 +22070,8 @@
       "cli_name" : "agent fork-conversation-to-new-workspace",
       "context_menu" : "offered",
       "context_menus" : [
-        "terminalSelection"
+        "terminalSelection",
+        "agentChat"
       ],
       "default_aliases" : [
 
@@ -22052,6 +22092,35 @@
       "palette_suggested" : null,
       "title" : "Fork Conversation to New Workspace",
       "title_key" : "action.palette.forkAgentConversationNewWorkspace",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent fork-conversation-to-new-window",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "terminalSelection",
+        "agentChat"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "palette.forkAgentConversationNewWindow",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Fork Conversation to New Window",
+      "title_key" : "action.palette.forkAgentConversationNewWindow",
       "title_table" : "ActionCatalog"
     },
     {
@@ -22570,6 +22639,34 @@
       "palette_suggested" : null,
       "title" : "Copy Agent Identifier",
       "title_key" : "action.agentChat.copyIdentifier",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "agent view",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.view",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "View Chat Only",
+      "title_key" : "action.agentChat.view",
       "title_table" : "ActionCatalog"
     },
     {
@@ -23948,7 +24045,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Cloud Diagnostics…",
+      "title" : "Cloud Diagnostics",
       "title_key" : "action.cloudDiagnostics",
       "title_table" : "ActionCatalog"
     },
@@ -23983,7 +24080,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Team Picker",
+      "title" : "Team Picker…",
       "title_key" : "action.openTeamPicker",
       "title_table" : "ActionCatalog"
     },
@@ -24571,7 +24668,7 @@
         "title_table" : "RemoteActions"
       },
       "palette_suggested" : null,
-      "title" : "Open Remote Browser Tab",
+      "title" : "Open Remote Browser Tab…",
       "title_key" : "action.remote.openBrowserTab",
       "title_table" : "RemoteActions"
     },
@@ -29421,7 +29518,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Open History Entry",
+      "title" : "Open History Entry…",
       "title_key" : "action.history.open",
       "title_table" : "HistoryActions"
     },
@@ -31602,7 +31699,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Hide App",
+      "title" : "Hide App…",
       "title_key" : "action.app.hide",
       "title_table" : "AppStoreActions"
     },
@@ -31630,7 +31727,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Show Hidden App",
+      "title" : "Show Hidden App…",
       "title_key" : "action.app.unhide",
       "title_table" : "AppStoreActions"
     },
@@ -31966,7 +32063,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Open URL on Phone",
+      "title" : "Open URL on Phone…",
       "title_key" : "action.phone.openURL",
       "title_table" : "PhoneActions"
     },
@@ -31994,7 +32091,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Copy Text to Phone",
+      "title" : "Copy Text to Phone…",
       "title_key" : "action.phone.paste",
       "title_table" : "PhoneActions"
     },
@@ -32078,7 +32175,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Tap Phone Screen",
+      "title" : "Tap Phone Screen…",
       "title_key" : "action.phone.tap",
       "title_table" : "PhoneActions"
     },
@@ -32106,7 +32203,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Swipe on Phone",
+      "title" : "Swipe on Phone…",
       "title_key" : "action.phone.swipe",
       "title_table" : "PhoneActions"
     },
@@ -32134,7 +32231,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Type on Phone",
+      "title" : "Type on Phone…",
       "title_key" : "action.phone.type",
       "title_table" : "PhoneActions"
     },
@@ -32162,7 +32259,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Press Phone Button",
+      "title" : "Press Phone Button…",
       "title_key" : "action.phone.button",
       "title_table" : "PhoneActions"
     },
@@ -32218,7 +32315,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Set Phone Appearance",
+      "title" : "Set Phone Appearance…",
       "title_key" : "action.phone.appearance",
       "title_table" : "PhoneActions"
     },
@@ -32246,7 +32343,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Set Phone Location",
+      "title" : "Set Phone Location…",
       "title_key" : "action.phone.location",
       "title_table" : "PhoneActions"
     },
@@ -32274,7 +32371,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Set Phone Language",
+      "title" : "Set Phone Language…",
       "title_key" : "action.phone.locale",
       "title_table" : "PhoneActions"
     },
@@ -32302,7 +32399,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Install App on Phone",
+      "title" : "Install App on Phone…",
       "title_key" : "action.phone.install",
       "title_table" : "PhoneActions"
     },
@@ -32330,7 +32427,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Launch App on Phone",
+      "title" : "Launch App on Phone…",
       "title_key" : "action.phone.launch",
       "title_table" : "PhoneActions"
     },
@@ -33614,10 +33711,115 @@
           "order" : 1
         },
         {
+          "children" : [
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationRight",
+              "kind" : "action",
+              "order" : 0,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewTab",
+              "kind" : "action",
+              "order" : 1,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationLeft",
+              "kind" : "action",
+              "order" : 2,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationTop",
+              "kind" : "action",
+              "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationBottom",
+              "kind" : "action",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewWorkspace",
+              "kind" : "action",
+              "order" : 5,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewWindow",
+              "kind" : "action",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            }
+          ],
+          "folder" : "agent",
+          "kind" : "folder",
+          "order" : 2,
+          "title" : "Agent",
+          "title_key" : "menu.folder.agent",
+          "title_table" : "Localizable"
+        },
+        {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
           "enabled_when" : "can_perform",
           "id" : "appearance.changeBackground",
           "kind" : "action",
-          "order" : 2,
+          "order" : 4,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33733,7 +33935,7 @@
           "id" : "workspace.setTheme",
           "kind" : "choices",
           "label" : "Theme",
-          "order" : 3,
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33744,13 +33946,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 4
+          "order" : 6
         },
         {
           "enabled_when" : "can_perform",
           "id" : "cloudMove",
           "kind" : "action",
-          "order" : 5,
+          "order" : 7,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
@@ -33763,7 +33965,7 @@
           "enabled_when" : "can_perform",
           "id" : "cloudBringBack",
           "kind" : "action",
-          "order" : 6,
+          "order" : 8,
           "visible_when" : {
             "debug_only" : false,
             "feature" : "cloud",
@@ -33774,14 +33976,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 7
+          "order" : 9
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPaneZoomIn",
           "kind" : "action",
           "label" : "Zoom In",
-          "order" : 8,
+          "order" : 10,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33795,7 +33997,7 @@
           "id" : "agentPaneZoomOut",
           "kind" : "action",
           "label" : "Zoom Out",
-          "order" : 9,
+          "order" : 11,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33809,7 +34011,7 @@
           "id" : "agentPaneZoomReset",
           "kind" : "action",
           "label" : "Actual Size",
-          "order" : 10,
+          "order" : 12,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33820,14 +34022,14 @@
         },
         {
           "kind" : "separator",
-          "order" : 11
+          "order" : 13
         },
         {
           "enabled_when" : "can_perform",
           "id" : "find",
           "kind" : "action",
           "label" : "Find in Chat…",
-          "order" : 12,
+          "order" : 14,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33838,13 +34040,13 @@
         },
         {
           "kind" : "separator",
-          "order" : 13
+          "order" : 15
         },
         {
           "enabled_when" : "can_perform",
           "id" : "agentPane.toggleInspector",
           "kind" : "action",
-          "order" : 14,
+          "order" : 16,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -33857,7 +34059,7 @@
           "enabled_when" : "can_perform",
           "id" : "agentChat.copyIdentifier",
           "kind" : "action",
-          "order" : 15,
+          "order" : 17,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -41227,7 +41429,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "terminalFocused"
+
                 ]
               }
             },
@@ -41240,7 +41442,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "terminalFocused"
+
                 ]
               }
             },
@@ -41253,7 +41455,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "terminalFocused"
+
                 ]
               }
             },
@@ -41266,7 +41468,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "terminalFocused"
+
                 ]
               }
             },
@@ -41279,7 +41481,7 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "terminalFocused"
+
                 ]
               }
             },
@@ -41292,7 +41494,20 @@
                 "debug_only" : false,
                 "feature" : null,
                 "requires" : [
-                  "terminalFocused"
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "palette.forkAgentConversationNewWindow",
+              "kind" : "action",
+              "order" : 6,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
                 ]
               }
             }
