@@ -27,7 +27,9 @@ set -uo pipefail
 limit="${CMUX_NEXT_TEST_HANG_SECONDS:-1200}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 started_at=$(date +%s)
-log="$(mktemp "${TMPDIR:-/tmp}/swift-test-log.XXXXXX")"
+# The job's own temp dir, not the host's shared /tmp: a log there vanished
+# mid-run on #21185's CI, and the report then named no unfinished tests.
+log="$(mktemp "${RUNNER_TEMP:-${TMPDIR:-/tmp}}/swift-test-log.XXXXXX")"
 trap 'rm -f "$log" "$log".*' EXIT
 exec 3> >(tee "$log")
 tee_pid=$!
