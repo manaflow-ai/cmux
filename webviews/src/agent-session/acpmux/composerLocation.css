@@ -310,17 +310,17 @@
 .acpmux-access-item-iconless :is(.ui-menu-check, .ui-menu-shortcut) { grid-column: 2; }
 /* The harness's own title over its modes ("Mode", "How should actions be approved?"). */
 .acpmux-access-heading { padding: 4px 4px 2px; color: var(--agent-muted); font-size: var(--text-detail); line-height: 16px; }
-/* Claude Code's Recommended badge beside Auto. */
+/* Claude Code's Recommended badge beside Auto, on the name's line. */
+.acpmux-access-title { display: flex; align-items: center; gap: 6px; min-width: 0; }
 .acpmux-menu-badge {
+  flex: none;
   display: inline-block;
-  margin-inline-start: 6px;
   padding: 0 5px;
   border-radius: 4px;
   background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   color: var(--agent-soft, var(--agent-muted));
   font-size: var(--text-detail);
   line-height: 16px;
-  vertical-align: 1px;
 }
 .acpmux-access-grants {
   min-inline-size: 0;

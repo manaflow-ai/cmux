@@ -987,8 +987,15 @@ function AccessMenu({
                     </span>
                   )}
                   <span className="acpmux-menu-text">
-                    <span className="acpmux-menu-label">{choice.name}</span>
-                    {choice.recommended && <span className="acpmux-menu-badge">{RECOMMENDED_BADGE}</span>}
+                    {choice.recommended ? (
+                      // The name and Claude Code's Recommended badge on one line.
+                      <span className="acpmux-access-title">
+                        <span className="acpmux-menu-label">{choice.name}</span>
+                        <span className="acpmux-menu-badge">{RECOMMENDED_BADGE}</span>
+                      </span>
+                    ) : (
+                      <span className="acpmux-menu-label">{choice.name}</span>
+                    )}
                     {refusedIds.includes(choice.id) ? (
                       <span className="acpmux-menu-description">{refusedReason}</span>
                     ) : choice.description || unrestricted(choice.id) ? (
