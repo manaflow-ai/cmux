@@ -413,7 +413,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             guard byFolder else {
                 let fold = SidebarDoneFoldID(section: section.id, group: nil)
                 let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(nodes.map { $0.node }), parents: o.sessionTree?.parents),
-                                             workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold, options: o)
+                                             workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold,
+                                             limits: { !isGroup(nodes[$0]) }, options: o)
                 for (index, depth) in drawn {
                     guard index < 0 else { emit(index, nodes[index], depth: depth); continue }
                     Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
