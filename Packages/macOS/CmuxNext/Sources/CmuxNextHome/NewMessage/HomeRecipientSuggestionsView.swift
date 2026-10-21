@@ -55,6 +55,7 @@ public final class HomeRecipientSuggestionsView: NSView, NSTableViewDataSource, 
         emptyLabel.isHidden = true
         addSubview(emptyLabel)
         isHidden = true
+        HomeRecipientAvatarView.forgetPictures()
         applyColors()
     }
 

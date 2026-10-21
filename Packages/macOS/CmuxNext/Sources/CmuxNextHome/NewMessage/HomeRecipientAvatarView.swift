@@ -25,7 +25,10 @@ final class HomeRecipientAvatarView: NSView {
     private var picture: NSImage?
     private var loading: URL?
     /// Pictures already read, by file: the list rebuilds its rows on every keystroke.
+    /// Each New Message list starts empty (``forgetPictures()``), so a changed picture shows.
     private static var pictures: [URL: NSImage] = [:]
+
+    static func forgetPictures() { pictures = [:] }
 
     nonisolated override var isFlipped: Bool { true }
 
