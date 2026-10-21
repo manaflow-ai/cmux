@@ -189,7 +189,7 @@ final class PaneToolbar {
         }
         menu.addItem(.separator())
         menu.addItem(showInTabBarItem(registry: registry))
-        // Every row in the theme's highlight, like the sidebar's ⋮ menus (the New Tab rows already are).
+        // Every row in the theme's highlight, like the sidebar's ⋮ menus and the strip's plus.
         return menu.themeRows(in: view.themeScope.fullStrength)
     }
 
