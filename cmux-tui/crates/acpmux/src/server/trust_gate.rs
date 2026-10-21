@@ -8,7 +8,8 @@
 //! `_acpmux/handoff_start` that sends a capsule as a prompt, and the
 //! `_acpmux/btw` that opens a side session and prompts it) for a session in
 //! that folder is refused with `data.reason`:
-//! - `trust.pending`: no answer yet (the question is open);
+//! - `trust.pending`: no answer yet (the question is open), except for a chat whose agent
+//!   already runs (`pending_passes`): its prompts, mode and tools go through;
 //! - `trust.untrusted`: the user answered Don't trust.
 //!
 //! The level is `trust::session_level`: acpmux's decision, else the session's
@@ -126,7 +127,23 @@ pub(super) async fn check(
     // into another folder only when its chat already does (the fork takes its restriction).
     let restrictable =
         pane && (fork_cwd.is_none() || meta.restricted) && hub.restrictable(&meta).await;
-    if folder_answered(paths, cwd.clone(), family, web, restrictable).await? == Verdict::Trusted {
+    let answered = folder_answered(paths, cwd.clone(), family, web, restrictable).await;
+    // A fork, a side session and a handoff start an agent of their own: not a running chat's.
+    let same_agent = matches!(
+        m,
+        method::SESSION_PROMPT
+            | method::SESSION_SET_MODE
+            | method::SESSION_SET_CONFIG_OPTION
+            | method::MUX_SET_TOOLS
+    );
+    // A restricted chat that an open question lets through stays restricted.
+    let pass = if meta.restricted { Verdict::Restricted } else { Verdict::Trusted };
+    let answered = if same_agent && !web && running(&session) {
+        pending_passes(answered, pass)
+    } else {
+        answered
+    };
+    if answered? == Verdict::Trusted {
         // Trusted since: the chat's next agent starts without the restrictions.
         if meta.restricted && fork_cwd.is_none() {
             hub.set_restricted(&session, false).await;
@@ -150,6 +167,29 @@ fn not_restricted_yet(cwd: &str) -> RpcError {
     .with_data(json!({"reason": "restricted.busy", "cwd": cwd}))
 }
 
+/// Whether the chat already works in its folder: a turn of it ran or runs (`last_turn`, which a
+/// chat moved or imported from another daemon keeps). A chat only made (its agent started, no
+/// prompt yet) is not one, nor are the turns of a conversation it adopted (replayed, not run, so
+/// no `last_turn`) or a fork's copy of its parent's: the pane's first prompt still waits.
+fn running(session: &crate::hub::Session) -> bool {
+    session.meta().last_turn.is_some() || session.turn().is_some()
+}
+
+/// A chat whose agent already runs is never held up by an open trust question (a lane a
+/// coordinator started over the unix socket, in a folder nobody answered for, on 2026-10-21):
+/// its agent works in the folder whatever the answer, `pass`. Only Don't trust refuses its
+/// prompts. A Web client still waits: its folder needs a person's decision.
+fn pending_passes<T>(answered: Result<T, RpcError>, pass: T) -> Result<T, RpcError> {
+    match answered {
+        Err(e)
+            if e.data.as_ref().and_then(|d| d.get("reason")) == Some(&json!("trust.pending")) =>
+        {
+            Ok(pass)
+        }
+        answered => answered,
+    }
+}
+
 /// `web`: the prompt came from a Web client or a peer forwarding for one.
 pub(crate) async fn check_dispatch(
     hub: &Arc<Hub>,
@@ -164,7 +204,7 @@ pub(crate) async fn check_dispatch(
     let meta = session.meta();
     // A queued prompt of a chat that is restricted already goes; nothing becomes restricted here.
     let restrictable = !web && meta.restricted;
-    folder_answered(
+    let answered = folder_answered(
         paths,
         meta.cwd.to_string_lossy().into_owned(),
         meta.family.clone().unwrap_or(meta.harness.clone()),
@@ -172,7 +212,8 @@ pub(crate) async fn check_dispatch(
         restrictable,
     )
     .await
-    .map(|_| ())
+    .map(|_| ());
+    if !web && running(session) { pending_passes(answered, ()) } else { answered }
 }
 
 async fn check_new(

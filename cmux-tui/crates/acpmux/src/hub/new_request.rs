@@ -92,6 +92,11 @@ pub struct NewRequest {
     /// A restricted chat (`hub/restricted.rs`): the trust gate's verdict for a folder the person
     /// did not trust, or the chat it comes from (a side chat, a sub-session, a handoff target).
     pub restricted: bool,
+    /// Claude Code built-in tools this chat never gets
+    /// (`_meta.acpmux.disallowedTools`, checked by the caller): kept in its
+    /// meta as `tool:<name>` rows that are off, so every start of its Claude
+    /// Code passes `--disallowedTools <name>` (`tools.rs`).
+    pub disallowed_tools: Vec<String>,
 }
 
 /// Why the Claude conversation `sid` cannot be resumed on `profile` (None:

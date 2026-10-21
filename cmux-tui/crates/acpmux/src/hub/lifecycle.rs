@@ -30,6 +30,7 @@ impl Hub {
             route,
             subsession,
             restricted,
+            disallowed_tools,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -145,12 +146,16 @@ impl Hub {
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
         meta.restricted = restricted;
+        meta.tools
+            .off
+            .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
         // A pooled harness started without this session's env: never claimed.
         let pooled = match &adopt {
-            // A pooled harness was started without this chat's route: never claimed.
-            None if meta.session_env.is_empty() && route.is_none() => {
+            // A pooled harness was started without this chat's route or its
+            // disallowed tools: never claimed.
+            None if meta.session_env.is_empty() && route.is_none() && meta.tools.off.is_empty() => {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
             _ => None,
