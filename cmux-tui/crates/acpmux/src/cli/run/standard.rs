@@ -564,7 +564,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
 /// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent
 /// with `--no-wait` does (inter-session messages land in the running turn instead of waiting
 /// minutes for it to end), while a send that waits for its reply queues: a steer is answered
-/// `steered` as soon as the agent reads it, before the reply.
+/// `steered` as soon as the agent reads it, before the reply. A steer never stops a turn: the
+/// agent reads it at its next tool boundary, and to an agent that does not steer it queues.
 fn send_steers(steer: bool, no_steer: bool, no_wait: bool) -> bool {
     !no_steer && (steer || no_wait)
 }
