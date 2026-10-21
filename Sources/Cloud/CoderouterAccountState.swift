@@ -256,6 +256,8 @@ final class CoderouterAccountStore {
     @ObservationIgnored private var scopeChangeObserver: NSObjectProtocol?
 
     init() {
+        // Configurations a crash or a killed setup terminal left behind.
+        Task.detached(priority: .utility) { CoderouterAppCLISession.sweepAllStaleSessions() }
         scopeChangeObserver = NotificationCenter.default.addObserver(
             forName: .cmuxCloudTeamScopeDidChange,
             object: nil,

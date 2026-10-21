@@ -558,8 +558,9 @@ struct MachinesPanelView: View {
         } catch {
             let failure = CoderouterCLIFailure.classify(error)
             Self.coderouterLogger.error("CodeRouter account refresh failed (\(String(describing: failure), privacy: .public)): \(error.localizedDescription, privacy: .public)")
-            // Never let an old scope's failure clear or authorize a replacement.
-            guard !Task.isCancelled, currentCoderouterScope == scope else { return }
+            // Never let an old scope's failure clear or authorize a replacement,
+            // and let a session mid-revalidation retry on the next tick.
+            guard !Task.isCancelled, currentCoderouterScope == scope, failure != .sessionChanging else { return }
             // Same-team rows remain useful during a transient error, but the
             // add destination is withdrawn until a fresh read succeeds.
             coderouterStore.state.fail(failure, for: scope, startedAt: readRevision)
@@ -675,7 +676,9 @@ struct MachinesPanelView: View {
                     credentials: credentials,
                     teamID: scope.teamID,
                     teamName: teamName,
-                    endpoints: .current
+                    endpoints: .current,
+                    root: CoderouterAppCLISession.addSession.root(),
+                    staleAge: CoderouterAppCLISession.addSession.staleAge
                 )
             } catch {
                 viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)

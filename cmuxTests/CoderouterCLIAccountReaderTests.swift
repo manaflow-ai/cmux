@@ -195,7 +195,7 @@ struct CoderouterCLIAccountReaderTests {
                 run: { arguments in
                     await commands.append(arguments)
                     throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "coderouter: server returned HTTP 503",
+                        NSLocalizedDescriptionKey: "coderouter: list coderouter accounts: coderouter is temporarily unavailable; retry shortly [HTTP 503]",
                     ])
                 }
             )
