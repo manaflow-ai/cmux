@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample sessions and files), not shipped UI.
 // The session side rail (Debug Settings `agent.sessionRail`) as the real SessionRail renders it beside a chat: a
 // local chat with some context used and three files written, and a Cloud chat before its first
-// usage report and edit. Light and dark come from the gallery's theme switch.
+// usage report and edit, and a chat whose harness reported MCP servers. Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
@@ -57,6 +57,26 @@ export default componentEntry<Props>({
         outputs: sessionSummary(local.rows).outputs,
       },
       play: toggleContext,
+    },
+    connectors: {
+      note: "A Claude Code chat that loaded three MCP servers, one failed and one still connecting; Connectors open.",
+      props: {
+        summary: {
+          ...local.summary!,
+          usage: { used: 24_000, size: 200_000 },
+          mcpServers: [
+            { name: "github", status: "connected" },
+            { name: "linear", status: "failed" },
+            { name: "sentry", status: "pending" },
+          ],
+        },
+        machineName: "Studio",
+        outputs: sessionSummary(local.rows).outputs,
+      },
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /Connectors/ });
+        await ctx.waitFor(() => /sentry/.test(ctx.document.querySelector(".acpmux-rail")?.textContent ?? ""));
+      },
     },
     "cloud-empty": {
       note: "A Cloud chat before the agent reports usage or edits anything: Context reads a dash.",

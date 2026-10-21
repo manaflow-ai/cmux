@@ -3,6 +3,11 @@
 //! kept once under `<ACPMUX_HOME>/attachments`, and `_acpmux/attachment` hands an image back to
 //! whoever can read the session, also after a restart. An id the session never sent reads nothing.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;

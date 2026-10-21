@@ -258,7 +258,16 @@ function Lanes({ state, dispatch }: { state: ActivityState; dispatch: (a: any) =
                       <span className="lane-dot" />
                       <span className="lane-title">{lane.title}</span>
                       <span className="lane-status">{laneStatus(lane, now, state.strings)}</span>
-                      {lane.error && <span className="lane-error">{lane.error}</span>}
+                      {lane.error ? (
+                        <span className="lane-error">{lane.error}</span>
+                      ) : (
+                        (lane.harness || lane.step) && (
+                          <span className="lane-detail">
+                            {lane.harness && <span className="lane-harness">{lane.harness}</span>}
+                            {lane.step && <span className="lane-step">{lane.step}</span>}
+                          </span>
+                        )
+                      )}
                     </button>
                   </li>
                 ))}

@@ -12,6 +12,8 @@
 //! sizing reducer to prove the pipeline: records, enums, an object, a
 //! foreign-implemented callback and an error all cross the boundary, and the
 //! shared fixtures run in Rust, Swift and Kotlin.
+//!
+//! [`ownership`] binds the `cmux.wire/1` stream mirror (object-sync phase 1).
 
 use std::fmt;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -23,6 +25,8 @@ use cmux_mobile_core::sizing::{
 };
 
 uniffi::setup_scaffolding!();
+
+pub mod ownership;
 
 /// A terminal grid in cells.
 #[uniffi::remote(Record)]

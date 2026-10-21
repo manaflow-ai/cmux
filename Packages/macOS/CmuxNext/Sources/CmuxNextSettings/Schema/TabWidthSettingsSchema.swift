@@ -9,7 +9,7 @@ nonisolated enum TabWidthSettingsSchema {
         let densityDefault = SettingsText.keyed("settings.default.density", "Density default")
         return [
             // Shrink (Chrome's) or Scroll (cx-kp9b4): the palette's Tabs: Use Scrolling Tabs and Tabs: Use
-            // Shrinking Tabs, and the strip's one-time hint at the minimum width, write it.
+            // Shrinking Tabs write it. Either way a crowded strip scrolls; it never asks.
             SettingDescriptor(
                 TabOverflowSetting.configPath, section: .general, group: group,
                 title: SettingsText.keyed("settings.tabs.overflow", "Tab Overflow"),

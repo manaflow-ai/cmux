@@ -24,7 +24,7 @@ public final class AgentPresenceTagView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override public var wantsUpdateLayer: Bool { true }
+    nonisolated override public var wantsUpdateLayer: Bool { true }
     override public var isFlipped: Bool { true }
     override public func hitTest(_ point: NSPoint) -> NSView? { nil }
 
@@ -50,7 +50,7 @@ public final class AgentPresenceTagView: NSView {
     /// the cell cut 3-4 characters at that width. The cell needs its
     /// `cellSize` plus about a point (measured on macOS 26).
     private var labelSize: NSSize {
-        let cell = label.cell?.cellSize ?? label.intrinsicContentSize
+        let cell = label.naturalSize
         return NSSize(width: ceil(cell.width) + 1, height: ceil(label.intrinsicContentSize.height))
     }
 

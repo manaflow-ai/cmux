@@ -1,4 +1,5 @@
 public import CmuxNextDesign
+import Foundation
 
 /// cmux's own window background (`appearance.backgroundOpacity`,
 /// `appearance.backgroundBlur` in cmux.json), loaded after the Ghostty
@@ -16,6 +17,33 @@ extension GhosttyRuntime {
     /// host paints the override (`GhosttyRuntimeSurfacePolicy`). Set, then
     /// call `reloadConfig()`.
     public static var terminalBackgroundOverridden = false
+
+    /// The terminal hosts the window is see-through around (`TerminalHostView.paintBackground`).
+    /// Over art a window is see-through at any opacity (`WindowBackdrop`): while some host is, the
+    /// surfaces draw a transparent default background and the hosts paint what the panes paint
+    /// there (`GhosttyRuntimeSurfacePolicy`).
+    private static let seeThroughHosts = NSHashTable<AnyObject>.weakObjects()
+
+    /// Whether some terminal sits in a see-through window.
+    static var seeThroughShown: Bool { !seeThroughHosts.allObjects.isEmpty }
+
+    /// Records whether the window is see-through around `host`, and reloads the config when that
+    /// turns ``seeThroughShown`` on or off.
+    static func setSeeThrough(_ seeThrough: Bool, host: AnyObject) {
+        if seeThrough { seeThroughHosts.add(host) } else { seeThroughHosts.remove(host) }
+        guard seeThroughShown != seeThroughLoaded, !seeThroughReloadPending else { return }
+        // Not inside the theme pass that asked: the reload repaints the hosts again. One reload
+        // per turn, and none when the set flipped back (a host moving between superviews).
+        seeThroughReloadPending = true
+        DispatchQueue.main.async {
+            seeThroughReloadPending = false
+            if seeThroughShown != seeThroughLoaded { shared.reloadConfig() }
+        }
+    }
+
+    /// The ``seeThroughShown`` the loaded config's surface policy read.
+    static var seeThroughLoaded = false
+    private static var seeThroughReloadPending = false
 
     /// Config lines that turn the config's `background-opacity` and
     /// `background-blur` into what `background` resolves them to; empty

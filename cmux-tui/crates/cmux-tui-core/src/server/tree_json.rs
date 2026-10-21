@@ -97,7 +97,9 @@ pub(super) fn pane_json(
                 .get(sid)
                 .filter(|_| surface.is_none_or(|surface| surface.is_dead()))
                 .and_then(|tab| notifications.presentation.kept_tabs.get(tab.as_str()));
-            let relaunch = kept.map(|kept| json!({"cwd": kept.cwd}));
+            let relaunch = kept.map(|kept| {
+                crate::state::kept_tab_store::relaunch_json(kept.cwd.as_deref(), kept.on_show)
+            });
             // R41: a terminal tab with no runtime surface is dead only when
             // its terminal really ended; a host still being adopted, or one
             // this build cannot adopt, keeps running its shell.
@@ -255,6 +257,9 @@ fn workspace_json(
         "key": workspace.key,
         "short_id": short_ids.get(&workspace.id).cloned().unwrap_or_default(),
         "name": workspace.name,
+        // `workspace-name-source-v1`: the revision is a decimal string, as on tabs.
+        "name_source": workspace.name_source,
+        "name_revision": workspace.name_revision.to_string(),
         "group": presentation.and_then(|presentation| presentation.group.as_deref()),
         "color": presentation.and_then(|presentation| presentation.color.as_deref()),
         "icon": presentation.and_then(|presentation| presentation.icon.as_deref()),

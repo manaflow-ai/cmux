@@ -60,6 +60,9 @@ extension CloudMachine {
         case "failed": .failed
         default: .unknown
         }
+        // The record's `capabilities` are machine capability names
+        // (`agent_session`, …), not provider operations, so the machine
+        // declares none and every Cloud action stays available.
         self.init(id: id, provider: "cmux-next", status: status, displayName: value["name"]?.stringValue)
     }
 }

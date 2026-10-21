@@ -28,11 +28,8 @@ public nonisolated enum SidebarCollapseMotionVariant: String, Sendable, CaseIter
 /// The title keeps its measured slot in every variant, so a late name never
 /// causes a row reflow or a one-frame blank replacement.
 public nonisolated enum SidebarWorkspaceTitleMotionVariant: String, Sendable, CaseIterable, Hashable, TunableChoice {
-    /// Set the title immediately, matching the existing behavior.
     case instant
-    /// Crossfade the old and new title in the same slot.
     case crossfade
-    /// Push the new title up through the old title, keeping the row geometry fixed.
     case lift
 
     public var tunableTitle: String {
@@ -68,6 +65,12 @@ public nonisolated enum SidebarTunables {
         help: "Where the middle band of a loose workspace row ends. Equal to the start turns grouping on drop off.",
         default: 0.7, range: 0.5...1, step: 0.01, unit: .fraction, code: "SidebarTunables.workspaceOntoEnd")
 
+    /// How far a press moves before it drags (`SidebarPress.dragThreshold`; Leo 2026-10-20: a click never drags).
+    public static let dragThreshold = Tunable<CGFloat>.number(
+        "sidebar.drag.threshold", .sidebar, "Drag start distance",
+        help: "How far a press on a sidebar row, tab row or tile moves before it drags; a shorter move stays a click.",
+        default: 6, range: 2...16, step: 0.5, unit: .points, code: "SidebarTunables.dragThreshold")
+
     public static let agentMark = Tunable<SidebarAgentMarkVariant>.choice(
         "sidebar.agentMark", .sidebar, "Agent mark",
         help: "Where a workspace row draws the brand mark of an agent running in it (R79 prototype).",
@@ -95,14 +98,35 @@ public nonisolated enum SidebarTunables {
         default: .slide, code: "SidebarTunables.collapseMotion")
 
     /// The transition used when a workspace row receives its generated or
-    /// agent-derived title after creation. This is a debug-only comparison
-    /// point; instant remains the shipped default until the motion is reviewed.
+    /// agent-derived title after creation. Crossfade is the shipped default (#21242).
     public static let workspaceTitleMotion = Tunable<SidebarWorkspaceTitleMotionVariant>.choice(
         "sidebar.workspaceTitleMotion", .sidebar, "Workspace title motion",
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
-        default: .crossfade, code: "SidebarTunables.workspaceTitleMotion")
+        default: .instant, code: "SidebarTunables.workspaceTitleMotion")
 
+    /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
+    /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
-        [groupEdgeFraction, groupExitFraction, sectionTopFraction, workspaceOntoStart, workspaceOntoEnd].map(\.descriptor) + [agentMark.descriptor, presenceDots.descriptor, SidebarRowBadgeStyle.tunable.descriptor, SidebarRowBadgeStackCap.tunable.descriptor, rowBadgePreview.descriptor, collapseMotion.descriptor, workspaceTitleMotion.descriptor, NotificationBadgeLook.tunable.descriptor, NotificationIconLook.tunable.descriptor, updateCardButton.descriptor, SidebarChatsDesign.tunable.descriptor] + SidebarSectionTunables.all
+        [
+            agentMark.descriptor,
+            collapseMotion.descriptor,
+            dragThreshold.descriptor,
+            groupEdgeFraction.descriptor,
+            groupExitFraction.descriptor,
+            NotificationBadgeLook.tunable.descriptor,
+            NotificationIconLook.tunable.descriptor,
+            presenceDots.descriptor,
+            rowBadgePreview.descriptor,
+            sectionTopFraction.descriptor,
+            SidebarChatsDesign.tunable.descriptor,
+            SidebarGroupHeaderStyle.tunable.descriptor,
+            SidebarGroupPalette.tunable.descriptor,
+            SidebarRowBadgeStackCap.tunable.descriptor,
+            SidebarRowBadgeStyle.tunable.descriptor,
+            updateCardButton.descriptor,
+            workspaceOntoEnd.descriptor,
+            workspaceOntoStart.descriptor,
+            workspaceTitleMotion.descriptor,
+        ] + SidebarSectionTunables.all
     }
 }

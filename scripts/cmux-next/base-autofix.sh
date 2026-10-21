@@ -10,8 +10,6 @@
 #   - the CI target graph: rewrites Packages/macOS/CmuxNext/ci-target-graph.json
 #     from FILE, the package's `swift package dump-package` output (Swift 6.2
 #     on Linux dumps the same manifest as the Mac);
-#   - page strings: every React page's generated/strings.json from its xcstrings
-#     catalogs (webviews/scripts/pages/gen-strings.mjs; with --strings);
 #   - SDK wire layers: every language binding's generated files from
 #     cmux-tui/spec/sdk-schema.json (cmux-tui/bindings/codegen/generate.py; with --sdk);
 #   - the docs shortcuts: web/data/cmux-shortcuts.generated.json from the
@@ -33,9 +31,13 @@
 #     workflow's read-only webviews-fmt job (it installs webviews' packages,
 #     which never run next to the push token); a patch reaching outside
 #     webviews/, or into its package.json or lockfile, is not applied
-#     (with --webviews-fmt-patch PATCH);
+#     (with --webviews-fmt-patch PATCH). The base autofix's job also rebuilds the Chief memory
+#     inspector page (build-optchat-inspector-web.sh, which bundles webviews
+#     sources), so the patch may also carry
+#     Native/OptChat/optchat-chief/inspector/index.html (a stale page left after
+#     #22839 broke every webviews bundle build);
 #   - cmux-tui tree inputs: reports each embed check_cmux_tui_tree_inputs.py
-#     finds missing (the fix edits a workflow file, which GITHUB_TOKEN cannot push);
+#     finds missing;
 #   - the app FFI pin: reports a stale pin (Package.swift is frozen; the
 #     app-ffi-repin pull request carries it);
 #   - formatting: cargo fmt over the cmux-tui workspace and each OptChat crate
@@ -55,12 +57,12 @@
 # Usage: scripts/cmux-next/base-autofix.sh [--generated DIR] [--package-dump FILE] [--strings] [--sdk] [--docs-shortcuts] [--app-host] [--unverified-exports] [--unverified-settings-exports] [--ratchets] [--cloud-clients] [--webviews-fmt-patch PATCH] [--no-fmt] REPO
 set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-generated="" package_dump="" strings=0 sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
+generated="" package_dump="" sdk=0 docs_shortcuts=0 app_host=0 unverified_exports=0 unverified_settings=0 ratchets=0 cloud_clients=0 webviews_patch="" fmt=1
 while (( $# > 1 )); do
   case "$1" in
     --generated) generated="$2"; shift 2 ;;
     --package-dump) package_dump="$2"; shift 2 ;;
-    --strings) strings=1; shift ;;
+    --strings) shift ;; # a no-op since #21946 (page strings are build output)
     --sdk) sdk=1; shift ;;
     --docs-shortcuts) docs_shortcuts=1; shift ;;
     --app-host) app_host=1; shift ;;
@@ -113,23 +115,8 @@ if [[ -n "$package_dump" ]]; then
   fi
 fi
 
-# 1c. Page strings. The generator writes every stale page; a frozen one is put
-# back as it was and reported.
-if (( strings )) && [[ -f "$repo/webviews/scripts/pages/gen-strings.mjs" ]]; then
-  if ! (cd "$repo" && node webviews/scripts/pages/gen-strings.mjs --check >/dev/null 2>&1); then
-    (cd "$repo" && node webviews/scripts/pages/gen-strings.mjs >/dev/null)
-    changed="$(git -C "$repo" ls-files --modified --others --exclude-standard -- webviews)"
-    while IFS= read -r rel; do
-      [[ "$rel" == */generated/strings.json ]] || continue
-      if frozen "$rel"; then
-        git -C "$repo" checkout --quiet -- "$rel" 2>/dev/null || rm -f "$repo/$rel"
-        echo "skipped (frozen): $rel (stale; node webviews/scripts/pages/gen-strings.mjs)"
-      else
-        echo "fixed: regenerated $rel"
-      fi
-    done <<<"$changed"
-  fi
-fi
+# 1c. (Page strings: build output since #21946, never committed. --strings is
+# still accepted, as a no-op, for callers that pass it.)
 
 # 1d. SDK wire layers. A frozen one is put back as it was and reported.
 if (( sdk )) && [[ -f "$repo/cmux-tui/bindings/codegen/generate.py" ]]; then
@@ -236,11 +223,18 @@ if (( cloud_clients )) && [[ -f "$repo/$protocol/scripts/export-rust-client.ts" 
   done <<<"$(sort -u <<<"$changed")"
 fi
 
-# 1h. Webviews formatting, from the read-only job's patch.
+# 1h. Webviews formatting and the inspector page, from the read-only job's patch.
+inspector_page=Native/OptChat/optchat-chief/inspector/index.html
 if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
   outside="" include=()
   while IFS=$'\t' read -r _ _ rel; do
-    if [[ "$rel" != webviews/* || "$rel" == webviews/package.json || "$rel" == webviews/bun.lock || "$rel" == */node_modules/* ]]; then
+    if [[ "$rel" == "$inspector_page" ]]; then
+      if frozen "$rel"; then
+        echo "skipped (frozen): $rel (stale; scripts/cmux-next/build-optchat-inspector-web.sh)"
+      else
+        include+=("--include=$rel")
+      fi
+    elif [[ "$rel" != webviews/* || "$rel" == webviews/package.json || "$rel" == webviews/bun.lock || "$rel" == */node_modules/* ]]; then
       outside+="$rel "
     elif frozen "$rel"; then
       echo "skipped (frozen): $rel (unformatted; vp fmt in webviews)"
@@ -252,16 +246,20 @@ if [[ -n "$webviews_patch" && -s "$webviews_patch" ]]; then
     echo "left: the webviews formatting patch reaches $outside; nothing applied (vp fmt in webviews by hand)"
   elif (( ${#include[@]} )); then
     git -C "$repo" apply "${include[@]}" "$webviews_patch"
-    for arg in "${include[@]}"; do echo "fixed: vp fmt ${arg#--include=}"; done
+    for arg in "${include[@]}"; do
+      if [[ "${arg#--include=}" == "$inspector_page" ]]; then
+        echo "fixed: rebuilt $inspector_page"
+      else
+        echo "fixed: vp fmt ${arg#--include=}"
+      fi
+    done
   fi
 fi
 
-# 2. cmux-tui tree inputs: reported only. Each must also be a pull_request_target
-# path of cmux-tui-artifacts.yml, a workflow file GITHUB_TOKEN cannot push, and
-# the two lists must change together.
+# 2. cmux-tui tree inputs: reported only; a person adds them by hand.
 missing="$(python3 -I "$script_dir/../ci/check_cmux_tui_tree_inputs.py" --root "$repo" 2>&1 >/dev/null | grep -E '^(blob|tree) ' || true)"
 while IFS= read -r entry; do
-  [[ -n "$entry" ]] && echo "left: cmux-tui tree input $entry (add it to scripts/cmux-next/cmux-tui-tree-inputs.txt and .github/workflows/cmux-tui-artifacts.yml by hand)"
+  [[ -n "$entry" ]] && echo "left: cmux-tui tree input $entry (add it to scripts/cmux-next/cmux-tui-tree-inputs.txt by hand)"
 done <<<"$missing"
 
 # 3. The app FFI pin (reported only: Package.swift is frozen).

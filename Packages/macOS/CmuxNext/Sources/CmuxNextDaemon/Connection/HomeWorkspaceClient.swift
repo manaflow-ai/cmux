@@ -118,19 +118,24 @@ public struct NewConversationTabRequest: DaemonRequest {
 
 /// The new pane of a conversation tab's split (`new-conversation-tab {split}`,
 /// `conversation-tab-split-v1`): its side of the source pane and the client-minted pane id
-/// (`split-client-keys-v1`), so the daemon's pane replaces the provisional one by that id.
+/// (`split-client-keys-v1`), so the daemon's pane replaces the provisional one by that id, and
+/// the client-minted split id (`split-client-split-id-v1`), so the daemon's split is the one shown.
 public struct ConversationTabSplit: Encodable, Sendable, Hashable {
     public var direction: SplitDirection
     public var paneID: String
+    /// Nil for a daemon without `split-client-split-id-v1`.
+    public var splitID: String?
 
-    public init(direction: SplitDirection, paneID: String) {
+    public init(direction: SplitDirection, paneID: String, splitID: String?) {
         self.direction = direction
         self.paneID = paneID
+        self.splitID = splitID
     }
 
     enum CodingKeys: String, CodingKey {
         case direction
         case paneID = "pane_id"
+        case splitID = "split_id"
     }
 }
 

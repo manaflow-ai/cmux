@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -24,6 +25,12 @@ extension RemoteTerminalService {
             registry.refuse(RemoteStrings.moveBrowserAcrossMachines)
             return completion(false)
         }
+        // A chat, New Tab, Home or page tab has no terminal to reference there: it says so
+        // instead of failing with the generic "could not move" (it stays where it was).
+        guard tab.kind == .pty || tab.kind == .remoteTerminal else {
+            registry.refuse(RemoteStrings.moveTabAcrossMachines)
+            return completion(false)
+        }
         guard let target = Self.landingPane(in: workspace) else {
             // An empty workspace (no pane yet) cannot hold the tab.
             registry.refuse(RefusalStrings.noPaneID(workspace.displayName))
@@ -41,7 +48,7 @@ extension RemoteTerminalService {
             guard let path = resourcePath(of: target, in: workspace) else { return completion(false) }
             let known = resource(for: ref, on: destination)
             let index = target.tabs.count
-            let name = tab.name
+            let (name, pinned) = (tab.name, tab.pinned)
             registry.track(Task { [weak self] in
                 do {
                     var resource = known
@@ -50,7 +57,9 @@ extension RemoteTerminalService {
                         completion(false)
                         return ActionWorkFailure(RemoteStrings.machineHasNoTerminal)
                     }
-                    _ = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
+                    let projected = try await destinationConnection.projectTerminal(resource, into: path, index: index, name: name)
+                    // Its pin comes home too (best effort, like the name on the way out).
+                    if pinned { try? await destinationConnection.state.setTabPinned(projected.id, true) }
                     _ = try? await destinationConnection.setTerminalKeep(.terminal(ref.terminalID), keep: false)
                     try await sourceConnection.closeTab(surface)
                     self?.forget(tabID: tab.id)
@@ -81,12 +90,17 @@ extension RemoteTerminalService {
             return completion(false)
         }
         let terminalConnection = tab.kind == .remoteTerminal ? services.machines.daemon(session: ref.sessionID)?.connection : sourceConnection
+        let (name, pinned) = (tab.name.flatMap { $0.isEmpty ? nil : $0 }, tab.pinned)
         registry.track(Task { [weak self] in
             do {
                 // Kept first: closing the old tab must never end it.
                 let kept = try? await terminalConnection?.keepTerminal(ref.terminalID)
                 if let known = kept ?? resource { self?.remember(ref, resource: known) }
-                _ = try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title)
+                let created = try await destinationConnection.newRemoteTerminalTab(ref, in: targetHandle, title: title)
+                // The new tab is the same tab to the user: its name and pin come along. A daemon
+                // without tab metadata keeps the tab unpinned; the move still lands.
+                if let name { try? await destinationConnection.renameTab(created.surface, to: name) }
+                if pinned { _ = try? await destinationConnection.setTabPinned(created.surface, true) }
                 try await sourceConnection.closeTab(surface)
                 self?.forget(tabID: tab.id)
                 completion(true)
@@ -147,7 +161,7 @@ extension RemoteTerminalService {
     /// The name stored on a reference (the placeholder label while the
     /// session is away).
     func sessionName(of daemon: DaemonService) -> String {
-        if daemon.isLocal { return daemon.identity?.machineName ?? MacName.kernelHostName() }
+        if daemon.isLocal { return daemon.identity?.machineName ?? MacName().kernelHostName() }
         return services.machines.machineName(daemon.machineID) ?? daemon.identity?.machineName ?? daemon.identity?.session ?? daemon.machineID
     }
 

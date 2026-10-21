@@ -15,7 +15,10 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
-pub(crate) use command::{command_env, harness_command};
+pub(crate) use command::{
+    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
+    host_environment,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -149,6 +152,9 @@ pub struct ChildAgent {
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
     hosted: Option<Hosted>,
+    /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
+    /// decided at its session/new or load), for a fork through it.
+    pub all_tools: std::sync::atomic::AtomicBool,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -213,9 +219,7 @@ impl ChildAgent {
         let mut cmd = harness_command(name, profile, cwd, command_line, session)?;
         #[cfg(windows)]
         cmd.creation_flags(crate::job::AGENT_FLAGS);
-        let mut child = cmd
-            .spawn()
-            .with_context(|| format!("spawn agent {name}: {}", profile.argv.join(" ")))?;
+        let mut child = cmd.spawn().with_context(|| format!("spawn agent {name}"))?;
         #[cfg(windows)]
         let job = {
             let contained = child
@@ -249,6 +253,7 @@ impl ChildAgent {
             translator: translator.clone(),
             codex,
             hosted: None,
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job,
         });
@@ -907,6 +912,7 @@ impl ChildAgent {
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job: None,
         });
@@ -1064,4 +1070,30 @@ async fn end_still_running(procs: Vec<crate::agent_host::tree::Started>) {
     let _ =
         tokio::task::spawn_blocking(move || crate::agent_host::tree::kill_still_running(&procs))
             .await;
+}
+
+#[cfg(all(test, unix))]
+mod spawn_error_tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn direct_spawn_failure_does_not_expose_harness_argv() {
+        const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
+        let profile: HarnessProfile = serde_json::from_value(serde_json::json!({
+            "argv": ["/nonexistent/acpmux-test-harness", "--token", SENTINEL]
+        }))
+        .unwrap();
+        let (inbound, _rx) = mpsc::channel(1);
+        let tap: Tap = Arc::new(|_, _, _| true);
+        let error =
+            match ChildAgent::spawn("missing", &profile, &std::env::temp_dir(), inbound, tap).await
+            {
+                Ok(_) => panic!("a missing harness started"),
+                Err(error) => error,
+            };
+        assert!(
+            !error.to_string().contains(SENTINEL),
+            "spawn failure exposed harness argv: {error:#}"
+        );
+    }
 }

@@ -17,6 +17,8 @@ mkdir -p "$TMP/bin" "$TMP/steptmp" "$TMP/dev"
 cat > "$TMP/bin/xcodebuild" <<EOF
 #!/bin/bash
 if [[ "\$1" == "-version" ]]; then echo "Xcode 26.6"; exit 0; fi
+# The kept path's binary-module guard resolves packages first; not a build.
+for arg in "\$@"; do [[ "\$arg" == -resolvePackageDependencies ]] && exit 0; done
 while [[ \$# -gt 0 ]]; do
   if [[ "\$1" == "-derivedDataPath" ]]; then
     printf '%s\n' "\$2" >> "$TMP/paths"
@@ -72,5 +74,17 @@ SC_ARG="$TMP/kept-dd" run STUB_STALE_ONCE=1 || fail "kept-path retry run exited 
 [[ $(wc -l < "$TMP/paths") -eq 2 ]] || fail "kept path built $(wc -l < "$TMP/paths") times (want 2: build + retry)"
 [[ $(sort -u "$TMP/paths") == "$TMP/kept-dd" ]] || fail "kept DerivedData not used"
 [[ -d "$TMP/kept-dd" ]] || fail "kept DerivedData was removed"
+
+# 4. A new kept path outside /tmp and the glaeda cache (a runner's RUNNER_TEMP
+#    on Blacksmith or hosted macOS) builds: it has no outputs to clear, so the
+#    binary-module guard never asks clear-stale-scheme-build-state.sh. (That
+#    script accepts only $RUNNER_TEMP's cmux-next-* and cmux-scheme-compile
+#    outside /tmp and the glaeda cache.)
+reset
+outside="$ROOT/.scheme-dd-test.$$"
+trap 'rm -rf "$TMP" "$outside"' EXIT
+SC_ARG="$outside" run || fail "a new kept path outside /tmp exited $?"
+[[ $(sort -u "$TMP/paths") == "$outside" ]] || fail "the new kept DerivedData was not used"
+[[ -s "$outside/.cmux-binary-module-inputs" ]] || fail "the guard wrote no header digest"
 
 printf 'scheme compile DerivedData tests: ok\n'

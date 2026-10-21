@@ -32,7 +32,9 @@ public final class BrowserPrompt: Identifiable {
         case .permission(.automaticDownloads), .permission(.location), .permission(.notifications): .cancel
         case .permission: .deny
         case .alert: .accept
-        case .confirm, .textInput, .credentials, .openExternalApp, .savePassword: .cancel
+        // A tab closed without asking (quit, a replaced page) leaves the page.
+        case .beforeUnload: .accept
+        case .confirm, .textInput, .credentials, .openExternalApp, .savePassword, .verificationOffer: .cancel
         }
     }
 }

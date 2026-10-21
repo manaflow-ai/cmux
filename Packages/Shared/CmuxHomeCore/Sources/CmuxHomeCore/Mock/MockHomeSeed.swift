@@ -62,7 +62,8 @@ enum MockHomeSeed {
             conversations.append(ConversationSummary(
                 id: conversation, title: title, participants: participants, lastSeq: last, rev: last,
                 createdAt: start.addingTimeInterval(-86_400), updatedAt: list.last?.createdAt ?? start,
-                lastMessage: list.last, readCursors: [me.id: last - Seq(min(unread, Int(last)))]
+                lastMessage: list.last, readCursors: [me.id: last - Seq(min(unread, Int(last)))],
+                declaredKind: participants.count > 2 ? .group : nil
             ))
         }
 

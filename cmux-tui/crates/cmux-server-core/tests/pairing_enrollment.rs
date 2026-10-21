@@ -62,7 +62,7 @@ fn server_pairing_begin_validates_the_collect_secret_thumbprint_and_bounded_life
         ("code", json!("wrong")),
         ("thumbprint", json!("wrong")),
         ("collect_secret", json!("secret, injected.protocol")),
-        ("expires_at", json!(NOW)),
+        ("expires_at", json!(NOW - MAX_CLOCK_SKEW_MS)),
         ("expires_at", json!(NOW + MAX_WAIT_MS + MAX_CLOCK_SKEW_MS + 1)),
     ] {
         let mut response = reply();
@@ -75,6 +75,9 @@ fn server_pairing_begin_validates_the_collect_secret_thumbprint_and_bounded_life
         Begun::parse(&skew, THUMB, NOW).is_ok(),
         "backend clock skew is permitted, waits remain bounded"
     );
+    // A clock ahead of the backend's sees a live code as just expired; the backend still accepts it.
+    skew["expires_at"] = json!(NOW);
+    assert!(Begun::parse(&skew, THUMB, NOW).is_ok(), "a code within the skew window is kept");
 }
 
 #[test]
@@ -87,10 +90,14 @@ fn server_pairing_pending_and_refusal_are_never_successful_enrollment() {
     for text in [
         r#"{"t":"paired","install":"inst_00000000000000000001"}"#,
         r#"{"t":"paired","install":"inst_00000000000000000001","host":"../../wrong","user":"u","team":"t"}"#,
-        r#"{"t":"unexpected"}"#,
     ] {
         assert!(read_frame(text).is_err());
     }
+    // Chief ignored frame types it did not know before this module was shared;
+    // a type the backend adds later must not fail existing waits.
+    assert_eq!(read_frame(r#"{"t":"unexpected"}"#).unwrap(), None);
+    assert_eq!(read_frame(r#"{"t":"pending"}"#).unwrap(), None);
+    assert!(read_frame(r#"{"no_type":true}"#).is_err());
     assert!(read_frame(&"x".repeat(MAX_FRAME_BYTES + 1)).is_err());
     assert!(matches!(
         read_frame(

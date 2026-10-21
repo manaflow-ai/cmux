@@ -89,6 +89,12 @@ final class HistoryService {
         return sink
     }
 
+    /// Drains writes routed to the app-local log before daemon handoff.
+    func flushLocalHistory(profile: BrowserProfileID) async -> Bool {
+        guard let sink = sinks[profile] else { return true }
+        return await sink.flush()
+    }
+
     /// Every profile's log: the default one first.
     private var profileLogs: [(profile: String, log: BrowserVisitLog)] {
         var profiles: [BrowserProfileID] = [.default]
@@ -209,6 +215,7 @@ final class HistoryService {
     func clear(kinds: Set<HistoryEntry.Kind>, range: HistoryRange) {
         let wants = { (kind: HistoryEntry.Kind) in kinds.isEmpty || kinds.contains(kind) }
         let since = range.start(now: Date())
+        if wants(.page) { Task { [sync = services.onboarding.historySync] in await sync.forget(profile: nil, since: since) } }  // task-owner: imported pages too
         if daemonHistory != nil {
             // The daemon removes page visits and trail entries and hides agents; terminal commands
             // are deleted as rows in each connected daemon. The app's Back/Forward steps drop too.
@@ -242,6 +249,7 @@ final class HistoryService {
     /// Clears one profile's page history (Clear Browser History).
     func clearPages(profile: BrowserProfileID, range: HistoryRange) {
         let since = range.start(now: Date())
+        Task { [sync = services.onboarding.historySync, wire = BrowserProfileRecord.wireID(for: profile)] in await sync.forget(profile: wire, since: since) }  // task-owner: imported pages too
         if daemonHistory != nil {
             let wireID = BrowserProfileRecord.wireID(for: profile)
             daemonMutation { try await $0.clear(kinds: [.page], range: range, profile: wireID) }

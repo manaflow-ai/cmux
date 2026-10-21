@@ -1,3 +1,6 @@
+mod machine_read;
+pub use machine_read::MachineReadOptions;
+
 use super::id::*;
 use super::model::{Cursor, LayoutDocument};
 use super::typed_stream::{ColorHex, JournalClass, JournalSensitivity};

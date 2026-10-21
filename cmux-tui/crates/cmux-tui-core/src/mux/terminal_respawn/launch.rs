@@ -6,12 +6,14 @@
 //!   shell; kind `command`: the user's shell (a command never runs again).
 //!   Shell integration is derived from the current bundle, as for any new
 //!   terminal.
-//! - directory: the recorded one while it is a directory, else `$HOME`.
+//! - directory: a restarted keep-layout tab's kept directory, else the
+//!   recorded one, each while it is a directory, else `$HOME`.
 //! - environment: the daemon's launch environment plus the record's
 //!   allowlisted keys (`TERM` only with a usable `TERMINFO`).
 //! - seed: the previous screen (the exit replay of the lost incarnation,
 //!   else the latest journal checkpoint of the terminal, else nothing),
-//!   modes a dead program left on reset, then one dim marker line.
+//!   modes a dead program left on reset, then one dim marker line that
+//!   names what it ran (an agent's resume command, else its command line).
 
 use std::path::Path;
 
@@ -86,9 +88,14 @@ impl Mux {
                 .filter(|previous| previous.cols > 0 && previous.rows > 0)
                 .map(|previous| (previous.cols, previous.rows))
         });
-        let cwd = record
-            .and_then(|record| record.cwd.clone())
+        // A restarted keep-layout tab: the directory its shell was in at the
+        // handoff, a fact newer than the launch record's.
+        let kept_cwd = plan.kept.first().and_then(|kept| kept.cwd.clone());
+        let cwd = kept_cwd
             .filter(|cwd| Path::new(cwd).is_dir())
+            .or_else(|| {
+                record.and_then(|record| record.cwd.clone()).filter(|cwd| Path::new(cwd).is_dir())
+            })
             .or_else(|| {
                 crate::platform::home_dir()
                     .filter(|home| home.is_dir())
@@ -97,30 +104,32 @@ impl Mux {
         let env = record.map(|record| usable_env(&record.env)).unwrap_or_default();
         let (mut options, creation_cell_pixels) =
             self.terminal_spawn_options(cwd, None, size, &env);
-        let shell = record
-            .filter(|record| record.kind == RelaunchKind::Shell)
-            .and_then(|record| record.shell_path.clone())
-            .filter(|shell| Path::new(shell).is_file())
-            .unwrap_or_else(crate::platform::default_shell);
+        let shell = respawn_shell(record);
         let integrated = crate::shell_integration::integrate_default_shell(
             vec![shell],
             options.extra_env.clone(),
         );
         options.command = Some(integrated.command);
         options.extra_env = integrated.env;
-        // A command whose argv neither this daemon nor its record has is
-        // only named.
-        let program = record
-            .filter(|record| record.kind == RelaunchKind::Command && record.argv.is_none())
-            .filter(|_| self.terminal_respawns.argv(&plan.terminal_id).is_none())
-            .and_then(|record| record.program.as_deref());
-        let marker = crate::terminal_respawn_text::marker(program);
+        // What it ran: an agent's resume command, else the command line.
+        let ran = self.respawn_ran(&plan.terminal_id, record);
+        let marker = crate::terminal_respawn_text::marker(ran.as_ref().map(|ran| ran.as_ran()));
         RespawnLaunch {
             options,
             cell_pixels: geometry.map_or(creation_cell_pixels, |(_, cell_pixels)| cell_pixels),
             seed: respawn_seed(previous.map(|previous| previous.bytes), Some(&marker)),
         }
     }
+}
+
+/// The shell a respawn starts: the recorded shell of a shell terminal while
+/// it exists, else the platform's default shell.
+pub(in crate::mux) fn respawn_shell(record: Option<&StoredRelaunch>) -> String {
+    record
+        .filter(|record| record.kind == RelaunchKind::Shell)
+        .and_then(|record| record.shell_path.clone())
+        .filter(|shell| Path::new(shell).is_file())
+        .unwrap_or_else(crate::platform::default_shell)
 }
 
 /// The record's environment, without `TERM` and `TERMINFO` when the

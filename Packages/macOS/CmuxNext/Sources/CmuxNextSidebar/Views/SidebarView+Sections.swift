@@ -84,10 +84,9 @@ extension SidebarViewComponents {
         let isFooter = { (section: LayoutSection) in section.id == SidebarLayoutDocument.bottomSectionID }
         let look = SidebarSectionTunables.currentLook
         let metrics = SidebarRegionMetrics.standard
-        // The one selection marks its top item active (its glyph, accessibility).
+        // The selection is not content: `showActiveTopItem` marks its item active (its glyph, accessibility).
         var selectedInfos = model.resolvedItemInfo
         for transient in model.transientTopItems { selectedInfos[transient.item.id] = transient.info }
-        for id in selectedInfos.keys { selectedInfos[id]?.isActive = model.selectedItem == .topItem(id) }
         func content(_ sections: [LayoutSection]) -> SidebarRegionView.Content {
             SidebarRegionView.Content(sections: sections.map(titled), infos: selectedInfos, collapsed: model.collapsedLayoutSections,
                                       look: look, metrics: metrics, drawsLines: Borders.drawsLines, appHeights: appHeights(sections, width: width),
@@ -105,7 +104,8 @@ extension SidebarViewComponents {
             aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
-                if reloadsList { list.reload(animated: true) }
+                // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.
+                if reloadsList { list.showModelChange(animates: true) }
             }
         } else {
             aboveRegion.update(content(shownAbove), width: width)
@@ -123,6 +123,14 @@ extension SidebarViewComponents {
         releaseAppSections(shown: shownAbove + footer)
     }
 
+    /// Draws the one selection on the top item it names, in every band and list block: the old and new
+    /// item repaint, nothing lays out (a workspace switch to a workspace with a tile, I6).
+    func showActiveTopItem() {
+        let active: LayoutItemID? = if case let .topItem(id)? = model.selectedItem { id } else { nil }
+        for region in [aboveRegion, belowRegion, footerRegion] { region.activeItem = active }
+        list.activeTopItem = active
+    }
+
     /// App sections no band shows any more release their content; one that
     /// moved between bands is still shown and keeps it.
     private func releaseAppSections(shown: [LayoutSection]) {
@@ -137,12 +145,12 @@ extension SidebarViewComponents {
     /// `updateBands()` first.
     func layoutBands(top y: CGFloat, footerHeight: CGFloat) -> NSRect {
         let b = bounds
-        // The footer section takes its full height, never capped or scrolled.
-        let pinned = footerRegion.layoutResult.height
-        footerRegion.frame = NSRect(x: 0, y: b.height - pinned, width: b.width, height: pinned)
+        // The footer section takes its full height, never capped or scrolled, over the bottom margin.
+        let pinned = footerRegion.layoutResult.height, inset = SidebarStyle.bottomInset
+        footerRegion.frame = NSRect(x: 0, y: b.height - inset - pinned, width: b.width, height: pinned)
         // Pinned item sections above and below the list, each capped at
         // its share of the height (then it scrolls inside).
-        let available = max(0, b.height - y - footerHeight - pinned)
+        let available = max(0, b.height - y - footerHeight - pinned - inset)
         let look = SidebarSectionTunables.currentLook
         let (aboveHeight, belowHeight) = SidebarBandHeights.resolve(
             above: aboveRegion.layoutResult, below: belowRegion.layoutResult, available: available,

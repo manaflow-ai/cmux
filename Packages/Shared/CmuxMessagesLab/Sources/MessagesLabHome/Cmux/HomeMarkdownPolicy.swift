@@ -23,10 +23,11 @@ enum HomeMarkdownPolicy {
         done.withLock { was in
             guard !was else { return }
             was = true
-            // Only http, https and mailto become links, and one app form: a Chief
-            // subagent's link (URL.isChiefSubagentLink), which a click hands to the app.
+            // Only http, https and mailto become links, and the app's own links
+            // (URL.isCmuxAppLink: a workspace, pane, tab, chat or Chief subagent; URL.isHomePathLink:
+            // an absolute path), which a click hands to the app, never to the system.
             MarkdownLinkPolicy.extraSchemes = []
-            MarkdownLinkPolicy.extraRule = { $0.isChiefSubagentLink }
+            MarkdownLinkPolicy.extraRule = { $0.isCmuxAppLink || $0.isHomePathLink }
             MarkdownImages.provider = images
         }
     }
@@ -50,6 +51,45 @@ extension URL {
             && (1...200).contains(session.count) && session.allSatisfy { b in
                 (48...57).contains(b) || (65...90).contains(b) || (97...122).contains(b) || b == 45 || b == 95 || b == 46
             }
+    }
+}
+
+/// cmux: every app link Home renders and a click hands to the host's `onAppLink` (the app's
+/// `link.open`), never to the system: a Chief subagent's link (``isChiefSubagentLink``), or
+/// `cmux://workspace/ws_<32 hex>`, `pane/pane_<32 hex>`, `tab/tab_<32 hex>`, `session/<id>`
+/// (optional `#turn-<id>`) in the `cmux` scheme or a build's `cmux-…` one, with no user, port or
+/// query other than the app's `machine=machine_…` hint. The app parses it again (DeepLink.parse).
+extension URL {
+    /// Whether this URL is a cmux app link (Home makes it a link and a click opens it in the app).
+    public var isCmuxAppLink: Bool {
+        if isChiefSubagentLink { return true }
+        guard let scheme = scheme?.lowercased(), scheme == "cmux" || scheme.hasPrefix("cmux-"),
+              let c = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              c.user == nil, c.password == nil, c.port == nil, let host = c.host?.lowercased() else { return false }
+        if let items = c.queryItems, !items.allSatisfy({ $0.name == "machine" && ($0.value ?? "").hasPrefix("machine_") }) { return false }
+        let parts = c.percentEncodedPath.split(separator: "/", omittingEmptySubsequences: false)
+        guard parts.count == 2, parts[0].isEmpty else { return false }
+        let id = String(parts[1])
+        func token(_ text: String) -> Bool {
+            (1...200).contains(text.utf8.count) && text.utf8.allSatisfy { b in
+                (48...57).contains(b) || (65...90).contains(b) || (97...122).contains(b) || b == 45 || b == 95 || b == 46
+            }
+        }
+        func resource(_ prefix: String) -> Bool {
+            guard id.hasPrefix(prefix), c.fragment == nil else { return false }
+            let hex = id.dropFirst(prefix.count).utf8
+            return hex.count == 32 && hex.allSatisfy { (48...57).contains($0) || (97...102).contains($0) }
+        }
+        switch host {
+        case "workspace": return resource("ws_")
+        case "pane": return resource("pane_")
+        case "tab": return resource("tab_")
+        case "session":
+            guard token(id) else { return false }
+            guard let fragment = c.fragment else { return true }
+            return fragment.hasPrefix("turn-") && token(String(fragment.dropFirst(5)))
+        default: return false
+        }
     }
 }
 
@@ -77,5 +117,19 @@ final class HomeMarkdownImages: MarkdownImageProvider {
               let image = CGImageSourceCreateImageAtIndex(src, 0, nil) else { return nil }
         lock.lock(); pictures[file.path] = image; lock.unlock()
         return image
+    }
+}
+
+/// cmux: a path an agent wrote, as Home links it (`file:///Users/me/a.md`): an absolute local
+/// path, no host other than `localhost`, no user, port, query or fragment. A click hands it to
+/// the host's `onAppLink` (the app's file pages, or a terminal for a folder), never to the
+/// system, so a path link never launches anything.
+extension URL {
+    /// Whether this URL is a path link Home renders (see the extension's discussion).
+    public var isHomePathLink: Bool {
+        guard scheme?.lowercased() == "file", let c = URLComponents(url: self, resolvingAgainstBaseURL: false),
+              c.user == nil, c.password == nil, c.port == nil, c.query == nil, c.fragment == nil,
+              (c.host ?? "").isEmpty || c.host == "localhost" else { return false }
+        return path.hasPrefix("/")
     }
 }

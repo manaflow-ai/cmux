@@ -74,7 +74,7 @@ final class LegacyGlassView: NSVisualEffectView, LabGlassSurface {
         wantsLayer = true
         material = .popover
         blendingMode = .withinWindow
-        state = .followsWindowActiveState
+        state = .active  // cmux: the same glass when Home's window is not key (HomeKeyState.followsKeyWindow)
     }
 
     required init?(coder: NSCoder) { nil }

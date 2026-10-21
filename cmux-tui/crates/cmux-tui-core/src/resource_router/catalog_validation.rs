@@ -532,8 +532,8 @@ pub(super) fn validate_operation_constraints(
     fields: &Map<String, Value>,
     supplied: &Map<String, Value>,
 ) -> Result<(), ResourceError> {
-    if operation == ResourceOperation::TabRename {
-        crate::resource_name::TabNameUpdate::parse(fields).map_err(resource_operation_error)?;
+    if matches!(operation, ResourceOperation::TabRename | ResourceOperation::WorkspaceRename) {
+        crate::resource_name::NameUpdate::parse(fields).map_err(resource_operation_error)?;
     }
     if operation == ResourceOperation::WorkspaceCreate
         && fields.get("initial_content").and_then(Value::as_str) == Some("empty")
@@ -544,15 +544,19 @@ pub(super) fn validate_operation_constraints(
             "an empty workspace has no terminal to launch",
         ));
     }
-    if operation == ResourceOperation::WorkspaceCreate
+    if matches!(operation, ResourceOperation::WorkspaceCreate | ResourceOperation::PaneSplit)
         && fields.contains_key("argv")
         && fields.contains_key("shell")
     {
-        return Err(invalid_value("workspace.create.shell", "argv and shell are exclusive"));
+        return Err(invalid_value(
+            &format!("{}.shell", operation_name(operation)),
+            "argv and shell are exclusive",
+        ));
     }
     if matches!(
         operation,
         ResourceOperation::PaneRun
+            | ResourceOperation::PaneSplit
             | ResourceOperation::WorkspaceRun
             | ResourceOperation::WorkspaceCreate
     ) && let Some(argv) = fields.get("argv").and_then(Value::as_array)

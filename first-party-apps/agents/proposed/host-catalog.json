@@ -166,43 +166,11 @@
       "risk": "execute",
       "since": "agents/1",
       "origin": "user"
-    },
-    {
-      "class": "stream",
-      "cli": {
-        "path": "agents watch",
-        "visible": true
-      },
-      "docs": "Changes on one or every machine: a CLI installed, updated, removed, signed in or out, and the end of update, install and sign-in jobs.",
-      "focuses": false,
-      "idempotency": "forbidden",
-      "input": {
-        "additionalProperties": false,
-        "properties": {
-          "machine": {
-            "description": "machine_ id; the current machine when absent",
-            "type": "string"
-          }
-        },
-        "required": [],
-        "type": "object"
-      },
-      "mcp": {
-        "expose": "never"
-      },
-      "name": "agent_cli.watch",
-      "owner": "session_host",
-      "palette": null,
-      "queue_offline": false,
-      "remote_relay": "allow",
-      "risk": "read",
-      "since": "agents/1"
     }
   ],
   "owner": "session_host",
   "schema_version": 1,
   "trigger_events": [
-    "agent_cli.changed",
-    "agent_cli.job.finished"
+    "agent_cli.changed"
   ]
 }

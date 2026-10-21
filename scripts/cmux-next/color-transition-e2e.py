@@ -17,6 +17,13 @@ as fast as the socket answers:
   instant    enabled false: the first sample after the switch is already the target, no blend.
   series     three times: the shown workspace's theme changes dark -> light -> dark within 300 ms (Mocha, Latte, Mocha): the backdrop
              samples and the recorded window pixels (OUT/series-N/, read through sips) never jump.
+  terminal   the shown terminal draws rows of palette red; its theme changes Mocha -> Latte -> Mocha
+             within 300 ms. The recorded terminal pixels (OUT/terminal/) blend and never jump, the
+             Ghostty frame counters (debug.surfaces render_counters) show blend frames and 0 cell
+             rebuilds for the two color-only changes (the cells keep color references; only the
+             color table moves), and no frame is drawn once the blend ended. Then a font size
+             change rebuilds every row once (full_font; the preview switch and the restore that
+             follow keep rows whose content is the same).
   record     (--record) one debug.window_record of a blend, frames under OUT/record/.
   glass      (--material glass) a see-through Liquid Glass window instead: three switches between
              a dark and a light workspace, each recorded (OUT/glass-N/). The old tint's overlay
@@ -139,10 +146,11 @@ def backdrop():
     return window().get("backdrop") or {}
 
 
-def jumps(directory, label):
-    """Checks the recorded pixels of a blank sidebar spot in `directory`: per 60 Hz frame no step is
-    over a quarter of the whole change, the first moving one included. Returns the pixels."""
-    pixels = frame_colors(directory, 0.12, 0.75)
+def jumps(directory, label, fx=0.12, fy=0.75, moved=0.1):
+    """Checks the recorded pixels at (fx, fy) in `directory` (default a blank sidebar spot): per
+    60 Hz frame no step is over a quarter of the whole change, the first moving one included.
+    Returns the pixels."""
+    pixels = frame_colors(directory, fx, fy)
     try:
         times = json.load(open(os.path.join(directory, "frames.json"))).get("times") or []
     except (OSError, ValueError):
@@ -154,7 +162,7 @@ def jumps(directory, label):
     steps = [distance(a, b) * ((1000 / 60) / gaps[i] if gaps else 1) for i, (a, b) in enumerate(zip(pixels, pixels[1:]))]
     total = max(distance(pixels[0], p) for p in pixels)
     first = next((x for x in steps if x > 0.002), 0)
-    check(total > 0.1, f"{label} pixels: the window recolored on screen (moved {total:.3f})")
+    check(total > moved, f"{label} pixels: the window recolored on screen (moved {total:.3f})")
     check(first < 0.25 * total, f"{label} pixels: the first frames do not jump (first step {first:.3f} of {total:.3f})")
     check(max(steps) < 0.25 * total, f"{label} pixels: no frame jumps (largest step per 60 Hz frame {max(steps):.3f} of {total:.3f})")
     return pixels
@@ -243,6 +251,20 @@ def settled():
     return wait(at_rest, 5, 0.05)
 
 
+def terminal_surface():
+    """The shown terminal's surface diagnostics (debug.surfaces): render_counters, window_fraction, grid."""
+    for win in (rpc("debug.surfaces") or {}).get("windows") or []:
+        for pane in win.get("panes") or []:
+            surface = pane.get("surface") or {}
+            if pane.get("visible") and surface.get("render_counters") and surface.get("window_fraction"):
+                return surface
+    return {}
+
+
+def counters():
+    return terminal_surface().get("render_counters") or {}
+
+
 def settle(target):
     return wait(lambda: (settled() or "")[:7] == target[:7], 5, 0.05)
 
@@ -250,7 +272,8 @@ def settle(target):
 app = None
 try:
     config(duration=400, curve="linear", colorSpace="oklab")
-    open(GHOSTTY, "w").write("")
+    # No cursor blink: the terminal phase checks that no frame is drawn once a blend ends.
+    open(GHOSTTY, "w").write("cursor-style-blink = false\n")
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
@@ -402,6 +425,83 @@ try:
             check(max(steps) < 0.25 * total, f"series {run} pixels: no frame jumps (largest step per 60 Hz frame {max(steps):.3f} of {total:.3f})")
         else:
             check(False, f"series {run} pixels: frames recorded ({len(pixels)})")
+
+    # terminal: palette red rows (SGR 41, erased to the line end) in the shown terminal; a theme
+    # series (Mocha -> Latte -> Mocha within 300 ms) blends that red on the GPU.
+    action("goToWorkspace", {"workspace": second_ws})
+    settle(dark)
+    action("terminal.sendText", {"text": "clear; for i in 1 2 3 4 5 6 7 8 9 10; do printf '\\033[41m\\033[K\\n'; done; printf '\\033[0m'\r"})
+    term = wait(lambda: terminal_surface() or None, 15) or {}
+    check(bool(term), f"debug.surfaces reports the shown terminal's render counters ({term.get('render_counters')})")
+    time.sleep(1.5)  # the output lands and the prompt redraws
+    term = terminal_surface()
+    fraction = term.get("window_fraction") or [0.3, 0.1, 0.6, 0.8]
+    try:
+        rows = int(str(term.get("grid") or "80x24").split("x")[1])
+    except (IndexError, ValueError):
+        rows = 24
+    fx, fy = fraction[0] + fraction[2] * 0.5, fraction[1] + fraction[3] * (4.5 / max(rows, 10))
+    report["terminal-point"] = [fx, fy, rows]
+    term_dir = os.path.join(opts.out, "terminal")
+    os.makedirs(term_dir, exist_ok=True)
+    before = counters()
+    rpc("debug.window_record", {"dir": term_dir, "seconds": 1.5})
+    time.sleep(0.15)
+    on_second = f"workspace:{second_ws}"
+    fire("workspace.setTheme", {"theme": "Catppuccin Latte"}, on_second)
+    time.sleep(0.3)
+    fire("workspace.setTheme", {"theme": "Catppuccin Mocha"}, on_second)
+    time.sleep(1.3)  # the recording stops by itself; the last blend (400 ms) has ended
+    after = counters()
+    time.sleep(0.5)
+    idle = counters()
+    report["terminal-counters"] = {"before": before, "after": after, "idle": idle}
+    if before and after and idle:
+        blend_frames = after["blend_frames"] - before["blend_frames"]
+        rebuilds = after["cell_rebuilds"] - before["cell_rebuilds"]
+        check(blend_frames >= 10, f"terminal: Ghostty drew the blend frame by frame ({blend_frames} blend frames)")
+        full = {k: after.get(k, 0) - before.get(k, 0)
+                for k in ("full_palette", "full_config", "full_font", "full_other", "full_swap", "full_resize")}
+        updates = after.get("frame_updates", 0) - before.get("frame_updates", 0)
+        report["terminal-rebuilds"] = {"cell_rebuilds": rebuilds, "frame_updates": updates, **full}
+        check(rebuilds == 0 and not any(full.values()),
+              f"terminal: two color-only theme changes rebuild no cells ({rebuilds} cell rebuilds, full {full}, "
+              f"{updates} frame updates, {blend_frames} blend frames)")
+        check(idle["frames"] - after["frames"] <= 1,
+              f"terminal: no frame is drawn once the blend ended ({idle['frames'] - after['frames']} frames in 0.5 s)")
+    else:
+        check(False, "terminal: render counters before, after and at rest")
+    pixels = jumps(term_dir, "terminal", fx, fy, moved=0.03)
+    report["terminal-pixels"] = pixels
+
+    def reddish(hexa):
+        color = rgb(hexa or "")
+        return bool(color) and color[0] - color[1] > 0.2
+    check(bool(pixels) and reddish(pixels[0]) and reddish(pixels[-1]),
+          f"terminal: the sampled spot is the red rows at both ends ({pixels[:1]} ... {pixels[-1:]})")
+
+    # font: a font size change (terminal.increaseFontSize) still rebuilds the cells, once for the
+    # new font grid.
+    before = counters()
+    fire("terminal.increaseFontSize")
+    trace, start = [], time.monotonic()
+    while time.monotonic() - start < 1.5:  # bounded sampling window
+        t = terminal_surface()
+        c = t.get("render_counters") or {}
+        trace.append((round(time.monotonic() - start, 3), t.get("grid"), t.get("fit_grid"), t.get("drawn_grid"),
+                      {k: c.get(k, 0) - before.get(k, 0) for k in c if k.startswith("full_") or k == "cell_rebuilds"}))
+    report["font-trace"] = trace
+    after = counters()
+    action("terminal.decreaseFontSize")
+    if before and after:
+        delta = {k: after.get(k, 0) - before.get(k, 0) for k in after}
+        report["font-rebuilds"] = delta
+        fulls = sum(v for k, v in delta.items() if k.startswith("full_"))
+        check(delta.get("full_font") == 1 and fulls == 1,
+              f"font: a font size change rebuilds every row once, for the new font ({delta})")
+    else:
+        check(False, "font: render counters before and after")
+    time.sleep(1.0)
 
     # instant: enabled false.
     config(enabled=False, duration=400, curve="linear")

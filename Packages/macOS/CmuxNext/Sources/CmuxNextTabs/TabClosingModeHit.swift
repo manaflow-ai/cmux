@@ -23,7 +23,7 @@ struct TabClosingModeHit {
               abs(point.y - anchor.y) <= strip.metrics.closeButtonSize / 2 + 2,
               let hit = Self.laidOut(strip).first(where: { $0.frame.minX <= point.x && point.x < $0.frame.maxX }),
               abs(hit.frame.maxX - point.x - anchor.fromTrailing) <= 4,
-              let item = strip.model.tab(hit.id), !item.isPinned,
+              let item = strip.model.tab(hit.id), !item.isPinned, item.isClosable,
               TabChromeVisibility.resolve(width: hit.frame.width, isPinned: false, isSelected: item.id == strip.model.selectedID,
                                           isHovered: true, style: strip.model.style, metrics: strip.metrics).showsClose else { return nil }
         return hit.id

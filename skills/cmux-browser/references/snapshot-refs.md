@@ -27,7 +27,7 @@ again after navigation or a modal opening or closing. There is no
 ## Troubleshooting
 
 - **`not_found` or a stale ref**: take a fresh `snapshot --interactive`.
-- **Element not there yet**: waits and scrolling are not supported yet. Take a
-  new snapshot later, or report that the element is missing.
+- **Element not there yet**: `cmux browser "$TAB" wait "<selector>"`, or
+  `scroll-into-view` it, then take a new snapshot.
 - **Too many elements**: scope the snapshot, for example
   `snapshot --selector "form#checkout" --interactive`.

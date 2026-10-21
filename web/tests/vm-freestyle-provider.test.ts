@@ -22,6 +22,7 @@ import type { VMProvider } from "../services/vms/drivers/types";
 import { ProviderError, ProviderTunnelNetworkOverlapError, type VmEdgeRule } from "../services/vms/drivers/types";
 import { isProviderTunnelNetworkOverlap } from "../services/vms/providerErrors";
 import { DEVBOX_DESKTOP_NOVNC_PORT } from "../services/vms/images/desktop";
+import { runChild } from "./helpers/run-child";
 
 const VM_ID = "vm-d05087e5773e4a978036fc806b0cd759";
 const CLOUD_VM_ID = "11111111-2222-4333-8444-555555555555";
@@ -107,6 +108,22 @@ describe("FreestyleProvider transport contract", () => {
     const provider = new FreestyleProvider();
     expect((provider as { fork?: unknown }).fork).toBeUndefined();
   });
+});
+
+test("Freestyle enrollment approval sends one valid complete shell command", async () => {
+  const commands: string[] = [];
+  const vm = {
+    exec: async ({ command }: { command: string }) => {
+      commands.push(command);
+      const syntax = await runChild("/bin/sh", ["-n", "-c", command]);
+      expect(syntax.status).toBe(0);
+      return { statusCode: 0, stdout: '{"fingerprint":"device-fingerprint"}', stderr: "" };
+    },
+  };
+  const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+  const result = await providerWith({ client }).approveCmuxRemoteEnrollment(VM_ID, "inv_wait");
+  expect(result).toMatchObject({ approved: true, deviceFingerprint: "device-fingerprint" });
+  expect(commands).toHaveLength(1);
 });
 
 describe("Freestyle fork readiness", () => {
@@ -948,18 +965,124 @@ describe("Freestyle client configuration", () => {
 // the platform and nothing public is opened. noVNC on 6901 has no auth of
 // its own, so a machine outside a private network gets no URL at all.
 describe("Freestyle openCmuxRemote: snapshot-v2 fast path", () => {
-  test("uses persisted network metadata without a guest probe or healing", async () => {
+  const invitationUri = (id: string): string => `cmux://enroll/${Buffer.from(JSON.stringify({
+    version: 1,
+    id,
+    secret: "secret",
+    daemon_public_key: "public-key",
+    daemon_fingerprint: "daemon-fingerprint",
+    daemon_name: "cloud",
+    expires_at_unix: 2_000_000_000,
+    route_hints: [],
+    approval_required: true,
+  })).toString("base64url")}`;
+
+  test("uses the machine's persisted auth mode and decodes the real enrollment invitation id", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
     const commands: string[] = [];
+    const uri = invitationUri("inv_real_id");
     const vm = {
-      exec: async ({ command }: { command: string }) => { commands.push(command); return { statusCode: 0, stdout: "", stderr: "" }; },
+      exec: async ({ command }: { command: string }) => {
+        commands.push(command);
+        return {
+          statusCode: 0,
+          stdout: JSON.stringify({ uri }),
+          stderr: "",
+        };
+      },
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "client-grant",
+          networkIpv4: "10.4.0.7",
+          networkIpv6: "fd00:4::7",
+        },
+      });
+      expect(endpoint).toMatchObject({
+        route: "ws://10.4.0.7:1337/v1/link",
+        trustedCarrier: false,
+        invitation: { uri, invitationId: "inv_real_id", expiresAtUnix: 2_000_000_000 },
+      });
+      expect(commands).toHaveLength(1);
+      expect(commands[0]).toContain("remote enroll create");
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
+  test("an enrolled fingerprint uses the cryptographic grant without another guest exec", async () => {
+    const vm = {
+      exec: async () => { throw new Error("an enrolled attach must not exec in the guest"); },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
     const provider = new FreestyleProvider({ client: () => client });
     const endpoint = await provider.openCmuxRemote(VM_ID, {
-      providerMetadata: { cmuxTuiContract: "snapshot-v2", networkIpv4: "10.4.0.7", networkIpv6: "fd00:4::7" },
+      deviceFingerprint: "device-fingerprint",
+      providerMetadata: {
+        cmuxTuiContract: "snapshot-v2",
+        cmuxRemoteAuth: "client-grant",
+        networkIpv4: "10.4.0.7",
+      },
     });
-    expect(endpoint).toMatchObject({ route: "ws://10.4.0.7:1337/v1/link", trustedCarrier: true });
-    expect(commands).toEqual([]);
+    expect(endpoint.trustedCarrier).toBe(false);
+    expect(endpoint.invitation).toBeUndefined();
+  });
+
+  test("grant rollout enrolls new clients on trusted images without locking out released clients", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const uri = invitationUri("inv_compat_id");
+    const vm = {
+      exec: async () => ({ statusCode: 0, stdout: JSON.stringify({ uri }), stderr: "" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint).toMatchObject({
+        trustedCarrier: true,
+        invitation: { invitationId: "inv_compat_id" },
+      });
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
+  });
+
+  test("a trusted image remains attachable when optional invitation minting is unavailable", async () => {
+    const previous = process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+    process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = "1";
+    const vm = {
+      exec: async () => ({ statusCode: 1, stdout: "", stderr: "old daemon has no enrollment command" }),
+    };
+    const client = { vms: { ref: () => vm } } as unknown as Freestyle;
+    const provider = new FreestyleProvider({ client: () => client });
+    try {
+      const endpoint = await provider.openCmuxRemote(VM_ID, {
+        providerMetadata: {
+          cmuxTuiContract: "snapshot-v2",
+          cmuxRemoteAuth: "trusted-carrier",
+          networkIpv4: "10.4.0.7",
+        },
+      });
+      expect(endpoint.trustedCarrier).toBe(true);
+      expect(endpoint.invitation).toBeUndefined();
+    } finally {
+      if (previous === undefined) delete process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT;
+      else process.env.CMUX_CLOUD_REQUIRE_CLIENT_GRANT = previous;
+    }
   });
 
   // Cloud has not shipped a row from before snapshot-v2, so there is nothing
@@ -990,7 +1113,7 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
   const PRIVATE = { publicIpv6: "2602:f75c:0:1::2a", vpcs: [{ ipv4: "10.4.0.7", ipv6: "fd00:4::7" }] };
 
   /** A fake SDK client for one machine: `data()` answers `input.data`, the desktop heal exec exits `input.healExit`. */
-  function portFake(input: { readonly data: unknown; readonly healExit?: number }) {
+  function portFake(input: { readonly data: unknown; readonly healExit?: number; readonly desktopTransport?: "novnc" | "screen" }) {
     const execs: string[] = [];
     const vm = {
       data: async () => input.data,
@@ -1001,7 +1124,10 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
       },
     };
     const client = { vms: { ref: () => vm } } as unknown as Freestyle;
-    return { provider: new FreestyleProvider({ client: () => client }), execs };
+    const provider = input.desktopTransport === undefined
+      ? new FreestyleProvider({ client: () => client })
+      : new FreestyleProvider({ client: () => client, desktopTransport: input.desktopTransport });
+    return { provider, execs };
   }
 
   test("address: private v4, then private v6, never public (the desktop has no auth of its own)", () => {
@@ -1046,6 +1172,30 @@ describe("Freestyle port open: the private address, the desktop healed", () => {
     } finally {
       setSystemTime();
     }
+  });
+
+  test("with the screen transport, the desktop is the cmux-screen signaling port and the heal probes it", async () => {
+    // Default-off migration step M1 (plans/cmux-next/remote-desktop-DESIGN.md).
+    expect(freestyleDesktopHealCommand("novnc")).toBe(freestyleDesktopHealCommand());
+    expect(freestyleDesktopHealCommand("screen")).toBe(
+      "[ -x /usr/local/bin/start-vnc.sh ] || exit 3; if [ -d /run/systemd/system ]; then systemctl start cmux-desktop || exit 1; fi; ss -tln 2>/dev/null | grep -q ':4180 '",
+    );
+    expect(freestylePortUrls(PRIVATE, VM_ID, 4180, "screen")).toEqual({
+      url: "ws://10.4.0.7:4180/",
+      openUrl: "cmux://remote-view?host=10.4.0.7&target=display%3A1&mode=view&via=screen",
+    });
+    // Under the screen transport 6901 is an ordinary port again.
+    expect(freestylePortUrls(PRIVATE, VM_ID, DEVBOX_DESKTOP_NOVNC_PORT, "screen").openUrl).toBe("http://10.4.0.7:6901/");
+
+    const fake = portFake({ data: PRIVATE, desktopTransport: "screen" });
+    const endpoint = await fake.provider.openPort(VM_ID, 4180);
+    expect(endpoint.url).toBe("ws://10.4.0.7:4180/");
+    expect(endpoint.openUrl).toBe("cmux://remote-view?host=10.4.0.7&target=display%3A1&mode=view&via=screen");
+    expect(fake.execs).toEqual([freestyleDesktopHealCommand("screen")]);
+    // An explicit noVNC transport behaves exactly like the default.
+    const novnc = portFake({ data: PRIVATE, desktopTransport: "novnc" });
+    expect((await novnc.provider.openPort(VM_ID, DEVBOX_DESKTOP_NOVNC_PORT)).openUrl).toBe("http://10.4.0.7:6901/vnc.html?path=websockify");
+    expect(novnc.execs).toEqual([freestyleDesktopHealCommand()]);
   });
 
   test("openPort for a dev server port runs no guest command at all", async () => {

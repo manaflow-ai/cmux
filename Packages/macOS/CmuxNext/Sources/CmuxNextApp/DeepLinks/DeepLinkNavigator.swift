@@ -10,8 +10,12 @@ import Foundation
 /// `AppServices.revealTab`, a pane through `revealTab` on its selected tab,
 /// a workspace through `windows.reveal(workspaceID:)` and
 /// `WindowActivation`. It never runs a command, sends text or changes
-/// state; the only thing it creates is the agent tab for a session no tab
-/// shows, as opening that session from history does.
+/// state; the only things it creates are the agent tab for a session no tab
+/// shows, as opening that session from history does, and a closed tab a tab
+/// link names, reopened from Recently Closed under its own id
+/// (``DurableTabLink``). An agent link (`agent/<harness>/<session>`) only
+/// reveals a tab this app already shows that session in, then, when the user
+/// opened it, gives that tab's input the keyboard.
 @MainActor
 struct DeepLinkNavigator {
     let services: AppServices
@@ -29,7 +33,10 @@ struct DeepLinkNavigator {
         let intent: WindowActivation.Intent = background ? .bringForward : .raise
         switch link.target {
         case .tab(let id):
-            guard services.revealTab(id, intent: intent) else { throw Self.gone }
+            // Open: show it. Closed: reopen it by its id, with the same id, and show it
+            // (DurableTabLink, plans/cmux-next/durable-links-DESIGN.md).
+            if services.revealTab(id, intent: intent) { return }
+            DurableTabLink.open(id, intent: intent, services: services)
         case .pane(let id):
             guard let pane = services.pane(id: id) else { throw Self.gone }
             try reveal(pane, intent)
@@ -45,6 +52,11 @@ struct DeepLinkNavigator {
             let host = "chief:" + home
             guard services.agentTabs.chiefHost == host, let shown = services.agentTabs.tab(showing: session, host: host),
                   services.revealTab(shown, intent: intent) else { throw Self.gone }
+        case .agent(let harness, let session):
+            // hq#2555: only a tab already showing that session (the chat that adopted it, else the terminal running
+            // it), never a new tab, resume or connection. A user's open raises it, so its composer or terminal has the keyboard.
+            guard AgentPaneTunables.agentLinks.value else { throw ActionFailure(message: RefusalStrings.agentLinksOff) }
+            guard DeepLink.agentTabs(harness: harness, session: session, adopted: services.agentTabs.tab(resuming: AgentPaneAdopt(harness: harness, agentSessionId: session)), harnessSessions: services.machines.daemons.flatMap(\.store.reachableAgentHarnessSessions)).contains(where: { services.revealTab($0, intent: intent) }) else { throw Self.gone }
         case .legacyWorkspace(let key, let fallback):
             guard let workspace = legacyWorkspace(key, fallback: fallback) else { throw Self.gone }
             try reveal(workspace: workspace.id, intent)

@@ -28,7 +28,8 @@ public final class MainThreadWatchdog: Sendable {
         /// At most one hang report per this interval (default 5 min).
         public var hangReportInterval: Duration
         /// Debug builds: a hang still running this long fails an assertion
-        /// (default 10 s; nil in release builds).
+        /// (default 10 s; nil in release builds), if the main thread used
+        /// CPU for at least half of it (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
         public var hangAssertThreshold: Duration?
 
         /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
@@ -39,10 +40,24 @@ public final class MainThreadWatchdog: Sendable {
             return .milliseconds(min(max(raw, 4), 1_000))
         }
 
+        /// The debug assertion is useful for interactive launches, but a
+        /// `CMUX_NEXT_NO_ACTIVATE=1` diagnostic launch must stay alive long
+        /// enough to preserve its watchdog evidence after reporting a hang.
+        public static var defaultHangAssertThreshold: Duration? {
+            hangAssertThreshold(debugBuild: ControlService.isDebugBuild,
+                                noActivate: ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
+        }
+
+        /// Policy seam kept explicit so diagnostic-launch behavior is tested
+        /// without mutating the process environment.
+        public static func hangAssertThreshold(debugBuild: Bool, noActivate: Bool) -> Duration? {
+            debugBuild && !noActivate ? .seconds(10) : nil
+        }
+
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
                     hangReportInterval: Duration = .seconds(300),
-                    hangAssertThreshold: Duration? = ControlService.isDebugBuild ? .seconds(10) : nil) {
+                    hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold) {
             self.threshold = threshold
             self.capacity = capacity
             self.sampleStacks = sampleStacks
@@ -58,6 +73,10 @@ public final class MainThreadWatchdog: Sendable {
     public struct Hang: Sendable {
         public var duration: Duration
         public var addresses: [UInt]
+        /// Every other thread's stack, sampled right after the main thread's: a main thread
+        /// that waits on a lock or a reply shows only the wait, and the holder is in here
+        /// (``ThreadStackSampler/sampleOtherThreads(excluding:maxFrames:)``).
+        public var otherThreads: [ThreadSample] = []
     }
 
     public let configuration: Configuration
@@ -69,6 +88,15 @@ public final class MainThreadWatchdog: Sendable {
         set { hangSink.withLock { $0 = newValue } }
     }
     private let hangSink = Mutex<(@Sendable (Hang) -> Void)?>(nil)
+    /// Receives each finished stall (a ``HangRecord`` of kind `stall`, with
+    /// its raw stack) on the MAIN thread, right after the stall ended: the
+    /// app sends lag spikes to crash reporting. It must return at once: no
+    /// symbolication, I/O or allocation-heavy work on this thread.
+    public var onStall: (@Sendable (HangRecord) -> Void)? {
+        get { stallSink.withLock { $0 } }
+        set { stallSink.withLock { $0 = newValue } }
+    }
+    private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     private let hangNanos: UInt64
     private let hangIntervalNanos: UInt64
     private let hangAssertNanos: UInt64?
@@ -251,6 +279,7 @@ public final class MainThreadWatchdog: Sendable {
             // No symbolication here (main thread); `debug.hangs` resolves the stack.
             logger.error("main thread stalled \(record.duration.fractionalMilliseconds, format: .fixed(precision: 1)) ms (hang \(record.sequence), \(addresses.count) frames; see debug.hangs)")
         }
+        stallSink.withLock { $0 }?(record)
     }
 
     // MARK: - Watchdog thread
@@ -324,14 +353,26 @@ public final class MainThreadWatchdog: Sendable {
             if due, let sink = onHang {
                 state.lastReportNanos = now
                 // A fresh sample: the stall sample is from the first threshold, this one from the hang.
-                sink(Hang(duration: duration, addresses: sampler?.sample() ?? []))
+                let addresses = sampler?.sample() ?? []
+                let others = sampler.map { ThreadStackSampler.sampleOtherThreads(excluding: $0.thread) } ?? []
+                sink(Hang(duration: duration, addresses: addresses, otherThreads: others))
             }
         }
         if let hangAssertNanos, elapsed >= hangAssertNanos, state.assertedBeat != beat,
-           !assertionsEnded.load(ordering: .acquiring) {
+           !assertionsEnded.load(ordering: .acquiring),
+           Self.hangFailsAssertion(elapsedNanos: elapsed, mainThreadCPUNanos: mainThreadCPU(sinceBeat: beat),
+                                   assertNanos: hangAssertNanos) {
             state.assertedBeat = beat
             assertionFailure("main thread hang: busy over \(configuration.hangAssertThreshold ?? .zero); see debug.hangs and the crash report")
         }
+    }
+
+    /// Main-thread CPU used since heartbeat `beat` began the stall (its
+    /// `beatCPUNanos` stamp); nil when the reading failed or `beat` ended.
+    private func mainThreadCPU(sinceBeat beat: UInt64) -> UInt64? {
+        let start = beatCPUNanos.load(ordering: .acquiring)
+        guard beatSequence.load(ordering: .acquiring) == beat, let now = busy.mainThreadCPUNanos() else { return nil }
+        return now > start ? now - start : 0
     }
 
     private static func nanos(_ duration: Duration) -> UInt64 {

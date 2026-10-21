@@ -13,6 +13,15 @@ export interface UpdateHighlightItem {
   category: WhatsNewCategory;
   /** An SF Symbol name when the source names one; the web views do not draw it. */
   symbol?: string | null;
+  /** The change's picture, inlined and checked by the host (`data:` URLs only); absent without one. */
+  media?: UpdateHighlightMedia | null;
+}
+
+export interface UpdateHighlightMedia {
+  light: string;
+  dark: string;
+  /** Already localized. */
+  alt: string;
 }
 
 export interface UpdateHighlights {
@@ -28,6 +37,8 @@ export interface UpdateHighlights {
   items: UpdateHighlightItem[];
   /** Items not shown. */
   moreCount: number;
+  /** Every change after `items` (the popover scrolls to the whole list); absent from an older host. */
+  rest?: UpdateHighlightItem[] | null;
   changelog: { from: string; to: string };
 }
 

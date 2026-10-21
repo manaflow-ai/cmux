@@ -49,3 +49,9 @@ test(=cmux_next_daemon_idle_has_no_periodic_wakeups)
 | test(=machine_provider_runtime::tests::initial_durable_replay_suppresses_the_legacy_snapshot_notice)
 '''
 priority = 50
+
+# The lifecycle latency test (perf-10x lifecycle) prints its LIFECYCLE lines
+# on stderr; a fleet step shows them only when a passing test's output is kept.
+[[profile.ci.overrides]]
+filter = 'test(=lifecycle_latency_creates_and_closes_in_a_populated_session)'
+success-output = "final"

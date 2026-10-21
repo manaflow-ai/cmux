@@ -289,6 +289,6 @@ The apps follow v2. Points where building them found a gap or a naming problem:
 - A "plan as diff" convention: mutating ops accept `dry_run` and return a diff resource (V5); applying accepts all files or none.
 - A host secure input that returns a credential handle for MCP server secrets; config previews mask secret values.
 - Account labels: an opaque `acct_…` handle and a label owner; the native detector currently exposes an email to its callers, which apps must never receive.
-- `machine.list` covers only local machines and has no `os` field; no `workspace.root`; `fs.trash` with an expected revision.
+- Machine discovery initially covered only the local owner. [Draft #21322](https://github.com/manaflow-ai/cmux/pull/21322) adds optional owner `platform` metadata and a verified-app projection of existing admitted Cloud/SSH/server routes to `machine.list/get`; it grants no new transport or execution authority. Live remote app journeys remain unverified. Other gaps: no `workspace.root`; `fs.trash` with an expected revision.
 - Scope grammar: `agent_cli`, `skill`, `mcp_server`, `memory`, `document`, `power` families.
 - Catalog fragments need a field that binds an op to a JS export; palette commands need gesture tokens and arguments.

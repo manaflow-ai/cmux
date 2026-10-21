@@ -30,7 +30,7 @@ final class BrowserCookieImportCard: NSView {
         titleLabel.lineBreakMode = .byTruncatingTail
         detailLabel.stringValue = offer.detail
         detailLabel.maximumNumberOfLines = 2
-        detailLabel.cell?.truncatesLastVisibleLine = true
+        detailLabel.truncatesLastVisibleLine = true
         detailLabel.isSelectable = false
         neverButton.configure(title: offer.neverTitle ?? "", target: self, action: #selector(never))
         neverButton.isHidden = offer.neverTitle == nil

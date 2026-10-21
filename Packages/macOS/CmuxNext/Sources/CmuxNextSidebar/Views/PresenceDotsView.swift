@@ -23,7 +23,7 @@ final class PresenceDotsView: NSView {
     required init?(coder: NSCoder) { fatalError() }
 
     nonisolated override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     func configure(_ presence: [SidebarPresence]) {
         self.presence = presence

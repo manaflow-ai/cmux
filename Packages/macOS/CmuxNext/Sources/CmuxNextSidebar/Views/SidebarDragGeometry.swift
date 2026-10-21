@@ -58,6 +58,11 @@ public nonisolated struct SidebarDragGeometry: Sendable {
 
     private let lines: [[Slot]]
     private let acceptance: [String: SidebarDocAcceptance]
+    /// Each group header slot, by its key.
+    private let groupHeaders: [String: Slot]
+    /// Each group's block (its header and the member rows under it), by the group's key: the y range a drop
+    /// before or after the whole group splits in half.
+    private let groupBlocks: [String: ClosedRange<CGFloat>]
 
     /// `slots` in any order; `acceptance` from the drag's begin (empty:
     /// every place is accepted, as for a mirror without the table).
@@ -73,24 +78,55 @@ public nonisolated struct SidebarDragGeometry: Sendable {
         }
         self.lines = lines
         self.acceptance = acceptance
+        var headers: [String: Slot] = [:]
+        for slot in slots where slot.kind == .group { headers[slot.key] = slot }
+        var blocks: [String: ClosedRange<CGFloat>] = [:]
+        for slot in slots {
+            guard let group = slot.kind == .group ? slot.key : slot.parent, headers[group] != nil else { continue }
+            let range = slot.frame.minY...slot.frame.maxY
+            blocks[group] = blocks[group].map { min($0.lowerBound, range.lowerBound)...max($0.upperBound, range.upperBound) } ?? range
+        }
+        groupHeaders = headers
+        groupBlocks = blocks
     }
 
     /// The slot under `point` (or the nearest one above or below the
     /// slots), its zone and the move a drop there makes.
+    ///
+    /// A drop that cannot go into a group (a dragged group: groups do not
+    /// nest; a workspace of another machine) goes before or after the whole
+    /// group instead, by which half of the group's block holds `point`: over
+    /// its header or any of its member rows. Without this, a dragged group
+    /// found a slot only on the thin top and bottom bands of each header.
     public func hit(_ point: CGPoint) -> Hit? {
         guard let line = line(at: point.y) else { return nil }
         let slot = Self.slot(in: line, x: point.x)
+        if slot.kind == .group, !allows(slot, .into), let around = around(group: slot.key, point) { return around }
         let zone = Self.zone(slot, point)
+        if allows(slot, zone) { return Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil) }
+        if let parent = slot.parent, let around = around(group: parent, point) { return around }
         let accepted = acceptance[slot.key] ?? slot.item.flatMap { acceptance[$0] }
-        let allowed = accepted.map { table in
-            switch zone {
-            case .before: table.before
-            case .into: table.into
-            case .after: table.after
-            }
-        } ?? (acceptance.isEmpty || slot.kind == .section) // a header the table lacks (one machine draws none) takes the drop
-        guard allowed else { return Hit(slot: slot, zone: zone, target: nil, refusal: accepted?.refusal ?? "refused") }
-        return Hit(slot: slot, zone: zone, target: Self.target(slot, zone), refusal: nil)
+        return Hit(slot: slot, zone: zone, target: nil, refusal: accepted?.refusal ?? "refused")
+    }
+
+    /// Whether a drop at `zone` of `slot` is accepted.
+    private func allows(_ slot: Slot, _ zone: Zone) -> Bool {
+        guard let table = acceptance[slot.key] ?? slot.item.flatMap({ acceptance[$0] }) else {
+            return acceptance.isEmpty || slot.kind == .section // a header the table lacks (one machine draws none) takes the drop
+        }
+        switch zone {
+        case .before: return table.before
+        case .into: return table.into
+        case .after: return table.after
+        }
+    }
+
+    /// A drop before (upper half of the block) or after (lower half) the whole group `group`, if accepted there.
+    private func around(group: String, _ point: CGPoint) -> Hit? {
+        guard let header = groupHeaders[group], let block = groupBlocks[group] else { return nil }
+        let zone: Zone = point.y < (block.lowerBound + block.upperBound) / 2 ? .before : .after
+        guard allows(header, zone) else { return nil }
+        return Hit(slot: header, zone: zone, target: Self.target(header, zone), refusal: nil)
     }
 
     /// The line whose y range holds `y` (binary search), else the nearest.

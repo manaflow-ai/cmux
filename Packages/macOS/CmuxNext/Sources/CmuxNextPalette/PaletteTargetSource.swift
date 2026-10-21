@@ -26,6 +26,9 @@ public protocol PaletteTargetSource: AnyObject {
     /// The object's own name, which a rename prompt starts from; nil when
     /// it has none (an untitled object shows a fallback label instead).
     func title(of target: ActionTargetRef) -> String?
+    /// The object's current description, which an edit prompt starts from;
+    /// nil when it has none or its kind carries none.
+    func currentDescription(of target: ActionTargetRef) -> String?
 }
 
 extension PaletteTargetSource {
@@ -34,4 +37,7 @@ extension PaletteTargetSource {
     public func title(of target: ActionTargetRef) -> String? {
         targets(of: target.kind).first { $0.id == target.id }?.title
     }
+
+    /// No description, for sources whose objects carry none.
+    public func currentDescription(of target: ActionTargetRef) -> String? { nil }
 }

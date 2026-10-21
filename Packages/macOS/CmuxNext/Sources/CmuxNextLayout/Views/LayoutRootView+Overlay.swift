@@ -145,6 +145,19 @@ extension LayoutRootView {
         }
     }
 
+    /// The first shown ring off its pane's content rect (``overlayRings`` filtered), converting only
+    /// the rings that show: the overlay layer reads it after every layout pass of the root.
+    public var laggingRing: (pane: String, ringInWindow: CGRect, contentInWindow: CGRect)? {
+        guard let active = model.activeScreenID, let screen = screenViews[active], window != nil else { return nil }
+        for host in screen.displayedHosts where host.chrome.showsRing && !host.chrome.isHidden {
+            let chrome = host.chrome
+            let ring = convert(chrome.ringFrame.offsetBy(dx: chrome.frame.minX, dy: chrome.frame.minY), to: nil)
+            let content = host.convert(host.roundedRect, to: nil)
+            if !Self.ringRectsMatch(ring, content) { return (host.pane.rawValue, ring, content) }
+        }
+        return nil
+    }
+
     /// Far below a device pixel (0.5 pt at 2x), far above conversion noise.
     public static let ringSyncTolerance: CGFloat = 0.001
 

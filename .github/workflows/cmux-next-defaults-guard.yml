@@ -71,7 +71,7 @@ jobs:
           path: .defaults/base
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: &defaults-paths |
+          sparse-checkout: |
             schemas/defaults
             plans/cmux-next/action-surfaces.json
             schemas/settings/settings-schema.json
@@ -91,7 +91,16 @@ jobs:
           path: .defaults/head
           fetch-depth: 1
           persist-credentials: false
-          sparse-checkout: *defaults-paths
+          sparse-checkout: |
+            schemas/defaults
+            plans/cmux-next/action-surfaces.json
+            schemas/settings/settings-schema.json
+            Packages/macOS/CmuxNext/Sources
+            scripts/ci/defaults_guard.py
+            .github/defaults-call-owners.json
+            .github/workflows/cmux-next-defaults-guard.yml
+            .github/workflows/cmux-next-defaults-guard-review.yml
+            Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift
           sparse-checkout-cone-mode: false
 
       - name: Judge the default changes

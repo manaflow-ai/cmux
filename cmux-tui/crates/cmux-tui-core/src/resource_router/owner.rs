@@ -24,6 +24,8 @@ pub(super) enum OperationOwner {
     /// `workspace.open_url` (resource_router/open_url.rs), composed of topology
     /// and content operations.
     OpenUrl,
+    /// `stash.*` (state/stash_router.rs).
+    Stash,
 }
 
 pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOwner {
@@ -160,6 +162,11 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::BrowserProfileCreate
         | ResourceOperation::BrowserProfileOpen => OperationOwner::BrowserProfile,
         ResourceOperation::WorkspaceOpenUrl => OperationOwner::OpenUrl,
+        ResourceOperation::StashCreate
+        | ResourceOperation::StashList
+        | ResourceOperation::StashRestore
+        | ResourceOperation::StashDelete
+        | ResourceOperation::StashImport => OperationOwner::Stash,
         ResourceOperation::WorkspaceUpdate
         | ResourceOperation::WorkspaceAgentFolderSet
         | ResourceOperation::WorkspaceAgentStartGet
@@ -257,6 +264,10 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::WorkspaceLogAppend
         | ResourceOperation::WorkspaceLogList
         | ResourceOperation::WorkspaceLogClear
+        | ResourceOperation::WorkspaceChecklistList
+        | ResourceOperation::WorkspaceChecklistAdd
+        | ResourceOperation::WorkspaceChecklistUpdate
+        | ResourceOperation::WorkspaceChecklistRemove
         | ResourceOperation::AgentMessageSend
         | ResourceOperation::AgentMessageList
         | ResourceOperation::AgentMessageMark
@@ -305,6 +316,8 @@ pub(super) const fn operation_owner(operation: ResourceOperation) -> OperationOw
         | ResourceOperation::ChiefProfileDelete
         | ResourceOperation::ChiefProfileAvatarSet
         | ResourceOperation::ChiefProfileAvatarGet
+        | ResourceOperation::ChiefProfileHistory
+        | ResourceOperation::ChiefProfileUndo
         | ResourceOperation::ParticipantAvatarSet
         | ResourceOperation::ParticipantAvatarGet
         | ResourceOperation::ConversationList

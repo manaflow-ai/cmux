@@ -166,6 +166,7 @@ pub(super) fn set_column_dock(
     mode: Option<String>,
     role: Option<String>,
     permanent: Option<bool>,
+    pinned: Option<bool>,
     transaction: Option<u64>,
 ) -> anyhow::Result<Value> {
     let mut dock =
@@ -174,6 +175,8 @@ pub(super) fn set_column_dock(
     // omitted keeps the current value (a permanent column stays one).
     if let Some(flag) = dock.as_mut() {
         flag.permanent = permanent == Some(true);
+        // `pinned-dock-v1`: the same for `pinned`; `allow_tabs` stays.
+        flag.pinned = pinned == Some(true);
     }
     let outcome = mux.set_column_dock_as(
         &actor,
@@ -331,7 +334,7 @@ fn export_layout_json(state: &State, screen_id: Option<ScreenId>) -> anyhow::Res
     let mut pane_ids = Vec::new();
     screen.root.pane_ids(&mut pane_ids);
     let mut value = json!({
-        "layout": node_json(&screen.root, screen.active_pane),
+        "layout": node_json(&screen.root, screen.active_pane, &state.resource_indexes.split_ids),
         "panes": pane_ids.iter().map(|pane_id| {
             let surfaces = state
                 .panes

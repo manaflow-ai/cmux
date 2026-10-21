@@ -1,4 +1,4 @@
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { soundTitle } from "../format";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -7,7 +7,7 @@ import type { EditorProps } from "./types";
 
 export function SoundEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
-  const sounds = useSettingsState().domains.sounds;
+  const sounds = useSettingsSelector((state) => state.domains.sounds);
   const current = typeof value === "string" ? value : String(row.default ?? "default");
   const names = sounds.includes(current) ? sounds : [current, ...sounds];
   return (

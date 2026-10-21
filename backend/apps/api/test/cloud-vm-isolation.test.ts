@@ -35,7 +35,7 @@ describe("VM install isolation", { timeout: 60_000 }, () => {
     for (const op of ["install.list", "team.directory", "team.members.list"]) expect((await read(s.vmToken, op, {})).status, op).toBe(403)
     expect((await post("/v1/ops", s.vmToken, { op: "install.rename", params: { install: s.install.id, name: "x" }, idempotency_key: crypto.randomUUID(), origin: "cli" })).status).toBe(403)
     for (const scope of ["user", "team", "feed", "cloud"]) {
-      const res = await worker.fetch(`https://api.test/v1/wire/${scope}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${s.vmToken}` } })
+      const res = await worker.fetch(`https://api.test/v1/wire/${scope}`, { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${s.vmToken}` } })
       expect(res.status, scope).toBe(403)
     }
     const pk = await worker.fetch("https://api.test/v1/presence-key", { method: "POST", headers: { "content-type": "application/json", authorization: `Bearer ${s.vmToken}` }, body: "{}" })
@@ -59,7 +59,7 @@ describe("VM install isolation", { timeout: 60_000 }, () => {
 
   it("event times are clamped to the server clock and URL queries are stripped in any case (review P3)", async () => {
     const s = await vmSetup("cloud-bind-2")
-    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": `cmux.wire.v1, bearer.${s.a.session}` } })
+    const res = await worker.fetch("https://api.test/v1/wire/cloud", { headers: { Upgrade: "websocket", "Sec-WebSocket-Protocol": "cmux.wire.v1", authorization: `Bearer ${s.a.session}` } })
     const ws = res.webSocket!
     const frames: Array<any> = []
     ws.addEventListener("message", (e) => frames.push(JSON.parse(e.data as string)))

@@ -18,6 +18,15 @@ Prints a warning (a GitHub `::warning` annotation under CI) for each file over i
 always exits 0: style ratchets warn. `--update-baseline` rewrites the baseline to today's counts.
 Theme data (bundled palettes, syntax colors, brand catalogs, mocks) is not scanned (SKIP).
 
+Documented exception: Messages' blue in the Chief chat's iMessage bubble style
+(`home.chiefBubbleStyle` = `imessage`, the default): HomeThemePalette.messagesBlue and MessagesLab's
+measured blue (Packages/Shared/CmuxMessagesLab, skipped as vendored Messages data). The `theme`
+style takes the theme's accent and surface; nothing outside the iMessage style may borrow that blue.
+
+Documented exception: agent chat links (`--agent-link-base` in
+webviews/src/agent-session/shared/styles.css) are blue in every theme (Leo 2026-10-19, "links are
+blue, period", #22345); its two literals are its baseline row.
+
   python3 scripts/cmux-next/check-system-blue.py [--root DIR] [--baseline FILE] [--update-baseline]
 """
 import argparse

@@ -1,6 +1,7 @@
 import type { Env } from "../env.ts"
 import { callerOf, type Fail } from "../home-attachments.ts"
 import { chiefOwnedBy } from "../chief-brain/brain-io.ts"
+import { brainModel, modelRefusal, opencodeRuns } from "../model-gateway/routes.ts"
 
 /**
  * HTTP routes of implementation O (outside the op catalog, like the P brain's):
@@ -37,6 +38,12 @@ export const handleBrainImpl = async (request: Request, env: Env, agent: string)
   if (request.method === "GET") return ok({ impl: (await muxOf(env, agent).brainImplOf()) === "opencode" ? "opencode" : "pi" })
   const body = (await request.json().catch(() => null)) as { impl?: unknown } | null
   if (body?.impl !== "pi" && body?.impl !== "opencode") return fail({ status: 400, code: "validation.invalid", message: 'impl is "pi" or "opencode"' })
+  // Moving a Chief that is on to opencode moves its turns to brainModel (host.ts): a paid model this owner may not use is refused here, not at each turn.
+  if (body.impl === "opencode" && opencodeRuns(env)) {
+    const { config } = await (env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(agent)) as unknown as { status(): Promise<{ config: { enabled: boolean; model: string } }> }).status()
+    const refused = config.enabled ? modelRefusal(env, owned.owner, { model: brainModel(config.model) }) : null
+    if (refused) return fail({ status: 409, code: refused.code, message: refused.message })
+  }
   // The routing truth first (MuxDO), then the brain object (owner binding, container stop on pi).
   await muxOf(env, agent).setBrainImpl(body.impl)
   return ok(await brain.setImpl(agent, owned.owner, body.impl))

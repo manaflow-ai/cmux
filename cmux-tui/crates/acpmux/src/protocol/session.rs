@@ -36,6 +36,17 @@ pub struct SessionSummary {
     /// The session whose agent started this one (its `spawnedBy` tag), kept
     /// only while that parent is listed; one level.
     pub spawned_by: Option<String>,
+    /// The session whose agent started this one with its `start_session`
+    /// tool (`hub/subsessions.rs`); null for a session a person or client
+    /// started. Kept when the parent is closed or gone, so a client draws
+    /// the tree from these links at any depth.
+    pub started_by: Option<String>,
+    /// Its name among its parent's sub-sessions; null for a root.
+    pub short_name: Option<String>,
+    /// 0 for a root session, 1 for its sub-sessions, and so on.
+    pub depth: u32,
+    /// Its sub-sessions that are not closed.
+    pub children: u32,
     pub title: Option<String>,
     pub last_prompt: Option<String>,
     pub preview: Option<String>,
@@ -193,8 +204,14 @@ pub struct Lane {
     pub state: LaneState,
     /// Unix ms the state began; null when the daemon does not know.
     pub since: Option<u64>,
-    /// The failed or lost turn's error text.
+    /// The failed or lost turn's error text, secrets masked (`secret_scan`).
     pub error: Option<String>,
+    /// What the session is doing now, one line: the running turn's prompt,
+    /// else the agent's last reply line, secrets masked (`secret_scan`).
+    pub step: Option<String>,
+    /// The session's title, else its latest prompt, one line, secrets masked
+    /// (`secret_scan`).
+    pub title: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]

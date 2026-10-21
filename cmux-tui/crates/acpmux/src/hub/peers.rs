@@ -3,13 +3,17 @@
 use super::*;
 use crate::session_identity::SessionReceipt;
 
-fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
+pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
 /// How long `peer_add` with `wait` waits for the first connect attempt: an
 /// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
 const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// The record kind of a peer's `_acpmux/permission_pending`, relayed to
+/// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
+pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
 
 impl Hub {
     // ------------------------------------------------------------- peers
@@ -42,7 +46,10 @@ impl Hub {
         let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
             old.stop();
+            // A reconnect keeps when the peer was last seen.
+            peer.seed_last_seen(old.link().last_seen);
         }
+        self.load_peer_cache(&peer);
         tokio::spawn(peer.run());
         settled
     }
@@ -119,6 +126,7 @@ impl Hub {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         peer.stop();
+        self.forget_peer_cache(name);
         let gone: Vec<Value> = {
             let mut map = self.remote_sessions.lock().unwrap();
             let ids: Vec<String> =
@@ -202,8 +210,10 @@ impl Hub {
             summary["name"] = Value::String(full);
         }
         summary["peer"] = Value::String(peer.to_owned());
-        // A peer from before `indicator` or `lane` sends none: decide them here.
-        if summary.get("indicator").is_none() || summary.get("lane").is_none() {
+        // A peer from before `indicator`, `lane` or the lane's masked `step` and `title`
+        // sends none: decide them here.
+        let old_lane = summary["lane"].as_object().is_some_and(|lane| !lane.contains_key("title"));
+        if summary.get("indicator").is_none() || summary.get("lane").is_none() || old_lane {
             super::views::decide(&mut summary);
         }
         summary
@@ -245,26 +255,34 @@ impl Hub {
         }
     }
 
-    fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
+    pub(super) fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
         {
             match notice {
                 PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
                 PeerNotice::Disconnected(e) => {
-                    tracing::warn!(peer = %peer, "peer disconnected: {e}");
+                    let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
+                    // One line per drop, not per failed attempt while it is down.
+                    if link.attempts <= 1 {
+                        tracing::warn!(peer = %peer, "peer disconnected: {e}");
+                    } else {
+                        tracing::debug!(peer = %peer, attempts = link.attempts, "peer still unreachable: {e}");
+                    }
                     // Keep the last known list, but flag it.
                     let changed: Vec<Value> = {
                         let mut map = self.remote_sessions.lock().unwrap();
                         map.values_mut()
                             .filter(|r| r.peer == peer)
-                            .map(|r| {
-                                r.summary["status"] = Value::String("unreachable".into());
-                                super::views::decide(&mut r.summary);
-                                r.summary.clone()
+                            .filter_map(|r| {
+                                super::peer_cache::mark_stale(&mut r.summary, link.last_seen)
+                                    .then(|| r.summary.clone())
                             })
                             .collect()
                     };
+                    if !changed.is_empty() {
+                        self.save_peer_cache(&peer, true);
+                    }
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -292,6 +310,7 @@ impl Hub {
                         }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
+                    self.save_peer_cache(&peer, true);
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -314,6 +333,7 @@ impl Hub {
                                 .map(|(key, _)| key.clone());
                             key.and_then(|key| map.remove(&key).map(|r| r.summary))
                         };
+                        self.save_peer_cache(&peer, false);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
                             record: EventRecord {
@@ -348,6 +368,7 @@ impl Hub {
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                     }
+                    self.save_peer_cache(&peer, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
                         record: EventRecord {
@@ -410,7 +431,27 @@ impl Hub {
                             msg: params.get("msg").cloned().unwrap_or(Value::Null),
                             host_seq: None,
                         },
-                        // permission_pending is derived from the permission_request event locally.
+                        // A prompt the person must answer, to watchers of this
+                        // daemon that did not attach the session (attached
+                        // clients derive it from the permission_request event):
+                        // the peer's decision nonce and run come with it, so the
+                        // app that holds the peer's key can answer
+                        // (`hub/person.rs` (c)). Only the peer's own session
+                        // in its own run, never one of this daemon's.
+                        method::MUX_PERMISSION_PENDING
+                            if !self.peer_pending_counts(&peer, &id, &params) =>
+                        {
+                            tracing::warn!(peer = %peer, session = %id, "a peer's pending prompt for a session or run that is not its own: dropped");
+                            return;
+                        }
+                        method::MUX_PERMISSION_PENDING => EventRecord {
+                            seq: params.get("seq").and_then(Value::as_u64).unwrap_or(0),
+                            at: now_ms(),
+                            dir: "peer".into(),
+                            kind: PEER_PERMISSION_PENDING.into(),
+                            msg: params.clone(),
+                            host_seq: None,
+                        },
                         _ => return,
                     };
                     let _ = self.events.send(HubEvent {
@@ -421,6 +462,32 @@ impl Hub {
                 }
             }
         }
+    }
+
+    /// Whether peer `peer`'s `_acpmux/permission_pending` for session `id`
+    /// may reach this daemon's watchers (`hub/person.rs` (c)): a session the
+    /// peer listed as its own and that is not one of this daemon's, in the
+    /// daemon run the peer named at its handshake, which is not this run and
+    /// no other peer's. A prompt with this daemon's session or run would let
+    /// the peer show the person other text for one of this daemon's real
+    /// prompts, whose allow the app proves with this daemon's key.
+    fn peer_pending_counts(&self, peer: &str, id: &str, params: &Value) -> bool {
+        let Some(instance) = params.get("personInstance").and_then(Value::as_str) else {
+            return false;
+        };
+        let listed = self
+            .remote_sessions
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .any(|r| r.peer == peer && r.receipt.mux_session_id == id);
+        let local = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).contains_key(id);
+        let peers: Vec<_> =
+            self.peers.lock().unwrap_or_else(|e| e.into_inner()).values().cloned().collect();
+        let named = |p: &crate::peer::Peer| p.person_instance().as_deref() == Some(instance);
+        let own_run = peers.iter().any(|p| p.name == peer && named(p));
+        let others = peers.iter().any(|p| p.name != peer && named(p));
+        listed && !local && own_run && !others && instance != self.person.instance()
     }
 
     /// Look a key up among peer sessions: exact id, `peer/name`, or a unique name.
@@ -462,8 +529,27 @@ impl Hub {
         }
     }
 
+    /// Every peer's sessions, each with its peer's current `peerState` and
+    /// whether the row is `stale` (last-known while the peer is down).
     pub fn remote_sessions(&self) -> Vec<Value> {
-        self.remote_sessions.lock().unwrap().values().map(|r| r.summary.clone()).collect()
+        let states: HashMap<String, &'static str> = self
+            .peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .map(|p| (p.name.clone(), p.state().as_str()))
+            .collect();
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.values()
+            .map(|r| {
+                let mut summary = r.summary.clone();
+                summary["stale"] = Value::Bool(summary["stale"] == true);
+                if let Some(state) = states.get(&r.peer) {
+                    summary["peerState"] = Value::String((*state).to_owned());
+                }
+                summary
+            })
+            .collect()
     }
 
     /// Every session, local and remote, newest first.
@@ -501,5 +587,26 @@ mod tests {
         assert_eq!(summary["qualifiedSessionId"], "builder/mux-1");
         assert_eq!(summary["sessionReceipt"]["hostId"], "builder");
         assert_eq!(summary["sessionReceipt"]["generation"], 23);
+    }
+
+    /// hq#2509: a peer from before the lane's step and title sends a lane without them;
+    /// this daemon decides the lane again so the peer's lanes show a masked step.
+    #[test]
+    fn a_lane_from_an_older_peer_is_decided_again_with_its_masked_step() {
+        let token = format!("gh{}_{}", "p", "aZ3kQ9mX7pL2vB8nR4tW6yC1dF5gH0jS1234");
+        let summary = Hub::remote_summary(
+            "builder",
+            json!({
+                "sessionId": "mux-1",
+                "name": "review",
+                "status": "running",
+                "indicator": "working",
+                "turnCount": 1,
+                "updatedAt": 9,
+                "turn": {"prompt": format!("push {token}"), "startedAt": 5},
+                "lane": {"state": "working", "since": 5, "error": null},
+            }),
+        );
+        assert_eq!(summary["lane"]["step"], "push [GitHub Personal Access Token]", "{summary}");
     }
 }

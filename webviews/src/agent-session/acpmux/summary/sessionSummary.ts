@@ -159,6 +159,10 @@ function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): Summ
   return [...launched, ...endedOnly];
 }
 
+/// The chat's background shells still running (the running turn's line counts them, WorkingFor.tsx).
+export const runningBackgroundTasks = (rows: readonly AcpmuxRow[]) =>
+  backgroundTasks(rows, tools(rows)).filter((task) => task.state === "running");
+
 export function sessionSummary(rows: readonly AcpmuxRow[]): SessionSummary {
   const all = tools(rows);
   return {

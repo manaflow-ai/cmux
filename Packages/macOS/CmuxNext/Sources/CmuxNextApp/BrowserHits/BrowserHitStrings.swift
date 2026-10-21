@@ -11,6 +11,9 @@ enum BrowserHitStrings {
         String(format: t("browserHits.menu.search", "Search %1$@ for “%2$@”"), engine, snippet)
     }
 
+    /// Copy Link for a `mailto:` link, as Chrome names it.
+    static var copyEmailAddress: String { t("browserHits.menu.copyEmailAddress", "Copy Email Address") }
+
     /// Look Up “…”.
     static func lookUp(_ snippet: String) -> String {
         String(format: t("browserHits.menu.lookUp", "Look Up “%@”"), snippet)

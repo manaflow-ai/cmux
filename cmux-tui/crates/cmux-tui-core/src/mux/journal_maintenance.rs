@@ -29,9 +29,10 @@ struct JournalMaintenanceControl {
 }
 
 /// The periodic journal maintenance worker of a persistent session: once per
-/// interval it migrates a legacy registry to incremental auto-vacuum, takes a
-/// checkpoint after enough new records, seals bounded segments up to the
-/// latest checkpoint, and returns free pages.
+/// interval it bounds and scans the mutation ledgers, migrates a legacy
+/// registry to incremental auto-vacuum, takes a checkpoint after enough new
+/// records, seals bounded segments up to the latest checkpoint, and returns
+/// free pages.
 pub(super) struct JournalMaintenance {
     control: Arc<JournalMaintenanceControl>,
     thread: Option<std::thread::JoinHandle<()>>,
@@ -47,26 +48,29 @@ impl JournalMaintenance {
         let weak_mux = Arc::downgrade(mux);
         let interval = journal_maintenance_interval();
         let thread = std::thread::Builder::new().name("cmux-journal-maintenance".into()).spawn(
-            move || loop {
-                let mut stopped =
-                    worker_control.stopped.lock().unwrap_or_else(PoisonError::into_inner);
-                if *stopped {
-                    return;
+            move || {
+                let mut ledgers = ledger_maintenance::LedgerMaintenance::default();
+                loop {
+                    let mut stopped =
+                        worker_control.stopped.lock().unwrap_or_else(PoisonError::into_inner);
+                    if *stopped {
+                        return;
+                    }
+                    let (next, timeout) = worker_control
+                        .changed
+                        .wait_timeout(stopped, interval)
+                        .unwrap_or_else(PoisonError::into_inner);
+                    stopped = next;
+                    if *stopped {
+                        return;
+                    }
+                    if !timeout.timed_out() {
+                        continue;
+                    }
+                    drop(stopped);
+                    let Some(mux) = weak_mux.upgrade() else { return };
+                    mux.run_journal_maintenance(&mut ledgers);
                 }
-                let (next, timeout) = worker_control
-                    .changed
-                    .wait_timeout(stopped, interval)
-                    .unwrap_or_else(PoisonError::into_inner);
-                stopped = next;
-                if *stopped {
-                    return;
-                }
-                if !timeout.timed_out() {
-                    continue;
-                }
-                drop(stopped);
-                let Some(mux) = weak_mux.upgrade() else { return };
-                mux.run_journal_maintenance();
             },
         )?;
         Ok(Self { control, thread: Some(thread) })
@@ -125,15 +129,19 @@ impl Mux {
         );
     }
 
-    fn run_journal_maintenance(&self) {
-        // Like the reconnect retention worker: no capture while the daemon
-        // shuts down, hands off its hosts, or ends terminals.
-        if self.shutting_down.load(Ordering::Acquire)
+    /// Like the reconnect retention worker: no maintenance while the daemon
+    /// shuts down, hands off its hosts, or ends terminals.
+    pub(super) fn journal_maintenance_paused(&self) -> bool {
+        self.shutting_down.load(Ordering::Acquire)
             || self.journal_retention.teardown_active()
             || self.control_clients.daemon_handoff_in_progress()
-        {
+    }
+
+    fn run_journal_maintenance(&self, ledgers: &mut ledger_maintenance::LedgerMaintenance) {
+        if self.journal_maintenance_paused() {
             return;
         }
+        self.run_ledger_maintenance(ledgers);
         let result = (|| -> anyhow::Result<()> {
             let migration = self
                 .workspace_registry

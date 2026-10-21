@@ -32,6 +32,12 @@
     "x": 0.757,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#030000",
    "lightest": "#AAA062",
@@ -57,6 +63,12 @@
    "focal": {
     "x": 0.807,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.66,
+    "minY": 0.04,
+    "maxX": 0.985,
+    "maxY": 0.7
    },
    "tint": 0.3,
    "darkest": "#000002",
@@ -85,6 +97,12 @@
     "x": 0.737,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.537,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
    "tint": 0.3,
    "darkest": "#010302",
    "lightest": "#FFFCCC",
@@ -110,6 +128,12 @@
    "focal": {
     "x": 0.871,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.773,
+    "minY": 0.04,
+    "maxX": 0.99,
+    "maxY": 0.7
    },
    "tint": 0.3,
    "darkest": "#000000",
@@ -137,6 +161,12 @@
     "x": 0.863,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.759,
+    "minY": 0.04,
+    "maxX": 0.989,
+    "maxY": 0.7
+   },
    "tint": 0.3,
    "darkest": "#010000",
    "lightest": "#F7FFF2",
@@ -163,6 +193,12 @@
     "x": 0.758,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.574,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#0A0300",
    "lightest": "#FDF9E0",
@@ -188,6 +224,12 @@
    "focal": {
     "x": 0.748,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.556,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.3,
    "darkest": "#000102",
@@ -216,6 +258,12 @@
     "x": 0.697,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.467,
+    "minY": 0.04,
+    "maxX": 0.976,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#060000",
    "lightest": "#FFFFF3",
@@ -242,6 +290,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.55,
+    "minY": 0.3,
+    "maxX": 0.8,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#000000",
@@ -270,6 +324,12 @@
     "x": 0.75,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.56,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#080806",
    "lightest": "#FFFFDF",
@@ -295,6 +355,12 @@
    "focal": {
     "x": 0.769,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.593,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#010103",
@@ -322,6 +388,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.25,
+    "maxX": 0.9,
+    "maxY": 0.6
+   },
    "tint": 0.33,
    "darkest": "#10110B",
    "lightest": "#E5D3A2",
@@ -348,6 +420,12 @@
     "x": 0.716,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.5,
+    "minY": 0.04,
+    "maxX": 0.977,
+    "maxY": 0.7
+   },
    "tint": 0.3,
    "darkest": "#080000",
    "lightest": "#FFFCED",
@@ -373,6 +451,12 @@
    "focal": {
     "x": 0.764,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.585,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000300",
@@ -401,6 +485,12 @@
     "x": 0.761,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.579,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#010000",
    "lightest": "#FEF7E5",
@@ -426,6 +516,12 @@
    "focal": {
     "x": 0.747,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.555,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#020001",
@@ -453,6 +549,12 @@
     "x": 0.758,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.574,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#0E0E0E",
    "lightest": "#B8AD99",
@@ -478,6 +580,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.15,
+    "maxX": 0.7,
+    "maxY": 0.9
    },
    "tint": 0.33,
    "darkest": "#040100",
@@ -506,6 +614,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.35,
+    "maxX": 0.95,
+    "maxY": 0.6
+   },
    "tint": 0.34,
    "darkest": "#010000",
    "lightest": "#FFFFF4",
@@ -531,6 +645,12 @@
    "focal": {
     "x": 0.771,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.597,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000000",
@@ -558,6 +678,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.8,
+    "maxY": 0.6
+   },
    "tint": 0.36,
    "darkest": "#000002",
    "lightest": "#FFF0B9",
@@ -584,6 +710,12 @@
     "x": 0.872,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.775,
+    "minY": 0.04,
+    "maxX": 0.99,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#020001",
    "lightest": "#F8EDBF",
@@ -609,6 +741,12 @@
    "focal": {
     "x": 0.749,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.558,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#000100",
@@ -637,6 +775,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.55,
+    "maxX": 0.5,
+    "maxY": 0.95
+   },
    "tint": 0.35,
    "darkest": "#0C0200",
    "lightest": "#FAFFD9",
@@ -662,6 +806,12 @@
    "focal": {
     "x": 0.751,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#060002",
@@ -689,6 +839,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.05,
+    "maxX": 0.85,
+    "maxY": 0.8
+   },
    "tint": 0.32,
    "darkest": "#000005",
    "lightest": "#FBFFFF",
@@ -714,6 +870,12 @@
    "focal": {
     "x": 0.748,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.556,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#181617",
@@ -742,6 +904,12 @@
     "x": 0.846,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.729,
+    "minY": 0.04,
+    "maxX": 0.988,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#02000E",
    "lightest": "#FFFFCD",
@@ -767,6 +935,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.2,
+    "maxX": 0.75,
+    "maxY": 0.95
    },
    "tint": 0.34,
    "darkest": "#000000",
@@ -794,6 +968,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.18,
+    "minY": 0.4,
+    "maxX": 0.6,
+    "maxY": 0.7
+   },
    "tint": 0.36,
    "darkest": "#000000",
    "lightest": "#FFFFFD",
@@ -820,6 +1000,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.75,
+    "maxY": 0.9
+   },
    "tint": 0.36,
    "darkest": "#000000",
    "lightest": "#E9D29E",
@@ -845,6 +1031,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.0,
+    "maxX": 0.85,
+    "maxY": 0.8
    },
    "tint": 0.34,
    "darkest": "#040100",
@@ -873,6 +1065,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.05,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
    "tint": 0.36,
    "darkest": "#000000",
    "lightest": "#FFFFFD",
@@ -898,6 +1096,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.15,
+    "maxX": 0.5,
+    "maxY": 0.9
    },
    "tint": 0.38,
    "darkest": "#0D0713",
@@ -925,6 +1129,12 @@
     "x": 0.759,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.576,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#030000",
    "lightest": "#FCFFFD",
@@ -950,6 +1160,12 @@
    "focal": {
     "x": 0.763,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.583,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#0B0A05",
@@ -977,6 +1193,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.25,
+    "maxX": 0.95,
+    "maxY": 0.92
+   },
    "tint": 0.36,
    "darkest": "#030000",
    "lightest": "#FFFFDE",
@@ -1002,6 +1224,12 @@
    "focal": {
     "x": 0.745,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.551,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#0E0300",
@@ -1029,6 +1257,12 @@
     "x": 0.84,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.718,
+    "minY": 0.04,
+    "maxX": 0.987,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#14090F",
    "lightest": "#FEFFFF",
@@ -1054,6 +1288,12 @@
    "focal": {
     "x": 0.641,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.368,
+    "minY": 0.04,
+    "maxX": 0.971,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#010000",
@@ -1081,6 +1321,12 @@
     "x": 0.792,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.634,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#1C1004",
    "lightest": "#FFF7EE",
@@ -1106,6 +1352,12 @@
    "focal": {
     "x": 0.709,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.488,
+    "minY": 0.04,
+    "maxX": 0.977,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000105",
@@ -1133,6 +1385,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.75,
+    "maxY": 0.75
+   },
    "tint": 0.4,
    "darkest": "#050100",
    "lightest": "#FFFFF8",
@@ -1159,6 +1417,12 @@
     "x": 0.757,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#010000",
    "lightest": "#FBF8CB",
@@ -1184,6 +1448,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.12,
+    "minY": 0.3,
+    "maxX": 0.55,
+    "maxY": 0.95
    },
    "tint": 0.39,
    "darkest": "#000000",
@@ -1212,6 +1482,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.5,
+    "minY": 0.6,
+    "maxX": 0.75,
+    "maxY": 1.0
+   },
    "tint": 0.33,
    "darkest": "#0F0A06",
    "lightest": "#FFF8D8",
@@ -1237,6 +1513,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.35,
+    "maxX": 0.9,
+    "maxY": 0.75
    },
    "tint": 0.37,
    "darkest": "#150900",
@@ -1264,6 +1546,12 @@
     "x": 0.793,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.636,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.33,
    "darkest": "#070000",
    "lightest": "#FFFEF3",
@@ -1289,6 +1577,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.15,
+    "maxX": 0.7,
+    "maxY": 0.95
    },
    "tint": 0.39,
    "darkest": "#000000",
@@ -1316,6 +1610,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.2,
+    "maxX": 0.8,
+    "maxY": 0.9
+   },
    "tint": 0.39,
    "darkest": "#040000",
    "lightest": "#FFFFE9",
@@ -1341,6 +1641,12 @@
    "focal": {
     "x": 0.765,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.586,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#0F0F0D",
@@ -1368,6 +1674,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.25,
+    "maxX": 0.65,
+    "maxY": 1.0
+   },
    "tint": 0.46,
    "darkest": "#010000",
    "lightest": "#FFFFFA",
@@ -1393,6 +1705,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.05,
+    "maxX": 0.7,
+    "maxY": 0.85
    },
    "tint": 0.45,
    "darkest": "#0E0200",
@@ -1420,6 +1738,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.33,
+    "minY": 0.35,
+    "maxX": 0.6,
+    "maxY": 0.7
+   },
    "tint": 0.51,
    "darkest": "#000406",
    "lightest": "#FEFFF5",
@@ -1445,6 +1769,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.25,
+    "maxX": 0.9,
+    "maxY": 0.95
    },
    "tint": 0.53,
    "darkest": "#000000",
@@ -1472,6 +1802,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.25,
+    "maxX": 0.9,
+    "maxY": 0.95
+   },
    "tint": 0.56,
    "darkest": "#000407",
    "lightest": "#FFFFED",
@@ -1497,6 +1833,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.05,
+    "maxX": 0.75,
+    "maxY": 0.9
    },
    "tint": 0.53,
    "darkest": "#000000",
@@ -1524,6 +1866,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.25,
+    "maxX": 0.5,
+    "maxY": 0.75
+   },
    "tint": 0.58,
    "darkest": "#010100",
    "lightest": "#F8EFDE",
@@ -1549,6 +1897,12 @@
    "focal": {
     "x": 0.725,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.516,
+    "minY": 0.04,
+    "maxX": 0.978,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000000",
@@ -1576,6 +1930,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.9,
+    "maxY": 0.85
+   },
    "tint": 0.37,
    "darkest": "#000000",
    "lightest": "#FFFFFF",
@@ -1601,6 +1961,12 @@
    "focal": {
     "x": 0.738,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.539,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#090604",
@@ -1628,6 +1994,12 @@
     "x": 0.761,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.579,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#060100",
    "lightest": "#FFF3AD",
@@ -1653,6 +2025,12 @@
    "focal": {
     "x": 0.728,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.521,
+    "minY": 0.04,
+    "maxX": 0.978,
+    "maxY": 0.7
    },
    "tint": 0.3,
    "darkest": "#000000",
@@ -1680,6 +2058,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.1,
+    "maxX": 0.65,
+    "maxY": 0.85
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#FFF8F2",
@@ -1706,6 +2090,12 @@
     "x": 0.84,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.718,
+    "minY": 0.04,
+    "maxX": 0.987,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000103",
    "lightest": "#EFE6DD",
@@ -1731,6 +2121,12 @@
    "focal": {
     "x": 0.755,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.569,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.3,
    "darkest": "#0B0000",
@@ -1759,6 +2155,12 @@
     "x": 0.791,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.632,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.3,
    "darkest": "#000000",
    "lightest": "#FFFFF3",
@@ -1784,6 +2186,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.25,
+    "maxX": 0.75,
+    "maxY": 0.95
    },
    "tint": 0.32,
    "darkest": "#010000",
@@ -1811,6 +2219,12 @@
     "x": 0.753,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.565,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#EFE6C3",
@@ -1836,6 +2250,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.55,
+    "maxY": 0.9
    },
    "tint": 0.32,
    "darkest": "#000000",
@@ -1863,6 +2283,12 @@
     "x": 0.736,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.535,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#100000",
    "lightest": "#FFFFF0",
@@ -1888,6 +2314,12 @@
    "focal": {
     "x": 0.751,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#030000",
@@ -1915,6 +2347,12 @@
     "x": 0.767,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.59,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#040100",
    "lightest": "#FFF9E0",
@@ -1940,6 +2378,12 @@
    "focal": {
     "x": 0.736,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.535,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#060000",
@@ -1968,6 +2412,12 @@
     "x": 0.793,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.636,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#0B0100",
    "lightest": "#FDFDF5",
@@ -1993,6 +2443,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.2,
+    "maxX": 0.8,
+    "maxY": 0.95
    },
    "tint": 0.33,
    "darkest": "#0A0000",
@@ -2020,6 +2476,12 @@
     "x": 0.767,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.59,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#FFFEDD",
@@ -2045,6 +2507,12 @@
    "focal": {
     "x": 0.825,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.692,
+    "minY": 0.04,
+    "maxX": 0.986,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#000B00",
@@ -2072,6 +2540,12 @@
     "x": 0.803,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.653,
+    "minY": 0.04,
+    "maxX": 0.984,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#1A100F",
    "lightest": "#F4ECE1",
@@ -2097,6 +2571,12 @@
    "focal": {
     "x": 0.77,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.595,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#080000",
@@ -2124,6 +2604,12 @@
     "x": 0.787,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.625,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#000000",
    "lightest": "#FFFFFF",
@@ -2149,6 +2635,12 @@
    "focal": {
     "x": 0.741,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.544,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000000",
@@ -2176,6 +2668,12 @@
     "x": 0.78,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.613,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#130000",
    "lightest": "#FFFFF6",
@@ -2201,6 +2699,12 @@
    "focal": {
     "x": 0.682,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.44,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#010D01",
@@ -2228,6 +2732,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.05,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
    "tint": 0.37,
    "darkest": "#000000",
    "lightest": "#FFFFFF",
@@ -2253,6 +2763,12 @@
    "focal": {
     "x": 0.762,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.581,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#141817",
@@ -2280,6 +2796,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.15,
+    "maxX": 1.0,
+    "maxY": 0.8
+   },
    "tint": 0.41,
    "darkest": "#110D0C",
    "lightest": "#FFFFE2",
@@ -2306,6 +2828,12 @@
     "x": 0.762,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.581,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#150000",
    "lightest": "#F2F9D9",
@@ -2331,6 +2859,12 @@
    "focal": {
     "x": 0.756,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.571,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#0E0200",
@@ -2359,6 +2893,12 @@
     "x": 0.688,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.451,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#040000",
    "lightest": "#FFFFE8",
@@ -2385,6 +2925,12 @@
     "x": 0.786,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.623,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#020001",
    "lightest": "#FFFFFB",
@@ -2410,6 +2956,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.0,
+    "maxX": 0.95,
+    "maxY": 0.75
    },
    "tint": 0.41,
    "darkest": "#000005",
@@ -2438,6 +2990,12 @@
     "x": 0.835,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.71,
+    "minY": 0.04,
+    "maxX": 0.987,
+    "maxY": 0.7
+   },
    "tint": 0.34,
    "darkest": "#010000",
    "lightest": "#FFFFFA",
@@ -2463,6 +3021,12 @@
    "focal": {
     "x": 0.689,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.453,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#100100",
@@ -2490,6 +3054,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.15,
+    "maxX": 0.95,
+    "maxY": 0.95
+   },
    "tint": 0.41,
    "darkest": "#24231F",
    "lightest": "#F0F7EF",
@@ -2515,6 +3085,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.0,
+    "maxX": 0.75,
+    "maxY": 0.8
    },
    "tint": 0.39,
    "darkest": "#020003",
@@ -2542,6 +3118,12 @@
     "x": 0.754,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.567,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.33,
    "darkest": "#0F110E",
    "lightest": "#FBF3A8",
@@ -2567,6 +3149,12 @@
    "focal": {
     "x": 0.768,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.592,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#030000",
@@ -2594,6 +3182,12 @@
     "x": 0.782,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.616,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.34,
    "darkest": "#0D0000",
    "lightest": "#FFE7DC",
@@ -2619,6 +3213,12 @@
    "focal": {
     "x": 0.75,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.56,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#190100",
@@ -2646,6 +3246,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.2,
+    "maxX": 0.8,
+    "maxY": 0.8
+   },
    "tint": 0.44,
    "darkest": "#170600",
    "lightest": "#FFFFFF",
@@ -2671,6 +3277,12 @@
    "focal": {
     "x": 0.685,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.446,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#020300",
@@ -2698,6 +3310,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.15,
+    "maxX": 0.8,
+    "maxY": 0.85
+   },
    "tint": 0.44,
    "darkest": "#080000",
    "lightest": "#FFFDF5",
@@ -2723,6 +3341,12 @@
    "focal": {
     "x": 0.782,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.616,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#010200",
@@ -2750,6 +3374,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.3,
+    "maxX": 0.8,
+    "maxY": 0.98
+   },
    "tint": 0.42,
    "darkest": "#010006",
    "lightest": "#FFF7C2",
@@ -2775,6 +3405,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.8,
+    "maxY": 0.9
    },
    "tint": 0.49,
    "darkest": "#000000",
@@ -2802,6 +3438,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.0,
+    "maxX": 0.75,
+    "maxY": 0.95
+   },
    "tint": 0.55,
    "darkest": "#010000",
    "lightest": "#FFFDE8",
@@ -2827,6 +3469,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.0,
+    "maxX": 0.7,
+    "maxY": 0.9
    },
    "tint": 0.5,
    "darkest": "#000200",
@@ -2854,6 +3502,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.05,
+    "maxX": 0.9,
+    "maxY": 0.9
+   },
    "tint": 0.62,
    "darkest": "#0B0000",
    "lightest": "#F6F6EE",
@@ -2879,6 +3533,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.85
    },
    "tint": 0.63,
    "darkest": "#030000",
@@ -2906,6 +3566,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.0,
+    "maxX": 0.75,
+    "maxY": 0.75
+   },
    "tint": 0.64,
    "darkest": "#100A00",
    "lightest": "#FFFFFB",
@@ -2931,6 +3597,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.2,
+    "maxX": 0.75,
+    "maxY": 0.65
    },
    "tint": 0.58,
    "darkest": "#090000",
@@ -2958,6 +3630,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.05,
+    "minY": 0.05,
+    "maxX": 0.8,
+    "maxY": 0.95
+   },
    "tint": 0.7,
    "darkest": "#112C3D",
    "lightest": "#FDF6DB",
@@ -2983,6 +3661,12 @@
    "focal": {
     "x": 0.683,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.442,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000000",
@@ -3010,6 +3694,12 @@
     "x": 0.776,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.606,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#FFFFF3",
@@ -3035,6 +3725,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.3,
+    "maxX": 0.9,
+    "maxY": 0.85
    },
    "tint": 0.32,
    "darkest": "#000100",
@@ -3063,6 +3759,12 @@
     "x": 0.77,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.595,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#040000",
    "lightest": "#F8EEBB",
@@ -3088,6 +3790,12 @@
    "focal": {
     "x": 0.815,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.674,
+    "minY": 0.04,
+    "maxX": 0.985,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000200",
@@ -3115,6 +3823,12 @@
     "x": 0.757,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000002",
    "lightest": "#FDFFFE",
@@ -3140,6 +3854,12 @@
    "focal": {
     "x": 0.738,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.539,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#0B0000",
@@ -3167,6 +3887,12 @@
     "x": 0.745,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.551,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#080000",
    "lightest": "#FFFFFF",
@@ -3192,6 +3918,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.95
    },
    "tint": 0.33,
    "darkest": "#000000",
@@ -3219,6 +3951,12 @@
     "x": 0.75,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.56,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000002",
    "lightest": "#FFF724",
@@ -3244,6 +3982,12 @@
    "focal": {
     "x": 0.817,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.678,
+    "minY": 0.04,
+    "maxX": 0.985,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#090000",
@@ -3271,6 +4015,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.1,
+    "maxX": 0.75,
+    "maxY": 0.92
+   },
    "tint": 0.33,
    "darkest": "#050100",
    "lightest": "#F3E4C5",
@@ -3296,6 +4046,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.0,
+    "maxX": 0.8,
+    "maxY": 0.95
    },
    "tint": 0.35,
    "darkest": "#020500",
@@ -3323,6 +4079,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.75
+   },
    "tint": 0.36,
    "darkest": "#00030C",
    "lightest": "#F3FFFB",
@@ -3348,6 +4110,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.5,
+    "minY": 0.2,
+    "maxX": 0.85,
+    "maxY": 0.95
    },
    "tint": 0.34,
    "darkest": "#010000",
@@ -3375,6 +4143,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.15,
+    "maxX": 0.8,
+    "maxY": 0.9
+   },
    "tint": 0.37,
    "darkest": "#010000",
    "lightest": "#FCFFFF",
@@ -3400,6 +4174,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.35,
+    "maxX": 0.55,
+    "maxY": 0.9
    },
    "tint": 0.35,
    "darkest": "#000D16",
@@ -3427,6 +4207,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.12,
+    "minY": 0.25,
+    "maxX": 0.55,
+    "maxY": 0.8
+   },
    "tint": 0.37,
    "darkest": "#000000",
    "lightest": "#FED688",
@@ -3452,6 +4238,12 @@
    "focal": {
     "x": 0.678,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.433,
+    "minY": 0.04,
+    "maxX": 0.974,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#071903",
@@ -3479,6 +4271,12 @@
     "x": 0.772,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.599,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#F2EDE7",
@@ -3504,6 +4302,12 @@
    "focal": {
     "x": 0.799,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.646,
+    "minY": 0.04,
+    "maxX": 0.984,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#020001",
@@ -3531,6 +4335,12 @@
     "x": 0.785,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.622,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#0F0800",
    "lightest": "#FFFFFF",
@@ -3556,6 +4366,12 @@
    "focal": {
     "x": 0.675,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.428,
+    "minY": 0.04,
+    "maxX": 0.974,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#001711",
@@ -3583,6 +4399,12 @@
     "x": 0.726,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.518,
+    "minY": 0.04,
+    "maxX": 0.978,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#000321",
    "lightest": "#FEFFFF",
@@ -3608,6 +4430,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.85,
+    "maxY": 0.85
    },
    "tint": 0.38,
    "darkest": "#010101",
@@ -3635,6 +4463,12 @@
     "x": 0.734,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.532,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#00000C",
    "lightest": "#FFFFFD",
@@ -3660,6 +4494,12 @@
    "focal": {
     "x": 0.692,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.458,
+    "minY": 0.04,
+    "maxX": 0.975,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#1E1B14",
@@ -3687,6 +4527,12 @@
     "x": 0.769,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.593,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
    "tint": 0.33,
    "darkest": "#000000",
    "lightest": "#FFFFDF",
@@ -3712,6 +4558,12 @@
    "focal": {
     "x": 0.763,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.583,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#020200",
@@ -3739,6 +4591,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.38,
+    "minY": 0.4,
+    "maxX": 0.68,
+    "maxY": 0.85
+   },
    "tint": 0.43,
    "darkest": "#090000",
    "lightest": "#E1D6D4",
@@ -3764,6 +4622,12 @@
    "focal": {
     "x": 0.734,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.532,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000002",
@@ -3791,6 +4655,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.1,
+    "maxX": 0.8,
+    "maxY": 0.9
+   },
    "tint": 0.4,
    "darkest": "#191700",
    "lightest": "#FFEDC2",
@@ -3816,6 +4686,12 @@
    "focal": {
     "x": 0.794,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.637,
+    "minY": 0.04,
+    "maxX": 0.984,
+    "maxY": 0.7
    },
    "tint": 0.33,
    "darkest": "#000000",
@@ -3843,6 +4719,12 @@
     "x": 0.785,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.622,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
+   },
    "tint": 0.33,
    "darkest": "#000201",
    "lightest": "#FFFFFF",
@@ -3868,6 +4750,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.55,
+    "maxX": 0.45,
+    "maxY": 0.95
    },
    "tint": 0.35,
    "darkest": "#040400",
@@ -3895,6 +4783,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.35,
+    "minY": 0.2,
+    "maxX": 0.75,
+    "maxY": 0.85
+   },
    "tint": 0.45,
    "darkest": "#000901",
    "lightest": "#FFDBC4",
@@ -3920,6 +4814,12 @@
    "focal": {
     "x": 0.748,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.556,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.34,
    "darkest": "#000A16",
@@ -3947,6 +4847,12 @@
     "x": 0.737,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.537,
+    "minY": 0.04,
+    "maxX": 0.979,
+    "maxY": 0.7
+   },
    "tint": 0.34,
    "darkest": "#120300",
    "lightest": "#F0EED7",
@@ -3972,6 +4878,12 @@
    "focal": {
     "x": 0.648,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.38,
+    "minY": 0.04,
+    "maxX": 0.972,
+    "maxY": 0.7
    },
    "tint": 0.37,
    "darkest": "#030027",
@@ -3999,6 +4911,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.0,
+    "maxX": 0.9,
+    "maxY": 0.6
+   },
    "tint": 0.48,
    "darkest": "#000000",
    "lightest": "#F5EDDE",
@@ -4024,6 +4942,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.05,
+    "maxX": 0.9,
+    "maxY": 0.9
    },
    "tint": 0.48,
    "darkest": "#090000",
@@ -4051,6 +4975,12 @@
     "x": 0.644,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.373,
+    "minY": 0.04,
+    "maxX": 0.972,
+    "maxY": 0.7
+   },
    "tint": 0.38,
    "darkest": "#0E0100",
    "lightest": "#F9EFE3",
@@ -4076,6 +5006,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.05,
+    "minY": 0.15,
+    "maxX": 0.75,
+    "maxY": 0.95
    },
    "tint": 0.49,
    "darkest": "#13120E",
@@ -4103,6 +5039,12 @@
     "x": 0.769,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.593,
+    "minY": 0.04,
+    "maxX": 0.982,
+    "maxY": 0.7
+   },
    "tint": 0.33,
    "darkest": "#000000",
    "lightest": "#FFFED6",
@@ -4128,6 +5070,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.2,
+    "minY": 0.25,
+    "maxX": 0.85,
+    "maxY": 0.95
    },
    "tint": 0.49,
    "darkest": "#000000",
@@ -4155,6 +5103,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.55,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
    "tint": 0.42,
    "darkest": "#180600",
    "lightest": "#FFFACC",
@@ -4180,6 +5134,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.25,
+    "minY": 0.3,
+    "maxX": 0.6,
+    "maxY": 0.97
    },
    "tint": 0.54,
    "darkest": "#000600",
@@ -4207,6 +5167,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.3,
+    "minY": 0.1,
+    "maxX": 0.95,
+    "maxY": 0.85
+   },
    "tint": 0.53,
    "darkest": "#000000",
    "lightest": "#FFFFF2",
@@ -4232,6 +5198,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.4,
+    "minY": 0.2,
+    "maxX": 0.95,
+    "maxY": 0.8
    },
    "tint": 0.57,
    "darkest": "#240F0A",
@@ -4259,6 +5231,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.15,
+    "minY": 0.05,
+    "maxX": 0.85,
+    "maxY": 0.95
+   },
    "tint": 0.59,
    "darkest": "#000200",
    "lightest": "#FFFFF0",
@@ -4284,6 +5262,12 @@
    "focal": {
     "x": 0.5,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.1,
+    "minY": 0.15,
+    "maxX": 0.8,
+    "maxY": 0.95
    },
    "tint": 0.57,
    "darkest": "#020100",
@@ -4311,6 +5295,12 @@
     "x": 0.5,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.05,
+    "minY": 0.05,
+    "maxX": 0.8,
+    "maxY": 0.95
+   },
    "tint": 0.7,
    "darkest": "#143242",
    "lightest": "#FFFFEF",
@@ -4336,6 +5326,12 @@
    "focal": {
     "x": 0.765,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.586,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.3,
    "darkest": "#040806",
@@ -4363,6 +5359,12 @@
     "x": 0.752,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.564,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#FFFFFF",
@@ -4388,6 +5390,12 @@
    "focal": {
     "x": 0.757,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.572,
+    "minY": 0.04,
+    "maxX": 0.981,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#010000",
@@ -4415,6 +5423,12 @@
     "x": 0.749,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.558,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#020202",
    "lightest": "#FFFFFF",
@@ -4441,6 +5455,12 @@
     "x": 0.751,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#FFFFFF",
@@ -4466,6 +5486,12 @@
    "focal": {
     "x": 0.751,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
    },
    "tint": 0.31,
    "darkest": "#000000",
@@ -4494,6 +5520,12 @@
     "x": 0.751,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.562,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.31,
    "darkest": "#000000",
    "lightest": "#FFFFFF",
@@ -4520,6 +5552,12 @@
     "x": 0.747,
     "y": 0.45
    },
+   "subject": {
+    "minX": 0.555,
+    "minY": 0.04,
+    "maxX": 0.98,
+    "maxY": 0.7
+   },
    "tint": 0.32,
    "darkest": "#080808",
    "lightest": "#FFFFFF",
@@ -4545,6 +5583,12 @@
    "focal": {
     "x": 0.787,
     "y": 0.45
+   },
+   "subject": {
+    "minX": 0.625,
+    "minY": 0.04,
+    "maxX": 0.983,
+    "maxY": 0.7
    },
    "tint": 0.32,
    "darkest": "#1B191A",

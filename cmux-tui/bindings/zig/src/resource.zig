@@ -3767,15 +3767,18 @@ pub const Client = struct {
     }
 
     pub fn listMachines(self: *Client) !MachineList {
+        return self.listMachinesWith(.{});
+    }
+
+    pub fn listMachinesWith(self: *Client, options: MachineReadOptions) !MachineList {
         var arena = std.heap.ArenaAllocator.init(self.allocator);
         defer arena.deinit();
+        var params = raw.wire.Object.init(arena.allocator());
+        try @import("resource/machine.zig").addCatalog(&params, options);
         return decodeTypedList(
             MachineSnapshot,
             self.allocator,
-            try self.read(
-                .machine_list,
-                .{ .object = raw.wire.Object.init(arena.allocator()) },
-            ),
+            try self.read(.machine_list, .{ .object = params }),
             "machines",
         );
     }
@@ -7042,49 +7045,13 @@ fn encodeMoveDestination(
     }
 }
 
-pub const MachineOrigin = union(enum) {
-    local,
-    unknown: []const u8,
-
-    pub fn wireName(self: MachineOrigin) []const u8 {
-        return switch (self) {
-            .local => "local",
-            .unknown => |value| value,
-        };
-    }
-};
-
-pub const MachineStatus = union(enum) {
-    running,
-    connecting,
-    sleeping,
-    stopped,
-    unavailable,
-    unknown: []const u8,
-
-    pub fn wireName(self: MachineStatus) []const u8 {
-        return switch (self) {
-            .running => "running",
-            .connecting => "connecting",
-            .sleeping => "sleeping",
-            .stopped => "stopped",
-            .unavailable => "unavailable",
-            .unknown => |value| value,
-        };
-    }
-};
-
-pub const MachineSnapshot = struct {
-    id: MachineId,
-    name: []const u8,
-    origin: MachineOrigin,
-    status: MachineStatus,
-    connectable: bool,
-    deleted: bool,
-    recoverable: bool,
-    /// Catalog-defined forward-compatible fields.
-    extra: ?raw.wire.Object,
-};
+pub const MachineReadOptions = @import("resource/machine.zig").MachineReadOptions;
+const MachineModels = @import("resource/machine.zig").Models(MachineId);
+pub const MachineOrigin = MachineModels.MachineOrigin;
+pub const MachineStatus = MachineModels.MachineStatus;
+pub const MachinePlatform = MachineModels.MachinePlatform;
+pub const MachineCapabilityList = MachineModels.MachineCapabilityList;
+pub const MachineSnapshot = MachineModels.MachineSnapshot;
 
 pub const SessionSnapshot = struct {
     id: SessionId,
@@ -7945,20 +7912,6 @@ pub const CreatedTerminalPathMutationResult =
 pub const CreatedBrowserPathMutationResult =
     TypedMutationResult(CreatedBrowserPath);
 pub const EmptyMutationResult = TypedMutationResult(EmptyResult);
-
-fn parseMachineOrigin(value: []const u8) MachineOrigin {
-    if (std.mem.eql(u8, value, "local")) return .local;
-    return .{ .unknown = value };
-}
-
-fn parseMachineStatus(value: []const u8) MachineStatus {
-    if (std.mem.eql(u8, value, "running")) return .running;
-    if (std.mem.eql(u8, value, "connecting")) return .connecting;
-    if (std.mem.eql(u8, value, "sleeping")) return .sleeping;
-    if (std.mem.eql(u8, value, "stopped")) return .stopped;
-    if (std.mem.eql(u8, value, "unavailable")) return .unavailable;
-    return .{ .unknown = value };
-}
 
 fn optionalExtra(object: raw.wire.Object) !?raw.wire.Object {
     const value = object.get("extra") orelse return null;
@@ -9302,30 +9255,7 @@ fn decodeTerminalDefaultsSnapshot(
 }
 
 fn decodeMachineSnapshot(value: raw.wire.Value) !MachineSnapshot {
-    const object = try detailObject(value);
-    try ensureOnlyFields(
-        object,
-        &.{
-            "id",
-            "name",
-            "origin",
-            "status",
-            "connectable",
-            "deleted",
-            "recoverable",
-            "extra",
-        },
-    );
-    return .{
-        .id = try parseRequiredId(MachineId, object, "id"),
-        .name = try objectString(object, "name"),
-        .origin = parseMachineOrigin(try objectString(object, "origin")),
-        .status = parseMachineStatus(try objectString(object, "status")),
-        .connectable = try objectBool(object, "connectable"),
-        .deleted = try objectBool(object, "deleted"),
-        .recoverable = try objectBool(object, "recoverable"),
-        .extra = try optionalExtra(object),
-    };
+    return MachineModels.decode(value);
 }
 
 fn decodeSessionSnapshot(value: raw.wire.Value) !SessionSnapshot {
@@ -13519,7 +13449,20 @@ pub const Machine = struct {
     }
 
     pub fn refresh(self: Self) !OwnedMachineSnapshot {
-        return self.impl().refresh();
+        return self.refreshWith(.{});
+    }
+
+    pub fn refreshWith(self: Self, options: MachineReadOptions) !OwnedMachineSnapshot {
+        var params = try Params(MachineId).init(self.client.allocator, "machine", &self.target, null);
+        defer params.deinit();
+        try @import("resource/machine.zig").addCatalog(&params.object, options);
+        return decodeRefreshResult(
+            MachineId,
+            "machine",
+            self.client.allocator,
+            self.id(),
+            try self.client.read(.machine_get, params.asValue()),
+        );
     }
 
     pub fn listSessions(self: Self) !SessionList {

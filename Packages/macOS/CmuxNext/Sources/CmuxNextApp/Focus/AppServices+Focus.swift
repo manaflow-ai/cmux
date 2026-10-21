@@ -1,5 +1,7 @@
 import CmuxNextBrowser
 import CmuxNextActions
+import CmuxNextDaemon
+import CmuxNextFocus
 
 // App-wide inputs to the per-window focus coordinators.
 extension AppServices {
@@ -11,6 +13,7 @@ extension AppServices {
         palette.onVisibilityChange = { [weak self] open in
             guard let self else { return }
             if open {
+                chromiumWarmup.tabSignal(.paletteOpen)
                 windows.active?.focus.send(.overlayOpened(.palette))
             } else {
                 for controller in windows.controllers where controller.focus.state.overlays.contains(.palette) {
@@ -30,6 +33,13 @@ extension AppServices {
             controller.focus.send(.focusTarget(.addressBar, source: .keyboard))
             return
         }
+    }
+
+    /// A split's terminal got its daemon surface on `daemon` (no topology send): its theme follows the
+    /// confirmed terminal; a surface wait in a window of `daemon` (surfaces are per daemon) takes the tab id.
+    func terminalConfirmed(_ tab: TabModel, on daemon: DaemonService) {
+        if let entry = cache.existingTerminal(tab.id) { themes.catchUp(entry, fresh: true) } // its theme key moved
+        for controller in windows.controllers where controller.content?.daemon === daemon { controller.content?.rekeySurfaceWait() }
     }
 
     /// The chrome of page `key` gives the keyboard back to the page: its

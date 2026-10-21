@@ -1,5 +1,5 @@
 import type React from "react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { applyDictation, type DictationAnchor, type DictationState, type DictationUpdate } from "./dictationText";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import { useT } from "./i18n";
@@ -17,6 +17,7 @@ const listeners = new Set<(update: DictationUpdate) => void>();
 /// however many composers listen.
 export function deliverDictation(update: DictationUpdate): void {
   setLevel(update.level, isActive(update.state));
+  setWaiting(update.state === "starting" || update.state === "listening");
   for (const listener of listeners) listener(update);
 }
 
@@ -33,9 +34,9 @@ export function configureDictation(layout: Record<string, unknown> | undefined):
   autoSend = dictation?.autoSend === true;
 }
 
-/// The last few input levels, oldest first, read only by the mic button's waveform: it moves
-/// about 12 times a second without re-rendering the pane.
-const WAVE_BARS = 5;
+/// The last few input levels, oldest first, read only by the waveform beside the mic
+/// (DictationWave): it moves about 12 times a second without re-rendering the pane.
+export const WAVE_BARS = 11;
 const silence: readonly number[] = Array(WAVE_BARS).fill(0);
 const level = { samples: silence, listeners: new Set<() => void>() };
 /// Adds the latest level while a session runs; anything else clears the waveform.
@@ -52,6 +53,29 @@ export const subscribeLevel = (listener: () => void) => {
 };
 export const readLevel = () => level.samples;
 
+/// A session is starting or listening: the prompt's placeholder reads "Listening…" (italic and
+/// muted, as Claude's does) until words land. The host runs one session per pane, so every
+/// composer on the page reads the same flag; only the field it writes into shows the words.
+const waiting = { value: false, listeners: new Set<() => void>() };
+function setWaiting(value: boolean): void {
+  if (waiting.value === value) return;
+  waiting.value = value;
+  for (const listener of waiting.listeners) listener();
+}
+const subscribeWaiting = (listener: () => void) => {
+  waiting.listeners.add(listener);
+  return () => {
+    waiting.listeners.delete(listener);
+  };
+};
+/// Whether a dictation session is starting or listening, for the prompt's placeholder.
+export const useDictationListening = (): boolean =>
+  useSyncExternalStore(
+    subscribeWaiting,
+    () => waiting.value,
+    () => false,
+  );
+
 export const isActive = (state: DictationState) =>
   state === "starting" || state === "listening" || state === "finalizing";
 
@@ -60,6 +84,8 @@ export type Dictation = {
   /// The denied or failed state the composer shows until dismissed or the next start.
   notice: DictationUpdate | null;
   toggle(): void;
+  /// Ends the session and keeps its words (the finish key beside the waveform).
+  finish(): void;
   cancel(): void;
   openSettings(): void;
   dismiss(): void;
@@ -71,8 +97,23 @@ export type DictationField = Pick<MarkdownFieldHandle, "focus" | "text" | "write
   submit?(): void;
 };
 
+/// Voice input for a harness that takes it. While `accepts` (the chat's ACP
+/// `promptCapabilities.audio`), the host keeps each session's audio (`dictation.audio`), and the
+/// session's last update hands it to `attach` before its words land, so the recording goes with
+/// the prompt the transcript is in, or tells `omitted` why it was left out. Otherwise the session
+/// is dictation alone.
+export type DictationAudio = {
+  accepts: boolean;
+  attach(audio: { mimeType: string; data: string }): void;
+  omitted(reason: NonNullable<DictationUpdate["audioOmitted"]>): void;
+};
+
 /// Dictation into the composer's prompt, which `prompt` holds once the composer mounts.
-export function useDictation(prompt: React.RefObject<DictationField | null>, call: Call): Dictation {
+export function useDictation(
+  prompt: React.RefObject<DictationField | null>,
+  call: Call,
+  audio?: DictationAudio,
+): Dictation {
   const t = useT();
   const [state, setState] = useState<DictationState>("idle");
   const [notice, setNotice] = useState<DictationUpdate | null>(null);
@@ -82,6 +123,19 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
   const pending = useRef<DictationUpdate[]>([]);
   /// A toggle went to the host and no update came back yet.
   const requested = useRef(false);
+  const attachAudio = useRef(audio?.attach);
+  attachAudio.current = audio?.attach;
+  const omitAudio = useRef(audio?.omitted);
+  omitAudio.current = audio?.omitted;
+  const acceptsAudio = audio?.accepts === true;
+  /// A session that ends after the chat moved to a harness without audio keeps its words only.
+  const acceptsAudioNow = useRef(acceptsAudio);
+  acceptsAudioNow.current = acceptsAudio;
+
+  // The host decides for every start (the mic, its shortcut, the palette), so it hears each change.
+  useEffect(() => {
+    void call("dictation.audio", { enabled: acceptsAudio }).catch(() => {});
+  }, [acceptsAudio, call]);
 
   useEffect(() => {
     let composing = false;
@@ -103,6 +157,11 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
       }
       if (applied && applied.state === update.state && applied.text === update.text && !update.cancelled) return;
       applied = isActive(update.state) ? update : null;
+      // The recording joins the composer before the words do, so an auto-send takes both.
+      if (update.state === "idle" && !update.cancelled && acceptsAudioNow.current) {
+        if (update.audio) attachAudio.current?.(update.audio);
+        else if (update.audioOmitted) omitAudio.current?.(update.audioOmitted);
+      }
       // A session the shortcut started writes where the user will type, as undoable edits.
       if (update.state === "starting" && document.hasFocus() && !field.focused()) field.focus();
       const splice = applyDictation(field.text(), anchor.current, update);
@@ -201,6 +260,9 @@ export function useDictation(prompt: React.RefObject<DictationField | null>, cal
               : t("dictation.unavailable"),
         });
       });
+    },
+    finish() {
+      void call("dictation.stop").catch(() => {});
     },
     cancel() {
       void call("dictation.cancel").catch(() => {});

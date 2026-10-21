@@ -765,6 +765,22 @@ RenderScroll parse_render_scroll(const Json& value) {
     };
 }
 
+std::optional<MachinePlatform> machine_platform(const Json::Object& object) {
+    const auto found = object.find("platform");
+    if (found == object.end() || found->second.is_null()) return std::nullopt;
+    const auto& value = exact_object(found->second, {"os", "arch"}, {}, "machine platform");
+    return MachinePlatform{optional_nullable_string(value, "os", "machine OS"),
+                           optional_nullable_string(value, "arch", "machine architecture")};
+}
+
+std::vector<std::string> machine_capabilities(const Json::Object& object) {
+    const auto found = object.find("capabilities");
+    if (found == object.end()) return {};
+    return array_value<std::string>(found->second, "machine capabilities", [](const Json& value) {
+        return string_value(value, "machine capability");
+    });
+}
+
 MachineSnapshot parse_machine(const Json& value) {
     const auto& object = exact_object(
         value,
@@ -777,6 +793,8 @@ MachineSnapshot parse_machine(const Json& value) {
             "deleted",
             "recoverable",
             "extra",
+            "platform",
+            "capabilities",
         },
         {
             "id",
@@ -795,6 +813,9 @@ MachineSnapshot parse_machine(const Json& value) {
             field(object, "origin", "machine"),
             {
                 {"local", MachineOrigin::local},
+                {"cloud", MachineOrigin::cloud},
+                {"ssh", MachineOrigin::ssh},
+                {"server", MachineOrigin::server},
             },
             "machine origin"),
         enum_value<MachineStatus>(
@@ -813,6 +834,8 @@ MachineSnapshot parse_machine(const Json& value) {
         bool_value(
             field(object, "recoverable", "machine"), "machine recoverable"),
         extra_value(object, "machine snapshot"),
+        machine_platform(object),
+        machine_capabilities(object),
     };
 }
 

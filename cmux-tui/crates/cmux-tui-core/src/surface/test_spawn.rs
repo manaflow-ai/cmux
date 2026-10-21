@@ -120,7 +120,7 @@ impl Surface {
             cell_width: cell_pixels.0,
             cell_height: cell_pixels.1,
         };
-        let initial_pty_size = initial_geometry.pty_size()?;
+        let initial_pty_size = initial_geometry.pty_size();
         let callbacks = Callbacks {
             on_bell: Some(Box::new({
                 let mux = mux.clone();

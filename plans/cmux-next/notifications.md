@@ -76,11 +76,23 @@ unread count (`notifications.dockBadge`).
 ## Verbs
 
 Every verb is a registry action (palette, CLI, bindable, menus): Jump to Latest Unread
-(Cmd-Shift-U), Toggle Unread, Mark Oldest Unread and Jump Next, Mark All Notifications as
+(Cmd-Shift-U), Toggle Tab Unread, Mark Oldest Unread and Jump Next, Mark All Notifications as
 Read, Open / Copy / Dismiss Notification, Mute or Unmute Workspace Notifications (also the
 sidebar row menu; `notifications.mutedWorkspaces`), Toggle Notification Banners, and one
 action per dismissal mode (`notifications.dismissal.<mode>`). Settings actions apply at
 once and write cmux.json. cmux-next has no Settings window yet.
+
+## Mark Tab Unread
+
+Mark Tab Unread (tab menu, `palette.toggleTabUnread`, `cmux tab mark-as-unread`) and Toggle
+Tab Unread (Opt-Cmd-U, Window menu, `toggleUnread`) run one path, `TabUnreadMark.toggle`: a
+tab that shows unread (an unread notification, the manual mark, or both) is read; any other
+tab is marked unread, with or without a notification. The mark is a flag on the tab record
+in the daemon (`tab-mark-unread-v1`: `tab.update {marked_unread}`, the tab's
+`extra.marked_unread`), so every client shows the tab's dot and its workspace row's dot.
+A client clears the mark when the tab comes into view (key window, cmux active); a tab
+marked while viewed keeps it until it is viewed again. A daemon older than the app
+refuses with the restart-to-update message. An agent chat tab keeps acpmux's own unread.
 
 ## Panel
 
@@ -92,7 +104,8 @@ Up/Down select, Return opens, Delete dismisses, Esc closes. The header has Mark 
 and Clear All (`clearAllNotifications`, `cmux notification clear-all`), which removes the
 ledger rows and markers through v2 `notification.clear`. The daemon clears by terminal, so
 Dismiss removes every notification of the row's terminal (a row without a terminal is only
-marked read), and nothing can mark a notification unread. The panel reloads while shown
+marked read). A notification is never made unread again: Mark Unread on a read row marks
+its tab unread instead (Mark Tab Unread below). The panel reloads while shown
 when a notification arrives or is read.
 
 ## Verification

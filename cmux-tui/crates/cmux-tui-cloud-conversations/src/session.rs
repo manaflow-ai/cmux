@@ -163,7 +163,7 @@ pub(crate) fn token_agent(token: &str) -> Option<String> {
     token_claim(token, "agt").filter(|agent| super::contract::valid_agent_id(agent))
 }
 
-fn token_claim(token: &str, name: &str) -> Option<String> {
+pub(crate) fn token_claim(token: &str, name: &str) -> Option<String> {
     use base64::Engine;
     let mut parts = token.split('.');
     let (_header, payload, _signature) = (parts.next()?, parts.next()?, parts.next()?);

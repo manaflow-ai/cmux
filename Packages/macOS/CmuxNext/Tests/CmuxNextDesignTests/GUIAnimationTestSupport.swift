@@ -7,6 +7,19 @@ import AppKit
 /// sufficient admission checks.
 @MainActor
 enum GUIAnimationTestSupport {
+    /// Waits until `done()` holds: a fade ends on its completion, which the render server sends
+    /// when the animation ran on screen, so a loaded host (a shared step host runs PR jobs
+    /// beside the suite) sends it late, never early. A fixed sleep reads the state before that;
+    /// this reads it after. `seconds` only bounds a fade that never ends (a real failure).
+    static func settle(within seconds: Int = 10, until done: () -> Bool) async -> Bool {
+        let deadline = ContinuousClock.now + .seconds(seconds)
+        while !done() {
+            guard ContinuousClock.now < deadline else { return false }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return true
+    }
+
     static func animatesHere() async -> Bool {
         guard let screen = NSScreen.main, Motion.speed != .off,
               !DisplaySleep.shared.isAsleep(screen),

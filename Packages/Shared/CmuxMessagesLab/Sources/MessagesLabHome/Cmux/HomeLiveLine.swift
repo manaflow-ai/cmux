@@ -10,7 +10,12 @@ final class HomeLiveLine {
     /// Sends the line (nil: none) to the transcript's store.
     var dispatch: (String?) -> Void = { _ in }
     private var activity: HomeLiveActivity?
+    /// The run's newest thought (``HomeLiveRun/thought``): the narration row's source.
+    private var thought: String?
     private var shown: String?
+    /// How the line reads (Debug Settings > Home > Running indicator), read at each tick so a
+    /// change shows on the next second.
+    var style: () -> HomeTurnProgressStyle = { .narrated }
     private var clock: Timer?
     private var hiding = false
     /// Counts hide requests: a close pending for an earlier one never closes a later one early.
@@ -21,8 +26,14 @@ final class HomeLiveLine {
         self.now = now
     }
 
-    func show(_ activity: HomeLiveActivity?) {
+    func show(_ activity: HomeLiveActivity?, thought: String? = nil) {
         if activity != nil { hiding = false }
+        if let activity { steps.record(activity) }
+        if thought != self.thought {
+            self.thought = thought
+            // A new thought on the same step: the narration row changes now, not on the next second.
+            if activity != nil, activity == self.activity, clock != nil { tick() }
+        }
         // The same line again after a hide stopped its clock: the clock runs again.
         guard activity != self.activity || (activity != nil && clock == nil) else { return }
         self.activity = activity
@@ -65,6 +76,9 @@ final class HomeLiveLine {
         guard hiding, hides == ticket else { return }
         hiding = false
         show(nil)
+        // The turn is over: its steps go with its line (and an open details popover).
+        steps = HomeTurnSteps()
+        onClose?()
         closed(fires: controller?.frameTick.fires)
     }
 
@@ -93,10 +107,24 @@ final class HomeLiveLine {
     }
 
     private func tick() {
-        let text = activity.map { Self.text($0, now: now()) }
+        onTick?()
+        let at = now()
+        let text = activity.map { HomeTurnProgress(steps: steps.steps, current: $0, thought: thought, now: at, style: style()).text }
         guard text != shown else { return }
         shown = text
         dispatch(text)
+    }
+
+    /// The running turn's steps so far (one per distinct "working on" line), for the details popover.
+    private(set) var steps = HomeTurnSteps()
+    /// Each display-clock second (and each new line): an open details popover counts on.
+    var onTick: (() -> Void)?
+    /// The turn's line closed: an open details popover closes with it.
+    var onClose: (() -> Void)?
+
+    /// The current details (steps, durations, total), as of now.
+    func details() -> HomeTurnDetails? {
+        activity == nil ? nil : steps.details(now: now())
     }
 
     private static let minutes = formatter([.minute, .second])
@@ -111,11 +139,16 @@ final class HomeLiveLine {
     }
 
     static func text(_ activity: HomeLiveActivity, now: Date) -> String {
-        let seconds = now.timeIntervalSince(activity.since).rounded(.down)
-        guard seconds.isFinite, seconds >= 1 else { return activity.line }
-        let formatter = seconds >= 3600 ? hours : minutes
-        guard let elapsed = formatter.string(from: seconds) else { return activity.line }
+        guard let elapsed = elapsed(now.timeIntervalSince(activity.since)) else { return activity.line }
         return "\(activity.line) · \(elapsed)"
+    }
+
+    /// "4s", "1m 5s", "2h 3m"; nil under a second.
+    static func elapsed(_ interval: TimeInterval) -> String? {
+        let seconds = interval.rounded(.down)
+        guard seconds.isFinite, seconds >= 1 else { return nil }
+        let formatter = seconds >= 3600 ? hours : minutes
+        return formatter.string(from: seconds)
     }
 }
 

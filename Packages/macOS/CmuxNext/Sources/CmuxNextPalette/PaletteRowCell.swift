@@ -12,7 +12,7 @@ final class PaletteKeycapsView: NSView {
         }
     }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// theme-scoped: read inside `performWithTheme` (draw) or for measuring.
     private var attributes: [NSAttributedString.Key: Any] {

@@ -218,11 +218,22 @@ import Testing
     /// 5. send (2 lines, morph): the multi-line send's morph from 0.5 s (bubble.width.fieldShrink).
     /// The test above compares Home with MessagesLab on the same vendored code, so a new pin that
     /// changes this motion keeps it green; this one fails until the golden is recorded again on
-    /// purpose (HOME_HARNESS_WRITE_GOLDEN=1, named in the pin's commit). Recorded with the harness
-    /// host's OS (scripts/cmux-next/home-messageslab-harness.sh).
+    /// purpose (HOME_HARNESS_WRITE_GOLDEN=1, named in the pin's commit). Core Animation's motion
+    /// differs between macOS majors (the receipt slide's curve and duration, the send morph's begin
+    /// times), so each major has its own golden: `goldenName`.
     static let motionTransitions = ["delivered", "delivered -> read", "typing indicator", "send (1 line, morph)",
                                     // MessagesLab 60fbe32: the multi-line (field-shrink) send's morph, bubble.width.fieldShrink.
                                     "send (2 lines, morph)"]
+
+    /// The macOS major `Golden/home-motion.ndjson` was recorded on; every other major reads and
+    /// writes `Golden/home-motion-macosN.ndjson` (macOS 26: the fleet's aws-m4pro-5...9 hosts).
+    static let defaultGoldenMajor = 27
+
+    /// The golden for the macOS this test runs on.
+    static var goldenName: String {
+        let major = ProcessInfo.processInfo.operatingSystemVersion.majorVersion
+        return major == defaultGoldenMajor ? "home-motion.ndjson" : "home-motion-macos\(major).ndjson"
+    }
 
     /// The indicator shows at 0.50 s in `typingOnly` and stays: ticks 0.50 s to 2.70 s (2.2 s, more than
     /// the bubble's 1.906 s breathing period and both discs' periods), every 2nd: only row[typing] layers.
@@ -263,7 +274,7 @@ import Testing
             lines[i] = "{\"animations\":" + line + ",\"window\":[" + Self.typingWindow(Self.typingOnly().frames).joined(separator: ",") + "]}"
         }
         #expect(lines.count == Self.motionTransitions.count)
-        let golden = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Golden/home-motion.ndjson")
+        let golden = URL(fileURLWithPath: #filePath).deletingLastPathComponent().appendingPathComponent("Golden/" + Self.goldenName)
         let now = lines.joined(separator: "\n") + "\n"
         if ProcessInfo.processInfo.environment["HOME_HARNESS_WRITE_GOLDEN"] == "1" {
             try FileManager.default.createDirectory(at: golden.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -272,11 +283,11 @@ import Testing
         }
         let recorded = try String(contentsOf: golden, encoding: .utf8)
         if let dir = ProcessInfo.processInfo.environment["HOME_HARNESS_OUT"] {
-            try now.write(toFile: dir + "/home-motion.ndjson", atomically: true, encoding: .utf8)
+            try now.write(toFile: dir + "/" + Self.goldenName, atomically: true, encoding: .utf8)
         }
         for (i, name) in Self.motionTransitions.enumerated() {
             let want = recorded.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)[checked: i]
-            #expect(lines[checked: i] == want, "the Home motion of \(name) differs from Golden/home-motion.ndjson")
+            #expect(lines[checked: i] == want, "the Home motion of \(name) differs from Golden/\(Self.goldenName)")
         }
     }
 }

@@ -297,6 +297,9 @@ CmuxNextActions) so every client resolves the same way:
   wins over an entry the same key completes (VS Code rule, as at the first key);
 - else the key completes the entry that wins for the whole sequence; else nothing;
 - the Cmd-J leader arms as a first key whenever any entry sits under it;
+- a bare first key (no Command, Control or Option: `g g`, `] f`) arms only where the
+  context owns bare keys (`KeyContext.ownsBareKeys`: `diffViewerFocused` or
+  `markdownReadOnlyFocused`, and no `textInputFocus`; K1); elsewhere it is typing;
 - a fifth key never arms (`KeyBindingTable.maxSequenceLength` = 4).
 The which-key overlay shows for every armed prefix (`KeyBindingTable.nextKeys`): each
 next key once, what it runs now, "more keys…" for a key that only leads on, dimmed when
@@ -308,7 +311,9 @@ prefix it goes on to the view (unchanged).
 8.2 **Arguments.** `KeyBindingLoader.load` loads app and keybindings.json
 entries through `validated(_:)`: canonical id, each argument exists in the schema and fits
 its kind (text that fits is parsed), at most four keys, first key with Command or Control
-(only those reach the dispatcher). A bad entry is left out with a `KeyBindingIssue`
+(only those reach the dispatcher), or a bare first key under a `when` whose `&&` terms
+require a bare-key context and no text-field context (`BareKeys`, K1; the daemon's
+keybindings.json reader, cmux-config `keybindings::bare`, applies the same rule). A bad entry is left out with a `KeyBindingIssue`
 (layer, position, kind); the others load (K4). A missing required argument loads: running
 the binding asks for it, as the palette does.
 

@@ -87,6 +87,15 @@ Goal: a warm turn reads >= 90 % of its prompt from the provider's prompt cache (
 with the reference client). Both brains (the local optchat-chief and the Cloud ChiefBrainDO) follow
 this rule, through `optchat-core` (`turn_input`), not through host code.
 
+Cloud Chief (2026-10-19, hq-1f, UNII-PARITY section 7 rows 9 and 22): a turn first waits for the
+summaries of every message before its new ones (the reference client's `Memory.settle`, at most 5 s and
+only while the compactor is healthy), then renders the view again (`turn_input` with no frozen view): the
+view shows every earlier message as built lines and the delta holds only the new messages, as the
+reference client builds each call. The frozen view below is its fallback when the compactor is behind.
+Cache marks there come from `chief-brain/cache-prefix.ts`: the view's last whole block (written for the
+next turn) and the longest piece prefix an earlier request wrote (read; Bedrock has no look-back), kept
+in the brain object across evictions. The Rust Chief keeps the frozen rule below.
+
 A turn's input is: the system prompt and tools (byte-identical across calls), then the FROZEN VIEW,
 then the DELTA, in that order. Nothing before the delta's end changes between two turns unless a
 re-render happens.

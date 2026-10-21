@@ -141,6 +141,8 @@ nonisolated enum InputReplay {
         case "ended:overflow": return record.link.map { .ended($0, .overflow) }
         case "ended:other": return record.link.map { .ended($0, .surfaceGone) }
         case "focused": return .focused
+        case "takeOver": return .takeOver(setLatest: false)
+        case "takeOver:latest": return .takeOver(setLatest: true)
         default:
             if let size = cellSize(event, prefix: "resize:") { return .resize(size) }
             if let size = cellSize(event, prefix: "grid:") { return record.link.map { .gridAnnounced($0, size) } }

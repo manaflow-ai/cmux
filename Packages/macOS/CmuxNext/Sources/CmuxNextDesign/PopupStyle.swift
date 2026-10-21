@@ -4,7 +4,9 @@ public import AppKit
 /// the icon picker, page info, the palette's actions menu): the web's popup
 /// surface (webviews/src/ui/popupSurface.css, #18729) in AppKit. Small-radius
 /// rects, compact rows and one subtle shadow (`elevation`); each surface keeps its own
-/// material and theme colors. `PopupStyleTests` holds the two in step.
+/// material and theme colors. `PopupStyleTests` holds the two in step. Hover cards
+/// keep the shadow and rows but take the floating glass panels' larger radius
+/// (`HoverCardPanel.cornerRadius`).
 public struct PopupStyle: Sendable {
     /// The style every native popover uses.
     public static let standard = PopupStyle()
@@ -93,6 +95,21 @@ public final class PopupHostView: NSView {
     /// The layer that casts the popup shadow (behind the card).
     public let shadowLayer = CALayer()
     private let shadowCutout = CAShapeLayer()
+    /// Clear room kept around the shadow band, so a card that moves inside its window (the hover
+    /// card's slide, `HoverCardPanel`) is not clipped by the window. 0 for a popover that never
+    /// moves its card.
+    public var travelMargin: CGFloat = 0 {
+        didSet { if travelMargin != oldValue { placeCard() } }
+    }
+    /// The card's corner radius, which the shadow follows: the popup radius, or a popup that
+    /// copies another app's radius (the Extensions bubble, Chrome's 12).
+    public var cornerRadius: CGFloat = PopupStyle.standard.cornerRadius {
+        didSet {
+            guard cornerRadius != oldValue else { return }
+            if let surface = card as? OverlaySurfaceView { surface.cornerRadius = cornerRadius }
+            placeCard()
+        }
+    }
 
     /// `card` sizes by its frame (the host lays it out). An
     /// `OverlaySurfaceView` card takes the popup radius.
@@ -129,13 +146,13 @@ public final class PopupHostView: NSView {
     /// The card fills the host less the band. A host smaller than the band
     /// (a window not yet placed) leaves the card where it is.
     private func placeCard() {
-        let margin = PopupStyle.standard.shadowMargin
+        let margin = PopupStyle.standard.shadowMargin + travelMargin
         guard bounds.width >= 2 * margin, bounds.height >= 2 * margin else { return }
         let frame = bounds.insetBy(dx: margin, dy: margin)
         card.frame = frame
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        let radius = PopupStyle.standard.cornerRadius
+        let radius = cornerRadius
         let shape = CGPath(roundedRect: frame, cornerWidth: radius, cornerHeight: radius, transform: nil)
         shadowLayer.frame = bounds
         shadowLayer.shadowPath = shape

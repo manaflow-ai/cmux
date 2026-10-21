@@ -1,7 +1,10 @@
 //! A peer is a remote acpmux daemon. This daemon is an ACP client of it:
 //! it watches the peer's sessions, forwards requests for them, and relays
-//! the peer's notifications to local clients. Reconnects with backoff.
+//! the peer's notifications to local clients. Reconnects with backoff and
+//! jitter, forever; a slow peer is `degraded`, a lost one `reconnecting`
+//! (`peer_link.rs`).
 
+use crate::peer_link::{Backoff, Link, LinkTimings, PeerState};
 use crate::rpc::{Message, RpcError, method};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
@@ -63,6 +66,10 @@ pub struct Peer {
     /// The origin the peer serves this daemon as (its initialize reply):
     /// `peer` when it accepted the peer token, `remote` (Web) otherwise.
     served_as: StdMutex<Option<String>>,
+    /// The daemon run the peer named in its initialize reply
+    /// (`personInstance`): the only run its pending prompts may carry
+    /// (`hub/person.rs` (c)). A claim, not a proof.
+    person_instance: StdMutex<Option<String>>,
     /// Whether the peer advertised the folder-trust gate in initialize.
     trust_gate: AtomicBool,
     /// The peer token was held back: the transport is plain `ws://` to a
@@ -76,6 +83,11 @@ pub struct Peer {
     /// Counts connect attempts that settled (ready or failed), bumped by the
     /// hub once it applied the outcome, so a caller can await the next one.
     settled: tokio::sync::watch::Sender<u64>,
+    /// Connected, degraded or reconnecting, and since when (`peer_link.rs`).
+    link: StdMutex<Link>,
+    timings: LinkTimings,
+    /// When the hub last saved this peer's sessions (`hub/peer_cache.rs`).
+    pub(crate) cache_saved_at: AtomicU64,
 }
 
 impl Peer {
@@ -102,6 +114,7 @@ impl Peer {
             last_error: StdMutex::new(None),
             remote_version: StdMutex::new(None),
             served_as: StdMutex::new(None),
+            person_instance: StdMutex::new(None),
             trust_gate: AtomicBool::new(false),
             withheld: AtomicBool::new(false),
             attached: StdMutex::new(HashSet::new()),
@@ -109,7 +122,39 @@ impl Peer {
             stop: AtomicBool::new(false),
             stop_signal: Notify::new(),
             settled: tokio::sync::watch::channel(0).0,
+            link: StdMutex::new(Link::default()),
+            timings: LinkTimings::from_env(),
+            cache_saved_at: AtomicU64::new(0),
         })
+    }
+
+    pub fn link(&self) -> Link {
+        self.link.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    fn with_link<T>(&self, f: impl FnOnce(&mut Link) -> T) -> T {
+        f(&mut self.link.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    pub fn state(&self) -> PeerState {
+        self.link().state()
+    }
+
+    /// Carry what an earlier instance (a replaced peer, or a saved list from
+    /// an earlier run) knew of when the peer was last seen.
+    pub fn seed_last_seen(&self, last_seen: Option<u64>) {
+        self.with_link(|l| l.seed(last_seen));
+    }
+
+    /// The refusal for a request while the link is down (`peer_link.rs`).
+    pub fn unreachable_error(&self) -> RpcError {
+        let error = self.last_error.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        crate::peer_link::unreachable_error(
+            &self.name,
+            &self.link(),
+            error.as_deref(),
+            crate::store::now_ms(),
+        )
     }
 
     /// Receives every later settled connect attempt.
@@ -175,11 +220,24 @@ impl Peer {
         if let (Some(t), Some(p)) = (&self.token, &self.peer_token) {
             return Ok((t.clone(), Some(p.clone())));
         }
-        let out = tokio::process::Command::new("ssh")
+        let read = tokio::process::Command::new("ssh")
             .args(read_config_argv(&host))
-            .output()
+            .kill_on_drop(true)
+            .output();
+        let out = tokio::time::timeout(self.timings.connect, read)
             .await
+            .map_err(|_| {
+                format!(
+                    "reading the remote config timed out after {}s",
+                    self.timings.connect.as_secs()
+                )
+            })?
             .map_err(|e| format!("read remote config: {e}"))?;
+        // The read ends with the token `cat`, which fails when there is no
+        // token: only an empty answer is a failed ssh.
+        if out.stdout.is_empty() && !out.status.success() {
+            return Err(format!("ssh to {host} failed ({})", out.status));
+        }
         let (config, peer) = split_remote_read(&out.stdout);
         let peer = self.peer_token.clone().or(peer);
         if let Some(t) = &self.token {
@@ -199,11 +257,17 @@ impl Peer {
         self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b.clone())
     }
 
+    /// The daemon run the peer named at its last handshake.
+    pub fn person_instance(&self) -> Option<String> {
+        self.person_instance.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     pub fn supports_trust_gate(&self) -> bool {
         self.trust_gate.load(Ordering::SeqCst)
     }
 
     pub fn summary(&self) -> Value {
+        let link = self.link();
         json!({
             "name": self.name,
             "url": self.url,
@@ -215,6 +279,10 @@ impl Peer {
             "servedAs": self.served_as.lock().unwrap_or_else(|e| e.into_inner()).clone(),
             "peerTokenWithheld": self.withheld.load(Ordering::SeqCst),
             "outdated": self.remote_version.lock().unwrap().as_ref().map(|(_, b)| b != crate::hub::BUILD).unwrap_or(false),
+            "state": link.state().as_str(),
+            "lastSeen": link.last_seen,
+            "downSince": link.down_since,
+            "attempts": link.attempts,
         })
     }
 
@@ -226,7 +294,7 @@ impl Peer {
 
     pub async fn request(&self, m: &str, params: Value) -> Result<Value, RpcError> {
         if !self.connected.load(Ordering::SeqCst) {
-            return Err(RpcError::internal(format!("peer {} is not connected", self.name)));
+            return Err(self.unreachable_error());
         }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
@@ -252,18 +320,22 @@ impl Peer {
 
     /// Run the connect loop until `stop`.
     pub async fn run(self: Arc<Self>) {
-        let mut backoff = 1u64;
+        let mut backoff = Backoff::default();
         let mut out_rx = self.out_rx.lock().await.take().expect("peer run called twice");
         while !self.stop.load(Ordering::SeqCst) {
-            match self.connect_once(&mut out_rx).await {
-                Ok(()) => backoff = 1,
-                Err(e) => {
-                    *self.last_error.lock().unwrap() = Some(e.clone());
-                    let notice = PeerNotice::Disconnected(e);
-                    let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
-                }
-            }
+            let outcome = self.connect_once(&mut out_rx).await;
             self.connected.store(false, Ordering::SeqCst);
+            // A link that held a while starts over; one that flaps (up, then
+            // reset seconds later) keeps backing off, so a loaded host is
+            // not hit with a reconnect every second.
+            if self.with_link(|l| l.down(crate::store::now_ms(), self.timings.stable_after)) {
+                backoff.reset();
+            }
+            if let Err(e) = outcome {
+                *self.last_error.lock().unwrap() = Some(e.clone());
+                let notice = PeerNotice::Disconnected(e);
+                let _ = self.notices.send((self.name.clone(), self.generation, notice)).await;
+            }
             let mut p = self.pending.lock().await;
             for (_, tx) in p.drain() {
                 let _ = tx.send(Err(RpcError::internal("peer disconnected")));
@@ -272,8 +344,11 @@ impl Peer {
             if self.stop.load(Ordering::SeqCst) {
                 break;
             }
-            tokio::time::sleep(Duration::from_secs(backoff)).await;
-            backoff = (backoff * 2).min(30);
+            let delay = backoff.next(crate::peer_link::jitter());
+            tokio::select! {
+                _ = tokio::time::sleep(delay) => {}
+                _ = self.stop_signal.notified() => break,
+            }
         }
     }
 
@@ -290,11 +365,11 @@ impl Peer {
                 peer_token.as_deref(),
             )?;
             let (ws, _) = tokio::time::timeout(
-                Duration::from_secs(10),
+                self.timings.connect,
                 tokio_tungstenite::client_async(req, stream),
             )
             .await
-            .map_err(|_| "connect timed out".to_owned())?
+            .map_err(|_| connect_timed_out(self.timings.connect))?
             .map_err(|e| e.to_string())?;
             return self.serve(ws, out_rx).await;
         }
@@ -310,9 +385,9 @@ impl Peer {
         };
         let req = self.ws_request(&self.url, self.token.as_deref(), peer_token)?;
         let (ws, _) =
-            tokio::time::timeout(Duration::from_secs(10), tokio_tungstenite::connect_async(req))
+            tokio::time::timeout(self.timings.connect, tokio_tungstenite::connect_async(req))
                 .await
-                .map_err(|_| "connect timed out".to_owned())?
+                .map_err(|_| connect_timed_out(self.timings.connect))?
                 .map_err(|e| e.to_string())?;
         self.serve(ws, out_rx).await
     }
@@ -348,9 +423,11 @@ impl Peer {
     where
         S: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin,
     {
+        use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock().unwrap() = None;
+        self.with_link(|l| l.opened(crate::store::now_ms()));
         tracing::info!(peer = %self.name, "connected to {}", self.url);
 
         // Handshake in a task so the read loop below can serve the responses.
@@ -375,6 +452,10 @@ impl Peer {
             *me.remote_version.lock().unwrap() = Some((v, b));
             *me.served_as.lock().unwrap_or_else(|e| e.into_inner()) =
                 init.pointer("/_meta/acpmux/origin").and_then(Value::as_str).map(str::to_owned);
+            *me.person_instance.lock().unwrap_or_else(|e| e.into_inner()) = init
+                .pointer("/_meta/acpmux/personInstance")
+                .and_then(Value::as_str)
+                .map(str::to_owned);
             let advertised =
                 init.pointer("/_meta/acpmux/features").and_then(Value::as_array).is_some_and(
                     |features| features.iter().any(|f| f.as_str() == Some("trustGate")),
@@ -393,6 +474,7 @@ impl Peer {
                 .notices
                 .send((me.name.clone(), me.generation, PeerNotice::Sessions(sessions)))
                 .await;
+            me.with_link(|l| l.ready(crate::store::now_ms()));
             let _ = me.notices.send((me.name.clone(), me.generation, PeerNotice::Connected)).await;
             let attached: Vec<String> = me.attached.lock().unwrap().iter().cloned().collect();
             for sid in attached {
@@ -402,15 +484,48 @@ impl Peer {
             Ok::<(), RpcError>(())
         });
 
+        // Keepalive: a ping each interval; any frame is an answer. A peer
+        // silent for the whole budget, or one that stops reading so a send
+        // cannot go out, is dropped and reconnected; one interval of silence
+        // only marks it degraded.
+        let timings = self.timings;
+        let budget = timings.silence_budget();
+        let mut ping = tokio::time::interval_at(
+            tokio::time::Instant::now() + timings.ping_every,
+            timings.ping_every,
+        );
+        ping.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        let mut last_frame = tokio::time::Instant::now();
+        let handshake_deadline = tokio::time::sleep(timings.handshake);
+        tokio::pin!(handshake_deadline);
         let result = loop {
             if self.stop.load(Ordering::SeqCst) {
                 break Ok(());
             }
             tokio::select! {
                 _ = self.stop_signal.notified() => break Ok(()),
+                _ = &mut handshake_deadline, if !self.link().is_ready() => {
+                    break Err(format!("handshake timed out after {}s", timings.handshake.as_secs()));
+                }
+                _ = ping.tick() => {
+                    let silent = last_frame.elapsed();
+                    if silent >= budget {
+                        break Err(format!("peer stopped answering ({}s without a frame)", silent.as_secs()));
+                    }
+                    if silent >= timings.ping_every {
+                        self.with_link(Link::overdue);
+                    }
+                    match tokio::time::timeout(budget, sink.send(Frame::Ping(Vec::new().into()))).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(budget)),
+                    }
+                }
                 frame = source.next() => {
                     let Some(frame) = frame else { break Err("peer closed the connection".to_owned()) };
                     let frame = match frame { Ok(f) => f, Err(e) => break Err(e.to_string()) };
+                    last_frame = tokio::time::Instant::now();
+                    self.with_link(|l| l.heard(crate::store::now_ms()));
                     let text = match frame {
                         tokio_tungstenite::tungstenite::Message::Text(t) => t.to_string(),
                         tokio_tungstenite::tungstenite::Message::Close(_) => break Err("peer closed the connection".to_owned()),
@@ -458,8 +573,10 @@ impl Peer {
                 line = out_rx.recv() => {
                     let Some(line) = line else { break Ok(()) };
                     let text = line.trim_end_matches('\n').to_owned();
-                    if let Err(e) = sink.send(tokio_tungstenite::tungstenite::Message::Text(text.into())).await {
-                        break Err(e.to_string());
+                    match tokio::time::timeout(budget, sink.send(Frame::Text(text.into()))).await {
+                        Ok(Ok(())) => {}
+                        Ok(Err(e)) => break Err(e.to_string()),
+                        Err(_) => break Err(stopped_reading(budget)),
                     }
                 }
             }
@@ -467,6 +584,14 @@ impl Peer {
         handshake.abort();
         result
     }
+}
+
+fn connect_timed_out(after: Duration) -> String {
+    format!("connect timed out after {}s", after.as_secs())
+}
+
+fn stopped_reading(budget: Duration) -> String {
+    format!("peer stopped reading (a send waited {}s)", budget.as_secs())
 }
 
 /// The default WebSocket port of an `ssh://` peer.
@@ -559,7 +684,7 @@ pub fn tunnel_argv(destination: &str, port: u16) -> Vec<String> {
         "-o",
         "ServerAliveCountMax=3",
         "-o",
-        "ConnectTimeout=10",
+        "ConnectTimeout=20",
         "-W",
     ]
     .iter()
@@ -578,7 +703,7 @@ pub fn read_config_argv(destination: &str) -> Vec<String> {
         "-o",
         "BatchMode=yes",
         "-o",
-        "ConnectTimeout=10",
+        "ConnectTimeout=20",
         "--",
         destination,
         "cat ~/.acpmux/config.json; printf '\\0'; cat ~/.acpmux/run/peer.token 2>/dev/null",

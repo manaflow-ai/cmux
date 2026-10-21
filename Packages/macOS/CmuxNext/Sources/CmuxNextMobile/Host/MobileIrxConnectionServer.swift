@@ -9,6 +9,8 @@ struct MobileIrxConnectionServer: Sendable {
     let connection: IrxConnection
     let control: IrxLaneStream
     let deviceID: String
+    /// What this Mac lets phones do; daemon lanes read it per request.
+    let access: PhoneAccessGate
     let makeSession: @Sendable (_ emit: @escaping MobileCompatSession.Emit) -> MobileCompatSession
     let daemonSocketPath: @Sendable () async -> String?
     let journal: IrxJournal
@@ -79,7 +81,9 @@ struct MobileIrxConnectionServer: Sendable {
         }
         journal.record("next-host", "daemon-lane-open", ["machine": machine])
         let splice = DaemonLaneSplice(phone: IrxByteLane(lane: lane), daemon: daemon,
-                                      policy: DaemonLanePolicy(deviceID: deviceID))
+                                      policy: DaemonLanePolicy(deviceID: deviceID, allowsStartingSessions: { [access] in
+                                          access.allowsStartingSessions
+                                      }))
         let reason = await splice.run()
         journal.record("next-host", "daemon-lane-closed", ["reason": String(describing: reason)])
     }
