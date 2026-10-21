@@ -38,12 +38,9 @@ final class AppsService {
     /// one client. Captures the client, not the service, so a page set that
     /// outlives the service still makes models.
     private(set) lazy var storePages = AppStorePages { [weak self, client = self.client, recovery = self.services.daemon.recovery] in
-        let model = AppStoreModel(client: client)
+        let model = AppStoreModel(client: client) { app in _ = self?.services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: .user)) }
         model.recovery = { recovery.appsRecovery }
         model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
-        model.onOpenApp = { app in
-            _ = self?.services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: .user))
-        }
         return model
     }
 
