@@ -21,7 +21,7 @@
 # with a universal one) and write-cmux-tui-version.sh (release, nightly and
 # build-sign-upload.sh).
 #
-# A binary that cannot print its list (a cmux-tui from before `capabilities`, a
+# A binary that cannot print its list (a cmux-tui from before the command, a
 # non-executable cached slice, a test fake) leaves no file and a warning, so the
 # bundle claims no capability. --require makes that an error; bundle-cmux-tui.sh
 # passes it for a same-tree build, which must print it.
