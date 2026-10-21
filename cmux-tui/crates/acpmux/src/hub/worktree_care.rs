@@ -10,9 +10,11 @@
 //! from 90%. Nothing runs on a timer. One pass at a time, off the runtime:
 //! the settings, the disk and the session files are read on a blocking
 //! thread too.
-//! The `worktrees.autoCleanup` setting (default on) turns the automatic
-//! passes off; `_acpmux/worktree/clean` (the machine view's Clean up now)
-//! runs one regardless.
+//! Automatic passes are off unless the `worktrees.autoCleanup` setting is
+//! `true`: whether a pass may remove a worktree without a per-folder check
+//! that nothing has it open is not decided yet. `_acpmux/worktree/clean`
+//! (the machine view's Clean up now) runs one regardless, with the same
+//! guards: quiet time, archive first, live sessions kept.
 //!
 //! A session that starts again in a reclaimed worktree gets it back first
 //! (`care_restore_for`, from `cold_start`): its files, index and archived
@@ -30,7 +32,7 @@ use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{self as care_policy, Pressure, Settings as CareSettings};
 use cmux_worktree_care::{Store as ArchiveStore, disk};
 
-/// The setting that turns automatic passes off.
+/// The setting that turns automatic passes on.
 pub const SETTING_AUTO_CLEANUP: &str = "worktrees.autoCleanup";
 
 const MINUTE_MS: u64 = 60 * 1000;
@@ -80,16 +82,17 @@ impl Drop for Running<'_> {
     }
 }
 
-/// Whether automatic passes are on: the setting, else on. An unreadable
-/// settings file turns them off: a removal must not follow a guess.
+/// Whether automatic passes are on: only when the setting says `true`. An
+/// unreadable settings file leaves them off: a removal must not follow a
+/// guess.
 pub fn auto_cleanup_enabled() -> bool {
     match crate::user_settings::read() {
-        crate::user_settings::Settings::Missing => true,
+        crate::user_settings::Settings::Missing => false,
         crate::user_settings::Settings::Unreadable(_) => false,
         crate::user_settings::Settings::Parsed(doc) => {
             crate::user_settings::value(&doc, SETTING_AUTO_CLEANUP)
                 .and_then(|value| value.as_bool())
-                .unwrap_or(true)
+                .unwrap_or(false)
         }
     }
 }
