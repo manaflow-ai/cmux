@@ -424,6 +424,23 @@ describe("localized pricing page", () => {
     expect(individual).not.toContain("Early supporter price");
   });
 
+  test("prices a card only from the subscription behind the plan in force", async () => {
+    const { currentPersonalSubscriptionPrice } = await import("../services/billing/dashboardBilling");
+    const price = { amountUsd: 30, interval: "month" as const };
+    const proRow = async () => ({
+      foundersEdition: false,
+      subscription: { plan: "pro", status: "active", currentPeriodEnd: null, cancelAtPeriodEnd: false, price },
+    });
+
+    // A Max plan granted on top of a Stripe Pro row keeps the Max list price.
+    expect(await currentPersonalSubscriptionPrice("user-pro", "max", proRow)).toBeUndefined();
+    expect(await currentPersonalSubscriptionPrice("user-pro", "pro", proRow)).toEqual(price);
+    // A Founder's Edition purchase alone is not a subscription to price.
+    expect(await currentPersonalSubscriptionPrice("user-pro", "pro", async () => ({ foundersEdition: true, subscription: null }))).toBeUndefined();
+    // A failed read falls back to the list price.
+    expect(await currentPersonalSubscriptionPrice("user-pro", "pro", async () => { throw new Error("db down"); })).toBeUndefined();
+  });
+
   test("states the yearly total next to the yearly per-month price", async () => {
     const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
 
