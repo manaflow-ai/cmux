@@ -319,6 +319,31 @@ impl ThemeTokens {
         }
     }
 
+    /// The popup surface (Swift `ThemeTokens.opaqueOverlayFill`,
+    /// OverlayMaterial.swift): the opaque window background lifted by up to
+    /// `lift` toward white, or on a dark theme whose text is lighter than its
+    /// page toward the text (a lighter card), stopping where secondary text
+    /// would drop below 4.5:1 on a hovered row. A dark theme with dark text
+    /// (Hot Dog Stand's red) lifts toward white: lifting toward the text
+    /// would darken the card under it.
+    pub fn opaque_overlay_fill(&self, lift: f64) -> Rgb {
+        let page = self.window_background.with_alpha(1.0);
+        let text = self.text_primary.with_alpha(1.0);
+        if !self.is_dark || text.relative_luminance() < page.relative_luminance() {
+            return page.mixed(Rgb::WHITE, lift);
+        }
+        let secondary = self.text_secondary.with_alpha(1.0);
+        let mut step = (lift * 100.0).round() / 100.0;
+        while step > 0.0 {
+            let fill = page.mixed(text, step);
+            if secondary.contrast(self.hover_fill.composited(fill)) >= MINIMUM_TEXT_CONTRAST {
+                return fill;
+            }
+            step -= 0.01;
+        }
+        page
+    }
+
     /// These tokens under `appearance.borders`: `None` makes every border,
     /// separator and the focus ring clear (Swift `Borders.color`).
     pub fn with_borders(mut self, mode: BorderMode) -> Self {

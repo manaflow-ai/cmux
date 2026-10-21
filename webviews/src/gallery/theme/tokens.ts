@@ -228,6 +228,27 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   };
 }
 
+/**
+ * The popup surface (OverlayMaterial.swift `ThemeTokens.opaqueOverlayFill`): the opaque window
+ * background lifted by up to `lift` toward white, or on a dark theme whose text is lighter than its
+ * page toward the text, stopping where secondary text would drop below 4.5:1 on a hovered row. A dark
+ * theme with dark text (Hot Dog Stand's red) lifts toward white: toward the text would darken the card.
+ */
+export function opaqueOverlayFill(tokens: ThemeTokens, lift: number): ThemeRGB {
+  const page = withAlpha(tokens.windowBackground, 1);
+  const text = withAlpha(tokens.textPrimary, 1);
+  if (!tokens.isDark || luminance(text) < luminance(page)) return mixed(page, WHITE, lift);
+  const secondary = withAlpha(tokens.textSecondary, 1);
+  // Swift's `rounded()` rounds half away from zero; the lift is positive, so Math.round agrees.
+  let step = Math.round(lift * 100) / 100;
+  while (step > 0) {
+    const fill = mixed(page, text, step);
+    if (contrast(secondary, composited(tokens.hoverFill, fill)) >= MINIMUM_TEXT_CONTRAST) return fill;
+    step -= 0.01;
+  }
+  return page;
+}
+
 /** `rgba(r, g, b, a)` with 0-255 channels, as WebTheme.css and AgentPaneTheme.css write it. */
 export function css(color: ThemeRGB): string {
   const channel = (value: number) => Math.round(value * 255);
