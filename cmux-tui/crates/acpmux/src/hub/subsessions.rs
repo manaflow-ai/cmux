@@ -56,6 +56,7 @@ use std::collections::BTreeSet;
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
 pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
+pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
 const CATALOG_SOURCE: &str =
@@ -71,6 +72,7 @@ pub struct NumberSetting {
 /// The catalog rows the daemon reads.
 pub struct Catalog {
     pub enabled: bool,
+    pub answer_questions: bool,
     pub max_children: NumberSetting,
     pub max_depth: NumberSetting,
 }
@@ -84,7 +86,7 @@ pub fn catalog() -> &'static Catalog {
     })
 }
 
-/// The three agents.subsessions rows of a settings source file, or None when one is missing.
+/// The agents.subsessions rows of a settings source file, or None when one is missing.
 fn parse_catalog(source: &str) -> Option<Catalog> {
     let doc: Value = serde_json::from_str(source).ok()?;
     let row = |key: &str| -> Option<Value> {
@@ -103,6 +105,7 @@ fn parse_catalog(source: &str) -> Option<Catalog> {
     };
     Some(Catalog {
         enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
+        answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
         max_children: number(SETTING_MAX_CHILDREN)?,
         max_depth: number(SETTING_MAX_DEPTH)?,
     })
@@ -322,7 +325,7 @@ impl Drop for KeptWorktree {
     }
 }
 
-fn refused(reason: &str, message: String, data: Value) -> RpcError {
+pub(super) fn refused(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
     data["reason"] = json!(reason);
     RpcError::invalid_params(message).with_data(data)
@@ -763,6 +766,8 @@ impl Hub {
             "queued": pick("queued"),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
+            // Its pending questions, which an ancestor may answer (`subsession_answer.rs`).
+            "questions": self.subsession_questions(s),
         });
         if with_reply {
             row["lastReply"] = json!(self.last_reply(s));

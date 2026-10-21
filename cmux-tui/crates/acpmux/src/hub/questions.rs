@@ -10,7 +10,8 @@
 //!
 //! A question is never answered by policy: approve-all, approve rules and
 //! the chat allowance do not apply to it (only deny-all and deny rules may
-//! decline it), so an answer always comes from a person.
+//! decline it), so an answer always comes from a person, or, for a
+//! sub-session, from a session above it (`subsession_answer.rs`).
 
 use crate::rpc::RpcError;
 use serde_json::{Map, Value, json};

@@ -653,7 +653,19 @@ impl Hub {
                     })
                 });
                 let allows = option_id.is_some() && !rejects;
-                if allows || answered_by.is_some() {
+                // An ancestor session's answer to a question
+                // (`subsession_answer.rs`): answers to a normalized question,
+                // with its one-time allow and the hub's own `answeredBy`;
+                // never a permission prompt, a lasting grant or a plan.
+                let ancestor_answers = answerer.ancestor.is_some()
+                    && answered_by.is_some()
+                    && answers.is_some()
+                    && super::questions::question(&p.request).is_some()
+                    && option_id.as_deref().is_some_and(|o| {
+                        option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
+                            == Some("allow_once")
+                    });
+                if (allows || answered_by.is_some()) && !ancestor_answers {
                     let proved = match (&option_id, answerer.decision) {
                         (Some(o), Some((nonce, proof))) => {
                             answers.is_none()
