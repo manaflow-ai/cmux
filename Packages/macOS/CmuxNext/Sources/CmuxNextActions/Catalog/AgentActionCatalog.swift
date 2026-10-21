@@ -306,6 +306,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
                                    kind: .string, isRequired: false),
+                    // A group's name (made when missing), not a target: a launcher names it.
+                    ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
                 // It starts the workspace's terminal: action.run waits the
