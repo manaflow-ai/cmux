@@ -9,6 +9,8 @@ mod action_hint;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agent_view;
+#[cfg(unix)]
 mod agents;
 #[cfg(unix)]
 mod agents_doctor;
@@ -406,6 +408,9 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
 #[cfg(unix)]
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
+    if let Some((name, action_args)) = agent_view::action(&command_args) {
+        return app::run_cli_action(&global, &name, &action_args);
+    }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
     if words < 2 {
         return None;
