@@ -115,6 +115,26 @@ test("Retry under a prompt sends it again (shown on the last ended turn's prompt
   expect(sent).toEqual([["user-4", "Cover it"]]);
 });
 
+test("a steer this pane sent reads delivered while it waits for the agent, though acpmux recorded it", async () => {
+  const delivery = { state: "read", promptId: "p-1", sessionId: "s-1", sentAt: Date.now() } as const;
+  const steer: AcpmuxRow = { id: "user-7", version: 1, at: Date.now(), kind: "user", seq: 7, text: "Rebase first" };
+  await draw({ ...steer, steer: "waiting", delivery }, {});
+  expect(labels()).toEqual(["now", "Delivered when the current step ends", "Copy"]);
+  await draw({ ...steer, steer: "landed", delivery }, {});
+  expect(labels()).toEqual(["now", "Read by the agent", "Copy"]);
+});
+
+test("a prompt this pane sent shows no receipt on its way, one check once delivered, two once read", async () => {
+  const sent = { promptId: "p-2", sessionId: "s-1", sentAt: Date.now() };
+  const prompt: AcpmuxRow = { id: "user-8", version: 1, at: Date.now(), kind: "user", seq: 8, text: "Ship it" };
+  await draw({ ...prompt, delivery: { ...sent, state: "sending" } }, {});
+  expect(labels()).toEqual(["now", "Copy"]);
+  await draw({ ...prompt, delivery: { ...sent, state: "delivered" } }, {});
+  expect(labels()).toEqual(["now", "Delivered", "Copy"]);
+  await draw({ ...prompt, delivery: { ...sent, state: "read" } }, { route: { name: "Codex" } });
+  expect(labels()).toEqual(["now", "Read by Codex", "Copy"]);
+});
+
 test("the relative time words a prompt's age in the pane's language", async () => {
   const { relativeTime } = await import("../src/agent-session/acpmux/conversation/relativeTime");
   const now = Date.UTC(2026, 9, 20, 12);

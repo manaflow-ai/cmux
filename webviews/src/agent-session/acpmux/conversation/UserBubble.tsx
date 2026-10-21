@@ -15,6 +15,7 @@ import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react"
 import type { AcpmuxRow, PromptImage } from "../model";
 import { useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
+import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { CopyButton, ForkButton, MessageTime, PinButton, PromptRetry, ReadReceipt } from "./MessageActions";
@@ -49,7 +50,11 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      <div className="cv-user__bubble selectable">{text}</div>
+      <div className="cv-user__bubble selectable">
+        {text}
+        {/* A prompt this pane sent that is still on its way; a steer's mark says it instead. */}
+        {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+      </div>
       {text && !row.failed && !row.queued && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (

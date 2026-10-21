@@ -112,16 +112,23 @@ export function ReadAloudButton({ id, text }: { id: string; text: string }) {
   );
 }
 
-/// A prompt's read receipt, as Claude Code desktop's: nothing while it is being sent, one check
-/// once acpmux holds it (a steer waiting for the agent's step to end), two once the agent read it,
-/// "Read by Claude Code" on hover (the chat harness's name).
+/// A prompt's read receipt, as Claude Code desktop's: nothing while it is on its way (its delivery
+/// says "sending"; PromptDelivery.tsx draws the clock), one check once acpmux holds it (a steer
+/// waiting for the agent's step to end, or a prompt the agent has not started on), two once the
+/// agent read it, "Read by Claude Code" on hover (the chat harness's name).
 export function ReadReceipt({ row }: { row: AcpmuxRow }) {
   const t = useT();
   const { route } = useContext(TurnActionsContext);
-  if (row.pending) return null;
-  const read = row.steer !== "waiting";
+  const delivery = row.delivery;
+  if (row.failed || (delivery ? delivery.state === "sending" || delivery.state === "failed" : row.pending)) return null;
+  const waiting = row.steer === "waiting";
+  const read = !waiting && (!delivery || delivery.state === "read");
   const agent = route?.name;
-  const label = read ? (agent ? t("message.readBy", { agent }) : t("message.readByAgent")) : t("message.delivered");
+  const label = read
+    ? agent
+      ? t("message.readBy", { agent })
+      : t("message.readByAgent")
+    : t(waiting ? "message.delivered" : "message.deliveredNotRead");
   return (
     <span
       className={`cv-user__read${read ? "" : " is-unread"}`}
