@@ -17,8 +17,8 @@ import CmuxNextCompat
 /// Authorization follows the old `SocketControlMode` model: `cmuxOnly`
 /// admits processes started inside this cmux (descended from this app or
 /// from a process running one of `trustedExecutables`, the bundled cmux
-/// binary that hosts every terminal), `automation` admits the same user, and
-/// `allowAll` admits anyone. The socket file is 0600 except for `allowAll`.
+/// binary that hosts every terminal), and `automation` admits the same user.
+/// The socket file is always 0600.
 public final class ControlSocketServer: Sendable {
     public struct Configuration: Sendable {
         public var path: String

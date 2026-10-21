@@ -44,8 +44,6 @@ struct ControlAuthorizer: Sendable {
         switch configuration.accessMode {
         case .off:
             return false
-        case .allowAll:
-            return true
         case .automation:
             return peer.uid == getuid()
         case .cmuxOnly:

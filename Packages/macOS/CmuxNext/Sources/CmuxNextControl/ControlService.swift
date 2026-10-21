@@ -130,7 +130,7 @@ public final class ControlService {
         case "cmuxonly": .cmuxOnly
         case "automation", "notifications": .automation
         case "password": .off
-        case "allowall", "openaccess", "fullopenaccess", "full": .allowAll
+        case "allowall", "openaccess", "fullopenaccess", "full": .automation
         default: nil
         }
     }
