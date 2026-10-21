@@ -14,6 +14,8 @@ import {
   SIDE_SESSION_METHOD,
   type PendingEntry,
 } from "../src/agent-session/acpmux/needsYou/asks";
+import { needsYouItems } from "../src/agent-session/acpmux/needsYou/model";
+import { sessionEntry } from "../src/agent-session/acpmux/sessionList";
 
 const parse = (message: unknown, sessionId: string): AcpmuxPermission | undefined => {
   const id = (message as { permissionId?: unknown }).permissionId;
@@ -227,6 +229,39 @@ test("a read still out for a chat that is dropped never brings its asks back", a
   reads[0]!.resolve([{ permissionId: "late" }]);
   await settle();
   expect(ids(asks)).toEqual([]);
+});
+
+// A chat on another computer (an SSH or Cloud peer's) is listed by this daemon with its `peer`
+// (acpmux hub/peers.rs `remote_summary`) and its pending count. Its asks are that computer's: the
+// page never reads them (a read of a peer's chat is forwarded to the peer daemon, acpmux
+// server/peer_forward.rs), so the chat stays one `input` item with no Allow or Deny (PR #22646 review).
+test("a chat on another computer is never read, and stays an input item with no answers", async () => {
+  const { asks, reads } = tracker();
+  const far = {
+    sessionId: "far",
+    name: "build-host/fix",
+    peer: "build-host",
+    pendingPermissions: 2,
+    indicator: "input",
+  };
+  const near = { sessionId: "near", name: "near", pendingPermissions: 1 };
+  asks.sessions([far, near]);
+  expect(reads.map((read) => read.sessionId)).toEqual(["near"]);
+  asks.session({ ...far, pendingPermissions: 3 }, "permission_request");
+  asks.session({ ...far, pendingPermissions: 3 }, "permission_decision");
+  asks.resync([far, near]);
+  asks.resync([far], new Set(["far"]));
+  expect(reads.map((read) => read.sessionId)).toEqual(["near", "near"]);
+  // A pending notice for the peer's chat (relayed by the watch) is not drawn as an answerable ask.
+  asks.pending({ sessionId: "far", permissionId: "p-far" });
+  expect(ids(asks)).toEqual([]);
+
+  const items = needsYouItems({
+    sessions: [sessionEntry(far)],
+    // Even an ask the page somehow holds for it is not offered: that computer answers it.
+    asks: [{ sessionId: "far", permission: parse({ permissionId: "p-stray" }, "far")!, at: 1 }],
+  });
+  expect(items.map((item) => [item.id, item.kind, item.answers.length])).toEqual([["chat:far", "input", 0]]);
 });
 
 // The read path, against the real allowlists rather than a stand-in: the pane's relay sends only
