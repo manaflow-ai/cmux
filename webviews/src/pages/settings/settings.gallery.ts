@@ -263,8 +263,9 @@ Object.assign(variants, {
   "backdrops-empty": variant("appearance", {
     options: { values: { "appearance.background": "none" } },
     host: { ...host, backdrops: [] },
-    steps: [wait('[data-card="backdrop"]')],
-    note: "Background picker with no artwork returned yet: the real empty state keeps the setting usable while the host list loads or is unavailable.",
+    // With no artwork the picker hides (useBackdropsShown) and the setting draws as its plain row.
+    steps: [wait(row("appearance.background"))],
+    note: "No artwork returned yet: the picker stays hidden and Background is its plain row, so the setting stays usable while the host list loads or is unavailable.",
   }),
   // Add from a Link (backgrounds plan phase 3): the link form open under the picker, a link typed.
   "backdrops-link": variant("appearance", {
@@ -470,13 +471,6 @@ Object.assign(variants, {
       wait('[data-card="art-browser"] .backdrop-grid'),
     ],
     note: "Browse More Art: a search answered by three open collections, each work with its source.",
-  }),
-  "theme-level-selected": variant("appearance", { steps: [click('input[name="theme-level"][value="workspace"]')] }),
-  "theme-custom-spec": variant("appearance", {
-    steps: [
-      input('[data-card="theme"] input.field', "light:GitHub Light,dark:Dracula"),
-      wait("[data-theme-list] .theme-choice:nth-child(2)"),
-    ],
   }),
   "terminal-shell-unknown": variant("terminal", {
     host: { ...host, terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: null } },
