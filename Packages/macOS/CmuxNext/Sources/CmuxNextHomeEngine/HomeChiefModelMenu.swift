@@ -98,7 +98,6 @@ nonisolated struct HomeChiefModelMenu: Equatable {
     /// its context variant), else the name acpmux gave it, else the id made readable
     /// (``ChiefNames/model(_:)``), never the raw id.
     static func name(of id: String, in models: [ChiefEngineReport.Model]) -> String {
-        return id // red: not yet named
         if let release = release(of: id, in: models), release.family != nil {
             let name = displayName(release)
             return baseID(id) == id ? name : variantTitle(base: name, id: id)

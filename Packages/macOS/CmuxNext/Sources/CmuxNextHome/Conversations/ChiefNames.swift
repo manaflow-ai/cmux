@@ -10,7 +10,6 @@ public nonisolated enum ChiefNames {
     /// (`claude-sr2-pipe` → "Claude (SR2 Pipe)", `claude-cr` → "Claude (CodeRouter)",
     /// `gemini` → "Gemini"). A blank id comes back as it is.
     public static func harness(_ id: String) -> String {
-        return id // red: not yet named
         let parts = tokens(id)
         guard let first = parts.first else { return id }
         let lead = ChiefBackend(id: first.lowercased())?.title ?? word(first)
@@ -23,7 +22,6 @@ public nonisolated enum ChiefNames {
     /// `claude-sonnet-4-5-20250929` → "Claude Sonnet 4.5", `gpt-5.1-codex` → "GPT 5.1 Codex",
     /// `opus[1m]` → "Opus (1M)"). A blank id comes back as it is.
     public static func model(_ id: String) -> String {
-        return id // red: not yet named
         var base = id.trimmingCharacters(in: .whitespacesAndNewlines)
         var context: String?
         if base.hasSuffix("]"), let open = base.lastIndex(of: "[") {

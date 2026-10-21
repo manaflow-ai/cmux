@@ -60,14 +60,12 @@ nonisolated struct HomeChiefTurnSummary: Equatable {
 
     /// "7.8s": the unit in the reader's language, from Foundation.
     static func seconds(_ seconds: Double, locale: Locale) -> String {
-        return "" // red: not yet formatted
         Measurement(value: seconds, unit: UnitDuration.seconds)
             .formatted(.measurement(width: .narrow, numberFormatStyle: .number.precision(.fractionLength(1))).locale(locale))
     }
 
     /// "50%", or a dash when the turn reported no cache use.
     static func cache(_ rate: Double?, locale: Locale) -> String {
-        return "" // red: not yet formatted
         guard let rate else { return missing }
         return rate.formatted(.percent.locale(locale).precision(.fractionLength(0)).rounded(rule: .toNearestOrAwayFromZero))
     }
@@ -75,7 +73,6 @@ nonisolated struct HomeChiefTurnSummary: Equatable {
     /// "$0.144" (cents for a dollar or more); "<$0.001" for less than a tenth of a cent; nil when
     /// the harness reported no price.
     static func cost(_ usd: Double?, locale: Locale) -> String? {
-        return nil // red: not yet formatted
         guard let usd, usd >= 0 else { return nil }
         let style = FloatingPointFormatStyle<Double>.Currency(code: "USD", locale: locale)
         if usd > 0, usd < 0.001 { return "<" + 0.001.formatted(style.precision(.fractionLength(3))) }
@@ -84,7 +81,6 @@ nonisolated struct HomeChiefTurnSummary: Equatable {
 
     /// "12.3K"; nil when the turn reported no usage.
     static func tokens(_ count: Double?, locale: Locale) -> String? {
-        return nil // red: not yet formatted
         guard let count, count > 0 else { return nil }
         return count.formatted(.number.locale(locale).notation(.compactName).precision(.significantDigits(1...3)))
     }

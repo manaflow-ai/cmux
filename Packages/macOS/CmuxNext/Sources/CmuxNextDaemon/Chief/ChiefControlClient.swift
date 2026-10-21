@@ -49,14 +49,14 @@ public struct ChiefEngineReport: Decodable, Sendable, Equatable {
             public var output: Double?
 
             enum CodingKeys: String, CodingKey {
-                case input
+                case input, output
                 case cacheRead = "cache_read"
                 case cacheWrite = "cache_write"
             }
         }
 
         enum CodingKeys: String, CodingKey {
-            case harness, model, status, ms, tools, usage, reply
+            case harness, model, effort, status, ts, ms, tools, usage, reply, error
             case toolErrors = "tool_errors"
             case costUSD = "cost_usd"
         }
