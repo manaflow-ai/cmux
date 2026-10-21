@@ -48,43 +48,79 @@ function promiseResolver(node: ts.Node): string | undefined {
   return undefined;
 }
 
-/** The delay argument of a fixed wait, or undefined when the call is not one. */
+const TIMER_HOSTS = new Set(["window", "globalThis", "self"]);
+
+/** Whether `node` calls `name` anywhere inside it. */
+function calls(node: ts.Node, name: string): boolean {
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === name) return true;
+  return ts.forEachChild(node, (child) => calls(child, name) || undefined) ?? false;
+}
+
+/** The delay argument of a fixed wait, `null` for one with no argument, undefined when it is not one. */
 function fixedDelay(call: ts.CallExpression): ts.Expression | null | undefined {
   const callee = call.expression;
+  let timer = ts.isIdentifier(callee) && callee.text === "setTimeout";
   if (ts.isPropertyAccessExpression(callee)) {
+    const host = ts.isIdentifier(callee.expression) ? callee.expression.text : "";
     if (callee.name.text === "waitForTimeout") return call.arguments[0] ?? null;
-    if (ts.isIdentifier(callee.expression) && callee.expression.text === "Bun" && callee.name.text === "sleep")
+    if (host === "Bun" && (callee.name.text === "sleep" || callee.name.text === "sleepSync"))
       return call.arguments[0] ?? null;
-    return undefined;
+    timer = TIMER_HOSTS.has(host) && callee.name.text === "setTimeout";
   }
-  if (!ts.isIdentifier(callee) || callee.text !== "setTimeout") return undefined;
+  if (!timer) return undefined;
   const [callback, delay] = call.arguments;
-  if (!callback || isZero(delay) || !delay) return undefined;
+  if (!callback || !delay || isZero(delay)) return undefined;
   const resolver = promiseResolver(call);
   if (!resolver) return undefined;
   const resolves =
     (ts.isIdentifier(callback) && callback.text === resolver) ||
-    ((ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) &&
-      ts.isCallExpression(callback.body) &&
-      ts.isIdentifier(callback.body.expression) &&
-      callback.body.expression.text === resolver);
+    ((ts.isArrowFunction(callback) || ts.isFunctionExpression(callback)) && calls(callback.body, resolver));
   return resolves ? delay : undefined;
 }
 
-/** The name of the local function a delay parameter belongs to (`const wait = (ms) => …`). */
-function helperName(call: ts.CallExpression, delay: ts.Expression | null): string | undefined {
-  if (!delay || !ts.isIdentifier(delay)) return undefined;
-  for (let at: ts.Node | undefined = call.parent; at; at = at.parent) {
+/** A named function in the file: a declaration, or a function assigned to a const. */
+type Named = { name: string; node: ts.SignatureDeclaration; exported: boolean };
+
+/** The innermost named function around `node`, if any (a test's anonymous callback is not one). */
+function enclosingNamed(node: ts.Node): Named | undefined {
+  for (let at: ts.Node | undefined = node.parent; at; at = at.parent) {
     if (!ts.isFunctionLike(at)) continue;
-    if (!at.parameters.some((parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === delay.text))
-      continue;
-    if (ts.isFunctionDeclaration(at) && at.name) return at.name.text;
+    const exported = (holder: ts.Node) =>
+      !!ts.getCombinedModifierFlags(holder as ts.Declaration) &&
+      (ts.getCombinedModifierFlags(holder as ts.Declaration) & ts.ModifierFlags.Export) !== 0;
+    if (ts.isFunctionDeclaration(at) && at.name) return { name: at.name.text, node: at, exported: exported(at) };
     let holder: ts.Node = at.parent;
     while (ts.isParenthesizedExpression(holder)) holder = holder.parent;
-    if (ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name)) return holder.name.text;
+    if (ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name)) {
+      const statement = holder.parent.parent;
+      return { name: holder.name.text, node: at, exported: ts.isVariableStatement(statement) && exported(statement) };
+    }
+    if (ts.isArrowFunction(at) || ts.isFunctionExpression(at)) continue;
     return undefined;
   }
   return undefined;
+}
+
+/** Whether an identifier is the name a declaration introduces, not a use of it. */
+function isDeclarationName(node: ts.Identifier): boolean {
+  const parent = node.parent;
+  return (
+    (ts.isVariableDeclaration(parent) ||
+      ts.isFunctionDeclaration(parent) ||
+      ts.isParameter(parent) ||
+      ts.isBindingElement(parent) ||
+      ts.isMethodDeclaration(parent) ||
+      ts.isImportSpecifier(parent)) &&
+    parent.name === node
+  );
+}
+
+/** The statement a node sits in: its lines are where a marker may go. */
+function statementOf(node: ts.Node): ts.Node {
+  let at = node;
+  while (at.parent && !ts.isBlock(at.parent) && !ts.isSourceFile(at.parent) && !ts.isCaseClause(at.parent))
+    at = at.parent;
+  return at;
 }
 
 /** Each unmarked fixed wait in a test source, as `file:line`. */
@@ -97,34 +133,84 @@ export function findFixedWaits(file: string, text: string): string[] {
     file.endsWith("x") ? ts.ScriptKind.TSX : ts.ScriptKind.TS,
   );
   const lines = text.split("\n");
+  const line = (position: number) => source.getLineAndCharacterOfPosition(position).line;
+  const marked = (node: ts.Node) => {
+    const statement = statementOf(node);
+    const first = line(statement.getStart(source));
+    const above = lines[first - 1] ?? "";
+    if (/^\s*\/\//.test(above) && MARKER.test(above)) return true;
+    for (let at = first; at <= line(node.getEnd()); at++) if (MARKER.test(lines[at] ?? "")) return true;
+    return false;
+  };
+
+  // A wait inside a named function makes it a helper: each call to it waits (and so on outward), so
+  // the calls count, not the definition. A helper whose delay parameter defaults to 0 waits only
+  // when a call passes a delay other than 0.
+  const helpers = new Map<string, { zeroDefaultAt: number | undefined; exported: ts.Node | undefined }>();
   const waits: ts.Node[] = [];
-  const helpers = new Map<string, ts.Node>();
-  function visit(node: ts.Node) {
+  const place = (site: ts.Node, delay: ts.Expression | null) => {
+    const named = enclosingNamed(site);
+    if (!named) return void waits.push(site);
+    if (helpers.has(named.name)) return;
+    const index =
+      delay && ts.isIdentifier(delay)
+        ? named.node.parameters.findIndex(
+            (parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === delay.text,
+          )
+        : -1;
+    const zeroDefault = index >= 0 && isZero(named.node.parameters[index]!.initializer);
+    helpers.set(named.name, {
+      zeroDefaultAt: zeroDefault ? index : undefined,
+      exported: named.exported ? named.node : undefined,
+    });
+  };
+  const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
       const delay = fixedDelay(node);
-      if (delay !== undefined) {
-        const helper = helperName(node, delay);
-        if (helper) helpers.set(helper, node);
-        else waits.push(node);
-      }
+      if (delay !== undefined && !marked(node)) place(node, delay);
     }
     ts.forEachChild(node, visit);
-  }
+  };
   visit(source);
-  if (helpers.size) {
-    const calls = (node: ts.Node) => {
-      if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && helpers.has(node.expression.text))
-        waits.push(node);
-      ts.forEachChild(node, calls);
+  // A use of a helper: a call, or the helper passed or returned as a value (`act(settle)`,
+  // `return { open }`), which something then calls with no arguments.
+  const waitingUse = (node: ts.Node): string | undefined => {
+    if (!ts.isIdentifier(node)) return undefined;
+    const helper = helpers.get(node.text);
+    const parent = node.parent;
+    if (!helper || isDeclarationName(node)) return undefined;
+    if (ts.isPropertyAccessExpression(parent) && parent.name === node) return undefined;
+    if (ts.isPropertyAssignment(parent) && parent.name === node) return undefined;
+    const zeroAt = helper.zeroDefaultAt;
+    if (zeroAt === undefined) return node.text;
+    const call = ts.isCallExpression(parent) && parent.expression === node ? parent : undefined;
+    const argument = call?.arguments[zeroAt];
+    return argument !== undefined && !isZero(argument) ? node.text : undefined;
+  };
+  for (let known = -1; known !== helpers.size;) {
+    known = helpers.size;
+    const promote = (node: ts.Node) => {
+      const used = waitingUse(node);
+      const named = used && enclosingNamed(node);
+      if (named && named.name !== used && !helpers.has(named.name) && !marked(node)) place(node as ts.Identifier, null);
+      ts.forEachChild(node, promote);
     };
-    calls(source);
+    promote(source);
   }
+  // Uses outside any helper count once each; an exported helper counts at its definition too, since
+  // its callers in other files cannot see it.
+  const counted = new Set<ts.Node>(waits);
+  const count = (node: ts.Node) => {
+    if (waitingUse(node) && !enclosingNamed(node) && !marked(node)) counted.add(node);
+    ts.forEachChild(node, count);
+  };
+  count(source);
+  for (const helper of helpers.values()) if (helper.exported) counted.add(helper.exported);
   const name = path.relative(root, file);
-  return waits
-    .map((node) => source.getLineAndCharacterOfPosition(node.getStart(source)).line)
-    .filter((line) => !MARKER.test(lines[line] ?? "") && !MARKER.test(lines[line - 1] ?? ""))
+  return [...counted]
+    .map((node) => line(node.getStart(source)))
     .sort((a, b) => a - b)
-    .map((line) => `${name}:${line + 1}`);
+    .map((at) => `${name}:${at + 1}`);
 }
 
 function readBaseline(): Map<string, number> {
@@ -135,7 +221,8 @@ function readBaseline(): Map<string, number> {
       .filter((line) => line && !line.startsWith("#"))
       .map((line) => {
         const [file, count] = line.split("\t");
-        return [file!, Number(count)] as const;
+        if (!file || !/^\d+$/.test(count ?? "")) throw new Error(`fixed-waits-baseline.tsv: bad row "${line}"`);
+        return [file, Number(count)] as const;
       }),
   );
 }
@@ -152,19 +239,21 @@ function writeBaseline(counts: Map<string, number>) {
 
 if (import.meta.main) {
   const found = new Map<string, string[]>();
-  function scan(directory: string) {
+  // Every source under test/ (tests, harnesses, support and latency helpers; fixtures are data),
+  // and the tests beside src/ code.
+  function scan(directory: string, all: boolean) {
     for (const entry of readdirSync(directory, { withFileTypes: true })) {
       const file = path.join(directory, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name !== "node_modules") scan(file);
-      } else if (/[._](?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name) || directory.endsWith("test/support")) {
+        if (entry.name !== "node_modules" && entry.name !== "fixtures") scan(file, all);
+      } else if (all ? /\.[cm]?[jt]sx?$/.test(entry.name) : /[._](?:test|spec)\.[cm]?[jt]sx?$/.test(entry.name)) {
         const waits = findFixedWaits(file, readFileSync(file, "utf8"));
         if (waits.length) found.set(path.relative(root, file), waits);
       }
     }
   }
-  scan(path.join(root, "test"));
-  scan(path.join(root, "src"));
+  scan(path.join(root, "test"), true);
+  scan(path.join(root, "src"), false);
   const counts = new Map([...found].map(([file, waits]) => [file, waits.length]));
   const baseline = readBaseline();
   const grew: string[] = [];
