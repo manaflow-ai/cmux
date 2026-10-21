@@ -183,6 +183,38 @@ import Testing
         for id in ids { #expect(registry.descriptor(for: id)?.isPersonOnly == true) }
     }
 
+    /// A phone tab refresh writes a still frame, and a phone screenshot writes its pixels
+    /// directly. Neither raw-pixel path is available to an automated socket caller.
+    @Test func phonePixelsAreRefusedOverTheSocket() async {
+        let registry = ActionRegistry.standard()
+        let ids: [ActionID] = [
+            "palette.newSimulatorPane", "phone.show", "phone.screenshot",
+            "phone.recordStart", "phone.recordStop", "phone.sendFeedback",
+        ]
+        var ran: [ActionID] = []
+        for id in ids { registry.bind(id, invoke: { _ in ran.append(id) }) }
+        let router = ControlRouter(identity: testIdentity(), executor: RegistryControlBridge(registry: registry), settings: nil,
+                                   configuration: .loadTolerant)
+        router.updateCatalog(RegistryControlBridge.catalog(from: registry))
+
+        for id in ids {
+            for origin: JSONValue in ["user", "cli", "mcp", "script", .null] {
+                let arguments: JSONValue = id == "phone.screenshot" ? ["path": "/tmp/phone.png"] : [:]
+                let result = await router.handle(ControlRequest(method: "action.run", params: [
+                    "action": .string(id.rawValue), "origin": origin,
+                    "args": arguments,
+                ]))
+                expectPersonOnlyRefusal(result, "\(id) from \(origin)")
+            }
+        }
+        #expect(ran.isEmpty)
+        for id in ids {
+            #expect(registry.descriptor(for: id)?.isPersonOnly == true)
+            #expect(registry.perform(id))
+        }
+        #expect(ran == ids, "in-app palette and keyboard runs still reach both handlers")
+    }
+
     @Test func toolPermissionActionsRequireAPersonInTheApp() async {
         let registry = ActionRegistry.standard()
         registry.context = [.agentPaneFocused]
