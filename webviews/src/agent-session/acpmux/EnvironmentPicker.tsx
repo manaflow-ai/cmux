@@ -233,7 +233,9 @@ export function EnvironmentPicker({
           listClassName="acpmux-location-folders"
           itemClassName="acpmux-menu-item"
           renderItem={row}
-          autoHighlight
+          // Only a machine is highlighted for Return: with none shown, Return on a search must not
+          // land on New Cloud Machine (it creates a machine) or SSH…; arrow onto them to choose.
+          autoHighlight={shown.length > 0}
           inline
         />
         {query.trim() !== "" && shown.length === 0 && (

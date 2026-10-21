@@ -2,8 +2,9 @@
 // location row's computer control becomes one searchable list of where a chat runs, as Claude's
 // desktop app has it: Local, SSH and Cloud sections, ⌥⌘1–9 on the first nine rows, and New
 // environment at the bottom, which opens the host's SSH connect flow; New Cloud Machine ends the
-// Cloud section and opens the host's create flow. It defaults to this computer. The machines come from acpmux (`_acpmux/status` peers, by URL scheme, and the
-// hosts its chats ran on); with previews off the row keeps its plain Computer menu.
+// Cloud section and opens the host's create flow. It defaults to this computer. The machines come
+// from acpmux (`_acpmux/status` peers, by URL scheme, and the hosts its chats ran on); with
+// previews off the row keeps its plain Computer menu.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
