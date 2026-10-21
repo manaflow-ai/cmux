@@ -204,7 +204,7 @@ import UniformTypeIdentifiers
         let field = h.field
         field.layoutSubtreeIfNeeded()
         field.display()
-        let views = field.subviews.map { String(describing: type(of: $0)) }
+        let views = field.subviews.map { String(describing: Swift.type(of: $0)) }
         let textKit2 = field.textLayoutManager != nil
         let rep = try #require(field.bitmapImageRepForCachingDisplay(in: field.bounds))
         field.cacheDisplay(in: field.bounds, to: rep)
