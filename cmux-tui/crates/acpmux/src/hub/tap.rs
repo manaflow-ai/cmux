@@ -3,6 +3,12 @@
 
 use super::*;
 
+/// A raw Claude `stream_event` line (a text or tool-input delta) is not logged. Nothing reads
+/// it back: the translated `session/update` records that follow carry its content. It was most
+/// of a Claude chat's log (44,000 of 54,000 records in 24 minutes on huge-blue, 2026-10-21),
+/// and each one went to every subscriber and into every read of the log.
+const RAW_STREAM_EVENT: &str = "claude.stream_event";
+
 impl Hub {
     /// Make sure a live child process exists for the session. Spawns, runs
     /// `initialize`, and either creates or loads the agent session.
@@ -47,6 +53,11 @@ impl Hub {
                 }
                 (Direction::In, Message::Notification { method, params }) => {
                     let mut kind = method.clone();
+                    if method == RAW_STREAM_EVENT {
+                        // Kept nowhere: the entry counts as logged, so the host drops it.
+                        tap_hub.touch(&tap_session);
+                        return true;
+                    }
                     if method.starts_with("claude.") {
                         // Raw stream-json line; translated messages follow.
                         return tap_hub
