@@ -37,7 +37,32 @@ struct HomeLaunchRevealTests {
         withExtendedLifetime(view) {}
     }
 
+    /// Home is made after the launch window (3049 ms on a cold launch, the sidebar's hold long
+    /// before): the launch deadline must not release it before it is held, and its own wait runs
+    /// from its own hold. The other regions still show at the launch deadline.
+    @Test func aHomeHeldAfterTheLaunchDeadlineWaitsItsOwn() async throws {
+        let clock = ManualClock()
+        let reveal = LaunchReveal(clock: clock, deadline: .milliseconds(1500))
+        let sidebar = NSView(), home = NSView()
+        reveal.hold(sidebar, until: .sidebar)
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1500))
+        await Self.yield(until: { reveal.isReady(.sidebar) })
+        #expect(reveal.isReady(.sidebar) && reveal.isReady(.pane), "the launch deadline still shows the window's regions")
+        reveal.hold(home, until: .home)
+        #expect(home.alphaValue == 0, "the launch deadline released Home before it was made: it came in pieces")
+        try await clock.waitForSleeper()
+        clock.advance(by: .milliseconds(1500))
+        await Self.yield(until: { reveal.isReady(.home) })
+        #expect(home.alphaValue == 1, "a Home whose conversation never came stayed clear past its own deadline")
+    }
+
     // MARK: Fixtures
+
+    /// Lets a timer that fired run its main-actor work.
+    static func yield(until done: () -> Bool) async {
+        for _ in 0..<200 where !done() { await Task.yield() }
+    }
 
     /// A reveal whose deadline never fires during a test.
     static func services() -> (AppServices, LaunchReveal) {
