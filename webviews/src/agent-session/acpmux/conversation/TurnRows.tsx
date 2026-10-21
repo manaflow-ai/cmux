@@ -99,10 +99,14 @@ export function shouldFoldToolRun(
   groups: readonly ToolGroup[],
   items: readonly AcpmuxActivity[],
 ): boolean {
-  // Coordination cards stay visible beside tool calls so a settled run never hides the
-  // agent-to-agent receipt inside the generic tool summary.
+  // Coordination cards (a message, a sub-session started, messaged or waited on) stay visible
+  // beside tool calls so a settled run never hides the agent-to-agent receipt inside the generic
+  // tool summary.
   return (
-    row.foldRun === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+    row.foldRun === true &&
+    groups.length > 1 &&
+    !groups.some((group) => group.type === "message" || group.type === "subsession") &&
+    isFoldedRun(items)
   );
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {
