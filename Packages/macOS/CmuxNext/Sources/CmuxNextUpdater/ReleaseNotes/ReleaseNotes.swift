@@ -25,6 +25,10 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     /// The short user-facing changelog (at most 8 lines, New / Fixed /
     /// Changed) the update cards show; older notes have none (cx-lntk).
     public var summary: [SummaryLine]?
+    /// The build's nightly reel (`nightly-next/<build>/reel.mp4` on pr-media,
+    /// scripts/cmux-next/media/reel.py): not part of the signed notes; the app
+    /// sets it when the build's `reel.json` says one was built (``ReleaseMediaStore``).
+    public var reel: URL?
 
     /// One changelog line: its group (`new`, `fixed`, `changed`) and text.
     public struct SummaryLine: Codable, Equatable, Sendable {
@@ -51,7 +55,7 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary
+        case version, build, shortVersion, date, highlights, changes, items, whatsNew, summary, reel
     }
 
     /// A digest the app cannot read is dropped; the notes stay readable.
@@ -66,6 +70,7 @@ nonisolated public struct ReleaseNotes: Codable, Equatable, Sendable {
         items = try c.decodeIfPresent([ChangeItem].self, forKey: .items)
         whatsNew = (try? c.decodeIfPresent(WhatsNewDocument.self, forKey: .whatsNew)) ?? nil
         summary = (try? c.decodeIfPresent([SummaryLine].self, forKey: .summary)) ?? nil
+        reel = (try? c.decodeIfPresent(URL.self, forKey: .reel)) ?? nil
     }
 
     public struct Highlight: Codable, Equatable, Sendable {

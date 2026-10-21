@@ -6,7 +6,8 @@ import type { Strings } from "../shared/i18n";
 import { getColorScheme, subscribeColorScheme } from "./colorScheme";
 import { byArea } from "./areas";
 import { formatReleaseDate, type AreaChange, type MediaRef, type ReleaseItem, type ReleaseView } from "./model";
-import type { ChangeItem, WhatsNewCategory } from "./types";
+import type { ChangeItem, ReleaseNotes, WhatsNewCategory } from "./types";
+import { cardVersion } from "./UpdateSurfaces";
 
 export interface PartsContext {
   strings: Strings;
@@ -212,6 +213,22 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 }
 
 const CHANGES_PAGE = 20;
+
+/** The nightly reels of `notes` (newest first), one card each: a link to the video, which opens
+    as links do (the host's link setting). Only an https reel the host named is shown. */
+export function ReelCards({ notes, strings }: { notes: ReleaseNotes[]; strings: Strings }) {
+  const reels = notes.filter((n) => n.reel?.startsWith("https://"));
+  if (reels.length === 0) return null;
+  return (
+    <div className="cl-reels">
+      {reels.map((n) => (
+        <a key={n.build} className="cl-reel" href={n.reel} rel="noreferrer">
+          {strings.format("changelog.page.watchReel", cardVersion(n.shortVersion))}
+        </a>
+      ))}
+    </div>
+  );
+}
 
 /** A run of builds with no change a person would notice: one quiet line, never a blank row. */
 export function Maintenance({ strings }: { strings: Strings }) {

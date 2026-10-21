@@ -83,6 +83,9 @@ export interface ReleaseNotes {
   items?: ChangeItem[];
   whatsNew?: WhatsNewDocument;
   summary?: SummaryLine[];
+  /** The build's nightly reel, a video the page links (never in the signed notes: the host sets
+      it when the build's reel.json says one was built, ReleaseMediaStore.swift). */
+  reel?: string;
 }
 
 /** The page design (Debug Settings `whatsNew.design`, route `design=`): the Ledger is the default
