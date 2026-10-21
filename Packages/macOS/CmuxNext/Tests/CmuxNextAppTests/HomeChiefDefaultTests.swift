@@ -1,13 +1,17 @@
 import AppKit
 import CmuxHomeCore
+@testable import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextHome
 import CmuxNextHostedChief
+@testable import CmuxNextSettings
+import Foundation
 import Testing
 
 /// The default Chief (#64, 2026-10-21): this Mac's Chief while this Mac's optchat-chief runs, the
-/// Hosted (cloud) Chief otherwise. Debug Settings' "Default Chief" can force either one.
+/// Hosted (cloud) Chief otherwise. Settings > Chief's Engine row (`home.chiefEngine`, Leo's list
+/// 89(3)) can force either one; it is the person's setting, no longer a Debug choice.
 @MainActor @Suite(.serialized)
 struct HomeChiefDefaultTests {
     static let local = "conv_local"
@@ -17,11 +21,11 @@ struct HomeChiefDefaultTests {
 
     // MARK: The choice
 
-    @Test func autoIsTheDefaultAndADebugChoice() {
-        #expect(HomeTunables.chiefDefault.defaultValue == .auto)
-        #expect(HomeTunables.chiefDefault.descriptor.key == "home.chiefDefault")
-        #expect(HomeTunables.all.contains { $0.key == "home.chiefDefault" })
-        #expect(HomeChiefDefault.allCases == [.auto, .local, .hosted])
+    @Test func theEngineSettingNamesEachChoiceAndDebugNoLongerDoes() {
+        #expect(HomeChiefDefault.allCases.map(\.rawValue) == ["auto", "local", "hosted"])
+        #expect(HomeChiefDefault(setting: "hosted") == .hosted)
+        #expect(HomeChiefDefault(setting: "cloud9") == .auto, "an unknown value is Auto")
+        #expect(!HomeTunables.all.contains { $0.key == "home.chiefDefault" }, "promoted out of Debug Settings")
     }
 
     @Test func autoFollowsWhetherThisMacsChiefRuns() {
@@ -67,25 +71,38 @@ struct HomeChiefDefaultTests {
         #expect(home.cloudChief == nil, "this Mac's optchat-chief runs: this Mac's Chief")
     }
 
-    @Test func theDebugChoiceForcesEitherChief() throws {
-        let home = Self.services().home
+    @Test func theEngineSettingForcesEitherChief() async throws {
+        let services = Self.services()
+        let home = services.home
         home.setCloudChiefs(HomeCloudChiefs(hosted: Self.hosted))
-        let store = TunableStore.shared
-        store.activate(file: nil)
-        store.register(HomeTunables.all)
-        defer { store.set(HomeTunables.chiefDefault.key, nil) }
-
-        try #require(store.set(HomeTunables.chiefDefault.key, .choice("local")) == .choice("local"))
+        let (settings, url) = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#)
+        services.settings = settings
         home.localChiefRunning = false
-        #expect(home.cloudChief == nil, "Local: this Mac's Chief even while its brain is not running")
+        #expect(home.cloudChief == nil, "This Mac: this Mac's Chief even while its brain is not running")
 
-        try #require(store.set(HomeTunables.chiefDefault.key, .choice("hosted")) == .choice("hosted"))
+        try Data(#"{"home":{"chiefEngine":"hosted"}}"#.utf8).write(to: url)
+        await settings.reload()
         home.localChiefRunning = true
         #expect(home.cloudChief == Self.hosted, "Hosted: the cloud Chief even while this Mac's brain runs")
+
+        try Data("{}".utf8).write(to: url)
+        await settings.reload()
+        #expect(home.cloudChief == nil, "Auto again: this Mac's brain runs, so this Mac's Chief")
     }
 
     static func services() -> AppServices {
         _ = NSApplication.shared
         return AppServices(environment: AppEnvironment.current([:]))
+    }
+
+    static func settings(_ json: String) async throws -> (SettingsController, URL) {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cnc-chief-engine-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let url = directory.appending(path: "cmux.json")
+        try Data(json.utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        return (settings, url)
     }
 }
