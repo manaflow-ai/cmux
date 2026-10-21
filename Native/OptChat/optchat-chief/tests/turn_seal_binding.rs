@@ -18,8 +18,8 @@ use optchat_chief::chief_profile::{ChiefTools, TURN_KEY_ENV};
 use optchat_chief::tools::NOT_THE_TURN;
 
 fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
-    let socket = home.join("tools.sock");
-    std::fs::create_dir_all(home).unwrap();
+    let socket = optchat_chief::paths::Paths::new(home).tools_socket;
+    std::fs::create_dir_all(socket.parent().unwrap()).unwrap();
     optchat_chief::tools::serve_all(
         &socket,
         optchat_chief::tools::Served {
