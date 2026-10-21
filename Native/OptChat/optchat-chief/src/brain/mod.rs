@@ -174,6 +174,12 @@ pub enum Input {
         after_network: bool,
         online: bool,
     },
+    /// Subagent `id`, whose account hit a usage limit, continues in a new
+    /// session on `harness` (auto_resume.rs `Decision::Move`).
+    AutoMove {
+        id: String,
+        harness: String,
+    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -319,6 +325,18 @@ pub enum Input {
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
         name: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {all: true} ("Stop all agents"): the running turn and
+    /// every subagent at work or queued; answers `{"stopped": bool,
+    /// "subagents": [ids]}`.
+    StopAll {
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {restart: [ids]} (Restart on the stop-all toast): those
+    /// subagents go on; answers `{"restarted": [ids], "errors": [...]}`.
+    RestartSubagents {
+        names: Vec<String>,
         reply: Sender<serde_json::Value>,
     },
     /// The link preview thread's answer for reply `key`: its parts with the
@@ -721,7 +739,13 @@ pub struct Brain {
     /// The running turn was stopped for asking again and again for a tool
     /// call it was denied (approvals.rs): later requests are denied, and the
     /// turn posts one line saying so (what it asked for) instead of its text.
-    denial_stopped: Option<String>,
+    denial_stopped: Option<(String, approvals::DenyWhy)>,
+    /// Permission requests the host left open, denied once overdue
+    /// (`approvals::deny_overdue_permissions_at`).
+    unanswered: Vec<approvals::Unanswered>,
+    /// Subagent prompts whose refused allow the person was told about
+    /// (`control answer`): the line is posted once per prompt.
+    approval_told: HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
@@ -854,6 +878,8 @@ impl Brain {
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
             denial_stopped: None,
+            unanswered: Vec::new(),
+            approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
             resume_at: None,
@@ -1038,16 +1064,24 @@ impl Brain {
             }
             // The `sleep` wakes run on the same loop (wakes.rs); they stay
             // out of `next_timer`, which waits only for the outbox and resume.
-            let timer = match (self.next_timer(), self.next_wake()) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
+            // So does the watch on permission requests nobody answers
+            // (approvals.rs).
+            let timer = [
+                self.next_timer(),
+                self.next_wake(),
+                self.next_unanswered_due(),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
             let input = match timer {
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(input) => input,
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
+                        let now = (self.clock)();
+                        self.deny_overdue_permissions_at(now);
                         continue;
                     }
                     Err(RecvTimeoutError::Disconnected) => return "input channel closed".into(),
@@ -1119,6 +1153,7 @@ impl Brain {
                 after_network,
                 online,
             } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
+            Input::AutoMove { id, harness } => self.auto_move_due(&id, &harness),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }
@@ -1225,6 +1260,12 @@ impl Brain {
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StopAll { reply } => {
+                let _ = reply.send(self.stop_all());
+            }
+            Input::RestartSubagents { names, reply } => {
+                let _ = reply.send(self.restart_subagents(&names));
             }
             Input::Previews { key, parts } => self.previews_fetched(&key, parts),
         }

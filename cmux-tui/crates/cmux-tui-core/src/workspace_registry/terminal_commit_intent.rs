@@ -45,7 +45,7 @@ impl WorkspaceRegistry {
         validate_identifier("mutation origin", &mutation.origin)?;
         validate_identifier("terminal event kind", event_kind)?;
         validate_terminal(terminal)?;
-        let launch_spec_json = canonical_json(&terminal.launch_spec)?;
+        let launch_spec_json = canonical_json(&durable_launch_spec(terminal))?;
         if launch_spec_json.len() > MAX_LAUNCH_SPEC_BYTES {
             anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
         }
@@ -149,7 +149,7 @@ impl TerminalCommitIntent {
                 terminal.lifecycle.as_str(),
                 self.launch_spec_json,
                 self.exit_json,
-                terminal.on_exit.as_str(),
+                terminal.on_exit.column(),
                 sqlite_revision,
                 (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(sqlite_revision),
             ],

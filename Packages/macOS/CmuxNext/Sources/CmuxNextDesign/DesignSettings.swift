@@ -90,6 +90,15 @@ public final class DesignSettings {
     /// read it resolved through `ColorTransition.current`). Web pages take a new value with their
     /// next theme payload.
     public var colorTransition = ColorTransition()
+    /// `appearance.inactiveWindowDim`: how much more of the theme color covers a window that is
+    /// not key (``WindowMaterialView``); 0, the default, keeps its look. Posts
+    /// `WindowMaterialView.inactiveDimDidChange`.
+    public var inactiveWindowDim = 0.0 {
+        didSet {
+            guard inactiveWindowDim != oldValue else { return }
+            NotificationCenter.default.post(name: WindowMaterialView.inactiveDimDidChange, object: nil)
+        }
+    }
     /// `ui.animations.bounce`: structural springs are critically damped or bounce subtly.
     public var animationBounce: MotionBounce = .none
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
@@ -253,6 +262,8 @@ public final class DesignSettings {
     public var tabBarPosition: TabBarPosition = .top
     /// `tabs.barOrder` (R109).
     public var tabBarOrder: TabBarOrder = .aboveToolbar
+    /// `browser.toolbarPosition`: the omnibar row above or below the page.
+    public var browserToolbarPosition: ToolbarPosition = .top
     /// `appearance.paneBackgrounds`: one background for the window or a copy per pane.
     public var paneBackgrounds: PaneBackgroundMode = .shared
 

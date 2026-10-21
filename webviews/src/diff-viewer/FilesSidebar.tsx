@@ -188,7 +188,6 @@ export function FilesSidebar({
             id="file-filter-clear"
             type="button"
             className="files-filter-button"
-            title={label("clearFileFilter")}
             aria-label={label("clearFileFilter")}
             onClick={() => dispatch({ type: "set-file-filter", filter: defaultDiffFileFilter() })}
           >
