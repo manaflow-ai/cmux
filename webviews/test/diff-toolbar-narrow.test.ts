@@ -64,6 +64,38 @@ await requireBrowserLane("diff-toolbar-narrow.test.ts", async () => {
     });
   }
 
+  // Beside the files sidebar (shown from 521 px) the source controls share the bar with the toolbar
+  // pill: the base picker gives way (its head side first) so the jump-to-file chevron stays in its
+  // cell and clear of the pill, and the picker's label stays inside its button.
+  for (const width of [521, 540, 560, 600]) {
+    test(`at ${width} px beside the files the source controls stay in their cell`, async () => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const page = await browser!.newPage({ viewport: { width, height: 600 } });
+      await page.goto(`http://127.0.0.1:${port}/test/browser/diff-toolbar-narrow.html?picker`);
+      await page.locator("#base-picker-button").waitFor();
+      await page.locator("#jump-to-file-button").waitFor();
+      const boxes = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const label = [...document.querySelectorAll("#base-picker-button .base-picker-label > *")]
+          .map((element) => element.getBoundingClientRect())
+          .filter((box) => box.width > 0);
+        return {
+          filesHidden: document.body.dataset.filesHidden,
+          cell: rect("#toolbar .toolbar-left").right,
+          jump: rect("#jump-to-file-button").right,
+          pill: rect("#diff-pill").left,
+          button: rect("#base-picker-button").right,
+          label: Math.max(...label.map((box) => box.right)),
+        };
+      });
+      await page.close();
+      expect(boxes.filesHidden).toBe("false");
+      expect(boxes.jump).toBeLessThanOrEqual(boxes.cell + 0.5);
+      expect(boxes.jump).toBeLessThanOrEqual(boxes.pill);
+      expect(boxes.label).toBeLessThanOrEqual(boxes.button + 0.5);
+    });
+  }
+
   // POLISH.md: no capsule pills, small-radius rects; a circle stays a circle.
   test("the toolbar's controls are small-radius rects, not capsules", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
