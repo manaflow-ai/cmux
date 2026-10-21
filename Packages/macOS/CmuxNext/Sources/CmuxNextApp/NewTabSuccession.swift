@@ -36,6 +36,9 @@ struct NewTabSuccession {
     weak var services: AppServices?
     weak var pane: PaneModel?
 
+    /// Whether a new tab of `pane` is still being placed (tests).
+    static func isOpen(in pane: PaneModel) -> Bool { active[ObjectIdentifier(pane)] != nil }
+
     /// Starts showing what replaces New Tab page `key` in the page's slot. Returns the open, for `made`.
     @discardableResult
     static func begin(replacing key: String, in pane: PaneModel, services: AppServices) -> DemandTimer? {
