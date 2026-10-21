@@ -1523,14 +1523,15 @@ impl Dialer for WireGuardDialer {
             let gathered = gather_endpoints(&socket, options).await;
             // A Mac whose network answers no STUN (it drops UDP) takes its
             // own TURN allocation, over TLS when UDP to the server fails too.
-            let turn = if no_plain_udp(options) || gathered.udp_looks_blocked() {
-                TurnCarrier::allocate(options).await
-            } else {
-                None
-            };
+            let wants_turn = no_plain_udp(options) || gathered.udp_looks_blocked();
+            let turn = if wants_turn { TurnCarrier::allocate(options).await } else { None };
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
+            // Asked for TURN and got none in time: the session takes it once the server answers.
+            let turn_missed = wants_turn
+                && turn.is_none()
+                && super::turn::turn_servers(&options.ice_servers) != (None, None);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
@@ -1548,7 +1549,7 @@ impl Dialer for WireGuardDialer {
                 peer_relayed_tls: &peer_relayed_tls,
                 peer_version,
                 own_endpoints: endpoints.clone(),
-                keeps_turn: turn.is_some(),
+                keeps_turn: wants_turn,
                 turn,
                 dialer: false,
                 stun,
@@ -1558,6 +1559,9 @@ impl Dialer for WireGuardDialer {
             let guard = Guard { session: Arc::clone(&tunnel.session) };
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
+            if turn_missed {
+                tunnel.session.retry_missing_turn();
+            }
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             // The media lane: listed back only once its port is bound, so a
             // phone never expects a lane this side cannot serve.
