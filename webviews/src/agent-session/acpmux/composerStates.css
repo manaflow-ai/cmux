@@ -434,13 +434,14 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
    line, nothing moves. Over art the glass card's top-lit rim stays as it rests. The prompt itself
    draws no ring (desktop.css, cx-ncc.57). A page that is not the key one rests (below). */
 .acpmux-composer,
-.nt-composer {
+.nt-composer,
+.nt-box {
   --acpmux-composer-edge-focus: color-mix(in srgb, var(--agent-text) 28%, var(--agent-page-bg, var(--acpmux-base)));
 }
-:root[data-page-inactive] :is(.acpmux-composer, .nt-composer) {
+:root[data-page-inactive] :is(.acpmux-composer, .nt-composer, .nt-box) {
   --acpmux-composer-edge-focus: var(--acpmux-composer-edge);
 }
-:root[data-borders="none"] :is(.acpmux-composer, .nt-composer) {
+:root[data-borders="none"] :is(.acpmux-composer, .nt-composer, .nt-box) {
   --acpmux-composer-edge-focus: transparent;
 }
 .acpmux-composer-box:has(:focus-visible),
