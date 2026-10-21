@@ -168,6 +168,11 @@ select {
 }
 
 /* A shortcut hint after the text, in the secondary ink, at the tooltip's top right. */
+.ui-tooltip-detail {
+  display: block;
+  color: var(--cmux-text-secondary, color-mix(in srgb, var(--cmux-text, CanvasText) 64%, transparent));
+}
+
 .ui-tooltip-hint {
   float: inline-end;
   margin-inline-start: 8px;
@@ -416,6 +421,7 @@ input[type="submit"] {
   --text-content--line-height: var(--cv-line-height, 22.75px);
   --weight-regular: 400; /* everything by default */
   --weight-emphasis: 600; /* titles, headings, selected or unread rows, group labels */
+  --weight-strong: 700; /* monogram initials drawn in an avatar circle */
 }
 /* type-scale:end */
 

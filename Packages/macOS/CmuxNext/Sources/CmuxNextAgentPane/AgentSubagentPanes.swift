@@ -12,6 +12,9 @@ public final class AgentSubagentPanes {
     private var tabs: [String: String] = [:]
     private var order: [String] = []
     private var opening: String?
+    /// The subagent whose open runs without focus but that the person asked to see meanwhile (a
+    /// click while its pane opens on its own): its pane takes focus once it has opened.
+    private var focusOnceOpen: String?
     private var queue: [Request] = []
 
     /// A waiting request: the subagent, whether it takes focus, and the chat tab that asked.
@@ -42,6 +45,7 @@ public final class AgentSubagentPanes {
             self.opening = agent
             return true
         }
+        if opening == agent, focus { focusOnceOpen = agent }
         if let index = queue.firstIndex(where: { $0.agent == agent }) { queue[index].focus = queue[index].focus || focus }
         else if opening != agent { queue.append(Request(agent: agent, focus: focus, chat: chat)) }
         return false
@@ -50,8 +54,12 @@ public final class AgentSubagentPanes {
     /// Ends the open that runs; returns the next waiting request, if any.
     public func finish() -> Request? {
         opening = nil
+        focusOnceOpen = nil
         return queue.isEmpty ? nil : queue.removeFirst()
     }
+
+    /// Whether subagent `agent`'s running open owes the person focus (``begin(_:focus:chat:)``).
+    func owesFocus(_ agent: String) -> Bool { focusOnceOpen == agent }
 
     /// What ``open(_:focus:chat:hooks:)`` asks the app for.
     public struct Hooks {
@@ -87,7 +95,10 @@ public final class AgentSubagentPanes {
         }
         guard begin(agent, focus: focus, chat: chat) else { return true }
         let next: @MainActor (Bool) -> Void = { [weak self] _ in
-            if let request = self?.finish() { hooks.again(request) }
+            guard let self else { return }
+            // A click that came while this pane opened without focus: the pane takes it now.
+            if !focus, self.owesFocus(agent), let key = self.tab(for: agent, isOpen: hooks.isOpen) { hooks.focus(key, false) }
+            if let request = self.finish() { hooks.again(request) }
         }
         let stack = stackAnchor(isOpen: hooks.isOpen)
         let created: @MainActor (String) -> Void = { [weak self] key in self?.record(agent, tab: key) }

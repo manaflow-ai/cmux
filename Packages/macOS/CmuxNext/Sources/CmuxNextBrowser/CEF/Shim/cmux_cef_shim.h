@@ -173,6 +173,15 @@ typedef enum {
   // Chromium ended a waiting BEFORE_UNLOAD_DIALOG itself (the renderer
   // ended, the page navigated or closed). Not sent after the host's answer.
   CMUX_SHIM_BEFORE_UNLOAD_DISMISSED = 45,
+  // A cmux-page:// page asks for one of its dynamic paths
+  // (cmux_shim_page_scheme_add_first_party_dynamic). request = token,
+  // s1 = the full URL. Chromium waits for cmux_shim_page_resource_respond
+  // (during the event or later); a request the page cancels drops it.
+  CMUX_SHIM_PAGE_RESOURCE = 46,
+  // A drag of files from outside the app entered a page (CefDragHandler::
+  // OnDragEnter); s1 = JSON array of the files' absolute paths. The page
+  // still gets the drag.
+  CMUX_SHIM_PAGE_DRAG_ENTER = 47,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -765,6 +774,21 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add(const char* id, const char* resou
 // first-party registration, which passes the page's bundled resource root
 // after checking it against the first-party table (FirstPartyPageSchemes).
 CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party(const char* id, const char* resource_root, const char* csp);
+// The same, and the page host answers every path whose first component
+// (percent-decoded) is one of dynamic_prefixes (newline-separated, e.g.
+// "__patch\nasset"); the folder never serves such a path. A request from a
+// page in a browser emits CMUX_SHIM_PAGE_RESOURCE; any other is a 404.
+// entry is the file "/" serves (NULL or empty = index.html; a plain file
+// name, as diff-page.html for pages that share one build folder).
+CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* id, const char* resource_root,
+                                                                   const char* csp, const char* dynamic_prefixes,
+                                                                   const char* entry);
+// The page host's answer to CMUX_SHIM_PAGE_RESOURCE `token`: status (200,
+// 404), mime (NULL = application/octet-stream) and length bytes of body,
+// copied. The page's CSP and the other page headers are added. Any thread.
+// Returns 1 when the request was waiting, 0 when it ended or was answered.
+CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
+                                                     size_t length);
 
 #ifdef __cplusplus
 }

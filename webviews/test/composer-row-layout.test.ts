@@ -20,8 +20,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 type Rect = { left: number; right: number; top: number; bottom: number; width: number };
 type Row = {
@@ -191,7 +191,7 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const stageURL = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer-row&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer-row", { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -200,20 +200,9 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the stage once: the first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 720, height: 300 } });
-    await warm.goto(stageURL("claude-auto"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer-row", { browser, params: { variant: "claude-auto" } });
   });
   afterAll(async () => {
     await browser?.close();

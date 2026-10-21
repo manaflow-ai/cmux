@@ -52,27 +52,29 @@ pub(super) struct Guide {
     pub(super) text: &'static str,
 }
 
-pub(super) const GUIDES: &[Guide] = &[Guide {
-    topic: "Show your work to the user without moving their focus",
-    keywords: &[
-        "show",
-        "user",
-        "person",
-        "visible",
-        "see",
-        "focus",
-        "steal",
-        "status",
-        "progress",
-        "report",
-        "chat",
-        "conversation",
-        "notify",
-        "attention",
-    ],
-    text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
-        app_agent_open {session}, CLI `cmux agent open SESSION`) opens that \
-        session's chat in a new workspace; the workspace the user looks at stays. Open a link: \
+pub(super) const GUIDES: &[Guide] = &[
+    Guide {
+        topic: "Show your work to the user without moving their focus",
+        keywords: &[
+            "show",
+            "user",
+            "person",
+            "visible",
+            "see",
+            "focus",
+            "steal",
+            "status",
+            "progress",
+            "report",
+            "chat",
+            "conversation",
+            "notify",
+            "attention",
+        ],
+        text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
+        app_agent_open {session, group}, CLI `cmux agent open SESSION [--group G]`) opens that \
+        session's chat in a new workspace, in sidebar group G (made when missing) when given; \
+        the workspace the user looks at stays. Open a link: \
         workspace_open_url {url, workspace} loads it in a browser tab on the workspace's right \
         side and keeps the keyboard focus, but it navigates a browser tab already there, so \
         when the user's page must stay use browser_profile_open {url, profile: \"default\", pane, \
@@ -85,7 +87,32 @@ pub(super) const GUIDES: &[Guide] = &[Guide {
         (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
         move the user's focus: use them only when the user asked. The selector `current` is what \
         the user looks at, not your own workspace.",
-}];
+    },
+    Guide {
+        topic: "Set up cmux for the person: trust, harnesses, machines, accounts",
+        keywords: &[
+            "setup",
+            "configure",
+            "install",
+            "onboard",
+            "onboarding",
+            "trust",
+            "login",
+            "signin",
+            "harness",
+            "peer",
+            "enroll",
+        ],
+        text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
+        ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
+        Use, browser import, key bindings, notifications, team invites) with the read-only \
+        commands that check it, the commands that do it, and what only the person can do. \
+        `cmux setup status` checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
+        trust for a folder; it changes nothing when the folder is already trusted, --dry-run \
+        prints the plan, and every result names its undo command. Every `cmux setup` command \
+        prints one JSON object: state is ok, changed, planned, needs_user or failed.",
+    },
+];
 
 /// The guides for `query` (see [`Guide`]).
 pub(super) fn guides(query: &str) -> Vec<Guide> {
