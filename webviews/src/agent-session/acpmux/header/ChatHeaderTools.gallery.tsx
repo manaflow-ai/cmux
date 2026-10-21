@@ -2,7 +2,7 @@
 import { createElement } from "react";
 import type { ReactNode } from "react";
 import { componentEntry } from "../../../gallery/format";
-import type { Play } from "../../../gallery/play";
+import type { Play, PlayContext } from "../../../gallery/play";
 import type { ChatMenuItem } from "./ChatHeaderTools";
 import type { QuickAction } from "./quickActions";
 
@@ -147,6 +147,14 @@ const worktreeRemoveRefused: Play = async (ctx) => {
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-worktree-remove [role=alert]"));
 };
 
+// The chip mounts on React's next render, not inside setHeaderState; let that render paint first so
+// its row shift is not counted against the click.
+async function chipShown(ctx: PlayContext) {
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-header-pr"));
+  const view = ctx.document.defaultView!;
+  await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+}
+
 // A click on the chip opens its status: title, state and review, then each check, failing first
 // (cx-ncc.77.1).
 const pullRequestStatus: Play = async (ctx) => {
@@ -173,6 +181,7 @@ const pullRequestStatus: Play = async (ctx) => {
       ],
     },
   });
+  await chipShown(ctx);
   await ctx.click({ selector: ".acpmux-header-pr" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-pr-check").length === 5);
 };
@@ -196,6 +205,7 @@ const pullRequestMerge: Play = async (ctx) => {
       ],
     },
   });
+  await chipShown(ctx);
   await ctx.click({ selector: ".acpmux-header-pr" });
   await ctx.click({ role: "button", name: "Merge" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Confirm merge" }));

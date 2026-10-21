@@ -24,6 +24,13 @@ const PROMPT_THREAD_STACK_BYTES: usize = 256 * 1024;
 /// The spec's limit on an unsend's `error.acpmux_reason`, in UTF-8 bytes.
 const ACPMUX_REASON_MAX: usize = 128;
 
+/// `_acpmux/info` for `session` without waiting for acpmux to read its chat logs
+/// after a restart: these calls need only the session's id, which the session
+/// list holds, and a large log store takes longer than [`INFO_TIMEOUT`].
+pub(super) fn info_params(session: &str) -> Value {
+    json!({"sessionId": session, "waitLogs": false})
+}
+
 /// What the hand-over hears first.
 enum Heard {
     Accepted,
@@ -57,7 +64,7 @@ impl crate::mux::Mux {
             return Handover::Unreachable;
         };
         // Only a session acpmux runs, by its exact id, takes the prompt.
-        let known = link.call("_acpmux/info", json!({"sessionId": session}), INFO_TIMEOUT);
+        let known = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
         if !known.is_ok_and(|info| info.get("sessionId").and_then(Value::as_str) == Some(session)) {
             link.close();
             return Handover::Unreachable;
@@ -138,7 +145,7 @@ impl crate::mux::Mux {
         // names may run the prompt, so only one it cannot name is gone.
         let withdrawn = match withdrawn {
             Ok(Withdrawn::NoSession) => {
-                let info = link.call("_acpmux/info", json!({"sessionId": session}), INFO_TIMEOUT);
+                let info = link.call("_acpmux/info", info_params(session), INFO_TIMEOUT);
                 match info {
                     Ok(info) if info.get("sessionId").and_then(Value::as_str) == Some(session) => {
                         Ok(Withdrawn::NotFound)
@@ -191,11 +198,13 @@ impl crate::mux::Mux {
 /// `data`.
 fn withdraw_refusal(message: &str, data: &Value) -> Result<Withdrawn, WithdrawError> {
     // acpmux names a refusal in `data.reason`, or before the first colon of
-    // its message (`transfer.moving: …`).
-    let reason = data.get("reason").and_then(Value::as_str).map_or_else(
-        || message.split(':').next().unwrap_or_default().trim().to_owned(),
-        str::to_owned,
-    );
+    // its message (`transfer.moving: …`); a blank one names none.
+    let reason = data
+        .get("reason")
+        .and_then(Value::as_str)
+        .unwrap_or_else(|| message.split(':').next().unwrap_or_default())
+        .trim()
+        .to_owned();
     if reason == "withdraw.not_found" {
         Ok(Withdrawn::NotFound)
     } else if message.starts_with("no session matches") {

@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useEscapeCloses } from "../../../ui/escapeDismiss";
+import { usePresence } from "../../../ui/presence";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
@@ -10,17 +11,20 @@ import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
-import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import type { SubsessionRow } from "../subagents/subsessions";
+import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
-import { backgroundCommands } from "./backgroundWork";
+import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
 import type { ProcessRegistry } from "../inspector/processes";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
 const NO_REGISTRY: ProcessRegistry = { processes: [], listed: false };
+
+const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
 /// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
@@ -40,6 +44,7 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  subsessions,
   onAttach,
   background,
   sessions,
@@ -63,6 +68,9 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
+  /// The chat's sub-sessions (subagents/subsessions.ts `subsessionRows`), listed after its
+  /// subagents, and how a row opens one's chat beside this one.
+  subsessions?: { rows: readonly SubsessionRow[]; onOpen: (sessionId: string) => void };
   /// Sources' + (Attach files or folders), for a chat on this computer.
   onAttach?: () => void;
   /// The chat's background commands: the process registry's records, the transcript's tasks still
@@ -79,11 +87,16 @@ export function SummaryCard({
   /// The Subagents tab: absent until the Subagents title opens it, then shown or behind Summary.
   const [tab, setTab] = useState<"summary" | "subagents" | undefined>(undefined);
   const shown = card.shown;
-  const open = shown && !card.collapsed;
+  // The card slides in from the pane's right edge and back out (ui/presence.ts): the inline column
+  // travels its own width inside the pane, the popover a few points. It keeps its content while it
+  // leaves; a second open while it is open changes nothing.
+  const presence = usePresence(shown, "right");
+  const drawn = presence.present;
+  const open = drawn && !card.collapsed;
   const views = subagents.views;
-  const agents = useMemo(() => (shown ? [...subagentsIn(rows, views).values()] : []), [shown, rows, views]);
+  const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
   const asks = subagents.asks;
-  const waiting = useMemo(() => (shown ? waitingSubagents(asks, views) : new Set<string>()), [shown, asks, views]);
+  const waiting = useMemo(() => (drawn ? waitingSubagents(asks, views) : new Set<string>()), [drawn, asks, views]);
   const galleryRow = useRef<HTMLElement | null>(null);
   const summary = useMemo(() => (open ? sessionSummary(rows) : undefined), [open, rows]);
   const galleryCount = useMemo(() => (open ? chatGallery(rows).length : 0), [open, rows]);
@@ -130,7 +143,7 @@ export function SummaryCard({
     card.close();
     button?.focus();
   });
-  if (!shown) {
+  if (!drawn) {
     // Keep the inline column's width stable before the first summary row arrives. The rail is
     // intentionally invisible until it has content, but removing it from the flex row would make
     // the composer jump sideways when the first subagent or tool result is received.
@@ -138,8 +151,14 @@ export function SummaryCard({
       <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
     ) : null;
   }
-  const children = sessions?.list ?? NO_SESSIONS;
-  const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
+  const subsessionRows = subsessions?.rows ?? NO_SUBSESSIONS;
+  // A started chat that is also a sub-session shows once, as its sub-session row.
+  const children = (sessions?.list ?? NO_SESSIONS).filter(
+    (child) => !subsessionRows.some((row) => row.sessionId === child.sessionId),
+  );
+  const count = (status: string) =>
+    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
+    subsessionRows.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
   // A started chat waiting on the person is counted with the waiting subagents.
   const waitingCount = count("waiting") + children.filter((child) => child.state === "waiting").length;
   const runningCommands = commands.filter((command) => command.state === "running").length;
@@ -156,12 +175,17 @@ export function SummaryCard({
   const title = t("summary.open");
   const foldLabel = card.collapsed ? t("summary.expand") : t("summary.collapse");
   const onSubagents = tab === "subagents";
-  const hasSubagents = agents.length > 0 || children.length > 0;
+  const hasSubagents = agents.length > 0 || children.length > 0 || subsessionRows.length > 0;
   return (
     <>
       <aside
-        ref={panel}
+        {...presence.props}
+        ref={(node) => {
+          panel.current = node;
+          presence.props.ref(node);
+        }}
         className="acpmux-summary-card"
+        inert={presence.leaving}
         // ui-allow: focusable from script only, the last place closing the Subagents tab can leave focus.
         tabIndex={-1}
         aria-label={title}
@@ -252,7 +276,7 @@ export function SummaryCard({
         )}
         {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
-            {/* The subagents and started chats first: they are what the card follows while a turn runs. */}
+            {/* The subagents, sub-sessions and started chats first: they are what the card follows while a turn runs. */}
             {hasSubagents && (
               <SubagentStatusList
                 agents={agents}
@@ -260,9 +284,11 @@ export function SummaryCard({
                 current={subagents.current}
                 onOpen={subagents.onOpen}
                 autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
+                // The tab lists subagents only; a chat with only sub-sessions or started chats has none to show there.
                 onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                subsessions={subsessionRows}
                 sessions={children}
-                onOpenSession={sessions?.onOpen}
+                onOpenSession={sessions?.onOpen ?? subsessions?.onOpen}
                 stack={agents.length === 0 ? summary.subagents : undefined}
               />
             )}

@@ -1,22 +1,28 @@
+// l10n-allow-file: test fixture commands, not shipped UI.
 // The Inspector's Background tasks and Servers (Claude Code desktop's): the chat's background
-// processes from acpmux's registry (`_acpmux/process/list` and `process_update`). Dev servers go
-// under Servers with the ports their commands name; the rest under Background tasks, running ones
-// with their elapsed time and a Stop button, then "N finished", folded.
+// processes from acpmux's registry (`_acpmux/process/list` and `process_update`), with the
+// background commands only the transcript knows (Claude's background Bash, Ctrl-B's included).
+// Dev servers go under Servers with the ports their commands name; the rest under Background tasks,
+// running ones with their elapsed time and, for the registry's, a Stop button, then "N finished",
+// folded. A row opens the command's terminal beside the chat (`chat.processTerminal`).
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
-import { act } from "react";
+import { act, type ComponentProps } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { ChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
 import { resetInspectorState } from "../src/agent-session/acpmux/inspector/inspectorState";
 import {
+  backgroundCommands,
   mergeProcess,
   processesOf,
+  splitCommands,
   serverOf,
   splitServers,
   useInspectorProcesses,
   type InspectorProcess,
   type ProcessSource,
 } from "../src/agent-session/acpmux/inspector/processes";
+import type { SummaryBackgroundTask } from "../src/agent-session/acpmux/summary/sessionSummary";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -91,6 +97,8 @@ async function render(
 
 const section = (container: HTMLElement, id: string) =>
   container.querySelector<HTMLElement>(`section.acpmux-chat-inspector-section[data-section="${id}"]`);
+const meta = (element: HTMLElement | null) =>
+  element?.querySelector(".acpmux-chat-inspector-section__meta")?.textContent;
 const click = (element: HTMLElement) => act(async () => element.click());
 
 const process = (command: string, state = "running"): InspectorProcess => ({
@@ -307,4 +315,196 @@ test("a refused Stop says so and can be tried again", async () => {
   refuse = false;
   await act(async () => stop().click());
   expect(stop().getAttribute("data-state")).toBe("stopping");
+});
+
+const task = (id: string, command: string, state: SummaryBackgroundTask["state"], startedAt?: number) =>
+  ({ id, command, state, ...(startedAt !== undefined ? { startedAt } : {}) }) satisfies SummaryBackgroundTask;
+
+/// What the page posts to the native host (CmuxNextAgentPane's `agentSession` handler).
+function recordNative(): { method: string; params: Record<string, unknown> }[] {
+  const posted: { method: string; params: Record<string, unknown> }[] = [];
+  Object.assign(dom!.window, {
+    webkit: {
+      messageHandlers: {
+        agentSession: {
+          postMessage: (message: { method: string; params: Record<string, unknown> }) => {
+            posted.push({ method: message.method, params: message.params });
+            return { ok: true, value: { opened: true } };
+          },
+        },
+      },
+    },
+  });
+  return posted;
+}
+
+async function renderInspector(container: HTMLElement, props: ComponentProps<typeof ChatInspector>) {
+  await act(async () => {
+    root ??= createRoot(container);
+    root.render(<ChatInspector {...props} />);
+  });
+}
+const taskRows = (container: HTMLElement) =>
+  [...(section(container, "tasks")?.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-task") ?? [])].map((row) => [
+    row.querySelector(".acpmux-chat-inspector-task__command")?.textContent,
+    row.querySelector(".acpmux-chat-inspector-task__time")?.textContent ?? null,
+    row.querySelector("button.acpmux-chat-inspector-stop") !== null,
+  ]);
+
+test("the registry's records carry the call that started them", () => {
+  const [record] = processesOf({ processes: [wire("a", "bun run dev", "running", 1_000)] }, "s1");
+  expect(record!.toolCallId).toBe("call-a");
+});
+
+test("a transcript task the registry lists is listed once, as the registry says it stands", () => {
+  const processes = processesOf(
+    { processes: [wire("a", "bun run dev", "killed", 1_000, 5_000), wire("b", "tsc --watch", "running", 2_000)] },
+    "s1",
+  );
+  const transcript = [task("call-a", "bun run dev", "running", 1_000), task("call-c", "pytest -x", "completed")];
+  expect(
+    backgroundCommands(processes, transcript, true).map((command) => [
+      command.id,
+      command.state,
+      command.processId,
+      command.toolCallId,
+    ]),
+  ).toEqual([
+    ["s1/a", "stopped", "s1/a", "call-a"],
+    ["s1/b", "running", "s1/b", "call-b"],
+    // Known only to the transcript: no Stop, but its terminal still opens.
+    ["call-c", "completed", undefined, "call-c"],
+  ]);
+});
+
+test("running commands come first, newest first; the finished follow, newest first", () => {
+  const commands = backgroundCommands(
+    processesOf(
+      {
+        processes: [
+          wire("old", "tsc --watch", "running", 1_000),
+          wire("done", "cargo build", "exited", 2_000, 3_000),
+          wire("new", "bun run dev", "running", 5_000),
+          wire("lost", "tail -f log", "lost", 4_000, 6_000),
+        ],
+      },
+      "s1",
+    ),
+    [],
+    true,
+  );
+  const { running, finished } = splitCommands(commands);
+  expect(running.map((command) => command.command)).toEqual(["bun run dev", "tsc --watch"]);
+  expect(finished.map((command) => [command.command, command.state])).toEqual([
+    ["tail -f log", "lost"],
+    ["cargo build", "completed"],
+  ]);
+});
+
+test("a background Bash only the transcript knows is a running task, without Stop", async () => {
+  setSystemTime(new Date(100_000));
+  const container = installDom();
+  // The registry has not listed the chat (an older acpmux, a peer's chat): the transcript is all
+  // there is. Ctrl-B moved `pytest -x` to the background; it says when it started.
+  await renderInspector(container, {
+    processes: [],
+    transcriptTasks: [task("call-p", "pytest -x", "running", 100_000 - 12_000), task("call-q", "make docs", "running")],
+    onStopProcess: async () => undefined,
+  });
+  expect(taskRows(container)).toEqual([
+    ["pytest -x", "12s", false],
+    // No start time: it says it runs.
+    ["make docs", "Running", false],
+  ]);
+  expect(meta(section(container, "tasks"))).toBe("2 running");
+  // One that finished folds under the count with how it ended.
+  await renderInspector(container, { transcriptTasks: [task("call-r", "cargo test", "failed", 1_000)] });
+  const tasks = section(container, "tasks")!;
+  expect(taskRows(container)).toEqual([]);
+  await click(tasks.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-fold")!);
+  expect(
+    [...tasks.querySelectorAll<HTMLElement>("[data-finished] .acpmux-chat-inspector-task")].map(
+      (row) => row.querySelector(".acpmux-chat-inspector-task__state")?.textContent,
+    ),
+  ).toEqual(["Failed"]);
+});
+
+test("once the registry has listed the chat, a stale transcript task it does not know is not left running", async () => {
+  setSystemTime(new Date(100_000));
+  const container = installDom();
+  const transcript = [
+    task("call-x", "npm run watch", "running", 1_000),
+    task("call-a", "cargo watch", "running", 1_000),
+  ];
+  const processes = processesOf({ processes: [wire("a", "cargo watch", "running", 100_000 - 5_000)] }, "s1");
+  await renderInspector(container, {
+    processes,
+    transcriptTasks: transcript,
+    listed: true,
+    onStopProcess: async () => 0,
+  });
+  // `call-a` is the registry's process, listed once with its Stop; `call-x` it does not run.
+  expect(taskRows(container)).toEqual([["cargo watch", "5s", true]]);
+  // Before the listing, the transcript's still shows.
+  await renderInspector(container, { processes, transcriptTasks: transcript, onStopProcess: async () => 0 });
+  expect(taskRows(container)).toEqual([
+    ["cargo watch", "5s", true],
+    ["npm run watch", "1m 39s", false],
+  ]);
+});
+
+test("a task row opens its terminal beside the chat, a running one and a finished one", async () => {
+  const container = installDom();
+  const posted = recordNative();
+  await renderInspector(container, {
+    processes: processesOf({ processes: [wire("a", "cargo test", "exited", 1_000, 9_000)] }, "s1"),
+    transcriptTasks: [task("call-p", "pytest -x", "running", 1_000)],
+    onStopProcess: async () => undefined,
+  });
+  const tasks = section(container, "tasks")!;
+  const open = (command: string) =>
+    [...tasks.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-task__open")].find(
+      (button) => button.querySelector(".acpmux-chat-inspector-task__command")?.textContent === command,
+    )!;
+  await click(open("pytest -x"));
+  await click(tasks.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-fold")!);
+  await click(open("cargo test"));
+  expect(posted.filter((post) => post.method === "chat.processTerminal").map((post) => post.params)).toEqual([
+    { toolCallId: "call-p" },
+    { toolCallId: "call-a" },
+  ]);
+  // Stop is its own button: it never opens the terminal.
+});
+
+test("Stop shows only on a running command the registry lists", async () => {
+  const container = installDom();
+  const posted = recordNative();
+  const stopped: string[] = [];
+  await renderInspector(container, {
+    processes: processesOf({ processes: [wire("a", "cargo watch", "running", 1_000)] }, "s1"),
+    transcriptTasks: [task("call-p", "pytest -x", "running", 2_000)],
+    onStopProcess: async (id) => void stopped.push(id),
+  });
+  expect(taskRows(container).map(([command, , stop]) => [command, stop])).toEqual([
+    ["pytest -x", false],
+    ["cargo watch", true],
+  ]);
+  await click(section(container, "tasks")!.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-stop")!);
+  expect(stopped).toEqual(["s1/a"]);
+  expect(posted.filter((post) => post.method === "chat.processTerminal")).toEqual([]);
+  // Without a way to stop, none at all.
+  await renderInspector(container, {
+    processes: processesOf({ processes: [wire("a", "cargo watch", "running", 1_000)] }, "s1"),
+  });
+  expect(section(container, "tasks")!.querySelector("button.acpmux-chat-inspector-stop")).toBeNull();
+});
+
+test("a transcript task a running server stands for is listed under Servers only", async () => {
+  const container = installDom();
+  await renderInspector(container, {
+    processes: processesOf({ processes: [wire("a", "bun run dev --port 5173", "running", 1_000)] }, "s1"),
+    transcriptTasks: [task("call-a", "bun run dev --port 5173", "running", 1_000)],
+  });
+  expect(section(container, "servers")).not.toBeNull();
+  expect(section(container, "tasks")).toBeNull();
 });

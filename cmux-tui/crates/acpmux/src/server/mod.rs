@@ -149,7 +149,20 @@ impl Conn {
 
     fn send(&self, msg: &Message) {
         let masked = (!self.raw_text).then(|| peer_text::masked(msg)).flatten();
-        let _ = self.out.try_send(masked.as_ref().unwrap_or(msg).to_line());
+        let msg = masked.as_ref().unwrap_or(msg);
+        // No message larger than one frame (`rpc::MAX_MESSAGE_BYTES`): a reply goes as its error,
+        // a notification is left out and the client reads again from its last record.
+        match msg.bounded_line() {
+            Ok(line) => {
+                let _ = self.out.try_send(line);
+            }
+            Err(bytes) => {
+                tracing::warn!(conn = %self.id, method = ?msg.method(), bytes, "left out a notification too large to send");
+                let _ = self.out.try_send(
+                    Message::notification("_acpmux/lagged", json!({"dropped": 1})).to_line(),
+                );
+            }
+        }
     }
     fn sub_opts(&self, session_id: &str) -> Option<SubOpts> {
         self.subs.lock().unwrap().get(session_id).cloned()
@@ -806,8 +819,12 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
-    ephemeral::release_all(&hub, &conn).await;
+    // Leases first: ending one is cheap and synchronous, while the ephemeral
+    // release awaits each session's kill. A leased peer must not keep
+    // reconnecting to a forward port its bridge already closed, which another
+    // process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
+    ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -838,6 +855,12 @@ async fn refuse_unauthenticated(
 
 /// Turn a hub record into client notifications for one connection.
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
+    if ev.record.kind == crate::hub::PEER_LAGGED {
+        if conn.sub_opts(&ev.session_id).is_some() {
+            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg.clone()));
+        }
+        return;
+    }
     chats::push_activity(hub, conn, &ev);
     processes::push_update(conn, &ev);
     let rec = &ev.record;
@@ -990,6 +1013,7 @@ mod chats;
 pub mod conn_auth;
 mod ephemeral;
 mod fanout;
+mod forum;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
@@ -997,14 +1021,16 @@ mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
 mod models_fanout;
+mod new_worktree;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
 mod worktrees;
-pub use pending::event_value;
-use pending::{is_permission_ask, peer_permission_pending, permission_pending};
+use crate::hub::is_permission_ask;
+pub use pending::{event_value, into_event_value};
+use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;

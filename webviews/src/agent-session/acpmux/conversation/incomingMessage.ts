@@ -7,12 +7,26 @@
 // person never typed. The transcript draws a message as a card from its sender
 // (IncomingMessageCard.tsx), a notification as one quiet line, and bookkeeping not at all; a typed
 // prompt behind bookkeeping draws without it. A live prompt's text is the person's as typed.
+// A message within a family of sub-sessions (kind `subsession_message`, hub/subsessions.rs
+// `send_family_prompt`: a parent's message to its child, the child's first prompt from
+// `start_session`, and a child's report to its parent) names its sender as the receiver's chat
+// knows it, its short name, and who it is to this chat.
+// Any other session's prompt to this one (kind `session_message`, prompt_provenance.rs: `acpmux
+// send` run inside that session) names that session the same way, without a relation.
+
+/// Who a family message's sender is to this chat (acpmux `fromRole`, subsession_send.rs
+/// `family_role`): the chat that started it, one it started, one further up, or another below or
+/// beside it.
+export type IncomingRelation = "parent" | "subsession" | "ancestor" | "descendant";
+const RELATIONS: readonly string[] = ["parent", "subsession", "ancestor", "descendant"];
 
 export type IncomingMessage = {
   /// The sender's name, or its address when it gives none.
   name: string;
   /// The sending chat, when it is one here that can be opened.
   sessionId?: string;
+  /// Who the sender is to this chat, for a sub-session family's message.
+  relation?: IncomingRelation;
   /// The message's id and its thread's (the `agent_message` provenance), which a reply names
   /// (IncomingMessageCard.tsx's Reply); a Claude Code envelope has neither.
   msgId?: string;
@@ -31,12 +45,57 @@ export type IncomingPrompt =
   /// The person's prompt, without the bookkeeping before it.
   | { kind: "prompt"; text: string };
 
+/// Whom a reply to a turn of agent messages answers: the newest of them when every one is a
+/// `cmux agent message` from the same chat here (acpmux finds it in the turn, withdraw.rs
+/// `app_reply_fits`). Several senders take no Reply: which one it answers would be a guess.
+function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "msgId" | "threadId"> {
+  const sent = messages.map((m) => (m as { provenance?: Record<string, unknown> } | null)?.provenance);
+  const last = sent.at(-1);
+  const from = last?.from;
+  const all = sent.every((p) => p?.kind === "agent_message" && p.from === from);
+  if (!all || typeof from !== "string" || !from.startsWith("acp:") || from.length <= 4) return {};
+  if (typeof last?.msgId !== "string" || !last.msgId) return {};
+  const threadId = typeof last.threadId === "string" && last.threadId ? { threadId: last.threadId } : {};
+  return { sessionId: from.slice(4), msgId: last.msgId, ...threadId };
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,
   msg: { _meta?: { provenance?: unknown }; client?: unknown } | undefined,
 ): IncomingPrompt | undefined {
   const provenance = msg?._meta?.provenance as Record<string, unknown> | undefined;
+  const fromSession = provenance?.kind === "subsession_message" || provenance?.kind === "session_message";
+  if (fromSession && typeof provenance.from === "string" && provenance.from) {
+    // `from` is the sender's raw session id, always a chat here; its short name, when it is a
+    // sub-session itself, reads better than its full name (`claude-sr2/coordinator`).
+    const sessionId = provenance.from.replace(/^acp:/, "") || undefined;
+    const name = trimmed(provenance.fromShortName) ?? trimmed(provenance.fromName) ?? provenance.from;
+    const relation =
+      typeof provenance.fromRole === "string" && RELATIONS.includes(provenance.fromRole)
+        ? (provenance.fromRole as IncomingRelation)
+        : undefined;
+    return {
+      kind: "message",
+      message: { name, ...(sessionId && { sessionId }), ...(relation && { relation }), text: text.trim(), raw: text },
+    };
+  }
+  // Messages from other agents that waited for a busy chat and went in as one turn (acpmux
+  // hub/digest.rs `agent_digest`): one card from their senders, every message in it as sent.
+  if (provenance?.kind === "agent_digest" && Array.isArray(provenance.messages)) {
+    const senders = [
+      ...new Set(
+        provenance.messages
+          .map((m) => (m as { from?: unknown } | null)?.from)
+          .filter((from): from is string => typeof from === "string" && from.trim() !== "")
+          .map((from) => from.trim()),
+      ),
+    ];
+    if (senders.length > 0) {
+      const name = senders.length > 3 ? `${senders.slice(0, 3).join(", ")} +${senders.length - 3}` : senders.join(", ");
+      return { kind: "message", message: { name, ...digestReply(provenance.messages), text: text.trim(), raw: text } };
+    }
+  }
   if (provenance?.kind === "agent_message" && typeof provenance.from === "string" && provenance.from) {
     const name =
       typeof provenance.fromName === "string" && provenance.fromName.trim()
@@ -142,6 +201,11 @@ function withoutBookkeeping(text: string): string {
   for (let block = BOOKKEEPING.exec(rest); block; block = BOOKKEEPING.exec(rest))
     rest = rest.slice(block[0].length).trim();
   return rest;
+}
+
+/// A non-blank string, trimmed, else undefined.
+function trimmed(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 function attribute(attributes: string, name: string): string {

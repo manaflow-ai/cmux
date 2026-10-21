@@ -59,6 +59,25 @@ impl RpcError {
     }
 }
 
+/// The most one JSON-RPC message takes on any acpmux transport: under the 16 MiB WebSocket frame
+/// every acpmux build reads with, with room for a daemon that relays it to add its peer's name. A
+/// larger frame resets the whole connection on the side that reads it, with every chat on it: a
+/// 32.8 MB history reply did that to a peer link at 2026-10-21 06:23Z.
+pub const MAX_MESSAGE_BYTES: usize = 15 << 20;
+
+impl RpcError {
+    /// A message over [`MAX_MESSAGE_BYTES`]: it fails alone, the connection stays.
+    pub fn too_large(bytes: usize) -> Self {
+        Self::new(
+            -32000,
+            format!("message too large to send: {bytes} bytes, the limit is {MAX_MESSAGE_BYTES}"),
+        )
+        .with_data(
+            json!({"reason": "message.too_large", "bytes": bytes, "limit": MAX_MESSAGE_BYTES}),
+        )
+    }
+}
+
 impl std::fmt::Display for RpcError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "{} (code {})", self.message, self.code)
@@ -130,6 +149,22 @@ impl Message {
         let mut s = self.to_value().to_string();
         s.push('\n');
         s
+    }
+
+    /// The line to send when it fits in [`MAX_MESSAGE_BYTES`]. A reply that does not is sent as
+    /// the error reply for its id instead; a request or notification that does not is `Err`, with
+    /// its size, for its sender to fail alone.
+    pub fn bounded_line(&self) -> Result<String, usize> {
+        let line = self.to_line();
+        if line.len() <= MAX_MESSAGE_BYTES {
+            return Ok(line);
+        }
+        match self {
+            Message::Response { id, .. } => {
+                Ok(Message::err(id.clone(), RpcError::too_large(line.len())).to_line())
+            }
+            _ => Err(line.len()),
+        }
     }
 
     pub fn request(id: impl Into<Id>, method: &str, params: Value) -> Self {
@@ -212,6 +247,7 @@ pub mod method {
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
     pub const MUX_KILL: &str = "_acpmux/kill";
+    pub const MUX_WATCH_TAKE_OVER: &str = "_acpmux/watch_take_over";
     /// Stop one of a session's background subagents (a Claude background
     /// agent or workflow): `{sessionId, subagentSessionId}`.
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
@@ -280,6 +316,8 @@ pub mod method {
     /// Read or replace the unsent composer text for one session.
     pub const MUX_DRAFT_GET: &str = "_acpmux/draft_get";
     pub const MUX_DRAFT_SET: &str = "_acpmux/draft_set";
+    pub const MUX_COMPOSER_SET: &str = "_acpmux/composer_set";
+    pub const MUX_COMPOSERS: &str = "_acpmux/composers";
     pub const MUX_BOOKMARK_GET: &str = "_acpmux/bookmark_get";
     pub const MUX_BOOKMARK_SET: &str = "_acpmux/bookmark_set";
     pub const MUX_ASK: &str = "_acpmux/ask";
@@ -287,8 +325,13 @@ pub mod method {
     /// cheap model, sent the question; answers with its session id at once.
     pub const MUX_BTW: &str = "_acpmux/btw";
     pub const MUX_SCHEMA: &str = "_acpmux/schema";
+    /// The protocol IR this daemon was built with (`protocol::ir()`).
+    pub const MUX_PROTOCOL: &str = "_acpmux/protocol";
     pub const MUX_EXPORT: &str = "_acpmux/export";
     pub const MUX_IMPORT: &str = "_acpmux/import";
+    /// A file the person dropped into a chat, saved on the machine that runs it
+    /// (`hub/file_uploads.rs`).
+    pub const MUX_FILE_PUT: &str = "_acpmux/file_put";
     pub const MUX_SHUTDOWN: &str = "_acpmux/shutdown";
     /// Fork a session through its latest completed turn (`server/fork_through.rs`).
     pub const ACP_SESSION_FORK: &str = "acp.session.fork";
@@ -371,8 +414,15 @@ pub mod method {
     pub const MUX_SUBSESSION_GET: &str = "_acpmux/subsession/get";
     pub const MUX_SUBSESSION_SEND: &str = "_acpmux/subsession/send";
     pub const MUX_SUBSESSION_STOP: &str = "_acpmux/subsession/stop";
+    /// Answers a descendant's pending question (never a permission prompt).
+    pub const MUX_SUBSESSION_ANSWER: &str = "_acpmux/subsession/answer";
     /// Sets a session's limits: the person, or an ancestor session.
     pub const MUX_SUBSESSION_LIMITS: &str = "_acpmux/subsession/limits";
+    /// Forum announcements (`forum.rs`, `hub/forum.rs`, `server/forum.rs`):
+    /// post a rule by key, read the current rules, ack one.
+    pub const MUX_FORUM_ANNOUNCE: &str = "_acpmux/forum/announce";
+    pub const MUX_FORUM_RULES: &str = "_acpmux/forum/rules";
+    pub const MUX_FORUM_ACK: &str = "_acpmux/forum/ack";
     /// The background-process registry (`hub/processes.rs`): list a chat's
     /// (or every chat's) background processes, read one's output, and stop
     /// one.
@@ -402,4 +452,27 @@ pub mod method {
     /// To attached and watching clients when a background process starts or
     /// ends: `{process}` (`server/processes.rs`).
     pub const MUX_PROCESS_UPDATE: &str = "_acpmux/process_update";
+}
+
+#[cfg(test)]
+mod bounded_tests {
+    use super::*;
+
+    /// A reply too large for one frame goes as the error reply for its id; a request or a
+    /// notification that large is its sender's to fail. Neither goes out whole.
+    #[test]
+    fn a_message_too_large_for_one_frame_never_goes_out_whole() {
+        let big = json!({"text": "x".repeat(MAX_MESSAGE_BYTES)});
+        let reply = Message::ok(json!(7), big.clone()).bounded_line().unwrap();
+        assert!(reply.len() < 1024, "{} bytes", reply.len());
+        let Message::Response { id, error: Some(e), .. } = Message::parse(&reply).unwrap() else {
+            panic!("not an error reply: {reply}");
+        };
+        assert_eq!(id, json!(7));
+        assert_eq!(e.data.unwrap()["reason"], "message.too_large");
+        assert!(Message::request(8, "session/prompt", big.clone()).bounded_line().is_err());
+        assert!(Message::notification("_acpmux/event", big).bounded_line().is_err());
+        let small = Message::ok(json!(9), json!({"ok": true}));
+        assert_eq!(small.bounded_line().unwrap(), small.to_line());
+    }
 }
