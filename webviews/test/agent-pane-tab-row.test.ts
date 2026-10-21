@@ -180,7 +180,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     expect(before).toMatchObject({ tabRow: false, height: 44, inset: 8 });
     // A row of height 0 (the setting is off, or the pane's tabs are hidden) changes nothing.
     await offer(page, { height: 0, trailingInset: 40 });
-    await page.waitForTimeout(200);
+    // header() reads after two painted frames: the row, had it applied, and any report are in by then.
     expect(await header(page)).toEqual(before);
     expect(await calls(page)).toEqual([]);
     await page.close();

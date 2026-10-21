@@ -25,13 +25,19 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+A lane is different: an agent with its own worktree and brief that reports
+back to you and outlives you. Start it with the one launcher command in
+section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
+`git worktree add` + `acpmux send` script.
 Start a session only when the user asked for one. If they refuse with "this
 session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when
 the turn ends, with tools that work again; your sub-sessions keep running.
 
 To put a session's chat in front of the user without moving their focus, run
-`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`) for a
+new workspace, or `cmux agent open-tab SESSION_ID --target PANE_ID`
+(`app_agent_open_tab`) for a tab in a pane you name; a
 `start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
@@ -164,7 +170,9 @@ acpmux wait                                      # covers remote sessions too
 ```
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
-current binary. Only do either when the task asks for it.
+current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not
+come back on the new build is rolled back). Only do either when the task asks
+for it.
 
 ## 7. Output
 

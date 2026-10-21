@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt, renderedReply } from "./incomingMessage";
+import { incomingPrompt, messagePreview, renderedReply } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -163,6 +163,108 @@ test("numeric entities decode", () => {
   expect(message?.kind === "message" && message.message.text).toBe("\u00a9 \u{1F600} &#0;");
 });
 
+// As hub/subsessions.rs `send_family_prompt` records it: `from` is the sender's raw session id.
+const family = {
+  kind: "subsession_message",
+  from: "parent-1",
+  fromName: "claude-sr2/coordinator",
+  to: "child-1",
+  fromRole: "parent",
+};
+
+test("a sub-session family's message names its sender, who it is to this chat, and opens it", () => {
+  expect(incomingPrompt(" Run the tests. ", { _meta: { provenance: family }, client: "acpmux-subsession" })).toEqual({
+    kind: "message",
+    message: {
+      name: "claude-sr2/coordinator",
+      sessionId: "parent-1",
+      relation: "parent",
+      text: "Run the tests.",
+      raw: " Run the tests. ",
+    },
+  });
+  // A sub-session reporting to its parent goes by its short name.
+  const report = incomingPrompt("Done.", {
+    _meta: {
+      provenance: {
+        ...family,
+        from: "child-1",
+        fromName: "claude-sr2/coordinator/tests",
+        fromShortName: "tests",
+        to: "parent-1",
+        fromRole: "subsession",
+      },
+    },
+  });
+  expect(report).toEqual({
+    kind: "message",
+    message: { name: "tests", sessionId: "child-1", relation: "subsession", text: "Done.", raw: "Done." },
+  });
+});
+
+test("a family message without a name or a known relation still names and opens its sender", () => {
+  const bare = incomingPrompt("hi", {
+    _meta: { provenance: { kind: "subsession_message", from: "acp:child-2", fromShortName: " ", fromRole: "cousin" } },
+  });
+  expect(bare).toEqual({
+    kind: "message",
+    message: { name: "acp:child-2", sessionId: "child-2", text: "hi", raw: "hi" },
+  });
+  for (const role of ["ancestor", "descendant"] as const) {
+    const message = incomingPrompt("hi", { _meta: { provenance: { ...family, fromRole: role } } });
+    expect(message?.kind === "message" && message.message.relation).toBe(role);
+  }
+  // Without a sender it is the person's prompt.
+  expect(incomingPrompt("hi", { _meta: { provenance: { ...family, from: "" } } })).toBeUndefined();
+});
+
+test("another session's prompt to this one is that session's message, and opens it", () => {
+  const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
+  expect(incomingPrompt("PR #22761 merged.", { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "app-store-features", sessionId: "lane-7", text: "PR #22761 merged.", raw: "PR #22761 merged." },
+  });
+  // The same client with no provenance and no name first is the person (the acpmux TUI, or
+  // `acpmux send` at a shell).
+  expect(incomingPrompt("PR #22761 merged.", { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+});
+
+test("`acpmux send` from a shell is the message of the agent named first in brackets", () => {
+  const sent = "[coord-deputy] Merged #1";
+  for (const client of ["acpmux-cli#a1b2c3", "acpmux-peer#huge-blue"]) {
+    expect(incomingPrompt(sent, { client })).toEqual({
+      kind: "message",
+      message: { name: "coord-deputy", text: "Merged #1", raw: sent },
+    });
+  }
+  // The body may start on the next line and run over several.
+  const long = "[claude-sr2/coordinator]\nTwo merged:\n- #1\n- #2\n";
+  expect(incomingPrompt(long, { client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "claude-sr2/coordinator", text: "Two merged:\n- #1\n- #2", raw: long },
+  });
+  // Another client's bracketed prompt is the person's.
+  expect(incomingPrompt(sent, undefined)).toBeUndefined();
+  expect(incomingPrompt(sent, { client: "web" })).toBeUndefined();
+  expect(incomingPrompt(sent, adopted)).toBeUndefined();
+  // Brackets that are no sender: Claude Code's interruption note, a sentence, cmux's own header,
+  // a name with nothing after it.
+  for (const text of [
+    "[Request interrupted by user for tool use]",
+    "[Request interrupted by user] carry on",
+    "[see the failing test in the log] then fix it",
+    "[cmux agent message] from lane-a\nhi",
+    "[coord-deputy]",
+  ])
+    expect(incomingPrompt(text, { client: "acpmux-cli#a1b2c3" })).toBeUndefined();
+  // Provenance, when the record has it, names the sender instead.
+  const provenance = { kind: "session_message", from: "lane-7", fromName: "app-store-features", to: "coordinator-1" };
+  expect(incomingPrompt(sent, { _meta: { provenance }, client: "acpmux-cli#a1b2c3" })).toEqual({
+    kind: "message",
+    message: { name: "app-store-features", sessionId: "lane-7", text: sent, raw: sent },
+  });
+});
+
 // Agent messages that waited for a busy chat go in as one turn (acpmux hub/digest.rs): the card
 // names every sender once, and the text is the prompt as the agent got it.
 test("an agent_digest is one card from its senders", () => {
@@ -242,4 +344,12 @@ test("a reply in place reaches the sender's chat as the replying chat's message,
   expect(renderedReply({ from: "acp:parent", msgId: "m-2", replyTo: "m-1", text: "hi" }).split("\n")[0]).toBe(
     "[cmux agent message] from acp:parent",
   );
+});
+
+test("a message's closed line previews its first line of text, its spaces collapsed", () => {
+  expect(messagePreview("\n\n  More ready   risk:high heads\n- #23599 at f6f9432c")).toBe("More ready risk:high heads");
+  expect(messagePreview("")).toBe("");
+  expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
+  expect(messagePreview("- [x] landed")).toBe("landed");
+  expect(messagePreview("x".repeat(400))).toHaveLength(240);
 });
