@@ -85,6 +85,18 @@ import Testing
         #expect(Self.keys(Self.options(), sections) == Self.members(0..<10) + [.showMore(Self.looseList)])
     }
 
+    /// A section's limit counts its loose workspaces only: its groups always show, with what they hold.
+    @Test func groupsPastASectionsLimitStayShown() {
+        let loose: [SidebarNode] = (0..<12).map { .workspace(Self.ws("m\($0)")) }
+        let a = SidebarGroup(id: GroupID("a"), name: "A", color: .green, workspaces: [Self.ws("a1")])
+        let b = SidebarGroup(id: GroupID("b"), name: "B", color: .green, workspaces: [Self.ws("b1")])
+        let sections = [SidebarSection(kind: .machine(Self.machine), nodes: loose + [.group(a), .group(b)])]
+        #expect(Self.keys(Self.options(active: "b1"), sections) == Self.members(0..<10) + [
+            .group(GroupID("a")), .workspace(WorkspaceID("a1")), .group(GroupID("b")), .workspace(WorkspaceID("b1")),
+            .showMore(Self.looseList),
+        ])
+    }
+
     @Test func aLongGroupIsNotSpliced() {
         let o = Self.options()
         let shown = SidebarLayout.make(sections: Self.sections(), metrics: .standard, options: o)
