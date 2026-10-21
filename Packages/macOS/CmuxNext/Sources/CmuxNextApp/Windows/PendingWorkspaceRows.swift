@@ -66,15 +66,10 @@ final class PendingWorkspaceRows {
         redraws.run()
     }
 
-    /// `listed` without the workspaces Cmd-N shows before the daemon has them, and without the ones the sidebar
-    /// document does not place yet (it lists those last, after every group, until its adopt lands): their pending rows
-    /// list instead, at their slot, until the daemon's workspace takes the model over (read in the sidebar's tracked
-    /// pass, so that re-runs it).
+    /// `listed` without the workspaces Cmd-N shows before the daemon has them: their pending rows list instead, at their
+    /// slot, until the daemon's workspace takes the model over (read in the sidebar's tracked pass, so that re-runs it).
     func listing(_ listed: [SidebarRowSection], in window: String, machines: MachineRegistry) -> [SidebarRowSection] {
-        let document = SidebarDocWiring.isActive ? SidebarDocWiring.docMachines(machines) : nil
-        return Self.removing(ids(in: window) { id in
-            machines.workspace(id: id)?.0.isProvisional == true || document.map { $0.item(workspace: id) == nil } == true
-        }, from: listed)
+        Self.removing(ids(in: window) { machines.workspace(id: $0)?.0.isProvisional == true }, from: listed)
     }
 
     /// The pending rows of `window` whose workspace the store shows only as a stand-in
