@@ -257,9 +257,26 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>top</string>
+			<key>pfm_description</key>
+			<string>Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward.</string>
+			<key>pfm_name</key>
+			<string>browser.toolbarPosition</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>top</string>
+				<string>bottom</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Browser Toolbar Position</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>aboveToolbar</string>
 			<key>pfm_description</key>
-			<string>In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it.</string>
+			<string>In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it.</string>
 			<key>pfm_name</key>
 			<string>tabs.barOrder</string>
 			<key>pfm_range_list</key>
@@ -862,6 +879,60 @@
 			<string>Deepest Nesting</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.autoTrust</string>
+			<key>pfm_title</key>
+			<string>Trust My Own Folders Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Everything inside these folders is trusted. Use full paths or ~/ paths.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.projectRoots</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Trusted Project Roots</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>A repository is trusted when all of its GitHub remotes belong to these users or organizations.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.ownOrgs</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Trusted GitHub Owners</string>
+			<key>pfm_type</key>
+			<string>array</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
@@ -2167,7 +2238,7 @@
 			<key>pfm_default</key>
 			<string>fade</string>
 			<key>pfm_description</key>
-			<string>How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill.</string>
+			<string>How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill.</string>
 			<key>pfm_name</key>
 			<string>focus.inactiveTabStyle</string>
 			<key>pfm_range_list</key>
@@ -4105,6 +4176,18 @@
 			<string>sidebar.showChats</string>
 			<key>pfm_title</key>
 			<string>Show All Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sessionTree</string>
+			<key>pfm_title</key>
+			<string>Session Tree</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -6363,7 +6446,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>focus</string>
+			<string>click</string>
 			<key>pfm_name</key>
 			<string>notifications.dismissal</string>
 			<key>pfm_range_list</key>
@@ -6617,7 +6700,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>blink</string>
+			<string>steady</string>
 			<key>pfm_name</key>
 			<string>notifications.attention.style</string>
 			<key>pfm_range_list</key>
@@ -6714,7 +6797,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<true/>
+			<false/>
 			<key>pfm_description</key>
 			<string>A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.</string>
 			<key>pfm_name</key>

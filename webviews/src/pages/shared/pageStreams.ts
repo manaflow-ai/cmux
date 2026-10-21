@@ -36,6 +36,9 @@ export type PageCommandName =
   // The markdown page's table column widths (pages/markdown/tables.ts).
   | "resetTableWidths"
   | "resetContextTableWidths"
+  // The markdown page's Reload (Cmd-R, the omnibar) and a path typed in its omnibar (`text`).
+  | "reload"
+  | "open"
   // The markdown page's viewer comments changed: `text` is the new list (pages/markdown/comments.ts).
   | "comments";
 

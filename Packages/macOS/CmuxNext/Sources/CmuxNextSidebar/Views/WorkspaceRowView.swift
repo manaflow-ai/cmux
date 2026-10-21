@@ -3,6 +3,7 @@ import Observation
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
@@ -13,6 +14,10 @@ final class WorkspaceRowView: SidebarRowView {
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    /// How long the agent has worked ("4m"), beside the working dot when the name has room (WorkspaceRowView+Elapsed).
+    let elapsedLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    var workingSince: Date?
+    let elapsedTicker = DemandTimer(owner: "sidebar.row.elapsed")
     let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
@@ -40,8 +45,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
-    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
-                                       label: Strings.workspaceMenu)
+    let moreButton = OverflowButton(label: Strings.workspaceMenu)
     /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
@@ -124,7 +128,7 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.setAccessibilityElement(false)
         machineMark.imageScaling = .scaleProportionallyDown
         machineMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, machineMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
          treeLine, pullRequests, keycap].forEach(addSubview)
         setUpSessionTree()
         disclosureButton.isHidden = true
@@ -183,6 +187,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTabs = nil
         onToggleAudio = nil
         title.stopMarquee()
+        stopElapsed()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -257,8 +262,12 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(row.detail ?? "")
         hasSubtitle = row.detail != nil
-        (isExpanded, timeText) = (shown.expanded, shown.trailingText)
-        timeLabel.setString(shown.trailingText ?? "")
+        // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
+        let trailingText = shown.workingSince != nil ? shown.trailingStatus : shown.trailingText
+        (isExpanded, timeText) = (shown.expanded, trailingText)
+        timeLabel.setString(trailingText ?? "")
+        if workingSince != shown.workingSince { elapsedTicker.cancel() }
+        workingSince = shown.workingSince
         metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
@@ -302,7 +311,7 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
-        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] {
+        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown))

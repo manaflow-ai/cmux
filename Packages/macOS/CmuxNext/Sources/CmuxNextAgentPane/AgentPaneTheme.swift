@@ -72,6 +72,8 @@ enum AgentPaneTheme {
             // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
             // loops and draws a shape per state (`data-status-indicators`).
             "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
+            // How agent work shows on the transcript's running rows (`data-working-look`).
+            "workingLook": StatusWorkingLook.tunable.value.rawValue,
         ]
     }
 

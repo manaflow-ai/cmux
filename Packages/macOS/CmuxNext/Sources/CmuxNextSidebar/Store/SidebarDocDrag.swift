@@ -76,7 +76,12 @@ public struct SidebarDocDrag {
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
-            case .tab, .folder:
+            case .tab(let owner, _):
+                // A workspace's tab rows are part of its row: the drag's midpoint rule takes the middle of both.
+                if let last = slots.last, last.kind == .row, item(.workspace(owner)) == last.item {
+                    slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
+                }
+            case .folder:
                 continue
             }
         }

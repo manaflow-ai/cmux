@@ -45,7 +45,7 @@ declare namespace Cmux {
   type ChiefList = { chiefs: Array<Cmux.ChiefRecord> }
   type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; locked: boolean; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
-  type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string }
+  type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
   type ClientToken = string
@@ -654,7 +654,7 @@ interface CmuxGlobal {
       update: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
     }
     /** `chief.stop` (mutation, scope `chief:write`) */
-    stop: CmuxOp<{ machine?: string; session?: string; chief?: string; name?: string }, Cmux.MutationResult<Cmux.ChiefStopResult>>
+    stop: CmuxOp<{ machine?: string; session?: string; chief?: string; name?: string; all?: boolean; restart?: Array<string> }, Cmux.MutationResult<Cmux.ChiefStopResult>>
     /** `chief.update` (mutation, scope `chief:write`): Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false). */
     update: CmuxOp<{ chief: Cmux.ChiefId; expected_rev: unknown; display_name?: string; is_default?: true; harness?: string | null; archived?: false; brain_place?: Cmux.ChiefBrainPlace | null; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
