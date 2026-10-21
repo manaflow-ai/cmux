@@ -1,7 +1,9 @@
 //! `acpmux host setup` and `host update`: install or refresh the daemon on
 //! a machine reached over ssh, then register it as a peer. macOS remotes
 //! get a launchd agent, Linux remotes the user systemd unit `acpmux.service`,
-//! and a host without a user systemd manager a detached start.
+//! and a host without a user systemd manager a detached start. The update's
+//! checks and rollback are in `host_update.rs`; the scripts both run, and the
+//! move of a daemon from a hand-written unit to `acpmux.service`, are here.
 
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -11,6 +13,10 @@ use std::io::Write;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
+
+#[path = "host_update.rs"]
+mod host_update;
+pub(crate) use host_update::{UpdateOptions, update};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
@@ -147,10 +153,6 @@ pub(crate) fn run(r: &dyn Remote, script: &str) -> Result<String> {
     Ok(out.stdout.trim().to_owned())
 }
 
-fn ssh(host: &str, script: &str) -> Result<String> {
-    run(&SshRemote(host), script)
-}
-
 /// The remote command that prints `bin`'s version line: a binary named
 /// `acpmux` is acpmux; any other (the app's `cmux-tui`) carries it as `acp`.
 pub(crate) fn version_cmd(bin: &str) -> String {
@@ -176,6 +178,32 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
     r.push(&exe, &format!("{bin}.new"))?;
     run(r, &format!("rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}", version_cmd(bin)))
 }
+
+/// `host update`'s push: copy `local` to the remote [`DAEMON_BIN`] (by a
+/// rename, never in place: macOS kills a running binary that is
+/// overwritten); answers the new binary's `--version`. The copy runs as
+/// acpmux by its argv0 (cmux-tui's too), so it waits as `.acpmux-new/acpmux`,
+/// the same name, while it is checked ([`INSTALL_PUSHED`]).
+fn push_update(r: &dyn Remote, local: &Path) -> Result<String> {
+    run(
+        r,
+        "mkdir -p ~/.local/bin ~/.acpmux && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new",
+    )?;
+    r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
+    run(r, INSTALL_PUSHED)
+}
+
+/// Install the pushed `.acpmux-new/acpmux` once its `--version` runs (else
+/// delete it and leave the installed binary alone), keeping the binary it
+/// replaces as `acpmux.prev` (a hard link, else a copy; none when nothing
+/// was installed, so a rollback never brings back an older one) for a
+/// rollback. The rename swaps the two in one step; prints the new binary's
+/// version. Once it is in place nothing fails the install: a staging folder
+/// that will not go is left for the next push to clear.
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ -e acpmux ]; then ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; else rm -f acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+
+/// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
+const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
 
 const PLIST: &str = r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -272,17 +300,133 @@ WantedBy=default.target
 /// no readiness callback there, so the caller reads the status after a grace.
 const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 
-/// Refuses (exit 3, the unit named on stderr) when the running daemon (its
-/// pid from `daemon status`) runs under an acpmux systemd unit other than
-/// `acpmux.service`, such as a hand-written `acpmux-agent-<host>.service`: a
-/// shutdown would end its agents with that unit's cgroup, and the two units
-/// would then take turns on the lock. A daemon some other service started
-/// (`ssh.service`, a CI runner, `tmux.service`) is not refused: it is shut
-/// down keeping its agents like a detached one.
-const FOREIGN_UNIT_CHECK: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
+/// Sets `$p` to the running daemon's pid (from `daemon status`) and `$u` to
+/// the acpmux systemd unit it runs under, if any. A daemon some other service
+/// started (`ssh.service`, a CI runner, `tmux.service`) has no `$u`: it is
+/// shut down keeping its agents like a detached one.
+const DAEMON_UNIT: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
 if [ -n "$p" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
-if [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
 "#;
+
+/// Setup refuses (exit 3, the unit named on stderr) a daemon under an acpmux
+/// unit other than `acpmux.service`, such as a hand-written
+/// `acpmux-agent-<host>.service`: a shutdown would end its agents with that
+/// unit's cgroup, and the two units would then take turns on the lock. An
+/// update moves it instead ([`migrate`]).
+const FOREIGN_UNIT_REFUSAL: &str = r#"if [ -n "$u" ] && [ "$u" != acpmux.service ]; then echo "the daemon of ~/.acpmux runs under the systemd unit $u: stop and disable it (systemctl --user disable --now $u), then run this again" >&2; exit 3; fi
+"#;
+
+/// What a script prints before it refuses (exit 3) to move a hand-written
+/// unit, followed by the reason's code; the message goes to stderr.
+const REFUSED: &str = "ACPMUX_REFUSED=";
+
+/// What the migration prints, followed by the old unit, before its first
+/// change: from then on a failed update moves the daemon back to that unit.
+const MIGRATING: &str = "ACPMUX_MIGRATING=";
+
+/// The plan for moving the daemon from the hand-written unit `$u` to
+/// `acpmux.service`, checked before anything changes, into the temporary
+/// folder `$t`: `$t/d` gets the drop-ins `acpmux.service` needs to be the same
+/// daemon. `ACPMUX_HOME` and `ACPMUX_SOCKET` (read from the daemon's own
+/// environment, so systemd's `%h` is already expanded) are carried in
+/// `10-migrated.conf` unless they resolve to the defaults; the unit's own
+/// drop-ins (`~/.config/systemd/user/<unit>.d/*.conf`, such as a memory
+/// limit) are copied. `daemon run` takes its listen address from `--listen`
+/// alone, so a `--listen` the home's config.json does not also name is
+/// refused rather than moved; `--log` is dropped, and any other argument is
+/// refused.
+const MIGRATE_PLAN: &str = r#"d=~/.config/systemd/user; n=$d/acpmux.service.d; t=
+refuse() { [ -z "$t" ] || rm -rf "$t"; echo "ACPMUX_REFUSED=$1"; echo "$2" >&2; exit 3; }
+[ -f "$d/$u" ] || refuse unitElsewhere "the daemon of ~/.acpmux runs under $u, whose unit file is not in $d: move it to acpmux.service by hand"
+t=$(mktemp -d) && mkdir "$t/d" || exit 1
+envof() { tr '\000' '\n' < "/proc/$p/environ" 2>/dev/null | sed -n "s/^$1=//p" | head -1; }
+carry() { case "$2" in *[!A-Za-z0-9/._+@:-]*) refuse unitSettings "$u sets $1 to a value acpmux does not copy into a unit: move it to acpmux.service by hand";; esac; printf 'Environment=%s=%s\n' "$1" "$2" >> "$t/env"; }
+h=$(envof ACPMUX_HOME); s=$(envof ACPMUX_SOCKET)
+if [ -n "$h" ] && [ "$(readlink -f "$h")" != "$(readlink -f ~/.acpmux)" ]; then carry ACPMUX_HOME "$h"; fi
+if [ -n "$s" ] && [ "$(readlink -f "$s")" != "$(readlink -f "${h:-$HOME/.acpmux}/acpmux.sock")" ]; then carry ACPMUX_SOCKET "$s"; fi
+if [ -f "$t/env" ]; then { echo '[Service]'; cat "$t/env"; } > "$t/d/10-migrated.conf"; fi
+if [ -d "$d/$u.d" ]; then find "$d/$u.d" -maxdepth 1 -type f -name '*.conf' -exec cp {} "$t/d/" \; ; fi
+l=; k=
+while read -r x; do
+case "$k" in --listen) l=$x; k=; continue;; --log) k=; continue;; esac
+case "$x" in --listen|--log) k=$x;; --listen=*) l=${x#--listen=};; --log=*|'') ;; *) refuse unitArgs "$u runs the daemon with $x, which acpmux.service does not pass: move it by hand";; esac
+done <<ACPMUX_ARGS
+$(tr '\000' '\n' < "/proc/$p/cmdline" 2>/dev/null | sed '1,/^run$/d')
+ACPMUX_ARGS
+if [ -n "$l" ] && ! grep -q "\"listen\": *\"$l\"" "${h:-$HOME/.acpmux}/config.json" 2>/dev/null; then refuse listenConflict "$u runs the daemon with --listen $l, which is not the websocket.listen of its config.json, and acpmux.service reads the address only from there: set it to $l, then run this again"; fi
+"#;
+
+/// Refuses the move when `acpmux.service` or one of its drop-ins already
+/// exists with other text than the plan's (`$t/acpmux.service`, `$t/d`):
+/// someone wrote that unit, and it is theirs. One with the same text is
+/// adopted as it is.
+const MIGRATE_CONFLICTS: &str = r#"if [ -e "$d/acpmux.service" ] && ! cmp -s "$t/acpmux.service" "$d/acpmux.service"; then refuse unitConflict "$d/acpmux.service differs from the unit acpmux writes, so the daemon is not moved from $u to it: remove or fix it, then run this again"; fi
+while read -r f; do [ -z "$f" ] || cmp -s "$f" "$t/d/${f##*/}" || refuse unitConflict "$f differs from what moving the daemon from $u to acpmux.service writes: remove or fix it, then run this again"; done <<ACPMUX_DROP_INS
+$(find "$n" -maxdepth 1 -type f -name '*.conf' 2>/dev/null)
+ACPMUX_DROP_INS
+"#;
+
+/// Writes the plan (files that exist already are kept: they matched), then
+/// stops the old unit with the runtime drop-in `zzz-acpmux-migrate.conf` in
+/// place: `KillMode=process` sends SIGTERM to the daemon alone, which leaves
+/// its agents running for the next one to adopt (the unit's default
+/// `control-group` would end every agent host in its cgroup), and the name
+/// sorts after the unit's own drop-ins, so it wins.
+const MIGRATE_STOP: &str = r#"echo "ACPMUX_MIGRATING=$u"
+r="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/user/$u.d"
+mkdir -p "$n" "$r" && printf '[Service]\nKillMode=process\nRestart=no\n' > "$r/zzz-acpmux-migrate.conf" || exit 1
+[ -e "$d/acpmux.service" ] || cp "$t/acpmux.service" "$d/acpmux.service" || exit 1
+find "$t/d" -type f -name '*.conf' -exec cp -n {} "$n/" \;
+rm -rf "$t"
+systemctl --user daemon-reload && systemctl --user disable --now "$u" || exit 1
+"#;
+
+/// Renames the old unit's file, so nothing (a timer that restarts it by
+/// name) starts it again, and starts `acpmux.service` (exit 5 when it does
+/// not start; the caller moves the daemon back).
+const MIGRATE_START: &str = r#"mv "$d/$u" "$d/$u.migrated" && systemctl --user daemon-reload || exit 1
+systemctl --user reset-failed acpmux.service >/dev/null 2>&1
+systemctl --user enable --now acpmux.service || { echo "acpmux.service did not start after $u stopped" >&2; exit 5; }
+"#;
+
+/// Moves the daemon back to the unit `$u` it was moved from: stops
+/// `acpmux.service` (`KillMode=process`, agents kept), restores the old unit's
+/// file, drops the runtime drop-in and starts the old unit, which runs its
+/// own binary. Never starts `acpmux.service` again.
+const MIGRATE_BACK: &str = r#"d=~/.config/systemd/user; r="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}/systemd/user/$u.d"
+systemctl --user disable --now acpmux.service >/dev/null 2>&1
+if [ -f "$d/$u.migrated" ] && [ ! -e "$d/$u" ]; then mv "$d/$u.migrated" "$d/$u"; fi
+rm -f "$r/zzz-acpmux-migrate.conf"
+systemctl --user daemon-reload && systemctl --user enable --now "$u"
+"#;
+
+/// Moves a daemon that runs under a hand-written acpmux unit (`$u` from
+/// [`DAEMON_UNIT`]) to `acpmux.service`, keeping its agents; nothing for any
+/// other daemon. `dry` (the probe before an update) only checks the plan.
+/// It refuses (exit 3, [`REFUSED`]) before changing anything; once it
+/// changed something it prints [`MIGRATING`] and ends the script, with
+/// [`SYSTEMD_STARTED`] when `acpmux.service` started. A second run finds the
+/// daemon under `acpmux.service` and does nothing.
+fn migrate(dry: bool) -> String {
+    let apply = if dry {
+        "rm -rf \"$t\"; exit 0\n".to_owned()
+    } else {
+        format!(
+            "{SYSTEMD_LINGERING} || refuse noLinger \"this user's systemd manager does not linger, so acpmux.service would stop at logout: run loginctl enable-linger, then run this again\"\n{MIGRATE_STOP}{STILL_RUNNING_CHECK}\n{MIGRATE_START}echo {SYSTEMD_STARTED}; exit 0\n"
+        )
+    };
+    format!(
+        "if [ -n \"$u\" ] && [ \"$u\" != acpmux.service ]; then\n{MIGRATE_PLAN}cat > \"$t/acpmux.service\" <<'ACPMUX_UNIT'\n{SYSTEMD_UNIT}ACPMUX_UNIT\n{MIGRATE_CONFLICTS}{apply}fi\n"
+    )
+}
+
+/// Moves the daemon back to the hand-written `unit` and puts the previous
+/// binary back; None for a unit name that is not plain.
+fn migrate_back(unit: &str) -> Option<String> {
+    let plain = unit.ends_with(".service")
+        && unit.bytes().all(|b| b.is_ascii_alphanumeric() || b"@._-".contains(&b));
+    plain.then(|| format!("u={unit}\n{RESTORE_PREV}\n{MIGRATE_BACK}"))
+}
 
 /// Whether a user systemd manager answers in this ssh session.
 const SYSTEMD_MANAGER: &str = "systemctl --user show-environment >/dev/null 2>&1";
@@ -305,7 +449,8 @@ const STILL_RUNNING_CHECK: &str = r#"if ~/.local/bin/acpmux --json daemon status
 /// shut down keeping its agents ([`STILL_RUNNING_CHECK`] when it stays up)
 /// and the unit starts, so one daemon serves the home; a unit that fails to
 /// start falls back to the detached start. A daemon under another acpmux unit
-/// is refused first ([`FOREIGN_UNIT_CHECK`]).
+/// is refused first at setup ([`FOREIGN_UNIT_REFUSAL`]) and moved to
+/// `acpmux.service` by an update ([`migrate`]).
 fn linux_restart(install: bool, json: bool) -> String {
     let unit = if install {
         format!(
@@ -323,8 +468,9 @@ fn linux_restart(install: bool, json: bool) -> String {
         format!("{SYSTEMD_MANAGER} && {has_unit} && {SYSTEMD_LINGERING}")
     };
     let detached = restart_detached(json);
+    let foreign = if install { FOREIGN_UNIT_REFUSAL.to_owned() } else { migrate(false) };
     format!(
-        "{FOREIGN_UNIT_CHECK}if {usable}; then
+        "{DAEMON_UNIT}{foreign}if {usable}; then
 if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
 if systemctl --user enable --now acpmux.service; then echo {SYSTEMD_STARTED}; else {detached}; fi; fi
@@ -339,22 +485,6 @@ fn linux_status(r: &dyn Remote, out: String, json: bool) -> Result<String> {
         return launchd_status(r, json);
     }
     Ok(out)
-}
-
-/// (Re)start the remote daemon: launchd on macOS, the user systemd unit or a
-/// detached start elsewhere.
-fn restart_daemon(host: &str) -> Result<String> {
-    let os = ssh(host, "uname -s")?;
-    if os != "Darwin" {
-        let out = ssh(host, &linux_restart(false, true))?;
-        return linux_status(&SshRemote(host), out, true);
-    }
-    ssh(
-        host,
-        "launchctl kickstart -k gui/$(id -u)/com.acpmux.daemon 2>/dev/null || (launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.acpmux.daemon.plist && echo bootstrapped)",
-    )?;
-    std::thread::sleep(LAUNCHD_START_GRACE);
-    launchd_status(&SshRemote(host), true)
 }
 
 /// Connect a peer now and answer once that attempt settled: add (or
@@ -504,77 +634,6 @@ pub(crate) fn install_daemon(r: &dyn Remote, port: u16, json: bool) -> Result<St
     )?;
     std::thread::sleep(LAUNCHD_START_GRACE);
     launchd_status(r, json)
-}
-
-/// Update one ssh peer, or every one, to this binary and restart it.
-pub(crate) async fn update(
-    client: Arc<Client>,
-    name: Option<String>,
-    all: bool,
-    json_out: bool,
-) -> Result<()> {
-    let peers = client.request("_acpmux/peers", json!({})).await?;
-    let list: Vec<Value> =
-        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
-    let targets: Vec<(String, String)> = list
-        .iter()
-        .filter_map(|p| {
-            let n = p.get("name").and_then(Value::as_str)?;
-            let host = ssh_host(p.get("url").and_then(Value::as_str)?)?;
-            Some((n.to_owned(), host))
-        })
-        .filter(|(n, _)| all || name.as_deref() == Some(n.as_str()))
-        .collect();
-    if targets.is_empty() {
-        return Err(anyhow!("no ssh peer to update (name one, or --all)"));
-    }
-    let mut rows = Vec::new();
-    for (n, host) in targets {
-        let outcome = push_binary(&SshRemote(&host), DAEMON_BIN)
-            .and_then(|v| restart_daemon(&host).map(|s| (v, s)));
-        match outcome {
-            Ok((version, status)) => {
-                if !json_out {
-                    println!("{n} ({host}): {version}");
-                }
-                rows.push(json!({"peer": n, "host": host, "version": version, "status": status, "ok": true}));
-            }
-            Err(e) => {
-                if !json_out {
-                    eprintln!("{n} ({host}): {e}");
-                }
-                rows.push(json!({"peer": n, "host": host, "error": e.to_string(), "ok": false}));
-            }
-        }
-    }
-    let mut peers = json!({});
-    for row in rows.iter().filter(|r| r.get("ok") == Some(&json!(true))) {
-        let name = row.get("peer").and_then(Value::as_str).unwrap_or_default();
-        peers = connect_peer(&client, name, None).await?;
-    }
-    if peers.get("peers").is_none() {
-        peers = client.request("_acpmux/peers", json!({})).await?;
-    }
-    if json_out {
-        print_json(&json!({"updated": rows, "peers": peers.get("peers")}));
-    } else {
-        for p in peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
-            println!(
-                "{:<16} {:<10} {}",
-                p.get("name").and_then(Value::as_str).unwrap_or(""),
-                if p.get("connected").and_then(Value::as_bool).unwrap_or(false) {
-                    "connected"
-                } else {
-                    "offline"
-                },
-                p.get("remoteBuild").and_then(Value::as_str).unwrap_or("?")
-            );
-        }
-    }
-    if rows.iter().any(|r| r.get("ok") == Some(&json!(false))) {
-        std::process::exit(1);
-    }
-    Ok(())
 }
 
 /// The ssh host of an `ssh://host[:port]` peer url. As in `Peer::ssh_parts`,
