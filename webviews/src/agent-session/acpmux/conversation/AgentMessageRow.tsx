@@ -10,10 +10,17 @@ import { useId, type ReactNode } from "react";
 import { ChevronRight } from "./icons";
 import "./AgentMessageRow.css";
 
-/// A message's first line of text, its spaces collapsed: the closed line's preview.
+/// The message's first line of text as it reads, its spaces collapsed and its Markdown marks (a
+/// heading's or quote's or list item's lead, emphasis, code ticks) dropped: the closed line's
+/// preview. The same reading as incomingMessage.ts gives a received message (#23727).
 export function messagePreview(text: string): string {
   const line = text.split("\n").find((part) => part.trim()) ?? "";
-  return line.replace(/\s+/g, " ").trim().slice(0, 240);
+  return line
+    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "")
+    .replace(/(\*\*|__|`)/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
 }
 
 export function AgentMessageRow({
@@ -28,7 +35,7 @@ export function AgentMessageRow({
   open,
   onToggle,
   meta,
-  trailing,
+  actions,
   failed = false,
   live = false,
   body,
@@ -37,7 +44,8 @@ export function AgentMessageRow({
   attributes,
 }: {
   direction: "sent" | "received";
-  /// The row's glyph, in the tool rows' icon column.
+  /// The row's glyph, in the tool rows' icon column: the envelope for a send, the sender
+  /// harness's mark (or a bot) for a received message.
   icon: ReactNode;
   /// The line's words around the name, the name's place marked with U+0000 ("Sent to \0").
   sentence: string;
@@ -55,8 +63,8 @@ export function AgentMessageRow({
   onToggle(): void;
   /// At the line's right edge (a finished send's check), as a tool row's meta.
   meta?: ReactNode;
-  /// After the meta, outside the toggle (Reply, the message's hover row).
-  trailing?: ReactNode;
+  /// The line's end, after the meta and outside the toggle: Reply, the message's hover row.
+  actions?: ReactNode;
   failed?: boolean;
   /// A send still going out: the row reads as a running tool row.
   live?: boolean;
@@ -111,7 +119,7 @@ export function AgentMessageRow({
           <ChevronRight size={14} strokeWidth={1.2} className={`cv-tool__chevron cv-rotor${open ? " is-open" : ""}`} />
         </button>
         {meta}
-        {trailing}
+        {actions}
       </div>
       {open && (
         <div id={bodyId} className="cv-agentmsg__card selectable">

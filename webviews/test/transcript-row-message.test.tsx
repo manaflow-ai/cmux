@@ -125,3 +125,48 @@ test("an opened delivered message shows what else the send printed, without the 
   expect(host.querySelector(".cv-tool-output")?.textContent).toBe("queued behind 2 messages");
   expect(host.textContent).not.toContain("9defc4d0ed87");
 });
+
+test("the shared row draws a received message too: the caller's icon, a chip that opens the chat, end actions", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { AgentMessageRow, messagePreview } = await import("../src/agent-session/acpmux/conversation/AgentMessageRow");
+  act(() => root?.unmount());
+  root = createRoot(host);
+  const opened: string[] = [];
+  let open = false;
+  const draw = () =>
+    root!.render(
+      <AgentMessageRow
+        direction="received"
+        icon={<svg data-testid="harness-mark" />}
+        sentence={"Received message from \u0000"}
+        name="grid-fix"
+        onOpenName={() => opened.push("grid-fix")}
+        openNameLabel="Open grid-fix"
+        preview={messagePreview("**Done**: the grid fix is on `cmux/grid-fix`.\nTests pass.")}
+        label="Message from grid-fix to This agent"
+        open={open}
+        onToggle={() => {
+          open = !open;
+          draw();
+        }}
+        actions={
+          <button type="button" className="reply">
+            Reply
+          </button>
+        }
+        body="the whole message"
+      />,
+    );
+  await act(async () => draw());
+  const row = host.querySelector(".cv-agentmsg")!;
+  expect(row.getAttribute("data-direction")).toBe("received");
+  expect(row.querySelector(".cv-agentmsg__icon [data-testid=harness-mark]")).not.toBeNull();
+  expect(row.querySelector(".cv-agentmsg__line > .reply")?.textContent).toBe("Reply");
+  // First line only, its Markdown marks dropped.
+  expect(row.querySelector(".cv-agentmsg__preview")?.textContent).toBe("Done: the grid fix is on cmux/grid-fix.");
+  await act(async () => host.querySelector<HTMLButtonElement>("button.cv-agentmsg__name")!.click());
+  expect(opened).toEqual(["grid-fix"]);
+  expect(host.querySelector(".cv-agentmsg__card")).toBeNull();
+  await act(async () => toggle().click());
+  expect(host.querySelector(".cv-agentmsg__card")?.textContent).toBe("the whole message");
+});
