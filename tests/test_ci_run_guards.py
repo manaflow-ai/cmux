@@ -90,10 +90,9 @@ class PlanFollowsTheWorkflow(unittest.TestCase):
         for unit in self.units:
             for step in unit.steps:
                 self.assertNotIn("${{ matrix.group }}", step.run, step.name)
-        ios = next(u for u in self.units if u.group == "release-ios")
-        env = next(s.env for s in ios.steps if "BASE_SHA" in s.env)
-        self.assertEqual(env["BASE_SHA"], "base")
         preflight = next(u for u in self.units if u.group == "preflight")
+        conventions = next(s for s in preflight.steps if s.name == "Validate iOS package conventions for this change")
+        self.assertEqual(conventions.env["BASE_SHA"], "base")
         registry = next(
             s for s in preflight.steps if s.name == "Validate Python test execution registry"
         )
@@ -249,6 +248,42 @@ class FastWorkflowReportsOnMainPush(unittest.TestCase):
         self.assertEqual(job["name"], "CI fast guards")
         runs = [s.get("run", "") for s in job["steps"]]
         self.assertTrue(any(r.startswith("scripts/ci/guards-local.sh") for r in runs))
+
+
+class FeatRoutesSelectTheGroups(unittest.TestCase):
+    """`--feat-routes FILE` runs the `ci` group plus the groups the changed files in FILE route to
+    for a feat-cmux-next pull request (detect_linux_guard_changes.classify_feat)."""
+
+    def listed(self, changed: list[str] | None) -> str:
+        import contextlib  # noqa: PLC0415
+        import io  # noqa: PLC0415
+
+        with tempfile.TemporaryDirectory(prefix="guard-routes-") as temp:
+            path = Path(temp) / "changed.txt"
+            if changed is not None:
+                path.write_text("\n".join(changed) + "\n", encoding="utf-8")
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                code = run_ci_guards.main(["--list", "--feat-routes", str(path)])
+        self.assertEqual(code, 0)
+        return "\n".join(line for line in out.getvalue().splitlines() if not line.startswith(" "))
+
+    def test_a_watchdog_change_runs_the_ci_and_watchdog_groups(self) -> None:
+        listed = self.listed(["scripts/ci/hung_test_watchdog.py"])
+        self.assertIn("workflow-guard-tests / ci:", listed)
+        self.assertIn("workflow-guard-tests / app-host-watchdog:", listed)
+        self.assertNotIn("workflow-guard-tests / preflight:", listed)
+        self.assertNotIn("release-ios", listed)
+
+    def test_a_missing_file_runs_every_feat_group_but_release_ios(self) -> None:
+        listed = self.listed(None)
+        for label in ("workflow-guard-tests / ci:", "workflow-guard-tests / preflight:",
+                      "workflow-guard-tests / release-tooling:", "workflow-guard-history:",
+                      "workflow-guard-source-lints / dispatch-ownership:"):
+            with self.subTest(label=label):
+                self.assertIn(label, listed)
+        self.assertNotIn("release-ios", listed)
+        self.assertNotIn("release-notary", listed)
 
 
 if __name__ == "__main__":
