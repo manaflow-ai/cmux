@@ -965,6 +965,7 @@ mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
+mod worktrees;
 pub use pending::event_value;
 use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;
