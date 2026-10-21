@@ -155,7 +155,6 @@ export default componentEntry<Props>({
   area: "Pages",
   covers: [
     "pages/changelog/UpdateSurfaces.tsx#UpdatedCard",
-    "pages/changelog/updateSummary.ts",
     "pages/changelog/UpdateSurfaces.tsx#UpdateReadyHighlights",
   ],
   load: async () => UpdateSurfacesGallery,

@@ -16,14 +16,14 @@ export const AREAS = [
   ["sidebar", /\b(?:sidebar|workspace groups?)\b/i],
   ["newTab", /\bnew tab\b/i],
   ["composer", /\b(?:composer|dictation)\b/i],
-  ["agentChat", /\b(?:agents?|agent chat|agent pane|transcript|chats?|sub-sessions?|acpmux)\b/i],
+  ["agentChat", /\b(?:agents?|agent chat|agent pane|transcript|chats?|sub-sessions?)\b/i],
   ["home", /\b(?:home|chief)\b/i],
   ["tabs", /\b(?:tabs?|tab row)\b/i],
   ["terminal", /\b(?:terminals?|shell|scrollback)\b/i],
   ["browser", /\bbrowser\b/i],
   ["palette", /\b(?:command )?palette\b/i],
   ["settings", /\bsettings?\b/i],
-  ["updates", /\b(?:updates?|what's new|roll back)\b/i],
+  ["updates", /\b(?:update card|updated card|restart to update|what's new|roll back)\b/i],
   ["keyboard", /\b(?:shortcuts?|keys)\b/i],
   ["panes", /\b(?:panes?|splits?)\b/i],
   ["windows", /\bwindows?\b/i],
@@ -66,15 +66,16 @@ function areaOf(title: string, label?: string): AreaKey | undefined {
 }
 
 /** The change as it reads after "Sidebar:": its first clause when the title is long, lowercased
-    where its subject wrote it so ("a click never drags", but "Return steers a running turn"). A
-    title with no subject is lowercased when it starts with a plain word ("Enroll Computer Use"
-    keeps its capital). Undefined when no clause is short enough. */
-function phrase(change: Change): string | undefined {
+    where its subject wrote it so ("a click never drags", but "Return steers a running turn"). An
+    English title with no subject is lowercased when it starts with a plain word ("Enroll Computer
+    Use" keeps its capital); a localized one keeps its case (German nouns). Undefined when no
+    clause is short enough. */
+function phrase(change: Change, english: boolean): string | undefined {
   const short = shortTitle(change.title, PHRASE_LIMIT);
   if (!short) return undefined;
   const lower = short.charAt(0).toLowerCase() + short.slice(1);
   if (change.raw !== undefined) return change.raw.includes(lower) ? lower : short;
-  return /^[A-Z][a-z]*\s+[^A-Z\s]/.test(short) ? lower : short;
+  return english && /^[A-Z][a-z]*\s+[^A-Z\s]/.test(short) ? lower : short;
 }
 
 function category(group: string): WhatsNewCategory {
@@ -82,7 +83,8 @@ function category(group: string): WhatsNewCategory {
 }
 
 /** The rows: named areas first, then by how many changes each has, then newest first. */
-function summarize(changes: Change[], unlisted = 0): UpdateSummary {
+function summarize(changes: Change[], language: string, unlisted = 0): UpdateSummary {
+  const english = language === "en" || language.startsWith("en-");
   const buckets = new Map<string, { row: SummaryRow; changes: Change[]; first: number }>();
   changes.forEach((change, index) => {
     const key = change.area ?? `category:${change.category}`;
@@ -101,7 +103,7 @@ function summarize(changes: Change[], unlisted = 0): UpdateSummary {
   let listed = 0;
   for (const bucket of ordered) {
     if (rows.length === ROWS) break;
-    const phrases = bucket.changes.flatMap((c) => phrase(c) ?? []).slice(0, PHRASES);
+    const phrases = bucket.changes.flatMap((c) => phrase(c, english) ?? []).slice(0, PHRASES);
     if (phrases.length === 0) continue;
     rows.push({ ...bucket.row, phrases });
     listed += phrases.length;
@@ -150,7 +152,7 @@ export function summarizeUpdate(notes: ReleaseNotes[], language: string): Update
       add({ title: item.title, raw: item.raw, category: category(group), area: areaOf(item.title, item.label) });
     }
   }
-  return summarize(changes);
+  return summarize(changes, language);
 }
 
 /** The summary of what the host sent for the installed build alone, when the span's notes did not
@@ -158,5 +160,5 @@ export function summarizeUpdate(notes: ReleaseNotes[], language: string): Update
 export function summarizeHighlights(data: UpdateHighlights): UpdateSummary {
   const items = [...data.items, ...(data.rest ?? [])];
   const changes = items.map((item) => ({ title: item.title, category: item.category, area: areaOf(item.title) }));
-  return summarize(changes, Math.max(0, data.moreCount - (data.rest?.length ?? 0)));
+  return summarize(changes, data.language, Math.max(0, data.moreCount - (data.rest?.length ?? 0)));
 }

@@ -134,14 +134,9 @@ extension PageFactory {
     /// ops (`list`, `get`) to the page's verified notes, so the Updated card sums up
     /// every build the update spans. The card shows no pictures: no media inlining.
     func updateSurfacePage(kind: SidebarUpdateSurfaceKind, provider: UpdateSurfaceProvider) -> PageWebView? {
-        let updater = services.updater
-        let current = updater.changelogReadsDevelopmentNotes ? "" : updater.identity.build
-        let notes = ChangelogPageProvider(source: updater.changelogNotes, currentBuild: current)
         let native = AppPageNativeProvider(services: services, page: .changelog)
-        // The first matching prefix wins: the surface's own ops before the notes.
-        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider),
-                      PageRoute(prefix: "cmux.changelog.", provider: notes),
-                      PageRoute(prefix: "cmux.app.", provider: native)]
+        // PageRouter tries the longest prefix first: the surface's own ops before the notes.
+        let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.changelog.", provider: changelogNotes()), PageRoute(prefix: "cmux.app.", provider: native)]
         // The island floats over the window's backdrop: a Chromium page cannot be transparent.
         let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
                                options: PageEngineOptions(requiresWebKit: .transparentOverlay))

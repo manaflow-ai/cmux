@@ -70,7 +70,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         summary: "Headers match the rows they hold",
         category: "new",
       },
-      { id: "scroll", title: "Wide tables scroll sideways", summary: null, category: "improved" },
+      { id: "scroll", title: "Tables scroll", summary: null, category: "improved" },
       {
         id: "long",
         title:
@@ -122,7 +122,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
       test("the Updated card's changes select with a drag and a double-click, and fire nothing", async () => {
         const page = await open("updated");
         // One line per area (updateSummary.ts): "Sidebar: workspace groups at a glance; …", then
-        // "Improved: wide tables scroll sideways".
+        // "Improved: tables scroll" (one line even at 244 px in DejaVu Sans, CI's fallback font).
         await dragAcross(page, ".wn-card-areas li:nth-child(2)");
         expect(await selection(page)).toContain("tables scroll");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
@@ -130,7 +130,7 @@ await requireBrowserLane("whats-new-text-selection.test.ts", async () => {
         const word = page.locator(".wn-card-areas li .wn-card-phrases").nth(1);
         const box = (await word.boundingBox())!;
         await page.mouse.dblclick(box.x + 12, box.y + box.height / 2);
-        expect((await selection(page)).trim()).toBe("wide");
+        expect((await selection(page)).trim()).toBe("tables");
         expect(await calls(page)).toEqual({ openChangelog: 0, dismiss: 0 });
         expect(await page.locator(".wn-card").count()).toBe(1);
 
