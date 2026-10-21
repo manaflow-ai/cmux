@@ -75,6 +75,7 @@ import {
 } from "./catalog";
 import { usePickerCatalog } from "./modelCatalogHost";
 import { isDefaultChoice } from "./defaultChoice";
+import { topModelsFor } from "./topModels";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
 import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
@@ -148,6 +149,7 @@ import { DictationNotice } from "./DictationNotice";
 import type { MarkdownFieldHandle } from "./MarkdownField";
 import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
+import { transcriptRepositories, type RepositoryCache } from "./conversation/transcriptRepositories";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
@@ -210,6 +212,7 @@ import {
   setMessageMenuSource,
 } from "./conversation/messageMenu";
 import { callChipHost } from "./chips/host";
+import { pullRequestRef } from "./chips/PullRequestCard";
 import { RenderCard, canRender } from "./conversation/RenderCard";
 import { ArtifactPanel, type SaveDocument } from "./conversation/ArtifactPanel";
 import { branchesFromKey, branchesKey, forkAnchor, messageBranches } from "./conversation/branches";
@@ -1504,6 +1507,7 @@ export function VirtualTranscript({
   canLoadOlder = false,
   historyFrom,
   githubRepository,
+  fallbackRepository,
   find,
   reveal,
   working = false,
@@ -1548,6 +1552,9 @@ export function VirtualTranscript({
   /// Pages older history in (canLoadOlder): asked once per loaded page while the view is near the top.
   onLoadOlder?: () => Promise<void>;
   githubRepository?: string;
+  /// The repository a bare `#N` means when `githubRepository` is unknown and the transcript names
+  /// none before it (the header pull request's).
+  fallbackRepository?: string;
   /// Find in Chat (chatFind.ts): its bar, the query to highlight and the match to bring into view.
   find?: ChatFind;
   /// A row to bring into view (a count on the running line, WorkingFor.tsx); a new `key` asks again.
@@ -1563,6 +1570,13 @@ export function VirtualTranscript({
   /// when it does not and the latest message is more than JUMP_LATEST_DISTANCE below, read each render,
   /// so a reply growing below or a session switch updates it without a scroll.
   const [following, setFollowing] = useState(true);
+  // Without the folder's GitHub remote, a bare `#N` in a row means the repository the transcript
+  // mentioned last (conversation/transcriptRepositories.ts); each row's text is read once per change.
+  const repositoryCache = useRef<RepositoryCache>(new Map());
+  const rowRepositories = useMemo(
+    () => (githubRepository ? undefined : transcriptRepositories(rows, fallbackRepository, repositoryCache.current)),
+    [githubRepository, fallbackRepository, rows],
+  );
   // `scroll` events also fire for layout-driven writes to scrollTop. Keep the user's intent in a
   // ref so those events cannot turn a pinned transcript into a one-frame jump when the composer
   // stack changes height.
@@ -2824,7 +2838,7 @@ export function VirtualTranscript({
                       controls={controls}
                       onToggleActivity={onToggleActivity}
                       onOpenDiff={onOpenDiff}
-                      githubRepository={githubRepository}
+                      githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                     >
                       <Component
                         row={row}
@@ -2833,7 +2847,7 @@ export function VirtualTranscript({
                         onOpenDiff={onOpenDiff}
                         expanded={isExpanded}
                         controls={controls}
-                        githubRepository={githubRepository}
+                        githubRepository={githubRepository ?? rowRepositories?.[absoluteIndex]}
                       />
                     </RowFrame>
                   );
@@ -3864,14 +3878,16 @@ function AcpmuxPane() {
   useEffect(() => setHarnessesOpen(false), [snapshot.sessionId]);
   // A chat it starts, and a login it runs, go to the chat's folder (a new chat's start folder).
   const harnessFolder = snapshot.summary?.cwd ?? startFolder;
-  const retryModelsKey = (
-    pickerCatalog.harnesses.find(
-      (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
-    )?.models ?? []
-  )
+  const retryHarness = pickerCatalog.harnesses.find(
+    (entry) => entry.acpmuxHarness === snapshot.summary?.harness || entry.id === snapshot.summary?.harness,
+  );
+  // Named as the composer's picker names them (its short name under its harness, "Opus 5.5").
+  const retryModelsKey = (retryHarness?.models ?? [])
     .filter((model) => !model.unavailable && !isDefaultChoice(model))
-    .map((model) => `${model.id}\t${model.name || model.id}\t${model.release ?? ""}`)
+    .map((model) => `${model.id}\t${model.shortName || model.name || model.id}\t${model.release ?? ""}`)
     .join("\n");
+  const retryHarnessName = retryHarness?.name;
+  const retryTop = retryHarness ? topModelsFor(retryHarness.id) : undefined;
   const retryModels = useMemo(
     () =>
       retryModelsKey
@@ -3932,6 +3948,8 @@ function AcpmuxPane() {
           retryWith: {
             models: retryModels,
             current: snapshot.summary?.model,
+            ...(retryHarnessName ? { harness: retryHarnessName } : {}),
+            ...(retryTop ? { top: retryTop } : {}),
             retry: (rowId: string, prompt: string, model: string) =>
               void callNative("chat.retryWith", { rowId, prompt, model }).catch(() => undefined),
           },
@@ -3969,6 +3987,8 @@ function AcpmuxPane() {
       snapshot.summary?.harness,
       snapshot.summary?.model,
       retryModels,
+      retryHarnessName,
+      retryTop,
       catalog,
     ],
   );
@@ -5494,7 +5514,7 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs } = useHeaderState();
+  const { sideTabs, pullRequest: headerPullRequest } = useHeaderState();
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -6025,6 +6045,7 @@ function AcpmuxPane() {
                                         reveal={childRows ? undefined : revealRow}
                                         registry={registry}
                                         githubRepository={githubRepository}
+                                        fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
                                         // The Quick Composer has no room for the changes view; its file rows stay plain.
                                         onOpenDiff={quick ? undefined : openDiff}
                                         onToggleActivity={toggleActivity}

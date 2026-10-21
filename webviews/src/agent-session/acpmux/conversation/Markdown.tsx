@@ -368,7 +368,8 @@ export const linkIcon = (href: string) => {
 
 function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
   if (!enabled) return linkedText(text, key);
-  const refs = githubReferences(text, repository);
+  // A pull request address, so the chip opens the pull request card (an issue redirects there).
+  const refs = githubReferences(text, repository, "pull");
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;

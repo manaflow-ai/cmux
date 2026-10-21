@@ -35,6 +35,7 @@ export function RailTasks({
           {visible.map((process) => (
             <li key={process.id} className="acpmux-rail-task">
               <Icon name="terminal" size={ROW_ICON} row />
+              {/* tooltip-allow: a long command is cut with an ellipsis; the tooltip is its whole text */}
               <span className="acpmux-rail-task__command" title={process.command}>
                 {process.command}
               </span>
