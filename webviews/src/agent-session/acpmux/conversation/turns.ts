@@ -304,16 +304,14 @@ function shapeTurn(
   sessionStatus = false,
 ): AcpmuxRow[] {
   const end = turn.findIndex((row) => row.kind === "turnSummary");
-  // A turn still running shows its work as it happens, under its live status.
-  // An earlier turn without a summary ended long ago (a later prompt follows it): it folds as
-  // a reloaded turn without timing. The last one may only be waiting for its
-  // summary, so it draws as it came.
+  // A turn still running shows its work as it happens, under its live status; one without a
+  // summary that is no longer running draws as it came.
   if (end < 0)
     return live
       ? liveTurn(user, turn, clockOffset, liveRuns, sessionStatus)
       : last
         ? turn.map(endedPlan)
-        : settledWithoutSummary(user, turn, expanded);
+        : settledWithoutSummary(turn);
   const summary = turn[end]!;
   const body = turn.slice(0, end);
   const final = answerAt(body);
@@ -444,27 +442,13 @@ const staysOut = (row: AcpmuxRow) =>
 const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
   row.kind === "plan" && row.plan ? { ...row, turnEnded: true, version: row.version * 2 + 1 } : row;
 
-/// A turn that ended without a summary (history paged in from before acpmux kept one, or a
-/// turn a restart cut off): its work folds under "N previous messages", like any
-/// reloaded turn without timing, and its answer and edits draw after it.
-function settledWithoutSummary(user: AcpmuxRow, turn: AcpmuxRow[], expanded: ReadonlySet<string>): AcpmuxRow[] {
-  const rows = turn.filter((row) => row.kind !== "typing");
-  const final = answerAt(rows);
-  const before = final >= 0 ? rows.slice(0, final) : rows;
-  const work = before.filter((row) => !staysOut(row));
-  if (work.length === 0) return rows.map(endedPlan);
-  const id = `${WORKED}-${user.id}`;
-  const open = expanded.has(id);
-  const edits = work.filter(isEdit);
-  const previous = work.reduce((count, row) => count + (row.kind === "activity" ? (row.items?.length ?? 1) : 1), 0);
-  const version = work.reduce((sum, row) => sum + row.version, 0);
-  return [
-    { id, version: version * 2 + (open ? 1 : 0), at: user.at, kind: WORKED, previous },
-    ...(open ? work.map((row) => ({ ...row, id: isEdit(row) ? `${row.id}${FOLDED}` : row.id, settled: true })) : []),
-    ...before.filter(staysOut).map(endedPlan),
-    ...(final >= 0 ? rows.slice(final).map(endedPlan) : []),
-    ...editsCard(edits),
-  ];
+/// A turn that ended without a summary: a later prompt came before it (another agent's message
+/// that arrived while it ran splits it here) or it is history from before acpmux kept summaries.
+/// It draws as it came: the agent's messages stay in place, each on its own, and nothing folds
+/// that the person did not fold (Leo, 2026-10-20: never auto-collapse messages into "N previous
+/// messages").
+function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
+  return turn.filter((row) => row.kind !== "typing").map(endedPlan);
 }
 
 /// The live status, shaped as the turn will fold when it ends: rows before the latest text are
