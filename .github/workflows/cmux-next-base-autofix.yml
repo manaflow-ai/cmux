@@ -13,8 +13,8 @@ name: cmux-next base autofix
 # wire clients from the committed cloud catalog (backend/packages/protocol),
 # webviews formatting (vp fmt in the read-only webviews-fmt job), and cargo fmt
 # in cmux-tui and the OptChat crates. Each
-# runs only when its inputs changed since the last successful run (actions:
-# read lists it); a repair whose inputs a newer push moved is made again on that
+# runs only when its inputs changed since the last successful run that made its
+# own Mac exports (actions: read lists it; scripts/cmux-next/base-autofix-since.sh); a repair whose inputs a newer push moved is made again on that
 # tip (scripts/cmux-next/base-autofix-land.sh, a bounded number of times), and a
 # repair that still cannot land fails the run. A frozen path
 # (scripts/cmux-next/base-autofix-frozen.txt, including every workflow file)
@@ -86,6 +86,7 @@ on:
       - scripts/cmux-next/base-autofix-repair.sh
       - scripts/cmux-next/base-autofix-settings-exports.sh
       - scripts/cmux-next/base-autofix-mac-busy.sh
+      - scripts/cmux-next/base-autofix-since.sh
       - scripts/cmux-next/autofix-areas.sh
       - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -129,7 +130,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          since="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
+          since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
           if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
             scripts/cmux-next/autofix-areas.sh --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
@@ -143,6 +144,23 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: scripts/cmux-next/base-autofix-mac-busy.sh "$GITHUB_RUN_ID" | tee -a "$GITHUB_OUTPUT"
 
+  # This run left its Mac exports to another run's queued or running Mac job. It ends green, and
+  # base-autofix-since.sh passes over a run with this job, so the next run still covers its changes.
+  mac-exports-deferred:
+    name: Mac exports deferred
+    needs: action-areas
+    if: needs.action-areas.outputs.mac_busy == 'true'
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 2
+    permissions: {}
+    steps:
+      - name: Name the run that carries the exports
+        env:
+          BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run }}
+          SERVER: ${{ github.server_url }}/${{ github.repository }}
+        run: |
+          echo "Mac exports left to run $SERVER/actions/runs/$BUSY_RUN, whose Mac job was already queued or running; the next run's changes include this run's." | tee -a "$GITHUB_STEP_SUMMARY"
+
   # Regenerates the action exports and the settings exports on a Mac with a
   # read-only token and hands them to autofix as the action-exports artifact
   # (files at their repository paths).
@@ -154,8 +172,8 @@ jobs:
     # merges minutes apart no Mac export ever finished (2026-10-19), and replacing a pending one did
     # the same once the Mac runners were saturated: each job waited minutes for a runner and the next
     # push replaced it before it started (2026-10-21, 11:15-11:36Z, no export after 02:14Z). Instead a
-    # run skips this job while another run's is queued or running (base-autofix-mac-busy.sh); that one
-    # regenerates the settings exports on the newest tip when it starts.
+    # run skips this job while another run's is queued or running (base-autofix-mac-busy.sh) and ends
+    # green with mac-exports-deferred; the next run's "since" passes over it (base-autofix-since.sh).
     # The exports need a logged-in session, not the console gui token, so once the
     # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
     # takes it and runs beside a console GUI job; until then the gui label.
@@ -337,7 +355,7 @@ jobs:
     name: autofix feat-cmux-next
     # The other repairs still run when the webviews formatting or the Mac
     # action exports job fails or is skipped.
-    needs: [action-areas, webviews-fmt, action-exports]
+    needs: [webviews-fmt, action-exports]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' }}
     # A running repair finishes and lands on whatever feat-cmux-next is by then
     # (scripts/cmux-next/base-autofix-land.sh); a newer push replaces only a pending run.
@@ -360,8 +378,9 @@ jobs:
           persist-credentials: false
 
       # What changed since the last successful run decides the repairs: a run
-      # cancelled by a newer push, or one whose repair could not land, leaves
-      # its changes to the next run instead of losing them. No earlier success,
+      # cancelled by a newer push, one whose repair could not land, or one that
+      # left its Mac exports to another run (base-autofix-since.sh passes over
+      # it) leaves its changes to the next run instead of losing them. No earlier success,
       # or a change to the bot itself, runs them all.
       - name: Changed areas
         id: areas
@@ -369,7 +388,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          since="$(gh api "repos/$GITHUB_REPOSITORY/actions/workflows/cmux-next-base-autofix.yml/runs?branch=feat-cmux-next&event=push&status=success&per_page=1" --jq '.workflow_runs[0].head_sha // ""' 2>/dev/null || true)"
+          since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
           # scripts/cmux-next/autofix-areas.sh maps the changed paths to repairs.
           if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
             echo "No successful run to diff from; running every repair."
@@ -492,16 +511,6 @@ jobs:
           # made them at.
           scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
-
-      # The next run diffs from the last successful one; a run that left its exports to another run's
-      # Mac job (base-autofix-mac-busy.sh) must not be that run, or its changes would never be exported.
-      - name: Mac exports deferred to the run already making them
-        if: needs.action-areas.outputs.mac_busy == 'true'
-        env:
-          BUSY_RUN: ${{ needs.action-areas.outputs.mac_busy_run }}
-        run: |
-          echo "::error::the Mac exports are left to run $BUSY_RUN, whose Mac job was already queued or running; this run fails so the next run's \"since\" still covers its changes"
-          exit 1
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
   # (scripts/ghosttykit-checksums.txt) from our own published release only
