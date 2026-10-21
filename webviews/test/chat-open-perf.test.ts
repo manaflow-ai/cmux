@@ -13,9 +13,15 @@
 //     part of the transcript's view empty.
 //
 // Twice: once with the daemon quiet, once with BUSY_LANES chats working, each reporting a change
-// that redraws the pane's live chat list — the "high load" half of the ask, which a list of 120
-// idle chats does not measure. Under load the millisecond budgets get the dev bundle's render
-// frame as slack; the frame counts and the no-shift, no-blank rules are held to the same numbers.
+// of its own — the "high load" half of the ask, which a list of 120 idle chats does not measure.
+// What that load reaches is not the same in both phases, and the ceilings say so: a cold open
+// holds the pane's last snapshot until its attach page is in (SWITCH_HOLD_MS in direct.ts), so a
+// change arriving inside a cold draw window is folded into the client's list and drawn nowhere.
+// A cached open releases that hold on the frame it draws, so the load does redraw the page there
+// and through every settle window. The load is therefore measured where the brief's hardest claim
+// lives — "instant if cached" while forty chats report — and costs a cold open only the parse.
+// Under load the millisecond budgets get the dev bundle's render frame as slack; the frame counts
+// and the no-shift, no-blank rules are held to the same numbers.
 //
 // The frame sampler reads each row's place in the view every frame after the chat draws, so a row
 // placed by an estimate and then by its drawn height (the flicker Leo saw) counts as a shift.
@@ -50,9 +56,12 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   const ATTACH_MS = 150;
   /// Chats that keep working while the reader opens others: a person with many agents running
   /// (Leo: "high load"). Each reports a change of its own, which is what a busy daemon pushes at
-  /// a pane: the chat list is live, so every one of them redraws it.
+  /// a pane. How many chats the changes rotate over, not how many arrive: raising this widens the
+  /// churn in the list and changes no rate. ``BUSY_TICK_MS`` is the knob for how hard the load is.
   const BUSY_LANES = 40;
-  /// One lane reports every tick, round robin, so the list changes twenty times a second.
+  /// One lane reports every tick, round robin, so the list changes twenty times a second. Each
+  /// change is stamped newer than every chat in the list, so the busy lanes keep re-sorting to
+  /// the top of it: the pane's hardest case, a list whose order moves under the reader.
   const BUSY_TICK_MS = 50;
   /// What the brief asks of the shipped pane: a chat the page already read draws inside 100 ms, a
   /// chat read for the first time inside 400 ms (the attach's round trip and the rows' layout).
@@ -255,7 +264,9 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   afterAll(async () => {
     await browser?.close();
     await vite?.close();
-    void daemon?.stop(true);
+    // Awaited, so a lane's interval cannot outlive the run: an open socket's `close` handler is
+    // what clears it, and an interval still ticking holds the loop until the file times out.
+    await daemon?.stop(true);
   });
 
   type Opened = {
@@ -441,26 +452,47 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     await installPaintedFrames(page);
     await page.goto(url(chats[0].sessionId));
     await page.getByText(chats[0].marker).waitFor();
-    const open = (entry: (typeof chats)[number]) =>
-      page.evaluate(
+    /// How many changes went out while this one open was measured, and how many attaches it cost.
+    /// Per window, because the totals cannot say when the load arrived: the lanes start reporting
+    /// the moment the socket opens, which is during the page load above, so a run's total is over
+    /// its budget before the first chat is opened and a test on the total would pass with the load
+    /// finished before anything was timed.
+    const during: { pushes: number; attaches: number }[] = [];
+    const open = async (entry: (typeof chats)[number]) => {
+      const pushesBefore = pushed;
+      const attachesBefore = attaches;
+      const opened = (await page.evaluate(
         `(${openChat.toString()})(${JSON.stringify({
           sessionId: entry.sessionId,
           marker: entry.marker,
           settleMs: SETTLE_MS,
           limitMs: 8_000,
         })})`,
-      ) as Promise<Opened>;
+      )) as Opened;
+      during.push({ pushes: pushed - pushesBefore, attaches: attaches - attachesBefore });
+      return opened;
+    };
     const cold: Opened[] = [];
-    for (const entry of picked) cold.push(await open(entry));
-    // Each of them again: the page read every one of these chats already.
     const cached: Opened[] = [];
-    for (const entry of picked) cached.push(await open(entry));
-    await page.close();
+    try {
+      for (const entry of picked) cold.push(await open(entry));
+      // Each of them again: the page read every one of these chats already.
+      for (const entry of picked) cached.push(await open(entry));
+    } finally {
+      // Always, so a failed open does not leave a page open with its socket still reporting.
+      await page.close();
+    }
 
     const worstCold = report(`${name} cold`, "cold", cold);
     const worstCached = report(`${name} cached`, "cached", cached);
-    console.log(`chat-open-perf ${name}: ${attaches} attaches for ${picked.length} cold and ${picked.length} cached`);
-    return { cold, cached, worstCold, worstCached };
+    const loadDuring = { cold: during.slice(0, picked.length), cached: during.slice(picked.length) };
+    for (const [phase, windows] of Object.entries(loadDuring))
+      console.log(
+        `chat-open-perf ${name} ${phase}: changes pushed while measured ` +
+          `${windows.map((window) => window.pushes).join("/")}, ` +
+          `attaches ${windows.map((window) => window.attaches).join("/")}`,
+      );
+    return { cold, cached, worstCold, worstCached, loadDuring };
   };
 
   /// Holds one run's two phases to what the brief asks. `slack` is what the load phase may take on
@@ -494,10 +526,11 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     holdToTheBrief(await openEachTwice("quiet"));
   });
 
-  /// The other half of Leo's ask: "even with a high number of chats and high load?". The list is
-  /// live, so every working chat's `session_changed` redraws the pane's chat list while the reader
-  /// opens chats of their own — which is the load a person with forty agents running puts on it,
-  /// and the load under which a cached open must still land on the frame it lands on.
+  /// The other half of Leo's ask: "even with a high number of chats and high load?". Every working
+  /// chat reports a change of its own while the reader opens chats, each newer than every chat in
+  /// the list, so the client rebuilds its sessions and re-sorts them twenty times a second — the
+  /// load a person with forty agents running puts on the pane, and the load under which a cached
+  /// open must still land on the frame it lands on.
   ///
   /// The millisecond budgets get the dev bundle's render frame again as slack (a second unminified
   /// React render under this much traffic), because what this test is really for is the two things
@@ -507,9 +540,12 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     busy = true;
     try {
       const run = await openEachTwice("loaded");
-      console.log(`chat-open-perf loaded: ${pushed} chat-list changes pushed while opening`);
-      // The load really was on: a change every BUSY_TICK_MS for as long as the run took.
-      expect(pushed).toBeGreaterThan(BUSY_LANES);
+      // The load was on while each open was measured, not merely on at some point in the run: a
+      // window is the draw plus SETTLE_MS of watching, so half the ticks of the settle alone is a
+      // floor no real window misses and a silent end to the load cannot pass.
+      const leastPerWindow = Math.floor(SETTLE_MS / BUSY_TICK_MS / 2);
+      for (const windows of Object.values(run.loadDuring))
+        for (const window of windows) expect(window.pushes).toBeGreaterThanOrEqual(leastPerWindow);
       holdToTheBrief(run, DEV_RENDER_MS);
     } finally {
       busy = false;
