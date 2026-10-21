@@ -20,4 +20,18 @@ nonisolated extension RefusalStrings {
     public static var noTabsToTheRight: String { text("handlers.refusal.closeTabs.noneToRight", "There are no tabs to the right to close.") }
     /// Close Tabs to the Left on the first unpinned tab.
     public static var noTabsToTheLeft: String { text("handlers.refusal.closeTabs.noneToLeft", "There are no tabs to the left to close.") }
+    /// Close Other Workspaces with no other row that closes (Home never closes).
+    public static var noOtherWorkspacesToClose: String { text("handlers.refusal.closeWorkspaces.noOthers", "There are no other workspaces to close.") }
+    /// Close Workspaces Below on the bottom row.
+    public static var noWorkspacesBelowToClose: String { text("handlers.refusal.closeWorkspaces.noneBelow", "There are no workspaces below to close.") }
+    /// Close Workspaces Above on the top row.
+    public static var noWorkspacesAboveToClose: String { text("handlers.refusal.closeWorkspaces.noneAbove", "There are no workspaces above to close.") }
+    /// Close Other Workspaces in Group on a group's only workspace.
+    public static var noOtherWorkspacesInGroupToClose: String {
+        text("handlers.refusal.closeWorkspaces.noOthersInGroup", "There are no other workspaces in this group to close.")
+    }
+    /// Next or Previous Workspace in Group alone in its group.
+    public static var noOtherWorkspaceInGroup: String { text("handlers.refusal.group.noOtherWorkspace", "This workspace is the only one in its group.") }
+    /// Rename Workspace (the name field) on Home, which the sidebar shows as its Home item.
+    public static var homeKeepsItsName: String { text("handlers.refusal.rename.homeKeepsName", "Home keeps its name.") }
 }

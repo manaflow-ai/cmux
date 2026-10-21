@@ -203,7 +203,15 @@ enum WorkspaceGroupHandlers {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
             }
         }
-        Task { _ = try? await windows.createWorkspace(spawn, on: daemon, into: target) }
+        // The CLI answers after the create, and a palette or menu run shows its failure.
+        context.report {
+            do {
+                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                return nil
+            } catch {
+                return ActionWorkFailure("new workspace", error)
+            }
+        }
     }
 
     /// The id `model` lists personal group `id` under (`SidebarModel.groupID(personal:)`), nil when it lists none.
