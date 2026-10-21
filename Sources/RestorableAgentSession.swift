@@ -2350,6 +2350,18 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 }
                 let liveProcessID = processObservation.processID
+                let savedSnapshot: SessionRestorableAgentSnapshot = {
+                    guard kind == .claude else { return snapshot }
+                    var savedSnapshot = snapshot
+                    savedSnapshot.launchCommand = claudeLaunchCommandNamingConfigDirectory(
+                        snapshot.launchCommand,
+                        liveProcessEnvironment: liveProcessID == nil ? nil : currentProcessArguments?.environment,
+                        transcriptPath: effectiveRecord.transcriptPath,
+                        homeDirectory: homeDirectory,
+                        fileManager: fileManager
+                    )
+                    return savedSnapshot
+                }()
                 let liveProcessIdentities: [Int: AgentPIDProcessIdentity]
                 if let liveProcessID,
                    let currentProcessIdentity,
@@ -2383,7 +2395,7 @@ struct RestorableAgentSessionIndex: Sendable {
                 if let liveProcessID, let hookScope {
                     let processIDs = hookScope.processIDs.union([liveProcessID])
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
                         stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
@@ -2406,7 +2418,7 @@ struct RestorableAgentSessionIndex: Sendable {
                     )
                 } else {
                     entry = Entry(
-                        snapshot: snapshot,
+                        snapshot: savedSnapshot,
                         stableSurfaceId: effectiveRecord.stableSurfaceId.flatMap(UUID.init(uuidString:)),
                         lifecycle: effectiveRecord.agentLifecycle,
                         updatedAt: effectiveRecord.updatedAt,
@@ -2884,6 +2896,46 @@ struct RestorableAgentSessionIndex: Sendable {
 
     private static func normalizedWorkingDirectory(_ rawValue: String?) -> String? {
         normalizedNonEmptyValue(rawValue)
+    }
+
+    /// Names the `CLAUDE_CONFIG_DIR` a Claude session ran with when its launch
+    /// capture lost it (a sanitizer-rejected capture or an older record), so
+    /// restore does not fall back to the app's environment and reopen the
+    /// session under the wrong account. The config directory holding the
+    /// transcript comes first, since it stays the same after the process
+    /// exits; the verified live process's own environment covers a record
+    /// without a transcript path. The default `~/.claude` is never written:
+    /// Claude reads its login from a different place when the variable is set,
+    /// so naming the default would restore a default-account session logged out.
+    private static func claudeLaunchCommandNamingConfigDirectory(
+        _ launchCommand: AgentLaunchCommandSnapshot?,
+        liveProcessEnvironment: [String: String]?,
+        transcriptPath: String?,
+        homeDirectory: String,
+        fileManager: FileManager
+    ) -> AgentLaunchCommandSnapshot? {
+        guard var launchCommand,
+              normalizedNonEmptyValue(launchCommand.environment?["CLAUDE_CONFIG_DIR"]) == nil else {
+            return launchCommand
+        }
+        let defaultConfigDirectory = ((homeDirectory as NSString).appendingPathComponent(".claude") as NSString)
+            .standardizingPath
+        let configDirectory: String?
+        if let transcriptPath = normalizedNonEmptyValue(transcriptPath) {
+            configDirectory = ClaudeConfigDirectoryPath.configDirectory(ofTranscriptPath: transcriptPath)
+                .flatMap { $0 == defaultConfigDirectory ? nil : $0 }
+        } else {
+            configDirectory = normalizedNonEmptyValue(liveProcessEnvironment?["CLAUDE_CONFIG_DIR"])
+        }
+        guard let configDirectory else { return launchCommand }
+        var environment = launchCommand.environment ?? [:]
+        environment["CLAUDE_CONFIG_DIR"] = ClaudeConfigDirectoryPath.preferredPath(
+            configDirectory,
+            fileManager: fileManager,
+            homeDirectory: homeDirectory
+        )
+        launchCommand.environment = environment
+        return launchCommand
     }
 
     /// Drops launch captures that cannot describe this agent kind: a capture
