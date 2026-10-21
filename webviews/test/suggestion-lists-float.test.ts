@@ -46,6 +46,16 @@ await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
     }
   };
 
+  /** Every finite animation on the page done: a menu's entrance travels a few points (ui-popup-in). */
+  const settled = (page: Page) =>
+    page.evaluate(async () => {
+      await new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(done)));
+      const finite = document
+        .getAnimations()
+        .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)));
+      await Promise.all(finite.map((animation) => animation.finished.catch(() => undefined)));
+    });
+
   beforeAll(async () => {
     vite = await createServer({
       configFile: path.join(webviews, "vite.config.gallery-dev.ts"),
@@ -117,6 +127,7 @@ await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
     const field = ".acpmux-location-menu input";
     await page.waitForSelector(field);
     const rows = () => page.locator(".acpmux-location-menu [role=option]").count();
+    await settled(page);
     const before = await boxes(page, [field, ".acpmux-composer-box"]);
     const all = await rows();
     await page.focus(field);
@@ -126,6 +137,7 @@ await requireBrowserLane("suggestion-lists-float.test.ts", async () => {
       all,
     );
     expect(await rows()).toBeLessThan(all);
+    await settled(page);
     expect(await boxes(page, [field, ".acpmux-composer-box"])).toEqual(before);
     await page.close();
   });

@@ -75,6 +75,9 @@
   --ui-enter-y: var(--ui-enter-distance);
   animation: ui-enter var(--ui-enter-duration) var(--ui-enter-ease) both;
 }
+/* A queued prompt only fades: the queue scrolls its focused row and Show less into whole-row view as
+   rows mount (an opened long queue mounts them all at once), and a row still travelling measured as
+   cut there. */
 .acpmux-composer-queue > li {
-  --ui-enter-distance: 4px;
+  --ui-enter-distance: 0px;
 }
