@@ -7,6 +7,7 @@ import {
   withCallerName,
 } from "../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../services/vms/displayName";
+import { readVmRunningSince, vmCostFields } from "../../../services/vms/machineCost";
 import { vmClientRoutesTeamNetworks, vmTeamDirectory } from "../../../services/vms/teamDirectory";
 // Authenticated REST facade over the VM control plane. Native clients use this surface so
 // provider credentials stay behind server-side ownership checks.
@@ -215,6 +216,17 @@ export async function GET(request: Request): Promise<Response> {
       // with nothing else to show for it. This, with the lookup error above,
       // separates that from nobody having set a name.
       setSpanAttributes(span, { "cmux.vm.creator_names": creatorNames.size });
+      // When each live machine last started, for its running time and cost
+      // line. Best effort like the names: a miss shows no running time.
+      const runningSince = await readVmRunningSince(
+        entries.filter((entry) => entry.status === "running" || entry.status === "provisioning")
+          .map((entry) => entry.providerVmId),
+        {
+          onFailure: (error) => setSpanAttributes(span, {
+            "cmux.vm.running_since_error": error instanceof Error ? error.name : "unknown",
+          }),
+        },
+      );
       // A legacy row without a reservation marker reserves the provider
       // maximum until reconciliation measures it, exactly as the repository
       // counts it.
@@ -256,6 +268,10 @@ export async function GET(request: Request): Promise<Response> {
         // clients can use the measured live shape for grow-only checks.
         resources: poolShare(entry),
         ...(entry.resourceReservation ? { resourceReservation: entry.resourceReservation } : {}),
+        // Display cost: the size's hourly rate (null when the size is not
+        // measured yet) and when a live machine last started (epoch ms; null
+        // while paused). Clients show rate x elapsed as an estimate.
+        ...vmCostFields(entry, runningSince.get(entry.providerVmId)),
       }));
       const activeEntries = entries.filter((vm) => vm.status === "running" || vm.status === "provisioning");
       const limits = listEntitlements

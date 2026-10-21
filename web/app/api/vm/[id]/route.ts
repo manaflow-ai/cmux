@@ -3,6 +3,7 @@ import {
   readCreatorNames,
 } from "../../../../services/vms/creators";
 import { normalizedDisplayName } from "../../../../services/vms/displayName";
+import { readVmRunningSince, vmCostFields } from "../../../../services/vms/machineCost";
 import {
   invalidVmDisplayNameResponse,
   jsonResponse,
@@ -77,6 +78,10 @@ export async function GET(
         // Contract recorded when the provider attached cmux-tui. This is
         // rollout metadata, not a live daemon probe.
         cmuxTuiContract: vm.cmuxTuiContract,
+        // Same cost fields as the list, so a detail read never drops them.
+        ...vmCostFields(vm, (vm.status === "running" || vm.status === "provisioning")
+          ? (await readVmRunningSince([vm.providerVmId])).get(vm.providerVmId)
+          : null),
       });
     },
   );
