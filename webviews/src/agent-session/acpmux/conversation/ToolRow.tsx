@@ -20,6 +20,7 @@ import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { OutputMore, useOutput } from "./toolOutput";
 import { cleanText } from "./mcpCalls";
+import { useFold } from "./fold";
 import { Check, ChevronRight, Globe, Magnifier, OpenBook, Pencil, TerminalSquare, ToolGroup } from "./icons";
 import { toolDuration } from "./toolGroups";
 
@@ -59,11 +60,12 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
       setReveal((count) => count + 1);
     },
   );
+  const fold = useFold(open);
   const detailsId = useId();
   const tool = item.tool!;
   const hasDiff = Boolean(tool.diffs?.length);
-  // Diffed only while open: a closed edit row costs nothing on each transcript update.
-  const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
+  // Diffed only while drawn (open, or closing): a closed edit row costs nothing on each transcript update.
+  const files = useMemo(() => (fold.present && hasDiff ? toolFiles([tool]) : []), [fold.present, hasDiff, tool]);
   const cwd = useContext(SessionCwdContext);
   const running = tool.status === "pending" || tool.status === "in_progress";
   const label = toolLabel(
@@ -124,17 +126,21 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>
       )}
       {images.length > 0 && <ToolImages sources={images} />}
-      {open && shell && (
-        <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} reveal={reveal} />
-      )}
-      {open && !shell && files.length > 0 && (
-        <div id={detailsId}>
-          {files.map((file) => (
-            <EditDiff key={file.path} file={file} />
-          ))}
+      {fold.present && (shell || files.length > 0 || body) && (
+        <div ref={fold.ref} className="cv-fold">
+          {shell ? (
+            <ShellBlock id={detailsId} command={tool.command} output={body} exitCode={tool.exitCode} reveal={reveal} />
+          ) : files.length > 0 ? (
+            <div id={detailsId}>
+              {files.map((file) => (
+                <EditDiff key={file.path} file={file} />
+              ))}
+            </div>
+          ) : (
+            <ToolOutput id={detailsId} output={body!} reveal={reveal} />
+          )}
         </div>
       )}
-      {open && !shell && files.length === 0 && body && <ToolOutput id={detailsId} output={body} reveal={reveal} />}
     </>
   );
 }

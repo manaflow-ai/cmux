@@ -7,6 +7,10 @@
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
 :root {
+  /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts). The host's
+     move duration (--agent-motion-move, AgentPaneTheme.swift: ~190ms, 0 under Reduce Motion or with
+     animation off), the token the newtab-resize-anim lane's resizes share; 180ms without a host. */
+  --cv-fold-duration: var(--agent-motion-move, 180ms);
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
   --cv-text-dim: var(--agent-soft); /* progress rows */
@@ -1489,15 +1493,21 @@ pre.cv-math-source {
 .cv-iconbtn:focus:not(:focus-visible) {
   outline: none;
 }
-/* One right chevron, turned a quarter when open; a message head's shows on hover. */
+/* One right chevron, turned a quarter when open; a message head's shows on hover. It turns with the
+   fold it opens (fold.ts), on the same token. */
 .cv-rotor {
   flex: none;
 }
 /* With Reduce Motion on, the chevron snaps to its new angle. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-rotor {
-    transition: transform 150ms ease-out;
+    transition: transform var(--cv-fold-duration) var(--agent-ease-out, ease-out);
   }
+}
+/* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
+   margins stay inside the height the fold animates instead of popping in at its ends. */
+.cv-fold {
+  display: flow-root;
 }
 .cv-rotor.is-open {
   transform: rotate(90deg);
@@ -3239,4 +3249,9 @@ button.cv-received__name:focus-visible {
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {
   padding-left: 32.5px;
+}
+/* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
+   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
+.cv-waiting {
+  color: var(--cv-text);
 }

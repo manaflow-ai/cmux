@@ -5,10 +5,13 @@
 // conversation.css), still under Reduce Motion and the static status look. Before the turn, while
 // the prompt waits for its agent to start, the same line reads the start status ("Starting Claude
 // Code…") with Cancel, no time and no sweep, so the line keeps one place from send to the first
-// output (cx-ncc.58). Only the status is the live region.
-import { useEffect, useState } from "react";
+// output (cx-ncc.58). Only the status is the live region. While the chat waits on the person (an
+// ask above the composer, waitingOn.ts), the line says that instead, with no time and no sweep:
+// never "Thinking" while the agent is blocked on them.
+import { useContext, useEffect, useState } from "react";
 import { useT } from "../i18n";
 import { formatDuration } from "./turns";
+import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { useTicking } from "./WorkingFor";
 
 /// How long streaming text must hold still before the live line comes back under it.
@@ -59,10 +62,11 @@ export function Thinking({
   below?: boolean;
 } = {}) {
   const t = useT();
+  const waiting = useContext(WaitingOnContext);
   const from = doing !== undefined ? doingAt : untimed ? undefined : since;
-  const timed = !status && from !== undefined;
+  const timed = !status && !waiting && from !== undefined;
   const time = useTicking(timed, now);
-  const quiet = useQuiet(status || doing !== undefined ? undefined : quietKey);
+  const quiet = useQuiet(status || waiting || doing !== undefined ? undefined : quietKey);
   const label =
     status ??
     (doing === undefined
@@ -74,7 +78,13 @@ export function Thinking({
         : doing);
   return (
     <div className={`cv-worked${below ? " is-below" : ""}${quiet ? "" : " is-quiet"}`} data-find-skip>
-      <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
+      {waiting ? (
+        <output className="cv-thinking cv-waiting" data-waiting={waiting}>
+          {t(WAITING_LABEL[waiting])}
+        </output>
+      ) : (
+        <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
+      )}
       {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
       {status && onCancel && (
         <button type="button" className="cv-thinking__cancel" onClick={onCancel}>

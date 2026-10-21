@@ -10,7 +10,9 @@
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
 // the label nor the rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
 // ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
-// ends, the "Worked for" disclosure takes its place.
+// ends, the "Worked for" disclosure takes its place. While the turn waits on the person (an ask
+// above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
+// would read as the agent still working.
 //
 // Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
 // has no rule under it and its clock never stops while the turn runs, and before any output
@@ -22,6 +24,7 @@ import type { BackgroundCounts } from "../summary/backgroundWork";
 import { TerminalSquare } from "./icons";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
+import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 
 export const workingLabel = (t: Translate, at: number, now: number) =>
   t("turn.working", { time: formatDuration(Math.max(0, now - at)) });
@@ -68,8 +71,10 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   const t = useT();
   const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
+  const waiting = useContext(WaitingOnContext);
   const held = !row.below && row.durationMs !== undefined;
-  const time = useTicking(!held, now);
+  // No tick while the line waits on the person: it shows no time.
+  const time = useTicking(!held && waiting === undefined, now);
   const until = held ? row.at + row.durationMs! : time;
   // While the call's group is open, its own row under the line names it (turns.ts `ownRow`).
   const [groupOpen] = useTranscriptDisclosure(row.doingGroup ?? "", row.doingGroupOpen === true);
@@ -97,12 +102,16 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
     // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
     // line is not painted either: the call it names is matched on its own tool row.
     <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"} data-find-skip>
-      {doing && row.doingCommand && (
+      {!waiting && doing && row.doingCommand && (
         <span className="cv-worked__glyph" aria-hidden="true">
           <TerminalSquare />
         </span>
       )}
-      {doing || row.thinkingNow ? (
+      {waiting ? (
+        <output className="cv-worked__label cv-waiting" data-waiting={waiting}>
+          {t(WAITING_LABEL[waiting])}
+        </output>
+      ) : doing || row.thinkingNow ? (
         <>
           <span className={doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
             {doing ?? t("thinking")}
