@@ -146,6 +146,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-perf-source-guard.py
+      - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -363,6 +365,8 @@ on:
       - scripts/cmux-next/skew-matrix*
       - scripts/cmux-next/check-capability-text.py
       - scripts/cmux-next/check-single-omnibar.py
+      - scripts/cmux-next/check-perf-source-guard.py
+      - tests/test_cmux_next_perf_source_guard.py
       - scripts/cmux-next/gen-protected-folders.py
       - cmux-tui/crates/acpmux/data/protected-folders.json
       - scripts/cmux-next/gen-settings-sources.py
@@ -1276,12 +1280,16 @@ jobs:
             bash tests/test_strip_release_bundle.sh
             # The pre-push gate refuses a push that adds a violation and names the commit in CI.
             python3 tests/test_cmux_next_prepush_gate.py
+            # The perf gate skips its per-frame timings on a window that draws no frames (--frames auto).
+            python3 tests/test_cmux_next_perf_gate_unlit.py
             # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
             python3 tests/test_base_merge_warning.py
             # A changed tree, workflow file or toolchain never reuses a fast-tier pass (CI_NEXT_JOB_REUSE).
             python3 tests/test_job_input_fingerprint.py
             # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
             python3 tests/test_merge_compile_guard.py
+            # The advisory test-compile check: its plan, the lane phase and red only for a compile failure.
+            python3 tests/test_ci_compile_test_plan.py
             # The merge guards run from the feat-cmux-next tip, never a pull request's checkout.
             python3 tests/test_guard_hooks_from_base.py
             # ci-guards.yml's `ci` group runs for feat-cmux-next too (cmux-next-guards.yml).
@@ -1358,6 +1366,7 @@ jobs:
             bash scripts/ci/tests/package-test-lane-suite-args.test.sh
             bash scripts/ci/tests/package-test-lane-sdkroot.test.sh
             bash scripts/ci/tests/first-turn-cost-count-fallback.test.sh
+            bash scripts/ci/tests/run-webviews-tests-retry.test.sh
             bash scripts/cmux-next/tests/cef-credits.test.sh
             bash scripts/cmux-next/tests/swift-test-summary.test.sh
             bash scripts/cmux-next/tests/cef-license.test.sh
@@ -1425,6 +1434,16 @@ jobs:
           python3 tests/test_app_store_rules.py
           python3 tests/test_cmux_next_ios_test_notes_retry.py
           python3 -I scripts/cmux-next/check-app-store-rules.py --source .
+
+      # The perf gate's source guard without an app (I5: a theme change captures no window and
+      # forces no commit). The perf gate runs only where the scheme compiles, which a direct
+      # push skips; two hits landed that way (36c5b4217488, 715f623c97e1).
+      - name: Perf source guard (no window capture or CATransaction.flush)
+        id: perf-source-guard
+        continue-on-error: true
+        run: |
+          python3 tests/test_cmux_next_perf_source_guard.py
+          python3 -I scripts/cmux-next/check-perf-source-guard.py
 
       - name: Checks job structure
         id: checks-structure
@@ -1633,6 +1652,7 @@ jobs:
             ${{ steps.browser-chrome-icons.outcome }}|Browser chrome icons
             ${{ steps.capability-text.outcome }}|Capability texts never say update the app
             ${{ steps.app-store-rules.outcome }}|App Store review rules (cmux-next-ios intents, Info.plist)
+            ${{ steps.perf-source-guard.outcome }}|Perf source guard (no window capture or CATransaction.flush)
             ${{ steps.checks-structure.outcome }}|Checks job structure
             ${{ steps.tier-routing.outcome }}|Tier routing
             ${{ steps.package-dependency-lists.outcome }}|Package dependency lists sorted

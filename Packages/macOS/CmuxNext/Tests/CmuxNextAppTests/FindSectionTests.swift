@@ -56,6 +56,22 @@ struct FindSectionTests {
         #expect(effects.openedInDefaultApp == [URL(fileURLWithPath: Self.match.path)])
     }
 
+    /// A result opens its file at the matching line and column, not at the top.
+    @Test func aResultOpensAtItsLineAndColumn() {
+        let effects = FileExplorerTests.Recorder()
+        FindSectionModel.open(Self.match, effects: effects)
+        #expect(effects.openedInCmuxAt == [FilePosition(line: 12, column: 5)])
+    }
+
+    /// rg reports the match's start in UTF-8 bytes; the editor counts UTF-16 units, so a match
+    /// after "é" (two bytes, one unit) is in column 3, not 4.
+    @Test func aMatchColumnCountsUTF16Units() throws {
+        let line = #"{"type":"match","data":{"path":{"text":"/tmp/project/a.txt"},"lines":{"text":"é needle\n"},"line_number":4,"submatches":[{"match":{"text":"needle"},"start":3,"end":9}]}}"#
+        let match = try #require(RipgrepSearch.parse(line, root: "/tmp/project"))
+        #expect(match.line == 4)
+        #expect(match.column == 3)
+    }
+
     @Test(arguments: ["switchRightSidebarToFind", "palette.openFindPane"])
     func theFindActionsAreWorkingActions(id: String) {
         _ = NSApplication.shared
