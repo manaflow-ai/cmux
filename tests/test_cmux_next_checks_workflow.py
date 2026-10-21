@@ -2005,5 +2005,70 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         self.assertEqual(group(daily), ("cmux-next-99", False))
 
 
+class AppSizeCapOnPush(unittest.TestCase):
+    """The CmuxNextApp size cap step on a push compares with the commit before the push, so a push
+    that adds no App source lines passes while the App sits over the cap (every feat-cmux-next push
+    was red on it, 2026-10-21), and a push that adds source lines still fails."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.app = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextApp"
+        self.app.mkdir(parents=True)
+        scripts = self.repo / "scripts/cmux-next"
+        scripts.mkdir(parents=True)
+        for name in ("check-app-size.sh", "count-swift-code-lines.py"):
+            (scripts / name).write_text((ROOT / "scripts/cmux-next" / name).read_text())
+            (scripts / name).chmod(0o755)
+        (scripts / "app-size-baseline.txt").write_text("2\n")
+        # Over the cap of 2 on the commit before the push.
+        (self.app / "App.swift").write_text("let first = 1\nlet second = 2\nlet third = 3\n")
+        self.git("init", "-q", "-b", "main")
+        self.commit("before")
+        self.before = self.head()
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, message: str) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", message, "--allow-empty")
+
+    def head(self) -> str:
+        return self.git("rev-parse", "HEAD")
+
+    def run_step(self, before: str) -> subprocess.CompletedProcess:
+        step = next(s for s in steps() if s.get("id") == "app-size")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(EVENT_NAME="push", FULL_CI="true", BEFORE=before, GITHUB_WORKSPACE=str(self.repo),
+                   GITHUB_SHA=self.head())
+        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env,
+                              capture_output=True, text=True, timeout=120)
+
+    def test_a_push_that_adds_no_app_source_passes_over_the_cap(self):
+        (self.repo / "README.md").write_text("docs\n")
+        (self.app / "App.swift").write_text("let first = 1\nlet second = 2\nlet third = 3\n// note\n")
+        self.commit("docs and a comment")
+        result = self.run_step(self.before)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no source-line growth", result.stdout)
+
+    def test_a_push_that_adds_app_source_still_fails(self):
+        (self.app / "Feature.swift").write_text("let feature = 4\n")
+        self.commit("a feature in the App")
+        result = self.run_step(self.before)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("real source growth is not allowed", result.stderr)
+
+    def test_a_push_with_no_before_commit_checks_the_plain_cap(self):
+        self.commit("first push of a branch")
+        result = self.run_step("0" * 40)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("CmuxNextApp is capped at 2 lines", result.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()
