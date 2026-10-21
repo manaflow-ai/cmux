@@ -65,7 +65,7 @@ nonisolated extension ActionSurfaceCatalog {
             "layout.toggleStripScrollbar", "recentlyFocused", "recentlyClosed", "history.commands", "history.show", "agentHistory.show",
             "music.open", "music.stop",
             "browserShowHistory", "history.search", "history.resumeAgentSession", "history.reopen", "history.open", "history.clear",
-            "layout.undo", "bookmark.add", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export", "agentActivity.open",
+            "layout.undo", "agentActivity.open",
             "palette.openVaultPane",
         ],
         .noTargetSurface: [

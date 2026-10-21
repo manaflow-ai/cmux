@@ -44,6 +44,17 @@ class BaseAutofixFinishes(unittest.TestCase):
             with self.subTest(job=job):
                 self.assertFalse(DOC["jobs"][job]["concurrency"]["cancel-in-progress"])
 
+    def test_the_autofix_that_carries_mac_exports_is_never_replaced_while_pending(self):
+        # 2026-10-21: runs whose own Mac job a newer push replaced still run autofix (about 1.5 minutes,
+        # every minute or two), so the run whose Mac job finished queued its autofix behind one of them,
+        # and the next push replaced it: half an hour of Mac exports lost. That autofix has a group of
+        # its own; the others still queue only the latest, one group per branch.
+        group = DOC["jobs"]["autofix"]["concurrency"]["group"]
+        self.assertIn("needs.action-exports.outputs.exports == 'true'", group)
+        self.assertIn("github.run_id", group)
+        self.assertIn("github.ref_name", group)
+        self.assertIn("github.ref_name", DOC["jobs"]["action-exports"]["concurrency"]["group"])
+
     def push(self, moved: dict[str, str] | None, *, repair: dict[str, str] | None = None,
              reject_without_moving=False, move_again: dict[str, str] | None = None):
         """Run the push loop: a repair (default: the settings export) made at HEAD_SHA, while feat-cmux-next
@@ -193,8 +204,50 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertNotIn("kept moving", out)
 
     def test_the_workflow_pushes_through_the_script(self):
+        # base-autofix-land.sh pushes with base-autofix-push.sh, and makes a held repair again on the tip.
         push = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")["run"]
-        self.assertIn("scripts/cmux-next/base-autofix-push.sh", push)
+        self.assertIn("scripts/cmux-next/base-autofix-land.sh", push)
+        self.assertIn("base-autofix-push.sh", (ROOT / "scripts/cmux-next/base-autofix-land.sh").read_text())
+
+    def test_the_mac_job_regenerates_the_settings_exports_on_the_newest_tip(self):
+        # 2026-10-21: a run takes ~28 minutes and feat-cmux-next takes a push a minute, so some push
+        # nearly always moved a settings input and the exports made at HEAD_SHA were held on every run.
+        # The Mac job regenerates them on the newest tip (a bounded number of times) and says where.
+        job = DOC["jobs"]["action-exports"]
+        step = next(step for step in job["steps"] if step.get("id") == "settings")
+        self.assertIn("scripts/cmux-next/base-autofix-settings-exports.sh", step["run"])
+        self.assertIn("made_at=", step["run"])
+        self.assertEqual(job["outputs"]["settings_made_at"], "${{ steps.settings.outputs.made_at }}")
+
+    def test_a_slow_settings_regeneration_never_costs_the_action_exports(self):
+        # Up to three swift builds: the settings step has its own timeout, below the job's, so a slow
+        # one fails that step (continue-on-error) and the upload of the action exports still runs.
+        job = DOC["jobs"]["action-exports"]
+        steps = job["steps"]
+        settings = next(i for i, step in enumerate(steps) if step.get("id") == "settings")
+        upload = next(i for i, step in enumerate(steps) if "upload-artifact" in str(step.get("uses", "")))
+        self.assertTrue(steps[settings].get("continue-on-error"))
+        self.assertIn("timeout-minutes", steps[settings])
+        self.assertLess(steps[settings]["timeout-minutes"], job["timeout-minutes"])
+        before = [step for step in steps[:settings] if "timeout-minutes" not in step]
+        self.assertLessEqual(steps[settings]["timeout-minutes"] + 15, job["timeout-minutes"],
+                             "leave the earlier steps and the upload room inside the job's timeout")
+        self.assertGreater(upload, settings)
+        self.assertTrue(before)
+
+    def test_the_push_judges_the_settings_exports_from_where_they_were_made(self):
+        step = next(step for step in DOC["jobs"]["autofix"]["steps"] if step.get("name") == "Push the repairs")
+        self.assertEqual(step["env"]["SETTINGS_MADE_AT"], "${{ needs.action-exports.outputs.settings_made_at }}")
+        self.assertIn('"$HEAD_SHA" "$SETTINGS_MADE_AT"', step["run"])
+
+    def test_the_push_script_knows_every_settings_export(self):
+        # The push lands the whole export made at SETTINGS_MADE_AT, file by file from this list.
+        def listed(path: Path, name: str) -> set[str]:
+            text = path.read_text()
+            body = text.split(f"{name}=(", 1)[1].split(")", 1)[0]
+            return set(body.split())
+        self.assertEqual(listed(PUSH_SCRIPT, "settings_exports"),
+                         listed(ROOT / "scripts/cmux-next/regenerate-settings-exports.sh", "exports"))
 
     def test_ci_runs_this_test(self):
         steps = DOC_NEXT["jobs"]

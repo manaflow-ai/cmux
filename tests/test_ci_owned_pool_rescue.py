@@ -1517,6 +1517,11 @@ class Nightly(unittest.TestCase):
         self.assertEqual(rescue.job_pool({"labels": ["glaeda-fast-std-xcode-26.6"]}),
                          "glaeda-fast-std-xcode-26.6")
 
+    def test_the_session_lane_is_an_owned_pool(self):
+        # cmux-next.yml's generated files run on CI_SESSION_LANE_RUNNER, a glaeda-session-* runner.
+        self.assertEqual(rescue.job_pool({"labels": ["glaeda-session-light-xcode-26.6"]}),
+                         "glaeda-session-light-xcode-26.6")
+
     def test_the_marker_listing_pages_past_the_window_by_the_id_order_skew(self):
         api = rescue.GitHub("token", "manaflow-ai/cmux")
         start = dt.datetime(2026, 9, 27, 12, 0, tzinfo=dt.timezone.utc)

@@ -267,6 +267,9 @@ public struct DaemonCapabilities: Sendable {
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
     public let agentSessionAttach = "agent-session-attach-v1"
+    /// Read-only observation of a remote agent session. An observer never falls back to the
+    /// writable attach capability (`cmux-tui/spec/commands.md`, `agent-session-observe`).
+    public let agentSessionObserve = "agent-session-observe-v1"
     /// `agent-update-plan` / `agent-update-apply`: a machine's outdated agent CLIs, their update and
     /// its chats' restart on them (Update Everything, cmux-tui/spec/commands.md "Agent CLI updates").
     public let agentUpdate = "agent-update-v1"
@@ -282,6 +285,10 @@ public struct DaemonCapabilities: Sendable {
     /// `agent_session.needs_keyed_start` (cx-0w0jj): that machine's daemon says whether a keyed
     /// restart of its acpmux can lose nothing, so the app no longer reads the acpmux status.
     public let agentSessionStartKeyedReason = "agent-session-start-keyed-reason-v1"
+    /// `agent-session-children`: an attached chat's daemon lists the chats its session started on
+    /// that machine and streams their changes, and a listed child opens in a tab of that machine
+    /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
+    public let agentSessionChildren = "agent-session-children-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     public let pageTabs = "page-tabs-v1"
@@ -468,7 +475,7 @@ public struct DaemonCapabilities: Sendable {
                                             terminalCommandHistory, dockColumns, edgeDocks, dockColumnRole, pinnedDock, pinnedDockAlone, rows, columnMove, tabColumnRespawn, endTerminalsKeepLayout, stateResources,
                                             sessionIdentity, localConversations, conversationDraftEvents, chiefLive, cloudChiefLive, conversationRuns, cloudConversationRuns, cloudConversationTyping, tabSplitRespawn, tabSplitKeepFocus, workspaceCreateFocus, frontendBrowserHistory, frontendBrowserTabProfile,
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
-                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, agentUpdate, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, cloudAttachments, cloudSelfHost, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
+                                            workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionObserve, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, agentSessionChildren, agentUpdate, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, cloudAttachments, cloudSelfHost, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
                                             terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,
