@@ -198,6 +198,13 @@ public final class LayoutRootView: NSView {
         return view.navigationFrames
     }
 
+    /// Size `pane` comes to rest at in the current layout (active screen only): a new split's
+    /// final size while its host still grows in from the edge (``frame(of:)`` is the shown one).
+    public func restingSize(of pane: PaneID) -> CGSize? {
+        guard let active = model.activeScreenID, let view = screenViews[active] else { return nil }
+        return view.restingFrame(of: pane)?.size
+    }
+
     /// Displayed frame of `pane` in this view's coordinates (active screen only).
     public func frame(of pane: PaneID) -> CGRect? {
         guard let active = model.activeScreenID, let view = screenViews[active], let rect = view.displayedFrame(of: pane) else { return nil }
