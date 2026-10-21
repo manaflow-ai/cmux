@@ -26,6 +26,9 @@ struct World {
     socket: PathBuf,
     /// `bin` has a fake `ssh` and `scp`.
     fake_ssh: bool,
+    /// The app's control socket every command reaches (`CMUX_SOCKET_PATH`),
+    /// a `FakeApp`; none when unset.
+    app: Option<PathBuf>,
 }
 
 impl World {
@@ -46,6 +49,7 @@ impl World {
             bin: dir.join("bin"),
             socket: dir.join("d.sock"),
             fake_ssh: false,
+            app: None,
         };
         for path in [&world.home, &world.acpmux, &world.repo, &world.bin] {
             std::fs::create_dir_all(path).unwrap();
@@ -131,7 +135,13 @@ exit 0
             .env_remove("CLAUDE_CONFIG_DIR")
             .env_remove("CODEX_HOME")
             .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
             .stdin(Stdio::null());
+        if let Some(app) = &self.app {
+            // Only the fake app: never the cmux app of the machine running the tests.
+            command.env("CMUX_SOCKET_PATH", app);
+        }
         // No Claude sign-in from the runner's own env.
         for key in [
             "ANTHROPIC_API_KEY",
@@ -851,7 +861,13 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
     let tasks = status["checks"].as_array().unwrap().iter().map(|c| &c["task"]).collect::<Vec<_>>();
     assert_eq!(
         tasks,
-        [&json!("trust"), &json!("machine"), &json!("harness"), &json!("mcp")],
+        [
+            &json!("trust"),
+            &json!("machine"),
+            &json!("harness"),
+            &json!("mcp"),
+            &json!("computer_use")
+        ],
         "{status}"
     );
     let check = &status["checks"][2];
@@ -1155,4 +1171,176 @@ fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
     let back: Value =
         serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
     assert_eq!(back["mcpServers"]["cmux"]["command"], gone, "{back}");
+}
+
+/// A fake cmux app on a socket of the world's that serves what `cmux setup
+/// computer-use` and `cmux settings set` ask: `computer_use.status` answers
+/// `status`; `settings.set computerUse.enabled` with `confirm` is the
+/// person's sheet, approved while `approve` is set (true turns Computer Use
+/// on with the grants of `on`, false turns it off) and declined otherwise.
+/// Every request is kept.
+struct FakeApp {
+    status: Arc<Mutex<Value>>,
+    approve: Arc<std::sync::atomic::AtomicBool>,
+    requests: Arc<Mutex<Vec<Value>>>,
+}
+
+impl FakeApp {
+    fn start(world: &mut World, off: Value, on: Value) -> Self {
+        let socket = world.home.parent().unwrap().join("app.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        world.app = Some(socket);
+        let app = Self {
+            status: Arc::new(Mutex::new(off.clone())),
+            approve: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        };
+        let (status, approve, requests) =
+            (app.status.clone(), app.approve.clone(), app.requests.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { break };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    line.clear();
+                    let params = &request["params"];
+                    let answer = match request["method"].as_str() {
+                        Some("computer_use.status") => Ok(status.lock().unwrap().clone()),
+                        Some("settings.set")
+                            if params["path"] == "computerUse.enabled"
+                                && params["confirm"] == true =>
+                        {
+                            if approve.load(Ordering::SeqCst) {
+                                let next = if params["value"] == true { &on } else { &off };
+                                *status.lock().unwrap() = next.clone();
+                                Ok(json!({"path": params["path"], "value": params["value"]}))
+                            } else {
+                                Err(json!({"code": "setting_user_only", "message": "declined",
+                                    "data": {"declined": true}}))
+                            }
+                        }
+                        Some("settings.set") => Err(json!({"code": "setting_user_only",
+                            "message": "computerUse.enabled is the person's; pass --confirm"})),
+                        _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
+                    };
+                    let response = match answer {
+                        Ok(result) => json!({"id": request["id"], "ok": true, "result": result}),
+                        Err(error) => json!({"id": request["id"], "ok": false, "error": error}),
+                    };
+                    requests.lock().unwrap().push(request);
+                    if writeln!(writer, "{response}").is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        app
+    }
+
+    /// The `settings.set` params the app received, in order.
+    fn settings_sets(&self) -> Vec<Value> {
+        let requests = self.requests.lock().unwrap();
+        requests
+            .iter()
+            .filter(|r| r["method"] == "settings.set")
+            .map(|r| r["params"].clone())
+            .collect()
+    }
+}
+
+/// Computer Use driven the way an agent drives it: `status` names it, a dry
+/// run asks nothing, the person declines and then allows it on the app's
+/// sheet (one click), each missing macOS grant comes back as the System
+/// Settings pane to open, and the `undo` turns it off on the same sheet.
+#[test]
+fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant() {
+    const UNDO: &str = "cmux settings set computerUse.enabled false --confirm";
+    let mut world = World::new("cu");
+    let off =
+        json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null});
+    let on =
+        json!({"phase": "ready", "accessibility": false, "screen_recording": true, "helper": "1"});
+    let app = FakeApp::start(&mut world, off, on);
+
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][4];
+    assert_eq!(check["task"], "computer_use", "{status}");
+    assert_eq!(check["state"], "needs_setup", "{check}");
+    let fix = check["fix"].as_str().expect("status names its fix").to_owned();
+    assert_eq!(fix, "cmux setup computer-use");
+
+    let planned = world.json(&["setup", "computer-use", "--dry-run"]);
+    assert_eq!(planned["state"], "planned", "{planned}");
+    assert_eq!(planned["undo"], UNDO);
+    assert!(app.settings_sets().is_empty(), "a dry run asked the person");
+
+    // The person declines: nothing changed, and the agent does not ask again.
+    app.approve.store(false, Ordering::SeqCst);
+    let declined = world.follow(&fix);
+    assert_eq!(declined["state"], "needs_user", "{declined}");
+    assert_eq!(declined["user_action"]["kind"], "declined", "{declined}");
+    assert_eq!(declined["undo"], Value::Null);
+
+    // The person allows it: on, and the one grant still missing.
+    app.approve.store(true, Ordering::SeqCst);
+    let on = world.follow(&fix);
+    assert_eq!(on["state"], "needs_user", "{on}");
+    assert_eq!(on["undo"], UNDO, "{on}");
+    assert_eq!(on["before"]["phase"], "off");
+    assert_eq!(on["after"]["phase"], "ready");
+    let action = &on["user_action"];
+    assert_eq!(action["kind"], "grant", "{action}");
+    let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+    assert_eq!(action["url"], url);
+    assert_eq!(action["command"], format!("open '{url}'"));
+    let sets = app.settings_sets();
+    assert_eq!(sets.len(), 2, "{sets:?}");
+    assert_eq!(sets[1]["path"], "computerUse.enabled");
+    assert_eq!(sets[1]["value"], true);
+    assert_eq!(sets[1]["confirm"], true);
+
+    // The person turns the switch on; nothing is left and nothing is asked.
+    app.status.lock().unwrap()["accessibility"] = json!(true);
+    let ready = world.json(&["setup", "computer-use"]);
+    assert_eq!(ready["state"], "ok", "{ready}");
+    assert_eq!(ready["undo"], Value::Null);
+    assert_eq!(ready["user_action"], Value::Null);
+    assert_eq!(app.settings_sets().len(), 2, "an ok run asked the person");
+    assert_eq!(world.json(&["setup", "status"])["checks"][4]["state"], "ok");
+
+    // The undo, as the agent's shell runs it: the same sheet, turned off.
+    let words = shell_words(UNDO);
+    let args = words[1..].iter().map(String::as_str).collect::<Vec<_>>();
+    let output = world.run(&args);
+    assert!(output.status.success(), "{UNDO}: {}", String::from_utf8_lossy(&output.stderr));
+    let sets = app.settings_sets();
+    assert_eq!((&sets[2]["value"], &sets[2]["confirm"]), (&json!(false), &json!(true)), "{sets:?}");
+    assert_eq!(world.json(&["setup", "computer-use", "--dry-run"])["state"], "planned");
+
+    let output = world.run(&["setup", "computer-use", "now"]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+/// Managed settings, a helper that is not ready, and no app: each is named
+/// for the person and nothing is asked of the app but its status.
+#[test]
+fn cmux_setup_computer_use_names_what_it_cannot_change() {
+    for (phase, kind) in [("disabled_by_policy", "policy"), ("version_mismatch", "app")] {
+        let mut world = World::new("cupolicy");
+        let status = json!({"phase": phase, "accessibility": null, "screen_recording": null});
+        let app = FakeApp::start(&mut world, status.clone(), status);
+        let result = world.json(&["setup", "computer-use"]);
+        assert_eq!(result["state"], "needs_user", "{result}");
+        assert_eq!(result["user_action"]["kind"], kind, "{result}");
+        assert_eq!(result["undo"], Value::Null);
+        assert!(app.settings_sets().is_empty(), "{phase}: setup changed a setting");
+    }
+    let mut world = World::new("cunoapp");
+    world.app = Some(world.home.parent().unwrap().join("gone.sock"));
+    let result = world.json(&["setup", "computer-use"]);
+    assert_eq!(result["state"], "needs_user", "{result}");
+    assert_eq!(result["user_action"]["kind"], "app", "{result}");
 }

@@ -97,3 +97,9 @@ one.
   that line, do not edit the file. Kind `conflict` means their own server
   is named `cmux`: ask before removing it. `undo` is the shell line that
   puts each changed config back.
+- Computer Use: `cmux setup computer-use` turns it on: cmux shows the user
+  a sheet to allow it (tell them to click Allow), then each missing macOS
+  grant comes back as `user_action` kind `grant`; run its `command` to
+  open the System Settings pane and tell them which switch to turn on.
+  Kind `declined` means they said no: do not ask again unless they bring
+  it up.

@@ -17,7 +17,7 @@ for what a person must do: an OAuth sign-in, a secret, a macOS switch.
 | Cloud machine | GUI (New Cloud Machine sheet) | `cmux cloud new-machine` opens the sheet; `cmux-vm create` (operator) | sheet no; cmux-vm yes | cmux-vm yes (idempotency keys) |
 | Tailscale, mesh | CLI only | `cmux host enable/status --json`; needs Tailscale signed in | yes | yes |
 | MCP servers | docs only; chats cmux starts get them (acpmux `agent_tools`) | `cmux setup mcp [claude\|codex ...]`; `cmux agents doctor --json` checks cmux-cua | yes | yes |
-| Computer Use | GUI (Computer Use Setup) | `cmux agent computer-use-setup`; grants are switches in System Settings | doctor yes | yes |
+| Computer Use | GUI (Computer Use Setup) | `cmux setup computer-use`; the person allows it on the app's sheet, and grants are switches in System Settings | yes | yes |
 | Browser import | GUI (Import from Browser...) | `cmux bookmark import-from-browser`, `cmux browser import-cookies` (consent panel); history and passwords person-only | partly | bookmarks/history merge |
 | Keyboard shortcuts | GUI (Keyboard Shortcuts) | `cmux keybinding list/resolve --json`; edits only over the raw socket or keybindings.json | reads yes | yes |
 | Notifications | GUI (Settings) | `cmux settings get/set notifications.*`; macOS permission asked on first use | yes | set yes; toggle-workspace-mute no |
@@ -191,3 +191,21 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    adds `server` (`{name, command, args}`), `settings`, `enabled` and
    `clients` (`{id, name, state, installed, config, entry, undo,
    user_action, error}`). `cmux setup status` adds an `mcp` check.
+5. `computer-use`: lets agents use the Mac through cmux Computer Use. The
+   state is the app's `computer_use.status` (`{phase, accessibility,
+   screen_recording, helper}`, the model behind Computer Use Setup and
+   `cmux agents doctor`). Phase `off`: setup sends `settings.set
+   computerUse.enabled true` with `confirm: true`; the key is the
+   person's, so the app asks them on its native sheet and setup waits for
+   that one click. Allowed is `changed` with `undo` `cmux settings set
+   computerUse.enabled false --confirm` (the same sheet); declined is
+   `needs_user` (`kind` `declined`), and the agent asks before trying
+   again. Once on, each missing grant is `needs_user` (`kind` `grant`)
+   whose `command` opens its System Settings pane (`open
+   'x-apple.systempreferences:...'`), Accessibility first. Managed
+   settings that turn it off (`kind` `policy`), a helper that is starting
+   (`kind` `wait`) or not ready (`kind` `app`, `cmux action run
+   palette.computerUse.setup`) and no running app (`kind` `app`) are named
+   and left. Capture consent is not reported by the app yet. Off macOS,
+   with no app socket named, it is `not_applicable`. `cmux setup status`
+   adds a `computer_use` check.
