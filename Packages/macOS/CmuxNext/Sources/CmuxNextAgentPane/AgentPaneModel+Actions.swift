@@ -1,8 +1,10 @@
 extension AgentPaneModel {
     /// The app actions any agent tab may run: the location row's SSH…, New Cloud Machine and Open
-    /// Cloud…, which opens the Cloud page (its Sizes and Plans view lists the plan's sizes; the
-    /// pane knows no plan). webviews environments.ts CONNECT_ACTIONS names the same three.
+    /// Cloud…, which opens the Cloud page at its storefront (`#/get`: the plan's sizes; the pane
+    /// knows no plan). webviews environments.ts CONNECT_ACTIONS names the same three.
     static let connectActions: Set<String> = ["remote.connect", "newCloudMachine", "palette.openCloudPane"]
+    /// The arguments a connect action runs with.
+    static let connectArguments: [String: [String: String]] = ["palette.openCloudPane": ["route": "/get"]]
     /// What runs when a connect is refused: signed out, cmux Cloud… starts sign-in.
     static let connectFallbacks: [String: String] = ["newCloudMachine": "palette.auth.signIn"]
 
@@ -19,7 +21,7 @@ extension AgentPaneModel {
             return Self.unsupported("action.run")
         }
         if Self.connectActions.contains(id), !transport.gestures.consume() { return Self.transportFailure(.gestureRequired) }
-        if !onRunAction(id), let fallback = Self.connectFallbacks[id] { _ = onRunAction(fallback) }
+        if !onRunAction(id, Self.connectArguments[id] ?? [:]), let fallback = Self.connectFallbacks[id] { _ = onRunAction(fallback, [:]) }
         return AgentPaneReply.success()
     }
 }

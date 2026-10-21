@@ -45,14 +45,17 @@ afterAll(() => {
 })
 afterEach(() => vi.restoreAllMocks())
 
-interface Started { readonly vm: string; readonly run: string; readonly input: { notes_url: string; token: string; prompt: string; system: string; model: string } }
+interface Started { readonly vm: string; readonly run: string; readonly input: { notes_url: string; token: string; prompt: string; system: string; model: string; net: any } }
 /** Freestyle, the Tailscale API and the turn machine at their HTTP boundary; the Worker's own calls go to the real fetch. */
-const fakeCloud = (answer: (prompt: string, n: number) => string) => {
+const fakeCloud = (answer: (prompt: string, n: number) => string, during?: (s: Started, n: number) => Promise<void>) => {
   const real = globalThis.fetch
   const made: Array<{ id: string; body: any }> = []
   const deleted: Array<string> = []
   const boots: Array<{ vm: string; stdin: string }> = []
   const started: Array<Started> = []
+  // The network apply scripts (chief-brain-cc/net.ts), and every exec in order.
+  const nets: Array<{ vm: string; script: string }> = []
+  const steps: Array<string> = []
   const keys: Array<string> = []
   const other: Array<string> = []
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
@@ -84,20 +87,23 @@ const fakeCloud = (answer: (prompt: string, n: number) => string) => {
       const vm = ex[1]!
       const body = (await req.json()) as { command: string; stdin?: string }
       const stdin = body.stdin ? atob(body.stdin) : ""
+      steps.push(`${vm} ${body.command.split(" ")[0]}`)
       if (body.command.startsWith("/opt/chief-cc/boot.sh ")) return boots.push({ vm, stdin }), Response.json({ statusCode: 0, stdout: "ready\n" })
+      if (body.command === "bash -s") return nets.push({ vm, script: stdin }), Response.json({ statusCode: 0, stdout: "net ok\n" })
       const start = /^\/opt\/chief-cc\/start\.sh (run_[0-9]+)$/.exec(body.command)
       if (start) {
         const s: Started = { vm, run: start[1]!, input: JSON.parse(stdin) }
         started.push(s)
         // The turn machine: the stream, then the result, posted to the Worker as run.mjs does.
-        setTimeout(() => void machine(s, answer(s.input.prompt, started.length)), 20)
+        const n = started.length
+        setTimeout(() => void (during ?? (async () => undefined))(s, n).then(() => machine(s, answer(s.input.prompt, n))), 20)
         return Response.json({ statusCode: 0, stdout: "started\n" })
       }
       return Response.json({ statusCode: 0, stdout: "" })
     }
     return new Response("unexpected", { status: 500 })
   })
-  return { made, deleted, boots, started, keys, other }
+  return { made, deleted, boots, started, nets, steps, keys, other }
 }
 const notes = (s: Started, body: unknown, token = s.input.token) => worker.fetch(s.input.notes_url, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(body) })
 const machine = async (s: Started, reply: string) => {
@@ -203,6 +209,56 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     // Neither the tailnet key nor the turn token reaches a reply or a run.
     const all = JSON.stringify([await history(token, chief.main_conversation), runs, run])
     for (const secret of [...cloud.keys, ...cloud.started.map((s) => s.input.token)]) expect(all).not.toContain(secret)
+  })
+
+  it("opens the public Internet (IPv4 and IPv6, DNS) to the agent by default: applied after the VM joins, before the turn starts", async () => {
+    const cloud = fakeCloud(() => "online")
+    const { token, chief } = await enabledChief("chief-cc-net-default", "cc")
+    expect((await send(token, chief.main_conversation, "d1", "clone the repo")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    const s = cloud.started[0]!
+    expect(cloud.steps.slice(0, 3)).toEqual([`${s.vm} /opt/chief-cc/boot.sh`, `${s.vm} bash`, `${s.vm} /opt/chief-cc/start.sh`])
+    expect(cloud.nets).toHaveLength(1)
+    expect(cloud.nets[0]!.script).toContain(`meta skuid $uid accept`)
+    // The turn machine knows its settings (chief-net show) and the Chief is told about the tool.
+    expect(s.input.net).toEqual({ internet: true, dns: true, tailnet: false, local: false, allow: [], deny: [] })
+    expect(s.input.system).toContain("chief-net")
+  })
+
+  it("lets the Chief change its own turn machine's network: applied now, kept for its next turns, refused when bad or from another turn", async () => {
+    let posted: any = null
+    let refused: any = null
+    // The turn machine's `chief-net set internet=off` and `chief-net allow github.com`, while its first turn runs.
+    const cloud = fakeCloud(
+      (_, n) => (n === 1 ? "closing the Internet" : "still closed"),
+      async (s, n) => {
+        if (n !== 1) return
+        const r = await notes(s, { run: s.run, net: { internet: false, allow: ["github.com"] } })
+        posted = { status: r.status, body: await r.json().catch(() => null) }
+        const bad = await notes(s, { run: s.run, net: { allow: ["github.com; curl evil.example"] } })
+        refused = { status: bad.status, body: await bad.json().catch(() => null) }
+      }
+    )
+    const { token, chief } = await enabledChief("chief-cc-net-set", "cc")
+    expect((await send(token, chief.main_conversation, "s1", "close your network")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 1)
+    expect(posted.status).toBe(200)
+    expect(posted.body.net).toEqual({ internet: false, dns: true, tailnet: false, local: false, allow: ["github.com"], deny: [] })
+    // The script the turn machine applies at once as root.
+    expect(posted.body.script).toContain("'github.com'")
+    expect(posted.body.script).not.toContain(`meta skuid $uid accept`)
+    expect(refused.status).toBe(400)
+    expect(refused.body.error).toContain("allow")
+
+    // The next turn's machine starts with the Chief's settings.
+    expect((await send(token, chief.main_conversation, "s2", "are you still closed?")).ok).toBe(true)
+    await replies(token, chief.main_conversation, chief.id, 2)
+    expect(cloud.started[1]!.input.net).toEqual(posted.body.net)
+    expect(cloud.nets[1]!.script).toContain("'github.com'")
+    expect(cloud.nets[1]!.script).not.toContain(`meta skuid $uid accept`)
+    // A finished turn's token changes nothing.
+    const old = cloud.started[0]!
+    expect((await notes(old, { run: old.run, net: { internet: true } })).status).toBe(401)
   })
 
   it("refuses notes without the running turn's token, and after the turn ended", async () => {
