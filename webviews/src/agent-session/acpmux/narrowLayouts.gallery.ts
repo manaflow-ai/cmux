@@ -320,7 +320,7 @@ export default agentPaneEntry({
     "new-tab": {
       note: "The New Tab page with its composer and recent chats.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
@@ -335,7 +335,7 @@ export default agentPaneEntry({
     "new-tab-wide-type": {
       note: "The New Tab page with its letters spaced half a pixel wider, as Linux's fonts set them.",
       ready: {
-        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude" },
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "cards" },
         newSession: true,
       },
       snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
