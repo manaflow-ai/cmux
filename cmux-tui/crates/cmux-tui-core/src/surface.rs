@@ -112,8 +112,6 @@ use hosted_callbacks::hosted_terminal_callbacks;
 use hosted_reader::HostedReader;
 #[cfg(any(unix, windows))]
 mod host_kitty_limits;
-#[cfg(all(test, unix))]
-mod journal_failure_tests;
 #[cfg(any(unix, windows))]
 mod journal_reconnect;
 #[cfg(any(unix, windows))]
@@ -749,7 +747,6 @@ impl Surface {
                 journal_capture_gate: Mutex::new(()),
                 journal_capture_idle: Condvar::new(),
                 journal_capture_open: AtomicBool::new(true),
-                journal_capture_disabled: AtomicBool::new(false),
                 journal_capture_reserved: AtomicBool::new(false),
                 journal_capture_active: AtomicBool::new(false),
                 reader_thread: Mutex::new(None),

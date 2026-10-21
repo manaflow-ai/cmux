@@ -1212,7 +1212,6 @@ const RowFrame = React.memo(function RowFrame({
           className="acpmux-row__copy cv-iconbtn"
           {...copyTabStop}
           aria-label={copied ? t("turn.copied") : t("turn.copy")}
-          title={copied ? t("turn.copied") : t("turn.copy")}
           onClick={async () => {
             try {
               await onCopyRow(row.id);
@@ -1455,7 +1454,6 @@ function JumpToLatest({
       aria-label={label}
       // Hidden, it is inert: out of the tab order and the accessibility tree while it fades out.
       inert={!shown}
-      title={label}
       // A click does not focus a button in WebKit, so focus on it means Return or Space.
       onClick={(event) => onJump(event.currentTarget === document.activeElement)}
     >
@@ -3963,10 +3961,11 @@ function AcpmuxPane() {
   turnRowsRef.current = snapshot.rows;
   // The image viewer holds the chat's images from when it opened; another chat closes it.
   const [imageView, setImageView] = useState<{ images: ChatImage[]; index: number } | undefined>();
-  const openImage = useCallback((src: string, alt: string) => {
+  const openImage = useCallback((src: string, alt: string, path?: string) => {
     const images = chatImages(turnRowsRef.current);
     const index = images.findIndex((image) => image.src === src);
-    setImageView(index < 0 ? { images: [{ src, alt }], index: 0 } : { images, index });
+    if (index < 0) setImageView({ images: [{ src, alt, path }], index: 0 });
+    else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
   const readTurn = useCallback(

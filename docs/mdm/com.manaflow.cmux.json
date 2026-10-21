@@ -860,6 +860,14 @@
       "title" : "Hue",
       "type" : "number"
     },
+    "appearance.inactiveWindowDim" : {
+      "default" : 0,
+      "description" : "How much more theme color covers a window while another one is in front. 0 keeps the same look.",
+      "maximum" : 1,
+      "minimum" : 0,
+      "title" : "Dim Inactive Windows",
+      "type" : "number"
+    },
     "appearance.interfaceScale" : {
       "description" : "Text size of tabs, the sidebar and other controls. Terminal text has its own size.",
       "maximum" : 1.25,
