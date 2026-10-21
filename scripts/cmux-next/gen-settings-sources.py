@@ -93,7 +93,7 @@ SECTIONS = [
         "lists": {"updates": ("descriptors", "UpdatesSettings"),
                   "announcements": ("announcements", "AnnouncementsSettings")},
         "enums": {"updates.channel": "UpdatesChannelSetting", "updates.meteredNetwork": "UpdatesMeteredSetting",
-                  "updates.notify": "UpdatesNotifySetting"},
+                  "updates.notify": "UpdatesNotifySetting", "updates.web": "UpdatesWebSetting"},
     },
     {
         "source": "schemas/settings/source/labs.json",
