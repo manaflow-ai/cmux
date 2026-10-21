@@ -1110,16 +1110,17 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     cfg.store.mode = StoreMode::Local;
     cfg.store.segment_bytes = 64 * 1024 * 1024;
 
-    // B owns a chat of 40 tool outputs of 1 MB, then one of 12 MB.
-    let b = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
-    let mut cb = client(b.clone()).await;
-    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "big"}}})).await.unwrap();
-    let id = s["sessionId"].as_str().unwrap().to_owned();
-    let mut seq = b.resolve("big").unwrap().meta().last_seq;
-    b.shutdown_all().await;
-    drop(cb);
-    drop(b);
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 12 MB, written straight to its store:
+    // no hub runs the chat before B, so no other record lands after them.
     let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let id = uuid::Uuid::now_v7().to_string();
+    let meta: acpmux::store::SessionMeta = serde_json::from_value(json!({
+        "schema": acpmux::store::META_SCHEMA, "id": id, "name": "big", "harness": "fake",
+        "cwd": std::env::temp_dir(), "status": "idle", "createdAt": 1, "updatedAt": 1,
+    }))
+    .unwrap();
+    store.save(&meta).unwrap();
+    let mut seq = 0;
     let mut output = |bytes: usize| {
         seq += 1;
         let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1",
@@ -1177,9 +1178,12 @@ async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
     // A live update too large for a frame: B leaves it out of A's link and says so, and A tells
     // its client reading that chat to read it again.
     let mut cb = client(b.clone()).await;
+    let live = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "live"}}})).await.unwrap();
+    let live = live["sessionId"].as_str().unwrap().to_owned();
+    ca.call(method::MUX_ATTACH, json!({"session": "b/live", "limit": 1})).await.unwrap();
     cb.call(
         method::SESSION_PROMPT,
-        json!({"sessionId": id, "prompt": [{"type": "text", "text": "big-output:16"}]}),
+        json!({"sessionId": live, "prompt": [{"type": "text", "text": "big-output:16"}]}),
     )
     .await
     .unwrap();
