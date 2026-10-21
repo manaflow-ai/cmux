@@ -13,6 +13,7 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
+import { BACKGROUND_WORK } from "./summary/backgroundWork";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -181,6 +182,12 @@ export type AcpmuxRow = {
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
   doing?: string;
+  /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
+  doingCommand?: boolean;
+  /// The disclosure of the group that draws the call's own row, and whether it opens by default: while
+  /// it is open the row names the call, so the line does not (conversation/turns.ts `ownRow`).
+  doingGroup?: string;
+  doingGroupOpen?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
@@ -611,7 +618,10 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
 /// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
-const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) => row.kind === "turnSummary" && !next;
+/// The "Running in background" row after it (summary/backgroundWork.ts) leaves it the last: the
+/// row comes and goes under the footer without moving it.
+export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "turnSummary" && (!next || next.kind === BACKGROUND_WORK);
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
@@ -674,6 +684,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
+    row.kind === BACKGROUND_WORK ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "plan" ||
