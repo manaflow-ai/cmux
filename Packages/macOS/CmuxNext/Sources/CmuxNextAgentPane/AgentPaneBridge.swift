@@ -28,6 +28,12 @@ final class AgentPaneBridge: NSObject, WKScriptMessageHandlerWithReply {
            let view {
             return replyHandler(view.popup(method, params: body["params"] as? [String: Any] ?? [:]), nil)
         }
+        // Where a chat rests belongs to the chat, so it is answered here from the one store both
+        // hosts share and never reaches the model (AgentPaneScrollAnchors+Bridge). Not logged: it
+        // names a row of the person's transcript.
+        if let reply = Self.chatPlaceReply(for: message.body) {
+            return replyHandler(reply, nil)
+        }
         let request = AgentPaneRequest(body: message.body)
         // A page frame for the host's socket goes out on this turn when it can (no Task hop).
         if case .transportSend(let connection, let frames) = request, let model = view?.model {

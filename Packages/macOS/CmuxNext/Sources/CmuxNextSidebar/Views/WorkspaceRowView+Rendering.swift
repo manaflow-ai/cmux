@@ -45,9 +45,16 @@ extension WorkspaceRowView {
         // name (wrapped), so no second popover (a tooltip) shows with it.
         layoutSubtreeIfNeeded()
         title.startMarquee()
-        // Calm mode (`ui.calm`) runs no marquee and opens no hover card, so a clipped name shows
-        // as the row's plain tooltip instead (the title view takes no hits).
-        toolTip = DesignSettings.shared.calmMode != .off && title.isTruncated ? title.stringValue : nil
+        updateCalmTitleTip()
+    }
+
+    /// Calm mode (`ui.calm`) runs no marquee and opens no hover card, so a clipped name shows as
+    /// the row's themed tooltip instead (the title view takes no hits). Layout sets it too: a
+    /// themed tracker added while the pointer is already inside gets no mouseEntered, so it has
+    /// to exist before the pointer arrives.
+    func updateCalmTitleTip() {
+        let tip = DesignSettings.shared.calmMode != .off && title.isTruncated ? title.stringValue : nil
+        if themedToolTip != tip { themedToolTip = tip }
     }
 
     override func updateLayer() {
@@ -216,6 +223,7 @@ extension WorkspaceRowView {
         // marks they cover hide while they show.
         let fade = SidebarStyle.titleFadeWidth
         title.setTrailingOcclusion(overlayStart.map { max(0, title.frame.maxX - ($0 - Metrics.space1)) } ?? 0, animated: fades)
+        updateCalmTitleTip()
         subtitle.wantsLayer = true
         subtitle.setTrailingFade(occlusion: overlayStart.map { max(0, subtitle.frame.maxX - ($0 - Metrics.space1)) } ?? 0, fade: fade, animated: fades)
         for mark in [activity, rowBadge, agentMark, mutedMark, audioButton, presenceDots, timeLabel, elapsedLabel] as [NSView] {
