@@ -14,11 +14,17 @@ nonisolated enum AgentPaneAttachmentFiles {
     static func moveOut(_ attachments: [Attachment], to folder: URL, within budget: Int,
                         kept: [String: String] = [:]) -> (attachments: [Attachment], files: [String: String], bytes: Int)? {
         let manager = FileManager.default
+        // Attachment ids are the persistence key. A reconnect or a rapid paste/remove race can
+        // hand us the same id twice; keeping both entries would make them read back the last
+        // file twice and leave the first file orphaned. The latest entry is the authoritative one,
+        // matching the composer's current list semantics.
+        var seen = Set<String>()
+        let unique = attachments.reversed().filter { seen.insert($0.id).inserted }.reversed()
         var files: [String: String] = [:]
         var bytes = 0
         var written: [URL] = []
         var moved: [Attachment] = []
-        for var attachment in attachments {
+        for var attachment in unique {
             if let data = attachment.data, let contents = Data(base64Encoded: data) {
                 bytes += contents.count
                 let url = folder.appending(path: "\(UUID().uuidString).\(fileExtension(attachment.mimeType))")

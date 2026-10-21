@@ -9,6 +9,8 @@
 // left the stack, then rose again as its prompt arrived.
 // A queued prompt deleted from the queue never comes in as a row: the view goes back to its end at
 // once, with no card-high gap held under the last row (held for a second after #22858).
+// A chat whose history is rich (headings, code blocks, tables, lists, each laid out at its own height
+// as it mounts) opens at its latest line and holds it on every painted frame.
 // A reader who scrolls up while it streams is left where they scrolled: in WebKit the wheel moves the
 // offset a frame before its scroll event, and a snapshot landing between them put the view back at
 // the latest row (on base, 3 runs in 6).
@@ -18,6 +20,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -82,16 +85,52 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     );
   record("mux", "turn_result", { status: "completed" });
   const opened = events.length;
+  // A second chat, finished, whose one reply is a write-up in rich markdown.
+  const RICH = "0190a000-0000-7000-8000-0000000000c2";
+  type Record3 = [dir: string, kind: string, msg: Record<string, unknown>];
+  const richSteps: Record3[] = [
+    ["mux", "user_message", { text: "Write up the retry policy", promptId: "r-0" }],
+    ["mux", "turn_started", {}],
+    ...Array.from({ length: 12 }, (_, index): Record3 => [
+      "in",
+      "agent_message_chunk",
+      chunk(
+        `## Part ${index + 1}\n\nEach retry waits longer than the last and adds jitter.\n\n` +
+          `\`\`\`ts\nconst delay${index} = base * 2 ** attempt + jitter();\nawait sleep(delay${index});\n\`\`\`\n\n` +
+          "| attempt | delay |\n| --- | --- |\n| 1 | 200 ms |\n| 2 | 400 ms |\n\n- waits longer\n- adds jitter\n\n",
+      ),
+    ]),
+    ["in", "agent_message_chunk", chunk("Rich ending marker.")],
+    ["mux", "turn_result", { status: "completed" }],
+  ];
+  const rich = richSteps.map(([dir, kind, msg], index) => ({
+    sessionId: RICH,
+    seq: index + 1,
+    at: Date.now(),
+    dir,
+    kind,
+    msg,
+  }));
+  const richSummary = () => ({
+    ...summary(),
+    sessionId: RICH,
+    title: "Retry write-up",
+    status: "idle",
+    queued: 0,
+    queue: [],
+  });
 
-  function answer(method: string): unknown {
+  function answer(method: string, params: { sessionId?: string }): unknown {
     switch (method) {
       case "initialize":
         return { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
       case "_acpmux/watch":
-        return { sessions: [summary()] };
+        return { sessions: [summary(), richSummary()] };
       case "_acpmux/attach":
+        if (params.sessionId === RICH) return { session: richSummary(), lastSeq: rich.length, events: rich };
         return { session: summary(), lastSeq: opened, events: events.slice(0, opened) };
       case "_acpmux/events":
+        if (params.sessionId === RICH) return { events: [], hasMore: false, lastSeq: rich.length };
         return { events: [], hasMore: false, lastSeq: events.length };
       default:
         return null;
@@ -182,10 +221,13 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       },
       websocket: {
         message(ws, raw) {
-          const message = JSON.parse(String(raw)) as { id?: number; method: string };
-          if (message.method === "_acpmux/attach") socket = ws;
+          const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: { sessionId?: string } };
+          // The streamed turns go to the page that has the streaming chat open.
+          if (message.method === "_acpmux/attach" && message.params?.sessionId !== RICH) socket = ws;
           if (message.id !== undefined)
-            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
         },
       },
     });
@@ -206,6 +248,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
 
   async function open(name: string) {
     const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -216,27 +259,23 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
 
   /// One frame: where the row holding `marker` is drawn (transforms included).
   type Frame = { t: number; marker?: number };
-  /// Samples every frame, from its animation frame callback, until `stop`.
+  /// Samples every painted frame until `stop`.
   const sample = (page: Page, marker: string) =>
     page.evaluate((marker) => {
-      const w = window as unknown as { __frames: Frame[]; __stop: boolean };
+      const w = window as unknown as { __frames: Frame[]; __stop: () => void };
       w.__frames = [];
-      w.__stop = false;
       const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
-      const tick = () => {
-        if (w.__stop) return;
+      w.__stop = window.cmuxAfterPaint((frame) => {
         const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((each) =>
           each.textContent?.includes(marker),
         );
-        w.__frames.push({ t: Math.round(performance.now()), marker: row?.getBoundingClientRect().top });
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+        w.__frames.push({ t: Math.round(frame), marker: row?.getBoundingClientRect().top });
+      });
     }, marker);
   const stop = (page: Page) =>
     page.evaluate(() => {
-      const w = window as unknown as { __frames: Frame[]; __stop: boolean };
-      w.__stop = true;
+      const w = window as unknown as { __frames: Frame[]; __stop: () => void };
+      w.__stop();
       return w.__frames;
     });
   /// Frames where the marked text moved down (it only ever moves up while followed).
@@ -264,14 +303,61 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
           const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
           let last = scroller.scrollTop;
           let since = performance.now();
-          const tick = (now: number) => {
+          window.cmuxAfterPaint((now) => {
             if (scroller.scrollTop !== last) [last, since] = [scroller.scrollTop, now];
-            if (now - since >= 200) resolve(last);
-            else requestAnimationFrame(tick);
-          };
-          requestAnimationFrame(tick);
+            if (now - since < 200) return;
+            resolve(last);
+            return false;
+          });
         }),
     );
+
+  test.each(engines.map(([name]) => name))(
+    "%s: a chat with rich history opens at its latest line and holds it",
+    async (name) => {
+      const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
+      await installPaintedFrames(page);
+      // From the first painted frame that shows the latest line: where it sits against the view's
+      // foot, and how far the view rests from its end.
+      await page.addInitScript(() => {
+        const frames: { t: number; line: number; fromEnd: number }[] = [];
+        (window as unknown as { __opened: typeof frames }).__opened = frames;
+        window.cmuxAfterPaint((frame) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+          if (!scroller || scroller.hasAttribute("data-seeking")) return;
+          const row = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")].find((each) =>
+            each.textContent?.includes("Rich ending marker."),
+          );
+          if (!row) return;
+          frames.push({
+            t: Math.round(frame),
+            line: scroller.getBoundingClientRect().bottom - row.getBoundingClientRect().bottom,
+            fromEnd: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+          });
+        });
+      });
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+      await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${RICH}`);
+      await page.getByText("Rich ending marker.").waitFor();
+      // fixed-wait: the test watches 3 s of painted frames after open for any jump; the window is the test
+      await page.waitForTimeout(3_000);
+      const frames = await page.evaluate(
+        () => (window as unknown as { __opened: { t: number; line: number; fromEnd: number }[] }).__opened,
+      );
+      await page.close();
+      const moved = frames.flatMap((frame, index) => {
+        const before = frames[index - 1];
+        return before && Math.abs(frame.line - before.line) > 1
+          ? [`${frame.t}ms: ${before.line.toFixed(1)} -> ${frame.line.toFixed(1)}`]
+          : [];
+      });
+      expect({ moved, atEnd: frames.length > 0 && frames.every((frame) => frame.fromEnd <= 4) }).toEqual({
+        moved: [],
+        atEnd: true,
+      });
+    },
+  );
 
   test.each(engines.map(([name]) => name))(
     "%s: the reply only moves up as a tool call, the working line and the queue card come and go",

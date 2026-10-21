@@ -154,11 +154,9 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemption: [ActionID: SurfaceExemption] = byReason(cliExemptionsByReason)
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
-        .unimplemented: [
-            "palette.openFindPane",
-            "palette.openFilesPane",
-        ],
         .guiOnly: [
+            // Open a pane on the focused terminal's folder; scripts use `files.open` or `findInDirectory`.
+            "palette.openFilesPane", "palette.openFindPane",
             "agentHistory.show", "music.open", "music.stop",
             "notifications.dismissHighlight", "openSettings", "minimizeWindow", "toggleFullScreen", "globalSearch", "commandPalette", "appearance.customize",
             "zoomWindow", "selectNextWindow", "selectPreviousWindow",
