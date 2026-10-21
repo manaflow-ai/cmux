@@ -17,12 +17,15 @@ final class TerminalStatusBanner: NSView {
         label.lineBreakMode = .byTruncatingTail
         label.translatesAutoresizingMaskIntoConstraints = false
         addSubview(label)
-        NSLayoutConstraint.activate([
+        // The host frames this view (its autoresizing mask is required): the insets give way at
+        // the 0x0 frame it has while hidden, instead of AppKit breaking them and logging a
+        // conflict on every mount; `fittingSize` still honours them.
+        NSLayoutConstraint.activate(TerminalOverlayInsets.breakable([
             label.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
             label.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
             label.topAnchor.constraint(equalTo: topAnchor, constant: 6),
             label.bottomAnchor.constraint(equalTo: bottomAnchor, constant: -6),
-        ])
+        ]))
         isHidden = true
         setAccessibilityRole(.staticText)
     }
