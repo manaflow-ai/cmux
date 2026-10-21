@@ -10,6 +10,7 @@ import {
   resolveProPlanStatus,
 } from "../../services/billing/pro";
 import { isGoPlanEnabled } from "../../services/billing/goPlanFlag";
+import { currentPersonalSubscriptionPrice } from "../../services/billing/dashboardBilling";
 import { PricingView } from "../components/pricing-checkout";
 import { isAppStoreDistributionMode } from "../lib/billing";
 import {
@@ -193,6 +194,9 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
   }
 
   const status = await resolveProPlanStatus(user);
+  const currentPrice = status.billingManagement === "stripe"
+    ? await currentPersonalSubscriptionPrice(user.id, status.planId)
+    : undefined;
   return {
     userId: user.id,
     authenticated: !user.isAnonymous,
@@ -203,6 +207,7 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
     billingSource: status.billingSource,
     cancelScheduled: status.cancelScheduled ?? false,
     paymentPastDue: status.paymentPastDue ?? false,
+    currentPrice,
     email: user.primaryEmail,
   };
 }
