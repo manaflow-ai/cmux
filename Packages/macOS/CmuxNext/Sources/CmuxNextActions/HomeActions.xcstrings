@@ -3704,127 +3704,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rename Group…"
+            "value": "Rename Group Chat…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة تسمية المجموعة…"
+            "value": "إعادة تسمية الدردشة الجماعية…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Preimenuj grupu…"
+            "value": "Preimenuj grupni chat…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Omdøb gruppe…"
+            "value": "Omdøb gruppechat…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gruppe umbenennen…"
+            "value": "Gruppenchat umbenennen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cambiar nombre del grupo…"
+            "value": "Cambiar nombre del chat de grupo…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renommer le groupe…"
+            "value": "Renommer la discussion de groupe…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rinomina gruppo…"
+            "value": "Rinomina chat di gruppo…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループ名を変更…"
+            "value": "グループチャット名を変更…"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "ប្តូរឈ្មោះក្រុម…"
+            "value": "ប្តូរឈ្មោះការជជែកជាក្រុម…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "그룹 이름 변경…"
+            "value": "그룹 채팅 이름 변경…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gi gruppen nytt navn…"
+            "value": "Gi gruppechatten nytt navn…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zmień nazwę grupy…"
+            "value": "Zmień nazwę czatu grupowego…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renomear grupo…"
+            "value": "Renomear chat em grupo…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переименовать группу…"
+            "value": "Переименовать групповой чат…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนชื่อกลุ่ม…"
+            "value": "เปลี่ยนชื่อแชทกลุ่ม…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grubu Yeniden Adlandır…"
+            "value": "Grup Sohbetini Yeniden Adlandır…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перейменувати групу…"
+            "value": "Перейменувати груповий чат…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Đổi tên nhóm…"
+            "value": "Đổi tên cuộc trò chuyện nhóm…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重命名群组…"
+            "value": "重命名群聊…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新命名群組…"
+            "value": "重新命名群組聊天…"
           }
         }
       }
