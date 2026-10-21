@@ -73,8 +73,11 @@ final class HomeService {
     /// The signed-in user's cloud Chiefs (the Hosted Chief and the one
     /// placed on a paired server), as last read on a connect or sign-in.
     private(set) var cloudChiefs = HomeCloudChiefs()
-    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief).
-    var cloudChief: CloudChief? { tabChiefs.shown(choice: hostedChief.choice) }
+    /// The cloud Chief whose main conversation is the Chief tab, or nil (the local Chief, also
+    /// whenever it is the default Chief: ``prefersLocalChief``).
+    var cloudChief: CloudChief? { prefersLocalChief ? nil : tabChiefs.shown(choice: hostedChief.choice) }
+    /// This Mac's optchat-chief held the Chief home's lock at the last Chief tab check (HomeService+ChiefDefault).
+    var localChiefRunning = false
     /// The cloud Chiefs the Chief tab may show: without the Hosted Chief while
     /// this Mac's history is still being copied into it (the local Chief stays).
     var tabChiefs: HomeCloudChiefs { hostedChief.pending ? HomeCloudChiefs(hosted: nil, placed: cloudChiefs.placed) : cloudChiefs }
@@ -163,9 +166,11 @@ final class HomeService {
         let chief = chief
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
-            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it.
-            for await (connection, _) in ObservationStream({
-                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil)
+            // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it; so does a
+            // change of Debug Settings' Default Chief (HomeService+ChiefDefault).
+            for await (connection, _, _) in ObservationStream({
+                (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil,
+                 HomeTunables.chiefDefault.value)
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)

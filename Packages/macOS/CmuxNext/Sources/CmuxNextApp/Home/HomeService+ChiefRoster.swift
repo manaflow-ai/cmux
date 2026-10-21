@@ -18,7 +18,7 @@ extension HomeService {
         let hosted = tab.hosted?.mainConversation.map { CmuxHomeCore.ConversationID($0) }
         let placed = tab.placed?.mainConversation.map { CmuxHomeCore.ConversationID($0) }
         return HomeChiefRoster.make(rows: rows, local: local, hosted: hosted, placed: placed, server: serverName(of: tab.placed),
-                                    showsPlaced: hostedChief.choice == .placed, cloud: cloud)
+                                    showsPlaced: hostedChief.choice == .placed, cloud: cloud, prefersLocal: prefersLocalChief)
     }
 
     /// Where `conversation`'s cloud Chief runs and its other host, for the Chief's card.

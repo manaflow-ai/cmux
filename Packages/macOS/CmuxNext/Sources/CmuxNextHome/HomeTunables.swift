@@ -66,9 +66,16 @@ public nonisolated struct HomeTunables {
         help: "The mic in the empty message box dictates into it (on-device speech). Off shows the drawn waveform instead.",
         default: true, code: "HomeTunables.voiceInput")
 
+    /// The Chief Home opens by default (``HomeChiefDefault``, #64): Auto is this Mac's Chief while its
+    /// optchat-chief runs, else the Hosted Chief; Local and Hosted force one.
+    public static let chiefDefault = Tunable<HomeChiefDefault>.choice(
+        "home.chiefDefault", section, "Default Chief",
+        help: "Which Chief the Chief tab and the list's Main show. Auto: this Mac's Chief while this Mac's optchat-chief runs, else the Hosted (cloud) Chief. This Mac's Chief and Hosted force one.",
+        default: .auto, code: "HomeTunables.chiefDefault")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor]
+         turnProgress.descriptor, richTables.descriptor, voiceInput.descriptor, chiefDefault.descriptor]
     }
 }
 
