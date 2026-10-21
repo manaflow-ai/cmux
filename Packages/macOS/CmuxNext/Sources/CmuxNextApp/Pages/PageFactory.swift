@@ -100,6 +100,9 @@ struct PageFactory {
         return page
     }
 
+    /// The Settings page's engine options.
+    static let settingsEngineOptions = PageEngineOptions.standard
+
     /// The React Settings page (R82) on `route` (`#/settings/<section>?focus=<key>`). Its namespace
     /// goes to `SettingsPageProvider` (interim owner; the daemon relay once the config actor
     /// serves `settings.*`), `cmux.app.` to the native ops.
@@ -203,8 +206,8 @@ struct PageFactory {
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, surface: .settings,
                                                dynamicResources: dynamicResources,
                                                window: services.windows.active?.window, focus: false)
-            ?? PageWebView(descriptor: .settings, routes: routes, route: route, surface: .settings,
-                           dynamicResources: dynamicResources)
+            ?? PageWebView(descriptor: .settings, routes: routes, route: route, options: Self.settingsEngineOptions,
+                           surface: .settings, dynamicResources: dynamicResources)
         native.anchor = { [weak page] in page }
         // An image or movie dropped on Settings becomes the background (cx-t2x.8).
         page?.fileDrop = PageFileDrop(accepts: { url in BackdropUserImages.isImage(url) }) { [weak provider] url in
