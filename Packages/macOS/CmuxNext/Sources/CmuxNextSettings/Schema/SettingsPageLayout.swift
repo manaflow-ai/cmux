@@ -15,6 +15,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
         case machines, accounts, agentHarnesses, chiefs, advancedInfo, advancedActions, backdrops, mobile, chiefPet
         /// The density tiles, preview and custom density editor (plans/cmux-next/density-DESIGN.md).
         case density
+        /// What this Mac has that cmux can bring over (CmuxNextImportCards), every card found.
+        case importSuggestions
     }
 
     /// A group card as the layout states it: the rows of a schema group
@@ -188,6 +190,10 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.memory"), group("settings.group.remote"),
             ],
             trail: [.browserProfiles], actions: [.browser], aliases: [.browser]),
+        // Bring things over from other browsers, agents and terminals on this Mac.
+        CategorySpec(
+            id: "import", title: SettingsText.keyed("settings.category.import", "Import"), symbol: "square.and.arrow.down",
+            groups: [], lead: [.importSuggestions]),
         CategorySpec(
             id: "keyboard", title: section(.keyboard), symbol: "keyboard",
             groups: [
