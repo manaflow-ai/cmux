@@ -23,7 +23,12 @@ struct PaletteNavigationTests {
     @MainActor private final class Navigation: PaletteNavigationSource {
         var entries: [PaletteNavigationEntry] = []
         var opened: [String] = []
-        func navigationEntries() -> [PaletteNavigationEntry] { entries }
+        /// How many times the palette read the source (each read builds every row's item).
+        var reads = 0
+        func navigationEntries() -> [PaletteNavigationEntry] {
+            reads += 1
+            return entries
+        }
         func open(_ entry: PaletteNavigationEntry) { opened.append(entry.itemID) }
     }
 
@@ -200,7 +205,10 @@ struct PaletteNavigationTests {
         #expect(PaletteKeyMap.command(for: event, actionsMenuOpen: true, queryIsEmpty: false, registry: palette.registry) == .toggleActions)
     }
 
-    @Test func manyEntriesRankQuickly() async {
+    /// 5,000 tabs rank without the palette rebuilding them per keystroke. Counted, not timed: a
+    /// 5 s wall-clock limit failed on a loaded fleet host (9.27 s on aws-m4pro-4, 2026-10-21)
+    /// while a fast one passed a per-keystroke rebuild, so the count is what holds on every host.
+    @Test func manyEntriesRankWithoutARebuildPerKeystroke() async {
         let workspaces = Workspaces()
         workspaces.workspaces = (0..<200).map { PaletteWorkspace(id: "w\($0)", title: "workspace \($0)") }
         let navigation = Navigation()
@@ -210,11 +218,15 @@ struct PaletteNavigationTests {
         }
         let palette = Self.palette(workspaces, navigation)
         defer { palette.hide() }
-        let started = ContinuousClock.now
         palette.show(.workspaces)
-        let ranked = await Self.search(palette, "tab 4321")
+        let query = "tab 4321"
+        _ = await Self.search(palette, String(query.prefix(1)))
+        let readsAfterFirstKey = navigation.reads
+        #expect(readsAfterFirstKey >= 1, "the palette never read its tabs")
+        var ranked: [String] = []
+        for length in 2...query.count { ranked = await Self.search(palette, String(query.prefix(length))) }
         #expect(ranked.first == "tab:t4321")
-        // Generous for a loaded CI host; a regression to per-keystroke rebuilding takes seconds.
-        #expect(started.duration(to: .now) < .seconds(5))
+        #expect(navigation.reads == readsAfterFirstKey,
+                "typing \(query.count - 1) more keys read the 5,000 tabs \(navigation.reads - readsAfterFirstKey) more times")
     }
 }
