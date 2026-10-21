@@ -63,8 +63,9 @@ import Testing
     }
 
     /// A creation under way whose Chromium window does not exist yet: no window is open, so the
-    /// window count was 0 at once and quit called CefShutdown under the creation. Quit now waits
-    /// for every pending window too, closes the browser when Chromium makes it, then shuts down.
+    /// window count was 0 at once and quit called CefShutdown under the creation (SIGSEGV in
+    /// CefShutdown live). Quit now waits for every pending window too, closes the browser when
+    /// Chromium makes it, and shuts down once that browser's window is gone too.
     @Test func aCreationWithNoWindowYetHoldsCefShutdownUntilItsBrowserCloses() async throws {
         SpyShim.reset()
         SpyShim.createOpensWindow = false
@@ -74,8 +75,16 @@ import Testing
 
         let quit = Task { await runtime.shutdown(timeout: .seconds(5)) }
         for _ in 0..<100 where runtime.shutdownSequence == nil { await Task.yield() }
+        #expect(runtime.shutdownSequence != nil, "quit began")
+        // Chromium made the browser and its window; the fork counts the window until the Browser's
+        // destructor, after BEFORE_CLOSE (browser.md, fork clip patches).
+        SpyShim.windows = 1
         runtime.handle(.afterCreated(browser: 7, request: request, window: 1))
         if SpyShim.closed.contains(7) { runtime.handle(.beforeClose(browser: 7)) }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(SpyShim.calls == ["close 7"], "CefShutdown ran while the late browser's window was open")
+        SpyShim.windows = 0
+        runtime.handle(.tab(.windowDestroyed, browser: 7, window: 1, value: 0))
         await quit.value
 
         #expect(SpyShim.calls == ["close 7", "shutdown"])
