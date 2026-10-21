@@ -226,9 +226,6 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
 
   const open = async (session: string): Promise<Page> => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    // The pane ships on macOS, where the editor's Mod is Cmd: Cmd-B is bold and Ctrl-B is the
-    // caret's, unbound. On Linux, CI's platform, Mod is Ctrl and the editor took Ctrl-B as bold.
-    await page.addInitScript(() => Object.defineProperty(Navigator.prototype, "platform", { get: () => "MacIntel" }));
     await page.goto(url(session));
     await page.getByText("Running the suite.").waitFor();
     return page;
