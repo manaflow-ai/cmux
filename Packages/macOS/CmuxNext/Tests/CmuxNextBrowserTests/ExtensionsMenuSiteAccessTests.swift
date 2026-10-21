@@ -102,6 +102,29 @@ import Testing
         #expect(!row.isPinned)
     }
 
+    /// The panel warms at one size, the rows change, then it opens at the content's size: the
+    /// content keeps the size it gave itself instead of taking the card's changes on top of it
+    /// (it opened 16 points too wide and too tall, its title clipped).
+    @Test func theContentKeepsItsSizeWhenTheCardResizes() {
+        let content = ExtensionsMenuView()
+        let card = ExtensionsMenuCardView(content: content)
+        func entry(_ id: String) -> ExtensionsMenuView.Entry {
+            ExtensionsMenuView.Entry(info: BrowserExtensionInfo(id: id, name: id, hasAction: true), icon: NSImage(),
+                                     access: .allSites, canPin: true, hasSidePanel: false, tooltip: nil)
+        }
+        content.update([entry("a")], site: "example.com")
+        card.setFrameSize(content.frame.size)
+        card.layoutSubtreeIfNeeded()
+        card.setFrameSize(NSSize(width: content.frame.width - 16, height: content.frame.height - 16))
+        card.layoutSubtreeIfNeeded()
+        content.update([entry("a"), entry("b")], site: "example.com")
+        let size = content.frame.size
+        card.setFrameSize(size)
+        card.layoutSubtreeIfNeeded()
+        #expect(content.frame.size == size)
+        #expect(content.frame.origin == .zero)
+    }
+
     @Test func noExtensionsShowsTheEmptyStateAndTheFooter() {
         let view = ExtensionsMenuView()
         view.update([], site: nil)
