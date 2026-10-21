@@ -10,6 +10,7 @@ through the regenerated graph.
 from __future__ import annotations
 
 import json
+import re
 import sys
 import unittest
 from unittest import mock
@@ -35,6 +36,16 @@ PR_17470 = [
 ]
 
 
+def manifest_target_paths() -> set[str]:
+    """The default path of each target Package.swift declares: Tests/<name> for a test
+    target, Sources/<name> otherwise. No target in the manifest sets its own path."""
+    manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
+    return {
+        f"{PACKAGE}/{'Tests' if kind == 'testTarget' else 'Sources'}/{name}"
+        for kind, name in re.findall(r'\.(target|testTarget|executableTarget)\(\s*name:\s*"([^"]+)"', manifest)
+    }
+
+
 def tiers(changed: list[str], event: str = "pull_request", labels: frozenset[str] = frozenset()) -> dict[str, str]:
     return outputs(route(ROOT, event, changed, set(labels)))
 
@@ -44,17 +55,30 @@ class GraphCoversThePackage(unittest.TestCase):
 
     def test_every_source_and_test_directory_is_a_target(self):
         paths = {target["path"] for target in GRAPH["targets"].values() if target["path"]}
-        # The graph is bot-only (scripts/cmux-next/generated_outputs.py): a pull request that adds a
-        # target cannot carry it, and the base autofix adds it after the merge. Until then the
-        # manifest naming the target is enough, since a Package.swift change routes every tier.
-        manifest = (ROOT / PACKAGE / "Package.swift").read_text(encoding="utf-8")
+        # The graph is bot-only (#21946): a pull request that adds a target to the
+        # manifest cannot add it to the graph, and the base autofix regenerates the
+        # graph after the merge. Such a pull request routes every tier, so a target
+        # the manifest declares is covered until then. A directory the manifest does
+        # not declare still fails.
+        declared = manifest_target_paths()
         for kind in ("Sources", "Tests"):
             for directory in sorted((ROOT / PACKAGE / kind).iterdir()):
                 # A folder with no Swift sources (a fixture another language reads) is not a target.
                 if directory.is_dir() and any(directory.rglob("*.swift")):
                     with self.subTest(directory=directory.name):
-                        if f"{PACKAGE}/{kind}/{directory.name}" not in paths:
-                            self.assertIn(f'name: "{directory.name}"', manifest)
+                        path = f"{PACKAGE}/{kind}/{directory.name}"
+                        if path not in paths and path in declared:
+                            continue
+                        self.assertIn(path, paths)
+
+    def test_the_manifest_reader_finds_the_graph_targets(self):
+        """The allowance above reads target names from the manifest text; it must see every
+        graph target whose directory still exists, or it could let a stray directory through."""
+        declared = manifest_target_paths()
+        for name, target in GRAPH["targets"].items():
+            if target["path"] and (ROOT / target["path"]).is_dir():
+                with self.subTest(target=name):
+                    self.assertIn(target["path"], declared)
 
     def test_dependencies_name_known_targets_and_packages(self):
         for name, target in GRAPH["targets"].items():

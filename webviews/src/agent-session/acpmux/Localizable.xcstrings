@@ -95419,13 +95419,13 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nastavi: Continue in…"
+            "value": "Nastavi u…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fortsæt: Continue in…"
+            "value": "Fortsæt i…"
           }
         },
         "de": {
@@ -95437,7 +95437,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue in…"
+            "value": "Continue In…"
           }
         },
         "es": {
@@ -95455,7 +95455,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continua: Continue in…"
+            "value": "Continua in…"
           }
         },
         "ja": {
@@ -95467,7 +95467,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ត៖ Continue in…"
+            "value": "បន្តក្នុង…"
           }
         },
         "ko": {
@@ -95479,49 +95479,49 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fortsett: Continue in…"
+            "value": "Fortsett i…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontynuuj: Continue in…"
+            "value": "Kontynuuj w…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continuar: Continue in…"
+            "value": "Continuar em…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Продолжить: Continue in…"
+            "value": "Продолжить в…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ดำเนินการต่อ: Continue in…"
+            "value": "ดำเนินการต่อใน…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devam: Continue in…"
+            "value": "Şurada devam et…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Продовжити: Continue in…"
+            "value": "Продовжити в…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tiếp tục: Continue in…"
+            "value": "Tiếp tục trong…"
           }
         },
         "zh-Hans": {
@@ -203893,6 +203893,270 @@
           "stringUnit" : {
             "state" : "needs_review",
             "value" : "事件重播超出了頁數上限"
+          }
+        }
+      }
+    },
+    "notice.forkNothingYet": {
+      "comment": "Agent pane: Fork Conversation on a chat with no finished turn yet",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "لا يوجد ما يمكن تفريعه بعد. أرسل رسالة أولاً."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Još nema ničega za račvanje. Prvo pošaljite poruku."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der er intet at forgrene endnu. Send først en besked."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Noch nichts zum Abzweigen. Sende zuerst eine Nachricht."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nothing to fork yet. Send a message first."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Todavía no hay nada que bifurcar. Envía un mensaje primero."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rien à dupliquer pour l’instant. Envoyez d’abord un message."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non c’è ancora nulla da biforcare. Invia prima un messaggio."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "まだフォークする内容がありません。先にメッセージを送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "មិនទាន់មានអ្វីដើម្បីបំបែកនៅឡើយទេ។ សូមផ្ញើសារជាមុនសិន។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "아직 포크할 내용이 없습니다. 먼저 메시지를 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Det er ingenting å forgreine ennå. Send en melding først."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nie ma jeszcze czego rozgałęziać. Najpierw wyślij wiadomość."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ainda não há nada para bifurcar. Envie uma mensagem primeiro."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пока нечего ответвлять. Сначала отправьте сообщение."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ยังไม่มีอะไรให้แยกสาขา ส่งข้อความก่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Henüz çatallanacak bir şey yok. Önce bir mesaj gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поки що нічого відгалужувати. Спершу надішліть повідомлення."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chưa có gì để phân nhánh. Hãy gửi một tin nhắn trước."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "还没有可分叉的内容。请先发送一条消息。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "還沒有可分叉的內容。請先傳送一則訊息。"
+          }
+        }
+      }
+    },
+    "notice.forkBusy": {
+      "comment": "Agent pane: Fork Conversation while the chat's turn is running",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الدردشة قيد العمل. فرّعها عند انتهاء الدور."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ovaj chat radi. Račvajte ga kada se potez završi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chat arbejder. Forgren den, når turen slutter."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieser Chat arbeitet gerade. Zweige ihn ab, wenn der Durchgang endet."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This chat is working. Fork it when the turn ends."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat está trabajando. Bifúrcalo cuando termine el turno."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce chat est en cours. Dupliquez-le à la fin du tour."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questa chat è al lavoro. Biforcala quando il turno finisce."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このチャットは処理中です。ターンが終わってからフォークしてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកនេះកំពុងដំណើរការ។ សូមបំបែកវានៅពេលវេននេះបញ្ចប់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 채팅이 작업 중입니다. 턴이 끝나면 포크하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne chatten jobber. Forgrein den når turen er ferdig."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten czat pracuje. Rozgałęź go po zakończeniu tury."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este chat está trabalhando. Bifurque-o quando o turno terminar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот чат работает. Ответвите его, когда ход закончится."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทนี้กำลังทำงาน แยกสาขาเมื่อรอบนี้จบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu sohbet çalışıyor. Tur bitince çatallayın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей чат працює. Відгалузьте його, коли хід завершиться."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện này đang chạy. Hãy phân nhánh khi lượt kết thúc."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天正在运行。请在本轮结束后再分叉。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此聊天正在執行。請在本輪結束後再分叉。"
           }
         }
       }

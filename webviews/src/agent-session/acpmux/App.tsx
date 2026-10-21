@@ -132,6 +132,7 @@ import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
 import {
   type BackgroundCommand,
   backgroundCommands,
+  backgroundSection,
   type ProcessSource,
   useProcessRegistry,
 } from "./inspector/processes";
@@ -154,7 +155,13 @@ import { readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointS
 import { registerComposerHost } from "./composerSettings";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
-import { configureDictation, deliverDictation, useDictation, type DictationField } from "./dictation";
+import {
+  configureDictation,
+  deliverDictation,
+  isWaitingForWords,
+  useDictation,
+  type DictationField,
+} from "./dictation";
 import type { DictationUpdate } from "./dictationText";
 import { DictationMic } from "./DictationMic";
 import { DictationNotice } from "./DictationNotice";
@@ -225,6 +232,7 @@ import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  forkRefusal,
   earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
@@ -4316,8 +4324,12 @@ function AcpmuxPane() {
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
   const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
-  // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
-  const stopsSubagents = snapshot.summary?.harness === "claude";
+  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
+  // running command's row says so (conversation/runInBackground.ts).
+  const canBackground = backgroundsWork(snapshot.summary);
+  // Only Claude Code's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`, which
+  // this acpmux serves where it moves work: a Claude Code chat whatever its harness is named).
+  const stopsSubagents = canBackground;
   const stopSubagent = useMemo(
     () =>
       stopsSubagents
@@ -4325,9 +4337,6 @@ function AcpmuxPane() {
         : undefined,
     [stopsSubagents],
   );
-  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
-  // running command's row says so (conversation/runInBackground.ts).
-  const canBackground = backgroundsWork(snapshot.summary);
   // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
@@ -4447,11 +4456,15 @@ function AcpmuxPane() {
     transcriptRows,
     summaryCard,
     inspector,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
   });
   counted.current = {
     runningAgents,
     runningCommands,
     runningSessions,
+    backgroundCommandList: runningCommandList,
+    processes: processRegistry.processes,
     sourceRows,
     transcriptRows,
     summaryCard,
@@ -4482,9 +4495,10 @@ function AcpmuxPane() {
       tokens: turnTokens,
       background: backgroundCounts,
       openBackground: () => {
-        const { summaryCard: card, inspector: panel } = counted.current;
-        // The row counts subagents and started chats too: with no command, Subagents lists them.
-        if (panel.reveal) panel.reveal(backgroundCounts.commands > 0 ? "tasks" : "subagents");
+        const { backgroundCommandList: commands, processes, summaryCard: card, inspector: panel } = counted.current;
+        // The section that lists what runs, by the Inspector's own split (processes.ts
+        // `backgroundSection`): dev servers alone open Servers; no command, Subagents.
+        if (panel.reveal) panel.reveal(backgroundSection(processes, commands));
         else card.show();
       },
       openAgents: () => {
@@ -4497,7 +4511,7 @@ function AcpmuxPane() {
       openCommands: () => {
         const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
         if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
-        if (panel.reveal) panel.reveal("tasks");
+        if (panel.reveal) panel.reveal(backgroundSection(counted.current.processes, commands));
         else card.show();
       },
       openSessions: () => {
@@ -4823,6 +4837,9 @@ function AcpmuxPane() {
         // Integrate a Harness… from the palette or the File menu on a New Tab page (cx-9fqw): the
         // Harnesses page in place, as the page's own button shows it.
         if (name === "showHarnesses") openHarnessesPage();
+        // A chat that just opened from a fork (the app's Fork Conversation): the composer takes the
+        // keyboard, so the next words go to the fork.
+        if (name === "focusComposer") composerHandle.current?.focus();
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
@@ -5237,10 +5254,12 @@ function AcpmuxPane() {
           const name = shown?.summary?.modes?.availableModes.find((mode) => mode.id === modeId)?.name;
           pickedMode(client.shownSession()?.harness ?? shown?.summary?.harness, modeId, name);
         };
-        const openOwnTab = (sessionId: string) =>
+        /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
+        /// workspace, window); none is a tab after this chat's.
+        const openOwnTab = (sessionId: string, placement?: string) =>
           mock
             ? Promise.resolve(false)
-            : callNative("chat.openTab", { sessionId }).then(
+            : callNative("chat.openTab", placement ? { sessionId, placement } : { sessionId }).then(
                 () => true,
                 () => false,
               );
@@ -5479,7 +5498,7 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
-          // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
+          // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
           // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
           // floating chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {
@@ -5487,6 +5506,30 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             const forked = await client.fork(Number(throughSeq), undefined, true);
             if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
+            return persistSession(await client.select(forked));
+          },
+          // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
+          // shortcut): a fork through the chat's latest finished turn, opened where the app names
+          // (`placement`). A chat that cannot fork now says why in its transcript.
+          "chat.forkTo": async ({ placement }) => {
+            const shown = snapshotRef.current;
+            const refusal = shown ? forkRefusal(shown) : "unavailable";
+            const through = shown ? latestForkSeq(shown.rows) : undefined;
+            if (refusal || through === undefined) {
+              client.notice(
+                refusal === "busy"
+                  ? translate("notice.forkBusy")
+                  : refusal === "nothingYet"
+                    ? translate("notice.forkNothingYet")
+                    : translate("notice.forkFailed"),
+              );
+              return undefined;
+            }
+            harnessSwitch.cancel();
+            const chat = client.selectedSession;
+            const forked = await client.fork(through, undefined, true);
+            if (!forked || (await openOwnTab(forked, String(placement ?? "tab"))) || client.selectedSession !== chat)
+              return forked;
             return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
@@ -6873,6 +6916,7 @@ function AcpmuxPane() {
             // No prompt goes while a picked folder waits for the user's answer.
             blocked={pendingFolder ? {} : trustAsk.blocked}
             accessory={<DictationMic dictation={dictation} />}
+            dictating={isWaitingForWords(dictation.state)}
             onImportFile={importFile}
             onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
           />
@@ -7060,6 +7104,7 @@ function AcpmuxPane() {
                 }).then(() => folder);
               }}
               accessory={<DictationMic dictation={dictation} />}
+              dictating={isWaitingForWords(dictation.state)}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
               // The host answers only for a page on this Mac; another machine's keeps the refusal.
