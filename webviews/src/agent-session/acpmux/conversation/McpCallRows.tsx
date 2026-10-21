@@ -39,7 +39,6 @@ function McpGroupRow({ items, disclosureKey }: { items: readonly AcpmuxActivity[
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        title={mcpRawName(items[0]!.tool!, calls[0]!)}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-tool__icon">
@@ -81,7 +80,8 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
   const detailsId = useId();
   const tool = item.tool!;
   const call = useMemo(() => mcpCall(tool)!, [tool]);
-  // The machine name stays at hand: the line's tooltip and the opened call's first line.
+  // The machine name stays at hand as the opened call's first line (no tooltip: the line's text
+  // already shows, test/tooltip-rules.ts).
   const raw = mcpRawName(tool, call);
   const images = useMemo(() => toolImages(tool), [tool]);
   const running = isRunning(tool);
@@ -92,7 +92,6 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
         className={`cv-tool is-toggle${running ? " is-live" : " is-strong"}`}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}
-        title={raw}
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-tool__icon">

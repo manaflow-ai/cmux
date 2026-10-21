@@ -2,7 +2,7 @@
 // run of calls in an opened "Worked for" folded under one "Used tools, ran commands" line, each
 // "Ran N commands" group was closed, and an MCP call ran as `mcp__cmux-subsessions__start_session`.
 // Now every group keeps its own line and lists its latest calls, the earlier ones behind "+K more",
-// and an MCP call reads as its server and action, with the raw id kept in its tooltip.
+// and an MCP call reads as its server and action, with the raw id kept in the opened call.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -102,11 +102,12 @@ test("a short group lists every call with no +more line", async () => {
   expect(host.querySelector(".cv-tool-group__more")).toBeNull();
 });
 
-test("an MCP call reads as what it did, with its raw id in the tooltip and the opened call", async () => {
+test("an MCP call reads as what it did, with its raw id in the opened call", async () => {
   await render(settledRow([startSession()]));
   const line = host.querySelector<HTMLButtonElement>("button.cv-tool")!;
   expect(line.textContent).toBe("Started session sidebar-drag-bugs");
-  expect(line.title).toBe("mcp__cmux-subsessions__start_session");
+  // No tooltip: the line's text already shows (test/tooltip-rules.ts).
+  expect(line.title).toBe("");
   await act(async () => line.dispatchEvent(new window.MouseEvent("click", { bubbles: true })));
   expect(host.querySelector(".cv-mcp-call__name")?.textContent).toBe("mcp__cmux-subsessions__start_session");
 });
