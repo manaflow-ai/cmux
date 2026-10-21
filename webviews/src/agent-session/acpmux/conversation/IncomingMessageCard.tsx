@@ -4,7 +4,7 @@
 // the line, the body only; the prompt as the agent got it (cmux's or Claude Code's envelope) waits
 // behind Details under it. Whether it is open
 // lasts while the page does, so scrolling it out of the virtualized transcript keeps it.
-import { useContext, useId, useLayoutEffect, useState } from "react";
+import { useContext, useId, useLayoutEffect, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage } from "./incomingMessage";
@@ -21,6 +21,7 @@ export function IncomingMessageLine({
   message,
   images,
   onOpen,
+  actions,
 }: {
   /// The row's id, which keeps the line open across remounts.
   id: string;
@@ -28,6 +29,8 @@ export function IncomingMessageLine({
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   onOpen(sessionId: string): void;
+  /// The message's hover row (MessageActions.tsx ReceivedActions), at the line's end.
+  actions?: ReactNode;
 }) {
   const t = useT();
   const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
@@ -97,6 +100,7 @@ export function IncomingMessageLine({
         >
           <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
         </button>
+        {actions}
       </div>
       {open && (
         <div id={bodyId} className="cv-received__body selectable">
