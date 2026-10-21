@@ -28,7 +28,7 @@ set -euo pipefail
 
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
 main() {
-  local out remote branch tries here root start at tip try moved changed areas file rel prepare regenerate
+  local out remote branch tries here root start at tip try moved changed areas file rel prepare regenerate depth
   out="$(mkdir -p "${1:?usage: $0 OUT REMOTE BRANCH}" && cd "$1" && pwd)"
   remote="${2:?usage: $0 OUT REMOTE BRANCH}"
   branch="${3:?usage: $0 OUT REMOTE BRANCH}"
@@ -57,7 +57,11 @@ main() {
       echo "::error::regenerating the settings exports on ${at:0:12} failed" >&2
       return 1
     }
-    git fetch --quiet --no-tags --depth=1 "$remote" "refs/heads/$branch" || {
+    # --depth only in a checkout that is already shallow (CI's): in a full clone it would truncate
+    # history for every worktree sharing the git directory (tests/test_ci_no_shallow_dev_fetch.py).
+    depth=()
+    [[ "$(git rev-parse --is-shallow-repository)" == true ]] && depth=(--depth=1)
+    git fetch --quiet --no-tags ${depth[@]+"${depth[@]}"} "$remote" "refs/heads/$branch" || {
       echo "::error::cannot read $branch, so the settings exports made at ${at:0:12} are not known to be current" >&2
       return 1
     }
