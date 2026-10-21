@@ -75,7 +75,16 @@ import Testing
     }
 
     @Test func aHiddenSidebarHasNoCatcherArea() throws {
-        let (window, root) = root(sidebarHidden: true)
+        let (window, _) = root(sidebarHidden: true)
+        defer { window.close() }
+        #expect(!window.overlayLayer.dividerAreas.contains { $0.id == WindowOverlayLayer.sidebarResizeAreaID }, "\(window.overlayLayer.dividerAreas)")
+    }
+
+    /// `debug.layers` publishes `dividerAreas` as `divider_areas_in_window`, and the perf gate and
+    /// live drag scripts take its leftmost vertical area as the first pane divider. The sidebar's
+    /// band is no pane divider: with it in the list they dragged the sidebar edge instead.
+    @Test func theDividerAreasLeaveOutTheBand() throws {
+        let (window, _) = root()
         defer { window.close() }
         #expect(!window.overlayLayer.dividerAreas.contains { $0.id == WindowOverlayLayer.sidebarResizeAreaID }, "\(window.overlayLayer.dividerAreas)")
     }
