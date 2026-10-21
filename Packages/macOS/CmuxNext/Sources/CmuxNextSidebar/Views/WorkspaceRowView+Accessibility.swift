@@ -40,7 +40,7 @@ extension WorkspaceRowView {
         default: break
         }
         if let text = Strings.activity(content.activity) { parts.append(text) }
-        if ws.muted { parts.append(Strings.muted) }
+        if ws.muted { parts.append(Strings.notificationsMuted) }
         if let machine = content.machine { parts.append(machine.name) }
         if !presenceDots.isHidden { parts += presenceDots.presence.map(Strings.presenceLine) }
         return parts.joined(separator: ", ")
