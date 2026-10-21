@@ -128,6 +128,7 @@ import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirect
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
+import { CLOUD_REMOTE_AUTH_METADATA_KEY, cloudRemoteAuthMode } from "./clientGrant";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -1238,6 +1239,8 @@ type CreateVmInput = {
   readonly networkPolicy?: NetworkPolicy;
   /** "latest" opts the machine into coding-agent updates on attach; absent keeps the image's pins. */
   readonly agentUpdates?: VmAgentUpdatesSetting;
+  /** Trusted provider metadata copied from an owned source machine/snapshot. */
+  readonly providerMetadata?: Readonly<Record<string, unknown>>;
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
@@ -1414,7 +1417,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         // blocking post-create rename on current backends.
         displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
-        providerMetadata: create.vm.providerMetadata,
+        providerMetadata: { ...create.vm.providerMetadata, ...(input.providerMetadata ?? {}) },
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
@@ -2187,6 +2190,7 @@ export function snapshotVm(input: {
         vcpus: snapshotReservation.vcpus,
         memoryMb: snapshotReservation.memoryMb,
         diskMb: snapshotReservation.diskMb,
+        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(vm.providerMetadata),
       },
     });
     });
@@ -2589,6 +2593,14 @@ export function restoreVm(input: {
       yield* requireGoShape(input.billingPlanId, snapshotReservation);
       yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null);
     }
+    const snapshotRemoteAuthMode = repo.ownedSnapshotRemoteAuthMode
+      ? yield* repo.ownedSnapshotRemoteAuthMode({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        provider: input.provider,
+        snapshotId: input.snapshotId,
+      })
+      : "trusted-carrier";
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -2601,6 +2613,7 @@ export function restoreVm(input: {
       ...(resourceReservation ? { memoryMb: resourceReservation.memoryMb } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "restore",
+      providerMetadata: { [CLOUD_REMOTE_AUTH_METADATA_KEY]: snapshotRemoteAuthMode },
       ...(resourceReservation ? { resourceReservation } : {}),
       modelPlane: input.modelPlane,
       teamDirectory: input.teamDirectory,
@@ -2941,7 +2954,11 @@ export function forkVm(input: {
             providerVmId: handle.providerVmId,
             image: source.imageId,
             imageVersion: source.imageVersion,
-            providerMetadata: handle.providerMetadata ?? source.providerMetadata,
+            providerMetadata: {
+              ...source.providerMetadata,
+              ...(handle.providerMetadata ?? {}),
+              [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+            },
           }),
         );
       }).pipe(
@@ -3022,6 +3039,9 @@ export function forkVm(input: {
       ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
+      providerMetadata: {
+        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+      },
       modelPlane: input.modelPlane,
       ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
       agentUpdates: vmAgentUpdatesFromRow(source),
