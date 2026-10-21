@@ -264,17 +264,23 @@ function SentImage({ image }: { image: PromptImage }) {
 }
 
 /// A prompt open for typing: Enter sends, Shift-Enter breaks the line, Escape cancels. Edit and
-/// resend uses it here; a message card's Reply too (IncomingMessageCard.tsx), under `label`.
+/// resend uses it here; a message card's Reply too (IncomingMessageCard.tsx), under `label`,
+/// keeping its draft through `onChange`; one it draws again after scrolling back leaves the focus
+/// alone (`autoFocus` false).
 export function PromptEditor({
   initial,
   canSend,
   label,
+  autoFocus = true,
+  onChange,
   onCancel,
   onSend,
 }: {
   initial: string;
   canSend: boolean;
   label?: string;
+  autoFocus?: boolean;
+  onChange?(text: string): void;
   onCancel(): void;
   onSend(text: string): Promise<void>;
 }) {
@@ -285,9 +291,10 @@ export function PromptEditor({
   // Opened to type in: the caret at the end, the field as tall as the prompt.
   useLayoutEffect(() => {
     const element = field.current;
-    if (!element) return;
+    if (!element || !autoFocus) return;
     element.focus();
     element.setSelectionRange(element.value.length, element.value.length);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- focus once, when it opens
   }, []);
   useLayoutEffect(() => {
     const element = field.current;
@@ -309,7 +316,10 @@ export function PromptEditor({
         aria-label={label ?? t("message.editLabel")}
         value={value}
         rows={1}
-        onChange={(event) => setValue(event.target.value)}
+        onChange={(event) => {
+          setValue(event.target.value);
+          onChange?.(event.target.value);
+        }}
         // ui-allow: the editor's own Enter (send) and Escape (cancel), as the composer's
         onKeyDown={(event) => {
           // WebKit may end an IME composition before its Enter's keydown, which then says only 229.
