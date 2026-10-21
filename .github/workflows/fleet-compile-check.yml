@@ -32,7 +32,8 @@ jobs:
   compile-check:
     name: fleet compile-check
     if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
-    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+    # The literal fallbacks never schedule: the job's if: skips outside manaflow-ai and when the variable is unset.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_COMPILE_CHECK_GATEWAY || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       statuses: write
     timeout-minutes: 35  # the client waits up to 600 + 1200 s plus its own slack
@@ -53,16 +54,23 @@ jobs:
             echo "::error title=fleet compile-check::sha must be a full 40-character lowercase commit sha, got '$SHA'"
             exit 1
           fi
-          # Every value is fixed text, the checked sha or GitHub's run URL: none needs JSON escaping.
+          # Every value is fixed text, the checked sha, the runner name or GitHub's run URL: none needs JSON escaping.
           post() {
             curl -fsS -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
               "$API/statuses/$SHA" >/dev/null \
               -d "$(printf '{"state":"%s","description":"%s","target_url":"%s","context":"%s"}' \
                 "$1" "$2" "$RUN_URL" "$CONTEXT")"
           }
+          # A gateway without the client has no verdict; it must never post "did not compile" (cmux17, run 39573725240).
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::error title=fleet compile-check::$client is not installed on runner $RUNNER_NAME"
+            post error "No build-fleet verdict: cmux-ci is not installed on runner $RUNNER_NAME" || exit 1
+            exit 2
+          fi
           post pending "Compiling the app on the build fleet" || exit 1
           status=0
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" compile-check --ref "$SHA" --app \
+          "$client" compile-check --ref "$SHA" --app \
             --timeout 1200 --queue-timeout 600 || status=$?
           case "$status" in
             0) post success "cmux-ci compile-check --app passed on this commit" || exit 1 ;;

@@ -22,6 +22,9 @@ final class HomeService {
     private(set) var conversations: [CmuxNextDaemon.ConversationSummary] = []
     /// Set while older builds' Chiefs block the move into the Chief home.
     var migrationNotice: String?
+    /// The Chief conversation whose settings open once its Home view shows it: Toggle Chief
+    /// Settings with no Home in front brings Home forward there (`HomeChiefActions`).
+    @ObservationIgnored var pendingChiefSettings: ConversationID?
     /// While a Chief turn waits for the compactor (ChiefSettleWatch).
     var settleNotice: String?
     @ObservationIgnored var settleWatch: ChiefSettleWatch?

@@ -873,7 +873,7 @@ mod state_file_tests {
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
-    let exe = std::env::current_exe()?;
+    let this = crate::self_command::SelfCommand::current()?;
     crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
@@ -893,7 +893,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = std::process::Command::new(exe);
+    let mut cmd = this.command(&["daemon", "run", "--ready-fd"]);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -902,8 +902,6 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())
-        .args(DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default())
-        .args(["daemon", "run", "--ready-fd"])
         .arg(write_fd.to_string())
         .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
         .stdin(std::process::Stdio::null())

@@ -275,6 +275,8 @@ extension SettingsSchema {
         "home.attachments.keepLocation": .privacy,
         // Whether cmux reads the person's clipboard for the Chief's + menu.
         "home.clipboardHistory": .privacy,
+        // Where the person's direct messages and group chats go: an agent must not move them to another server.
+        "home.server": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
@@ -301,6 +303,8 @@ extension SettingsSchema {
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
+        // Privacy: whether banners show what agents said is the person's call.
+        "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.

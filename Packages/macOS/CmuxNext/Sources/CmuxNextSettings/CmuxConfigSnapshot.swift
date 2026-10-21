@@ -58,6 +58,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var homeKeepLocation = false, homeChannelsEnabled = false, homeChiefPetEnabled = false, homeChiefPetMascot = HomeChiefPetSetting.defaultMascot
     /// `home.clipboardHistory`: the Chief composer's + menu lists recent copies; on when unset.
     public var homeClipboardHistory = HomeClipboardHistorySetting.defaultEnabled
+    /// `home.server`: cmux Cloud (`hosted`) when unset or invalid, else the self-hosted server's origin.
+    public var homeServer: HomeServerSetting.Value = .hosted
     /// `labs.previewFeatures` and `labs.classicHome`; off when unset.
     public var previewFeatures = CmuxConfigSnapshot.previewFeaturesDefault, classicHome = CmuxConfigSnapshot.classicHomeDefault
     /// `browser.hibernation`, `browser.hibernationExclusions`, `browser.hibernatePinnedTabs`, `browser.freezeHiddenTabs`.
