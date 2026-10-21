@@ -1,4 +1,4 @@
-import CmuxNextDaemon
+@testable import CmuxNextDaemon
 import Foundation
 
 /// A daemon's cloud proxy without a daemon: it answers the reads a Cloud
@@ -12,7 +12,24 @@ actor FakeCloudDaemon: CloudConversationCommands {
         var op: ConversationInboxOpRequest.Op
     }
 
+    /// One `cloud-attachment-upload` as the daemon received it: the declaration and the bytes read from its files.
+    struct Upload: Equatable {
+        var conversation: String
+        var attachment: ConversationAttachment
+        var bytes: Data
+        var posterBytes: Data?
+    }
+
     private(set) var inboxOps: [InboxOp] = []
+    private(set) var uploads: [Upload] = []
+    /// `cloud-attachment-read` calls: conversation, hash and variant.
+    private(set) var downloads: [String] = []
+    /// The bytes the owner holds per `hash:variant`.
+    private var blobs: [String: (bytes: Data, mimeType: String)] = [:]
+
+    func hold(_ bytes: Data, hash: String, variant: ConversationAttachmentVariant = .original, mimeType: String) {
+        blobs["\(hash):\(variant.rawValue)"] = (bytes, mimeType)
+    }
 
     func inboxList(limit: Int) async throws -> CloudInboxList { CloudInboxList(entries: []) }
 
@@ -38,5 +55,28 @@ actor FakeCloudDaemon: CloudConversationCommands {
 
     func inboxOp(_ conversation: String, idempotencyKey: String, op: ConversationInboxOpRequest.Op) async throws {
         inboxOps.append(InboxOp(conversation: conversation, idempotencyKey: idempotencyKey, op: op))
+    }
+
+    /// Keeps the bytes (the owner's record wins its type: it answers what it stored).
+    func uploadAttachment(conversation: String, attachment: ConversationAttachment, file: URL, posterFile: URL?,
+                          previewFile: URL?, progress: @escaping @Sendable (Double) -> Void) async throws -> StoredConversationAttachment {
+        let bytes = try Data(contentsOf: file)
+        let poster = try posterFile.map { try Data(contentsOf: $0) }
+        uploads.append(Upload(conversation: conversation, attachment: attachment, bytes: bytes, posterBytes: poster))
+        hold(bytes, hash: attachment.hash, mimeType: attachment.mimeType)
+        progress(1)
+        return StoredConversationAttachment(hash: attachment.hash, mimeType: attachment.mimeType, byteCount: bytes.count,
+                                            poster: attachment.poster, preview: attachment.preview)
+    }
+
+    func downloadAttachment(conversation: String, hash: String, variant: ConversationAttachmentVariant,
+                            to destination: URL) async throws -> String {
+        downloads.append("\(conversation):\(hash):\(variant.rawValue)")
+        guard let blob = blobs["\(hash):\(variant.rawValue)"] else {
+            throw DaemonError.command(cmd: "cloud-attachment-read", message: "no such attachment", code: "cloud_conversation_rejected")
+        }
+        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try blob.bytes.write(to: destination, options: .atomic)
+        return blob.mimeType
     }
 }
