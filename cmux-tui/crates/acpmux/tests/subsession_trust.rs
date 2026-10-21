@@ -1,19 +1,22 @@
 //! A sub-session in a folder nobody answered the trust question for waits for the person
 //! instead of failing (`hub/trust_wait.rs`):
 //!
-//! - a folder under the person's project roots starts at once, no card (`trust_auto.rs`);
+//! - a folder under the person's project roots starts at once, no card (`trust_auto.rs`); a
+//!   worktree made from it is not recorded as trusted, since no person trusted its source;
 //! - any other folder raises a Trust / Not now card on the starting session: the session is
 //!   `waiting`, carries the `trust.pending:<name>` tag, and the card names the folder;
 //! - Trust (the person's answer) lets the start go on by itself, and the folder stays trusted;
 //! - the folder trusted elsewhere (`acp.trust.set`, the pane's own question) withdraws the card
-//!   and lets the start go on;
+//!   and lets the start go on; a withdrawn card is logged as a cancelled decision, so the chat
+//!   drops it, and the session leaves `waiting`;
 //! - Not now refuses the start with `subsessions.trust_declined`, and an agent that asks again
 //!   within minutes is refused without a second card;
 //! - only the person allows the card (a connection that is not the person is refused);
 //! - with two starts waiting on one folder, each has its own card: one start's Not now leaves
 //!   the other's card up;
 //! - a project root answers only the app's pane: a Web client's start there still waits for a
-//!   person, and an explicit Don't trust wins over the root;
+//!   person, a Web client's `_acpmux/warm` starts no agent there, a sub-session started in a Web
+//!   turn waits on a card there, and an explicit Don't trust wins over the root;
 //! - a settings file that cannot be read trusts nothing by a rule.
 //!
 //! Stand-in agents (fake_agent.py). One test function: the settings file is read from this
@@ -128,6 +131,27 @@ fn start_in_background(
     })
 }
 
+/// The logged answer to the card `permission_id` on `session`, if any.
+fn decision(hub: &Arc<Hub>, session: &str, permission_id: &str) -> Option<Value> {
+    hub.events(session, 0, 100_000)
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == "permission_decision" && e.msg["permissionId"] == permission_id)
+        .map(|e| e.msg)
+}
+
+fn git(dir: &Path, args: &[&str]) {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(["-c", "user.name=t", "-c", "user.email=t@t", "-c", "init.defaultBranch=main"])
+        .args(["-c", "commit.gpgsign=false", "-c", "core.hooksPath=/dev/null"])
+        .args(args)
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "git {args:?}: {}", String::from_utf8_lossy(&out.stderr));
+}
+
 fn card_of(hub: &Arc<Hub>, parent: &str) -> (String, Value) {
     let session = hub.resolve(parent).unwrap();
     let pending = session.pending_permissions();
@@ -150,6 +174,9 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         "parent",
         "mine/app",
         "mine/web",
+        "mine/repo",
+        "mine/sub",
+        "webparent",
         "elsewhere/a",
         "elsewhere/b",
         "elsewhere/c",
@@ -198,6 +225,27 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         agent.ok(START, json!({"prompt": "echo hi", "name": "own", "cwd": mine.join("app")})).await;
     assert_eq!(own["depth"], 1, "{own}");
     assert_eq!(app.summary(&parent).await["pendingPermissions"], 0);
+
+    // 1b. A worktree of a folder only a rule trusts: no person trusted its source, so no trust is
+    //     recorded for the worktree (a Web client could read such a record as a person's).
+    let repo = mine.join("repo");
+    git(&repo, &["init", "-q"]);
+    git(&repo, &["commit", "-q", "--allow-empty", "-m", "first"]);
+    let made = agent
+        .ok(START, json!({"prompt": "echo hi", "name": "made", "cwd": repo, "worktree": true}))
+        .await;
+    let worktree = std::fs::canonicalize(made["worktree"]["root"].as_str().unwrap()).unwrap();
+    let worktree = worktree.to_string_lossy().into_owned();
+    let record: serde_json::Map<String, Value> = serde_json::from_str(
+        &std::fs::read_to_string(&paths.record).unwrap_or_else(|_| "{}".to_owned()),
+    )
+    .unwrap();
+    assert!(
+        !record.contains_key(&worktree),
+        "a rule's trust was recorded as a person's: {record:?}"
+    );
+    let trust = app.ok("acp.trust.get", json!({"cwd": worktree})).await;
+    assert_ne!(trust["level"], "trusted", "{trust}");
 
     // 2. Another folder: the start waits on a card in the parent's chat.
     let waiting = start_in_background(&hub, &parent, &elsewhere.join("a"), "first");
@@ -280,6 +328,7 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     // 3. Trusted elsewhere (the pane's own question) while the start waits: the card goes away.
     let waiting = start_in_background(&hub, &parent, &elsewhere.join("b"), "second");
     app.until_waiting(&parent).await;
+    let (withdrawn, _) = card_of(&hub, &parent);
     app.ok(
         "acp.trust.set",
         json!({"cwd": elsewhere.join("b").to_string_lossy(), "level": "trusted"}),
@@ -290,6 +339,11 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     let summary = app.summary(&parent).await;
     assert_eq!(summary["pendingPermissions"], 0, "{summary}");
     assert!(summary["tags"].get("trust.pending:second").is_none(), "{summary}");
+    // The withdrawn card is logged as cancelled (the chat drops it on that record), and the
+    // session no longer reads as needing the person.
+    assert_ne!(summary["status"], "waiting", "{summary}");
+    let logged = decision(&hub, &parent, &withdrawn).expect("no decision for the withdrawn card");
+    assert_eq!(logged["outcome"]["outcome"], "cancelled", "{logged}");
 
     // 4. Not now: refused with the reason, remembered, and no second card.
     let waiting = start_in_background(&hub, &parent, &elsewhere.join("c"), "third");
@@ -340,7 +394,13 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     for started in [first.await.unwrap(), second.await.unwrap()] {
         assert!(started.get("error").is_none(), "{started}");
     }
-    assert_eq!(app.summary(&parent).await["pendingPermissions"], 0);
+    let summary = app.summary(&parent).await;
+    assert_eq!(summary["pendingPermissions"], 0, "{summary}");
+    // The other start's card went with the folder's trust: logged as cancelled, and the session
+    // is not left waiting on it.
+    assert_ne!(summary["status"], "waiting", "{summary}");
+    let logged = decision(&hub, &parent, &cards[1].0).expect("no decision for the other card");
+    assert_eq!(logged["outcome"]["outcome"], "cancelled", "{logged}");
 
     // 6. Two starts in one folder, one Not now: only that start's card goes; the other waits on.
     let first = start_in_background(&hub, &parent, &elsewhere.join("e"), "sixth");
@@ -419,6 +479,55 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     let mut pane = Client::from(&web_hub, Origin::LocalApp);
     let r = pane.call("session/new", new_in(&mine.join("web"))).await;
     assert!(r.get("error").is_none(), "the pane starts under a project root: {r}");
+    let pane_chat = r["result"]["sessionId"].as_str().unwrap().to_owned();
+    // Warming answers alike: a Web client's warm starts no agent there, the pane's does.
+    let r = web.call("_acpmux/warm", json!({"sessionIds": [pane_chat]})).await;
+    assert_ne!(r["result"]["warmed"][0]["sessionId"], json!(pane_chat), "warmed for Web: {r}");
+    let r = pane.call("_acpmux/warm", json!({"sessionIds": [pane_chat]})).await;
+    assert_eq!(r["result"]["warmed"][0]["sessionId"], json!(pane_chat), "{r}");
+
+    // 8b. A sub-session started in a Web turn: the project root is no answer there either, so
+    //     the start waits on a card for the person.
+    let web_parent_dir = root.join("webparent");
+    app.ok("acp.trust.set", json!({"cwd": web_parent_dir.to_string_lossy(), "level": "trusted"}))
+        .await;
+    let web_parent = web.ok("session/new", new_in(&web_parent_dir)).await["sessionId"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let turn = json!({"sessionId": web_parent, "prompt": [{"type": "text", "text": "hi"}]});
+    web.ok("session/prompt", turn).await;
+    let waiting = start_in_background(&web_hub, &web_parent, &mine.join("sub"), "webchild");
+    let web_session = web_hub.resolve(&web_parent).unwrap();
+    for _ in 0..200 {
+        if waiting.is_finished() || !web_session.pending_permissions().is_empty() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    if waiting.is_finished() {
+        panic!("a Web turn's start went on by a rule: {}", waiting.await.unwrap());
+    }
+    let (card_id, request) = card_of(&web_hub, &web_parent);
+    assert_eq!(
+        request["toolCall"]["_meta"]["acpmux"]["trust"]["cwd"],
+        mine.join("sub").to_string_lossy().as_ref(),
+        "{request}"
+    );
+    web_hub
+        .respond_permission(
+            &web_session,
+            &card_id,
+            Some("not_now".into()),
+            None,
+            None,
+            Answerer::default(),
+            Control::Local,
+        )
+        .await
+        .unwrap();
+    let declined = waiting.await.unwrap();
+    assert_eq!(declined["error"]["data"]["reason"], "subsessions.trust_declined", "{declined}");
 
     // 9. A settings file that cannot be read trusts nothing by a rule.
     std::fs::write(&settings, "{ not json").unwrap();
