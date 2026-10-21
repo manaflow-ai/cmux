@@ -142,6 +142,15 @@ public nonisolated struct AgentPaneTunables {
         help: "Each click of an agent chat's Terminal button opens a new terminal right of the last one and focuses it, instead of closing the terminal it opened.",
         default: false, code: "AgentPaneTunables.terminalButtonAdds")
 
+    /// Leo 2026-10-20, "these buttons are kind of weird": one globe instead of Preview beside Browser.
+    /// On (the default), the chat header's Browser opens the chat's local page beside the chat when its
+    /// last turns named one, and Preview is not a button of its own. Off: Preview shows as its own
+    /// button and Browser always opens a plain browser, as before. Pushed with the header state.
+    public static let browserOpensPreview = Tunable<Bool>.toggle(
+        "agentChat.browserOpensPreview", .panes, "Browser button opens the chat's page",
+        help: "An agent chat's Browser button opens the local page the chat named (its preview) beside the chat, and Preview is not a separate button. Off: separate Preview and Browser buttons.",
+        default: true, code: "AgentPaneTunables.browserOpensPreview")
+
     /// How wide the chat's column draws on a wide pane (cx-ncc.107, a trial before real Settings).
     /// The page gets it with the theme (`AgentPaneTheme`, `chatWidth`), again on each change.
     public static let chatWidth = Tunable<ChatWidth>.choice(
@@ -356,6 +365,7 @@ public nonisolated struct AgentPaneTunables {
             sideSessions.descriptor,
             suggestedTasks.descriptor,
             terminalButtonAdds.descriptor,
+            browserOpensPreview.descriptor,
             thoughtFoldThreshold.descriptor,
             thoughtHeader.descriptor,
             topStripStyle.descriptor,

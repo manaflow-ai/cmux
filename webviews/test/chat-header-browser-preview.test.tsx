@@ -104,3 +104,41 @@ test("Browser opens the chat's local page beside it, lights while it is open, an
   root = undefined;
   configureQuickActions({});
 });
+
+test("with Debug Settings agentChat.browserOpensPreview off, the default header is Preview beside a plain Browser", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ChatHeaderTools } = await import("../src/agent-session/acpmux/header/ChatHeaderTools");
+  const { applyHostEvent } = await import("../src/agent-session/acpmux/pageHost");
+  const { configureQuickActions } = await import("../src/agent-session/acpmux/header/quickActions");
+  configureQuickActions({});
+  applyHostEvent({ kind: "headerState", value: { lit: [], browserOpensPreview: false } });
+  const runs: string[] = [];
+  root = createRoot(host);
+  act(() =>
+    root!.render(
+      <ChatHeaderTools
+        onTerminal={() => {}}
+        onBrowser={(mode) => runs.push(`browser ${mode}`)}
+        previewUrl="http://localhost:5173/"
+        onPreview={(url, mode) => runs.push(`preview ${mode} ${url}`)}
+        summary={null}
+        menu={() => []}
+      />,
+    ),
+  );
+  const shown = [...host.querySelectorAll("[data-quick-action]")].map((button) =>
+    button.getAttribute("data-quick-action"),
+  );
+  expect(shown).toEqual(["preview", "terminal", "browser"]);
+  const browser = host.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Browser"]')!;
+  expect(browser.getAttribute("title")).toBe("Browser");
+  act(() => browser.click());
+  expect(runs).toEqual(["browser toggle"]);
+  // Back on: the page follows the next push.
+  act(() => applyHostEvent({ kind: "headerState", value: { browserOpensPreview: true } }));
+  expect(
+    [...host.querySelectorAll("[data-quick-action]")].map((button) => button.getAttribute("data-quick-action")),
+  ).toEqual(["terminal", "browser"]);
+  act(() => root?.unmount());
+  root = undefined;
+});

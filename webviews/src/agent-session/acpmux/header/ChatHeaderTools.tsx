@@ -159,8 +159,13 @@ export function ChatHeaderTools({
   const splitDownKey = useShortcut(HEADER_ACTIONS.splitDown);
   const browserKey = useShortcut(HEADER_ACTIONS.browser);
   const changesKey = useShortcut(HEADER_ACTIONS.changes);
-  const actions = useQuickActions();
-  const { lit, pullRequest } = useHeaderState();
+  const { lit, pullRequest, browserOpensPreview } = useHeaderState();
+  // With the Debug toggle off, the default buttons are the old ones: Preview beside Browser.
+  const quick = useQuickActions();
+  const actions =
+    !browserOpensPreview && JSON.stringify(quick) === JSON.stringify(QUICK_ACTION_DEFAULTS)
+      ? withShown(quick, "preview", true)
+      : quick;
   const worktree = useWorktree(folder, readStatus, statusKey);
   // A toggle is on while the split it opened is open; in open mode each click makes another, so none is.
   const on = (action: string, mode: QuickActionMode) => (mode === "toggle" ? lit.includes(action) : undefined);
@@ -219,11 +224,12 @@ export function ChatHeaderTools({
         shortcutAction: HEADER_ACTIONS.changes,
         onSelect: () => onChanges("toggle"),
       });
-    // Browser opens the chat's page itself (browserTarget), so Preview folds only without a Browser button.
+    // Browser opens the chat's page itself (Debug `agentChat.browserOpensPreview`), so then Preview
+    // folds only without a Browser button.
     if (
       onPreview &&
       !shownIds.has("preview") &&
-      !shownIds.has("browser") &&
+      !(shownIds.has("browser") && headerState().browserOpensPreview) &&
       (previewUrl || lit.includes(HEADER_ACTIONS.preview))
     )
       folded.push({
@@ -260,7 +266,8 @@ export function ChatHeaderTools({
   // Browser without its own Preview button (the default): the chat's local page when it has one, so the
   // globe opens what the chat is about, not a blank tab (Leo 2026-10-20). A toggle click closes whichever
   // browser it opened: the page's preview or the plain split.
-  const previewInBrowser = onPreview !== undefined && !actions.some((action) => action.id === "preview");
+  const previewInBrowser =
+    browserOpensPreview && onPreview !== undefined && !actions.some((action) => action.id === "preview");
   const browserRun = (mode: QuickActionMode) => {
     // The page goes along, as the Preview button sent it: a preview the person closed since the last
     // state push opens again instead of the click doing nothing.
