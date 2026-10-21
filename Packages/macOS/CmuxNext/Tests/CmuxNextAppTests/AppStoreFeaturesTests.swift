@@ -64,6 +64,27 @@ import Testing
         }
     }
 
+    /// The Chief Pet card's Settings… link opens Settings > Chief Pet (Settings on its key's rows);
+    /// a card whose feature names no rows, or an app that cannot show Settings, has no link.
+    @Test func theChiefPetCardLinksToItsSettings() throws {
+        for feature in AppFeature.catalog {
+            guard let key = feature.settingsLink else { continue }
+            #expect(SettingsSchema.descriptor(for: key.split(separator: ".").map(String.init)) != nil, "\(feature.id) links to \(key), not a setting")
+        }
+        var shown: [String] = []
+        let bridge = SettingsAppFeatures(settings: { nil }, showSettings: { shown.append($0) })
+        let pet = try Self.feature("chief.pet")
+        #expect(bridge.hasSettings(pet))
+        AppStoreModel(client: AppsClient(transport: FeaturesOfflineAppsTransport()), features: bridge).openSettings(pet)
+        #expect(shown == ["home.chiefPetEnabled"])
+
+        let perPane = try Self.feature("backgrounds.perPane")
+        #expect(!bridge.hasSettings(perPane))
+        bridge.openSettings(perPane)
+        #expect(shown == ["home.chiefPetEnabled"], "a feature with no settings rows opened Settings")
+        #expect(!SettingsAppFeatures(settings: { nil }).hasSettings(pet), "a link that cannot open Settings is shown")
+    }
+
     @Test func getWritesTheOnValueAndRemoveTurnsItOff() async throws {
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }
