@@ -3692,7 +3692,13 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns, sessionStatus, lineBelow },
+        {
+          working: snapshot.isWorking,
+          clockOffset: snapshot.clockOffsetMs,
+          liveRuns: codexRuns,
+          sessionStatus,
+          lineBelow,
+        },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
