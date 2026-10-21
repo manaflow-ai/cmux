@@ -1,3 +1,4 @@
+import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -33,5 +34,17 @@ struct SidebarDocGroupEditTargetTests {
         // Not a group (a workspace item) or not in the document: the id goes as it is (the reducer judges it).
         #expect(SidebarDocStore.item(group: GroupID("itm_w_s1_ws_1"), in: records) == "itm_w_s1_ws_1")
         #expect(SidebarDocStore.item(group: GroupID("grp_gone"), in: records) == "grp_gone")
+    }
+}
+
+/// New Subgroup named by a personal group id (CLI, automation) plans under that group's document item.
+@MainActor @Suite
+struct SidebarDocSubgroupPersonalParentTests {
+    @Test func aPersonalParentIDPlansUnderItsDocumentItem() throws {
+        let records = try SidebarDocGroupEditTargetTests.records()
+        let plan = SidebarDocSubgroupPlan(parent: GroupID("grp_1"), id: GroupID("grp_new"), name: "sub", color: .green, records: records)
+        #expect(plan.refusal == nil)
+        let to = plan.ops?.first?["to"] as? [String: Any]
+        #expect(to?["parent"] as? String == "itm_g_grp_1")
     }
 }

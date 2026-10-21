@@ -32,16 +32,14 @@ extension SidebarDocStore {
         }
     }
 
-    /// The document item of group `group`: the id itself when the document holds a group under it (a group the
-    /// document made, or an item id already), else the item a personal group migrated or synced into
-    /// (`itm_g_<id>`). An edit named by the personal id (`grp_…`) was refused `unknown_item` (#22996).
+    /// The document item of group `group` (`SidebarDocRecords.groupItem(personal:)`: `itm_g_<id>` for a personal
+    /// group, the id itself for a group the document made or an item id); the id as it is when the document holds
+    /// no such group (one just created, still in flight). An edit named by the personal id (`grp_…`) was refused
+    /// `unknown_item` (#22996).
     func item(group: GroupID) -> String { Self.item(group: group, in: records) }
 
     static func item(group: GroupID, in records: SidebarDocRecords) -> String {
-        let id = group.rawValue
-        if records.items[id]?.body.groupCollapsed != nil { return id }
-        let item = groupItemID(personal: id)
-        return records.items[item]?.body.groupCollapsed != nil ? item : id
+        records.groupItem(personal: group.rawValue) ?? group.rawValue
     }
 
     static func wire(_ tint: GroupTint) -> String {
