@@ -31,3 +31,33 @@ extension PaneTabRowSharing {
         setTabRow(height: height, trailingInset: height > 0 ? trailingInset : 0)
     }
 }
+
+extension NSView {
+    /// The top of a view that shares its pane's tab row (``PaneTabRowSharing``) that the row covers:
+    /// 0 points tall while it does not share the row. The pane lays the view under the strip then,
+    /// so a native notice pins below this guide, not to the view's top, to stay clear of the tabs.
+    public var tabRowCover: NSLayoutGuide {
+        if let guide = layoutGuides.first(where: { $0.identifier == Self.tabRowCoverID }) { return guide }
+        let guide = NSLayoutGuide()
+        guide.identifier = Self.tabRowCoverID
+        addLayoutGuide(guide)
+        let height = guide.heightAnchor.constraint(equalToConstant: 0)
+        height.identifier = Self.tabRowCoverID.rawValue
+        NSLayoutConstraint.activate([
+            guide.topAnchor.constraint(equalTo: topAnchor),
+            guide.leadingAnchor.constraint(equalTo: leadingAnchor),
+            guide.trailingAnchor.constraint(equalTo: trailingAnchor),
+            height,
+        ])
+        return guide
+    }
+
+    /// Sets ``tabRowCover``'s height: the row's height in points while the view's tools are in it, else 0.
+    public func setTabRowCover(_ points: CGFloat) {
+        let guide = tabRowCover
+        let height = constraints.first { $0.identifier == Self.tabRowCoverID.rawValue && $0.firstItem === guide }
+        if height?.constant != max(0, points) { height?.constant = max(0, points) }
+    }
+
+    private static let tabRowCoverID = NSUserInterfaceItemIdentifier("cmux.tabRowCover")
+}
