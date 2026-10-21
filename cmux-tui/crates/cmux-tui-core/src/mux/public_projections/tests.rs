@@ -57,6 +57,7 @@ fn zero_view_terminal_projections_restore_by_stable_content_identity() {
             read_by: vec![],
             source: NotificationSource::Cli,
             browser_id: None,
+            workspace_id: None,
         }],
         agents: vec![RegistryAgentProjection {
             id: AgentPublicId::parse("agent_00000000000000000000000000000001").unwrap(),
@@ -100,6 +101,7 @@ fn unread_projection_without_terminal_identity_restores_history_without_badge() 
             read_by: vec![],
             source: NotificationSource::Cli,
             browser_id: None,
+            workspace_id: None,
         }],
         agents: Vec::new(),
         agent_hook_states: Vec::new(),
@@ -130,6 +132,7 @@ fn orphaned_unread_notification_restores_only_in_the_historical_ledger() {
             read_by: vec![],
             source: NotificationSource::Cli,
             browser_id: None,
+            workspace_id: None,
         }],
         agents: Vec::new(),
         agent_hook_states: Vec::new(),
