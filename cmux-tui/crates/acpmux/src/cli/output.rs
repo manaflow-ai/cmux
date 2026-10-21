@@ -704,8 +704,8 @@ async fn collect_once(
 }
 
 /// The most JSON a page of the daemon's log may hold (`_acpmux/attach` `maxBytes`; it
-/// defaults to 1 MiB). A reply is read from one page of the newest transcript records; raw
-/// harness lines are left out so they cannot crowd the turn out of it.
+/// defaults to 1 MiB). A reply is read from the newest transcript records, a page at a time;
+/// raw harness lines are left out so they cannot crowd the turn out of it.
 const TRANSCRIPT_PAGE_BYTES: usize = 4 << 20;
 
 /// The assistant reply of one turn, read from the session's log: the last
@@ -748,7 +748,8 @@ pub(crate) async fn with_older(client: &Arc<Client>, query: Value) -> Result<Vec
     Ok(events)
 }
 
-/// Up to `limit` events of a chat after seq `after`, oldest first, a page at a time.
+/// Up to `limit` events of a chat after seq `after`, oldest first, a page of at most 100000 at a
+/// time.
 pub(crate) async fn events_after(
     client: &Arc<Client>,
     id: &str,
@@ -760,7 +761,7 @@ pub(crate) async fn events_after(
         let v = client
             .request(
                 method::MUX_EVENTS,
-                json!({"sessionId": id, "afterSeq": after, "limit": limit - events.len()}),
+                json!({"sessionId": id, "afterSeq": after, "limit": (limit - events.len()).min(100_000)}),
             )
             .await?;
         let (page, more) = page_events(&v);

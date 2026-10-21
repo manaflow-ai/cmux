@@ -665,7 +665,7 @@ pub(crate) async fn tail(
             // Subscribe before reading from the cursor, so an event written
             // in between arrives live; the seq check below drops repeats.
             client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
-            events_after(&client, &id, seq, 100000).await?
+            events_after(&client, &id, seq, usize::MAX).await?
         }
         None => with_older(&client, json!({"sessionId": id, "limit": last})).await?,
     };

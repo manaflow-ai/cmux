@@ -179,14 +179,21 @@ pub fn page_bytes(params: &Value) -> usize {
         .min(MAX_PAGE_BYTES)
 }
 
-/// A record no page can carry goes as a stub with its kind and seq: what it left out, and how much.
-fn fit(mut rec: EventRecord, bounded: bool) -> EventRecord {
+/// The most JSON one record may hold in a page: a page always carries at least one record and
+/// goes out as one message, so a record must leave room under `rpc::MAX_MESSAGE_BYTES` for the
+/// reply around it.
+pub const MAX_RECORD_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
+
+/// A record no message can carry goes as a stub with its kind and seq: what it left out, and how
+/// much. Also returns what the record adds to the page.
+fn fit(mut rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
     let bytes = record_bytes(&rec);
-    if bounded && bytes > MAX_PAGE_BYTES {
-        rec.msg =
-            json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}});
+    if !bounded || bytes <= MAX_RECORD_BYTES {
+        return (rec, bytes);
     }
-    rec
+    rec.msg = json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}});
+    let stub = record_bytes(&rec);
+    (rec, stub)
 }
 
 /// One page of a session's log, oldest first.
@@ -218,12 +225,12 @@ impl Hub {
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
-        let mut full = |rec: &EventRecord, found: usize| {
+        let mut full = |rec_bytes: usize, found: usize| {
             if found == limit {
                 return true;
             }
             let Some(max) = max_bytes else { return false };
-            bytes += record_bytes(rec);
+            bytes += rec_bytes;
             found > 0 && bytes > max
         };
         if limit == 0 || !newest {
@@ -235,8 +242,8 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
-                let rec = fit(rec, bounded);
-                if full(&rec, found) {
+                let (rec, rec_bytes) = fit(rec, bounded);
+                if full(rec_bytes, found) {
                     page.has_more = true;
                     return false;
                 }
@@ -252,8 +259,8 @@ impl Hub {
             if !filter.matches(&rec) {
                 return true;
             }
-            let rec = fit(rec, bounded);
-            if full(&rec, found.len()) {
+            let (rec, rec_bytes) = fit(rec, bounded);
+            if full(rec_bytes, found.len()) {
                 page.has_more = true;
                 return false;
             }

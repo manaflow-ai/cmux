@@ -857,7 +857,7 @@ async fn refuse_unauthenticated(
 fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
     if ev.record.kind == crate::hub::PEER_LAGGED {
         if conn.sub_opts(&ev.session_id).is_some() {
-            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg));
+            conn.send(&Message::notification("_acpmux/lagged", ev.record.msg.clone()));
         }
         return;
     }

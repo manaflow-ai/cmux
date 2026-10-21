@@ -504,14 +504,14 @@ impl Hub {
                     for id in ids {
                         let _ = self.events.send(HubEvent {
                             session_id: id,
-                            record: EventRecord {
+                            record: Arc::new(EventRecord {
                                 seq: 0,
                                 at: now_ms(),
                                 dir: "peer".into(),
                                 kind: PEER_LAGGED.into(),
                                 msg: params.clone(),
                                 host_seq: None,
-                            },
+                            }),
                             remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
                         });
                     }
