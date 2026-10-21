@@ -544,6 +544,7 @@ async fn dispatch_request(
                 provenance,
                 agent,
                 after_turn: None,
+                supersede: crate::hub::supersede_key(&params)?,
             };
             let agent_message = opts.provenance.is_some();
             super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;

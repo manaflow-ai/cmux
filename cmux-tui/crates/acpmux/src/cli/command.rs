@@ -168,6 +168,10 @@ pub enum Command {
         /// named without it.
         #[arg(long, value_name = "NAME")]
         from: Option<String>,
+        /// Replace your prompt still queued under KEY: a correction is never read after the
+        /// order it corrects. Prints how many it replaced. A prompt whose turn started stays.
+        #[arg(long, value_name = "KEY")]
+        supersede: Option<String>,
     },
     /// List sessions on every host.
     #[command(alias = "list", alias = "list-sessions")]

@@ -201,8 +201,15 @@ impl Hub {
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let mut on_accepted = opts.on_accepted;
-        let mut accept = |v: Value| {
+        // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
+        // is committed (queued, started, or steered in), never before a refusal.
+        let supersede = opts.supersede.clone();
+        let replaced = std::sync::OnceLock::<Vec<String>>::new();
+        let mut accept = |mut v: Value| {
             if let Some(f) = on_accepted.take() {
+                if supersede.is_some() {
+                    super::queue::supersede::mark(&mut v, replaced.get());
+                }
                 f(v);
             }
         };
@@ -229,6 +236,8 @@ impl Hub {
         if steer_now && session.moving().is_some() {
             return Err(super::queue::moving_error());
         }
+        // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -239,7 +248,6 @@ impl Hub {
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
-        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
@@ -250,6 +258,8 @@ impl Hub {
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
+            supersede: supersede.as_deref(),
+            replaced: &replaced,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -331,6 +341,11 @@ impl Hub {
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks);
         if !waiting {
+            // Started at once: only prompts a failed turn holds can wait under its key.
+            if let Some(key) = supersede.as_deref() {
+                let _ =
+                    replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
