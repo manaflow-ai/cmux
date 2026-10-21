@@ -89,6 +89,8 @@ export function safeTail(tail: string): string {
   if (fence && /^\s*(?:`{1,3}[^`]*)?$/.test(last)) {
     // In a fence, a closer still being typed (or the indent before one) is held with the newline
     // before it: the open card draws the lines the closed one will, so it never shrinks a line.
+    // A code line that starts with a backtick (a shell or Markdown sample) and has no second one
+    // yet holds the same way until its line ends.
     lines.pop();
     last = lines.at(-1)!;
   } else if (/^\s*`{1,3}[^`]*$/.test(last)) last = "";
