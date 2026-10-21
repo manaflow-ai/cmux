@@ -3026,6 +3026,57 @@ button.cv-received__name:focus-visible {
 .cv-user__send-now:disabled {
   opacity: 0.5;
 }
+/* Reply on another agent's message (IncomingMessageCard.tsx): its key, the editor under the
+   message, and a quiet line once sent or when it was not. */
+.cv-message__key {
+  margin-left: 4px;
+  padding: 0 3px;
+  border-radius: 3px;
+  font-family: var(--cv-font);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  color: var(--cv-text-muted);
+  box-shadow: inset 0 0 0 1px var(--cv-rule);
+}
+.cv-message__note {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cv-message__note.is-failed {
+  color: var(--agent-danger);
+}
+.cv-message__reply {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 10px 8px 32.5px;
+}
+.cv-message__reply > .cv-user__edit {
+  width: 100%;
+}
+/* Its Reply sits after the chevron and shows while the line is hovered or holds the focus, so the
+   line reads as before. */
+.cv-received__reply {
+  all: unset;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-left: 8px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.cv-received:hover .cv-received__reply,
+.cv-received:focus-within .cv-received__reply {
+  opacity: 1;
+}
+.cv-received__reply:hover,
+.cv-received__reply:focus-visible {
+  color: var(--cv-text);
+}
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {
   padding-left: 32.5px;
