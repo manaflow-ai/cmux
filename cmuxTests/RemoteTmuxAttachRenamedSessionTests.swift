@@ -56,6 +56,15 @@ struct RemoteTmuxAttachRenamedSessionTests {
         }
     }
 
+    /// The id mode is the first attach only: it targets the id, and the connection's
+    /// reconnects use `.attach` by name once the stream has reached control mode.
+    @Test func theIdModeTargetsTheSessionId() {
+        #expect(
+            RemoteTmuxControlAttachMode.attachSessionID(3).tmuxArguments(sessionName: "work")
+                == ["-CC", "attach-session", "-t", "$3"]
+        )
+    }
+
     private func withLocalTmuxHost(
         sessions: [String],
         _ body: @MainActor (
