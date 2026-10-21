@@ -16,9 +16,17 @@ Arms (the profile and env differ, nothing else):
       a subagent.
   B2  Front desk may act: receipts on, spawn and tell, and the rule that work
       fitting a few quick tool calls is done inline, the rest handed off.
+  A-steer  A, and a follow-up sent while a turn runs interrupts it: the
+      eval presses the owner's stop (`cmux chief stop`, chief.stop, as
+      Ctrl+C in the chat does), waits for the turn to end, then posts the
+      message, so a fresh turn answers it at once. (Every Chief arm already
+      steers a message into the running turn at its next tool boundary,
+      but the turn answers only at its end; the steer that stops the
+      current step, acpmux's `steerNow`, is not reachable from the Chief.)
   L   Lossy heads-down: no Chief. One plain Claude Code session (stream-json,
       as acpmux runs Claude Code) in the task repo, with its own
-      auto-compaction; messages sent while it works wait for its next turn.
+      auto-compaction; a message sent while it works is read at its next
+      tool boundary (its replayed echo) and answered at the turn's end.
 
 usage:
   team_eval.py run --task ID --arm A|B|B2|L --bins DIR --repo DIR --out DIR
@@ -36,27 +44,66 @@ The compactor keeps its production model and is recorded, not pinned.
 
 A run stops at --budget-usd of real spend: the live total of its Claude
 Code transcripts (LiveMeter, mid-turn too) or the trace's, the higher.
+run.json `tokens` has its input, output and cache tokens (the transcripts'
+plus the compactor's), the budget that counts now; `cost_usd` is the same
+usage at list prices.
+
+Stalls (run.json `stall`, every arm): for each message the eval posts, when
+it was sent, when the agent started on it and its first reply. Started is
+the Chief's read cursor reaching the message (the brain moves it when a
+turn takes the message or Claude Code reads it as a steer); arm L's is
+Claude Code's replayed echo of the line (`--replay-user-messages`, the
+uuid we sent). A message never started waited to the run's end.
+`queued_over_10s` counts those that waited more than 10 s. A message is
+`busy` when it was sent mid-turn (trace turn.start over turn.end; arm L:
+its last event was not a `result`) with BUSY_LANES or more subagents
+running (trace subagent.start without subagent.done; arms A and L can
+start none, so theirs are 0).
+
+Every agent's Claude Code runs with ANTHROPIC_LOG=debug, which prints each
+response's real headers: run.json `ratelimit` has the last and the lowest
+weekly headroom of the anthropic-ratelimit-unified-7d-* headers (arm L
+from claude's stdout, the Chief arms from acpmux's `[non-json stdout]`
+records in its session logs). See headroom_probe.py.
 
   team_eval.py campaign --ref SHA --base-url URL --task ID... --arm ARM...
-      [--reps 1] [--cap-usd 800] [--ledger FILE] [--run-budget 25]
-      [--margin 12] [--parallel 3] --out DIR
-runs every task x arm x rep as a fleet step (scripts/measure/team-eval.sh)
-under one spend cap for the whole eval, pilot and full run alike: the
-ledger (default ~/.local/state/team-eval/ledger.json) holds what each run
-spent and what each running one may still spend. A run starts only when
-spent + reserved + its budget + margin stays under the cap; its budget is
-cut to fit, and none starts below $5. A run whose spend is unknown (no
+      [--reps 1] [--cap-usd USD] [--ledger FILE] [--run-budget 25]
+      [--margin 12] [--parallel 3] [--max-concurrent 4]
+      [--headroom-cmd CMD] [--min-headroom 0.25] [--headroom-window 20]
+      [--headroom-max-age 30] [--headroom-sleep 180] --out DIR
+runs every task x arm x rep as a fleet step (scripts/measure/team-eval.sh),
+at most --max-concurrent (and --parallel) at once. The ledger (default
+~/.local/state/team-eval/ledger.json) holds each run's tokens and dollars
+and what each running one may still spend; the campaign prints the tokens
+first. The budget is account usage now, so a dollar cap is optional
+(--cap-usd, none by default). With one, fixed when the ledger is made, a
+run starts only when spent + reserved + its budget + margin stays under
+the cap; its budget is cut to fit, and none starts below $5. A run whose spend is unknown (no
 TEAM-EVAL line) counts its whole reservation. The margin covers what is
 still in flight when a run stops (about $3 per Opus response: the Chief
 and its subagents). Re-running a campaign skips finished runs and starts a
 new attempt (its own step key) of the others; an older attempt keeps its
 reservation until it settles. A run that failed (`ok` false: a pin
 failure, processes left) is recorded as done with its spend and `failed`.
+
+Before each step starts, the weekly headroom must be at least
+--min-headroom: the lowest of the last --headroom-window readings in the
+ledger that are under --headroom-max-age minutes old. Each finished step
+adds its last response's reading (run.json `ratelimit`). With no recent
+reading, --headroom-cmd (default headroom_probe.py: one real `claude -p`
+on the cheapest model) is run once for one; it prints the remaining weekly
+fraction (0..1). Below the minimum, or with no reading (the command failed
+or printed something else), no new step starts (fail closed): the campaign
+logs it and checks again every --headroom-sleep seconds. A reading covers
+only the upstream account its request was routed to, so the window covers
+only the accounts the pool rotated through. --headroom-cmd '' turns the
+check off (one warning).
 """
 import argparse
 import json
 import os
 import re
+import shlex
 import shutil
 import signal
 import socket
@@ -97,6 +144,10 @@ ARMS = {
         ),
     },
 }
+# A with the owner's stop on every follow-up sent mid-turn (the docstring).
+ARMS["A-steer"] = dict(ARMS["A"], interrupt=True)
+# Subagents running at once that make a mid-turn message `busy`.
+BUSY_LANES = 5
 
 
 def now_ms():
@@ -159,6 +210,28 @@ def trace_cost(events):
 
 # List prices per million tokens: input, cache write 1h, cache write 5m, cache read, output.
 from unii_bench import PRICES  # noqa: E402
+from headroom_probe import ratelimit_readings, reading_headroom  # noqa: E402
+
+TOKEN_KEYS = ("input", "output", "cache_write", "cache_read")
+
+
+def usage_tokens(usage):
+    """One API response's tokens, in the trace's names."""
+    return {"input": usage.get("input_tokens") or 0, "output": usage.get("output_tokens") or 0,
+            "cache_write": usage.get("cache_creation_input_tokens") or 0,
+            "cache_read": usage.get("cache_read_input_tokens") or 0}
+
+
+def sum_tokens(parts):
+    """The sum of token dicts, with `total`."""
+    out = {k: sum((p or {}).get(k) or 0 for p in parts) for k in TOKEN_KEYS}
+    out["total"] = sum(out.values())
+    return out
+
+
+def node_tokens(events):
+    """The compactor's tokens: its nodes' usage (it writes no transcript)."""
+    return sum_tokens([e.get("usage") for e in events if e.get("ev") == "node"])
 
 
 def usage_usd(model, usage):
@@ -184,6 +257,7 @@ class LiveMeter:
         self.roots = [r for r in roots if r]
         self.offsets = {}
         self.by_id = {}
+        self.tokens_by_id = {}
         self.models = set()
 
     def usd(self):
@@ -195,6 +269,11 @@ class LiveMeter:
                     if f.endswith(".jsonl"):
                         self._read(os.path.join(dirpath, f))
         return sum(self.by_id.values())
+
+    def tokens(self):
+        """The transcripts' tokens so far, read as `usd` reads them."""
+        self.usd()
+        return sum_tokens(self.tokens_by_id.values())
 
     def _read(self, path):
         try:
@@ -213,7 +292,9 @@ class LiveMeter:
             msg = e.get("message") if isinstance(e, dict) else None
             if e.get("type") != "assistant" or not isinstance(msg, dict) or not msg.get("usage"):
                 continue
-            self.by_id[msg.get("id") or f"{path}:{len(self.by_id)}"] = usage_usd(msg.get("model"), msg["usage"])
+            mid = msg.get("id") or f"{path}:{len(self.by_id)}"
+            self.by_id[mid] = usage_usd(msg.get("model"), msg["usage"])
+            self.tokens_by_id[mid] = usage_tokens(msg["usage"])
             if msg.get("model") and msg["model"] != "<synthetic>":
                 self.models.add(msg["model"])
 
@@ -284,6 +365,140 @@ def timeline(sent, messages, arrivals):
             "first_reply_is_receipt": bool(first and is_desk(first[1])),
             "first_chief_reply_ms": first_chief[0] - at if first_chief else None,
         }
+    return out
+
+
+def chief_state(events, at):
+    """(mid-turn, subagents running) of a Chief run at `at` ms, from its
+    trace: a turn.start not yet ended, and subagent.start ids not yet done."""
+    starts = ends = 0
+    running = set()
+    for e in events:
+        if (e.get("ts") or 0) > at:
+            continue
+        if e.get("ev") == "turn.start":
+            starts += 1
+        elif e.get("ev") == "turn.end":
+            ends += 1
+        elif e.get("ev") == "subagent.start":
+            running.add(e.get("id"))
+        elif e.get("ev") == "subagent.done":
+            running.discard(e.get("id"))
+    return starts > ends, len(running)
+
+
+def lossy_state(events, at):
+    """(mid-turn, 0) of an L run at `at` ms: something was sent and its last
+    event before `at` is not a `result`. It can start no subagent (Task and
+    Agent are disallowed)."""
+    before = [e for t, e in events if t < at]
+    sent = any(e.get("type") == "eval.sent" for e in before)
+    return bool(sent and before[-1].get("type") != "result"), 0
+
+
+def cursor_starts(keys, messages, cursor_log):
+    """When the Chief started on each prompt: the first poll at which its read
+    cursor (`cursor_log`: (ms, seq) as polled) reached the prompt's seq.
+    `keys` maps a prompt id to its client_msg_id."""
+    seq = {m.get("client_msg_id"): m.get("seq") for m in messages}
+    out = {}
+    for pid, key in keys.items():
+        s = seq.get(key)
+        out[pid] = next((t for t, c in cursor_log if s is not None and c is not None and c >= s), None)
+    return out
+
+
+def replay_starts(uuids, events):
+    """When arm L's Claude Code read each prompt: its replayed echo of our
+    line (the uuid we sent). `uuids` maps a prompt id to that uuid."""
+    seen = {}
+    for t, e in events:
+        if e.get("type") == "user" and e.get("uuid"):
+            seen.setdefault(e["uuid"], t)
+    return {pid: seen.get(u) for pid, u in uuids.items()}
+
+
+def p50(xs):
+    xs = sorted(xs)
+    if not xs:
+        return None
+    mid = len(xs) // 2
+    return xs[mid] if len(xs) % 2 else (xs[mid - 1] + xs[mid]) / 2
+
+
+def stall(sent, starts, tl, states, end_ms):
+    """Each prompt's wait and first reply, and their summary. `starts` maps a
+    prompt id to the ms the agent started on it (None: never seen),
+    `states` to (mid-turn, subagents running) when it was sent (None:
+    unknown); `tl` is timeline()."""
+    per = {}
+    for pid, at in sorted(sent.items(), key=lambda kv: kv[1]):
+        st = starts.get(pid)
+        mid, lanes = states.get(pid, (None, None))
+        per[pid] = {"sent_ms": at, "started_ms": st, "wait_ms": st - at if st is not None else None,
+                    "waited_to_end_ms": end_ms - at if st is None else None,
+                    "first_reply_ms": (tl.get(pid) or {}).get("first_reply_ms"),
+                    "mid_turn": mid, "lanes": lanes,
+                    "busy": None if mid is None or (mid and lanes is None) else bool(mid and lanes >= BUSY_LANES)}
+    return {"messages": per, "summary": stall_summary(per.values())}
+
+
+def stall_summary(msgs):
+    """First-reply p50 and max (s), how many waited over 10 s before the agent
+    started on them (one never started waited to the run's end), and the
+    first replies of the `busy` ones apart. Pools any runs' messages."""
+    msgs = list(msgs)
+
+    def over(m):
+        if m.get("wait_ms") is not None:
+            return m["wait_ms"] > 10000
+        if m.get("waited_to_end_ms") is not None:
+            return m["waited_to_end_ms"] > 10000
+        return None
+
+    def replies(ms):
+        r = [m["first_reply_ms"] / 1000 for m in ms if m.get("first_reply_ms") is not None]
+        return {"first_reply_p50_s": p50(r), "first_reply_max_s": max(r) if r else None,
+                "no_reply": sum(1 for m in ms if m.get("first_reply_ms") is None)}
+
+    known = [over(m) for m in msgs if over(m) is not None]
+    busy = [m for m in msgs if m.get("busy")]
+    return dict(replies(msgs), messages=len(msgs),
+                queued_over_10s={"count": sum(known), "of": len(known),
+                                 "rate": round(sum(known) / len(known), 3) if known else None},
+                never_started=sum(1 for m in msgs if m.get("started_ms") is None),
+                busy=dict(replies(busy), messages=len(busy), lanes_at=BUSY_LANES,
+                          unknown=sum(1 for m in msgs if m.get("busy") is None)))
+
+
+def ratelimit_summary(readings):
+    """A run's unified rate-limit readings: how many, the last (with its
+    headroom) and the lowest headroom. Each covers one upstream account."""
+    rs = sorted((r for r in readings if reading_headroom(r) is not None), key=lambda r: r["at"])
+    if not rs:
+        return {"count": 0, "last": None, "min_headroom": None}
+    return {"count": len(rs), "last": dict(rs[-1], headroom=round(reading_headroom(rs[-1]), 4)),
+            "min_headroom": round(min(reading_headroom(r) for r in rs), 4)}
+
+
+def acpmux_ratelimit(acpmux_home):
+    """The readings in acpmux's session logs: a harness's stdout lines that are
+    not JSON (ANTHROPIC_LOG=debug's) are `stderr` records `[non-json
+    stdout] ...`, in order, per session."""
+    out = []
+    root = os.path.join(acpmux_home, "sessions")
+    for sid in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        events = os.path.join(root, sid, "events")
+        lines = []
+        for name in sorted(os.listdir(events)) if os.path.isdir(events) else []:
+            for raw in open(os.path.join(events, name), errors="replace"):
+                try:
+                    e = json.loads(raw)
+                except ValueError:
+                    continue
+                if e.get("kind") == "stderr":
+                    lines.append((e.get("at"), (e.get("msg") or {}).get("text") or ""))
+        out += ratelimit_readings(lines)
     return out
 
 
@@ -468,6 +683,8 @@ def run_lossy(opts):
         path = f"{shims}:{os.environ['HOME']}/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
         env = {"HOME": os.environ["HOME"], "LANG": "en_US.UTF-8", "USER": os.environ.get("USER", "cmux"), "PATH": path}
         env.update({k: v for k, v in extra.items() if not k.startswith("OPTCHAT_")})
+        # Each response's real headers on stdout (the rate-limit readings).
+        env["ANTHROPIC_LOG"] = "debug"
         claude = shutil.which("claude", path=path)
         if not claude:
             raise SystemExit("no claude on PATH")
@@ -483,6 +700,7 @@ def run_lossy(opts):
                                 stderr=open(os.path.join(out, "claude.stderr"), "w"), text=True, bufsize=1,
                                 start_new_session=True)
         events = []
+        debug_lines = []
         lock = threading.Lock()
 
         def reader():
@@ -490,15 +708,25 @@ def run_lossy(opts):
                 try:
                     e = json.loads(line)
                 except ValueError:
+                    # ANTHROPIC_LOG's lines: they hold the response headers.
+                    debug_lines.append((now_ms(), line.rstrip("\n")))
+                    continue
+                if not isinstance(e, dict):
                     continue
                 with lock:
                     events.append((now_ms(), e))
 
         threading.Thread(target=reader, daemon=True).start()
 
+        uuids = {}
+
         def send(pid, text):
+            import uuid
             key = f"te-{pid}-{now_ms()}"
-            line = {"type": "user", "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
+            # Claude Code echoes the line with this uuid when it reads it (as acpmux relies on).
+            uuids[pid] = str(uuid.uuid4())
+            line = {"type": "user", "uuid": uuids[pid],
+                    "message": {"role": "user", "content": [{"type": "text", "text": text}]}}
             proc.stdin.write(json.dumps(line) + "\n")
             proc.stdin.flush()
             with lock:
@@ -545,11 +773,17 @@ def run_lossy(opts):
             time.sleep(0.5)
         info["end"] = end
         info["minutes"] = round((now_ms() - t0) / 60000, 1)
+        end_ms = now_ms()
         # Stopped before the diff, so the diff is the tree the checks see.
         stop_claude()
         with lock:
             snap = list(events)
         msgs, arrivals = lossy_messages(snap)
+        readings = ratelimit_readings(debug_lines)
+        with open(os.path.join(out, "ratelimit.jsonl"), "w") as f:
+            for r in readings:
+                f.write(json.dumps(r) + "\n")
+        tl = timeline(sent, msgs, arrivals)
         os.makedirs(os.path.join(out, "traces"), exist_ok=True)
         with open(os.path.join(out, "traces", "lossy.jsonl"), "w") as f:
             for at, e in snap:
@@ -563,7 +797,11 @@ def run_lossy(opts):
                   for b in (e.get("message") or {}).get("content") or [] if b.get("type") == "tool_use"]
         info.update({
             "sent": sent,
-            "timeline": timeline(sent, msgs, arrivals),
+            "timeline": tl,
+            "stall": stall(sent, replay_starts(uuids, snap), tl, {p: lossy_state(snap, at) for p, at in sent.items()},
+                           end_ms),
+            "tokens": meter.tokens(),
+            "ratelimit": ratelimit_summary(readings),
             "cost_usd": {"turns": lossy_cost(snap), "subagents": 0, "compactor": 0, "all": lossy_cost(snap),
                          "live": round(meter.usd(), 4)},
             "followup_skew_s": followup_skew(sent, task),
@@ -578,7 +816,8 @@ def run_lossy(opts):
         })
         if info["leaks"]:
             info["flags"].append("the reference answer was mentioned")
-        log(f"done: {end} after {info['minutes']} min, ${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}, {info['turns']} turns, "
+        log(f"done: {end} after {info['minutes']} min, {info['tokens']['total']} tokens "
+            f"(${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}), {info['turns']} turns, "
             f"diff {info['diff_lines']} lines, flags {info['flags']}")
     finally:
         # A second TERM (the step's own stop) must not cut the cleanup short.
@@ -605,9 +844,11 @@ MIN_RUN_BUDGET = 5
 
 
 class Ledger:
-    """The eval's spend ledger: one JSON file, the cap fixed when it is made.
-    `committed` is what finished attempts spent plus what running, crashed
-    or unknown ones were allowed to spend. Every change re-reads the file
+    """The eval's spend ledger: one JSON file, the dollar cap (or none) fixed
+    when it is made. `committed` is what finished attempts spent plus what
+    running, crashed or unknown ones were allowed to spend; `tokens` what
+    finished ones used. It also keeps the last READINGS rate-limit readings
+    of every campaign that shares it (Headroom). Every change re-reads the file
     under an exclusive file lock, so several campaign processes (a pilot and
     a full run, or a re-run while the first still lives) share one cap. A
     run that did not finish gets a new attempt (its own step key); the old
@@ -620,11 +861,9 @@ class Ledger:
         os.makedirs(os.path.dirname(self.path), exist_ok=True)
         with self._locked() as data:
             if data is None:
-                if cap is None:
-                    raise SystemExit("a new ledger needs --cap-usd")
                 self.data = {"cap_usd": cap, "attempts": {}}
-            elif cap is not None and abs(data["cap_usd"] - cap) > 1e-9:
-                raise SystemExit(f"ledger {self.path} has cap ${data['cap_usd']}, not ${cap}; one cap per eval")
+            elif cap is not None and (data["cap_usd"] is None or abs(data["cap_usd"] - cap) > 1e-9):
+                raise SystemExit(f"ledger {self.path} has cap {data['cap_usd']}, not ${cap}; one cap per eval")
 
     def _locked(self):
         import contextlib
@@ -662,18 +901,35 @@ class Ledger:
             return self._committed(data)
 
     def cap(self):
+        """The dollar cap, or None."""
         with self._locked() as data:
             return data["cap_usd"]
+
+    def tokens(self):
+        """The tokens of every settled attempt that reported them."""
+        with self._locked() as data:
+            return sum_tokens([a.get("tokens") for a in data["attempts"].values()])
+
+    READINGS = 200
+
+    def add_readings(self, readings):
+        with self._locked() as data:
+            data["ratelimit"] = (data.get("ratelimit", []) + list(readings))[-self.READINGS:]
+
+    def readings(self):
+        with self._locked() as data:
+            return list(data.get("ratelimit", []))
 
     def reserve(self, run, want, margin):
         """(attempt key, whole-dollar budget) for a new attempt of `run`,
         reserved with its margin; None when `run` already finished or the cap
-        leaves less than MIN_RUN_BUDGET."""
+        leaves less than MIN_RUN_BUDGET. With no cap the budget is `want`."""
         with self._locked() as data:
             mine = [k for k, a in data["attempts"].items() if a["run"] == run]
             if any(data["attempts"][k]["state"] == "done" for k in mine):
                 return None
-            budget = int(min(want, data["cap_usd"] - self._committed(data) - margin))
+            cap = data["cap_usd"]
+            budget = int(want if cap is None else min(want, cap - self._committed(data) - margin))
             if budget < MIN_RUN_BUDGET:
                 return None
             key = f"{run}-a{len(mine) + 1}"
@@ -687,14 +943,16 @@ class Ledger:
         with self._locked() as data:
             data["attempts"][key].update(state="void", spent=0, step=step, failed=failed)
 
-    def settle(self, key, spent, step=None, pin=None, failed=None):
+    def settle(self, key, spent, step=None, pin=None, failed=None, tokens=None):
         """A finished attempt: its spend, or (None) unknown, which keeps the
-        whole reservation; and what its pin check found."""
+        whole reservation; its tokens (None: unknown); and what its pin
+        check found."""
         with self._locked() as data:
             a = data["attempts"][key]
             a["step"] = step
             a["pin"] = pin
             a["failed"] = failed
+            a["tokens"] = tokens
             if spent is None:
                 a["state"] = "unknown"
             else:
@@ -709,6 +967,83 @@ def step_spend(stdout):
             vals = [v for v in (c.get("all"), c.get("live")) if isinstance(v, (int, float))]
             return max(vals) if vals else None
     return None
+
+
+def step_line(stdout):
+    """A step's TEAM-EVAL line as a dict, {} when it has none."""
+    return next((json.loads(x[len("TEAM-EVAL "):]) for x in reversed(stdout.splitlines())
+                 if x.startswith("TEAM-EVAL {")), {})
+
+
+class Headroom:
+    """The campaign's weekly-headroom gate (the module docstring): `wait`
+    returns once the lowest headroom of the recent readings in the ledger
+    is at least `minimum`, probing with `cmd` when none is recent, and
+    otherwise sleeps `sleep_s` between checks. One check at a time, so
+    threads waiting to start share one probe. `cmd` empty: no gate."""
+
+    def __init__(self, ledger, cmd, minimum, window, max_age_s, sleep_s, log, sleep=time.sleep, clock=time.time):
+        import threading
+        self.ledger, self.cmd, self.minimum = ledger, cmd, minimum
+        self.window, self.max_age_s, self.sleep_s = window, max_age_s, sleep_s
+        self.log, self.sleep, self.clock = log, sleep, clock
+        self.lock = threading.Lock()
+        if not cmd:
+            log("WARNING: no --headroom-cmd: steps start whatever the pool's weekly headroom")
+
+    def probe(self):
+        """(headroom, why): what `cmd` printed, or None when it failed or
+        printed no fraction 0..1."""
+        try:
+            r = subprocess.run(self.cmd, shell=True, capture_output=True, text=True, timeout=300)
+        except (OSError, subprocess.TimeoutExpired) as e:
+            return None, f"--headroom-cmd failed: {e}"
+        out = r.stdout.strip()
+        if r.returncode != 0:
+            return None, f"--headroom-cmd exit {r.returncode}: {(r.stderr.strip() or out)[-200:]}"
+        try:
+            x = float(out.splitlines()[-1])
+        except (ValueError, IndexError):
+            x = None
+        if x is None or not 0 <= x <= 1:
+            return None, f"--headroom-cmd printed {out[-80:]!r}, not a fraction 0..1"
+        return x, "probe"
+
+    def current(self):
+        """(lowest recent headroom or None, why)."""
+        since = (self.clock() - self.max_age_s) * 1000
+        fresh = [r for r in self.ledger.readings()[-self.window:]
+                 if (r.get("at") or 0) >= since and reading_headroom(r) is not None]
+        why = None
+        if not fresh:
+            x, why = self.probe()
+            if x is None:
+                return None, f"no reading in {self.max_age_s / 60:.0f} min and {why}"
+            r = {"at": int(self.clock() * 1000), "source": "probe", "headroom": x}
+            self.ledger.add_readings([r])
+            fresh = [r]
+        return (min(reading_headroom(r) for r in fresh),
+                f"lowest of {len(fresh)} reading(s) in {self.max_age_s / 60:.0f} min{', probed' if why else ''}")
+
+    def wait(self):
+        if not self.cmd:
+            return None
+        with self.lock:
+            paused = None
+            while True:
+                h, why = self.current()
+                if h is not None and h >= self.minimum:
+                    if paused is not None:
+                        self.log(f"headroom {h:.2f} ({why}) is at least {self.minimum}: resuming after "
+                                 f"{(self.clock() - paused) / 60:.1f} min")
+                    return h
+                if h is None:
+                    self.log(f"headroom unknown ({why}): failing closed, no new step; next check in {self.sleep_s:.0f} s")
+                else:
+                    self.log(f"headroom {h:.2f} ({why}) is under {self.minimum}: pausing new steps; "
+                             f"next check in {self.sleep_s:.0f} s")
+                paused = self.clock() if paused is None else paused
+                self.sleep(self.sleep_s)
 
 
 def full_sha(ref):
@@ -740,7 +1075,13 @@ def campaign(opts):
         down = [w for w in opts.worker if not live(w)]
         if down:
             sys.exit(f"team-eval campaign: not live controller workers (unknown, or unseen for 10 minutes): {down}")
+    import threading
     ledger = Ledger(opts.ledger, opts.cap_usd)
+    say = lambda msg: print(f"[team-eval campaign {time.strftime('%H:%M:%S')}] {msg}", flush=True)
+    headroom = Headroom(ledger, opts.headroom_cmd, opts.min_headroom, opts.headroom_window,
+                        opts.headroom_max_age * 60, opts.headroom_sleep, say)
+    # Steps in flight, whatever the pool and the free workers allow.
+    in_flight = threading.BoundedSemaphore(opts.max_concurrent)
     # A step must run where --base-url resolves (a tailnet host, not an AWS Mac):
     # with --worker each step takes a free one of these, so no two share one.
     free = queue.Queue()
@@ -751,10 +1092,15 @@ def campaign(opts):
     runs = [(t, a, n) for n in range(1, opts.reps + 1) for t in opts.task for a in opts.arm]
 
     def one(run):
+        with in_flight:
+            return start(run)
+
+    def start(run):
         task, arm, n = run
+        headroom.wait()
         got = ledger.reserve(f"team-eval-{opts.name}-{task}-{arm}-{n}", opts.run_budget, opts.margin)
         if got is None:
-            return f"team-eval-{opts.name}-{task}-{arm}-{n}", f"not started: it already ran, or the ${ledger.cap():.0f} cap is reached"
+            return f"team-eval-{opts.name}-{task}-{arm}-{n}", "not started: it already ran, or the dollar cap is reached"
         key, budget = got
         # Each attempt is its own step (key `<run>-a<n>`): a re-run never re-attaches
         # to an older one, whose reservation stays counted.
@@ -784,12 +1130,18 @@ def campaign(opts):
         if spent is None and os.path.exists(run_json):
             with open(run_json) as f:
                 spent = step_spend("TEAM-EVAL " + json.dumps(json.load(f)))
-        line = next((json.loads(x[len("TEAM-EVAL "):]) for x in reversed(log.splitlines())
-                     if x.startswith("TEAM-EVAL {")), {})
-        pin = line.get("pin")
-        if pin is None and os.path.exists(run_json):
+        line = step_line(log)
+        if os.path.exists(run_json):
             with open(run_json) as f:
-                pin = json.load(f).get("pin")
+                packed = json.load(f)
+            for k in ("pin", "tokens", "ratelimit"):
+                if line.get(k) is None:
+                    line[k] = packed.get(k)
+        pin = line.get("pin")
+        # The step's last response's reading joins the window the gate reads.
+        last = (line.get("ratelimit") or {}).get("last")
+        if last:
+            ledger.add_readings([dict(last, source=key)])
         failed = line.get("failed", [f"step rc {r.returncode}, no TEAM-EVAL line"])
         # 409: the key already names a step that may have run, so keep the reservation.
         refused = re.search(r"cmux-ci: controller HTTP 4(?!09)\d\d: .*", r.stderr)
@@ -801,14 +1153,17 @@ def campaign(opts):
             # The step failed before any agent ran (route, build, install): $0, retryable.
             ledger.void(key, step, failed)
             return key, f"VOID before any agent ran: {failed}"
-        ledger.settle(key, spent, step, pin, failed)
+        tokens = line.get("tokens")
+        ledger.settle(key, spent, step, pin, failed, tokens)
         return key, (f"{'ok' if not failed else 'FAILED ' + str(failed)}, "
+                     f"{'tokens unknown' if not tokens else str(tokens.get('total')) + ' tokens'}, "
                      f"spent {'unknown' if spent is None else f'${spent:.2f}'}")
 
     with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
         for key, what in pool.map(one, runs):
-            print(f"[team-eval campaign] {key}: {what}; committed ${ledger.committed():.2f} of ${ledger.cap():.0f}",
-                  flush=True)
+            cap = ledger.cap()
+            print(f"[team-eval campaign] {key}: {what}; used {ledger.tokens()['total']} tokens, committed "
+                  f"${ledger.committed():.2f}{'' if cap is None else f' of ${cap:.0f}'}", flush=True)
 
 
 def main():
@@ -821,7 +1176,8 @@ def main():
     c.add_argument("--task", nargs="+", required=True)
     c.add_argument("--arm", nargs="+", required=True, choices=CAMPAIGN_ARMS)
     c.add_argument("--reps", type=int, default=1)
-    c.add_argument("--cap-usd", type=float, default=None, help="fixed when the ledger is made; 800 for this eval")
+    c.add_argument("--cap-usd", type=float, default=None,
+                   help="an optional dollar cap, fixed when the ledger is made (default none: the budget is account usage)")
     c.add_argument("--ledger", default="~/.local/state/team-eval/ledger.json")
     c.add_argument("--run-budget", type=float, default=25)
     c.add_argument("--margin", type=float, default=12,
@@ -831,6 +1187,15 @@ def main():
     c.add_argument("--worker", nargs="+", default=[],
                    help="controller workers to run on (names from cmux-ci workers) that can reach --base-url; "
                         "each step takes a free one")
+    c.add_argument("--max-concurrent", type=int, default=4,
+                   help="steps in flight at most, even when more workers are free")
+    c.add_argument("--headroom-cmd", default=" ".join(map(shlex.quote, (sys.executable, os.path.join(HERE, "headroom_probe.py")))),
+                   help="prints the pool's remaining weekly fraction (0..1), run when no reading is recent; "
+                        "'' turns the headroom check off")
+    c.add_argument("--min-headroom", type=float, default=0.25, help="start no step while the headroom is below this")
+    c.add_argument("--headroom-window", type=int, default=20, help="the last N readings the check reads")
+    c.add_argument("--headroom-max-age", type=float, default=30, help="minutes a reading counts")
+    c.add_argument("--headroom-sleep", type=float, default=180, help="seconds between checks while paused")
     c.add_argument("--minutes", type=int, default=60)
     c.add_argument("--out", required=True)
     r = sub.add_parser("run")
@@ -992,7 +1357,10 @@ def run(opts):
                         OPTCHAT_DESK_GRACE_SECONDS=arm["grace"],
                         # Whole tool args in the trace: the pin reads each spawn's effort,
                         # the leak scan what the agents searched and fetched.
-                        OPTCHAT_TRACE_FULL="1")
+                        OPTCHAT_TRACE_FULL="1",
+                        # Each response's real headers on Claude Code's stdout, which
+                        # acpmux logs as `[non-json stdout]` (the rate-limit readings).
+                        ANTHROPIC_LOG="debug")
         host_env.update(dict(kv.split("=", 1) for kv in opts.env))
         h = subprocess.Popen([os.path.join(bins, "optchat-chief"), "host", "--daemon-socket", sock, "--mux-home", mux],
                              stdout=open(os.path.join(out, "host.log"), "w"), stderr=subprocess.STDOUT, env=host_env)
@@ -1016,19 +1384,47 @@ def run(opts):
         log(f"up: task {task['id']} arm {opts.arm} repo {repo_dir}")
 
         arrivals = {}
+        # The Chief's read cursor as polled: (ms, seq) at each change.
+        cursor_log = []
+        keys = {}
 
         def poll():
             snap = ask({"cmd": "conversation-snapshot", "conversation": conv, "tail": 500})
             t = now_ms()
             for m in snap.get("messages", []):
                 arrivals.setdefault(m["id"], t)
+            c = ((snap.get("conversation") or {}).get("read_cursors") or {}).get(CHIEF)
+            if not cursor_log or cursor_log[-1][1] != c:
+                cursor_log.append((t, c))
             return snap.get("messages", [])
 
         def send(pid, text):
             key = f"te-{pid}-{now_ms()}"
+            keys[pid] = key
             ask({"cmd": "conversation-op", "conversation": conv, "idempotency_key": key, "actor": "user_local",
                  "transaction": f"tx-{key}", "op": {"kind": "message.send", "client_msg_id": key,
                                                     "parts": [{"type": "text", "text": text}]}})
+
+        def interrupt_turn():
+            """Arm A-steer: the owner's stop on the running turn, as Ctrl+C in
+            the chat does; then the turn's end (up to 30 s), so the message
+            starts a fresh turn and is not read by the stopped one."""
+            at = now_ms()
+            try:
+                r = subprocess.run([os.path.join(bins, "cmux"), "--socket", sock, "chief", "stop"],
+                                   capture_output=True, text=True, env=base_env, timeout=30)
+                rc, said = r.returncode, (r.stdout + r.stderr)[-200:]
+            except (OSError, subprocess.TimeoutExpired) as e:
+                rc, said = None, str(e)[-200:]
+            while now_ms() - at < 30000 and chief_state(trace_events(), now_ms())[0]:
+                poll()  # replies and the cursor keep their times meanwhile
+                time.sleep(0.2)
+            ended = not chief_state(trace_events(), now_ms())[0]
+            log(f"stopped the running turn: rc {rc}, {'ended' if ended else 'STILL RUNNING'} "
+                f"after {(now_ms() - at) / 1000:.1f} s")
+            if not ended or rc != 0:
+                info["flags"].append(f"the stop before a follow-up did not end the turn (rc {rc}): {said}")
+            return {"rc": rc, "out": said, "ended": ended, "ms": now_ms() - at}
 
         meter = LiveMeter([brain, os.path.join(os.environ["HOME"], ".claude"),
                            dict(kv.split("=", 1) for kv in opts.env).get("CLAUDE_CONFIG_DIR")])
@@ -1045,13 +1441,16 @@ def run(opts):
         end = "deadline"
         while now_ms() < deadline:
             msgs = poll()
+            ev = trace_events()
             if pending and now_ms() >= t0 + pending[0]["at"] * 1000:
                 f = pending.pop(0)
                 sent[f["id"]] = now_ms()
+                if arm.get("interrupt") and chief_state(ev, now_ms())[0]:
+                    info.setdefault("interrupts", []).append(dict(interrupt_turn(), prompt=f["id"]))
                 send(f["id"], f["text"])
                 log(f"sent {f['id']}")
                 last_activity = now_ms()
-            ev = trace_events()
+                ev = trace_events()
             if len(ev) + len(msgs) != seen:
                 seen, last_activity = len(ev) + len(msgs), now_ms()
             if now_ms() - last_meter > 2000:
@@ -1080,12 +1479,18 @@ def run(opts):
             time.sleep(0.5)
         info["end"] = end
         info["minutes"] = round((now_ms() - t0) / 60000, 1)
+        end_ms = now_ms()
         msgs = poll()
         json.dump({"messages": msgs, "arrivals": arrivals}, open(os.path.join(out, "conversation.json"), "w"), indent=1)
         # Stopped before the diff, so the diff is the tree the checks see.
         stop_all()
         ev = trace_events()
         shutil.copytree(traces, os.path.join(out, "traces"), dirs_exist_ok=True)
+        readings = acpmux_ratelimit(acpmux_home)
+        with open(os.path.join(out, "ratelimit.jsonl"), "w") as f:
+            for r in readings:
+                f.write(json.dumps(r) + "\n")
+        tl = timeline(sent, msgs, arrivals)
         diff = final_diff(repo_dir, base_commit)
         open(os.path.join(out, "diff.patch"), "w").write(diff)
         stub_calls = [l for l in open(stubs_log)] if os.path.exists(stubs_log) else []
@@ -1093,7 +1498,11 @@ def run(opts):
         texts += [("tool", json.dumps(e)) for e in ev if e.get("ev") == "tool"]
         info.update({
             "sent": sent,
-            "timeline": timeline(sent, msgs, arrivals),
+            "timeline": tl,
+            "stall": stall(sent, cursor_starts(keys, msgs, cursor_log), tl,
+                           {p: chief_state(ev, at) for p, at in sent.items()}, end_ms),
+            "tokens": dict(sum_tokens([meter.tokens(), node_tokens(ev)]), compactor=node_tokens(ev)),
+            "ratelimit": ratelimit_summary(readings),
             "cost_usd": dict(trace_cost(ev), live=round(meter.usd() + trace_cost(ev)["compactor"], 4)),
             "followup_skew_s": followup_skew(sent, task),
             "pin": pin_check(dict(kv.split("=", 1) for kv in opts.env), set(), ev),
@@ -1106,11 +1515,12 @@ def run(opts):
             "stub_calls": len(stub_calls),
             "leaks": leak_hits(texts, task),
         })
-        if opts.arm == "A" and info["spawns"]:
-            info["flags"].append("arm A spawned a subagent")
+        if not arm["tools"] and info["spawns"]:
+            info["flags"].append(f"arm {opts.arm} spawned a subagent")
         if info["leaks"]:
             info["flags"].append("the reference answer was mentioned")
-        log(f"done: {end} after {info['minutes']} min, ${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}, {info['turns']} turns, "
+        log(f"done: {end} after {info['minutes']} min, {info['tokens']['total']} tokens "
+            f"(${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}), {info['turns']} turns, "
             f"{info['spawns']} spawns, diff {info['diff_lines']} lines, flags {info['flags']}")
     finally:
         # A second TERM (the step's own stop) must not cut the cleanup short.
