@@ -427,16 +427,34 @@ def evaluate(expression: str, context: dict[str, Any], status: dict[str, bool]) 
 PASSING = "success"
 
 
+def _ancestors(job: Job, jobs: dict[str, Job] | None) -> set[str]:
+    """Every job upstream of this one. GitHub's status functions see the whole
+    chain: a skipped or failed ancestor skips an implicit-success dependent
+    even when the job between them ran under !cancelled()."""
+    seen: set[str] = set()
+    pending = list(job.needs)
+    while pending:
+        name = pending.pop()
+        if name in seen:
+            continue
+        seen.add(name)
+        if jobs is not None:
+            if name not in jobs:
+                raise Unresolved(f"{job.name} has ancestor {name}, which is not in the workflow")
+            pending.extend(jobs[name].needs)
+    return seen
+
+
 def selected(job: Job, needs: dict[str, Any], context: dict[str, Any], *,
-             tolerate_variable_flips: bool = True) -> bool:
+             jobs: dict[str, Job] | None = None, tolerate_variable_flips: bool = True) -> bool:
     """Whether the job's own `if:` says it should have run, given what the gate sees.
 
     With `tolerate_variable_flips` off this is plain routing: the `if:` as
     GitHub evaluates it with these variables."""
     results = {}
-    for name in job.needs:
+    for name in _ancestors(job, jobs):
         if name not in needs:
-            raise Unresolved(f"{job.name} needs {name}, which the gate does not see")
+            raise Unresolved(f"{job.name} depends on {name}, which the gate does not see")
         results[name] = needs[name].get("result")
     status = {
         # The gate itself runs under !cancelled(), so the run is not cancelled.
@@ -507,7 +525,7 @@ def problems(jobs: dict[str, Job], gate: str, needs: dict[str, Any], context: di
             found.append(f"{name}: {result}")
             continue
         try:
-            wanted = selected(jobs[name], needs, context)
+            wanted = selected(jobs[name], needs, context, jobs=jobs)
         except Unresolved as error:
             found.append(f"{name}: skipped, and its routing could not be read ({error}); "
                          "a skip nobody can explain is not a pass")

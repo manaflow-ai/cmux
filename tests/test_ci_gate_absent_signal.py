@@ -179,7 +179,8 @@ class Scenario:
                 job = self.jobs[name]
                 if any(need not in needs for need in job.needs):
                     continue
-                ran = verdict.selected(job, needs, self.context, tolerate_variable_flips=False)
+                ran = verdict.selected(job, needs, self.context, jobs=self.jobs,
+                                       tolerate_variable_flips=False)
                 needs[name] = {"result": "success" if ran else "skipped",
                                "outputs": dict(self.outputs.get(name, {})) if ran else {}}
                 pending.remove(name)
@@ -228,7 +229,7 @@ class WiringTests(unittest.TestCase):
             jobs = verdict.read_jobs((ROOT / path).read_text())
             seen = set(jobs[gate].needs)
             for name in jobs[gate].needs:
-                for need in jobs[name].needs:
+                for need in verdict._ancestors(jobs[name], jobs):
                     with self.subTest(path=path, job=name, need=need):
                         self.assertIn(need, seen, f"{gate} must need {need} to read {name}'s `if:`")
 
@@ -403,6 +404,22 @@ class ExpressionSemantics(unittest.TestCase):
                                             e={"labels": [{"name": "full-ci"}]}))
         with self.assertRaises(verdict.Unresolved):
             self.run_expression("hashFiles('x')")
+
+    def test_status_functions_see_every_ancestor(self):
+        # A skipped, B ran under !cancelled(), C has an implicit success():
+        # GitHub skips C, so its skip is a routed one, not an absent signal.
+        jobs = {
+            "a": verdict.Job("a", (), "${{ inputs.x == 'true' }}"),
+            "b": verdict.Job("b", ("a",), "${{ !cancelled() }}"),
+            "c": verdict.Job("c", ("b",), "${{ inputs.y == 'true' }}"),
+            "gate": verdict.Job("gate", ("a", "b", "c"), "${{ !cancelled() }}"),
+        }
+        context = {"inputs": {"x": "false", "y": "true"}}
+        needs = {"a": {"result": "skipped"}, "b": {"result": "success"}, "c": {"result": "skipped"}}
+        self.assertFalse(verdict.selected(jobs["c"], needs, context, jobs=jobs))
+        self.assertEqual(verdict.problems(jobs, "gate", needs, context), [])
+        ran = {**needs, "a": {"result": "success"}}
+        self.assertTrue(verdict.problems(jobs, "gate", ran, {"inputs": {"x": "true", "y": "true"}}))
 
     def test_implicit_success_without_a_status_function(self):
         job = verdict.Job("j", ("a",), "${{ inputs.x == 'true' }}")
