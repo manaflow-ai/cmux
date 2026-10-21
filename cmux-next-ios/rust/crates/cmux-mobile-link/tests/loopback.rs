@@ -453,6 +453,35 @@ async fn wireguard_takes_the_turn_allocation_it_missed_while_dialing() {
     assert_eq!(run.mac, Some(LinkPath::Turn), "{run:?}");
 }
 
+/// The Mac's network looks to drop UDP (its STUN server never answers), so it
+/// asks for its own TURN allocation, and the server misses the answer's
+/// allocation window. The Mac's plain UDP to the phone is lost, so that
+/// allocation is the only route. The answer goes on without one; the session
+/// takes it once the server answers and the link comes up through it.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_mac_takes_the_turn_allocation_it_missed_while_answering() {
+    let turn = TestTurn::start().await;
+    turn.set_udp_blocked(true);
+    // Nothing answers STUN on the discard port.
+    let silent_stun =
+        cmux_mobile_link::api::IceServer { urls: vec!["stun:127.0.0.1:9".into()], ..turn.udp_only() };
+    let mac = DialOptions {
+        ice_servers: vec![turn.udp_only(), silent_stun],
+        drop_udp_to: Some(|addr| addr.port() < TEST_RELAY_PORTS_START),
+        ..options()
+    };
+    let (run, ()) = tokio::join!(exercise_turn_for(options(), mac, Duration::from_secs(2)), async {
+        // Well past the answer's STUN wait and allocation window (3.5 s),
+        // well inside the dial's 20 s timeout.
+        tokio::time::sleep(Duration::from_secs(6)).await;
+        turn.set_udp_blocked(false);
+    });
+    // The phone reaches the Mac through the Mac's allocation. (Its plain UDP
+    // still arrives here, so the Mac's own label follows that, not TURN.)
+    assert_eq!(run.phone, LinkPath::Turn, "{run:?}");
+    assert!(run.mac.is_some(), "{run:?}");
+}
+
 /// While set, the Mac's plain UDP to anything but TURN relayed addresses is
 /// lost (`wireguard_upgrades_from_the_peers_turn_once_direct_works`).
 static MAC_LAN_DOWN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
