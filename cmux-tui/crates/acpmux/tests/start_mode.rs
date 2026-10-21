@@ -588,3 +588,24 @@ async fn a_narrower_policy_on_a_live_chat_leaves_full_access() {
     assert_eq!(app.mode(&claude).await, "plan");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// A narrower policy set on a chat whose agent is not running starts no agent: the chat keeps it
+/// as its saved mode, which its next start restores.
+#[tokio::test]
+async fn a_narrower_policy_on_a_stopped_chat_starts_no_agent() {
+    let dir = home("policy-stopped", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (codex, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let r = app.call("_acpmux/kill", json!({"sessionId": codex})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = app
+        .call("_acpmux/set_policy", json!({"sessionId": codex, "policy": "approve-reads"}))
+        .await;
+    assert!(r.get("error").is_none(), "{r}");
+    let info = app.call("_acpmux/info", json!({"sessionId": codex})).await;
+    assert_eq!(info["result"]["status"], "closed", "{info}");
+    assert_eq!(app.mode(&codex).await, "ask");
+    let _ = std::fs::remove_dir_all(&dir);
+}
