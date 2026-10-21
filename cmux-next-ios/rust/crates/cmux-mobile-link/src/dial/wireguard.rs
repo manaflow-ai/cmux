@@ -1757,6 +1757,8 @@ mod tests {
             },
             &DialOptions::default(),
         );
+        // A socket the runtime has not seen writable yet refuses `try_send_to`.
+        underlay.socket.writable().await.unwrap();
         let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
         underlay.authenticated(udp_from(old));
         // Recent WireGuard data, each datagram distinct (its fifth byte).
