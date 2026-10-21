@@ -401,6 +401,59 @@ test("a new tab the host kept nothing for waits for acpmux, and draws what it an
   expect(text(tab.last())).toContain("Retry added.");
 });
 
+/// The other half of "instant if cached" is the host's loading state. It covers a pane until the
+/// page reports its first paint, and then fades its background out over the page in 120 ms
+/// (`MotionFade.fadeIn`, AgentPaneView+Loading.swift), which Leo asked for on 2026-10-14 for a chat
+/// the app had not loaded. A chat drawn from a kept tail is already on screen in that first frame,
+/// so fading it in puts 120 ms of softness on the one open that is instant. The page is the only
+/// side that knows which of the two it drew, so it says so in the snapshot the paint report reads.
+test("a new tab that drew the host's tail says so, so its chat shows without the cold fade", async () => {
+  const chat = new Fixture("no-fade");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  chat.pages.set(chat.b, { events: [prompt("Docs"), reply(chat.b, "Docs updated.")] });
+  await chat.readInATab();
+  const tab = chat.tab(chat.a, { hold: true });
+  await tab.daemon.asked;
+  // The frame the open landed on drew the chat, and says where those rows came from.
+  expect(text(tab.last())).toContain("Retry added.");
+  expect(tab.last()!.drewKeptTail).toBe(true);
+  tab.daemon.release();
+  live.push(await tab.client);
+  // Still true once the attach is in: the first frame is what the host's fade is about.
+  expect(tab.last()!.drewKeptTail).toBe(true);
+});
+
+test("a new tab with nothing kept never claims a tail, so its chat keeps the cold fade", async () => {
+  const chat = new Fixture("cold-fade");
+  chat.pages.set(chat.a, { events: [prompt("Look at the retry path"), reply(chat.a, "Retry added.")] });
+  const tab = chat.tab(chat.a, { hold: true });
+  await tab.daemon.asked;
+  // Nothing kept, so this page draws nothing at all until acpmux answers.
+  expect(tab.last()?.drewKeptTail).toBeUndefined();
+  tab.daemon.release();
+  live.push(await tab.client);
+  // acpmux's own page is this chat's first draw here, so the chat fades in as it did before.
+  expect(text(tab.last())).toContain("Retry added.");
+  expect(tab.last()?.drewKeptTail).toBeUndefined();
+});
+
+/// The report itself is React code no test here drives (as with the hand-over above): the client
+/// can carry the fact and the host can act on it while the one call between them drops it, and
+/// every other test in this file stays green. So the call site is read out of the source.
+///
+/// Renaming the field is fine; this test then names what to rewrite it to.
+test("the first-paint report tells the host whether the page drew a kept tail", async () => {
+  const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
+  const sites = [...app.matchAll(/callNative\("pane\.painted"[^)]*\)/g)];
+  // One today, in the effect that runs on the frame the page first shows what it is.
+  expect(sites.length).toBe(1);
+  expect(
+    sites[0]![0].includes("drewKeptTail"),
+    "pane.painted does not carry drewKeptTail, so the host cannot tell a cached open from a cold " +
+      "one and fades both (AgentPaneView+Loading.swift). Pass the snapshot's drewKeptTail with it.",
+  ).toBe(true);
+});
+
 test("the tail handed to the host is bounded in bytes, and what it cut it still offers", async () => {
   const chat = new Fixture("bounded");
   // Eight turns of 40 KB: more than the 256 KiB a tail may take to the host.
