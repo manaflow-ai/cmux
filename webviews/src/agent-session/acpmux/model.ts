@@ -182,6 +182,8 @@ export type AcpmuxRow = {
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
   doing?: string;
+  /// The call it names is a command, so the line leads with the terminal glyph (WorkingFor.tsx).
+  doingCommand?: boolean;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
