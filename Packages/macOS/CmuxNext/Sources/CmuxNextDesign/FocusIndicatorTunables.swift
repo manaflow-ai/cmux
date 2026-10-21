@@ -15,7 +15,14 @@ public nonisolated enum FocusIndicatorTunables {
         help: "How much subtler an unfocused pane's tabs draw (0 is the same as the focused pane). 0.6 since 2026-10-21 (was 0.35): with no ring by default, the tabs are the cue for which pane Cmd-W closes.",
         default: 0.6, range: 0...1, step: 0.05, unit: .fraction, code: "FocusIndicatorTunables.inactiveTabStrength")
 
+    /// Leo 2026-10-21: a link opened beside his chat moved focus and nothing showed where. Off by
+    /// default until Leo judges it live (`PaneOverlayView.flashesFocus`).
+    public static let flashOnMove = Tunable<Bool>.toggle(
+        "focus.flashOnMove", .focus, "Flash the ring when focus moves",
+        help: "Show the focus ring briefly on the pane focus moved to without a click (a link open, the pane after a close, an agent handoff), then fade it.",
+        default: false, code: "FocusIndicatorTunables.flashOnMove")
+
     public static var all: [TunableDescriptor] {
-        [indicator.descriptor, inactiveTabStyle.descriptor, inactiveTabStrength.descriptor]
+        [indicator.descriptor, inactiveTabStyle.descriptor, inactiveTabStrength.descriptor, flashOnMove.descriptor]
     }
 }

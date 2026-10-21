@@ -1528,7 +1528,8 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
-                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
+                // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
+                tooltip={t("composer.addTooltip")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"

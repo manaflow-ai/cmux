@@ -14,6 +14,7 @@ mod permission;
 pub(crate) use permission::{answer_permission, answer_question};
 
 mod extra;
+mod launch;
 mod standard;
 mod transfer;
 
