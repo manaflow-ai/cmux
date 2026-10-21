@@ -140,6 +140,7 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
   id: "agent-pane.composer-context",
   title: "Composer scope row",
   area: "Agent pane",
+  pane: true,
   covers: [
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
     "agent-session/acpmux/FolderPopover.tsx#FolderPopover",

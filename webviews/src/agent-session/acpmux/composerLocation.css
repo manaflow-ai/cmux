@@ -338,6 +338,12 @@
 .acpmux-access-grant-remove:hover { color: var(--agent-text); background: var(--agent-control-hover); }
 .acpmux-access-grant-remove:focus-visible { outline: 1.5px solid var(--agent-text); outline-offset: -1px; }
 
+/* The card's corner. A question in the stack over it (the folder trust bar) takes the same token,
+   so the two always match. */
+.acpmux-composer-box,
+.acpmux-asks-stack {
+  --acpmux-composer-radius: 18px;
+}
 /* The card over a backdrop (a background image or a clear window): the card mixes its tint into the
    opaque base at 72% instead of into the clear page, so the prompt, the chips and the footer stay
    legible over a busy painting while the backdrop still shows through. On an opaque page the base is
@@ -346,7 +352,6 @@
 .acpmux-composer-box {
   --acpmux-composer-glass: color-mix(in srgb, var(--acpmux-base) 72%, transparent);
   overflow: visible;
-  --acpmux-composer-radius: 18px;
   border-radius: var(--acpmux-composer-radius);
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-composer-glass));
 }
@@ -1116,11 +1121,15 @@
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
-  --acpmux-composer-radius: 11px;
 }
 /* The strip and the queue over the box take its corners. */
 .acpmux-composer:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) {
   --acpmux-strip-radius: 11px;
+}
+/* The box's corner, which the trust bar in the stack over it shares. */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner),
+.acpmux-dock:has(.acpmux-composer-box > .acpmux-chrome-area > .acpmux-composer-inner) > .acpmux-asks-stack {
+  --acpmux-composer-radius: 11px;
 }
 .acpmux-composer-inner { display: contents; }
 .acpmux-composer-box > .acpmux-attachments { grid-column: 1 / -1; grid-row: 1; }
@@ -1223,3 +1232,5 @@
 .acpmux-composer-bar .acpmux-send.acpmux-steer-now {
   margin-inline: 0 var(--acpmux-row-inset);
 }
+/* In the plain footer Stop follows ↵ and brings its own leading inset (above), so ↵ adds none. */
+.acpmux-composer-bar .acpmux-send.acpmux-steer-now:has(+ .acpmux-send) { margin-inline-end: 0; }
