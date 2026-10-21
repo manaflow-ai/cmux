@@ -4,41 +4,18 @@
    then the composer form, which holds the queued prompts (ComposerQueue.tsx), the location strip and
    the card. Every part takes its own height in the stack's own flow, so none draws over another or
    under the pane's edge; a new part joins that flow here.
-   While the stage shows the transcript (.acpmux-main[data-dock=float]), the stack lies over the
-   transcript's foot, as the Claude and Codex apps lay their composer (Leo 2026-10-19): the
-   transcript runs the pane's height, its scrollbar's track to the pane's bottom corner, and keeps
-   the stack's height as room under its last row (VirtualTranscript `dock`), hiding the rows that
-   pass under it (conversation.css). The stack never takes the transcript's last
-   --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
-   their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
-   review, the diff, the inspector) the stack is in the pane's flow under the stage. */
+   The stack is a fixed, no-scroll zone under the transcript (Leo 2026-10-20: "all of these areas
+   are essentially a no-scroll zone"), as in the Claude desktop app: the transcript, its last row
+   and its scrollbar end above the stack, and the wheel over the stack scrolls nothing
+   (wheelPassThrough.ts). The stack never takes the transcript's last --acpmux-transcript-min
+   under the header; in a pane shorter still, the queue, the pull request dock and a question give
+   up their height, down to one row, and scroll inside it. */
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
 }
 .acpmux-dock {
   display: contents;
-}
-.acpmux-main[data-dock="float"] > .acpmux-dock {
-  position: absolute;
-  right: 0;
-  bottom: 0;
-  left: 0;
-  display: flex;
-  flex-direction: column;
-  max-height: calc(100% - 44px - var(--acpmux-transcript-min, 96px));
-  /* The gutters beside and under the card pass the wheel to the transcript under them. */
-  pointer-events: none;
-}
-/* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
-   gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
-   quiet row inside it (re-review of #22285). */
-.acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
-  max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
-}
-.acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
-.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
-  pointer-events: auto;
 }
 .acpmux-dock > .acpmux-agents-pill-anchor {
   position: relative;
@@ -63,4 +40,5 @@
   flex: 0 1 auto;
   min-height: var(--acpmux-stack-row-min, 34px);
   overflow-y: auto;
+  overscroll-behavior: contain;
 }
