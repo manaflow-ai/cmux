@@ -439,19 +439,29 @@ test("a new tab with nothing kept never claims a tail, so its chat keeps the col
 
 /// The report itself is React code no test here drives (as with the hand-over above): the client
 /// can carry the fact and the host can act on it while the one call between them drops it, and
-/// every other test in this file stays green. So the call site is read out of the source.
+/// every other test in this file stays green. So the call site is read out of the source. The
+/// Swift side holds the host to acting on it (`AgentPaneColdChatRevealTests`); this holds the one
+/// call between them.
 ///
+/// It reads the value, not only the word: a report that passed `drewKeptTail: false` outright, or
+/// named the field in a comment, would leave every cached open fading while this stayed green.
 /// Renaming the field is fine; this test then names what to rewrite it to.
 test("the first-paint report tells the host whether the page drew a kept tail", async () => {
   const app = await readFile(new URL("../src/agent-session/acpmux/App.tsx", import.meta.url), "utf8");
-  const sites = [...app.matchAll(/callNative\("pane\.painted"[^)]*\)/g)];
-  // One today, in the effect that runs on the frame the page first shows what it is.
+  const sites = [...app.matchAll(/callNative\("pane\.painted"([^)]*)\)/g)];
+  // One today, in the effect that runs on the frame the page first shows what it is. A second call
+  // site would need the fact too, so this notices one rather than reading only the first.
   expect(sites.length).toBe(1);
-  expect(
-    sites[0]![0].includes("drewKeptTail"),
-    "pane.painted does not carry drewKeptTail, so the host cannot tell a cached open from a cold " +
-      "one and fades both (AgentPaneView+Loading.swift). Pass the snapshot's drewKeptTail with it.",
-  ).toBe(true);
+  for (const site of sites) {
+    // `{ drewKeptTail }`, or `drewKeptTail: <something that is not a constant>`. A literal false or
+    // undefined is the bug this exists for, written out.
+    const passed = /\bdrewKeptTail\b\s*(?:[,}]|:\s*(?!false\b|undefined\b|null\b)\S)/.test(site[1]!);
+    expect(
+      passed,
+      "pane.painted does not carry a live drewKeptTail, so the host cannot tell a cached open from " +
+        `a cold one and fades both (AgentPaneView+Loading.swift). Found: ${site[0]}`,
+    ).toBe(true);
+  }
 });
 
 test("the tail handed to the host is bounded in bytes, and what it cut it still offers", async () => {

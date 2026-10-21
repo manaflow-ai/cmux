@@ -99,4 +99,29 @@ struct AgentPaneColdChatRevealTests {
         #expect(view.loadingView.superview == nil, "a New Tab page faded in")
         #expect(view.pageContent.alphaValue == 1)
     }
+
+    /// A chat the page drew from a kept tail is on screen in the frame the open landed on
+    /// (tailCache.ts), so it shows as a New Tab page does: in one frame, with no fade over rows
+    /// already drawn. "Instant if cached" (Leo 2026-10-20).
+    @Test func aChatDrawnFromAKeptTailShowsInOneFrame() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        #expect(view.showsLoadingState)
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted",
+                                                                 "params": ["drewKeptTail": true]]))
+        #expect(view.loadingView.superview == nil, "a chat already on screen faded in over itself")
+        #expect(view.pageContent.alphaValue == 1)
+    }
+
+    /// The same report without the fact is a chat read cold, which keeps the fade it had.
+    @Test func aChatReadColdStillFadesIn() async throws {
+        let (view, window) = try Self.pane()
+        defer { window.close() }
+        _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
+        if Motion.canAnimate(in: view), Motion.home.duration(.fadeIn) > 0 {
+            #expect(view.loadingView.superview != nil, "a chat read cold showed in one frame, with no fade")
+        }
+        try await Self.settle { view.loadingView.superview == nil }
+        #expect(view.loadingView.superview == nil, "the fade never ended")
+    }
 }

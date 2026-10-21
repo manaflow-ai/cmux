@@ -1273,6 +1273,9 @@ export class AcpmuxDirectClient {
             keptThrough = this.drawKeptTail(sessionId);
           }
           if (keptThrough > 0) {
+            // Where the caller decides, not where the tail is read: a tail that drew no row is a
+            // cold open, and the host must not be told rows are on screen that are not.
+            this.drewKeptTail = true;
             this.emit("selected");
             this.releaseSnapshots(hold);
           }
@@ -1288,6 +1291,9 @@ export class AcpmuxDirectClient {
             forgetTail(sessionId);
             this.events = [];
             this.queue = [];
+            // Those rows are off screen again, so the frame the host shows is the failure, not a
+            // chat: it fades in as any first draw of a chat does.
+            this.drewKeptTail = false;
             this.rebuild();
             this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
           }
@@ -1337,6 +1343,8 @@ export class AcpmuxDirectClient {
     this.turnOpener = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
+    // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
+    this.drewKeptTail = false;
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
@@ -1452,9 +1460,6 @@ export class AcpmuxDirectClient {
     this.pendingSecret = undefined;
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
     this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue);
-    // What the pane's host needs to know before it shows this page: these rows are already drawn,
-    // so the page needs no fade in (AgentPaneView+Loading.swift).
-    this.drewKeptTail = true;
     return this.lastSeq;
   }
 
@@ -3968,6 +3973,7 @@ export class AcpmuxDirectClient {
         keptThrough = this.drawKeptTail(sessionId);
     }
     if (keptThrough > 0) {
+      this.drewKeptTail = true;
       this.emit("selected");
       this.releaseSnapshots(hold);
     }
@@ -3984,6 +3990,7 @@ export class AcpmuxDirectClient {
         forgetTail(sessionId);
         this.events = [];
         this.queue = [];
+        this.drewKeptTail = false;
         this.rebuild();
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
       }
