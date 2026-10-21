@@ -212,6 +212,14 @@ public nonisolated struct AgentPaneTunables {
         help: "A finished thought folds to one line that opens to its text. New agent tabs.",
         default: true, code: "AgentPaneTunables.foldLongThoughts")
 
+    /// A streaming reply grows a whole word at a time, each word fading in (webviews
+    /// conversation/RevealedMarkdown.tsx). On by default; off, it grows a character at a time as
+    /// before. New agent tabs read it.
+    public static let streamWords = Tunable<Bool>.toggle(
+        "agentPane.debug.streamWords", PageTunables.section, "Stream replies a word at a time",
+        help: "A streaming reply grows by whole words, each fading in. Off: a character at a time. New agent tabs.",
+        default: true, code: "AgentPaneTunables.streamWords")
+
     /// Which done thoughts fold (``foldLongThoughts``): every one by default (Leo 2026-10-20), or,
     /// as before, only a tall one. New agent tabs read it.
     public static let thoughtFoldThreshold = Tunable<AgentPaneThoughtFoldThreshold>.choice(
@@ -301,14 +309,16 @@ public nonisolated struct AgentPaneTunables {
     static var documentAttributes: [String: String] {
         attributes(foldLongThoughts: foldLongThoughts.value, topStripStyle: topStripStyle.value,
                    thoughtHeader: thoughtHeader.value, liveThoughtViewport: liveThoughtViewport.value,
-                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value)
+                   thoughtFoldThreshold: thoughtFoldThreshold.value, turnPreviewCards: turnPreviewCards.value,
+                   streamWords: streamWords.value)
     }
 
     static func attributes(foldLongThoughts: Bool, topStripStyle: AgentPaneTopStripStyle,
                            thoughtHeader: AgentPaneThoughtHeader = .duration,
                            liveThoughtViewport: Bool = true,
                            thoughtFoldThreshold: AgentPaneThoughtFoldThreshold = .every,
-                           turnPreviewCards: Bool = false) -> [String: String] {
+                           turnPreviewCards: Bool = false,
+                           streamWords: Bool = true) -> [String: String] {
         var attributes: [String: String] = [:]
         if !foldLongThoughts { attributes["fold-long-thoughts"] = "off" }
         if thoughtFoldThreshold != .every { attributes["thought-fold-threshold"] = thoughtFoldThreshold.rawValue }
@@ -316,6 +326,7 @@ public nonisolated struct AgentPaneTunables {
         if !liveThoughtViewport { attributes["live-thought-viewport"] = "off" }
         if topStripStyle != .default { attributes["top-strip"] = topStripStyle.rawValue }
         if turnPreviewCards { attributes["turn-preview-cards"] = "on" }
+        if !streamWords { attributes["stream-words"] = "off" }
         return attributes
     }
 
@@ -396,12 +407,14 @@ public nonisolated struct AgentPaneTunables {
             pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
+            openOutsideChatsViewOnly.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             sideSessions.descriptor,
+            streamWords.descriptor,
             suggestedTasks.descriptor,
             systemDictation.descriptor,
             terminalButtonAdds.descriptor,

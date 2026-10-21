@@ -225,6 +225,22 @@ test("a data: URI written as text stays as written: in code, a source map, a CSS
   expect(liftInlineImages(mixed).text).toBe(`  keep this\n\n\n\n\`${dataUri}\`  `);
 });
 
+test("re-dropping the same local link replaces the chip instead of duplicating it", async () => {
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const link = (name: string, path: string): ComposerAttachment => ({
+    id: `link:${path}`,
+    kind: "link",
+    name,
+    mimeType: "",
+    size: 0,
+    path,
+  });
+  const first = link("assets/", "/Users/you/assets");
+  const replacement = link("assets/", "/Users/you/assets");
+  const other = link("other/", "/Users/you/other");
+  expect(appendAttachments([first], [replacement, other])).toEqual([replacement, other]);
+});
+
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
