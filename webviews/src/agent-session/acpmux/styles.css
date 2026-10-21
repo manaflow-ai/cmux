@@ -46,8 +46,8 @@
 .acpmux-composer-plus .acpmux-picker-button{justify-content:center;width:28px;padding:0;color:var(--agent-muted)}
 .acpmux-composer-plus .acpmux-picker-button:hover{color:var(--agent-text)}
 .acpmux-composer-actions{flex:none;display:flex;align-items:center;gap:8px;margin-left:auto}
-/* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls; while listening it
-   takes the theme's red (--agent-danger, ANSI 1) and shows the input level in the same circle. Hover and press are in composerStates.css. */
+/* Dictation (DictationButton, DictationNotice): the mic before Send, as quiet as the bar's other controls. A running session's
+   look (the lit mic, the waveform, the finish key) is dictation.css's; hover and press are in composerStates.css. */
 .acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted);cursor:default}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
