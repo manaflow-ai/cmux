@@ -50,6 +50,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
+import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -497,6 +498,9 @@ const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
   );
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
+/// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach: the
+/// scroll anchor's read, then the client's open hold (direct.ts OPEN_HOLD_MS), with a frame to spare.
+const CHAT_DRAW_HOLD_MS = SCROLL_ANCHOR_READ_MS + 1_500 + 50;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
@@ -2851,6 +2855,9 @@ function AcpmuxPane() {
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
+  /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
+  /// first frame (its rows, title and modes) is in, or the open's hold has passed.
+  const [awaitsChat, setAwaitsChat] = useState(false);
   /// New Tab submits made before acpmux answered, run in order once it has (never dropped).
   const pendingSubmits = useRef<Array<() => void>>([]);
   const whenHandshaken = (run: () => void) => {
@@ -4167,8 +4174,17 @@ function AcpmuxPane() {
   // the same way).
   const paintReported = useRef(false);
   // A New Tab page is what it is from its first render: its frame draws before the handshake
-  // (cx-0rpl.10), and the host shows no loading mark over it.
-  const showsWhatItIs = handshaken || hostError !== undefined || newTab !== undefined;
+  // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
+  // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
+  // the host faded that in, then the rows, title and modes popped in (Leo 2026-10-20).
+  const chatDrawn = !awaitsChat || clientSnapshot.connection !== "connecting";
+  const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
+  useEffect(() => {
+    if (!handshaken || chatDrawn) return;
+    // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
+    const timer = window.setTimeout(() => setAwaitsChat(false), CHAT_DRAW_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [handshaken, chatDrawn]);
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
@@ -4535,6 +4551,13 @@ function AcpmuxPane() {
         );
         setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
         setPastWaitsForTrust(host.adopt !== undefined && host.adopt !== null);
+        if (!reconnect)
+          setAwaitsChat(
+            Boolean(host.sessionId) &&
+              (host.transport === "mock" ||
+                host.transport === "acpmux-bridge" ||
+                (host.transport === "acpmux-websocket" && Boolean(host.endpoint && host.token))),
+          );
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -4634,6 +4657,8 @@ function AcpmuxPane() {
             // (newtab/recentProject.ts); the mock daemon's chats are not the app's.
             if (!mock) {
               rememberRecentFolders(next);
+              // Every page's New Tab lists one chat store (newtab/chatStore.ts).
+              publishSessions(next);
               // The next New Tab page's first frame lists these chats (newtab/warmSnapshot.ts).
               publishWarmNewTab(
                 next,
@@ -5597,13 +5622,24 @@ function AcpmuxPane() {
   // the first frame lists what a page of this Mac listed last, and the live list changes rows in place.
   const warmSessions = useWarmNewTabSessions();
   const carriedSessions = shownNewTabSessions(composerSnapshot, warmSessions);
+  // Over that, the New Tab page lists the chats every page shares (newtab/chatStore.ts): the newest
+  // list any page received, drawn on its first frame and updated in place when another page hears a
+  // change. Debug Settings `newTab.privateChatLists`, a page on another machine's daemon and a page
+  // whose daemon is down list this page's own (`sharesChatList`).
+  const newTabSessions = useSharedSessions(
+    carriedSessions ?? composerSnapshot.sessions,
+    sharesChatList(newTab, composerSnapshot),
+  );
   const newTabSnapshot = useMemo(
-    () => (carriedSessions ? { ...composerSnapshot, sessions: carriedSessions } : composerSnapshot),
-    [composerSnapshot, carriedSessions],
+    () =>
+      newTabSessions === composerSnapshot.sessions
+        ? composerSnapshot
+        : { ...composerSnapshot, sessions: newTabSessions },
+    [composerSnapshot, newTabSessions],
   );
   // The daemon has not listed the chats to this page yet and none are known (newtab/recentProject.ts).
   const newTabChatsPending =
-    !carriedSessions &&
+    newTabSessions.length === 0 &&
     !composerSnapshot.listedSessions &&
     composerSnapshot.sessions.length === 0 &&
     composerSnapshot.connection !== "disconnected" &&
@@ -5618,14 +5654,14 @@ function AcpmuxPane() {
     const byPath = new Map<string, { cwd: string; label: string }>();
     for (const project of directProjects) byPath.set(project.cwd, project);
     for (const path of newTab?.projects ?? []) byPath.set(path, { cwd: path, label: projectLabel(path) });
-    for (const session of composerSnapshot.sessions) {
+    for (const session of newTabSnapshot.sessions) {
       if (typeof session.cwd !== "string" || !session.cwd) continue;
       if (session.host && session.hostKind !== "local") continue;
       byPath.set(session.cwd, { cwd: session.cwd, label: projectLabel(session.cwd) });
     }
     if (newTab?.cwd) byPath.set(newTab.cwd, { cwd: newTab.cwd, label: projectLabel(newTab.cwd) });
     return [...byPath.values()];
-  }, [composerSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
+  }, [newTabSnapshot.sessions, newTab?.cwd, newTab?.projects, directProjects]);
   // The new chat's hero picker (cx-9g0w): this Mac's projects, then other machines' folders from
   // their chats (each with its machine's name), Add project and Do not work in a project.
   const heroPicker = useMemo<EmptyStateProjects | undefined>(() => {
@@ -6081,6 +6117,7 @@ function AcpmuxPane() {
       <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
+          headerCwd={snapshot.summary?.cwd ?? ""}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           switching={Boolean(switchView.intent)}
           chips={ComposerChips}
@@ -6457,7 +6494,7 @@ function AcpmuxPane() {
           ) : showNewTab ? (
             <NewTabPage
               key={newTabGeneration}
-              snapshot={composerSnapshot}
+              snapshot={newTabSnapshot}
               hotkeys={newTab.hotkeys}
               initialKind={newTab.initialKind}
               cwd={newTab.cwd}

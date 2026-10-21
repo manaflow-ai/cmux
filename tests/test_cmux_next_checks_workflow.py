@@ -15,9 +15,11 @@ import fnmatch
 import json
 import os
 import re
+import signal
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -637,6 +639,54 @@ class SwiftCanaryFleetCoverage(unittest.TestCase):
         self.assertIn("compile-check --ref \"$REF\" --app", step["run"])
 
 
+def kill_group(pid: int) -> None:
+    # The group may be gone, or (macOS) hold only a zombie leader, which raises EPERM.
+    try:
+        os.killpg(pid, signal.SIGKILL)
+    except OSError:
+        pass
+
+
+def run_step(script: str, env: dict, timeout: float) -> subprocess.CompletedProcess:
+    """Run a workflow step's shell in its own process group and kill the whole group on timeout.
+
+    subprocess.run's timeout kills only bash: its cmux_tui_tree_key.py child lived on, and once
+    the temporary directory with the fake git was removed its git calls reached the real
+    checkout and lazy-fetched placeholder objects for 19+ minutes (cosmic-gray, 2026-10-20).
+    """
+    with subprocess.Popen(["bash", "-c", script], env=env, text=True, stdout=subprocess.PIPE,
+                          stderr=subprocess.PIPE, start_new_session=True) as process:
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            kill_group(process.pid)
+            process.communicate()
+            raise
+        finally:
+            # Background children a finished step left behind go too.
+            kill_group(process.pid)
+    return subprocess.CompletedProcess(process.args, process.returncode, stdout, stderr)
+
+
+class StepRunnerLeavesNoChild(unittest.TestCase):
+    def test_a_timed_out_step_takes_its_children_with_it(self):
+        with tempfile.TemporaryDirectory() as directory:
+            pid_file = Path(directory) / "child"
+            with self.assertRaises(subprocess.TimeoutExpired):
+                run_step(f"sleep 60 & echo $! > {pid_file}; wait", dict(os.environ), timeout=1)
+            child = int(pid_file.read_text())
+        # A killed child is gone once its new parent reaps it, well within a second.
+        deadline = time.monotonic() + 2
+        while time.monotonic() < deadline:
+            try:
+                os.kill(child, 0)
+            except ProcessLookupError:
+                return
+            time.sleep(0.05)
+        os.kill(child, signal.SIGKILL)
+        self.fail(f"step child {child} outlived the timed-out step")
+
+
 class PushPreflightBehavior(unittest.TestCase):
     """Execute the workflow shell with bounded fake network and git responses."""
 
@@ -703,8 +753,7 @@ printf '%064d  cmux-tui-aarch64-apple-darwin\\n' 3
             # preflight falls back to the run-list election (fake curl answers it).
             env.pop("ACTIONS_ID_TOKEN_REQUEST_URL", None)
             env.pop("ACTIONS_ID_TOKEN_REQUEST_TOKEN", None)
-            result = subprocess.run(["bash", "-c", script], env=env, text=True,
-                                    capture_output=True, timeout=5)
+            result = run_step(script, env, timeout=5)
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             return dict(line.split("=", 1) for line in output.read_text().splitlines())
 

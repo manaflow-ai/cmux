@@ -58,6 +58,11 @@ extension NewTabPage {
         // Shown with the split, in this frame (one spring for the whole chain); sent once the page is placed.
         let layoutModel = source.workspace?.layoutModel
         let shownSizing = split == nil ? nil : layoutModel?.showSplitSizing(sizing)
+        // A refused or cancelled page: the split's sizing goes, and the held keys go now, not at the hold's own limit.
+        let release = { [weak input] in
+            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
+            input?.endIncoming(keys, pageMade: false)
+        }
         let started = services.agentTabs.openTab(in: source, newTab: (page, handler), select: false, hidden: split == nil, split: split,
                                                  focuses: focusesPage) { [weak source] key in
             opened.value = key
@@ -66,13 +71,8 @@ extension NewTabPage {
             if let shownSizing { layoutModel?.commitSplitSizing(shownSizing) }
             if swapsBack { source.daemon.send("swap-pane") { [handle = source.pane.handle] in try await $0.swapPane(handle, with: .direction(split == .right ? .right : .down)) } }
             input.flushAll() // the page shows in its pane: a field that reported ready may take the keys now
-        } failed: {
-            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
-        }
-        if !started {
-            if let shownSizing { layoutModel?.cancelSplitSizing(shownSizing) }
-            input.endIncoming(keys, pageMade: false)
-        }
+        } failed: { release() }
+        if !started { release() }
         // The split's provisional pane is in the store: the window lays it out and mounts it in
         // this turn, so the page's pane draws in the key's frame (instant-new-surfaces).
         if started, split != nil { BenchSpans.measure("split.layout") { source.workspace?.applyCurrent() } }
