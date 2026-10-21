@@ -11,6 +11,15 @@ import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { ComposerEditCommand, ComposerHandle } from "../src/agent-session/acpmux/Composer";
 import { promptBlocks, type ComposerAttachment } from "../src/agent-session/acpmux/attachments";
 import type { MarkdownFieldElement } from "../src/agent-session/acpmux/MarkdownField";
+import {
+  PASTE_CHIP_CHARS,
+  PASTE_CHIP_LINES,
+  isLargePaste,
+  lineCount,
+  pastedLabel,
+  pastedTextAttachment,
+} from "../src/agent-session/acpmux/pastedText";
+import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -239,4 +248,29 @@ test("the pasted text goes to the agent as its own text block after the prompt's
   expect(promptBlocks("", sent[0]!.attachments)).toEqual([
     { type: "text", text: LOG, _meta: { cmux: { pasted: true } } },
   ]);
+});
+
+test("the limit: more than 20 lines or 2,000 characters; the label is the first words on one line", () => {
+  expect(PASTE_CHIP_LINES).toBe(20);
+  expect(PASTE_CHIP_CHARS).toBe(2000);
+  const lines = (count: number) => Array.from({ length: count }, (_, index) => `l${index}`).join("\n");
+  expect(isLargePaste(lines(20))).toBe(false);
+  // A newline at the end starts no line.
+  expect(isLargePaste(`${lines(20)}\n`)).toBe(false);
+  expect(isLargePaste(lines(21))).toBe(true);
+  expect(isLargePaste("x".repeat(2000))).toBe(false);
+  expect(isLargePaste("x".repeat(2001))).toBe(true);
+  expect(lineCount("a\r\nb\rc\n")).toBe(3);
+  expect(lineCount("")).toBe(0);
+  expect(pastedLabel("\n  first   line\nsecond line  ")).toBe("first line");
+  const label = pastedLabel("word ".repeat(40));
+  expect(label.endsWith("…")).toBe(true);
+  expect(label.length).toBeLessThanOrEqual(61);
+  expect(label).not.toContain("\n");
+});
+
+test("a pasted chip is kept with the chat's unsent chips, its text with it (#23139)", () => {
+  const chip = pastedTextAttachment(LOG);
+  expect(keptChips([chip])).toEqual([chip]);
+  expect(chip).toMatchObject({ kind: "pasted", text: LOG, name: "line 1 of the build log" });
 });

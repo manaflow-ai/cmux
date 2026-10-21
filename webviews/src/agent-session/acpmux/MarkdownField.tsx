@@ -89,9 +89,10 @@ export type MarkdownFieldProps = {
   /// Runs before the editor's own keys; preventDefault keeps the editor from handling the key.
   onKeyDown?(event: KeyboardEvent): void;
   onCompositionChange?(composing: boolean): void;
-  /// Typed or pasted text before the editor inserts it, and whether the prompt was empty and an
-  /// IME composition runs; true consumes it (the new tab's "!" rule converts the tab instead).
-  onBeforeInput?(data: string, state: { empty: boolean; composing: boolean }): boolean;
+  /// Typed or pasted text before the editor inserts it, and whether the prompt was empty, an IME
+  /// composition runs and it is a paste (then `data` is the clipboard's plain text as copied); true
+  /// consumes it (the new tab's "!" rule converts the tab instead, the composer makes a huge paste a chip).
+  onBeforeInput?(data: string, state: { empty: boolean; composing: boolean; paste: boolean }): boolean;
   /// Enter (with `cmd` for Cmd-Enter) that `onKeyDown` did not take; unset, Enter is the editor's.
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
   /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
@@ -281,10 +282,11 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   };
 
   /// Asks the surface about typed or pasted text first; true when it consumed it.
-  const beforeInput = (editorView: EditorView, text: string) =>
+  const beforeInput = (editorView: EditorView, text: string, paste = false) =>
     latest.current.onBeforeInput?.(text, {
       empty: editorView.state.doc.textContent === "",
       composing: composing.current || editorView.composing,
+      paste,
     }) === true;
 
   const mount = useCallback((root: HTMLDivElement | null) => {
@@ -349,7 +351,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                   return false;
                 event.preventDefault();
                 const plain = pasteIsOnlyFileNames(data) ? "" : lifted.text;
-                if (!plain.trim() || beforeInput(editorView, plain)) return true;
+                if (!plain.trim() || beforeInput(editorView, plain, true)) return true;
                 const { from, to } = editorView.state.selection;
                 editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
                 return true;
@@ -359,12 +361,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
             handlePaste: (editorView, event, slice) => {
               const plain = event.clipboardData?.getData("text/plain");
               if (plain && looksLikeMarkupText(plain)) {
-                if (beforeInput(editorView, plain)) return true;
+                if (beforeInput(editorView, plain, true)) return true;
                 const { from, to } = editorView.state.selection;
                 editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
                 return true;
               }
-              if (beforeInput(editorView, slice.content.textBetween(0, slice.content.size, "\n", "\n"))) return true;
+              // The surface sees the text as copied (a huge paste becomes the composer's chip as it
+              // was), else the slice's text (a paste of HTML only).
+              if (beforeInput(editorView, plain || slice.content.textBetween(0, slice.content.size, "\n", "\n"), true))
+                return true;
               pasting = true;
               queueMicrotask(() => {
                 pasting = false;
@@ -671,8 +676,11 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         pasteText: (text) => {
           const current = view.current;
           if (!current) return;
-          if (beforeInput(current, text)) return;
-          current.pasteText(text);
+          if (beforeInput(current, text, true)) return;
+          // A paste event with no clipboard data, as ProseMirror's own; jsdom has no ClipboardEvent.
+          const win = current.dom.ownerDocument.defaultView;
+          const event = win && "ClipboardEvent" in win ? new win.ClipboardEvent("paste") : new Event("paste");
+          current.pasteText(text, event as ClipboardEvent);
         },
         reset: (markdown = "") => {
           known.current = markdown;
