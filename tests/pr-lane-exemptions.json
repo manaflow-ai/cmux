@@ -112,8 +112,7 @@
     {
       "reason": "cmux-browser-host-release.yml runs it on feat-cmux-next pushes that touch the browser host. A pull request lane needs that release workflow to gain a pull_request trigger with its publish jobs gated off.",
       "tests": [
-        "tests/test_browser_host_release_package.py",
-        "tests/test_browser_host_release_smoke.py"
+        "tests/test_browser_host_release_package.py"
       ]
     },
     {
