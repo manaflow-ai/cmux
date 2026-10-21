@@ -47,6 +47,19 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// A title ends in "…" exactly when choosing it asks for more first. A phone action with a
+    /// required argument (a URL, text, a point, a button or a locale) makes the palette ask for it
+    /// (`ActionRegistry.argumentCollector`); one without (Boot, Rotate, Take Screenshot) runs at once.
+    @Test func phoneTitlesEndInAnEllipsisExactlyWhenTheyAsk() {
+        let phones = ActionCatalog.all.filter { $0.id.rawValue.hasPrefix("phone.") }
+        #expect(!phones.isEmpty)
+        for descriptor in phones {
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(descriptor.title.hasSuffix("…") == asks,
+                    "\(descriptor.id) \(descriptor.title): \(asks ? "asks for input, so it ends in …" : "acts at once, so no …")")
+        }
+    }
+
     /// A renamed row still answers the word it used to start with.
     @Test func renamedRowsKeepTheirOldWord() throws {
         let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
