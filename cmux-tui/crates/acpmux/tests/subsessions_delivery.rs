@@ -36,7 +36,9 @@ fn hub() -> Arc<Hub> {
     let mut cfg: Config = serde_json::from_value(json!({
         "harnesses": {
             "fake": {"argv": ["python3", FAKE]},
-            "steer": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]},
+            // The fake agent's family: a child of another family whose mode no list names
+            // counts as full access, and never starts under an asking parent.
+            "steer": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE], "family": "fake"},
         },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",

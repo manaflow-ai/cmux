@@ -666,6 +666,11 @@ def handle_prompt(rid, params):
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
         return
+    # "big-output:N" answers with one message of N MiB: one update too large for a frame.
+    if text.startswith("big-output:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "z" * (int(text[11:]) << 20)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("fail-after-update:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "partial "}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
@@ -751,6 +756,42 @@ def handle_prompt(rid, params):
     if text == "mute":
         time.sleep(2)
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "mute-busy" is "mute" from an agent that reports its turn and its usage at once, as Codex does
+    # (a usage update, a command list, a notification of its own): none of it is the model's.
+    if text == "mute-busy":
+        update(sid, {"sessionUpdate": "usage_update", "used": 12, "size": 200000})
+        update(sid, {"sessionUpdate": "available_commands_update", "availableCommands": []})
+        send({"jsonrpc": "2.0", "method": "_fake/turn_started", "params": {"sessionId": sid}})
+        time.sleep(2)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "quiet-X" sends one sign of its model at work (X: a thought, a tool call, a plan, a request, a
+    # raw harness line of a model that streams, thinks, runs a tool or is moderated, a compaction, a
+    # subagent's progress), then works quietly for 1 s: not silent.
+    if text.startswith("quiet-"):
+        what = text[6:]
+        if what == "thought":
+            update(sid, {"sessionUpdate": "agent_thought_chunk", "content": {"type": "text", "text": "hmm"}})
+        elif what == "tool":
+            update(sid, {"sessionUpdate": "tool_call", "toolCallId": "q1", "title": "Read", "kind": "read", "status": "in_progress"})
+        elif what == "plan":
+            update(sid, {"sessionUpdate": "plan", "entries": [{"content": "look", "status": "pending", "priority": "medium"}]})
+        elif what == "ask":
+            request("session/request_permission", {"sessionId": sid, "toolCall": {"toolCallId": "q2", "title": "Edit"}, "options": [
+                {"optionId": "allow", "name": "Allow", "kind": "allow_once"}]})
+        elif what == "compaction":
+            update(sid, {"sessionUpdate": "compaction", "state": "running"})
+        elif what == "subagent":
+            update(sid, {"sessionUpdate": "subagent_progress", "subagentSessionId": "q3"})
+        else:
+            raw = {"stream": "claude.stream_event", "assistant": "claude.assistant",
+                   "thinking": "claude.system.thinking_tokens", "tool-progress": "claude.tool_progress",
+                   "moderation": "codex.turn/moderationMetadata"}[what]
+            send({"jsonrpc": "2.0", "method": raw, "params": {"type": raw.split(".")[1]}})
+        time.sleep(1)
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "hang" starts a turn that never ends: a busy agent.

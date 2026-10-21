@@ -28,8 +28,10 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "queue_paused",
     "queue_resumed",
     "turn_started",
-    // The turn's agent has said nothing since its prompt (`silent_turn.rs`).
+    // The turn's agent has said nothing since its prompt, and then its model's first sign
+    // (`silent_turn.rs`).
     "turn_silent",
+    "turn_heard",
     "turn_result",
     "permission_request",
     "permission_auto",
@@ -163,6 +165,41 @@ fn record_bytes(rec: &EventRecord) -> usize {
     serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
 }
 
+/// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
+/// name. A page's records are parsed trees until the reply is written, many times their
+/// JSON: one read of a whole 31 MB log held about 1 GB (huge-blue, 2026-10-21), and a 4 MiB
+/// page still grew the daemon by 95 MB. A longer read takes more pages through `hasMore`;
+/// the app's pages are 128 and 256 KiB. A page also goes out as one message, under
+/// `rpc::MAX_MESSAGE_BYTES`: 5000 records of a chat with long tool outputs were 32.8 MB.
+pub const DEFAULT_PAGE_BYTES: usize = 1 << 20;
+pub const MAX_PAGE_BYTES: usize = 4 << 20;
+
+/// A page's byte limit from `maxBytes`: [`DEFAULT_PAGE_BYTES`] when absent, at most
+/// [`MAX_PAGE_BYTES`].
+pub fn page_bytes(params: &Value) -> usize {
+    let asked = params.get("maxBytes").and_then(Value::as_u64);
+    asked
+        .map_or(DEFAULT_PAGE_BYTES, |b| usize::try_from(b).unwrap_or(usize::MAX))
+        .min(MAX_PAGE_BYTES)
+}
+
+/// The most JSON one record may hold in a page: a page always carries at least one record and
+/// goes out as one message, so a record must leave room under `rpc::MAX_MESSAGE_BYTES` for the
+/// reply around it.
+pub const MAX_RECORD_BYTES: usize = crate::rpc::MAX_MESSAGE_BYTES - (1 << 20);
+
+/// A record no message can carry goes as a stub with its kind and seq: what it left out, and how
+/// much. Also returns what the record adds to the page.
+fn fit(mut rec: EventRecord, bounded: bool) -> (EventRecord, usize) {
+    let bytes = record_bytes(&rec);
+    if !bounded || bytes <= MAX_RECORD_BYTES {
+        return (rec, bytes);
+    }
+    rec.msg = json!({"_meta": {"acpmux": {"omitted": {"bytes": bytes, "reason": "too_large"}}}});
+    let stub = record_bytes(&rec);
+    (rec, stub)
+}
+
 /// One page of a session's log, oldest first.
 #[derive(Debug, Default)]
 pub struct EventPage {
@@ -188,15 +225,16 @@ impl Hub {
         filter: &EventFilter,
     ) -> Result<EventPage> {
         let before = before.unwrap_or(u64::MAX);
+        let bounded = max_bytes.is_some();
         let mut page = EventPage::default();
         let mut bytes = 0usize;
         // Whether the page is full before `rec`: by count, or by size once it holds a record.
-        let mut full = |rec: &EventRecord, found: usize| {
+        let mut full = |rec_bytes: usize, found: usize| {
             if found == limit {
                 return true;
             }
             let Some(max) = max_bytes else { return false };
-            bytes += record_bytes(rec);
+            bytes += rec_bytes;
             found > 0 && bytes > max
         };
         if limit == 0 || !newest {
@@ -208,7 +246,8 @@ impl Hub {
                 if !filter.matches(&rec) {
                     return true;
                 }
-                if full(&rec, found) {
+                let (rec, rec_bytes) = fit(rec, bounded);
+                if full(rec_bytes, found) {
                     page.has_more = true;
                     return false;
                 }
@@ -224,7 +263,8 @@ impl Hub {
             if !filter.matches(&rec) {
                 return true;
             }
-            if full(&rec, found.len()) {
+            let (rec, rec_bytes) = fit(rec, bounded);
+            if full(rec_bytes, found.len()) {
                 page.has_more = true;
                 return false;
             }
