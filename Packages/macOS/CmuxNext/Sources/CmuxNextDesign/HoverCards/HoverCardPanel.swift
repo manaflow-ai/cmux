@@ -63,6 +63,9 @@ final class HoverCardPanel: NSPanel {
     var activeMorph: HoverCardMorph?
     /// The card takes clicks and scrolls (the update highlights' "See all changes").
     private(set) var isInteractive = false
+    /// The current press began in the clear band around the card: it and its drags and release
+    /// go to the parent window (`HoverCardPanel+ClickThrough.swift`).
+    var forwardsPress = false
     /// A `.beside` card sits left of its target (no room on its right: a sidebar on the right).
     private(set) var isLeading = false
     /// The card's frame on screen at rest, while a morph lays the window out larger.
@@ -151,11 +154,21 @@ final class HoverCardPanel: NSPanel {
             newBody.translatesAutoresizingMaskIntoConstraints = false
             let container = glass.contentView
             container.addSubview(newBody)
+            // Bottom and trailing just below required: `place()` lays the glass out at the last
+            // card's size before it measures and resizes, and a required pair there conflicted
+            // with the new body's fixed rows and width limits on every hover retarget (about 650
+            // of 1564 "Unable to simultaneously satisfy constraints" in 3 h of NIGHTLY logs, up
+            // to 39 a second, each solved and logged on the main thread). 999 still beats the
+            // fitting-size compression, so `fittingSize` and the resting layout are the same.
+            let bottom = newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor)
+            bottom.priority = .init(999)
+            let trailing = newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor)
+            trailing.priority = .init(999)
             edgeConstraints = [
                 newBody.topAnchor.constraint(equalTo: container.topAnchor),
-                newBody.bottomAnchor.constraint(equalTo: container.bottomAnchor),
+                bottom,
                 newBody.leadingAnchor.constraint(equalTo: container.leadingAnchor),
-                newBody.trailingAnchor.constraint(equalTo: container.trailingAnchor),
+                trailing,
             ]
             sizeConstraints = [newBody.widthAnchor.constraint(equalToConstant: 0), newBody.heightAnchor.constraint(equalToConstant: 0)]
             NSLayoutConstraint.activate(edgeConstraints)
@@ -369,7 +382,7 @@ extension HoverCardPanel {
         case .beside:
             // Right of the row; left of it when the screen ends first. Top-aligned, kept on screen.
             if origin.x + size.width > room.maxX {
-                origin.x = (anchor.minX * scale).rounded(.up) / scale - Self.targetGap - size.width
+                origin.x = ((anchor.minX - HoverCardEscapeGeometry.rowGap) * scale).rounded(.up) / scale - size.width
                 isLeading = true
             }
             origin.x = clampX(origin.x)
@@ -385,9 +398,10 @@ extension HoverCardPanel {
         return HoverCardRest(origin: origin, placement: side, isLeading: isLeading)
     }
 
-    /// The room between a card and its target: none. The card touches its tab (or row), so the
-    /// pointer never crosses empty space between them (Lawrence 2026-10-19: "there is a gap in
-    /// between ... such that there is no gap in between").
+    /// The room between a card and its tab: none. The card touches its tab, so the pointer never
+    /// crosses empty space between them (Lawrence 2026-10-19: "there is a gap in between ... such
+    /// that there is no gap in between"). A card beside a sidebar row stands
+    /// `HoverCardEscapeGeometry.rowGap` off it instead (Leo 2026-10-20).
     static let targetGap: CGFloat = 0
 
     /// The card's origin (screen coordinates, y up) for `placement` next to `anchor`, before
@@ -402,8 +416,8 @@ extension HoverCardPanel {
         case .below: CGPoint(x: anchor.minX, y: up(anchor.minY - targetGap) - size.height)
         // The card's bottom edge on the tab's top edge (rounded down: into the tab).
         case .above: CGPoint(x: anchor.minX, y: down(anchor.maxY + targetGap))
-        // The card's leading edge on the row's trailing edge, top-aligned.
-        case .beside: CGPoint(x: down(anchor.maxX + targetGap), y: anchor.maxY - size.height)
+        // The card's leading edge `rowGap` past the row's trailing edge, top-aligned.
+        case .beside: CGPoint(x: down(anchor.maxX + HoverCardEscapeGeometry.rowGap), y: anchor.maxY - size.height)
         // Right of the row, below its escape slot (before any flip the screen needs).
         case .besideRow: HoverCardEscapeGeometry(anchor: anchor, cardSize: size, scale: scale).card.origin
         }

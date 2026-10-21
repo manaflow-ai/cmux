@@ -156,6 +156,9 @@ pub struct PrewarmRequest {
     pub remote: bool,
     /// Whether the request came from a gated LocalApp/Web path.
     pub trust_gate: bool,
+    /// From a Web client or a peer forwarding for one: an auto-trust rule is no Trust answer
+    /// (`trust::web_session_level`), also for the folder picked when the hint names none.
+    pub trust_web: bool,
 }
 
 /// A pool lock. A panic while one was held leaves plain data behind, so a
@@ -333,7 +336,7 @@ impl Hub {
         let generation = self.pool.hint_gen.fetch_add(1, Ordering::SeqCst) + 1;
         let debounce = Duration::from_millis(self.config.read().await.pool.debounce_ms);
         let hub = self.clone();
-        let PrewarmRequest { harness, preset, wait, trust_gate, .. } = req;
+        let PrewarmRequest { harness, preset, wait, trust_gate, trust_web, .. } = req;
         let task = tokio::spawn(async move {
             if !debounce.is_zero() {
                 let clock = lock(&hub.clock).clone();
@@ -349,7 +352,7 @@ impl Hub {
                 let folder = spec.draft.cwd.to_string_lossy().into_owned();
                 let family =
                     spec.draft.family.clone().unwrap_or_else(|| spec.draft.harness.clone());
-                if !hub.folder_trusted_cwd(paths, folder, family).await {
+                if !hub.folder_trusted_cwd(paths, folder, family, trust_web).await {
                     return Err(RpcError::invalid_params(
                         "trust.pending: answer the trust question for the folder first",
                     )
@@ -594,6 +597,7 @@ impl Hub {
             tokio::spawn(end_pooled(p));
             return Err(e);
         }
+        self.forget_adopted_caller(&session.id);
         let tap = self.session_tap(session);
         let mut started = json!({
             "incarnation": p.record.incarnation.clone(),
@@ -632,6 +636,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();

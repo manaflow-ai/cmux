@@ -74,17 +74,35 @@
   height: var(--acpmux-attach-height);
   object-fit: cover;
   border-radius: var(--acpmux-attach-radius);
-  /* A neutral checker under the image, so a transparent one still reads as a thumbnail. */
-  background: repeating-conic-gradient(
-      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
-      transparent 0 50%
-    )
-    0 0 / 8px 8px;
+  /* A neutral backing under the image, so a transparent one still shows its content as a
+     thumbnail; a checker read as an image that failed to draw. */
+  background: color-mix(in srgb, var(--agent-text) 10%, transparent);
   /* The edge draws over the image (an outline paints above it) in the text's color, so a
      screenshot as dark or light as the composer still shows where it ends (Leo, 2026-10-13 and
      -14: dark ones looked missing behind a hairline of the border color). */
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
+}
+/* An image the engine could not draw: the thumbnail's own size, a picture glyph over a short note,
+   never an empty checker that reads like a transparent image. */
+.acpmux-attachment-image-failed {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  width: 104px;
+  padding: 0 8px;
+  color: var(--agent-muted);
+  text-align: center;
+}
+.acpmux-attachment-failed-icon {
+  flex: none;
+  opacity: 0.8;
+}
+.acpmux-attachment-failed-text {
+  font-size: var(--text-caption);
+  line-height: 1.2;
 }
 .acpmux-attachment-file {
   display: flex;
@@ -98,6 +116,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* A file that goes as its path: its name, then what happens to it in the caption's color. */
+.acpmux-attachment-link { gap: 6px; }
+.acpmux-attachment-link .acpmux-attachment-link-note {
+  flex: none;
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
 }
 .acpmux-attachment-document {
   display: grid;

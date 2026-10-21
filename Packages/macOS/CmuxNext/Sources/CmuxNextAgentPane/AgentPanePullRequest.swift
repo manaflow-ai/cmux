@@ -3,10 +3,11 @@ public import Foundation
 
 /// The pull request of a chat folder's branch, as the chat header's chip shows it (cx-tcwj, Codex
 /// desktop's PR chip): read from `gh pr view --json` ``fields``. The chip's popover (cx-ncc.77.1)
-/// shows the title, the review decision and each check.
+/// shows the title, the review decision and each check; a pull request link's hover card
+/// (`pr.inspect`) also shows its author.
 public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The `gh pr view --json` fields read.
-    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt"
+    public static let fields = "url,number,title,state,isDraft,reviewDecision,mergeable,statusCheckRollup,createdAt,mergedAt,additions,deletions,author"
     /// The most checks the popover lists.
     static let maximumChecks = 50
 
@@ -54,9 +55,15 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// merged. Agent PR cycle time runs between the two (hq#1920).
     public var createdAt: String
     public var mergedAt: String
+    /// Lines added and removed; 0 when gh did not say.
+    public var additions: Int
+    public var deletions: Int
+    /// Its author's GitHub login; empty when gh does not say.
+    public var author: String
 
     public init(url: String, number: Int, title: String = "", state: String, review: String = "", mergeable: String = "",
-                checks: Checks, checkList: [Check] = [], createdAt: String = "", mergedAt: String = "") {
+                checks: Checks, checkList: [Check] = [], createdAt: String = "", mergedAt: String = "",
+                additions: Int = 0, deletions: Int = 0, author: String = "") {
         self.url = url
         self.number = number
         self.title = title
@@ -67,6 +74,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         self.checkList = checkList
         self.createdAt = createdAt
         self.mergedAt = mergedAt
+        self.additions = additions
+        self.deletions = deletions
+        self.author = author
     }
 
     /// Nil unless `ghView` is gh's answer with an https url and a number.
@@ -82,7 +92,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
                   review: (object["reviewDecision"] as? String)?.lowercased() ?? "",
                   mergeable: mergeable == "unknown" ? "" : mergeable,
                   checks: Self.checks(rollup), checkList: Self.checkList(rollup),
-                  createdAt: object["createdAt"] as? String ?? "", mergedAt: object["mergedAt"] as? String ?? "")
+                  createdAt: object["createdAt"] as? String ?? "", mergedAt: object["mergedAt"] as? String ?? "",
+                  additions: object["additions"] as? Int ?? 0, deletions: object["deletions"] as? Int ?? 0,
+                  author: ((object["author"] as? [String: Any])?["login"] as? String).map { String($0.prefix(100)) } ?? "")
     }
 
     /// Each check run or commit status with its outcome, failed first; links only when https.
@@ -122,7 +134,7 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     var json: JSONValue {
         ["url": .string(url), "number": JSONValue(number), "title": .string(title), "state": .string(state),
          "review": .string(review), "mergeable": .string(mergeable),
-         "createdAt": .string(createdAt), "mergedAt": .string(mergedAt),
+         "createdAt": .string(createdAt), "mergedAt": .string(mergedAt), "author": .string(author),
          "checks": ["state": .string(checks.state), "passed": JSONValue(checks.passed), "total": JSONValue(checks.total)],
          "checkList": .array(checkList.map { check in
              var row: [String: JSONValue] = ["name": .string(check.name), "state": .string(check.state)]

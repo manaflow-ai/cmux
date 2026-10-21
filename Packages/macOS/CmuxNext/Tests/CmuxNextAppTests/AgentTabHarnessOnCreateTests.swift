@@ -133,4 +133,28 @@ struct AgentTabHarnessOnCreateTests {
         await Self.settle { binds.count > 1 }
         #expect(binds.count == 1, "\(binds)")
     }
+
+    /// A tab resuming an outside chat stays that chat's tab while it shows it: its first session is
+    /// the resume. Once the user switches the tab to another chat, a `cmux://agent` link or a pick
+    /// of the outside chat must not reveal it (it shows something else now).
+    @Test func switchingChatsReleasesTheAdoption() async throws {
+        let store = Self.store(session: nil)
+        let tabs = Self.agentTabs()
+        try #require(tabs.canHostChat, "no agent page source")
+        var binds: [Bind] = []
+        Self.wired(tabs, store) { binds.append($0) }
+        let key = try #require(store.tab(surface: 1)?.id)
+        let adopt = AgentPaneAdopt(harness: "claude", agentSessionId: "outside-1")
+        tabs.adoptions["claude:outside-1"] = key
+        let view = try #require(tabs.view(for: key))
+        #expect(tabs.tab(resuming: adopt) == key)
+
+        _ = await view.model.respond(to: Self.persist("s-resume"))
+        await Self.settle { !binds.isEmpty }
+        #expect(tabs.tab(resuming: adopt) == key, "the resume itself released the adoption")
+
+        _ = await view.model.respond(to: Self.persist("s-other"))
+        await Self.settle { binds.count > 1 }
+        #expect(tabs.tab(resuming: adopt) == nil, "a tab showing another chat still claims the outside chat")
+    }
 }
