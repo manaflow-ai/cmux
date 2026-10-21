@@ -408,7 +408,7 @@
 }
 .acpmux-inspector-pr__owner {
   flex: none;
-  max-width: 72px;
+  max-width: 40%;
   margin-top: 6px;
   padding: 0 6px;
   overflow: hidden;
