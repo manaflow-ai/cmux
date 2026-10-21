@@ -525,8 +525,14 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
                 encoding="utf-8",
             )
             fake_curl.chmod(0o755)
+            # No hosted cmux-tui to resolve: the live-daemon tree has its own test
+            # (test_an_unpublished_tree_falls_back_to_the_newest_published_one).
+            pin = temp / "pin"
+            pin.write_text("#!/usr/bin/env bash\nexit 0\n", encoding="utf-8")
+            pin.chmod(0o755)
             env = os.environ.copy()
             env.pop("CMUX_NEXT_TUI_TREE_PATH", None)
+            env["CMUX_PIN_CMUX_TUI"] = str(pin)
             env["PATH"] = f"{temp}:{env['PATH']}"
             env["CMUX_SWIFT_TEST_CALLS"] = str(calls)
             env["CMUX_ENSURE_WEB_BUNDLES"] = str(ensure)
