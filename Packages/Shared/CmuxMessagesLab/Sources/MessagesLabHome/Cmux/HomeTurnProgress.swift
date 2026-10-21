@@ -54,7 +54,8 @@ struct HomeTurnProgress: Equatable {
         }
         let finished = steps.filter { $0.end != nil }.map(\.line).filter { !Self.notSteps.contains($0) }
         let summary = Self.summary(finished)
-        var narration = style == .narrated ? thought.flatMap(Self.headline) : nil
+        // `thought` is already the headline (the live book publishes `HomeThoughtHeadline.of`).
+        var narration = style == .narrated ? thought : nil
         var current = line
         if let told = narration, activity.line == "Thinking" {
             // Thinking now: its headline is the running row, not a second row over "Thinking".

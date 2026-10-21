@@ -17,10 +17,11 @@ import Testing
         return steps
     }
 
+    /// The indicator for `lines` with the raw `thought`, headlined the way the live book publishes it.
     static func progress(_ lines: [String], thought: String? = nil, style: HomeTurnProgressStyle = .narrated) -> HomeTurnProgress {
         let steps = steps(lines)
         let current = HomeLiveActivity(line: lines.last ?? "Thinking", since: t0.addingTimeInterval(Double(lines.count - 1) * 10))
-        return HomeTurnProgress(steps: steps.steps, current: current, thought: thought,
+        return HomeTurnProgress(steps: steps.steps, current: current, thought: thought.flatMap(HomeThoughtHeadline.of),
                                 now: current.since.addingTimeInterval(5), style: style)
     }
 
@@ -70,6 +71,14 @@ import Testing
         #expect(line.rows == ["Checking on a31 · 5s"])
     }
 
+    @Test func thePublishedHeadlineShowsAsItIs() {
+        // A heading with a sentence end inside it stays whole: the indicator does not headline it again.
+        let progress = Self.progress(["Telling a31", "Checking on a31"], thought: "**Checking a31. Then a7**")
+        #expect(progress.narration == "Checking a31. Then a7")
+        let done = Self.progress(["Telling a31", "Checking on a31"], thought: "**Done!**")
+        #expect(done.narration == "Done!")
+    }
+
     @Test func whileThinkingTheThoughtIsTheStepNow() {
         let progress = Self.progress(["Telling a31", "Thinking"], thought: "Let me look. I should check whether a31 finished")
         #expect(progress.rows == ["Telling a31 ›", "I should check whether a31 finished · 5s"])
@@ -100,7 +109,7 @@ import Testing
         line.dispatch = { shown.append($0) }
         let activity = HomeLiveActivity(line: "Checking on a31", since: Self.t0)
         line.show(activity)
-        line.show(activity, thought: "**Waiting for the tests**")
+        line.show(activity, thought: "Waiting for the tests")
         #expect(shown.last == "Waiting for the tests\nChecking on a31")
         line.stop()
     }
