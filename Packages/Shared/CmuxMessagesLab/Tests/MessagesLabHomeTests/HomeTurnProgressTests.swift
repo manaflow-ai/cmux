@@ -116,12 +116,13 @@ import Testing
                                                                activity: HomeLiveActivity(line: "Checking on a31", since: Date())))))
         rig.store.handle(.live(.delta(HomeLiveDelta(conversation: conversation, author: rig.chief, run: "r1", step: "thought:0",
                                                     isTalk: false, seq: 0, text: "**Waiting for a31**", isFinal: false))))
-        #expect(rig.store.liveRun(in: conversation)?.thought == "**Waiting for a31**")
+        // The store publishes the thought's headline, not its whole text.
+        #expect(rig.store.liveRun(in: conversation)?.thought == "Waiting for a31")
         // Its last frame ends the step; the thought stays the run's narration until the next one.
         rig.store.handle(.live(.delta(HomeLiveDelta(conversation: conversation, author: rig.chief, run: "r1", step: "thought:0",
-                                                    isTalk: false, seq: 1, text: "\n\nIt runs its tests.", isFinal: true))))
-        #expect(rig.store.liveRun(in: conversation)?.thought == "**Waiting for a31**\n\nIt runs its tests.")
+                                                    isTalk: false, seq: 1, text: "\n\n**Reading its test log**", isFinal: true))))
+        #expect(rig.store.liveRun(in: conversation)?.thought == "Reading its test log")
         rig.frame()
-        #expect(rig.view.debugStatusLine?.components(separatedBy: "\n").first == "Waiting for a31")
+        #expect(rig.view.debugStatusLine?.components(separatedBy: "\n").first == "Reading its test log")
     }
 }
