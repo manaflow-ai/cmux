@@ -212,7 +212,7 @@ final class ChromeIconButton: NSButton {
         guard let menu = menuProvider?() else { return }
         showedHoldMenu = true
         isMenuOpen = true
-        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(in: self, gap: 2), in: self)
+        menu.popUp(positioning: nil, at: CmuxPopoverAnchor.menuPoint(for: menu, in: self, gap: 2), in: self)
         isMenuOpen = false
     }
 

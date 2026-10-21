@@ -520,8 +520,11 @@ function liveTurn(
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
   // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx).
   else {
-    const doing = inFlightTitle(last);
-    if (doing) status.doing = doing;
+    const doing = inFlightCall(last);
+    if (doing) {
+      status.doing = doing.title;
+      if (doing.command) status.doingCommand = true;
+    }
   }
   // The latest step row may still stream its last thought (ThoughtRow.tsx). Its version moves off
   // the stored one, so the row draws again, done, once another row follows it. A started chats'
@@ -565,13 +568,15 @@ function runningLabel(tool: Parameters<typeof toolLabel>[0], text: string): stri
 }
 
 /// The newest call still running in a live turn's latest row, by its title.
-function inFlightTitle(row: AcpmuxRow): string | undefined {
+function inFlightCall(row: AcpmuxRow): { title: string; command: boolean } | undefined {
   if (row.kind !== "activity") return undefined;
   const items = row.items ?? [];
   for (let index = items.length - 1; index >= 0; index--) {
     const tool = items[index]?.tool;
+    if (!tool || !isRunning(tool)) continue;
     // The row's own label, never the call's raw JSON input; a command reads as itself.
-    if (tool && isRunning(tool)) return toolLabel(tool, "", (command) => command).trim() || undefined;
+    const title = toolLabel(tool, "", (command) => command).trim();
+    return title ? { title, command: tool.kind === "execute" } : undefined;
   }
   return undefined;
 }
