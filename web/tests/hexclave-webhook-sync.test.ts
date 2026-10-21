@@ -27,16 +27,18 @@ function harness(options: { sync?: Partial<HexclaveSyncDependencies>; deps?: Par
   const mirror = new MemoryMirror();
   const inbox = new MemoryInbox();
   const calls: string[] = [];
+  const dirtyTeamIds: string[] = [];
   const logs: { level: string; message: string; fields: Record<string, unknown> }[] = [];
   let clockMs = NOW * 1_000;
-  const sync: HexclaveSyncDependencies = {
+  const sync = {
     source: hexclave,
     store: mirror,
     revokeTeamMemberAccess: async ({ teamId, userId }) => { calls.push(`revoke-member:${teamId}:${userId}`); },
     revokeTeamAccess: async ({ teamId }) => { calls.push(`revoke-team:${teamId}`); },
     invalidateUser: async (userId) => { calls.push(`invalidate:${userId}`); },
+    markTeamSeatsDirty: async (teamId: string) => { dirtyTeamIds.push(teamId); },
     ...options.sync,
-  };
+  } as HexclaveSyncDependencies & { markTeamSeatsDirty: (teamId: string) => Promise<void> };
   const log: StackWebhookLog = (level, message, fields) => { logs.push({ level, message, fields }); };
   const drain = () => drainHexclaveInbox({ inbox, sync, entityLimit: 10, now: () => new Date(clockMs), log });
   let kicked: Promise<unknown> | null = null;
@@ -68,7 +70,7 @@ function harness(options: { sync?: Partial<HexclaveSyncDependencies>; deps?: Par
     clockMs += 2 * 60 * 60 * 1_000;
     return drain();
   };
-  return { hexclave, mirror, inbox, calls, logs, post, retry, sync };
+  return { hexclave, mirror, inbox, calls, dirtyTeamIds, logs, post, retry, sync };
 }
 
 /** Hexclave state: USER_ID in TEAM_ID with one team and one project permission. */
@@ -244,6 +246,18 @@ describe("Hexclave webhook boundary", () => {
 });
 
 describe("Hexclave mirror reconcile", () => {
+  test("membership creation and removal dirty Team billing seats", async () => {
+    const { hexclave, dirtyTeamIds, post } = harness();
+    seed(hexclave);
+    await post("team_membership.created", { team_id: TEAM_ID, user_id: USER_ID });
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+
+    dirtyTeamIds.length = 0;
+    hexclave.removeMember(TEAM_ID, USER_ID);
+    await post("team_membership.deleted", { team_id: TEAM_ID, user_id: USER_ID });
+    expect(dirtyTeamIds).toEqual([TEAM_ID]);
+  });
+
   test("every event type reconciles from Hexclave, not from its payload", async () => {
     for (const type of hexclaveWebhookEventTypes) {
       const { hexclave, mirror, post } = harness();
