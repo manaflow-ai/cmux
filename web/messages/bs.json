@@ -5335,7 +5335,8 @@
     "signedOutSignIn": "Prijavite se",
     "manageInAppStore": "Upravljajte u App Storeu",
     "billedYearly": "Naplaćuje se ${amount} godišnje",
-    "earlySupporterPrice": "Cijena za rane podržavaoce"
+    "earlySupporterPrice": "Cijena za rane podržavaoce",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

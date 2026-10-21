@@ -5335,7 +5335,8 @@
     "signedOutSignIn": "Entrar",
     "manageInAppStore": "Gerenciar na App Store",
     "billedYearly": "Cobrado ${amount} por ano",
-    "earlySupporterPrice": "Preço de apoiador inicial"
+    "earlySupporterPrice": "Preço de apoiador inicial",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",

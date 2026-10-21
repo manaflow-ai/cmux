@@ -8,7 +8,7 @@ import {
   type PlanPrice,
   type BillingInterval,
 } from "../../services/billing/plans";
-import { formatUsd, type SubscriptionPrice } from "../../services/billing/subscriptionPrice";
+import { formatUsd, type PlanCardSubscriptionPrice } from "../../services/billing/subscriptionPrice";
 import { ProCtaLink } from "../[locale]/components/pro-cta-link";
 
 export type ProAnnualLabels = {
@@ -20,6 +20,8 @@ export type ProAnnualLabels = {
   billedYearlyTemplate: string;
   /** Marks a subscriber's price that is below today's list price. */
   earlySupporterPrice: string;
+  /** Labels a Founder's Edition owner's Pro price. */
+  foundersEdition: string;
 };
 
 /**
@@ -70,10 +72,10 @@ export function ProPlanCard({
   pricing?: Readonly<Record<BillingInterval, PlanPrice>>;
   /**
    * What this subscriber's own Stripe subscription charges, set only on the
-   * card of the plan in force. A grandfathered price (an early $30 Pro) shows
-   * here with today's list price struck through.
+   * card of the plan in force. A grandfathered price (an early $30 Pro, or
+   * Founder's Edition) shows here with today's list price struck through.
    */
-  currentPrice?: SubscriptionPrice;
+  currentPrice?: PlanCardSubscriptionPrice;
   children: ReactNode;
 }) {
   const planPricing = pricing ?? (plan === "max" ? MAX_PRICING_USD : PRO_PRICING_USD);
@@ -101,6 +103,13 @@ export function ProPlanCard({
   const billedYearly = shown.yearlyTotal === null
     ? null
     : labels.billedYearlyTemplate.replace("{amount}", formatUsd(shown.yearlyTotal));
+  // Founder's Edition is always named; any other own price only when it is
+  // below today's list price.
+  const priceNote = currentPrice?.foundersEdition
+    ? labels.foundersEdition
+    : shown.listMonthly !== null
+      ? labels.earlySupporterPrice
+      : null;
 
   return (
     <div className="relative flex h-full min-w-0 flex-col border border-border p-6">
@@ -152,12 +161,9 @@ export function ProPlanCard({
             {labels.perMonth}
           </span>
         </div>
-        {shown.listMonthly !== null || billedYearly ? (
+        {priceNote || billedYearly ? (
           <p className="mt-1 text-xs text-muted">
-            {[
-              shown.listMonthly !== null ? labels.earlySupporterPrice : null,
-              billedYearly,
-            ].filter(Boolean).join(" · ")}
+            {[priceNote, billedYearly].filter(Boolean).join(" · ")}
           </p>
         ) : null}
       </div>
@@ -195,7 +201,7 @@ function cardPrice({
 }: {
   pricing: Readonly<Record<BillingInterval, PlanPrice>>;
   interval: BillingInterval;
-  currentPrice?: SubscriptionPrice;
+  currentPrice?: PlanCardSubscriptionPrice;
 }): CardPrice {
   if (!currentPrice) {
     const list = pricing[interval];

@@ -1815,6 +1815,7 @@
     "perMonth": "/mo",
     "billedYearly": "Billed ${amount} yearly",
     "earlySupporterPrice": "Early supporter price",
+    "foundersEditionPrice": "Founder's Edition",
     "perUserMonth": "/user/mo",
     "billingPeriod": "Billing period",
     "monthly": "Monthly",

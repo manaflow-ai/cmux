@@ -194,7 +194,9 @@ async function readPlanSnapshot(): Promise<AppPlanSnapshot> {
   }
 
   const status = await resolveProPlanStatus(user);
-  const currentPrice = status.billingManagement === "stripe"
+  // App Store plans are priced by Apple; everything else may have a Stripe
+  // subscription or Founder's Edition behind it.
+  const currentPrice = status.isPro && status.billingSource !== "apple"
     ? await currentPersonalSubscriptionPrice(user.id, status.planId)
     : undefined;
   return {

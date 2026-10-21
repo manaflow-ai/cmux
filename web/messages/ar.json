@@ -5332,7 +5332,8 @@
     "signedOutSignIn": "تسجيل الدخول",
     "manageInAppStore": "الإدارة في App Store",
     "billedYearly": "تُدفع ${amount} سنويًا",
-    "earlySupporterPrice": "سعر الداعمين الأوائل"
+    "earlySupporterPrice": "سعر الداعمين الأوائل",
+    "foundersEditionPrice": "Founder's Edition"
   },
   "platforms": {
     "macos": "macOS",
