@@ -221,6 +221,16 @@ await requireBrowserLane("composer-line-breaks.test.ts", async () => {
       seen = await prompt(page);
       expect(seen.plain).toBe("one\n\ntwo");
       expect(seen.agent).not.toContain("<br");
+      // A bare `<br>` line, as another surface wrote a blank line, is that blank line.
+      await page.evaluate((field) => {
+        const handle = (document.querySelector(field)!.closest(".acpmux-md-field") as any).acpmuxMarkdownField;
+        handle.reset("");
+      }, FIELD);
+      await page.locator(FIELD).click();
+      await paste(page, { "text/plain": "one\n<br>\ntwo" });
+      await page.waitForFunction((field) => document.querySelector(field)?.textContent?.includes("two"), FIELD);
+      seen = await prompt(page);
+      expect(seen.plain).toBe("one\n\ntwo");
       // Pasted source keeps its characters and lines: a `<br />` in code, and two blank lines.
       const source = "return <div>a<br />b</div>;\n\n\nnext";
       await page.evaluate((field) => {
