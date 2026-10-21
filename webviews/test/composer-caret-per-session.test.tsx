@@ -82,9 +82,10 @@ async function render(session: string) {
   const { createRoot } = await import("react-dom/client");
   const { MarkdownField } = await import("../src/agent-session/acpmux/MarkdownField");
   root ??= createRoot(host);
-  const props = { value: DRAFT, onChange: () => {}, selectionKey: session };
   // The composer holds the field's handle; the handle exists only for a field given a ref.
-  await act(async () => root!.render(<MarkdownField ref={handle} {...props} />));
+  await act(async () =>
+    root!.render(<MarkdownField ref={handle} value={DRAFT} onChange={() => {}} selectionKey={session} />),
+  );
   // The editor is made asynchronously: wait until its handle drives a view (a selection reads back).
   for (let turn = 0; turn < 200; turn++) {
     const field = document.querySelector(".acpmux-md-field .acpmux-md");
