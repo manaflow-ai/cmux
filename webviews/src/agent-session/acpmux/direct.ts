@@ -2618,8 +2618,13 @@ export class AcpmuxDirectClient {
         // keeps an empty row that draws nothing, so the answer it brought stays its own turn
         // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
         // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
-        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
         const raw = String(msg.text ?? "");
+        // A prompt with nothing to read and no image draws nothing, never an empty bubble: a blank
+        // text, a record without `text` (one acpmux left out of the page for its size, paging.rs
+        // `fit`, keeps only `_meta`), or a steer that carried none. It stays a turn's start, as
+        // bookkeeping does. A prompt of images alone keeps its row: the images are what it says.
+        const blank = !received && !raw.trim() && promptImages(msg.images).length === 0;
+        const incoming = received ? undefined : blank ? ({ kind: "hidden" } as const) : incomingPrompt(raw, msg);
         const shown =
           incoming?.kind === "message"
             ? { text: incoming.message.text, incoming, resend: raw }
