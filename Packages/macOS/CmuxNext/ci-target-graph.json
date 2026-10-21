@@ -94,8 +94,13 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
       "targets": [
+        "CmuxNextActions",
         "CmuxNextAgentActivity",
         "CmuxNextBridge",
+        "CmuxNextCompat",
+        "CmuxNextDesign",
+        "CmuxNextHome",
+        "CmuxNextHomeEngine",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
       ],
@@ -176,6 +181,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextPages",
@@ -364,6 +370,7 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []
@@ -459,7 +466,8 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport",
       "targets": [
-        "CmuxNextCompat"
+        "CmuxNextCompat",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
