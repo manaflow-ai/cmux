@@ -11,7 +11,7 @@
 }
 .timeline-board button { cursor: pointer; }
 .timeline-board button:disabled { cursor: default; opacity: .45; }
-.timeline-board button:focus-visible, .timeline-board input:focus-visible { outline: 2px solid var(--page-text-3); outline-offset: 3px; }
+.timeline-board button:focus-visible, .timeline-board input[type="checkbox"]:focus-visible { outline: 2px solid var(--page-text-3); outline-offset: 3px; }
 .timeline-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; }
 .timeline-eyebrow { display: flex; align-items: center; gap: 10px; color: var(--page-text-3); font-size: var(--text-caption); letter-spacing: .07em; }
 .timeline-eyebrow i, .timeline-header p i { display: inline-block; width: 3px; height: 3px; border-radius: 50%; background: currentColor; vertical-align: middle; }

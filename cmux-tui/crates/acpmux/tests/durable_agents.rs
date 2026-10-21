@@ -1376,6 +1376,31 @@ async fn a_dequeued_prompt_survives_a_daemon_crash() {
     assert_eq!(of_q1(&events, "turn_started"), 1, "q-1 ran more than once");
 }
 
+/// A restarted daemon whose chat-log load fails still answers. `_acpmux/attach` and prompts wait
+/// for that load (#22916); a load that panicked never said it was done, so they waited forever.
+/// `ACPMUX_TEST_PANIC_IN_LOAD_LOGS` makes the second daemon's load panic.
+#[tokio::test]
+async fn attach_and_prompts_survive_a_failed_log_load() {
+    let mut daemon = Daemon::new("lpanic", "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    daemon.env = vec![("ACPMUX_TEST_PANIC_IN_LOAD_LOGS".into(), "1".into())];
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    // `Rpc::reply` waits 30 s at most: a hang fails here.
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert!(
+        attached["session"]["queue"].is_array(),
+        "attach answered without the session: {attached:#}"
+    );
+    let answered = rpc
+        .call("session/prompt", json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the failed load"}]}))
+        .await;
+    assert_eq!(answered["stopReason"], "end_turn", "the prompt did not run: {answered:#}");
+    daemon.wait_event(&session, "the prompt's answer", |e| chunk(e, "echo: after the failed load"));
+}
+
 /// A message's provenance (`_meta.acpmux.provenance`, cx-55d27) stays with its queued prompt
 /// across a daemon crash: the rebuilt prompt's `user_message` still names the agent that sent it.
 #[tokio::test]
@@ -1437,4 +1462,152 @@ async fn info_answers_while_the_chat_logs_load() {
     let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
     assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
     assert_eq!(waited["logsLoading"], false, "{waited:#}");
+}
+
+/// A config whose `slow` launcher check (`config/launchers.rs`) waits until `<home>/go` exists:
+/// the daemon's startup, and so the run of every prompt it restored (`resume_queues`), waits
+/// for the test. A check a killed daemon left behind ends once the test removes its home.
+fn hold_startup(daemon: &Daemon) {
+    let script = daemon.home.join("hold-startup.sh");
+    let go = daemon.home.join("go");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\ni=0\nwhile [ ! -e '{}' ] && [ -d '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done\necho 'slow 1.0'\n",
+            go.display(),
+            daemon.home.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}, "slow": {"argv": [script, "claude", "proxy"]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+}
+
+/// A dequeued prompt whose turn never started comes back after a crash (`lost_start.rs`); edited
+/// and moved there before it ran, it keeps that edit and place across a second crash, and still
+/// runs once, with its image. The restarted daemons' startup waits (`hold_startup`), so the
+/// restored prompts wait too.
+#[tokio::test]
+async fn a_restored_dequeued_prompt_keeps_its_edits_across_a_second_crash() {
+    let seam = [("ACPMUX_TEST_EXIT_AFTER_DEQUEUE", "1")];
+    let mut daemon = Daemon::with_env("qdeq2", "approve-all", &seam);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    let image =
+        json!({"type": "image", "mimeType": "image/png", "data": "iVBORw==", "name": "shot.png"});
+    let prompts = [
+        ("q-1", json!([{"type": "text", "text": "first text"}, image])),
+        ("q-2", json!([{"type": "text", "text": "second text"}])),
+    ];
+    for (id, prompt) in prompts {
+        client
+            .send(
+                "session/prompt",
+                json!({"sessionId": session, "prompt": prompt, "_meta": {"acpmux": {"promptId": id}}}),
+            )
+            .await;
+        daemon.wait_event(&session, "queued record", |e| {
+            e["kind"] == "queued" && e["msg"]["promptId"] == id
+        });
+    }
+    // The gated turn ends, q-1 leaves the queue for its turn, and the daemon stops there.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_exit();
+    drop(client);
+    let of = |events: &[Value], kind: &str, id: &str| {
+        events.iter().filter(|e| e["kind"] == kind && e["msg"]["promptId"] == id).count()
+    };
+    let events = daemon.events(&session);
+    assert_eq!(of(&events, "dequeued", "q-1"), 1, "q-1 never left the queue: {events:#?}");
+    assert_eq!(of(&events, "turn_started", "q-1"), 0, "q-1's turn started before the stop");
+
+    // The second daemon puts q-1 back first; it is edited and moved behind q-2 before it runs.
+    daemon.env.clear();
+    hold_startup(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let ids = |attached: &Value| -> Vec<String> {
+        let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+        queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect()
+    };
+    assert_eq!(ids(&attached), ["q-1", "q-2"], "the first restart lost the queue: {attached:#}");
+    let edit = |op: &str, extra: Value| {
+        let mut p = json!({"sessionId": session, "promptId": "q-1", "op": op});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        p
+    };
+    let updated =
+        rpc.call("_acpmux/queue_edit", edit("update", json!({"text": "first edited"}))).await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    let moved = rpc.call("_acpmux/queue_edit", edit("move", json!({"index": 1}))).await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    let events = daemon.events(&session);
+    assert_eq!(of(&events, "turn_started", "q-1"), 0, "q-1 started on the second daemon");
+    assert_eq!(of(&events, "turn_started", "q-2"), 0, "q-2 started on the second daemon");
+
+    // A second crash before either runs: the third daemon has the edit and the order.
+    daemon.sigkill();
+    drop(rpc);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(ids(&attached), ["q-2", "q-1"], "the second restart lost the order: {attached:#}");
+    let queue = attached["session"]["queue"].as_array().unwrap();
+    assert_eq!(
+        queue[1]["prompt"], "first edited",
+        "the second restart lost the edit: {attached:#}"
+    );
+    // A client that resends q-1 waits for its one run.
+    let mut resend = daemon.rpc().await;
+    let resent = resend
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "first text"}], "_meta": {"acpmux": {"promptId": "q-1", "resend": true}}}),
+        )
+        .await;
+    std::fs::write(daemon.home.join("go"), b"").unwrap();
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), resend.lines.next_line())
+            .await
+            .expect("the resent prompt answered in time")
+            .unwrap()
+            .expect("daemon closed the socket");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(resent)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "q-1 never ran: {reply:#}");
+    let edited = |e: &Value| {
+        e["msg"]["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+            && e["msg"]["params"]["update"]["content"]["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("echo: first edited"))
+    };
+    let ran = daemon.wait_event(&session, "the edited prompt's answer", edited);
+    let text = ran["msg"]["params"]["update"]["content"]["text"].as_str().unwrap_or_default();
+    assert!(text.contains(" image:"), "the edit dropped q-1's image: {text}");
+    let events = daemon.events(&session);
+    let order: Vec<&str> = events
+        .iter()
+        .filter(|e| e["kind"] == "turn_started")
+        .filter_map(|e| e["msg"]["promptId"].as_str())
+        .filter(|id| id.starts_with("q-"))
+        .collect();
+    assert_eq!(order, ["q-2", "q-1"], "the queued prompts ran out of order or twice");
+    assert_eq!(events.iter().filter(|e| edited(e)).count(), 1, "q-1 ran more than once");
+    let old = |e: &Value| {
+        e["msg"]["params"]["update"]["content"]["text"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("echo: first text"))
+    };
+    assert_eq!(
+        events.iter().filter(|e| old(e)).count(),
+        0,
+        "q-1 ran its text from before the edit"
+    );
 }

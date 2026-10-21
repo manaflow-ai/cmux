@@ -18,27 +18,53 @@
 # never copied: on a moved tip it is derived again there
 # (scripts/ci/defaults_guard.py snapshot), and only when nothing else waits.
 #
+# The settings exports are judged from SETTINGS_MADE_AT, the commit the Mac
+# job made them at (base-autofix-settings-exports.sh regenerates them on the
+# newest tip while their inputs move; without it, BASE_SHA): they land only when
+# nothing in SETTINGS_MADE_AT..tip moved their inputs, and then whole, as made
+# there (every file of the list below whose made copy differs from the tip's).
+# An export made from inputs that changed later never lands as it is. A
+# SETTINGS_MADE_AT that is not between BASE_SHA and the tip holds them. When
+# they would wait but the tip's own stamp is already current
+# (defaults_guard.py check-stamp), someone else regenerated them: they are
+# dropped from the repair, and nothing waits for them.
+#
 # The rest lands; when anything waited the run still fails, so the next run
 # diffs from an older successful one and repairs it. Nothing already on the tip
 # is pushed again (no empty commit). Each push is a plain push, retried on a
 # moved tip up to CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS times (5).
 #
-# Usage: scripts/cmux-next/base-autofix-push.sh REMOTE BRANCH BASE_SHA
+# Usage: scripts/cmux-next/base-autofix-push.sh REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]
 # Credentials come from the caller's environment (GIT_CONFIG_* extraheader).
 # CMUX_BASE_AUTOFIX_AREAS names the area script (default: autofix-areas.sh beside this one).
 set -euo pipefail
 remote="${1:?usage: $0 REMOTE BRANCH BASE_SHA}"
 branch="${2:?usage: $0 REMOTE BRANCH BASE_SHA}"
-base="${3:?usage: $0 REMOTE BRANCH BASE_SHA}"
+base="${3:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT]}"
+settings_made_at="${4:-}"
 attempts="${CMUX_BASE_AUTOFIX_PUSH_ATTEMPTS:-5}"
 # The subject of base autofix's own commits (cmux-next-base-autofix.yml); the
-# SHA after "at" is the tree the repair was made from.
-autofix_subject='^chore(next): base autofix at '
+# SHA after "at" is the tree the repair was made from. Only the subject counts.
+autofix_subject='^chore\(next\): base autofix at ([0-9a-f]{7,40})([^0-9a-f]|$)'
 snapshot=schemas/defaults/cmux-next.json
+# Every file of the settings export (regenerate-settings-exports.sh writes the same list).
+settings_exports=(
+  docs/mdm/com.manaflow.cmux.json
+  docs/mdm/com.manaflow.cmux.plist
+  docs/mdm/com.manaflow.cmux.intune.plist
+  docs/mdm/cmux-example.mobileconfig
+  docs/mdm/managed-preferences.md
+  schemas/settings/settings-schema.json
+  schemas/settings-export/settings-schema.sources.sha256
+)
 areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$(dirname "${BASH_SOURCE[0]}")/autofix-areas.sh}"
 
 # The areas whose inputs a list of changed paths (stdin) touches.
-input_areas() { "$areas_script" | sed -n 's/=true$//p' | sort -u; }
+input_areas() {
+  local lines
+  lines="$("$areas_script")" || return 1
+  sed -n 's/=true$//p' <<<"$lines" | sort -u
+}
 # The areas that build each output (stdin; base-autofix.sh's outputs). A file built from several
 # areas names them all; one this list doesn't know is "unknown", which never lands on a moved tip.
 output_areas() {
@@ -86,23 +112,31 @@ base="$(git rev-parse "$base^{commit}")"
 }
 repaired="$(git diff --name-only --no-renames "$base" "$repair" | sort -u)"
 
-# The files commits in BASE..TIP wrote that this repair must not overwrite: every commit but
-# a base autofix repair, and a base autofix repair made from a tree after BASE.
+# The files commits in FROM..TIP wrote that this repair must not overwrite: every commit but
+# a base autofix repair, and a base autofix repair made from a tree after FROM. A commit is
+# base autofix's by its subject only (a body can quote one: a squash merge).
 # Fails when history can't be read, so an unreadable range never reads as "nothing newer".
-newer_writes() { # <tip>
-  local tip="$1" commit subject at made repairs
-  git log --first-parent --diff-merges=first-parent --format= --name-only --no-renames \
-    --invert-grep --grep="$autofix_subject" "$base..$tip" || return 1
-  repairs="$(git log --first-parent --format='%H %s' --grep="$autofix_subject" "$base..$tip")" || return 1
-  while read -r commit subject; do
-    at="$(sed -n 's/^chore(next): base autofix at \([0-9a-f]\{7,40\}\).*/\1/p' <<<"$subject")"
-    [[ -n "$at" ]] || continue
-    made="$(git rev-parse -q --verify "$at^{commit}" 2>/dev/null || true)"
-    if [[ -n "$made" && "$made" != "$base" ]] && git merge-base --is-ancestor "$base" "$made" 2>/dev/null; then
-      git show --format= --name-only --no-renames "$commit" || return 1
+newer_writes() { # <from> <tip>
+  local from="$1" tip="$2" log line subject made include=1
+  log="$(git log --first-parent --diff-merges=first-parent --no-renames --name-only \
+    --format='%x01%s' "$from..$tip")" || return 1
+  while IFS= read -r line; do
+    if [[ "$line" == $'\x01'* ]]; then
+      subject="${line#$'\x01'}"
+      include=1
+      if [[ "$subject" =~ $autofix_subject ]]; then
+        made="$(git rev-parse -q --verify "${BASH_REMATCH[1]}^{commit}" 2>/dev/null || true)"
+        include=0
+        if [[ -n "$made" && "$made" != "$from" ]] && git merge-base --is-ancestor "$from" "$made" 2>/dev/null; then
+          include=1
+        fi
+      fi
+    elif [[ -n "$line" ]] && ((include)); then
+      printf '%s\n' "$line"
     fi
-  done <<<"$repairs"
+  done <<<"$log"
 }
+is_settings_export() { [[ "$(export_of "$1")" == settings ]]; }
 
 held=""
 # The tip the last rejected push went onto; a rejection that did not move the branch is no race.
@@ -118,18 +152,71 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
     exit 1
   fi
   held=""
-  if [[ "$tip" == "$base" ]]; then
+  # Where the settings exports were made: BASE_SHA, or a commit between it and the tip.
+  settings_from="$base"
+  settings_unproven=""
+  if [[ -n "$settings_made_at" ]]; then
+    settings_from=""
+    if [[ "$settings_made_at" =~ ^[0-9a-f]{40}$ ]]; then
+      settings_from="$(git rev-parse -q --verify "$settings_made_at^{commit}" 2>/dev/null || true)"
+    fi
+    if [[ -z "$settings_from" ]] \
+      || ! git merge-base --is-ancestor "$base" "$settings_from" 2>/dev/null \
+      || ! git merge-base --is-ancestor "$settings_from" "$tip" 2>/dev/null; then
+      settings_unproven="the settings exports were made at ${settings_made_at:0:12}, which is not a commit between ${base:0:12} and ${tip:0:12}"
+      settings_from="$base"
+    fi
+  fi
+  if [[ "$tip" == "$base" && "$settings_from" == "$base" && -z "$settings_unproven" ]]; then
     git checkout --quiet --detach "$repair"
   else
-    newer="$(newer_writes "$tip")" || {
+    newer="$(newer_writes "$base" "$tip")" || {
       echo "::error::cannot read the commits ${base:0:12}..${tip:0:12} wrote, so nothing lands over them" >&2
       exit 1
     }
     newer="$(grep . <<<"$newer" | sort -u || true)"
+    newer_settings="$newer"
     moved_areas="$(git diff --name-only --no-renames "$base" "$tip" | input_areas)" || {
       echo "::error::cannot read what ${base:0:12}..${tip:0:12} changed, so nothing lands over it" >&2
       exit 1
     }
+    todo="$repaired"
+    if [[ "$settings_from" != "$base" ]]; then
+      # The settings exports are judged from where they were made, and land whole as made there.
+      newer_settings="$(newer_writes "$settings_from" "$tip")" || {
+        echo "::error::cannot read the commits ${settings_from:0:12}..${tip:0:12} wrote, so nothing lands over them" >&2
+        exit 1
+      }
+      newer_settings="$(grep . <<<"$newer_settings" | sort -u || true)"
+      # Each step fails closed on its own: a failed diff or area read never reads as "nothing moved".
+      settings_changed="$(git diff --name-only --no-renames "$settings_from" "$tip")" || {
+        echo "::error::cannot read what ${settings_from:0:12}..${tip:0:12} changed, so the settings exports made at ${settings_from:0:12} do not land" >&2
+        exit 1
+      }
+      settings_areas="$(input_areas <<<"$settings_changed")" || {
+        echo "::error::cannot read the input areas ${settings_from:0:12}..${tip:0:12} changed, so the settings exports made at ${settings_from:0:12} do not land" >&2
+        exit 1
+      }
+      moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
+      if grep -qx settings <<<"$settings_areas"; then moved_areas+=$'\n'settings; fi
+      moved_areas="$(grep . <<<"$moved_areas" | sort -u || true)"
+      todo="$( { printf '%s\n' "$repaired"; git diff --name-only --no-renames "$settings_from" "$repair" -- "${settings_exports[@]}"; } | grep . | sort -u)"
+    fi
+    [[ -z "$settings_unproven" ]] || moved_areas="$(printf '%s\nsettings\n' "$moved_areas" | grep . | sort -u)"
+    # Exports this repair holds that would wait, while the tip's own stamp is current: someone
+    # else regenerated them, so they are dropped and nothing waits for them. Not after a bad
+    # SETTINGS_MADE_AT: that is a workflow defect, so they wait and the run fails with an error.
+    if [[ -n "$settings_unproven" ]]; then
+      echo "::error::$settings_unproven; they wait." >&2
+    elif grep -qxF settings <<<"$moved_areas" \
+      || [[ -n "$(comm -12 <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo" | sort -u) <(printf '%s\n' "$newer_settings"))" ]]; then
+      if grep -q . <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo") \
+        && python3 scripts/ci/defaults_guard.py check-stamp --ref "$tip" >/dev/null 2>&1; then
+        echo "The settings exports are already current on ${tip:0:12} (defaults_guard.py check-stamp); dropping them from this repair."
+        todo="$(while IFS= read -r path; do [[ -z "$path" ]] || is_settings_export "$path" || echo "$path"; done <<<"$todo")"
+        moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
+      fi
+    fi
     held_set=""
     while IFS= read -r path; do
       [[ -n "$path" ]] || continue
@@ -140,7 +227,12 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
         continue
       fi
       [[ "$path" != "$snapshot" ]] || continue
-      if grep -qxF -- "$path" <<<"$newer"; then
+      if is_settings_export "$path"; then
+        writes="$newer_settings"
+      else
+        writes="$newer"
+      fi
+      if grep -qxF -- "$path" <<<"$writes"; then
         held_set+="$path"$'\n'
         continue
       fi
@@ -151,7 +243,7 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       if git cat-file -e "$base:$dir" 2>/dev/null && ! git cat-file -e "$tip:$dir" 2>/dev/null; then
         held_set+="$path"$'\n'
       fi
-    done <<<"$repaired"
+    done <<<"$todo"
     # An export lands whole, and what is built from a held export waits with it.
     waiting="$(while IFS= read -r path; do
       if [[ -n "$path" ]]; then export_of "$path"; fi
@@ -167,15 +259,19 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
       else
         kept+=("$path")
       fi
-    done <<<"$repaired"
+    done <<<"$todo"
     # The snapshot never lands beside a file that waits: it reads them all.
-    if [[ -n "$held" ]] && grep -qxF -- "$snapshot" <<<"$repaired" && ! grep -qxF -- "$snapshot" <<<"$held"; then
+    if [[ -n "$held" ]] && grep -qxF -- "$snapshot" <<<"$todo" && ! grep -qxF -- "$snapshot" <<<"$held"; then
       held+="$snapshot"$'\n'
       still=()
       for path in "${kept[@]}"; do
         [[ "$path" == "$snapshot" ]] || still+=("$path")
       done
       kept=(${still[@]+"${still[@]}"})
+    fi
+    if ((${#kept[@]} == 0)) && [[ -z "$held" ]]; then
+      echo "$branch at ${tip:0:12} already holds what is left of this repair; nothing to push."
+      exit 0
     fi
     if ((${#kept[@]} == 0)); then
       echo "::error::$branch moved to ${tip:0:12} after ${base:0:12} and changed the inputs or the files of everything this repair writes; the newer run repairs them:" >&2
