@@ -182,6 +182,45 @@ struct DeviceTerminalMirrorTests {
         try await Self.waitUntil { session.viewer?.detachment != nil }
     }
 
+    /// The mirror's Ghostty answers the queries in the host's output stream
+    /// and reports its own focus, but the host terminal already answered and
+    /// owns focus; forwarding those typed stray text into live agents
+    /// (https://github.com/manaflow-ai/cmux/issues/21775).
+    @Test("A viewing Mac forwards keystrokes but not its mirror's query replies or focus reports", .timeLimit(.minutes(1)))
+    func mirrorRepliesNeverReachTheHost() async throws {
+        let events = DeviceLinkTerminalEvents()
+        var sent: [String] = []
+        let session = Self.inputRecordingSession(surfaceID: surfaceID, events: events, isConnected: { true }) {
+            sent.append($0)
+        }
+        defer { session.stop(); events.finishAll() }
+        session.start()
+        try await Self.waitUntil { session.phase == .attached }
+        let writes = [
+            "a",
+            "\u{1B}[?62;22c",                     // DA1
+            "\u{1B}[>1;10;0c",                    // DA2
+            "\u{1B}[12;40R",                      // CPR
+            "\u{1B}[?12;40;1R",                   // DECXCPR
+            "\u{1B}[0n",                          // DSR
+            "\u{1B}[?2004;1$y",                   // DECRPM
+            "\u{1B}[8;24;80t",                    // window size report
+            "\u{1B}[?1u",                         // Kitty keyboard flags
+            "\u{1B}]11;rgb:1e1e/1e1e/1e1e\u{1B}\\", // OSC 11 color
+            "\u{1B}]10;rgb:ffff/ffff/ffff\u{07}",   // OSC 10 color
+            "\u{1B}P>|ghostty 1.3\u{1B}\\",        // XTVERSION
+            "\u{1B}_Gi=1;OK\u{1B}\\",                // Kitty graphics
+            "\u{1B}[I",                           // focus in
+            "\u{1B}[O",                           // focus out
+            "\u{1B}[27u",                         // Kitty Escape key
+            "\u{1B}[<0;12;5M",                    // SGR mouse press
+            "b\r",
+        ]
+        for write in writes { session.inputRouter.enqueue(.bytes(Data(write.utf8))) }
+        try await Self.waitUntil { sent.joined().hasSuffix("b\r") }
+        #expect(sent.joined() == "a\u{1B}[27u\u{1B}[<0;12;5Mb\r")
+    }
+
     @Test("A reserved pane delivers what was typed before its Mac attached", .timeLimit(.minutes(1)))
     func adoptedPaneDeliversInputTypedBeforeAttach() async throws {
         let events = DeviceLinkTerminalEvents()
