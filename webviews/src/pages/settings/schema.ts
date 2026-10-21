@@ -19,8 +19,10 @@ export type SettingKind =
   | "font_family"
   // Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
   | "text"
-  // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
+  // Numbers as tokens (`editor.rulers`).
   | "number_list"
+  // Keyed values; the page lists none (SectionView, search.ts): `appearance.themeEdits` is the
+  // theme studio's, `browser.siteEngines` is edited in cmux.json.
   | "string_map"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
