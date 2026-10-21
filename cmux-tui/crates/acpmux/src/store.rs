@@ -561,6 +561,9 @@ pub trait Store: Send + Sync {
     fn sweep_purged_leftovers(&self) -> Result<usize> {
         Ok(0)
     }
+    /// The purged id comes back on purpose: a chat that moved away and returns
+    /// (`transfer_in.rs`) is imported under the id its closed copy was purged with.
+    fn release_purge(&self, _id: &str) {}
     fn session_dir(&self, _id: &str) -> Option<PathBuf> {
         None
     }
@@ -599,10 +602,10 @@ impl Store for MemoryStore {
         Ok(self.inner.lock().unwrap().get(id).map(|(m, _)| m.clone()))
     }
     fn save(&self, meta: &SessionMeta) -> Result<()> {
+        let mut g = self.inner.lock().unwrap();
         if self.purged.lock().unwrap().contains(&meta.id) {
             return Ok(());
         }
-        let mut g = self.inner.lock().unwrap();
         g.entry(meta.id.clone())
             .and_modify(|(m, _)| *m = meta.clone())
             .or_insert_with(|| (meta.clone(), Vec::new()));
@@ -610,6 +613,9 @@ impl Store for MemoryStore {
     }
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         let mut g = self.inner.lock().unwrap();
+        if self.purged.lock().unwrap().contains(id) {
+            return Ok(());
+        }
         if let Some((_, events)) = g.get_mut(id) {
             events.push(record.clone());
             // Bound memory: keep the newest 20k events.
@@ -631,8 +637,13 @@ impl Store for MemoryStore {
         Ok(())
     }
     fn purge(&self, id: &str) -> Result<()> {
+        let mut g = self.inner.lock().unwrap();
         self.purged.lock().unwrap().insert(id.to_owned());
-        self.delete(id)
+        g.remove(id);
+        Ok(())
+    }
+    fn release_purge(&self, id: &str) {
+        self.purged.lock().unwrap().remove(id);
     }
 }
 
@@ -960,14 +971,19 @@ impl Store for LocalStore {
     }
 
     fn save(&self, meta: &SessionMeta) -> Result<()> {
-        // Held through the write: a purge waits for it, then deletes what it wrote.
-        let purged = self.purged.lock().unwrap();
-        if purged.contains(&meta.id) {
+        // Checked before and after the write, never held through it (the write syncs;
+        // holding the lock would stall every append). `purge` marks before it deletes,
+        // so a purge that ran during the write is seen after it and its files go again.
+        if self.purged.lock().unwrap().contains(&meta.id) {
             return Ok(());
         }
         let dir = self.dir(&meta.id);
         crate::config::private_state_dir(&dir)?;
-        write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())
+        write_atomic(&dir.join("session.json"), serde_json::to_string_pretty(meta)?.as_bytes())?;
+        if self.purged.lock().unwrap().contains(&meta.id) {
+            return self.delete(&meta.id);
+        }
+        Ok(())
     }
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
@@ -1187,6 +1203,10 @@ impl Store for LocalStore {
         self.delete(id)
     }
 
+    fn release_purge(&self, id: &str) {
+        self.purged.lock().unwrap().remove(id);
+    }
+
     fn sweep_purged_leftovers(&self) -> Result<usize> {
         let Ok(rd) = std::fs::read_dir(&self.root) else { return Ok(0) };
         let mut removed = 0;
@@ -1195,7 +1215,8 @@ impl Store for LocalStore {
                 continue;
             }
             let id = entry.file_name().to_string_lossy().into_owned();
-            if self.has_records(&id)? {
+            // An unreadable log counts as a log: that session is kept.
+            if self.has_records(&id).unwrap_or(true) {
                 continue;
             }
             let Ok(file) = crate::config::private_state_file(&entry.path().join("session.json"))
