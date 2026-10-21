@@ -383,26 +383,7 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
     let (segments, pruned_ranges) = pack_segments(tx, lo, head)?;
     steps.mark("pack segments");
 
-    tx.execute(
-        "INSERT INTO main.journal_subject_index(sequence, kind, id)
-         SELECT subject.sequence, subject.kind, subject.id
-         FROM main.output_cleanup_records AS kept
-         CROSS JOIN src.journal_subject_index AS subject
-         WHERE subject.sequence = kept.sequence",
-        [],
-    )?;
-    let event_columns = column_list(tx, "src", "journal_event_index", None)?;
-    tx.execute(
-        &format!(
-            "INSERT INTO main.journal_event_index({event_columns})
-             SELECT {}
-             FROM main.output_cleanup_records AS kept
-             CROSS JOIN src.journal_event_index AS event
-             WHERE event.sequence = kept.sequence",
-            column_list(tx, "src", "journal_event_index", Some("event"))?
-        ),
-        [],
-    )?;
+    copy_index_rows(tx)?;
     steps.mark("index rows");
     let abandoned_deliveries = if table_exists(tx, "main", "journal_hook_deliveries")? {
         tx.execute(
@@ -451,6 +432,94 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
         tables: copied.len(),
         head,
     })
+}
+
+/// The subject and event index rows of every kept record. They are derived
+/// from the kept record itself, as the append that wrote them did: copying
+/// them from the registry's 125M-row subject index took one random read per
+/// record (127 s for 86k records on a cold network disk). Only the value an
+/// append looked up (`causal_hook_id`, records with a cause or from the hook
+/// dispatcher) is read from the registry, by sequence.
+fn copy_index_rows(tx: &Transaction<'_>) -> anyhow::Result<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO main.journal_subject_index(sequence, kind, id)
+         SELECT kept.sequence,
+                json_extract(subject.value, '$.kind'),
+                json_extract(subject.value, '$.id')
+         FROM main.output_cleanup_records AS kept,
+              json_each(CAST(kept.record_json AS TEXT), '$.subjects') AS subject
+         WHERE json_type(subject.value, '$.kind') = 'text'
+           AND json_type(subject.value, '$.id') = 'text'",
+        [],
+    )?;
+    let derived = [
+        "event_id",
+        "sequence",
+        "causation_depth",
+        "causation_id",
+        "causal_hook_id",
+        "resource_revision",
+        "previous_resource_revision",
+    ];
+    let columns = table_columns(tx, "main", "journal_event_index")?;
+    if columns.len() != derived.len()
+        || !derived.iter().all(|name| columns.iter().any(|c| c == name))
+    {
+        // A table shape this derivation does not know: copy by sequence.
+        let list = column_list(tx, "src", "journal_event_index", None)?;
+        tx.execute(
+            &format!(
+                "INSERT INTO main.journal_event_index({list})
+                 SELECT {}
+                 FROM main.output_cleanup_records AS kept
+                 CROSS JOIN src.journal_event_index AS event
+                 WHERE event.sequence = kept.sequence",
+                column_list(tx, "src", "journal_event_index", Some("event"))?
+            ),
+            [],
+        )?;
+        return Ok(());
+    }
+    // Resource revisions as `ensure_journal_event_index_schema` backfilled
+    // them: from the record, else from a legacy `event_resource_N` id.
+    tx.execute(
+        "INSERT INTO main.journal_event_index(
+           event_id, sequence, causation_depth, causation_id, causal_hook_id,
+           resource_revision, previous_resource_revision)
+         SELECT record.event_id, record.sequence, record.causation_depth, record.causation_id,
+                CASE WHEN record.causation_id IS NOT NULL OR record.hook_producer
+                     THEN (SELECT event.causal_hook_id FROM src.journal_event_index AS event
+                           WHERE event.sequence = record.sequence)
+                END,
+                COALESCE(record.resource_revision, record.legacy_revision),
+                COALESCE(record.previous_resource_revision, record.legacy_revision - 1)
+         FROM (
+           SELECT kept.sequence AS sequence,
+                  json_extract(json, '$.event_id') AS event_id,
+                  json_extract(json, '$.causation_depth') AS causation_depth,
+                  json_extract(json, '$.causation_id') AS causation_id,
+                  json_extract(json, '$.producer.kind') = 'hook_dispatcher' AS hook_producer,
+                  json_extract(json, '$.resource_revision') AS resource_revision,
+                  json_extract(json, '$.previous_resource_revision')
+                    AS previous_resource_revision,
+                  CASE
+                    WHEN length(json_extract(json, '$.event_id')) = length('event_resource_') + 20
+                     AND substr(json_extract(json, '$.event_id'), 1, length('event_resource_'))
+                         = 'event_resource_'
+                     AND substr(json_extract(json, '$.event_id'), length('event_resource_') + 1)
+                         NOT GLOB '*[^0-9]*'
+                     AND json_extract(json, '$.event_id')
+                         BETWEEN 'event_resource_00000000000000000001'
+                             AND 'event_resource_09223372036854775807'
+                    THEN CAST(substr(json_extract(json, '$.event_id'),
+                                     length('event_resource_') + 1) AS INTEGER)
+                  END AS legacy_revision
+           FROM (SELECT sequence, CAST(record_json AS TEXT) AS json
+                 FROM main.output_cleanup_records) AS kept
+         ) AS record",
+        [],
+    )?;
+    Ok(())
 }
 
 /// The non-output live rows, read through the `(kind, sequence)` index on

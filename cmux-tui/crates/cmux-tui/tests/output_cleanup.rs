@@ -470,6 +470,39 @@ fn assert_cleaned(owner: &Owner, prepared: &Prepared) {
         "no sealed segment holds output"
     );
     assert!(count(&db, "SELECT COUNT(*) FROM journal_pruned_ranges") > 0);
+    // The index rows of every kept record equal the old registry's.
+    let previous = sidecar(registry, ".pre-output-cleanup");
+    db.execute("ATTACH DATABASE ?1 AS old", [previous.to_str().unwrap()]).unwrap();
+    for (table, columns) in [
+        ("journal_subject_index", "sequence, kind, id"),
+        (
+            "journal_event_index",
+            "event_id, sequence, causation_depth, causation_id, causal_hook_id, \
+             resource_revision, previous_resource_revision",
+        ),
+    ] {
+        let differing = count(
+            &db,
+            &format!(
+                "SELECT COUNT(*) FROM (
+                   SELECT {columns} FROM main.{table}
+                   EXCEPT SELECT {columns} FROM old.{table}
+                   UNION ALL
+                   SELECT {columns} FROM old.{table}
+                   WHERE sequence IN (SELECT sequence FROM main.journal_event_index)
+                   EXCEPT SELECT {columns} FROM main.{table})"
+            ),
+        );
+        assert_eq!(differing, 0, "{table} rows of the kept records changed");
+    }
+    assert!(
+        count(
+            &db,
+            "SELECT COUNT(*) FROM main.journal_event_index WHERE causation_id IS NOT NULL OR resource_revision IS NOT NULL"
+        ) > 0,
+        "the fixture has caused or resource records"
+    );
+    db.execute_batch("DETACH DATABASE old").unwrap();
     let after_bytes = fs::metadata(registry).unwrap().len()
         + fs::metadata(sidecar(registry, "-wal")).map(|metadata| metadata.len()).unwrap_or(0);
     let output_bytes = ((SEEDED_SEALED + SEEDED_LIVE) * OUTPUT_BYTES) as u64;
