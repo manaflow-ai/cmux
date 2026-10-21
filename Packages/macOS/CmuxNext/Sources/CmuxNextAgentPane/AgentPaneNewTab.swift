@@ -37,8 +37,8 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     public var projects: [String]
     /// The design to show; nil is the page's default (B).
     public var layout: AgentPaneNewTabLayout?
-    /// The template (`tabs.newTabTemplate`: "cards", "default", "composer", "threads", "console",
-    /// "classic" or "terminal"); nil follows `layout`. The page validates it.
+    /// The template (`tabs.newTabTemplate`: "minimal", "cards", "default", "composer", "threads",
+    /// "console", "classic" or "terminal"); nil follows `layout`. The page validates it.
     public var template: String?
     /// The agent last picked.
     public var lastAgent: String?
@@ -63,6 +63,11 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
+    /// The Minimal layout's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting",
+    /// "projects", "actions", "chats", "modeSwitch", "styleDots"); Minimal draws the composer and
+    /// only these besides. nil is Settings' defaults (the greeting). The other layouts ignore it.
+    /// The page validates it.
+    public var pageWidgets: [String]?
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
     public var privateChatLists: Bool?
@@ -74,7 +79,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil, widgets: Bool? = nil) {
+                template: String? = nil, widgets: Bool? = nil, pageWidgets: [String]? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -85,6 +90,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
+        self.pageWidgets = pageWidgets
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home
