@@ -54,6 +54,7 @@ export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {
         type="button"
         className="cv-tool cv-session-start is-toggle"
         data-compaction={mode}
+        /* tooltip-allow: the line shows the short facts; the whole of them (version, model id, folder) is on hover */
         title={facts}
         aria-expanded={open}
         aria-controls={open ? detailsId : undefined}

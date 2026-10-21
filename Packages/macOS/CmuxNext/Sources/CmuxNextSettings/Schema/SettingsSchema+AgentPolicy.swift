@@ -205,6 +205,8 @@ extension SettingsSchema {
         "notifications.attention.blinkCount",
         "notifications.attention.duration",
         "notifications.attention.persist",
+        "notifications.attention.flash",
+        "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.moveToTop",

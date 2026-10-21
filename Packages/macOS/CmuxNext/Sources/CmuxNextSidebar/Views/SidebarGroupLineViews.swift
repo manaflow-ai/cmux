@@ -85,7 +85,7 @@ final class SidebarGroupLineViews {
     func showMissing(_ lines: [SidebarGroupLine], in list: NSView, below decorations: NSView) {
         for line in lines where views[line.group] == nil {
             self.lines.removeAll { $0.group == line.group }
-            self.lines.append(line)
+            self.lines.insert(line, at: self.lines.firstIndex { $0.frame.minY > line.frame.minY } ?? self.lines.count) // list order
             let view = GroupLineView()
             list.addSubview(view, positioned: .below, relativeTo: decorations)
             views[line.group] = view

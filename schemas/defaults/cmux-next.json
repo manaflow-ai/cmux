@@ -483,6 +483,7 @@
     "setting.layout.focusFollowsMouse": false,
     "setting.layout.frameOrientation": "columnMajor",
     "setting.layout.linkPlacement": "split-right",
+    "setting.layout.mainPane": "agent-chats",
     "setting.layout.minimumPaneHeight": 64,
     "setting.layout.minimumPaneWidth": 200,
     "setting.layout.newColumnWidth": "matchCurrent",

@@ -114,11 +114,12 @@ final class ViewerService {
     /// it did not open (the refusal shows). `placed`: a new tab opens unselected and reports its
     /// surface there (``LinkOpener`` moves it right of `pane`); a tab that already shows the file
     /// is selected where it is.
+    /// `position` (a Find result): the code editor opens with the cursor there.
     @discardableResult
-    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool,
+    func openFile(_ file: URL, in pane: PaneController?, markdown: Bool, at position: FilePosition? = nil,
                   placed: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
-        let refusal = if let placed, let opener = fileOpener as? FilePageOpener {
-            opener.open(file, in: pane, userChose: true, placed: placed)
+        let refusal = if placed != nil || position != nil, let opener = fileOpener as? FilePageOpener {
+            opener.open(file, in: pane, userChose: true, at: position, placed: placed)
         } else {
             fileOpener.open(file, in: pane)
         }
