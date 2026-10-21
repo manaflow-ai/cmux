@@ -1,5 +1,7 @@
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import CmuxNextSettings
+import Darwin
 import Foundation
 
 /// `debug.crashes`: recent Chromium process failures (renderer per tab from
@@ -61,17 +63,36 @@ enum DebugCrashes {
 
     #if DEBUG
     /// `debug.crash.app`: ends this process like a crash (DEBUG builds), to
-    /// verify relaunch recovery. `signal`: "segv" (default), "abort", "trap".
+    /// verify relaunch recovery. `signal`: "segv" (default), "abort", "trap",
+    /// "frozen". "frozen" is a crash that blocks: it starts the crash path
+    /// (as an uncaught exception does), then traps with the task's
+    /// EXC_BREAKPOINT port on a port nothing receives, so the main thread
+    /// waits for an exception reply forever, as in the 2026-10-20 NIGHTLY
+    /// freezes. Only the crash deadline can end it.
     /// `reporting` tags the Sentry event `deliberate_crash`, so it can be filtered out.
     static func crashApp(_ params: [String: JSONValue], _ reporting: AppCrashReporting? = nil) -> Never {
         reporting?.reporter.markDeliberateCrash("debug.crash.app")
-        switch params["signal"]?.stringValue {
+        let signal = params["signal"]?.stringValue
+        switch signal {
         case "abort": abort()
-        case "trap": fatalError("debug.crash.app")
+        case "trap", "frozen":
+            if signal == "frozen" { freezeNextTrap() }
+            fatalError("debug.crash.app")
         default:
             _ = raise(SIGSEGV)
             abort()
         }
+    }
+
+    /// Points the task's EXC_BREAKPOINT exception port at a new port no
+    /// thread receives on (`frozen`).
+    private static func freezeNextTrap() {
+        let task = mach_task_self_
+        var port = mach_port_t(0)
+        guard mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,
+              mach_port_insert_right(task, port, port, mach_msg_type_name_t(MACH_MSG_TYPE_MAKE_SEND)) == KERN_SUCCESS else { return }
+        _ = task_set_exception_ports(task, exception_mask_t(EXC_MASK_BREAKPOINT), port,
+                                     exception_behavior_t(EXCEPTION_DEFAULT), thread_state_flavor_t(THREAD_STATE_NONE))
     }
 
     /// `debug.crash.exception`: raises an NSException from a run-loop
@@ -83,7 +104,8 @@ enum DebugCrashes {
         reporting?.reporter.markDeliberateCrash("debug.crash.exception")
         DebugExceptionRaiser.shared.perform(#selector(DebugExceptionRaiser.raiseNow), with: nil, afterDelay: 0)
         return .object(["scheduled": .bool(true),
-                        "crash_on_exceptions": .bool(UserDefaults.standard.bool(forKey: CrashOnExceptions.key))])
+                        "crash_on_exceptions": .bool(UserDefaults.standard.bool(forKey: CrashOnExceptions.key)),
+                        "crash_reporting": .bool(reporting?.reporter.isStarted ?? false)])
     }
     #endif
 }
