@@ -1437,6 +1437,97 @@ extension DockSocketLifecycleTests {
         #expect(roundTripped.resumeBinding?.source == "process-detected")
     }
 
+    @Test("Managed Subrouter identity does not launch on top of a Dock tmux binding", arguments: [false, true])
+    @MainActor
+    func managedSubrouterIdentityDefersToProcessDetectedDockBinding(indexUnavailable: Bool) throws {
+        let defaultsName = "cmux-dock-managed-subrouter-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: defaultsName))
+        defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
+        defer { defaults.removePersistentDomain(forName: defaultsName) }
+
+        let sessionID = "dock-managed-subrouter-\(UUID().uuidString.lowercased())"
+        let directory = "/tmp/cmux-dock-managed-subrouter"
+        let managedBinding = SurfaceResumeBindingSnapshot(
+            name: "Codex",
+            kind: "codex",
+            command: "codex -c model_provider=subrouter",
+            cwd: directory,
+            checkpointId: sessionID,
+            source: "agent-hook",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                arguments: ["codex", "-c", "model_provider=subrouter"],
+                workingDirectory: directory,
+                capturedAt: 1_800_000_000,
+                source: "agent-hook"
+            ),
+            autoResume: true,
+            updatedAt: 1_800_000_000
+        )
+        let panelID = UUID()
+        let panelSnapshot = SessionPanelSnapshot(
+            id: panelID,
+            type: .terminal,
+            title: "Managed Subrouter",
+            customTitle: nil,
+            directory: directory,
+            isPinned: false,
+            isManuallyUnread: false,
+            gitBranch: nil,
+            listeningPorts: [],
+            ttyName: nil,
+            terminal: SessionTerminalPanelSnapshot(
+                workingDirectory: directory,
+                agent: SessionRestorableAgentSnapshot(
+                    kind: .codex,
+                    sessionId: sessionID,
+                    workingDirectory: directory,
+                    launchCommand: managedBinding.launchCommand
+                ),
+                resumeBinding: SurfaceResumeBindingSnapshot(
+                    name: "tmux",
+                    kind: "tmux",
+                    command: "tmux attach-session -t cmux",
+                    cwd: directory,
+                    checkpointId: "cmux",
+                    source: "process-detected",
+                    autoResume: true,
+                    updatedAt: 1_800_000_001
+                ),
+                managedAgentResumeBinding: managedBinding,
+                wasAgentRunning: false
+            ),
+            browser: nil,
+            markdown: nil,
+            filePreview: nil,
+            rightSidebarTool: nil,
+            project: nil
+        )
+        let store = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults,
+            restorableAgentIndexProvider: { indexUnavailable ? .unavailable : .empty }
+        )
+        defer { store.closeAllPanels() }
+        let restoredIDs = store.restoreSessionSnapshot(SessionSplitContainerSnapshot(
+            focusedPanelId: panelID,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [panelID],
+                selectedPanelId: panelID
+            )),
+            panels: [panelSnapshot]
+        ))
+        let restoredID = try #require(restoredIDs[panelID])
+        let input = try #require(
+            (store.panels[restoredID] as? TerminalPanel)?.surface.debugInitialInputForTesting()
+        )
+        #expect(input.contains("tmux attach-session -t cmux"), Comment(rawValue: input))
+        #expect(!input.contains("'sr' 'codex'"), Comment(rawValue: input))
+        #expect(!input.contains(sessionID), Comment(rawValue: input))
+        #expect(store.managedAgentResumeBinding(panelId: restoredID)?.checkpointId == sessionID)
+    }
+
     @Test("Cleared Dock binding cannot fall back to the cached transfer")
     @MainActor
     func clearedDockBindingDoesNotReturnFromCachedTransfer() throws {

@@ -1,7 +1,55 @@
+import Darwin
 import Foundation
 import Testing
 
 extension CMUXCLIErrorOutputRegressionTests {
+    @Test func testSessionsListProviderRouteRequiresExplicitEvidence() throws {
+        func routeFixture(argv0: String, agent: String, arguments: [String]) throws -> String {
+            let root = FileManager.default.temporaryDirectory
+                .appendingPathComponent("cmux-route-fixture-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            defer { try? FileManager.default.removeItem(at: root) }
+            let pidURL = root.appendingPathComponent("fixture.pid")
+            let shellArguments = arguments.map { "'\($0)'" }.joined(separator: " ")
+            // `yes` tolerates arbitrary arguments and stays alive; zsh's ARGV0
+            // gives the test a native process whose argv mirrors a provider.
+            let fixture = Process()
+            fixture.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            fixture.arguments = ["-c", "exec -a '\(argv0)' /usr/bin/yes \(shellArguments)"]
+            fixture.standardOutput = FileHandle.nullDevice
+            try fixture.run()
+            let pid = fixture.processIdentifier
+            try String(pid).write(to: pidURL, atomically: true, encoding: .utf8)
+            defer {
+                kill(pid, SIGKILL)
+                fixture.waitUntilExit()
+            }
+            let session = try sessionsListDiagnosticSession(
+                agent: agent,
+                launcher: argv0,
+                executablePath: argv0,
+                arguments: [argv0] + arguments,
+                pid: Int(pid)
+            )
+            let binding = try #require(session["identity_binding"] as? [String: Any])
+            return try #require(binding["live_provider_route"] as? String)
+        }
+
+        #expect(try routeFixture(argv0: "claude", agent: "claude", arguments: ["--prompt", "subrouter"]) == "direct")
+        #expect(
+            try routeFixture(
+                argv0: "sr", agent: "claude",
+                arguments: ["claude", "proxy", "--resume", "019ef275-74e3-7777-9773-9dcb118ed5aa"]
+            ) == "subrouter"
+        )
+        #expect(
+            try routeFixture(argv0: "codex", agent: "codex", arguments: ["-c", "model_provider=subrouter"]) == "subrouter"
+        )
+        #expect(
+            try routeFixture(argv0: "codex", agent: "codex", arguments: ["--prompt", "subrouter"]) == "unknown"
+        )
+    }
+
     @Test func testSessionsListReportsForkDiagnosticsAndAcceptsWorkspaceRefs() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
@@ -24,6 +72,7 @@ extension CMUXCLIErrorOutputRegressionTests {
                     "surfaceId": surfaceId,
                     "cwd": "/tmp/cmux/debug",
                     "pid": 987_654_321,
+                    "runtimeStatus": "running",
                     "startedAt": 1_781_996_800.0,
                     "updatedAt": 1_781_996_867.0,
                     "launchCommand": [
@@ -73,7 +122,15 @@ extension CMUXCLIErrorOutputRegressionTests {
         #expect(session["fork_unavailable_reason"] as? String == "available")
         #expect(session["fork_startup_input_available"] as? Bool == true)
         #expect(session["stored_pid_exists"] as? Bool == false)
+        #expect(session["runtime_status"] is NSNull)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == true)
+        let binding = try #require(session["identity_binding"] as? [String: Any])
+        #expect(binding["surface_id"] as? String == surfaceId)
+        #expect(binding["expected_provider"] as? String == "codex")
+        #expect(binding["expected_session_id"] as? String == sessionId)
+        #expect(binding["expected_checkpoint_id"] as? String == sessionId)
+        #expect(binding["identity_match"] as? Bool == false)
+        #expect(binding["status"] as? String == "no_live_process")
     }
 
     @Test func testSessionsListForkStartupInputAvailabilityCanDifferFromForkSupport() throws {
@@ -256,6 +313,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         let session = try #require(sessions.first)
         #expect(session["stored_pid_exists"] as? Bool == true)
         #expect(session["stale_pid_blocks_restore_in_0_64_17"] as? Bool == false)
+        let binding = try #require(session["identity_binding"] as? [String: Any])
+        #expect(binding["status"] as? String == "mismatch")
+        #expect(binding["pid_start_matches"] as? Bool == true)
+        #expect(binding["session_id_matches"] as? Bool == false)
+        #expect(binding["identity_match"] as? Bool == false)
     }
 
     func sessionsListDiagnosticSession(

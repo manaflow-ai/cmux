@@ -988,7 +988,7 @@ import Testing
         XCTAssertFalse(result.combinedOutput.contains("unexpected agent launch"), result.diagnostics)
     }
 
-    @Test func testRestoreRetargetsPreparedCwdWhenPersistedDirectoryIsMissing() throws {
+    @Test func testRestoreRejectsMissingPersistedCwdBeforeLaunch() throws {
         let cliPath = try bundledCLIPath()
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("cmux missing cwd \(UUID().uuidString)", isDirectory: true)
@@ -1053,25 +1053,16 @@ import Testing
         )
 
         XCTAssertFalse(result.timedOut, result.diagnostics)
-        XCTAssertEqual(result.status, 0, result.diagnostics)
-        let outputLines = result.stdout.components(separatedBy: .newlines)
-        let observedPWD = try XCTUnwrap(outputLines.first(where: { $0.hasPrefix("pwd=") }))
-            .dropFirst("pwd=".count)
-        let observedArguments = outputLines.compactMap { line -> String? in
-            guard line.hasPrefix("arg=") else { return nil }
-            return String(line.dropFirst("arg=".count))
-        }
-        let cwdFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--cwd"))
-        let sessionFlagIndex = try XCTUnwrap(observedArguments.firstIndex(of: "--session"))
-        let observedCwdArgument = try XCTUnwrap(observedArguments.dropFirst(cwdFlagIndex + 1).first)
-        let observedSessionID = try XCTUnwrap(observedArguments.dropFirst(sessionFlagIndex + 1).first)
-        let canonicalRoot = try XCTUnwrap(canonicalExistingPath(root.path))
-
-        XCTAssertEqual(cwdFlagIndex, 0, result.diagnostics)
-        XCTAssertEqual(sessionFlagIndex, 2, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(String(observedPWD))), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(try XCTUnwrap(canonicalExistingPath(observedCwdArgument)), canonicalRoot, result.diagnostics)
-        XCTAssertEqual(observedSessionID, checkpointID, result.diagnostics)
+        XCTAssertEqual(result.status, 1, result.diagnostics)
+        XCTAssertTrue(
+            result.stderr.contains(
+                "restore: the saved working directory is inaccessible. "
+                    + "Restore access to it, then retry."
+            ),
+            result.diagnostics
+        )
+        XCTAssertFalse(result.stdout.contains("pwd="), result.diagnostics)
+        XCTAssertFalse(result.stdout.contains("arg="), result.diagnostics)
     }
 
     @Test func testRestoreRunsCommandOnlyLegacyRecordThroughCompatibilityShell() throws {
@@ -4807,6 +4798,27 @@ import Testing
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map(String.init)
             .dropLast())
+    }
+
+    @Test
+    func legacySubrouterClaudeRestorePreservesClaudeOptions() throws {
+        let sessionID = "0198f073-0a5b-7000-8000-000000000059"
+        let marker = "sr claude proxy --resume"
+        let arguments = SubrouterClaudeResumeRouting().resumeArguments(
+            launcher: "claude",
+            sessionID: sessionID,
+            launchArguments: [
+                "claude", "--model", "opus", "--dangerously-skip-permissions",
+            ],
+            environment: [
+                SubrouterClaudeResumeRouting.environmentKey: marker,
+                SubrouterClaudeResumeRouting.launchBoundEnvironmentKey: marker,
+            ]
+        )
+        #expect(arguments == [
+            "sr", "claude", "proxy", "--resume", sessionID,
+            "--model", "opus", "--dangerously-skip-permissions",
+        ])
     }
 }
 

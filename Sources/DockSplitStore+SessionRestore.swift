@@ -272,16 +272,36 @@ extension DockSplitStore {
         guard let terminalSnapshot = snapshot.terminal else { return nil }
         let policy = Workspace.makeSessionRestorePolicyService()
         let localTmuxStartCommand = policy.localTmuxStartCommand(terminalSnapshot.tmuxStartCommand)
-        let restorableAgent = localTmuxStartCommand == nil
-            ? Workspace.restorableAgentForSessionRestore(
+        let persistedManagedResumeBinding: SurfaceResumeBindingSnapshot? = if localTmuxStartCommand == nil {
+            terminalSnapshot.managedAgentResumeBinding.flatMap {
+                $0.hasCompleteManagedSessionIdentity ? $0 : nil
+            }
+        } else {
+            nil
+        }
+        let restorableAgent: SessionRestorableAgentSnapshot? = {
+            guard localTmuxStartCommand == nil else { return nil }
+            let binding = persistedManagedResumeBinding ?? terminalSnapshot.resumeBinding
+            return Workspace.restorableAgentForSessionRestore(
                 terminalSnapshot.agent,
-                resumeBinding: terminalSnapshot.resumeBinding
+                resumeBinding: binding
+            ) ?? Workspace.synthesizedLegacySubrouterAgent(
+                resumeBinding: binding,
+                terminal: terminalSnapshot,
+                workingDirectory: terminalSnapshot.workingDirectory ?? snapshot.directory
             )
-            : nil
+        }()
         let hibernation = restorableAgent != nil ? terminalSnapshot.hibernation : nil
+        // Preserve a managed hook binding as the effective compatibility
+        // record only for the legacy binding-only shape. A structured agent
+        // snapshot keeps managed state separate so it cannot be mistaken for
+        // an independently observed process binding.
+        let compatibilityResumeBinding = terminalSnapshot.agent == nil
+            ? (terminalSnapshot.resumeBinding ?? persistedManagedResumeBinding)
+            : terminalSnapshot.resumeBinding
         let resumeBinding = localTmuxStartCommand == nil
             ? Workspace.resumeBindingForSessionRestore(
-                terminalSnapshot.resumeBinding,
+                compatibilityResumeBinding,
                 restorableAgent: restorableAgent
             )
             : nil
@@ -315,6 +335,17 @@ extension DockSplitStore {
         } else {
             nil
         }
+        // Managed bindings are persisted separately from the compatibility
+        // binding. Use the managed identity as the routing source when the
+        // latter is absent or stale; otherwise a Subrouter session can fall
+        // back to a direct command during Dock restore.
+        let routingResumeBinding = managedResumeBinding ?? terminalSnapshot.resumeBinding
+        // A process-detected binding (tmux, SSH, etc.) owns the terminal's
+        // startup path. Keep the managed agent identity for a later manual
+        // continuation, but never launch that agent on top of the attached
+        // process during restore.
+        let compatibilityBindingOwnsStartup = terminalSnapshot.resumeBinding?.isProcessDetected == true &&
+            terminalSnapshot.resumeBinding?.isAgentHookBinding != true
         let agentWasRunning = terminalSnapshot.wasAgentRunning ?? true
         let autoResumeAgentSessions = AgentSessionAutoResumeSettings.isEnabled(
             defaults: agentSessionAutoResumeDefaults
@@ -340,13 +371,75 @@ extension DockSplitStore {
                 wasAgentRunning: terminalSnapshot.wasAgentRunning
             )
         // Match workspace restore: keep the cmux restore execution boundary.
-        let shouldAutoResumeAgent = autoResumeAgentSessions &&
-            (agentWasRunning || shouldAutoResumeNormallyEndedClaude) &&
+        // Older Codex/Subrouter snapshots may contain only the hook-owned
+        // resume binding. They were persisted with `wasAgentRunning == false`
+        // after cmux itself had already lost the child, but the checkpoint is
+        // still a valid resumable session. Treat only an explicitly identified
+        // Subrouter Codex binding as eligible; ordinary binding-only records
+        // keep the existing conservative shell-only restore behavior.
+        let legacySubrouterBinding = {
+            let binding = routingResumeBinding
+            guard Workspace.legacySubrouterBindingIsEligible(
+                autoResume: binding?.autoResume,
+                compatibilityBindingOwnsStartup: compatibilityBindingOwnsStartup,
+                isRemoteWorkspaceTerminal: terminalSnapshot.isRemoteTerminal == true,
+                hasRemotePTYSession: false,
+                isHibernated: hibernation != nil
+            ) else { return false }
+            if let bindingKind = binding?.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+               let agentKind = restorableAgent?.kind.rawValue.lowercased(),
+               bindingKind != agentKind {
+                return false
+            }
+            if let bindingSessionID = binding?.checkpointId,
+               let agentSessionID = restorableAgent?.sessionId,
+               !ManagedAgentSessionIdentity.sessionIDsMatch(
+                   kind: restorableAgent?.kind.rawValue ?? binding?.kind ?? "",
+                   lhs: bindingSessionID,
+                   rhs: agentSessionID
+               ) {
+                return false
+            }
+            let launch = binding?.launchCommand ?? restorableAgent?.launchCommand ?? terminalSnapshot.agent?.launchCommand
+            let kind = binding?.kind ?? restorableAgent?.kind.rawValue ?? terminalSnapshot.agent?.kind.rawValue
+            let sessionID = binding?.checkpointId ?? restorableAgent?.sessionId ?? terminalSnapshot.agent?.sessionId
+            return Workspace.legacySubrouterResumeStartupInput(
+                kind: kind,
+                sessionID: sessionID,
+                launchCommand: launch,
+                resumeBinding: binding,
+                workingDirectory: nil
+            ) != nil
+        }()
+        let shouldAutoResumeAgent =
+            (autoResumeAgentSessions &&
+                (agentWasRunning || shouldAutoResumeNormallyEndedClaude || legacySubrouterBinding)) &&
             !suppressesResumeForBackgroundSession
+        // A crash snapshot can contain the same checkpoint in more than one
+        // window.  Claim automatic startup once for the whole restore pass;
+        // later panels retain their snapshot and binding for manual recovery
+        // but must not launch a second writer.
+        let ownsRestorePassCheckpoint = if shouldAutoResumeAgent,
+           restorableAgentCanAutoResume,
+           hibernation == nil,
+           !suppressesResumeForBackgroundSession,
+           let restorableAgent {
+            SurfaceResumeRunPromptBatch.shared.claimAgentRestore(
+                kind: restorableAgent.kind.rawValue,
+                sessionID: restorableAgent.sessionId
+            )
+        } else {
+            true
+        }
+        let duplicateRestoreOwner = shouldAutoResumeAgent &&
+            restorableAgentCanAutoResume &&
+            !ownsRestorePassCheckpoint
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
-        let shouldCheckAgentOwnership = shouldAutoResumeAgent && !usesExecutionAdmission &&
-            (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
+        let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
+            !compatibilityBindingOwnsStartup &&
+            (!usesExecutionAdmission || legacySubrouterBinding) &&
+            (legacySubrouterBinding || restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let restoreAgentIndex = shouldCheckAgentOwnership ? restorableAgentIndex : nil
         let restoreIndexUnavailable = shouldCheckAgentOwnership && restoreAgentIndex?.isComplete(
             forPanelId: snapshot.id, kind: restorableAgent?.kind.rawValue ?? resumeBinding?.kind
@@ -403,12 +496,13 @@ extension DockSplitStore {
             promptForApproval: true,
             approvalStoreURL: SurfaceResumeApprovalStore.defaultURL()
         )
-        let savedWorkingDirectory = resumeBinding?.cwd
+        let savedWorkingDirectory = terminalSnapshot.resumeBinding?.cwd
+            ?? routingResumeBinding?.cwd
             ?? terminalSnapshot.workingDirectory
             ?? restorableAgent?.workingDirectory
             ?? snapshot.directory
         let workingDirectory = savedWorkingDirectory ?? FileManager.default.homeDirectoryForCurrentUser.path
-        let unresolvedBindingLaunch = restoreStartupBlocked || liveSessionOwner != nil ||
+        let policyBindingLaunch = restoreStartupBlocked || liveSessionOwner != nil ||
             stablePanelHasLiveProcess
             ? nil
             : approvedResumeBinding.flatMap {
@@ -416,19 +510,75 @@ extension DockSplitStore {
                     forApprovedBinding: $0
                 )
             }
+        let processDetectedStartupBinding = Workspace.processDetectedStartupBinding(
+            approvedResumeBinding,
+            isAllowedByPolicy: approvedResumeBinding != nil &&
+                terminalSnapshot.isRemoteTerminal != true
+        )
+        let compatibilityBindingStartupLaunch: WorkspaceSurfaceResumeStartupLaunch? =
+            processDetectedStartupBinding.map { binding in
+                .input(TerminalStartupTypedShellCommand().typedInput(posixCommand: binding.command) + "\n")
+            }
+        let unresolvedBindingLaunch = compatibilityBindingStartupLaunch ?? policyBindingLaunch
         let resumeSessionWorkingDirectory: String? = {
-            if unresolvedBindingLaunch != nil {
-                return approvedResumeBinding?.cwd ?? workingDirectory
+            let candidate: String? = {
+                if unresolvedBindingLaunch != nil {
+                    return approvedResumeBinding?.cwd ?? workingDirectory
+                }
+                guard let restorableAgent else { return savedWorkingDirectory }
+                if restorableAgent.registration?.cwd == .ignore {
+                    return nil
+                }
+                return restorableAgent.workingDirectory
+                    ?? restorableAgent.launchCommand?.workingDirectory
+                    ?? workingDirectory
+            }()
+            // The startup command itself can issue `cd` before the shell is
+            // ready. Keep the command away from an unresponsive mounted volume;
+            // the original path remains in the restored workspace metadata.
+            if let candidate,
+               Workspace.unmountedVolumeRoot(for: candidate) != nil {
+                return FileManager.default.homeDirectoryForCurrentUser.path
             }
-            guard let restorableAgent else { return savedWorkingDirectory }
-            if restorableAgent.registration?.cwd == .ignore {
-                return nil
-            }
-            return restorableAgent.workingDirectory
-                ?? restorableAgent.launchCommand?.workingDirectory
-                ?? workingDirectory
+            return candidate
         }()
-        let bindingLaunch = unresolvedBindingLaunch
+        // Keep routing evidence even when the approval store declines a
+        // binding. Legacy snapshots must still be resumable from their durable
+        // launch record; otherwise they silently fall back to a stale direct
+        // Codex command.
+        let capturedCodexLaunch = approvedResumeBinding?.launchCommand ??
+            routingResumeBinding?.launchCommand ??
+            restorableAgent?.launchCommand ?? terminalSnapshot.resumeBinding?.launchCommand ??
+            terminalSnapshot.agent?.launchCommand
+        let capturedAgentKind = restorableAgent?.kind.rawValue ?? approvedResumeBinding?.kind ??
+            routingResumeBinding?.kind ?? terminalSnapshot.agent?.kind.rawValue
+        let capturedAgentSessionID = restorableAgent?.sessionId ?? approvedResumeBinding?.checkpointId ??
+            routingResumeBinding?.checkpointId ?? terminalSnapshot.agent?.sessionId
+        // Route structured agent records through `cmux restore`, which owns
+        // the cross-process launch lease and writer-lock admission. Binding-
+        // only legacy snapshots remain available for manual restore instead
+        // of typing an unleased Subrouter command at startup.
+        let legacySubrouterResumeInput: String? = nil
+        // A legacy direct binding can contain a stale per-session Subrouter
+        // URL. Let the live `sr codex resume` route rebuild provider config.
+        let legacySubrouterRestoreBlocked = restorableAgent == nil &&
+            legacySubrouterBinding &&
+            shouldAutoResumeAgent &&
+            legacySubrouterResumeInput == nil
+        let bindingLaunch = legacySubrouterRestoreBlocked
+            ? nil
+            : (compatibilityBindingOwnsStartup || legacySubrouterResumeInput != nil
+                ? nil
+                : (resumeBinding?.isAgentHookBinding == true && !ownsRestorePassCheckpoint
+                    ? nil
+                    : unresolvedBindingLaunch))
+        // Process-detected bindings already describe the shell command that
+        // owns this terminal (for example, `tmux attach-session`). Re-entering
+        // through `cmux restore` would rediscover the same binding and can
+        // recurse during Dock restore, so preserve the direct startup input.
+        let processDetectedStartupInput = processDetectedStartupBinding?.inlineStartupInput(
+            repairPortableAgentExecutable: false
+        )
         let tmuxStartCommand = localTmuxStartCommand
             ?? (!restoreStartupBlocked &&
                 liveSessionOwner == nil &&
@@ -453,8 +603,9 @@ extension DockSplitStore {
             restoreStartupBlocked: restoreStartupBlocked,
             liveSessionOwner: liveSessionOwner
         )
-        let agentLaunch = shouldAutoResumeAgent && restorableAgentCanAutoResume &&
-            hibernation == nil && bindingLaunch == nil
+        let agentLaunch = shouldAutoResumeAgent && ownsRestorePassCheckpoint &&
+            restorableAgentCanAutoResume &&
+            hibernation == nil && legacySubrouterResumeInput == nil && bindingLaunch == nil
             && !agentSessionAlreadyActive
             ? restorableAgent?.resumeStartupInput(
                 restoringWorkingDirectory: resumeSessionWorkingDirectory
@@ -463,10 +614,15 @@ extension DockSplitStore {
         // Build the candidate before arming the gate. A binding that is
         // disabled, unapproved, or cannot render a command must start as an
         // ordinary shell instead of waiting behind deferred admission.
-        let deferredAgentResumeCandidateInput: String? = if restoreStartupBlocked || liveSessionOwner != nil,
+        let deferredAgentResumeCandidateInput: String? = if
+            !compatibilityBindingOwnsStartup,
+            ownsRestorePassCheckpoint,
+            (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil),
             hibernation == nil,
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
-            if let restorableAgent, restorableAgentCanAutoResume {
+            if let legacySubrouterResumeInput {
+                legacySubrouterResumeInput
+            } else if let restorableAgent, restorableAgentCanAutoResume {
                 restorableAgent.resumeStartupInput(
                     restoringWorkingDirectory: resumeSessionWorkingDirectory
                 )
@@ -490,17 +646,19 @@ extension DockSplitStore {
         ).isEmpty == false ? deferredAgentResumeCandidateInput : nil
         let deferredAgentResumeAdmission = deferredAgentResumeStartupInput != nil
         let initialCommand = tmuxLauncher
-        let initialInput = bindingLaunch?.initialInput ??
-            agentLaunch?.initialInput ??
+        let initialInput = processDetectedStartupInput ??
             deferredAgentResumeStartupInput ??
+            bindingLaunch?.initialInput ??
+            agentLaunch?.initialInput ??
             claudeBackgroundAttach?.startupInput
         let willRunAgentInput =
+            legacySubrouterResumeInput != nil ||
             agentLaunch?.initialInput != nil ||
             (bindingLaunch?.initialInput != nil && resumeBinding?.isAgentHookBinding == true) ||
             deferredAgentResumeStartupInput != nil
         let startupHandlesWorkingDirectory =
             tmuxLauncher != nil || agentLaunch != nil || bindingLaunch != nil ||
-            deferredAgentResumeStartupInput != nil
+            legacySubrouterResumeInput != nil || deferredAgentResumeStartupInput != nil
         let hostShellWorkingDirectory: String? = {
             guard startupHandlesWorkingDirectory else { return workingDirectory }
             let candidate = tmuxLauncher != nil ? workingDirectory : resumeSessionWorkingDirectory
@@ -509,12 +667,20 @@ extension DockSplitStore {
         let shouldReplayScrollback = policy.shouldReplaySessionScrollback(
             hasRestorableAgent: restorableAgent != nil,
             tmuxStartCommand: restoredTmuxStartCommand,
-            hasResumeStartupWork: bindingLaunch != nil || agentLaunch != nil ||
-                deferredAgentResumeStartupInput != nil || claudeBackgroundAttach != nil
+            hasResumeStartupWork: legacySubrouterResumeInput != nil || bindingLaunch != nil ||
+                agentLaunch != nil || deferredAgentResumeStartupInput != nil || claudeBackgroundAttach != nil
         )
         let restoredScrollback = shouldReplayScrollback ? terminalSnapshot.scrollback : nil
         let replayFileURL = SessionScrollbackReplayStore.replayFileURL(for: restoredScrollback)
         let replayEnvironment = SessionScrollbackReplayStore.replayEnvironment(forFileURL: replayFileURL)
+        var restoredEnvironment = replayEnvironment
+        if legacySubrouterResumeInput != nil,
+           capturedAgentKind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == RestorableAgentKind.codex.rawValue {
+            // Subrouter uses a local sentinel to satisfy Codex's provider
+            // credential lookup. It is not an account credential and must be
+            // present before either codex resume or cmux restore runs.
+            restoredEnvironment["SUBROUTER_CODEX_DUMMY_API_KEY"] = "subrouter"
+        }
         let reusableSurfaceId = GhosttyApp.terminalSurfaceRegistry.surface(id: snapshot.id) == nil
             ? snapshot.id
             : UUID()
@@ -542,7 +708,7 @@ extension DockSplitStore {
             initialCommand: initialCommand,
             tmuxStartCommand: restoredTmuxStartCommand,
             initialInput: initialInput,
-            additionalEnvironment: replayEnvironment,
+            additionalEnvironment: restoredEnvironment,
             stableSurfaceId: snapshot.stableSurfaceId.flatMap {
                 excludingStableIdentities.contains($0) ? nil : $0
             },
@@ -558,6 +724,17 @@ extension DockSplitStore {
         terminal.restoreSessionTextBoxDraft(terminalSnapshot.textBoxDraft)
 
         guard attachSessionRestoredPanel(terminal, snapshot: snapshot, inPane: paneId) != nil else {
+            if shouldAutoResumeAgent,
+               restorableAgentCanAutoResume,
+               hibernation == nil,
+               !suppressesResumeForBackgroundSession,
+               ownsRestorePassCheckpoint,
+               let restorableAgent {
+                SurfaceResumeRunPromptBatch.shared.releaseAgentRestore(
+                    kind: restorableAgent.kind.rawValue,
+                    sessionID: restorableAgent.sessionId
+                )
+            }
             if let replayFileURL { try? FileManager.default.removeItem(at: replayFileURL) }
             return nil
         }
@@ -566,6 +743,15 @@ extension DockSplitStore {
             internallySeededInput: initialInput
         )
         terminal.restoreRecovery.restore(from: terminalSnapshot.restoreRecovery)
+        if duplicateRestoreOwner,
+           let restorableAgent {
+            terminal.restoreRecovery.state = .failed(
+                reason: "duplicate-restore-owner",
+                recoveryInput: restorableAgent.resumeStartupInput(
+                    restoringWorkingDirectory: resumeSessionWorkingDirectory
+                )
+            )
+        }
         if willRunAgentInput {
             // Keep the typed resume selector so the shell-state handler can
             // replay it if the login shell drops the typeahead.
@@ -598,6 +784,7 @@ extension DockSplitStore {
             resumeWorkingDirectory: resumeSessionWorkingDirectory,
             agentSessionAlreadyActive: liveSessionOwner != nil ||
                 suppressesResumeForBackgroundSession ||
+                duplicateRestoreOwner ||
                 (deferredAgentResumeAdmission
                     ? true
                     : (restoreIndexUnavailable ? false : agentSessionAlreadyActive)),

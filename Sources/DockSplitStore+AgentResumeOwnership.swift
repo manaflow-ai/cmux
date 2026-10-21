@@ -3,6 +3,33 @@ import Foundation
 import CmuxFoundation
 
 extension DockSplitStore {
+    /// Whether a staged binding still owns a deferred restore admission.
+    /// Until the ownership scan admits or cancels that launch, the absence of
+    /// a process is expected rather than proof that the session exited.
+    func deferredAgentResumeRestoreOwns(
+        _ binding: SurfaceResumeBindingSnapshot,
+        panelId: UUID
+    ) -> Bool {
+        guard binding.isAgentHookBinding,
+              let restore = deferredAgentResumeRestoresByPanelId[panelId] else {
+            return false
+        }
+        if let capturedBinding = restore.resumeBinding {
+            return capturedBinding.isSameManagedSession(as: binding)
+        }
+        guard let restorableAgent = restore.restorableAgent,
+              let kind = binding.kind?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let checkpointId = binding.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) else {
+            return false
+        }
+        return restorableAgent.kind.rawValue == kind &&
+            ManagedAgentSessionIdentity.sessionIDsMatch(
+                kind: kind,
+                lhs: restorableAgent.sessionId,
+                rhs: checkpointId
+            )
+    }
+
     /// Dock twin of `Workspace.restoredAgentHasLiveProcess(_:panelId:)`.
     ///
     /// Without a restored snapshot, the hook-published binding supplies the

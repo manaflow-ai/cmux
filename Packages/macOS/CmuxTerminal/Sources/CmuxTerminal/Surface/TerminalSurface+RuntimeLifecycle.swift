@@ -788,6 +788,9 @@ extension TerminalSurface {
             return
         }
         if parkRuntimeSurfaceCreationIfAwaitingPaneGeometry(view: view, source: source) { return }
+        guard !runtimeSurfaceCreationInProgress else { return }
+        runtimeSurfaceCreationInProgress = true
+        defer { runtimeSurfaceCreationInProgress = false }
         let agentCommandShims = agentShimState.shims
 #if DEBUG
         runtimeSurfaceCreateAttemptCountForTesting += 1

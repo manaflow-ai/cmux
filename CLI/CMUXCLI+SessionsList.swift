@@ -175,7 +175,11 @@ extension CMUXCLI {
                 payload["cwd"] = record.cwd ?? NSNull()
                 payload["transcript_path"] = record.transcriptPath ?? NSNull()
                 payload["pid"] = record.pid ?? NSNull()
-                payload["runtime_status"] = record.runtimeStatus?.rawValue ?? NSNull()
+                let storedPIDExists = sessionsListStoredPIDExists(record.pid)
+                payload["runtime_status"] = sessionsListVerifiedRuntimeStatus(
+                    record.runtimeStatus,
+                    storedPIDExists: storedPIDExists
+                )?.rawValue ?? NSNull()
                 payload["agent_lifecycle"] = record.agentLifecycle?.rawValue ?? NSNull()
                 payload["last_prompt_turn_id"] = record.lastPromptTurnId ?? NSNull()
                 payload["active_prompt_turn_id"] = record.activePromptTurnId ?? NSNull()

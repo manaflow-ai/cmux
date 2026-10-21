@@ -338,6 +338,170 @@ struct TerminalStartupRestoreFailureTests {
         #expect(workspace.surfaceResumeBindingsByPanelId[panelID]?.autoResume == true)
     }
 
+    @Test("Duplicate Codex checkpoints restore once and remain manually recoverable")
+    func duplicateCodexCheckpointClaimsOneRestoreOwner() throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+        let dock = DockSplitStore(
+            workspaceId: UUID(),
+            baseDirectoryProvider: { nil },
+            agentSessionAutoResumeDefaults: defaults.store,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { dock.closeAllPanels() }
+
+        let sessionID = "duplicate-codex-checkpoint-\(UUID().uuidString)"
+        let workingDirectory = "/tmp/duplicate-codex-checkpoint"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                workingDirectory: workingDirectory,
+                environment: [:],
+                capturedAt: 1_800_000_305,
+                source: "process"
+            )
+        )
+
+        func panel(_ id: UUID) -> SessionPanelSnapshot {
+            SessionPanelSnapshot(
+                id: id,
+                type: .terminal,
+                title: "Codex duplicate",
+                directory: workingDirectory,
+                isPinned: false,
+                isManuallyUnread: false,
+                gitBranch: nil,
+                listeningPorts: [],
+                ttyName: nil,
+                terminal: SessionTerminalPanelSnapshot(
+                    workingDirectory: workingDirectory,
+                    agent: agent,
+                    wasAgentRunning: true
+                )
+            )
+        }
+
+        let firstID = UUID()
+        let secondID = UUID()
+        let snapshot = SessionSplitContainerSnapshot(
+            focusedPanelId: firstID,
+            layout: .pane(SessionPaneLayoutSnapshot(
+                panelIds: [firstID, secondID],
+                selectedPanelId: firstID
+            )),
+            panels: [panel(firstID), panel(secondID)]
+        )
+
+        let restoreBatch = SurfaceResumeRunPromptBatch.shared
+        restoreBatch.reset()
+        restoreBatch.beginRestorePass()
+        defer {
+            restoreBatch.endRestorePass()
+            restoreBatch.reset()
+        }
+        let restoredIDs = dock.restoreSessionSnapshot(snapshot)
+
+        let firstPanelID = try #require(restoredIDs[firstID])
+        let secondPanelID = try #require(restoredIDs[secondID])
+        let firstPanel = try #require(dock.panels[firstPanelID] as? TerminalPanel)
+        let secondPanel = try #require(dock.panels[secondPanelID] as? TerminalPanel)
+
+        let firstInput = firstPanel.surface.debugInitialInputForTesting()
+        let secondInput = secondPanel.surface.debugInitialInputForTesting()
+        #expect([firstInput, secondInput].compactMap { $0 }.count == 1)
+        #expect(firstInput?.contains(sessionID) == true || secondInput?.contains(sessionID) == true)
+        let recoveryStates = [firstPanel.restoreRecovery.state, secondPanel.restoreRecovery.state]
+        #expect(
+            recoveryStates.contains {
+                if case .failed(let reason, let recoveryInput) = $0 {
+                    return reason == "duplicate-restore-owner" && recoveryInput?.contains(sessionID) == true
+                }
+                return false
+            }
+        )
+    }
+
+    @Test("Workspace restore claims one duplicate Codex checkpoint owner")
+    func duplicateCodexCheckpointClaimsOneWorkspaceRestoreOwner() throws {
+        let defaults = try makeAutoResumeDefaults()
+        defer { defaults.store.removePersistentDomain(forName: defaults.name) }
+
+        let sessionID = "duplicate-workspace-codex-\(UUID().uuidString)"
+        let workingDirectory = "/tmp/duplicate-workspace-codex"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: workingDirectory,
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex", "resume", sessionID],
+                workingDirectory: workingDirectory,
+                environment: [:],
+                capturedAt: 1_800_000_306,
+                source: "process"
+            )
+        )
+
+        let source = Workspace(
+            workingDirectory: workingDirectory,
+            agentSessionAutoResumeDefaults: defaults.store,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { source.teardownAllPanels() }
+        var snapshot = source.sessionSnapshot(includeScrollback: false)
+        let originalPanel = try #require(snapshot.panels.first)
+        var firstPanel = originalPanel
+        var firstTerminal = try #require(firstPanel.terminal)
+        firstTerminal.agent = agent
+        firstTerminal.wasAgentRunning = true
+        firstPanel.terminal = firstTerminal
+        var secondPanel = firstPanel
+        secondPanel.id = UUID()
+        snapshot.panels = [firstPanel, secondPanel]
+        snapshot.focusedPanelId = firstPanel.id
+        snapshot.layout = .pane(SessionPaneLayoutSnapshot(
+            panelIds: [firstPanel.id, secondPanel.id],
+            selectedPanelId: firstPanel.id
+        ))
+
+        let restoreBatch = SurfaceResumeRunPromptBatch.shared
+        restoreBatch.reset()
+        restoreBatch.beginRestorePass()
+        defer {
+            restoreBatch.endRestorePass()
+            restoreBatch.reset()
+        }
+
+        let restored = Workspace(
+            agentSessionAutoResumeDefaults: defaults.store,
+            restorableAgentIndexProvider: { .empty }
+        )
+        defer { restored.teardownAllPanels() }
+        let remap = restored.restoreSessionSnapshot(
+            snapshot,
+            startupRestoreCommitOwner: .workspaceTopology
+        )
+        let restoredPanels = remap.values.compactMap { restored.terminalPanel(for: $0) }
+        #expect(restoredPanels.count == 2)
+        let startupInputs = restoredPanels.compactMap { $0.surface.debugInitialInputForTesting() }
+        #expect(startupInputs.count == 1)
+        #expect(startupInputs.first?.contains(sessionID) == true)
+        #expect(
+            restoredPanels.contains {
+                if case .failed(let reason, let recoveryInput) = $0.restoreRecovery.state {
+                    return reason == "duplicate-restore-owner" && recoveryInput?.contains(sessionID) == true
+                }
+                return false
+            }
+        )
+    }
+
     private func makeAutoResumeDefaults() throws -> (store: UserDefaults, name: String) {
         let name = "cmux-terminal-startup-failure-\(UUID().uuidString)"
         let store = try #require(UserDefaults(suiteName: name))

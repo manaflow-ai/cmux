@@ -21,8 +21,57 @@ struct FeedCoordinatorTests {
             notifications: 7
         )
 
-        #expect(cachedRevision == ((12 << 32) | 7))
+        #expect(cachedRevision == ((12 << 32) | 0xFFFF_FFFF))
         #expect(upgradedRevision > cachedRevision)
+    }
+
+    @Test("Mobile Feed revision stays signed when the persisted log exceeds 2 GiB")
+    func mobileFeedRevisionContinuesPastSignedBoundary() {
+        let beforeBoundary = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 2_147_483_647,
+            notifications: 1
+        )
+        let atBoundary = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 2_147_483_648,
+            notifications: 1
+        )
+
+        #expect(beforeBoundary >= 0)
+        #expect(atBoundary == beforeBoundary + 1)
+
+        let later = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 2_147_483_649,
+            notifications: 1
+        )
+        #expect(later > atBoundary)
+    }
+
+    @Test("Mobile Feed revision crosses the compatibility cutover monotonically")
+    func mobileFeedRevisionCutoverIsMonotonic() {
+        let before = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 1_073_741_823,
+            notifications: 17
+        )
+        let after = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 1_073_741_824,
+            notifications: 0
+        )
+        #expect(after > before)
+    }
+
+    @Test("Mobile Feed keeps the packed namespace while notification history is loading")
+    func mobileFeedRevisionWithUnknownNotificationsRemainsPacked() {
+        let withNotifications = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 12,
+            notifications: 7
+        )
+        let whileLoading = FeedCoordinator.combinedMobileFeedRevision(
+            workstream: 12,
+            notifications: 0
+        )
+
+        #expect(whileLoading == withNotifications)
+        #expect(whileLoading == ((12 << 32) | 0xFFFF_FFFF))
     }
 
     @Test("Mobile Feed excludes sparse records before they become rows")

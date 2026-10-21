@@ -17,12 +17,6 @@ extension Workspace {
                 removeDeferredAgentResumeRestore(panelId: panelId)
                 continue
             }
-            guard AgentSessionAutoResumeSettings.isEnabled(
-                defaults: agentSessionAutoResumeDefaults
-            ) else {
-                cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
-                continue
-            }
             let expectedKind = restore.restorableAgent?.kind.rawValue ?? restore.resumeBinding?.kind
             guard index.isComplete(
                 forPanelId: restore.stablePanelID,
@@ -101,11 +95,39 @@ extension Workspace {
                 )
                 continue
             }
+            guard AgentSessionAutoResumeSettings.isEnabled(
+                defaults: agentSessionAutoResumeDefaults
+            ) else {
+                cancelDeferredAgentResumeRestore(
+                    panelId: panelId,
+                    restore: restore,
+                    retireBinding: false
+                )
+                terminal.restoreRecovery.state = .failed(
+                    reason: "auto-resume-disabled",
+                    recoveryInput: nil
+                )
+                continue
+            }
             terminal.restoreRecovery.state = nil
 
             let startupInput: String?
             let claim: (kind: String, sessionId: String)?
-            if let restorableAgent = restore.restorableAgent {
+            let capturedBinding = currentResumeBinding ?? restore.resumeBinding
+            // Structured agent records must resume through `cmux restore`,
+            // which owns the cross-process launch lease and writer-lock check.
+            // Binding-only legacy snapshots remain manually recoverable rather
+            // than typing an unleased `sr codex resume` command.
+            let legacySubrouterInput: String? = nil
+            if let legacySubrouterInput {
+                // Legacy Subrouter records must use the proven routed launcher,
+                // but only after the complete ownership index has admitted this
+                // pane (the resolver is reached only after that check).
+                startupInput = legacySubrouterInput
+                claim = (capturedBinding?.kind ?? restore.restorableAgent?.kind.rawValue).flatMap { kind in
+                    (capturedBinding?.checkpointId ?? restore.restorableAgent?.sessionId).map { (kind, $0) }
+                }
+            } else if let restorableAgent = restore.restorableAgent {
                 startupInput = if restore.restoresRemoteWorkspaceTerminalSnapshot {
                     restorableAgent.resumeStartupInput(
                         useLocalRestoreVerb: false,
@@ -117,7 +139,7 @@ extension Workspace {
                     )
                 }
                 claim = (restorableAgent.kind.rawValue, restorableAgent.sessionId)
-            } else if let binding = currentResumeBinding ?? restore.resumeBinding {
+            } else if let binding = capturedBinding {
                 if restore.restoresRemoteWorkspaceTerminalSnapshot {
                     guard binding.launchFlavor.remoteContext == restore.remoteResumeContext else {
                         cancelDeferredAgentResumeRestore(panelId: panelId, restore: restore)
@@ -161,7 +183,12 @@ extension Workspace {
                 )
                 continue
             }
-            let ownedClaim = restore.restoresRemoteWorkspaceTerminalSnapshot
+            // Legacy Subrouter commands are typed directly into the shell and
+            // therefore cannot reach the cmux restore RPC admission boundary.
+            // Claim them here as well as remote compatibility launches; a
+            // restorable-agent `cmux restore` command claims at its own boundary.
+            let ownedClaim = legacySubrouterInput != nil ||
+                restore.restoresRemoteWorkspaceTerminalSnapshot
                 ? claim
                 : nil
             if let ownedClaim,

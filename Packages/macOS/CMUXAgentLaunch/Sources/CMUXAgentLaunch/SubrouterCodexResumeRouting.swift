@@ -1,5 +1,22 @@
 import Foundation
 
+/// The trust result for provider declarations captured from a Codex launch.
+///
+/// Restore code may route a session only for ``provider(_:)`` with the
+/// expected value. Missing declarations remain ordinary Codex launches, and
+/// conflicting declarations are deliberately rejected as ambiguous.
+public enum SubrouterCodexProviderEvidence: Equatable, Sendable {
+    /// No provider declaration was present in the captured invocation.
+    case absent
+
+    /// Exactly one provider declaration was present.
+    case provider(String)
+
+    /// More than one provider declaration, or a non-Codex invocation, was
+    /// observed and cannot safely be used for routing.
+    case ambiguous
+}
+
 /// Recognizes the bounded launch evidence emitted by `sr codex` and builds its
 /// explicit resume argv without trusting environment-provided shell text.
 public struct SubrouterCodexResumeRouting: Sendable, Equatable {
@@ -109,10 +126,87 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
             .lowercased()
         guard normalizedLauncher == nil || normalizedLauncher == "codex",
               let marker = capturedLaunchBoundMarker(in: environment),
-              launchArgumentsContainSubrouterProvider(launchArguments) else {
+              launchArgumentsContainSubrouterProvider(
+                  launchArguments,
+                  launcher: normalizedLauncher
+              ) else {
             return nil
         }
         return marker.split(separator: " ").map(String.init) + [sessionID]
+    }
+
+    /// Returns whether captured Codex arguments explicitly select Subrouter.
+    ///
+    /// Older cmux bindings can retain the provider configuration without the
+    /// wrapper's resume marker. They still need the dummy credential exported
+    /// before Codex starts; this check is limited to the non-secret provider
+    /// selection in the captured argv.
+    public func usesSubrouterProvider(in launchArguments: [String]) -> Bool {
+        providerEvidence(in: launchArguments) == .provider("subrouter")
+    }
+
+    /// Legacy surface bindings may retain only their canonical shell command
+    /// after trust sanitization. Preserve the non-secret provider proof from
+    /// that command so a valid Subrouter checkpoint is still resumable.
+    public func usesSubrouterProvider(in shellCommand: String?) -> Bool {
+        guard let shellCommand,
+              let tokens = shellCommandTokens(shellCommand),
+              !tokens.isEmpty else { return false }
+        let executable = URL(fileURLWithPath: tokens[0]).lastPathComponent.lowercased()
+        let isCodexCommand = executable == "codex" ||
+            (executable == "sr" && tokens.dropFirst().first == "codex") ||
+            (executable == "subrouter" && tokens.dropFirst().first == "codex")
+        guard isCodexCommand else { return false }
+        return providerEvidence(in: tokens) == .provider("subrouter")
+    }
+
+    /// Returns the provider evidence in a captured argv. `ambiguous` means
+    /// that the record explicitly names more than one provider and must never
+    /// be upgraded into a routed restore.
+    public func providerEvidence(in launchArguments: [String]) -> SubrouterCodexProviderEvidence {
+        guard isCodexInvocation(launchArguments) else { return .ambiguous }
+        return providerEvidenceFromAssignments(in: launchArguments)
+    }
+
+    /// Returns provider evidence using a captured managed launcher kind.
+    ///
+    /// A managed Codex launch may retain a custom executable path (for example
+    /// `/opt/company/codex`) whose basename is not `codex`. The launcher kind
+    /// is durable identity evidence for that case, while all provider
+    /// assignments still have to pass the same ambiguity checks.
+    public func providerEvidence(
+        in launchArguments: [String],
+        launcher: String?
+    ) -> SubrouterCodexProviderEvidence {
+        let normalizedLauncher = launcher?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        guard normalizedLauncher == nil || normalizedLauncher == "codex" else {
+            return .ambiguous
+        }
+        if normalizedLauncher == "codex" {
+            return providerEvidenceFromAssignments(in: launchArguments)
+        }
+        return providerEvidence(in: launchArguments)
+    }
+
+    /// Returns provider evidence from a canonical legacy shell command.
+    public func providerEvidence(in shellCommand: String?) -> SubrouterCodexProviderEvidence {
+        guard let shellCommand else { return .absent }
+        guard !shellCommand.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return .absent
+        }
+        guard let tokens = shellCommandTokens(shellCommand), !tokens.isEmpty else {
+            // A non-empty legacy command that cannot be tokenized is damaged
+            // evidence, not proof that no provider was recorded.
+            return .ambiguous
+        }
+        let executable = URL(fileURLWithPath: tokens[0]).lastPathComponent.lowercased()
+        let isCodexCommand = executable == "codex" ||
+            (executable == "sr" && tokens.dropFirst().first == "codex") ||
+            (executable == "subrouter" && tokens.dropFirst().first == "codex")
+        guard isCodexCommand else { return .ambiguous }
+        return providerEvidenceFromAssignments(in: tokens)
     }
 
     /// Retains a canonical, non-secret routing proof when prompt sanitization
@@ -131,7 +225,7 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         ) != nil else {
             return sanitizedArguments
         }
-        if launchArgumentsContainSubrouterProvider(sanitizedArguments) {
+        if launchArgumentsContainSubrouterProvider(sanitizedArguments, launcher: launcher) {
             return sanitizedArguments
         }
 
@@ -199,8 +293,23 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
         return selected
     }
 
-    private func launchArgumentsContainSubrouterProvider(_ arguments: [String]) -> Bool {
-        var effectiveProvider: String?
+    private func launchArgumentsContainSubrouterProvider(
+        _ arguments: [String],
+        launcher: String?
+    ) -> Bool {
+        providerEvidence(in: arguments, launcher: launcher) == .provider("subrouter")
+    }
+
+    private func isCodexInvocation(_ arguments: [String]) -> Bool {
+        guard let first = arguments.first else { return false }
+        let executable = URL(fileURLWithPath: first).lastPathComponent.lowercased()
+        return executable == "codex" ||
+            (executable == "sr" && arguments.dropFirst().first == "codex") ||
+            (executable == "subrouter" && arguments.dropFirst().first == "codex")
+    }
+
+    private func providerEvidenceFromAssignments(in arguments: [String]) -> SubrouterCodexProviderEvidence {
+        var observedProviders: Set<String> = []
         var index = 0
         while index < arguments.count {
             let argument = arguments[index]
@@ -208,20 +317,40 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
                 break
             }
             if (argument == "-c" || argument == "--config"),
-               index + 1 < arguments.count,
-               let provider = modelProviderAssignment(in: arguments[index + 1]) {
-                effectiveProvider = provider
+               index + 1 < arguments.count {
+                let value = arguments[index + 1]
+                if let provider = modelProviderAssignment(in: value) {
+                    observedProviders.insert(provider)
+                } else if looksLikeModelProviderAssignment(value) {
+                    return .ambiguous
+                }
                 index += 2
                 continue
             }
             for prefix in ["-c=", "--config="] where argument.hasPrefix(prefix) {
-                if let provider = modelProviderAssignment(in: String(argument.dropFirst(prefix.count))) {
-                    effectiveProvider = provider
+                let value = String(argument.dropFirst(prefix.count))
+                if let provider = modelProviderAssignment(in: value) {
+                    observedProviders.insert(provider)
+                } else if looksLikeModelProviderAssignment(value) {
+                    return .ambiguous
                 }
             }
             index += 1
         }
-        return effectiveProvider == "subrouter"
+        // Multiple provider declarations are only safe when they agree. A
+        // stale or hand-edited record that mixes Subrouter with another
+        // provider must not be upgraded into routed restore evidence.
+        guard !observedProviders.isEmpty else { return .absent }
+        guard observedProviders.count == 1, let provider = observedProviders.first else {
+            return .ambiguous
+        }
+        return .provider(provider)
+    }
+
+    private func looksLikeModelProviderAssignment(_ rawValue: String) -> Bool {
+        let parts = rawValue.split(separator: "=", maxSplits: 1, omittingEmptySubsequences: false)
+        return parts.count == 2 &&
+            parts[0].trimmingCharacters(in: .whitespacesAndNewlines) == "model_provider"
     }
 
     private func modelProviderAssignment(in rawValue: String) -> String? {
@@ -237,8 +366,48 @@ public struct SubrouterCodexResumeRouting: Sendable, Equatable {
            (first == "\"" && last == "\"") || (first == "'" && last == "'") {
             value.removeFirst()
             value.removeLast()
+        } else if value.first == "\"" || value.first == "'" ||
+                    value.last == "\"" || value.last == "'" {
+            return nil
         }
         return value
+    }
+
+    /// Tokenizes the small, canonical command form persisted for legacy
+    /// restores. Any shell operator, expansion, or unterminated quote makes
+    /// the evidence ambiguous and therefore unusable for routing.
+    private func shellCommandTokens(_ command: String) -> [String]? {
+        var tokens: [String] = []
+        var token = ""
+        var quote: Character?
+        var escaped = false
+        for character in command {
+            if escaped {
+                token.append(character)
+                escaped = false
+                continue
+            }
+            if character == "\\" && quote != "'" {
+                escaped = true
+                continue
+            }
+            if let activeQuote = quote {
+                if character == activeQuote { quote = nil } else { token.append(character) }
+                continue
+            }
+            if character == "'" || character == "\"" {
+                quote = character
+            } else if character.isWhitespace {
+                if !token.isEmpty { tokens.append(token); token = "" }
+            } else if ";|&<>$()`".contains(character) {
+                return nil
+            } else {
+                token.append(character)
+            }
+        }
+        guard !escaped, quote == nil else { return nil }
+        if !token.isEmpty { tokens.append(token) }
+        return tokens
     }
 
     private func isSubrouterRoutingAssignment(_ rawValue: String) -> Bool {

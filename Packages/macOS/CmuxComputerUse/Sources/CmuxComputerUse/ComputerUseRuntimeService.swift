@@ -306,6 +306,8 @@ public final class ComputerUseRuntimeService {
             recoveryTask = nil
             await serializeHelperLifecycle(cancelledResult: ()) { [weak self] in
                 guard let self else { return }
+                guard self.prepareRuntimeForLaunch(), let lease = self.acquireRuntimeLease() else { return }
+                defer { lease.release() }
                 _ = await self.stopDaemon()
             }
             cachedStatus = .unknown
@@ -317,6 +319,8 @@ public final class ComputerUseRuntimeService {
     public func ensureStandaloneHelperInstalled() async -> URL? {
         await serializeHelperLifecycle(cancelledResult: nil as URL?) { [weak self] in
             guard let self else { return nil }
+            guard self.prepareRuntimeForLaunch(), let lease = self.acquireRuntimeLease() else { return nil }
+            defer { lease.release() }
             return await self.ensureStandaloneHelperInstalledWithinLifecycle()
         }
     }
@@ -855,6 +859,56 @@ public final class ComputerUseRuntimeService {
         }
     }
 
+    /// Acquires the cross-process owner for every helper-mutating lifecycle
+    /// operation. Runtime validation happens first so a failed or untrusted
+    /// path never creates a lock file as a side effect.
+    private func acquireRuntimeLease() -> ComputerUseLaunchLease? {
+        do {
+            let lease = try ComputerUseLaunchLease(runtimeDirectory: paths.runtimeDirectoryURL)
+            guard try lease.tryAcquire() else { return nil }
+            return lease
+        } catch {
+            computerUseLogger.error("Computer Use launch lease unavailable: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Waits briefly for another cmux instance to finish its helper handoff.
+    /// Onboarding rollback must eventually stop the helper; silently skipping
+    /// shutdown when the lease is briefly busy leaves the other instance's
+    /// daemon running after setup reports failure.
+    private func acquireRuntimeLease(waitingUpToNanoseconds budget: UInt64) async -> ComputerUseLaunchLease? {
+        guard prepareRuntimeForLaunch() else { return nil }
+        do {
+            let lease = try ComputerUseLaunchLease(runtimeDirectory: paths.runtimeDirectoryURL)
+            let deadline = DispatchTime.now().uptimeNanoseconds + budget
+            while !Task.isCancelled {
+                if try lease.tryAcquire() {
+                    return lease
+                }
+                let now = DispatchTime.now().uptimeNanoseconds
+                guard now < deadline else { break }
+                let remaining = deadline - now
+                try await Task.sleep(nanoseconds: min(remaining, 50_000_000))
+            }
+            lease.release()
+            return nil
+        } catch is CancellationError {
+            return nil
+        } catch {
+            computerUseLogger.error("Computer Use launch lease unavailable while waiting: \(String(describing: error), privacy: .public)")
+            return nil
+        }
+    }
+
+    /// Stops helpers during onboarding rollback under the same cross-process
+    /// lease used by start, install, and explicit disable operations.
+    func stopDaemonWithRuntimeLease() async {
+        guard let lease = await acquireRuntimeLease(waitingUpToNanoseconds: 30_000_000_000) else { return }
+        defer { lease.release() }
+        _ = await stopDaemon()
+    }
+
     func serializeHelperLifecycle<Result: Sendable>(
         cancelledResult: Result,
         _ operation: @escaping @MainActor @Sendable () async -> Result
@@ -1020,6 +1074,13 @@ public final class ComputerUseRuntimeService {
         guard !isDisabledByPolicy() else { return }
         guard acceptsNewLaunches, !Task.isCancelled,
               helperLaunchRetry.allowsAttempt(at: uptime()) else { return }
+        // The service's actor-level serializer cannot coordinate a second
+        // cmux process using the same runtime scope. Hold a kernel lease before
+        // any PID-file truncation, socket replacement, install, or launch.
+        guard prepareRuntimeForLaunch(), let launchLease = acquireRuntimeLease() else {
+            return
+        }
+        defer { launchLease.release() }
         var ready = false
         defer {
             if !Task.isCancelled, acceptsNewLaunches {
@@ -1480,6 +1541,8 @@ public final class ComputerUseRuntimeService {
         recoveryTask?.cancel()
         recoveryTask = nil
         cancelReadinessPublication()
+        guard prepareRuntimeForLaunch(), let lease = acquireRuntimeLease() else { return }
+        defer { lease.release() }
         terminateRunningHelper(at: installedHelperURL ?? paths.installedHelperAppURL)
         clearTrackedHelperProcess()
         try? FileManager.default.removeItem(at: paths.daemonSocketURL)

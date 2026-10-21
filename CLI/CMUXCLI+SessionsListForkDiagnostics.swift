@@ -214,12 +214,156 @@ extension CMUXCLI {
                 hookRecordRestorable: hookRecordRestorable
             ),
         ]
+        let identityBinding = sessionsListIdentityBinding(
+            agent: agent,
+            record: diagnosticRecord,
+            transcriptBacked: sessionsListTranscriptBacked(
+                agent: agent,
+                record: diagnosticRecord,
+                claudeTranscriptLookup: claudeTranscriptLookup
+            )
+        )
+        diagnostics["identity_binding"] = identityBinding
         if let pid = diagnosticRecord.pid,
            let process = sessionsListProcessIdentity(for: pid) {
             diagnostics["stored_pid_arguments"] = process.arguments
         }
         diagnostics["stored_pid_exists"] = storedPIDExists ?? NSNull()
         return diagnostics
+    }
+
+    /// Joins the persisted panel/session record to live process evidence.
+    ///
+    /// A live PID or readable scrollback is not sufficient proof that a
+    /// restored pane is the requested provider session: PIDs can be reused,
+    /// and a fresh provider can render an indistinguishable prompt. Keep the
+    /// facts separate so a caller can require the complete chain before
+    /// marking a restore successful.
+    private func sessionsListIdentityBinding(
+        agent: String,
+        record: ClaudeHookSessionRecord,
+        transcriptBacked: Bool
+    ) -> [String: Any] {
+        let expectedSessionID = record.sessionId.trimmingCharacters(in: .whitespacesAndNewlines)
+        let expectedTranscriptPath = sessionsListNormalized(record.transcriptPath)
+        var binding: [String: Any] = [
+            "surface_id": record.surfaceId,
+            "workspace_id": record.workspaceId,
+            "expected_provider": agent,
+            "expected_session_id": expectedSessionID,
+            "expected_checkpoint_id": expectedSessionID,
+            "expected_transcript_path": expectedTranscriptPath ?? NSNull(),
+            "transcript_backed": transcriptBacked,
+            "status": "no_live_process",
+            "identity_match": false,
+        ]
+
+        guard let pid = record.pid,
+              let process = sessionsListProcessIdentity(for: pid) else {
+            return binding
+        }
+
+        let startMatches = sessionsListProcessStartTimeMatchesRecord(process.startTime, record: record)
+        let liveSessionID = sessionsListProcessSessionID(process.arguments, expected: expectedSessionID)
+        let sessionMatches = liveSessionID == expectedSessionID
+        let liveRoute = sessionsListProviderRoute(agent: agent, arguments: process.arguments)
+        let expectedRoute = sessionsListProviderRoute(
+            agent: agent,
+            arguments: record.launchCommand?.launcherPrefix
+                ?? record.launchCommand?.arguments
+                ?? []
+        )
+        let routeMatches = expectedRoute == "unknown" || liveRoute == "unknown" || expectedRoute == liveRoute
+
+        binding["pid"] = pid
+        binding["pid_start_matches"] = startMatches
+        binding["live_session_id"] = liveSessionID ?? NSNull()
+        binding["session_id_matches"] = sessionMatches
+        binding["expected_provider_route"] = expectedRoute
+        binding["live_provider_route"] = liveRoute
+        binding["provider_route_matches"] = routeMatches
+        binding["status"] = startMatches && sessionMatches && routeMatches ? "matched" : "mismatch"
+        binding["identity_match"] = startMatches && sessionMatches && routeMatches
+        return binding
+    }
+
+    private func sessionsListTranscriptBacked(
+        agent: String,
+        record: ClaudeHookSessionRecord,
+        claudeTranscriptLookup: SessionsListClaudeTranscriptLookupCache
+    ) -> Bool {
+        if let transcriptPath = sessionsListNormalized(record.transcriptPath),
+           sessionsListRegularNonEmptyFileExists(atPath: (transcriptPath as NSString).expandingTildeInPath) {
+            return true
+        }
+        if agent == "claude" {
+            return sessionsListClaudeTranscriptExists(record: record, lookup: claudeTranscriptLookup)
+        }
+        return false
+    }
+
+    /// Returns the provider session id only when the live argv names the
+    /// expected id. A nil result is deliberately ambiguous: wrappers may hide
+    /// the id, so callers must not turn it into a positive restore claim.
+    func sessionsListProcessSessionID(_ arguments: [String], expected: String) -> String? {
+        let normalized = expected.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty else { return nil }
+        return arguments.contains { $0 == normalized } ? normalized : nil
+    }
+
+    func sessionsListProviderRoute(agent: String, arguments: [String]) -> String {
+        switch agent.lowercased() {
+        case "codex":
+            // A live argv is often truncated by the kernel or belongs to a
+            // wrapper. Only an explicit, unambiguous provider assignment is
+            // strong enough to classify it. In particular, do not infer a
+            // route from prompt text or an arbitrary argument containing
+            // “subrouter” or “codex”.
+            switch SubrouterCodexResumeRouting().providerEvidence(in: arguments) {
+            case .provider(let provider) where provider == "subrouter":
+                return "subrouter"
+            case .provider:
+                return "direct"
+            case .absent, .ambiguous:
+                return "unknown"
+            }
+
+        case "claude":
+            // Claude's routed child does not retain a provider assignment in
+            // argv. Recognize only the exact launcher prefix; substring
+            // matches would misclassify prompts and incomplete wrapper argv.
+            let normalized = arguments.map { argument in
+                URL(fileURLWithPath: argument).lastPathComponent.lowercased()
+            }
+            let routedPrefixes = [
+                ["sr", "claude", "proxy", "--resume"],
+                ["subrouter", "claude", "proxy", "--resume"],
+            ]
+            if routedPrefixes.contains(where: { prefix in
+                normalized.starts(with: prefix)
+            }) {
+                return "subrouter"
+            }
+            guard let executable = normalized.first,
+                  executable == "claude" else {
+                return "unknown"
+            }
+            return "direct"
+
+        default:
+            return "unknown"
+        }
+    }
+
+    func sessionsListVerifiedRuntimeStatus(
+        _ status: AgentHookRuntimeStatus?,
+        storedPIDExists: Bool?
+    ) -> AgentHookRuntimeStatus? {
+        guard status == .running else { return status }
+        // A persisted running marker is only authoritative while the recorded
+        // process still exists. Do not let a dead or reused PID make sessions
+        // list report a stale record as live.
+        return storedPIDExists == true ? status : nil
     }
 
     private func sessionsListStalePIDBlocksRestoreIn06417(
@@ -459,7 +603,7 @@ extension CMUXCLI {
         }
     }
 
-    private func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {
+    func sessionsListStoredPIDExists(_ pid: Int?) -> Bool? {
         guard let pid, pid > 0 else { return nil }
         guard let processID = pid_t(exactly: pid) else { return nil }
         errno = 0

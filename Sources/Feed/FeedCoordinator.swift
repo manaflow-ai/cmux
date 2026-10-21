@@ -93,12 +93,31 @@ final class FeedCoordinator: @unchecked Sendable {
     /// an older phone. Notification changes do not emit `feed.changed`.
     static func combinedMobileFeedRevision(
         workstream: Int,
-        notifications: Int
+        notifications _: Int
     ) -> Int {
-        guard notifications > 0 else { return max(0, workstream) }
-        let high = UInt64(max(0, workstream)) & 0xFFFF_FFFF
-        let low = UInt64(max(0, notifications)) & 0xFFFF_FFFF
-        return Int(truncatingIfNeeded: (high << 32) | low)
+        // The wire contract is a signed Int on older phones. A full 32-bit
+        // high lane becomes negative once shifted into bit 63. Preserve the
+        // legacy packed namespace while there is ample signed headroom, then
+        // switch to a linear continuation before the 2 GiB boundary. This
+        // keeps revisions ordered across the transition and leaves room for
+        // the append-only byte generation to keep advancing; saturation at
+        // Int.max would suppress every later `feed.changed` event.
+        let workstreamValue = UInt64(max(0, workstream))
+        let legacyCutover: UInt64 = 0x4000_0000
+        if workstreamValue >= legacyCutover {
+            let cutoverPacked = (legacyCutover << 32) | 0xFFFF_FFFF
+            let continuation = cutoverPacked + (workstreamValue - legacyCutover)
+            return Int(min(continuation, UInt64(Int.max)))
+        }
+        // Notification history never invalidates this Feed and can be at a
+        // different loading stage for each request. Keep the low lane at its
+        // reserved high-water value instead of allowing an async journal load
+        // to move the combined revision backward under an older phone's
+        // cached packed revision. The append-only workstream generation still
+        // advances the high lane.
+        let high = workstreamValue
+        let low = UInt64.max & 0xFFFF_FFFF
+        return Int((high << 32) | low)
     }
 
     /// Must be called once at app launch to install the store.
@@ -134,10 +153,34 @@ final class FeedCoordinator: @unchecked Sendable {
         // Catch any pending items that were restored from disk whose
         // agent is already gone. After this, live tracking is
         // kqueue-driven — no polling.
+        reconcilePendingItems()
+    }
+
+    /// Reconciles pending rows after asynchronous persistence startup. The
+    /// store is installed before its JSONL snapshot is loaded so socket
+    /// ingress can be accepted immediately; restored rows therefore need a
+    /// second expiry/watcher pass once ``WorkstreamStore.start()`` completes.
+    @MainActor
+    func reconcileRestoredPendingItems() {
+        reconcilePendingItems()
+    }
+
+    /// Applies the same expiry and process-watcher reconciliation to both the
+    /// initial installation and the asynchronous restored snapshot.
+    @MainActor
+    private func reconcilePendingItems() {
+        guard let store else { return }
         store.expireAbandonedItems()
         for ppid in store.pending.compactMap(\.ppid) {
             armPidWatcher(ppid: ppid)
         }
+    }
+
+    /// Joins the Workstream JSONL and revision-sidecar writes before an
+    /// orderly application termination is acknowledged by AppKit.
+    @MainActor
+    func flushPersistenceForTermination() async {
+        await store?.flushPersistence()
     }
 
     /// Installs a one-shot kqueue watcher for `ppid`. The handler

@@ -27,17 +27,15 @@ import Testing
     }
 
     @Test
-    func retryableBusyIsRetriedUntilAdmitted() throws {
+    func retryableBusyIsRetriedUntilAdmitted() async throws {
         var sends = 0
-        var slept: [TimeInterval] = []
         var retriesAnnounced: [Int] = []
 
-        let response = try AgentRestoreAdmissionRetry().response(
-            delays: [0.5, 1, 2],
-            sleep: { slept.append($0) },
+        let response = try await AgentRestoreAdmissionRetry().response(
+            delays: [.zero, .zero, .zero],
             onRetry: { retriesAnnounced.append($0) },
             isRetryable: Self.isRetryable
-        ) { () throws -> [String: Bool] in
+        ) { () async throws -> [String: Bool] in
             sends += 1
             if sends < 3 { throw AdmissionFailure(retryable: true) }
             return ["admitted": true]
@@ -45,54 +43,109 @@ import Testing
 
         #expect(response["admitted"] == true)
         #expect(sends == 3)
-        #expect(slept == [0.5, 1])
         #expect(retriesAnnounced == [0, 1])
     }
 
     @Test
-    func exhaustedBudgetPropagatesTheLastBusyAnswer() {
+    func cancellationStopsRetryDelay() async {
         var sends = 0
-        var slept: [TimeInterval] = []
-
-        #expect(throws: AdmissionFailure.self) {
-            try AgentRestoreAdmissionRetry().response(
-                delays: [0.5, 1],
-                sleep: { slept.append($0) },
+        let task = Task {
+            try await AgentRestoreAdmissionRetry().response(
+                delays: [.seconds(60)],
                 isRetryable: Self.isRetryable
-            ) { () throws -> Bool in
+            ) { () async throws -> Bool in
+                sends += 1
+                throw AdmissionFailure(retryable: true)
+            }
+        }
+        task.cancel()
+        await #expect(throws: CancellationError.self) {
+            try await task.value
+        }
+        #expect(sends == 1)
+    }
+
+    @Test
+    func exhaustedBudgetPropagatesTheLastBusyAnswer() async {
+        var sends = 0
+        var retriesAnnounced: [Int] = []
+
+        await #expect(throws: AdmissionFailure.self) {
+            try await AgentRestoreAdmissionRetry().response(
+                delays: [.zero, .zero],
+                onRetry: { retriesAnnounced.append($0) },
+                isRetryable: Self.isRetryable
+            ) { () async throws -> Bool in
                 sends += 1
                 throw AdmissionFailure(retryable: true)
             }
         }
         #expect(sends == 3)
-        #expect(slept == [0.5, 1])
+        #expect(retriesAnnounced == [0, 1])
     }
 
     @Test
-    func nonRetryableFailuresAreNotRetried() {
+    func nonRetryableFailuresAreNotRetried() async {
         var sends = 0
-        var slept: [TimeInterval] = []
+        var retriesAnnounced: [Int] = []
 
-        #expect(throws: AdmissionFailure.self) {
-            try AgentRestoreAdmissionRetry().response(
-                delays: [0.5, 1],
-                sleep: { slept.append($0) },
+        await #expect(throws: AdmissionFailure.self) {
+            try await AgentRestoreAdmissionRetry().response(
+                delays: [.zero, .zero],
+                onRetry: { retriesAnnounced.append($0) },
                 isRetryable: Self.isRetryable
-            ) { () throws -> Bool in
+            ) { () async throws -> Bool in
                 sends += 1
                 throw AdmissionFailure(retryable: false)
             }
         }
         #expect(sends == 1)
-        #expect(slept.isEmpty)
+        #expect(retriesAnnounced.isEmpty)
     }
 
     @Test
     func defaultBudgetWaitsLongEnoughForAHookStormToSubside() {
-        let total = AgentRestoreAdmissionRetry().delaysSeconds.reduce(0, +)
-        #expect(total >= 30)
-        #expect(total <= 60)
-        #expect(AgentRestoreAdmissionRetry().delaysSeconds.first.map { $0 <= 1 } == true)
+        let total = AgentRestoreAdmissionRetry().delays.reduce(Duration.zero, +)
+        #expect(total >= .seconds(30))
+        #expect(total <= .seconds(60))
+        #expect(AgentRestoreAdmissionRetry().delays.first.map { $0 <= .seconds(1) } == true)
+    }
+
+    @Test
+    func recoveryBudgetStopsAtAttemptOrDeadline() {
+        var now = Date(timeIntervalSince1970: 100)
+        var budget = AgentRestoreAdmissionRecoveryBudget(
+            timeout: 10,
+            maximumAttempts: 2,
+            start: now,
+            now: { now }
+        )
+
+        let firstAttempt = budget.beginAttempt()
+        let secondAttempt = budget.beginAttempt()
+        let exhaustedAttempt = budget.beginAttempt()
+        #expect(firstAttempt)
+        #expect(secondAttempt)
+        #expect(!exhaustedAttempt)
+
+        var deadlineBudget = AgentRestoreAdmissionRecoveryBudget(
+            timeout: 10,
+            maximumAttempts: 3,
+            start: now,
+            now: { now }
+        )
+        now = now.addingTimeInterval(11)
+        let expiredAttempt = deadlineBudget.beginAttempt()
+        #expect(!expiredAttempt)
+
+        var clippedBudget = AgentRestoreAdmissionRecoveryBudget(
+            timeout: 3,
+            maximumAttempts: 3,
+            start: Date(timeIntervalSince1970: 100),
+            now: { Date(timeIntervalSince1970: 100) }
+        )
+        let clipped = clippedBudget.retryDelays([.seconds(1), .seconds(5), .seconds(5)])
+        #expect(clipped == [.seconds(1), .seconds(2)])
     }
 }
 

@@ -10,7 +10,9 @@ public import Foundation
 @MainActor
 public final class TerminalSurfaceRestoreSpawnScheduler: TerminalSurfaceRuntimeSpawnScheduling {
     /// Default spacing between restored terminal native spawns.
-    public static let defaultInterSpawnDelay: Duration = .milliseconds(125)
+    // One second keeps a large restore below the login-shell and provider
+    // admission burst that can overwhelm WindowServer or Subrouter.
+    public static let defaultInterSpawnDelay: Duration = .seconds(1)
     /// Default spacing after a restored agent resume's native spawn.
     public static let defaultAgentResumeInterSpawnDelay: Duration = .milliseconds(750)
 

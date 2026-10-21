@@ -14,6 +14,58 @@ import Testing
 /// relaunch brought none back, though the journal and hook store knew them all.
 @Suite(.serialized)
 struct AgentSessionRecoveryAppTests {
+    /// Codex does not emit the Claude-style session-end hook. cmux owns the
+    /// panel-close boundary, so an unclean app exit must still recover a
+    /// Codex session whose process died with the app.
+    @Test
+    func codexSessionKilledWithTheAppIsRecoveredThroughRestoreVerb() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("cmux-codex-agent-recovery-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let now = Date()
+        let sessionID = "codex-recovery-\(UUID().uuidString.lowercased())"
+        let journalURL = root.appendingPathComponent("journal.sqlite3")
+        let store = try AgentJournalStore(databaseURL: journalURL)
+        _ = try store.append(AgentJournalEventDraft(
+            kind: .sessionStarted,
+            occurredAtMs: Int64(now.addingTimeInterval(-60).timeIntervalSince1970 * 1000),
+            source: "codex",
+            agentKey: "codex",
+            sessionId: sessionID,
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString
+        ))
+        store.close()
+
+        let transcript = root.appendingPathComponent("\(sessionID).jsonl")
+        try Data("{}\n".utf8).write(to: transcript)
+        var file = RestorableAgentHookSessionStoreFile()
+        file.sessions[sessionID] = RestorableAgentHookSessionRecord(
+            sessionId: sessionID,
+            workspaceId: UUID().uuidString,
+            surfaceId: UUID().uuidString,
+            cwd: "/tmp",
+            transcriptPath: transcript.path,
+            pid: nil,
+            launchCommand: AgentLaunchCommand(launcher: "codex", arguments: ["codex"]),
+            isRestorable: true,
+            updatedAt: now.timeIntervalSince1970
+        )
+        try JSONEncoder().encode(file).write(to: root.appendingPathComponent("codex-hook-sessions.json"))
+
+        let recovery = AgentSessionRecovery(
+            journalURL: journalURL,
+            homeDirectory: root.path,
+            environment: ["CMUX_AGENT_HOOK_STATE_DIR": root.path]
+        )
+        let candidates = recovery.candidates(openSessionIds: [], activeSince: now.addingTimeInterval(-600), now: now)
+        let candidate = try #require(candidates.first)
+        #expect(candidate.kind == "codex")
+        #expect(AgentSessionRecovery.resumeCommand(for: candidate)?.hasSuffix(" restore codex \(sessionID)") == true)
+    }
+
     @Test
     func sessionsKilledWithTheAppResumeThroughTheirLauncher() throws {
         let root = FileManager.default.temporaryDirectory
@@ -511,5 +563,124 @@ struct AgentSessionRecoveryAppTests {
             }
             #expect(code == "invalid_params")
         }
+    }
+
+    /// Persisted restore metadata is not proof that an agent is still open.
+    /// A dead snapshot or hook binding must remain eligible for the next
+    /// recovery pass, while a launch that is actually in flight remains
+    /// protected from a duplicate resume.
+    @MainActor
+    @Test
+    func staleRestoreMetadataIsRetryableButInFlightRestoreIsOpen() throws {
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.tabManager = manager
+        AppDelegate.shared = app
+        defer {
+            app.tabManager = nil
+            manager.finalizeAllWorkspacesForWindowClose()
+            AppDelegate.shared = previousApp
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let staleSnapshotID = UUID()
+        let staleBindingID = UUID()
+        let inFlightID = UUID()
+        let staleSnapshotSession = "stale-snapshot-\(UUID().uuidString)"
+        let staleBindingSession = "stale-binding-\(UUID().uuidString)"
+        let inFlightSession = "in-flight-\(UUID().uuidString)"
+
+        workspace.restoredAgentLifecycle.seedSessionRestore(
+            panelId: staleSnapshotID,
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .codex,
+                sessionId: staleSnapshotSession,
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            manualResumeAvailable: true,
+            willRunStartupInput: false,
+            resumeWorkingDirectory: nil
+        )
+        workspace.surfaceResumeBindingsByPanelId[staleBindingID] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code",
+            kind: "claude",
+            command: "claude --resume \(staleBindingSession)",
+            checkpointId: staleBindingSession,
+            source: "agent-hook",
+            updatedAt: Date().timeIntervalSince1970
+        )
+        workspace.restoredAgentLifecycle.seedSessionRestore(
+            panelId: inFlightID,
+            snapshot: SessionRestorableAgentSnapshot(
+                kind: .claude,
+                sessionId: inFlightSession,
+                workingDirectory: "/tmp",
+                launchCommand: nil
+            ),
+            manualResumeAvailable: false,
+            willRunStartupInput: true,
+            resumeWorkingDirectory: nil
+        )
+
+        let open = app.openAgentSessionIdsForRecovery()
+        #expect(!open.contains(staleSnapshotSession))
+        #expect(!open.contains(staleBindingSession))
+        #expect(open.contains(inFlightSession))
+    }
+
+    /// Hibernation tears down the agent process by design, but the terminal
+    /// still owns the durable session. Recovery must not reopen that session
+    /// from the hook/journal while the panel is asleep.
+    @MainActor
+    @Test
+    func hibernatedRestoredPanelIsOpenForRecoveryDeduplication() throws {
+        let previousApp = AppDelegate.shared
+        let app = AppDelegate()
+        let manager = TabManager(autoWelcomeIfNeeded: false)
+        app.tabManager = manager
+        AppDelegate.shared = app
+        defer {
+            app.tabManager = nil
+            manager.finalizeAllWorkspacesForWindowClose()
+            AppDelegate.shared = previousApp
+        }
+
+        let workspace = try #require(manager.selectedWorkspace)
+        let panelId = try #require(workspace.focusedPanelId)
+        let sessionID = "hibernated-open-\(UUID().uuidString.lowercased())"
+        let agent = SessionRestorableAgentSnapshot(
+            kind: .codex,
+            sessionId: sessionID,
+            workingDirectory: "/tmp",
+            launchCommand: AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                executablePath: "/usr/local/bin/codex",
+                arguments: ["/usr/local/bin/codex"],
+                workingDirectory: "/tmp",
+                capturedAt: nil,
+                source: "agent-hook"
+            )
+        )
+
+        try #require(workspace.enterAgentHibernation(
+            panelId: panelId,
+            agent: agent,
+            lastActivityAt: Date(timeIntervalSince1970: 0)
+        ))
+        let panel = try #require(workspace.panels[panelId] as? TerminalPanel)
+        #expect(panel.isAgentHibernated)
+        let staleBindingSessionID = "stale-hibernated-binding-\(UUID().uuidString.lowercased())"
+        workspace.surfaceResumeBindingsByPanelId[panelId] = SurfaceResumeBindingSnapshot(
+            name: "Claude Code",
+            kind: "claude",
+            command: "claude --resume \(staleBindingSessionID)",
+            checkpointId: staleBindingSessionID,
+            source: "agent-hook",
+            updatedAt: Date().timeIntervalSince1970
+        )
+        #expect(app.openAgentSessionIdsForRecovery().contains(sessionID))
+        #expect(!app.openAgentSessionIdsForRecovery().contains(staleBindingSessionID))
     }
 }
