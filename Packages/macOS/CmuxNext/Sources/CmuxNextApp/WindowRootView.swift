@@ -164,14 +164,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         placementObservation = observePlacement()
         contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
-        // The sidebar landed: content that held a costly resize while the
-        // content edge moved does it once, now (`RestingPlacement`). The whole
-        // window, not only the content host: `isContentAreaInMotion` is read
-        // through the window, so every view in it held.
-        sidebar.onWidthMotionChange = { [weak self] animating in
-            guard !animating else { return }
-            self?.notifyPaneMotionSettled()
-        }
+        wireContentAreaMotion()
         applyMainPane()
         mainPaneObservation = observeMainPane()
         // queue: .main: the workspace center may post off main; a selector
@@ -233,13 +226,6 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// Called from layout when the band's presence changed, so strips under
     /// the top row recompute their inset in the same layout pass.
     var onToolbarBandPresenceChange: (() -> Void)?
-
-    /// Whether the chrome is resizing the content area over frames
-    /// (`ContentAreaMotionHosting`, read through `ShellWindow`): the sidebar
-    /// sliding open or closed moves the content edge on every display frame,
-    /// so content whose resize is costly (a terminal's PTY grid) holds it
-    /// until the landing, as it does inside a pane's own layout spring.
-    var isContentAreaInMotion: Bool { sidebar.isWidthAnimating }
 
     /// Work after the window's layout pass (`ShellWindow.layoutIfNeeded`),
     /// when every frame is final: the agent cursor goes back on top after a

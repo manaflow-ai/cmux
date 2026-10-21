@@ -9,8 +9,11 @@ Reported, not judged (no threshold fails a run):
 
 - `relayouts`: display frames on which a pane's content view changed width. One per frame of
   the slide is the cost; the animation needs it to look right, so this is context for the rest.
-- `lag_frames`: frames the widest pane's content trailed the sidebar's own width change, so a
-  pane that stops following the edge shows up.
+- `stalled`: frames on which the sidebar's own width moved and no pane's content width did,
+  so a pane that stops following the edge shows up. Counted per frame against the same
+  sample, not by matching one series against the other: a slide is a change on every frame,
+  so "how many frames did the content trail by" has no well-defined answer, while "the edge
+  moved and nothing followed" does.
 - `grid_reports`: terminals' grid reports over the toggle (`debug.layout_counters`), one PTY
   resize and shell redraw each. A slide should add one per terminal, at the landing, not one
   per frame: that is what holding the grid through the motion buys
@@ -20,18 +23,19 @@ Reported, not judged (no threshold fails a run):
 
 A pane row of a `panes` sample is `[pane, x, y, width, height, alpha, z, fx, fy, fwidth,
 fheight, cwidth, cheight, header, cx, cy, cwidth, cheight]` (ScreenContentView+MotionSample.swift):
-index 9 is the pane host's width and index 11 its content view's.
+index 11 is the pane content view's width.
 """
 
 from __future__ import annotations
 
-HOST_WIDTH = 9
 CONTENT_WIDTH = 11
 EPS = 0.75  # points: a width this close to the last one is the same width
 
 
 def _rows(samples: list[dict]) -> list[dict[str, float]]:
-    """Per frame, each pane's content width by pane id; frames with no pane row are dropped."""
+    """Per frame, each pane's content width by pane id. One entry per sample, so a frame
+    carrying no pane row (a hidden screen samples `[:]`) is an empty dict and the result
+    still lines up index for index with the sidebar's own series."""
     frames = []
     for sample in samples:
         widths: dict[str, float] = {}
@@ -42,9 +46,31 @@ def _rows(samples: list[dict]) -> list[dict[str, float]]:
                 widths[str(row[0])] = float(row[CONTENT_WIDTH])
             except (TypeError, ValueError):
                 continue
-        if widths:
-            frames.append(widths)
+        frames.append(widths)
     return frames
+
+
+def _edge(samples: list[dict]) -> list[float | None]:
+    """The sidebar's own width per frame: whichever of the frame width (index 0) and the
+    presented width (index 1) changed on more frames, as golden.py's `sidebar_series`
+    picks (the other may jump straight to its target)."""
+    series: list[list[float | None]] = []
+    for index in (0, 1):
+        values: list[float | None] = []
+        for sample in samples:
+            row = sample.get("sidebar")
+            try:
+                values.append(float(row[index]))
+            except (TypeError, ValueError, IndexError, KeyError):
+                values.append(None)
+        series.append(values)
+    return max(series, key=_changes)
+
+
+def _changes(values: list[float | None]) -> int:
+    """Frames on which `values` differs from the frame before it."""
+    return sum(1 for before, after in zip(values, values[1:])
+               if before is not None and after is not None and abs(after - before) > EPS)
 
 
 def _counter_delta(counters: dict, key: str) -> int | None:
@@ -61,9 +87,10 @@ def metrics(data: dict) -> dict:
     """Report-only numbers for one toggle."""
     samples = data.get("samples") or []
     frames = _rows(samples)
-    result: dict = {"frames": len(frames)}
-    if frames:
-        panes = sorted(set(frames[0]) & set(frames[-1]))
+    drawn = [frame for frame in frames if frame]
+    result: dict = {"frames": len(drawn)}
+    if drawn:
+        panes = sorted(set(drawn[0]) & set(drawn[-1]))
         relayouts = 0
         for previous, current in zip(frames, frames[1:]):
             if any(pane in previous and pane in current and abs(current[pane] - previous[pane]) > EPS
@@ -71,11 +98,10 @@ def metrics(data: dict) -> dict:
                 relayouts += 1
         result["relayouts"] = relayouts
         result["panes"] = len(panes)
-        travel = {pane: abs(frames[-1][pane] - frames[0][pane]) for pane in panes}
-        widest = max(travel, key=lambda pane: travel[pane]) if travel else None
-        if widest is not None:
-            result["travel"] = round(travel[widest], 2)
-            result["lag_frames"] = _lag(samples, frames, widest)
+        travel = [abs(drawn[-1][pane] - drawn[0][pane]) for pane in panes]
+        if travel:
+            result["travel"] = round(max(travel), 2)
+        result["stalled"] = _stalled(_edge(samples), frames, panes)
     counters = data.get("counters") or {}
     for name, key in (("grid_reports", "terminal_grid_reports"), ("root_layouts", "layout_root_layouts"),
                       ("window_updates", "terminal_window_updates")):
@@ -85,25 +111,25 @@ def metrics(data: dict) -> dict:
     return result
 
 
-def _lag(samples: list[dict], frames: list[dict[str, float]], pane: str) -> int:
-    """The most frames `pane`'s content trailed the sidebar's own last width change."""
-    widths = [float((sample.get("sidebar") or [0, 0])[0]) for sample in samples]
-    if len(widths) != len(samples) or len(frames) < 2:
-        return 0
-    content = [frame.get(pane) for frame in frames]
-    # The traces are the same frames in order, but a frame without a pane row was dropped:
-    # compare only the last min(len) frames of each, which is where the motion is.
-    count = min(len(widths), len(content))
-    widths, content = widths[-count:], content[-count:]
-    worst, pending = 0, None
+def _stalled(edge: list[float | None], frames: list[dict[str, float]], panes: list[str]) -> int:
+    """Frames on which the sidebar's width moved and no pane's content width did.
+
+    Both series come from the same samples, one entry per frame, so this needs no matching
+    between traces: a frame counts only when the edge is known to have moved and at least
+    one pane's width is known to have stayed. A content view that never follows the edge
+    counts every frame of the slide; a perfect follow counts none.
+    """
+    count = min(len(edge), len(frames))
+    stalled = 0
     for index in range(1, count):
-        if widths[index] is not None and widths[index - 1] is not None and abs(widths[index] - widths[index - 1]) > EPS:
-            pending = index
-        if pending is not None and content[index] is not None and content[index - 1] is not None \
-                and abs(content[index] - content[index - 1]) > EPS:
-            worst = max(worst, index - pending)
-            pending = None
-    return worst
+        before, after = edge[index - 1], edge[index]
+        if before is None or after is None or abs(after - before) <= EPS:
+            continue
+        previous, current = frames[index - 1], frames[index]
+        shared = [pane for pane in panes if pane in previous and pane in current]
+        if shared and all(abs(current[pane] - previous[pane]) <= EPS for pane in shared):
+            stalled += 1
+    return stalled
 
 
 def note(result: dict) -> str:
@@ -114,8 +140,8 @@ def note(result: dict) -> str:
                      f"{result['frames']} frames")
     if "grid_reports" in result:
         parts.append(f"{result['grid_reports']} terminal grid report(s)")
-    if result.get("lag_frames"):
-        parts.append(f"content trailed the edge by {result['lag_frames']} frame(s)")
+    if result.get("stalled"):
+        parts.append(f"the edge moved with no pane following it on {result['stalled']} frame(s)")
     if "root_layouts" in result:
         parts.append(f"{result['root_layouts']} layout root pass(es)")
     return "; ".join(parts) + " (reported only)" if parts else "no pane samples"

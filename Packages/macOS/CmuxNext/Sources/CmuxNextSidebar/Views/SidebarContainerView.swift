@@ -53,7 +53,11 @@ public final class SidebarContainerView: NSView {
     /// PTY grid) holds it until the landing
     /// (`ContentAreaMotionHosting`, `onWidthMotionChange`).
     public private(set) var isWidthAnimating = false {
-        didSet { if isWidthAnimating != oldValue { onWidthMotionChange?(isWidthAnimating) } }
+        didSet {
+            guard isWidthAnimating != oldValue else { return }
+            if !isWidthAnimating { widthMotionWatchdog.cancel() }
+            onWidthMotionChange?(isWidthAnimating)
+        }
     }
     /// Called when the width starts and stops animating. The window tells its
     /// content when the motion lands (`NSView.notifyPaneMotionSettled`).
@@ -62,8 +66,19 @@ public final class SidebarContainerView: NSView {
     /// sliding under a still pointer (cx-3wu5), which needs no 120 Hz: a
     /// refresh walks every hover target of the window, so one deadline is
     /// pending at a time and the landing runs the last refresh.
-    private let hoverRefresh = DemandTimer(owner: "sidebar.hover-refresh")
-    private static let hoverRefreshDelay: Duration = .milliseconds(33)
+    let hoverRefresh = DemandTimer(owner: "sidebar.hover-refresh")
+    static let hoverRefreshDelay: Duration = .milliseconds(33)
+    /// Ends the motion if the animation's completion never arrives. AppKit
+    /// leaves an `animator()` change where it stands when the display sleeps
+    /// mid-animation and drops its completion (`MotionInFlight`), and
+    /// `animateTimed` has no `settleAtSleep` route out of that. A lost
+    /// completion used to leave a collapsed panel visible at width 0; now it
+    /// would also leave `isWidthAnimating` true, and with it every terminal in
+    /// the window holding its grid report for good. The motion ends on its own
+    /// shortly after it was due instead.
+    let widthMotionWatchdog = DemandTimer(owner: "sidebar.width-motion-watchdog")
+    /// How long past an animation's own duration the watchdog waits.
+    static let widthMotionSlack: Duration = .milliseconds(500)
 
     /// The window edge this sidebar sits on (`sidebar.side`, R109): the
     /// resize handle and the slide-out follow it.
@@ -288,11 +303,6 @@ public final class SidebarContainerView: NSView {
         hoverRefresh.scheduleIfIdle(after: Self.hoverRefreshDelay) { @MainActor [weak self] in self?.refreshHover() }
     }
 
-    private func refreshHover() {
-        hoverRefresh.cancel()
-        PointerHover.refresh(in: window)
-    }
-
     /// Sets every constraint and visibility for the model without animating.
     private func snap() {
         targetWidth = model.displayWidth
@@ -336,6 +346,7 @@ public final class SidebarContainerView: NSView {
         // With no animation at all (Reduce Motion, the gate off) the width lands
         // in this turn and the completion clears this again at once.
         isWidthAnimating = true
+        armWidthMotionWatchdog(hidden ? .disappear : .appear)
         widthCompletedGeneration = nil
         fadeCompletedGeneration = collapseMotion.fadesPanel ? nil : generation
         // Animate only the constraint: descendants re-lay out each frame at
