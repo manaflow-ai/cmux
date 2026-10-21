@@ -88,14 +88,14 @@ mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
-pub use paging::{EventFilter, EventPage};
+pub use paging::{EventFilter, EventPage, MAX_PAGE_BYTES, page_bytes};
 pub use spawn::expand_env_value;
 pub mod approvers;
 mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
+pub(crate) use peers::{PEER_LAGGED, PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
 mod permission_groups;
 mod permissions;
 pub mod person;
