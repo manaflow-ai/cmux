@@ -289,7 +289,7 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { FailedPrompt } from "./FailedPrompt";
+import { DeliveryFailure, DeliveryMark } from "./conversation/PromptDelivery";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
@@ -465,6 +465,12 @@ function refusedMachine(error: unknown): string | undefined {
   const details = (error as { details?: unknown } | null)?.details;
   const name = details && typeof details === "object" ? (details as { machineName?: unknown }).machineName : undefined;
   return typeof name === "string" && name ? name : undefined;
+}
+
+/// The failed prompt row a refused send left (direct.ts `send`), when it left one.
+function failedRowOf(error: unknown): string | undefined {
+  const row = (error as { failedRow?: unknown } | null)?.failedRow;
+  return typeof row === "string" ? row : undefined;
 }
 
 function callNative<T>(method: string, params: Record<string, unknown> = {}): Promise<T> {
@@ -649,7 +655,8 @@ const MessageRow = memo(
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
-          <FailedPrompt row={row} />
+          <DeliveryFailure row={row} />
+          {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
@@ -4725,8 +4732,14 @@ function AcpmuxPane() {
               // The send's own gesture is kept for this prompt now, before the Trust click, whose
               // gesture goes to the trust answer (heldPrompt.ts).
               void heldPrompt.hold();
-              if (!inComposer) restorePrompt(text, attachments);
-              trustRefused.current?.(error, () => composerHandle.current?.send());
+              // A prompt kept as its own failed row: Trust sends that row again, never what the
+              // composer holds by then.
+              const row = failedRowOf(error);
+              if (row) trustRefused.current?.(error, () => void client.retryPrompt(row));
+              else {
+                if (!inComposer) restorePrompt(text, attachments);
+                trustRefused.current?.(error, () => composerHandle.current?.send());
+              }
             }
             throw error;
           };
@@ -4883,6 +4896,13 @@ function AcpmuxPane() {
             ),
           "chat.harness.cancelPrompt": async ({ promptId }) => harnessSwitch.cancelQueued(String(promptId)),
           "chat.retryPrompt": ({ rowId }) => client.retryPrompt(String(rowId)),
+          // Edit on a prompt that did not get there: its row goes and the prompt comes back to the
+          // composer, ahead of what is typed there now.
+          "chat.editFailedPrompt": async ({ rowId }) => {
+            const failed = client.takeFailedPrompt(String(rowId));
+            if (failed) composerHandle.current?.restore(failed.input, failed.attachments);
+          },
+          "chat.removeFailedPrompt": async ({ rowId }) => client.removeFailedPrompt(String(rowId)),
           // Retry with another model (cx-ncc.62): the chat moves to the model as the picker moves it,
           // then the prompt goes again with its attachments. A refused move sends nothing (its notice
           // says why), so the retry never runs on the old model.
@@ -6114,8 +6134,24 @@ function AcpmuxPane() {
             // Shell mode's chips carry their commands' output as it is now.
             const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
             if (!snapshot.sessionId) claimShellRuns.current = true;
-            // The composer keeps the prompt until acpmux takes it: a refusal (folder trust, the
-            // remote guard, the sandbox) leaves it there to send again.
+            // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
+            // it leaves the composer at once and shows as its own row, which says how far it got,
+            // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
+            // row showed (the chat could not take prompts) comes back to the composer.
+            if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft) {
+              const holder = composerHandle.current;
+              callNative("chat.send", { text, attachments, steer }).then(
+                () => promptLanded.current(),
+                (error: unknown) => {
+                  cancelOpenInWindow();
+                  if (failedRowOf(error) || isTrustRefusal(error)) return;
+                  (composerHandle.current ?? holder)?.restore(text, attachments);
+                },
+              );
+              return true;
+            }
+            // A new chat's composer keeps the prompt until acpmux takes it: a refusal (folder
+            // trust, the remote guard, the sandbox) leaves it there to send again.
             let accept: (taken: true) => void = () => undefined;
             const taken = new Promise<true>((resolve) => (accept = resolve));
             const send = async () => {

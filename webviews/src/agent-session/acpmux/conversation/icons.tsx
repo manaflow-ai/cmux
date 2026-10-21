@@ -166,6 +166,22 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Two checks: a prompt the agent started on (conversation/PromptDelivery.tsx). */
+export const DoubleCheck = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M2.2 8.3 4.8 10.9 9.8 5.2" />
+    <path d="M7.4 10.6 7.8 10.9 12.8 5.2" />
+  </Svg>
+);
+
+/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx). */
+export const Clock = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 5v3.2l2 1.3" />
+  </Svg>
+);
+
 /** Thread summary toggle in the title bar: two rings with bars. */
 export const SummaryToggle = (p: CvIconProps) => (
   <Svg {...p}>

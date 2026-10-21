@@ -63,7 +63,7 @@ with the first run's outcome, marked `_meta.acpmux.duplicate` (`hub/turns.rs pro
 ## Recovery on a failed row
 
 - Retry: the same prompt id again (above).
-- Edit: the text and attachments go back into the composer (appended under a draft typed since,
+- Edit: the text and attachments go back into the composer (ahead of a draft typed since,
   never over it), and the row goes. A queued prompt uses `_acpmux/queue_edit` as today.
 - Remove: the row goes; a prompt acpmux queued is withdrawn (`_acpmux/queue_remove`).
 - Folder trust: the row says the folder is not trusted yet, with Trust. Trust re-sends this row's

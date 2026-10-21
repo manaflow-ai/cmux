@@ -246,6 +246,32 @@
 .cv-user__cancel:hover {
   color: var(--cv-text);
 }
+/* A sent prompt's way to the agent (PromptDelivery.tsx): a quiet clock or checks under its bubble,
+   and a failed prompt's actions and Details. */
+.cv-user__delivery {
+  justify-content: flex-end;
+  align-items: center;
+  gap: 4px;
+}
+.cv-user__status--failed {
+  flex-direction: column;
+  align-items: flex-end;
+}
+.cv-user__failure {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  align-items: baseline;
+  gap: 8px;
+}
+.cv-user__delivery-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2px;
+  margin-top: 2px;
+  font-variant-numeric: tabular-nums;
+}
 /* Cancel on the start status line, which then reads "Thinking" in the same place (cx-ncc.58). */
 .cv-thinking__cancel {
   margin-left: 6px;
