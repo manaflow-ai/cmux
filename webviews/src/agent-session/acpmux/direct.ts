@@ -53,6 +53,7 @@ import { incomingPrompt, renderedReply, type IncomingMessage } from "./conversat
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
+import { failedSendText } from "./sendFailure";
 import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
 import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
@@ -3475,7 +3476,7 @@ export class AcpmuxDirectClient {
           this.notice(
             code === "transport.gesture_required"
               ? translate("prompt.notSentAgain")
-              : translate("prompt.notSent", { reason: errorMessage(error) }),
+              : failedSendText(error, false),
           );
         else this.emit();
         throw error;
@@ -3496,18 +3497,14 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
-        // bubble says why it got no reply, in the words of whoever refused it. A refusal for want
-        // of a gesture names that (the generic refusal's text is about a pick): posted input (a
-        // script, a computer-use agent) is never the person's (cx-ocdz), and the Retry click is
-        // (hq#2569 item 5). A Retry refused again says "Still", so the click visibly did something.
-        const reason = code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
+        // bubble says why it got no reply in one plain sentence chosen by the refusal's reason and
+        // code (sendFailure.ts); the refuser's own words and code stay for Details.
+        const reason = (error as { reason?: unknown } | null)?.reason;
         this.rows.set(rowId, {
           ...row,
           pending: false,
           failed: true,
-          error: translate(this.retriedPrompts.has(promptId) ? "prompt.stillNotSent" : "prompt.notSent", {
-            reason: reason || translate("transport.refused"),
-          }),
+          error: failedSendText(error, this.retriedPrompts.has(promptId)),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -3516,7 +3513,8 @@ export class AcpmuxDirectClient {
           failedAt: Date.now(),
           hop: deliveryHop(typeof code === "string" ? code : undefined, taken),
           ...(typeof code === "string" ? { code } : {}),
-          error: errorMessage(error),
+          ...(typeof reason === "string" ? { reason } : {}),
+          error: error instanceof Error ? error.message : errorMessage(error),
         });
         // The prompt stays as this failed row: the pane's sender puts nothing back in the composer,
         // and a Trust answer re-sends this row (not whatever the composer holds then).
@@ -3551,6 +3549,7 @@ export class AcpmuxDirectClient {
     if (next.state !== "failed") {
       delete next.hop;
       delete next.code;
+      delete next.reason;
       delete next.error;
       delete next.failedAt;
     }
