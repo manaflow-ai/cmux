@@ -183,9 +183,29 @@ test("a prompt sent behind the running turn with two images queues a row with bo
     }
   }
   let snapshot: { queue: QueuedPrompt[]; isWorking?: boolean } = { queue: [] };
+  const waiting = new Set<() => void>();
+  /// Resolves once `condition` holds, checked as the client publishes each snapshot; fails naming `what`.
+  const until = (condition: () => boolean, what: string, timeout = 5_000) =>
+    new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!condition()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`the pane never showed ${what} within ${timeout} ms`));
+      }, timeout);
+      waiting.add(check);
+      check();
+    });
   const client = await AcpmuxDirectClient.connect(
     mockHost,
-    (next) => (snapshot = next as typeof snapshot),
+    (next) => {
+      snapshot = next as typeof snapshot;
+      for (const wake of waiting) wake();
+    },
     undefined,
     () => new LaggingHost() as unknown as WebSocket,
   );
@@ -199,12 +219,11 @@ test("a prompt sent behind the running turn with two images queues a row with bo
   });
   try {
     void client.send("start the work").catch(() => undefined);
-    for (let tries = 0; tries < 50 && !snapshot.isWorking; tries += 1) await new Promise((r) => setTimeout(r, 5));
+    await until(() => snapshot.isWorking === true, "the turn running");
     void client
       .send("and look at these", [image("local-1", "sidebar.png", PNG_A), image("local-2", "toolbar.png", PNG_B)])
       .catch(() => undefined);
-    for (let tries = 0; tries < 50 && snapshot.queue.length === 0; tries += 1)
-      await new Promise((r) => setTimeout(r, 5));
+    await until(() => snapshot.queue.length > 0, "a queued row");
     expect(snapshot.queue.map((entry) => entry.images?.map((each) => [each.name, each.src]))).toEqual([
       [
         ["sidebar.png", `data:image/png;base64,${PNG_A}`],
