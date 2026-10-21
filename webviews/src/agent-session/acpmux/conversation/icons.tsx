@@ -166,10 +166,12 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
-/** Two checks, the second offset: the agent has read the prompt (a message's read receipt). */
+/** Two checks, the second offset: a delivered message to another agent (MessageCard), as a messaging
+ *  app marks one, and a prompt the agent has read (a message's read receipt). */
 export const DoubleCheck = (p: CvIconProps) => (
   <Svg {...p}>
-    <path d="M1.8 8.6 4.2 11 9 5.6M7.4 10.4l.6.6 4.8-5.4" />
+    <path d="M1.75 8.4 4.3 10.9 9.2 5.2" />
+    <path d="M7.4 10.6l.3.3 4.9-5.7" />
   </Svg>
 );
 

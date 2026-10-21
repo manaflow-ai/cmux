@@ -1533,6 +1533,23 @@ pre.cv-math-source {
 .cv-shell__label .cv-codeblock__action {
   margin-right: -6px;
 }
+.cv-shell__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* The folder the command ran in, by its last part ("cg-next-reds" for ~/wt/lanes/cg-next-reds). */
+.cv-shell__folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 18px;
+}
 .cv-shell__body {
   display: flex;
   flex-direction: column;
@@ -1748,6 +1765,19 @@ pre.cv-math-source {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+/* How far the message got: a glyph and one line, always shown (Sending…, Sent, Delivered to …). */
+.cv-message__receipt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -3px 10px 7px 32.5px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.cv-message[data-delivery="failed"] .cv-message__receipt {
+  color: var(--agent-danger);
 }
 .cv-message__more {
   all: unset;

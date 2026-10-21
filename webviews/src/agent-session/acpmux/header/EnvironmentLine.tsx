@@ -35,10 +35,15 @@ export function EnvironmentLine({
   const t = useT();
   const machine = machineOf(summary, machineName, peerKinds);
   const cwd = summary?.cwd;
-  const folder = cwd ? projectLabel(cwd.replace(/\/+$/, "")) : undefined;
-  const branch = summary?.branch;
+  // The root folder has no name of its own: it reads "/".
+  const trimmed = cwd ? cwd.replace(/\/+$/, "") || "/" : undefined;
+  const folder = trimmed === "/" ? "/" : trimmed && projectLabel(trimmed);
+  // A local chat in a worktree has the header's worktree pill (WorktreePill.tsx), which names the
+  // branch already; the line leaves it out rather than say it twice.
+  const pill = machine.kind === "local" && Boolean(summary?.worktree);
+  const branch = pill ? undefined : summary?.branch;
   // Nothing to say before the session reports where it runs.
-  if (!cwd && !branch) return null;
+  if (!cwd && !summary?.branch) return null;
   const parts = [machine.name, folder, branch].filter((part): part is string => Boolean(part));
   const className = compact ? "acpmux-env-line acpmux-env-line--compact" : "acpmux-env-line";
   const content = (
