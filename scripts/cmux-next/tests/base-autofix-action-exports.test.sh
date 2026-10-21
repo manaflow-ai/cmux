@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # The action exports (plans/cmux-next/action-surfaces.json, actions.md, links.json) for base autofix.
-# The Mac job makes them at the newest feat-cmux-next tip (base-autofix-action-exports.sh) and
-# base-autofix-push.sh judges them from that commit (ACTIONS_MADE_AT), as it judges the settings
-# exports. Before, they were judged from the run's own commit: with the Mac job queued for half an
-# hour and the actions area moving every few minutes, every run held them, and none landed after
-# 02:14Z on 2026-10-21 (runs 39607727081 and 39609533631; ActionSurfaceParityTests.reportIsFresh red).
+# The Mac job makes them once, at the newest feat-cmux-next tip (base-autofix-action-exports.sh), and
+# base-autofix-push.sh lands them from that commit (ACTIONS_MADE_AT), as progress when the tip moved
+# their inputs again. Before, they were judged from the run's own commit: with the Mac job queued for
+# half an hour and the actions area moving every few minutes, every run held them, and none landed
+# after 02:14Z on 2026-10-21 (runs 39607727081 and 39609533631; ActionSurfaceParityTests.reportIsFresh
+# red). Then three regenerations in a row raced the merges and none landed (run 39633520123).
 set -euo pipefail
 here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 push_script="$here/../base-autofix-push.sh"
@@ -58,23 +59,28 @@ push_at "$made" > "$tmp/out" 2>&1 || fail "action exports made at the moved tip 
 [[ "$(remote_show "$surfaces")" == "surfaces new" ]] || fail "action-surfaces.json made at T1 did not land: $(remote_show "$surfaces")"
 [[ "$(remote_show "$md")" == "md new" ]] || fail "actions.md made at T1 did not land"
 
-# 2. The invariant: exports made at T1 whose inputs moved after T1 never land as they are.
+# 2. Exports made at T1 whose inputs moved after T1 land as progress on the newest tip, whole, with
+#    a warning: the next push run makes them there.
 setup
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
 lane_commit "lane edits it again" "$actions_src" "action v3"
 moved="$(remote_tip)"
-if push_at "$made" > "$tmp/out" 2>&1; then fail "action exports whose inputs moved after they were made passed"; fi
-[[ "$(remote_tip)" == "$moved" ]] || fail "action exports whose inputs moved after they were made were pushed"
-[[ "$(remote_show "$surfaces")" == "surfaces old" ]] || fail "action-surfaces.json landed although its inputs moved"
-grep -qF "$surfaces" "$tmp/out" || fail "the run does not name the held export: $(cat "$tmp/out")"
+push_at "$made" > "$tmp/out" 2>&1 || fail "action exports whose inputs moved after they were made did not land as progress: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the progress is not on top of the newest tip"
+[[ "$(remote_show "$surfaces")" == "surfaces new" ]] || fail "action-surfaces.json made at T1 did not land as progress"
+[[ "$(remote_show "$md")" == "md new" ]] || fail "actions.md made at T1 did not land with it"
+[[ "$(remote_show "$actions_src")" == "action v3" ]] || fail "the progress overwrote the newer action source"
+grep -q "::warning::.*land as progress" "$tmp/out" || fail "landing progress raises no warning: $(cat "$tmp/out")"
 
-# 3. A newer commit after T1 wrote one of them: the whole export waits.
+# 3. A newer commit after T1 wrote one of them itself: its copy stays (a generated file takes either
+#    side), this repair's whole export is dropped, and nothing waits for it.
 setup
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
 lane_commit "lane writes the doc export" "$md" "md lane"
-if push_at "$made" > "$tmp/out" 2>&1; then fail "action exports a newer commit wrote passed"; fi
+push_at "$made" > "$tmp/out" 2>&1 || fail "action exports a newer commit wrote made the run fail: $(cat "$tmp/out")"
+[[ "$(remote_show "$md")" == "md lane" ]] || fail "the newer commit's own actions.md was overwritten"
 [[ "$(remote_show "$surfaces")" == "surfaces old" ]] || fail "action-surfaces.json landed apart from actions.md"
 
 # 4. A made-at commit that is not between BASE_SHA and the tip proves nothing: they wait, with an error.
@@ -193,21 +199,31 @@ if land_at "$made" > "$tmp/out" 2>&1; then fail "a run whose snapshot waits pass
 [[ "$(remote_show "$snapshot")" == "snapshot old" ]] || fail "the snapshot landed with stale settings exports"
 grep -qF "$snapshot" "$tmp/out" || fail "the run does not name the waiting snapshot: $(cat "$tmp/out")"
 
-# 10. The actions area moved after T1: the tip's exports are not known current, so nothing built
-#     from them is made there; it all waits and the run fails.
+# 10. The actions area moved after T1: the exports land as progress, and what is built from them is
+#     made again on the tip from the exports committed there, so the two always match.
 setup_built fresh
 lane_commit "lane edits an action" "$actions_src" "action v2"
 made="$(remote_tip)"
 lane_commit "lane edits it again" "$actions_src" "action v3"
-if land_at "$made" > "$tmp/out" 2>&1; then fail "files built from stale exports passed: $(cat "$tmp/out")"; fi
-[[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made from exports not known current"
-grep -q "ACTION_EXPORTS_CURRENT=1" "$tmp/seen" && fail "the repair was told stale exports are current"
+land_at "$made" > "$tmp/out" 2>&1 || fail "the progress and what is built from it did not land: $(cat "$tmp/out")"
+[[ "$(remote_show "$surfaces")" == "surfaces new" ]] || fail "the action exports did not land as progress"
+[[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces new, action v3" ]] \
+  || fail "the shortcuts were not made on the tip from its exports: $(remote_show "$shortcuts")"
 
-# 11. Without ACTIONS_MADE_AT (no Mac exports in this run) nothing proves the tip's exports current.
+# 11. Without ACTIONS_MADE_AT the run made no action exports (the CI target graph job calls this with
+#     none, and has no bun): nothing built from them is made on the tip; it waits and the run fails.
 setup_built fresh
 lane_commit "lane edits an action" "$actions_src" "action v2"
-if land_at "" > "$tmp/out" 2>&1; then fail "files built from unproven exports passed"; fi
-[[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made from unproven exports"
+if land_at "" > "$tmp/out" 2>&1; then fail "a run with no action exports made what is built from them: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made in a run with no action exports"
+grep -q "ACTION_EXPORTS_CURRENT=1" "$tmp/seen" && fail "a run with no action exports told the repair they are current"
+
+# 11b. An unproven ACTIONS_MADE_AT still holds the exports, and what is built from them waits.
+setup_built fresh
+lane_commit "lane edits an action" "$actions_src" "action v2"
+if land_at "$(printf 'de%.0s' {1..20})" > "$tmp/out" 2>&1; then fail "exports made at an unknown commit passed"; fi
+[[ "$(remote_show "$surfaces")" == "surfaces old" ]] || fail "exports made at an unknown commit landed"
+[[ "$(remote_show "$shortcuts")" == "shortcuts old" ]] || fail "the shortcuts were made beside held exports"
 
 # base-autofix-action-exports.sh (the Mac job). A stand-in for regenerate-action-exports.sh writes
 # exports naming the action source of the commit it ran on and counts its runs; FAKE_MOVE pushes a
@@ -271,13 +287,15 @@ grep -qx "made at: $tip" "$tmp/out" || fail "the exports are not made at the new
 [[ "$(tail -1 "$tmp/prepared")" == "$start" ]] || fail "the run's commit was not prepared again for the steps after"
 mac_head_is_start || fail "the checkout is not back at the run's commit"
 
-# 14. The inputs moved once during the regeneration: it runs again on the newest tip.
+# 14. The inputs moved during the regeneration: the exports go out as made at the commit it ran on,
+#     once, never regenerated again (base-autofix-push.sh lands them as progress).
 setup
 mac_clone
-mac_run once > "$tmp/out" 2>"$tmp/err" || fail "a regeneration on the moved tip failed: $(cat "$tmp/out" "$tmp/err")"
-grep -qx "made at: $(remote_tip)" "$tmp/out" || fail "the exports are not made at the newest tip: $(cat "$tmp/out")"
-[[ "$(cat "$tmp/count")" == 2 ]] || fail "the regeneration ran $(cat "$tmp/count") times, not 2"
-[[ "$(cat "$tmp/mac-out/$surfaces")" == "surfaces for action moved 1" ]] || fail "the export is not the newest tip's"
+mac_run once > "$tmp/out" 2>"$tmp/err" || fail "a regeneration the tip moved under failed: $(cat "$tmp/out" "$tmp/err")"
+grep -qx "made at: $start" "$tmp/out" || fail "the exports are not made at the commit they ran on: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/count")" == 1 ]] || fail "the regeneration ran $(cat "$tmp/count") times, not once"
+[[ "$(cat "$tmp/mac-out/$surfaces")" == "surfaces for action v1" ]] || fail "the export made at the run's commit was not handed on"
+grep -q "land as progress" "$tmp/err" || fail "the move during the regeneration is not reported: $(cat "$tmp/err")"
 mac_head_is_start || fail "the checkout is not back at the run's commit"
 
 # 15. Only the actions inputs count: a move elsewhere needs no second regeneration.
@@ -287,17 +305,22 @@ mac_run elsewhere > "$tmp/out" 2>"$tmp/err" || fail "a regeneration past an unre
 grep -qx "made at: $start" "$tmp/out" || fail "an unrelated move made it regenerate: $(cat "$tmp/out")"
 [[ "$(cat "$tmp/count")" == 1 ]] || fail "an unrelated move ran the regeneration $(cat "$tmp/count") times"
 
-# 16. The inputs move under every regeneration: it stops after the tries, hands on nothing, fails.
-setup
+# 16. The run of 2026-10-21 (39633520123), end to end: the actions area moves during the regeneration
+#     and again before the push. The exports made at the run's commit land on the newest tip as
+#     progress, the shortcuts are made there from them, and the run passes; the next run catches up.
+setup_built fresh
 mac_clone
-if CMUX_BASE_AUTOFIX_ACTIONS_TRIES=3 mac_run always > "$tmp/out" 2>"$tmp/err"; then
-  fail "a regeneration whose inputs never held still passed: $(cat "$tmp/out" "$tmp/err")"
-fi
-[[ "$(cat "$tmp/count")" == 3 ]] || fail "the regeneration ran $(cat "$tmp/count") times, not 3"
-grep -q "::error::" "$tmp/err" || fail "the run does not raise an error: $(cat "$tmp/err")"
-[[ -z "$(find "$tmp/mac-out" -type f 2>/dev/null)" ]] || fail "exports whose inputs kept moving were handed on"
-grep -q "^made at:" "$tmp/out" && fail "a held regeneration still names a commit: $(cat "$tmp/out")"
-mac_head_is_start || fail "the checkout is not back at the run's commit"
+mac_run once > "$tmp/out" 2>"$tmp/err" || fail "the Mac job failed on a moving tip: $(cat "$tmp/out" "$tmp/err")"
+[[ "$(cat "$tmp/count")" == 1 ]] || fail "the Mac job regenerated $(cat "$tmp/count") times"
+made="$(sed -n 's/^made at: //p' "$tmp/out")"
+lane_commit "lane edits it again" "$actions_src" "action v3"
+(cd "$tmp/bot" && cp "$tmp/mac-out/$surfaces" "$surfaces" && cp "$tmp/mac-out/$md" "$md" \
+  && echo "shortcuts for $(cat "$surfaces"), action v1" > "$shortcuts" && git commit -q -a --amend --no-edit)
+land_at "$made" > "$tmp/out" 2>&1 || fail "the progress did not land on a moving tip: $(cat "$tmp/out")"
+[[ "$(remote_show "$surfaces")" == "surfaces for action v1" ]] || fail "the exports did not land as progress: $(remote_show "$surfaces")"
+[[ "$(remote_show "$shortcuts")" == "shortcuts for surfaces for action v1, action v3" ]] \
+  || fail "the shortcuts do not match the landed exports: $(remote_show "$shortcuts")"
+[[ "$(remote_show "$actions_src")" == "action v3" ]] || fail "the landing overwrote a newer action source"
 
 # 17. A failed regeneration fails the step and hands on nothing.
 setup
@@ -318,4 +341,4 @@ grep -q "^made at:" "$tmp/out" && fail "a failed checkout still names a commit: 
 grep -q "::error::cannot check out" "$tmp/err" || fail "a failed checkout raises no error: $(cat "$tmp/err")"
 rm -f "$tmp/mac/.git/index.lock"
 
-echo "PASS: the action exports are made at the newest tip and land when nothing moved their inputs after that; what is built from them is made again on the tip"
+echo "PASS: the action exports are made once at the newest tip and land, as progress when the tip moved their inputs again; what is built from them is made again on the tip"

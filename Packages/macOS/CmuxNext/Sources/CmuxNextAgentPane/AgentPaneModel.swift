@@ -16,6 +16,13 @@ public final class AgentPaneModel {
     /// The page drew its first frame after the handshake (`pane.painted`), the
     /// first that shows what it is. Until then its pane keeps what it showed.
     public internal(set) var hasPainted = false
+    /// That first frame drew a chat from a kept tail (`pane.painted`'s
+    /// `drewKeptTail`, tailCache.ts): it is already on screen, so the pane's
+    /// loading state shows the page in one frame instead of fading it in
+    /// (``AgentPaneView/pageFades(hasNewTab:isVisible:fromKeptTail:)``). False
+    /// for a chat read cold, for a page that says nothing, and for the host's
+    /// own give-up path, each of which keeps the fade.
+    public internal(set) var paintedFromKeptTail = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
@@ -262,8 +269,12 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .painted:
+        case .painted(let fromKeptTail):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            // The first report only, and before `markPainted`: the pane's loading state leaves on
+            // that call, and what that frame drew is what decides whether the page fades in
+            // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
+            if !hasPainted { paintedFromKeptTail = fromKeptTail }
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
