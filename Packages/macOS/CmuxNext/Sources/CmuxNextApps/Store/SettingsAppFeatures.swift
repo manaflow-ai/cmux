@@ -62,7 +62,23 @@ public final class SettingsAppFeatures: AppFeatureSettings {
         guard let settings = settings(), let descriptor = SettingsSchema.descriptor(for: feature.path) else {
             throw SettingRefused(key: feature.setting, value: Self.onValue(feature))
         }
-        try await settings.setSetting(descriptor, to: Self.value(feature, on: on, default: descriptor.defaultValue), by: .user)
+        let value = Self.value(feature, on: on, default: descriptor.defaultValue)
+        try await settings.setSetting(descriptor, to: value, by: .user)
+        // A cleared key lets what is under the file apply (an MDM recommended value, a team default);
+        // when that disagrees with the press, the file says what the person asked for.
+        if case .none = value, isOn(feature) != on, let explicit = Self.explicitValue(feature, on: on, default: descriptor.defaultValue) {
+            try await settings.setSetting(descriptor, to: explicit, by: .user)
+        }
+    }
+
+    /// The value that states `on` outright: the on value, or off (`false`, or a choice key's default).
+    nonisolated static func explicitValue(_ feature: AppFeature, on: Bool, default defaultValue: JSONValue?) -> JSONValue? {
+        if on { return onValue(feature) }
+        switch feature.on {
+        case .toggle: return .bool(false)
+        case .choice: return defaultValue
+        case .sidebarItem: return nil
+        }
     }
 
     /// The value that means on: `true`, or the feature's choice.
@@ -79,7 +95,7 @@ public final class SettingsAppFeatures: AppFeatureSettings {
     /// out the same way, so Remove then Get leaves the file as it was.
     nonisolated static func value(_ feature: AppFeature, on: Bool, default defaultValue: JSONValue?) -> JSONValue? {
         if on {
-            // `JSONValue` takes a nil literal as `.null`, so a ternary here would write null.
+            // `cond ? nil : onValue(feature)` would type as `JSONValue`, whose nil literal is `.null`.
             if onValue(feature) == defaultValue { return Optional<JSONValue>.none }
             return onValue(feature)
         }
