@@ -28,8 +28,6 @@ import CmuxNextDesign
 final class BrowserTabOpeners {
     /// Each link tab's opener, by surface.
     private(set) var openerOf: [SurfaceID: SurfaceID] = [:]
-    /// Each pane's tabs (surface, tab id) at its last apply (`closeRelations`), by pane key.
-    private var lastTabs: [String: [(SurfaceID, String)]] = [:]
     /// The placement each opener's next one waits for.
     private var queue: [SurfaceID: Task<SurfaceID, any Error>] = [:]
     /// A page's new tab exists (child, opener): the browser host reports it
@@ -131,14 +129,15 @@ final class BrowserTabOpeners {
         return FocusAfterClose.liveOpeners(openerOf, among: tabs.map(\.0)).reduce(into: [:]) { if let c = id[$1.key], let o = id[$1.value] { $0[c] = o } }
     }
 
-    /// Pane `key`'s relations for its close successor (`TabSelectionMemory.resolve`'s `openers`),
-    /// over its `tabs` and the ones its previous apply saw: a tab this client just closed is out of
-    /// the pane's tabs (TabCloseOverlay) by the apply that picks the successor, and its opener picks
-    /// it. Call on every apply, so the first close in a pane has its tabs too; read only on a close.
-    func closeRelations(among tabs: [TabModel], pane key: String) -> () -> [String: String] {
+    /// A pane's relations for its close successor (`TabSelectionMemory.resolve`'s `openers`), over
+    /// its `tabs` and `last`, the tabs (surface, tab id) its previous apply saw: a tab this client just
+    /// closed is out of the pane's tabs (TabCloseOverlay) by the apply that picks the successor, and its
+    /// opener picks it. Call on every apply with that pane's own `last` (each window's controller keeps
+    /// its own), so the first close in a pane has its tabs too; the closure runs only on a close.
+    func closeRelations(among tabs: [TabModel], last: inout [(SurfaceID, String)]) -> () -> [String: String] {
         let now = tabs.map { ($0.surface, $0.id) }
-        let seen = (lastTabs[key] ?? []) + now
-        lastTabs[key] = now.isEmpty ? nil : now
+        let seen = last + now
+        last = now
         return { [weak self] in self?.relations(among: seen) ?? [:] }
     }
 

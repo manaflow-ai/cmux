@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextBridge
 import CmuxNextDesign
 import Testing
 
@@ -64,13 +65,25 @@ struct BrowserTabOpenersCloseFocusTests {
     }
 
     /// The apply that picks a closed tab's successor no longer lists it (TabCloseOverlay); the
-    /// pane's previous apply did, also before the first close in that pane.
-    @Test func aPanesFirstCloseStillSeesTheClosedTabsOpener() async throws {
+    /// pane's previous apply did, also before the first close in that pane. Two windows show the
+    /// pane, each with its own selection and last tabs: the close goes back to the opener in both.
+    @Test func aClosedLinkTabsSuccessorIsItsOpenerInEveryWindow() async throws {
         let openers = BrowserTabOpeners()
         let tabs = ([1, 2, 3] as [SurfaceID]).map { TabModel(TabSnapshot(surface: $0, kind: .browser)) }
-        _ = openers.closeRelations(among: [tabs[0], tabs[2]], pane: "p")
+        let windows = [TabSelectionMemory(), TabSelectionMemory()]
+        var last: [[(SurfaceID, String)]] = [[], []]
+        func apply(_ shown: [TabModel], in window: Int) -> String? {
+            windows[window].resolve(pane: "p", tabs: shown.map(\.id), defaultIndex: 0,
+                                    openers: openers.closeRelations(among: shown, last: &last[window]))
+        }
+        for window in 0..<2 { _ = apply([tabs[0], tabs[2]], in: window) }
         try await Self.open(2, from: 1, openers, order: [1, 3])
-        _ = openers.closeRelations(among: tabs, pane: "p")
-        #expect(openers.closeRelations(among: [tabs[0], tabs[2]], pane: "p")() == [tabs[1].id: tabs[0].id])
+        for window in 0..<2 {
+            _ = apply(tabs, in: window)
+            windows[window].select(tabs[1].id, in: "p")
+            _ = apply(tabs, in: window)
+        }
+        #expect(apply([tabs[0], tabs[2]], in: 0) == tabs[0].id)
+        #expect(apply([tabs[0], tabs[2]], in: 1) == tabs[0].id)
     }
 }
