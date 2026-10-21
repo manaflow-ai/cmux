@@ -54,6 +54,24 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return menu
     }
 
+    /// The account rows: signed in (`who` is the name, then the email), who it is (not a command)
+    /// and the team (its row opens the team picker) on top and Sign Out at the end; signed out
+    /// (`who` nil), Sign In at the end.
+    public func addAccountRows(to menu: NSMenu, who: [String]?, team: String?) {
+        if let item = registry.makeMenuItem(for: who == nil ? "palette.auth.signIn" : "palette.auth.signOut") {
+            menu.addItem(.separator())
+            menu.addItem(item)
+        }
+        guard let who else { return }
+        menu.insertItem(.separator(), at: 0)
+        if let team, let item = row(ProfileMenuSpec.Row(action: "openTeamPicker", title: team, symbol: "person.2")) { menu.insertItem(item, at: 0) }
+        for line in who.reversed() {
+            let header = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+            header.isEnabled = false
+            menu.insertItem(header, at: 0)
+        }
+    }
+
     /// The current profile, its avatar and a submenu with its options. A
     /// checkmark and section header are unnecessary with one current profile.
     private func profileRow(_ profile: ProfileMenuProfile, avatar: NSImage?, actions: [ActionID]) -> NSMenuItem {

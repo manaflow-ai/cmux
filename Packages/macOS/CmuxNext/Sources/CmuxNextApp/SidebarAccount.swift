@@ -35,27 +35,10 @@ struct SidebarAccount: Hashable {
 
     var avatar: SidebarAvatar { .account(name: name, imageData: imageData) }
 
-    /// Adds the account rows to the profile menu: signed in, who it is (not a
-    /// command) and the team (its row opens the team picker) on top and Sign Out
-    /// at the end; signed out, Sign In at the end.
+    /// Adds the account rows to the profile menu (`ProfileMenuBuilder.addAccountRows`).
     @MainActor static func addRows(to menu: NSMenu, account: SidebarAccount?, registry: ActionRegistry) {
-        let action: ActionID = account == nil ? "palette.auth.signIn" : "palette.auth.signOut"
-        if let item = registry.makeMenuItem(for: action) {
-            menu.addItem(.separator())
-            menu.addItem(item)
-        }
-        guard let account else { return }
-        menu.insertItem(.separator(), at: 0)
-        if let team = account.team, let item = registry.makeMenuItem(for: "openTeamPicker") {
-            item.title = team
-            item.image = NSImage(systemSymbolName: "person.2", accessibilityDescription: team)
-            menu.insertItem(item, at: 0)
-        }
-        for line in [account.email, account.name].compactMap(\.self) {
-            let header = NSMenuItem(title: line, action: nil, keyEquivalent: "")
-            header.isEnabled = false
-            menu.insertItem(header, at: 0)
-        }
+        ProfileMenuBuilder(registry: registry)
+            .addAccountRows(to: menu, who: account.map { [$0.name, $0.email].compactMap(\.self) }, team: account?.team)
     }
 }
 
