@@ -65,6 +65,10 @@ final class HistoryService {
             self?.daemonHistory
         }
         routes[profile] = route
+        route.onRemove = { [weak self, wire = BrowserProfileRecord.wireID(for: profile)] url in
+            guard let sync = self?.services.onboarding.historySync else { return }
+            Task { await sync.forgetPage(url, profile: wire) }  // task-owner: imported pages too
+        }
         history.persistence = route
         if let daemon = daemonHistory { return seedFromDaemon(history, profile: profile, daemon) }
         let log = sink.log
@@ -295,6 +299,7 @@ final class HistoryService {
 
     /// Removes every page visit of `host` in every profile.
     func removePages(host: String) {
+        Task { [sync = services.onboarding.historySync] in await sync.forgetSite(host: host) }  // task-owner: imported pages too
         if daemonHistory != nil {
             // One site removal on the daemon (one backup); memory forgets without persistence.
             daemonMutation { try await $0.removeSite(host: host, profile: nil) }

@@ -9,12 +9,11 @@ public import Foundation
 /// try servers.save(.selfHosted(HomeChatServer.selfHostedURL("mini.tail1234.ts.net")))
 /// servers.load() // .selfHosted(http://mini.tail1234.ts.net:7320)
 /// ```
-public struct HomeChatServerStore: Sendable {
+public struct HomeChatServerStore {
     /// The defaults key (`home.server`, as in cmux.json on the Mac).
     public static let key = "home.server"
 
-    // UserDefaults is documented thread safe.
-    private nonisolated(unsafe) let defaults: UserDefaults
+    private let defaults: UserDefaults
 
     public init(defaults: UserDefaults) {
         self.defaults = defaults
