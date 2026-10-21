@@ -26,6 +26,7 @@ pub(super) fn session_change_kind(record_kind: &str) -> Option<&str> {
         | "tags"
         | "turn_started"
         | "turn_result"
+        | "git"
         | "subsession" => record_kind,
         k if k == "dequeued" || k.starts_with("queue") => "queue",
         "permission_auto" => "permission_resolved",

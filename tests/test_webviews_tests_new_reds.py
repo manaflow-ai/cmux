@@ -36,24 +36,25 @@ if [ "$1" = install ]; then
   exit "${FAKE_BUN_INSTALL_STATUS:-0}"
 fi
 [ "$1" = test ] || exit 9
-if grep -q '^CRASH' "$2"; then echo "error: Cannot find module './gone'"; exit 1; fi
-if grep -q '^HANG' "$2"; then sleep 30; fi
-if grep -q '^SCOPED' "$2" && [ -n "${CMUX_PR_CHANGED_FILES:-}" ] && ! git rev-parse -q --verify HEAD^1 > /dev/null; then
+file="${!#}"  # bun test [--timeout MS] ./FILE
+if grep -q '^CRASH' "$file"; then echo "error: Cannot find module './gone'"; exit 1; fi
+if grep -q '^HANG' "$file"; then sleep 30; fi
+if grep -q '^SCOPED' "$file" && [ -n "${CMUX_PR_CHANGED_FILES:-}" ] && ! git rev-parse -q --verify HEAD^1 > /dev/null; then
   echo "error: git diff HEAD^1 HEAD"; exit 1
 fi
 status=0
-stamp="$(git rev-parse --git-common-dir)/ran-$(basename "$2")"
-if grep -q '^FLAKY' "$2" && [ ! -e "$stamp" ]; then touch "$stamp"; echo "(fail) sometimes [5.00ms]"; status=1; fi
+stamp="$(git rev-parse --git-common-dir)/ran-$(basename "$file")"
+if grep -q '^FLAKY' "$file" && [ ! -e "$stamp" ]; then touch "$stamp"; echo "(fail) sometimes [5.00ms]"; status=1; fi
 running="$(git rev-parse --git-common-dir)/running"
-if grep -q '^CROWDED' "$2"; then
+if grep -q '^CROWDED' "$file"; then
   mkdir -p "$running" && touch "$running/$$" && sleep 1
   if [ "$(ls "$running" | wc -l)" -gt 1 ]; then echo "(fail) crowded [5.00ms]"; status=1; fi
   rm "$running/$$"
 fi
-if grep -q '^RULE' "$2" && [ "${CMUX_NEXT_STYLE_GUARDS:-}" != warn ]; then echo "(fail) the rules hold [3.00ms]"; status=1; fi
+if grep -q '^RULE' "$file" && [ "${CMUX_NEXT_STYLE_GUARDS:-}" != warn ]; then echo "(fail) the rules hold [3.00ms]"; status=1; fi
 while read -r word name; do
   if [ "$word" = FAIL ]; then echo "(fail) $name [12.50ms]"; status=1; fi
-done < "$2"
+done < "$file"
 echo "(pass) the rest [1.00ms]"
 exit "$status"
 """
@@ -171,24 +172,24 @@ class Wrapper(unittest.TestCase):
         done, out = self.run_pr({"test/a.test.ts": body([])}, {"test/a.test.ts": "FLAKY\n" + body([])})
         self.assertEqual(done.returncode, 0, out)
         self.assertNotIn("::error", out)
-        self.assertIn("::warning title=Webview test file red only beside the others::test/a.test.ts passed when run "
-                      "again alone", out)
+        self.assertIn("passed only when run alone (failed or timed out beside other files):\n  test/a.test.ts", out)
         self.assertNotIn("the red files again on the base", out)
 
     def test_a_flaky_file_keeps_its_steady_reds(self):
-        # A file that fails again alone keeps its first run's reds, flaky ones included.
+        # A file that fails again alone keeps both runs' reds, flaky ones included.
         done, out = self.run_pr({"test/a.test.ts": body([])}, {"test/a.test.ts": "FLAKY\n" + body(["new red"])})
         self.assertEqual(done.returncode, 1, out)
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > new red", out)
 
-    def test_files_red_only_beside_each_other_rerun_one_at_a_time(self):
-        # composer-draft-wrap timed out beside the other red files on the head rerun and passed on
-        # the base, which reran it with nothing else (#23209's react-apps-check (1), 7a2323c9).
+    def test_files_red_only_beside_each_other_are_not_the_changes(self):
+        # composer-draft-wrap timed out beside the other red files when they reran together and passed
+        # on the base, which reran it with nothing else (#23209's react-apps-check (1), 7a2323c9).
         files = {f"test/{n}.test.ts": "CROWDED\n" + body([]) for n in "ab"}
         done, out = self.run_pr({name: body([]) for name in files}, files)
         self.assertEqual(done.returncode, 0, out)
         self.assertNotIn("::error", out)
-        self.assertEqual(out.count("::warning title=Webview test file red only beside the others::"), 2, out)
+        self.assertEqual(out.count("(first run: FAIL)"), 2, out)
+        self.assertNotIn("the red files again on the base", out)
 
     def test_the_bases_rule_findings_do_not_hide_the_changes_own(self):
         # On a main PR (CMUX_NEXT_STYLE_GUARDS=fail) the head's ui-rules test fails on the change's own
