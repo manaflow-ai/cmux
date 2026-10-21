@@ -66236,133 +66236,265 @@
       }
     },
     "composer.placeholderSteer": {
-      "comment": "Agent pane: the prompt's placeholder while a turn runs, for an agent that takes a prompt mid-turn; Return queues the prompt behind the turn, Command-Return sends it into the turn now. Keep the ↵ and ⌘↵ key symbols.",
+      "comment": "Agent pane: the prompt's placeholder while a turn runs, for an agent that takes a prompt mid-turn; Return steers the turn with the prompt (the agent reads it when its current step ends), Command-Return queues it behind the turn. Keep the ↵ and ⌘↵ key symbols.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ للإضافة إلى الطابور، ⌘↵ للتوجيه الآن"
+            "value": "↵ توجيه · ⌘↵ طابور"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ za red čekanja, ⌘↵ za usmjeravanje"
+            "value": "↵ usmjeri · ⌘↵ u red"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ for at sætte i kø, ⌘↵ for at styre"
+            "value": "↵ styr · ⌘↵ sæt i kø"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ zum Einreihen, ⌘↵ zum Lenken"
+            "value": "↵ lenken · ⌘↵ einreihen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "↵ to queue, ⌘↵ to steer"
+            "value": "↵ steer · ⌘↵ queue"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ para poner en cola, ⌘↵ para dirigir"
+            "value": "↵ dirigir · ⌘↵ poner en cola"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ pour mettre en file, ⌘↵ pour orienter"
+            "value": "↵ orienter · ⌘↵ mettre en file"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ per mettere in coda, ⌘↵ per guidare"
+            "value": "↵ guida · ⌘↵ metti in coda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ でキューに追加、⌘↵ でステア"
+            "value": "↵ ステア · ⌘↵ キュー"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ ដើម្បីដាក់ក្នុងជួរ, ⌘↵ ដើម្បីដឹកនាំ"
+            "value": "↵ ដឹកនាំ · ⌘↵ ដាក់ក្នុងជួរ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ 대기열에 추가, ⌘↵ 조정"
+            "value": "↵ 조정 · ⌘↵ 대기열"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ for å legge i kø, ⌘↵ for å styre"
+            "value": "↵ styr · ⌘↵ legg i kø"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ dodaje do kolejki, ⌘↵ kieruje teraz"
+            "value": "↵ kieruj · ⌘↵ do kolejki"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ para enfileirar, ⌘↵ para direcionar"
+            "value": "↵ direcionar · ⌘↵ enfileirar"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ — в очередь, ⌘↵ — направить сейчас"
+            "value": "↵ направить · ⌘↵ в очередь"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ เพื่อเข้าคิว, ⌘↵ เพื่อชี้นำ"
+            "value": "↵ ชี้นำ · ⌘↵ เข้าคิว"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ sıraya ekler, ⌘↵ şimdi yönlendirir"
+            "value": "↵ yönlendir · ⌘↵ sıraya ekle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ — у чергу, ⌘↵ — скерувати зараз"
+            "value": "↵ скерувати · ⌘↵ у чергу"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ để xếp hàng, ⌘↵ để điều hướng"
+            "value": "↵ điều hướng · ⌘↵ xếp hàng"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ 加入队列，⌘↵ 立即引导"
+            "value": "↵ 引导 · ⌘↵ 排队"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "↵ 加入佇列，⌘↵ 立即引導"
+            "value": "↵ 引導 · ⌘↵ 排隊"
+          }
+        }
+      }
+    },
+    "composer.placeholderSteerQuick": {
+      "comment": "Agent pane: the prompt's placeholder while a turn runs, for an agent that takes a prompt mid-turn, in the Quick Composer or with only attachments staged; Return steers the turn with it.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وجّه هذا الدور…"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Usmjeri ovaj potez…"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styr denne tur…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Diesen Durchgang lenken…"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Steer this turn…"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dirige este turno…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Orienter ce tour…"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Guida questo turno…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "このターンをステア…"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដឹកនាំវេននេះ…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 턴 조정…"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Styr denne runden…"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pokieruj tą turą…"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direcionar este turno…"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Направить этот ход…"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ชี้นำรอบนี้…"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu turu yönlendir…"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Скерувати цей хід…"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Điều hướng lượt này…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "引导本轮…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "引導本輪…"
           }
         }
       }
@@ -138050,127 +138182,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "أرسل الآن؛ يقرؤه الوكيل أثناء الدور (⌘Return)"
+            "value": "أرسل الآن؛ يقرؤه الوكيل أثناء الدور (Return)"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Pošalji sada; agent ga čita usred poteza (⌘Return)"
+            "value": "Pošalji sada; agent ga čita usred poteza (Return)"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Send nu; agenten læser det midt i turen (⌘Return)"
+            "value": "Send nu; agenten læser det midt i turen (Return)"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jetzt senden; der Agent liest es während des Durchgangs (⌘Return)"
+            "value": "Jetzt senden; der Agent liest es während des Durchgangs (Return)"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Send now; the agent reads it mid-turn (⌘Return)"
+            "value": "Send now; the agent reads it mid-turn (Return)"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enviar ahora; el agente lo lee durante el turno (⌘Return)"
+            "value": "Enviar ahora; el agente lo lee durante el turno (Return)"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Envoyer maintenant ; l’agent le lit en cours de tour (⌘Return)"
+            "value": "Envoyer maintenant ; l’agent le lit en cours de tour (Return)"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Invia ora; l’agente lo legge durante il turno (⌘Return)"
+            "value": "Invia ora; l’agente lo legge durante il turno (Return)"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "今すぐ送信。エージェントはターンの途中で読みます (⌘Return)"
+            "value": "今すぐ送信。エージェントはターンの途中で読みます (Return)"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ផ្ញើឥឡូវ; ភ្នាក់ងារអានវាកណ្ដាលវេន (⌘Return)"
+            "value": "ផ្ញើឥឡូវ; ភ្នាក់ងារអានវាកណ្ដាលវេន (Return)"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "지금 보내기. 에이전트가 턴 도중에 읽습니다 (⌘Return)"
+            "value": "지금 보내기. 에이전트가 턴 도중에 읽습니다 (Return)"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Send nå; agenten leser det midt i runden (⌘Return)"
+            "value": "Send nå; agenten leser det midt i runden (Return)"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wyślij teraz; agent przeczyta to w trakcie tury (⌘Return)"
+            "value": "Wyślij teraz; agent przeczyta to w trakcie tury (Return)"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Enviar agora; o agente lê durante o turno (⌘Return)"
+            "value": "Enviar agora; o agente lê durante o turno (Return)"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Отправить сейчас; агент прочтёт это по ходу хода (⌘Return)"
+            "value": "Отправить сейчас; агент прочтёт это по ходу хода (Return)"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ส่งตอนนี้ เอเจนต์จะอ่านระหว่างรอบ (⌘Return)"
+            "value": "ส่งตอนนี้ เอเจนต์จะอ่านระหว่างรอบ (Return)"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Şimdi gönder; ajan tur sırasında okur (⌘Return)"
+            "value": "Şimdi gönder; ajan tur sırasında okur (Return)"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Надіслати зараз; агент прочитає це під час ходу (⌘Return)"
+            "value": "Надіслати зараз; агент прочитає це під час ходу (Return)"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Gửi ngay; tác tử đọc nó giữa lượt (⌘Return)"
+            "value": "Gửi ngay; tác tử đọc nó giữa lượt (Return)"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "立即发送；智能体会在本轮中途读取 (⌘Return)"
+            "value": "立即发送；智能体会在本轮中途读取 (Return)"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "立即傳送；代理會在本輪中途讀取 (⌘Return)"
+            "value": "立即傳送；代理會在本輪中途讀取 (Return)"
           }
         }
       }
@@ -138699,6 +138831,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "加入佇列；本輪結束後傳送 (Return)"
+          }
+        }
+      }
+    },
+    "composer.queueLaterTooltip": {
+      "comment": "Agent pane: the Send button's tooltip while a turn runs, for an agent that takes a prompt mid-turn (Return sends it now): clicking it, or Command-Return, queues the prompt behind the turn.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "أضف إلى قائمة الانتظار؛ يُرسل بعد هذا الدور (⌘Return)"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stavi u red; šalje se nakon ovog poteza (⌘Return)"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sæt i kø; sendes efter denne tur (⌘Return)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Einreihen; wird nach diesem Durchgang gesendet (⌘Return)"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Queue; sends after this turn (⌘Return)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Poner en cola; se envía después de este turno (⌘Return)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mettre en file ; envoyé après ce tour (⌘Return)"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Metti in coda; inviato dopo questo turno (⌘Return)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "キューに追加。このターンの後に送信 (⌘Return)"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ដាក់ក្នុងជួរ; ផ្ញើក្រោយវេននេះ (⌘Return)"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "대기열에 추가. 이 턴 후에 보냅니다 (⌘Return)"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sett i kø; sendes etter denne runden (⌘Return)"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Dodaj do kolejki; wyśle się po tej turze (⌘Return)"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pôr na fila; envia depois deste turno (⌘Return)"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "В очередь; отправится после этого хода (⌘Return)"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เข้าคิว ส่งหลังรอบนี้ (⌘Return)"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sıraya ekle; bu turdan sonra gönderilir (⌘Return)"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "У чергу; надішлеться після цього ходу (⌘Return)"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Xếp hàng; gửi sau lượt này (⌘Return)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "加入队列；本轮结束后发送 (⌘Return)"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "加入佇列；本輪結束後傳送 (⌘Return)"
           }
         }
       }
