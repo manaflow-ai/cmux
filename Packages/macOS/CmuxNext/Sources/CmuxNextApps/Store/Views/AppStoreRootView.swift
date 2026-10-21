@@ -54,10 +54,11 @@ public struct AppStoreRootView: View {
             .frame(height: 26)
             .background(Capsule().fill(colors.hover))
         }
-        // The same column as the listings and the detail page below it; the
-        // split layout's list runs edge to edge, so its toolbar does too.
-        .modifier(AppStoreColumnModifier(enabled: model.layout != .split,
-                                          fallbackPadding: Metrics.space4))
+        // The same column as the page below it (the wide grid on Discover and Features, the
+        // reading column on a detail page and Installed); the split layout's list runs edge to
+        // edge, so its toolbar does too.
+        .modifier(AppStoreColumnModifier(enabled: model.layout != .split, fallbackPadding: Metrics.space4,
+                                          maxWidth: model.tab == .installed || model.selectedListing != nil ? AppStoreColumn.maxWidth : AppStoreColumn.wideMaxWidth))
         // The window's toolbar row starts after the traffic lights; a pane has none.
         .padding(.leading, inPane ? 0 : 84)
         .frame(height: inPane ? Metrics.titlebarHeight : Metrics.titlebarHeight + Metrics.space2)
@@ -80,11 +81,12 @@ public struct AppStoreRootView: View {
     }
 }
 
-/// The store's one content column (toolbar, listings, Installed and the
-/// detail page): centered, at most ``maxWidth`` wide, so the header, its
-/// actions and the body share one grid at any window width.
+/// The store's content column: centered, so the header, its actions and the body share one
+/// grid at any window width. Reading pages (a detail page, Installed) stop at ``maxWidth``;
+/// the card grids of Discover and Features use the page up to ``wideMaxWidth``.
 enum AppStoreColumn {
     static let maxWidth: CGFloat = 760
+    static let wideMaxWidth: CGFloat = 1600
     /// Tags and small labels: a small-radius rectangle, never a capsule.
     static let tagRadius: CGFloat = 4
     /// Install, Remove and Undo share one height.
@@ -96,11 +98,12 @@ enum AppStoreColumn {
 struct AppStoreColumnModifier: ViewModifier {
     var enabled = true
     var fallbackPadding: CGFloat = Metrics.space6
+    var maxWidth = AppStoreColumn.maxWidth
 
     func body(content: Content) -> some View {
         if enabled {
             content
-                .frame(maxWidth: AppStoreColumn.maxWidth, alignment: .leading)
+                .frame(maxWidth: maxWidth, alignment: .leading)
                 .padding(.horizontal, Metrics.space6)
                 .frame(maxWidth: .infinity)
         } else {
@@ -112,4 +115,6 @@ struct AppStoreColumnModifier: ViewModifier {
 extension View {
     /// Centers the view in the store column (``AppStoreColumn``).
     func appStoreColumn() -> some View { modifier(AppStoreColumnModifier()) }
+    /// Centers the view in the wide card column (``AppStoreColumn/wideMaxWidth``).
+    func appStoreWideColumn() -> some View { modifier(AppStoreColumnModifier(maxWidth: AppStoreColumn.wideMaxWidth)) }
 }

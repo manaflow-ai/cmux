@@ -53,6 +53,7 @@
   --cv-meta-gap: 4px; /* a message to its meta row */
   --cv-meta-row: 24px; /* the meta row's line */
   --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
+  --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
@@ -1430,7 +1431,8 @@ pre.cv-math-source {
 }
 /* "Thinking" in the muted color. No mark blinks before it or before "Working for": the word itself
    shimmers, as in the Codex and ChatGPT apps, a band of the theme accent crossing it on the shared
-   clock (ui/spinnerClock.ts). Reduce Motion, the static status look and agent motion off hold it
+   clock (ui/spinnerClock.ts), over the tool rows' quieter color so the band shows (in the muted
+   color, close to the reply's, it did not). Reduce Motion, the static status look and agent motion off hold it
    still in the muted color. */
 .cv-thinking {
   flex: 0 1 auto;
@@ -1440,16 +1442,34 @@ pre.cv-math-source {
   white-space: nowrap;
   color: var(--cv-text-muted);
 }
-/* The running turn's line as its last row (`below`) is as tall as the footer that takes its place
-   when the turn ends (the meta row), so the end never moves the answer over it. */
+/* The running turn's line as its last row (`below`): its words stand 16px under a reply (the reply
+   keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
+   space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
+   The gap comes out of the row's bottom padding, so the line's row is the chat's last footer's
+   32px (its 24px line and the 8px message gap) and the turn's end, which swaps one for the other,
+   moves nothing. */
 .cv-worked.is-below {
-  height: var(--cv-meta-row);
-  padding-top: 2px;
+  height: calc(var(--cv-meta-row) + var(--cv-message-gap));
+  padding-top: calc(var(--cv-live-gap) + 2px);
 }
-/* Its row drops the transcript row's 34px floor (.acpmux-row), so it is the footer's 32px and its
-   estimate's (model.ts fallbackRowHeight), not 2px taller. */
+/* Its time is quieter than its words, as the tool rows' time is. */
+.cv-worked.is-below .cv-worked__time {
+  color: var(--cv-text-dim);
+}
+/* Its "⌃B to run in background" shows only while the pointer is on the line. */
+.cv-worked.is-below .cv-command__bg {
+  animation: none;
+  opacity: 0;
+  transition: opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
+}
+.cv-worked.is-below:hover .cv-command__bg {
+  opacity: 1;
+}
+/* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
+   last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
 .acpmux-row:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
   min-height: 0;
+  padding-bottom: 0;
 }
 /* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
 .cv-worked.is-quiet {
@@ -1459,9 +1479,9 @@ pre.cv-math-source {
   :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {
     background: linear-gradient(
         100deg,
-        var(--cv-text-muted) 35%,
+        var(--cv-text-dim) 35%,
         color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text)) 50%,
-        var(--cv-text-muted) 65%
+        var(--cv-text-dim) 65%
       )
       0 0 / 250% 100%;
     -webkit-background-clip: text;

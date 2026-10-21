@@ -88,8 +88,21 @@ export default componentEntry<Props>({
       props: { images: [pasted[0]!, { id: "x", mimeType: "image/png", name: "image.png", broken: true }] },
     },
     loading: {
-      note: "While acpmux reads the images, each slot holds its thumbnail's height.",
-      props: { images: pasted, pending: true },
+      note: "While acpmux reads the images, each slot holds its thumbnail's height (square: no size known yet).",
+      // Ids of their own: the pane keeps a read image by id (imageEntries.ts) for every frame.
+      props: { images: pasted.map((image) => ({ ...image, id: `loading-${image.id}` })), pending: true },
+    },
+    "loading-sized": {
+      note: "Images whose record names their size: each slot is reserved at its own shape before acpmux reads it, so nothing snaps when it loads.",
+      props: {
+        images: pasted.map((image) => ({
+          ...image,
+          id: `sized-${image.id}`,
+          width: image.shot!.width,
+          height: image.shot!.height,
+        })),
+        pending: true,
+      },
     },
   },
 });
