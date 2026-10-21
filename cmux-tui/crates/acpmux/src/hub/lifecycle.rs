@@ -295,9 +295,9 @@ impl Hub {
                 tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
                 self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
             }
-            if mode_eligible {
-                self.note_unenforced_policy(&session);
-            }
+            // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
+            let default = self.config.read().await.permission_policy;
+            self.note_unenforced_policy(&session, default);
             Ok(())
         }
         .await;
@@ -365,6 +365,7 @@ impl Hub {
                 Some(child) if child.is_alive().await => {
                     // Reached again, not started: no start below decides its Ctrl-B.
                     self.note_host_kind(session, &child, Some(profile.kind)).await;
+                    session.closing.store(false, Ordering::SeqCst);
                     return Ok(child);
                 }
                 // The host ended meanwhile: start a fresh agent below.
@@ -388,6 +389,7 @@ impl Hub {
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         self.fresh_agent(session, profile.preset_digest.clone());
+        session.closing.store(false, Ordering::SeqCst);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
@@ -538,6 +540,16 @@ impl Hub {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
                 self.write_mode_state(session, [ModeWrite::CurrentMode(json!(mode))]);
             }
+            // Nor does a chat whose policy is narrower than approve-all start in a mode that never
+            // asks (`policy_mode.rs`); a pinned argv mode is moved after the start.
+            let default = self.config.read().await.permission_policy;
+            let mode = match super::policy_mode::claude_spawn_mode(&meta, default, &mode) {
+                Some(asking) => {
+                    self.write_mode_state(session, [ModeWrite::CurrentMode(json!(asking))]);
+                    asking
+                }
+                None => mode,
+            };
             let model = current_model(&meta).unwrap_or_else(|| "default".into());
             let plan = crate::claude_stdio::spawn_plan(
                 profile,
@@ -703,6 +715,9 @@ impl Hub {
                     self.append(session, "mux", "resumed", json!({"level": level}));
                 }
             }
+            // A profile that pins its mode in argv (`--permission-mode`, a skip flag) started in it.
+            self.hold_policy_mode(session, &child, super::start_mode::profile_sets_mode(profile))
+                .await;
             self.set_status(session, SessionStatus::Ready);
             self.save_meta(session);
             let meta_now = session.meta();
