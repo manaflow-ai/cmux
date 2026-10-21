@@ -13,7 +13,11 @@
 //! - Deadlines: the run function returns [`LaneNext::At`] to run again at an
 //!   instant (a cadence, a lifecycle deadline). One worker waits for the
 //!   earliest deadline of every lane; a kick before the deadline runs the lane
-//!   at once and drops the deadline.
+//!   at once. A run function must tolerate an early run (it re-checks its own
+//!   state and returns its deadline again): an earlier deadline of the same
+//!   lane may still fire after a kick. Each lane keeps at most one armed
+//!   deadline in the heap for a given instant, so frequent kicks do not grow
+//!   it.
 //! - Elastic workers: a ready lane with no idle worker gets a new worker, so
 //!   a run function that blocks (a CDP round trip) never stalls other lanes.
 //!   Workers beyond the first exit after [`IDLE_WORKER_EXIT`] without work.
@@ -22,7 +26,7 @@
 
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, VecDeque};
-use std::sync::atomic::{AtomicU8, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
@@ -52,11 +56,25 @@ const CLOSED: u8 = 5;
 
 struct LaneShared {
     status: AtomicU8,
-    /// Generation of the lane's current deadline; a heap entry with an older
-    /// one is stale (the lane was kicked or rescheduled since).
-    deadline_generation: AtomicU64,
+    /// The earliest heap entry of this lane not yet fired. Read and written
+    /// only under the executor's lock.
+    armed_at: Mutex<Option<Instant>>,
     run: Mutex<RunFn>,
     name: &'static str,
+}
+
+impl LaneShared {
+    /// Replace the run function with a no-op, dropping what it owns (a
+    /// surface, a channel receiver) now rather than when the last handle or
+    /// heap entry goes.
+    fn drop_run_fn(&self) {
+        let dead: RunFn = Box::new(|| LaneNext::Close);
+        let old = std::mem::replace(
+            &mut *self.run.lock().unwrap_or_else(|poison| poison.into_inner()),
+            dead,
+        );
+        drop(old);
+    }
 }
 
 /// A serial unit of work on the shared executor; see the module docs.
@@ -71,7 +89,7 @@ impl Lane {
     pub(crate) fn new(name: &'static str, run: impl FnMut() -> LaneNext + Send + 'static) -> Self {
         Lane(Arc::new(LaneShared {
             status: AtomicU8::new(IDLE),
-            deadline_generation: AtomicU64::new(0),
+            armed_at: Mutex::new(None),
             run: Mutex::new(Box::new(run)),
             name,
         }))
@@ -88,12 +106,6 @@ impl Lane {
                 RUNNING => KICKED,
                 _ => return,
             };
-            if current == WAITING {
-                // Invalidate the pending deadline entry before taking the
-                // lane, so a deadline the next run sets is never the one
-                // invalidated.
-                self.0.deadline_generation.fetch_add(1, Ordering::AcqRel);
-            }
             match status.compare_exchange_weak(current, next, Ordering::AcqRel, Ordering::Acquire)
             {
                 Ok(_) => {
@@ -110,14 +122,12 @@ impl Lane {
     /// Never run the lane again; a run in progress finishes.
     pub(crate) fn close(&self) {
         self.0.status.store(CLOSED, Ordering::Release);
-        self.0.deadline_generation.fetch_add(1, Ordering::AcqRel);
     }
 }
 
 struct TimerEntry {
     at: Instant,
     order: u64,
-    generation: u64,
     lane: Arc<LaneShared>,
 }
 
@@ -148,6 +158,9 @@ struct Inner {
     idle: usize,
     /// The deadline the timer worker sleeps until, while one does.
     timer_wait: Option<Instant>,
+    /// Lane references popped under the lock, dropped after it is released
+    /// (a lane's last reference may own a surface whose drop kicks lanes).
+    discard: Vec<Arc<LaneShared>>,
 }
 
 struct Executor {
@@ -174,11 +187,20 @@ impl Executor {
         self.wake_for_ready(&mut inner);
     }
 
-    fn push_timer(&'static self, lane: Arc<LaneShared>, at: Instant, generation: u64) {
+    fn push_timer(&'static self, lane: Arc<LaneShared>, at: Instant) {
         let mut inner = self.inner.lock().unwrap();
+        {
+            let mut armed = lane.armed_at.lock().unwrap();
+            // An entry at or before `at` is still in the heap: it runs the
+            // lane, which returns this deadline again if it still wants it.
+            if armed.is_some_and(|armed| armed <= at) {
+                return;
+            }
+            *armed = Some(at);
+        }
         let order = inner.next_order;
         inner.next_order += 1;
-        inner.timers.push(Reverse(TimerEntry { at, order, generation, lane }));
+        inner.timers.push(Reverse(TimerEntry { at, order, lane }));
         match inner.timer_wait {
             // The timer worker sleeps past this deadline: wake it to re-arm.
             Some(wait) if at < wait => self.timer.notify_one(),
@@ -230,13 +252,17 @@ impl Executor {
         }
     }
 
-    /// Move due, still-valid timer entries to the ready queue.
+    /// Move the lanes of due timer entries that still wait to the ready
+    /// queue; other entries go to `discard`.
     fn fire_due(inner: &mut Inner, now: Instant) {
         while inner.timers.peek().is_some_and(|Reverse(entry)| entry.at <= now) {
             let Reverse(entry) = inner.timers.pop().expect("peeked");
             let lane = entry.lane;
-            if lane.deadline_generation.load(Ordering::Acquire) != entry.generation {
-                continue;
+            {
+                let mut armed = lane.armed_at.lock().unwrap();
+                if *armed == Some(entry.at) {
+                    *armed = None;
+                }
             }
             if lane
                 .status
@@ -244,8 +270,24 @@ impl Executor {
                 .is_ok()
             {
                 inner.ready.push_back(lane);
+            } else {
+                inner.discard.push(lane);
             }
         }
+    }
+
+    /// Drop discarded lane references with the lock released.
+    fn drop_discarded<'a>(
+        &'static self,
+        mut inner: std::sync::MutexGuard<'a, Inner>,
+    ) -> std::sync::MutexGuard<'a, Inner> {
+        if inner.discard.is_empty() {
+            return inner;
+        }
+        let discard = std::mem::take(&mut inner.discard);
+        drop(inner);
+        drop(discard);
+        self.inner.lock().unwrap()
     }
 
     fn work_loop(&'static self) {
@@ -269,6 +311,7 @@ impl Executor {
         let mut inner = self.inner.lock().unwrap();
         loop {
             Self::fire_due(&mut inner, Instant::now());
+            inner = self.drop_discarded(inner);
             if let Some(lane) = inner.ready.pop_front() {
                 self.cover_while_running(&mut inner);
                 drop(inner);
@@ -320,12 +363,9 @@ fn run_lane(lane: Arc<LaneShared>) {
                 self.0.status.store(CLOSED, Ordering::Release);
                 // Drop what the run function owns now, as a dead thread
                 // would have: a channel receiver it held disconnects its
-                // senders instead of filling up unread.
-                let dead: RunFn = Box::new(|| LaneNext::Close);
-                drop(std::mem::replace(
-                    &mut *self.0.run.lock().unwrap_or_else(|poison| poison.into_inner()),
-                    dead,
-                ));
+                // senders instead of filling up unread. The run mutex is
+                // already released (poisoned) by the unwind.
+                self.0.drop_run_fn();
                 let _ = std::io::Write::write_fmt(
                     &mut std::io::stderr(),
                     format_args!("serial lane {} panicked; it will not run again\n", self.0.name),
@@ -342,7 +382,10 @@ fn run_lane(lane: Arc<LaneShared>) {
     drop(guard);
     let executor = executor();
     match next {
-        LaneNext::Close => lane.status.store(CLOSED, Ordering::Release),
+        LaneNext::Close => {
+            lane.status.store(CLOSED, Ordering::Release);
+            lane.drop_run_fn();
+        }
         LaneNext::Idle => {
             if lane
                 .status
@@ -353,13 +396,12 @@ fn run_lane(lane: Arc<LaneShared>) {
             }
         }
         LaneNext::At(at) => {
-            let generation = lane.deadline_generation.fetch_add(1, Ordering::AcqRel) + 1;
             if lane
                 .status
                 .compare_exchange(RUNNING, WAITING, Ordering::AcqRel, Ordering::Acquire)
                 .is_ok()
             {
-                executor.push_timer(lane, at, generation);
+                executor.push_timer(lane, at);
             } else {
                 requeue_kicked(lane, executor);
             }
