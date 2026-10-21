@@ -212,6 +212,7 @@ let package = Package(
                 "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
                 "CmuxNextAgentUpdates",
@@ -300,6 +301,13 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Chief pet's glue outside the App (code-quality SW14): its rows in the Chief Settings
+        // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
+        .target(
+            name: "CmuxNextChiefPetWiring",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
