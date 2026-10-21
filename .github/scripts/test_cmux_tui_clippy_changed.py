@@ -4,12 +4,14 @@
 PR CI never ran cmux-tui.yml (dispatch only), so #23163 and #23372 landed clippy
 reds in cmux-tui/crates/cmux-tui/tests/ and broke base clippy. cmux-tui-clippy-changed.py
 runs `cargo clippy --all-targets -D warnings` on each workspace package a change
-touches; these tests drive it on a scratch repository with a fake cargo that
-records its calls.
+touches and on the members depending on it; these tests drive it on a scratch
+repository with a fake cargo that answers `cargo metadata` from the test's
+workspace and records its other calls.
 """
 
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -20,6 +22,11 @@ import unittest
 
 SCRIPT = Path(__file__).with_name("cmux-tui-clippy-changed.py")
 FAKE_CARGO = """#!/usr/bin/env bash
+if [[ "$1" == metadata ]]; then
+  [[ -n "${METADATA_FAILS:-}" ]] && { echo "error: failed to parse manifest" >&2; exit 101; }
+  cat "$CARGO_METADATA"
+  exit
+fi
 printf '%s\\n' "$*" >> "$CARGO_LOG"
 for arg in "$@"; do
   if [[ "$arg" == "${FAIL_PACKAGE:-none}" ]]; then
@@ -36,7 +43,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.tmp = Path(tempfile.mkdtemp())
         self.repo = self.tmp / "repo"
         # The workspace root is a package too, as in the real tree.
-        self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/a", "crates/b"]\n')
+        self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/ffi"]\n')
         self.write("cmux-tui/Cargo.lock", "# lock\n")
         self.write("cmux-tui/src/main.rs", "fn main() {}\n")
         self.write("cmux-tui/crates/a/Cargo.toml", '[package]\nname = "pkg-a"\n')
@@ -44,6 +51,11 @@ class ClippyChangedTests(unittest.TestCase):
         self.write("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t() {}\n")
         self.write("cmux-tui/crates/b/Cargo.toml", '[package]\nname = "pkg-b"\n')
         self.write("cmux-tui/crates/b/src/lib.rs", "pub fn b() {}\n")
+        # pkg-c uses pkg-a in its tests only, and pkg-d uses pkg-c.
+        self.write("cmux-tui/crates/c/Cargo.toml", '[package]\nname = "pkg-c"\n')
+        self.write("cmux-tui/crates/c/src/lib.rs", "pub fn c() {}\n")
+        self.write("cmux-tui/crates/d/Cargo.toml", '[package]\nname = "pkg-d"\n')
+        self.write("cmux-tui/crates/d/src/lib.rs", "pub fn d() {}\n")
         # Its own workspace, outside the cmux-tui workspace members.
         self.write("cmux-tui/crates/ffi/Cargo.toml", '[package]\nname = "ffi"\n\n[workspace]\n')
         self.write("cmux-tui/crates/ffi/src/lib.rs", "pub fn f() {}\n")
@@ -60,7 +72,24 @@ class ClippyChangedTests(unittest.TestCase):
         cargo.write_text(FAKE_CARGO)
         cargo.chmod(0o755)
         self.log = self.tmp / "cargo.log"
-        self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CARGO_LOG": str(self.log)}
+        self.metadata = self.tmp / "metadata.json"
+        self.members = {"": "cmux-root", "crates/a": "pkg-a", "crates/b": "pkg-b", "crates/c": "pkg-c", "crates/d": "pkg-d"}
+        self.uses = {"pkg-c": [("crates/a", "dev")], "pkg-d": [("crates/c", None)], "cmux-root": [("vendor/up", None)]}
+        self.env = {**os.environ, "PATH": f"{bin_dir}:{os.environ['PATH']}", "CARGO_LOG": str(self.log),
+                    "CARGO_METADATA": str(self.metadata)}
+
+    def write_metadata(self) -> None:
+        """`cargo metadata --no-deps` for the members and path dependencies the test declares."""
+        root = self.repo / "cmux-tui"
+        packages = [{
+            "id": f"path+file://{root / path}#{name}",
+            "name": name,
+            "manifest_path": str(root / path / "Cargo.toml"),
+            # Each also uses a registry crate, which has no path.
+            "dependencies": [{"name": dep, "kind": kind, "path": str(root / dep)} for dep, kind in self.uses.get(name, [])]
+            + [{"name": "serde", "kind": None, "source": "registry+https://github.com/rust-lang/crates.io-index"}],
+        } for path, name in self.members.items()]
+        self.metadata.write_text(json.dumps({"packages": packages, "workspace_members": [p["id"] for p in packages]}))
 
     def write(self, path: str, text: str) -> None:
         target = self.repo / path
@@ -79,8 +108,9 @@ class ClippyChangedTests(unittest.TestCase):
         self.git("add", "-A")
         self.git("commit", "-qm", "change")
 
-    def run_check(self, *args: str, fail: str | None = None) -> subprocess.CompletedProcess[str]:
-        env = dict(self.env)
+    def run_check(self, *args: str, fail: str | None = None, env_extra: dict | None = None) -> subprocess.CompletedProcess[str]:
+        self.write_metadata()
+        env = {**self.env, **(env_extra or {})}
         if fail:
             env["FAIL_PACKAGE"] = fail
         return subprocess.run(
@@ -98,7 +128,7 @@ class ClippyChangedTests(unittest.TestCase):
         self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
         result = self.run_check("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", *LINT]])
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", *LINT]])
 
     def test_a_lint_in_a_touched_package_fails_and_names_it(self) -> None:
         self.change("cmux-tui/crates/a/tests/journey.rs", "#[test]\nfn t2() {}\n")
@@ -114,9 +144,31 @@ class ClippyChangedTests(unittest.TestCase):
         result = self.run_check("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(self.calls(), [[
-            "clippy", "--locked", "--keep-going", "-p", "cmux-root", "-p", "pkg-a", "-p", "pkg-b", *LINT]])
+            "clippy", "--locked", "--keep-going", "-p", "cmux-root", "-p", "pkg-a", "-p", "pkg-b",
+            "-p", "pkg-c", "-p", "pkg-d", *LINT]])
 
-    def test_a_package_with_its_own_workspace_is_named_not_linted_here(self) -> None:
+    def test_members_depending_on_a_changed_package_are_linted_too(self) -> None:
+        # A change to pkg-a can break pkg-c's tests (a dev-dependency) and, through pkg-c, pkg-d.
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-a", "-p", "pkg-c", "-p", "pkg-d", *LINT]])
+        self.assertIn("pkg-c, pkg-d depend on pkg-a", result.stdout)
+
+    def test_a_failing_cargo_metadata_fails_the_check_without_linting(self) -> None:
+        self.change("cmux-tui/crates/a/src/lib.rs")
+        result = self.run_check("--base", self.base, env_extra={"METADATA_FAILS": "1"})
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("::error title=cmux-tui clippy::`cargo metadata --no-deps` failed", result.stdout)
+        self.assertEqual(self.calls(), [])
+
+    def test_a_package_nothing_depends_on_is_linted_alone(self) -> None:
+        self.change("cmux-tui/crates/d/src/lib.rs")
+        result = self.run_check("--base", self.base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(self.calls(), [["clippy", "--locked", "--keep-going", "-p", "pkg-d", *LINT]])
+
+    def test_a_package_cargo_does_not_list_as_a_member_is_named_not_linted_here(self) -> None:
         self.change("cmux-tui/crates/ffi/src/lib.rs")
         result = self.run_check("--base", self.base)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
@@ -152,20 +204,10 @@ class ClippyChangedTests(unittest.TestCase):
                 self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
                 self.assertEqual(self.calls(), [])
 
-    def test_an_excluded_directory_is_not_linted(self) -> None:
-        self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/b"]\n')
-        self.git("add", "-A")
-        self.git("commit", "-qm", "exclude b")
-        base = self.git("rev-parse", "HEAD").strip()
-        self.change("cmux-tui/crates/b/src/lib.rs")
-        result = self.run_check("--base", base)
-        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
-        self.assertEqual(self.calls(), [])
-        self.assertIn("cmux-tui/crates/b is not a cmux-tui workspace member", result.stdout)
-
     def test_deleting_a_package_lints_the_remaining_workspace(self) -> None:
         self.git("rm", "-rq", "cmux-tui/crates/b")
-        self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/a"]\n')
+        del self.members["crates/b"]
+        self.write("cmux-tui/Cargo.toml", '[package]\nname = "cmux-root"\n\n[workspace]\nmembers = ["crates/*"]\nexclude = ["crates/ffi", "crates/b"]\n')
         self.git("add", "-A")
         self.git("commit", "-qm", "drop b")
         result = self.run_check("--base", self.base)
