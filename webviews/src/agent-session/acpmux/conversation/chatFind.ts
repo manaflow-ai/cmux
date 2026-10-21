@@ -166,16 +166,17 @@ export type FindRevealTarget = {
 };
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
-/** Whether `row` draws match row `rowId` itself: the row or its copy in an open fold. */
+/** Whether `row` draws match row `rowId` itself: the row, its copy in an open fold, or the run
+ * that absorbed it (turns.ts `mergeShortNotes`). */
 export const isFindRow = (row: AcpmuxRow, rowId: string) =>
-  (row.id === rowId && !row.ended) || row.id === `${rowId}:fold`;
+  (!row.ended && (row.id === rowId || Boolean(row.joined?.includes(rowId)))) || row.id === `${rowId}:fold`;
 
 /** Whether `row` is the edited-files card (turns.ts) that merges edit `rowId`. */
 const isCardOf = (row: AcpmuxRow, rowId: string) => Boolean(row.ended) && (row.merged ?? [row.id]).includes(rowId);
 
 /** Whether `row` is the one `reveal` names. */
 export const isRevealRow = (row: AcpmuxRow, reveal: Pick<FindRevealTarget, "rowId" | "card">) =>
-  row.id === reveal.rowId && Boolean(row.ended) === reveal.card;
+  (row.id === reveal.rowId || Boolean(row.joined?.includes(reveal.rowId))) && Boolean(row.ended) === reveal.card;
 
 /** Where the transcript draws match row `rowId`: the row or its fold copy (isFindRow), else the
  * edited-files card that holds it (an edit after the answer is only there); -1 while hidden. */
