@@ -6766,7 +6766,12 @@ function AcpmuxPane() {
               // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
               // row showed (the chat could not take prompts) comes back to the composer. A View Only
               // chat is taken over first (below), so the composer holds its prompt meanwhile.
-              if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft && !snapshot.summary?.watching) {
+              if (
+                snapshot.sessionId &&
+                surfaceRef.current !== "quick" &&
+                !projectDraft &&
+                !snapshot.summary?.watching
+              ) {
                 const holder = composerHandle.current;
                 callNative("chat.send", { text, attachments, steer }).then(
                   () => promptLanded.current(),
