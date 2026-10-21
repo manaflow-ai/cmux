@@ -138,6 +138,22 @@ void ApplyDefaultSearch(CefRefPtr<CefRequestContext> context) {
   context->SetPreference(kPref, value, error);
 }
 
+// Turns off Chromium's download bubble that opens by itself when a download
+// ends ("partial view"; download_bubble_ui_controller.cc returns no rows for
+// it while this preference is false, and the bubble then never shows). It
+// anchors to a toolbar cmux never shows, so it opened over the page; the
+// App's Downloads popup opens under its own toolbar button instead
+// (BrowserDownloadsPopup). The full bubble opens only from Chromium's
+// toolbar button, which cmux has none of.
+void DisableDownloadBubble(CefRefPtr<CefRequestContext> context) {
+  static const char kPref[] = "download_bubble.partial_view_enabled";
+  if (!context || !context->CanSetPreference(kPref)) return;
+  CefRefPtr<CefValue> value = CefValue::Create();
+  value->SetBool(false);
+  CefString error;
+  context->SetPreference(kPref, value, error);
+}
+
 // Applies per-profile preferences once the profile is loaded.
 class ContextHandler : public CefRequestContextHandler {
  public:
@@ -153,6 +169,7 @@ class ContextHandler : public CefRequestContextHandler {
     // Remote localhost: before any browser of this context navigates.
     ApplyContextProxy(context, cache_path_);
     ApplyDefaultSearch(context);
+    DisableDownloadBubble(context);
     initialized_contexts().insert(cache_path_);
     WatchBookmarks(cache_path_);
   }

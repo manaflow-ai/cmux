@@ -169,7 +169,10 @@ have to run the export itself.
 The defaults snapshot (`schemas/defaults/cmux-next.json`) is bot-only (#21946):
 no pull request commits it, and the PR autofix leaves it out. It is stale
 between a merge and the base autofix's commit, so CI runs `check-stamp`, never
-`check-fresh`, on every event, including the base and batches. The base autofix
+`check-fresh`, on every event, including the base and batches. The settings
+exports lag the same way, so the defaults-snapshot job passes `--base` (the
+event's parent commit): a stale export of a source the event changed fails, and
+one already stale on the base is a warning. The base autofix
 rewrites it after each merge. The defaults guard judges a pull request by the defaults its
 exports and sources produce, never by a committed snapshot.
 
