@@ -133,9 +133,10 @@ pub(super) fn family_role(from: &SessionMeta, to: &SessionMeta) -> &'static str 
 
 /// What a sub-session waits on the person for, when it does: `question`
 /// (an agent question, with its first prompt) or `permission`. Only the
-/// person answers either (`questions.rs`, `person.rs`), in the app's card
-/// or with `acpmux answer`/`allow` from their own terminal; a parent agent
-/// cannot, so its tools say so instead of offering an answer.
+/// person allows a permission (`person.rs`), in the app's card or with
+/// `acpmux allow` from their own terminal. An ancestor may answer a question
+/// only when the person turned that on (`subsession_answer.rs`, the row's
+/// `questions`); otherwise the person answers it too.
 pub(super) fn waiting_on(s: &Session) -> Option<(&'static str, Option<String>)> {
     let pending = s.pending_permissions();
     let question = pending.iter().find(|(_, r)| super::questions::needs_person(r));
