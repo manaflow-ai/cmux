@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -141,7 +141,7 @@ final class SidebarBridge {
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
-                tabTitle: Self.tabTitle(services), rows: feed.rowSource)
+                tabTitle: Self.tabTitle(services), rows: feed.laneRowSource)
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document))
@@ -394,8 +394,8 @@ final class SidebarBridge {
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         switch target {
-        case .layoutItem(let id): layoutItemMenu(id)
-        case .layoutSection(let id): layoutSectionMenu(id)
+        case .layoutItem(let id): layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+        case .layoutSection(let id): layoutSectionMenu(id)?.themeRows(in: container.themeScope.fullStrength)
         default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }
     }

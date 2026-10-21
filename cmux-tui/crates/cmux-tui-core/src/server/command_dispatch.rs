@@ -276,6 +276,7 @@ pub(super) fn handle_command_with_cancellation(
             cmd_tabs::bind_conversation_tab_session(mux, actor, params)
         }
         Command::RestartTab(params) => tab_restart::restart(mux, params),
+        Command::ParkTabs(params) => tab_park::park(mux, params),
         Command::NewFrontendBrowserTab(params) => {
             cmd_tabs::new_frontend_browser_tab(mux, client, params)
         }

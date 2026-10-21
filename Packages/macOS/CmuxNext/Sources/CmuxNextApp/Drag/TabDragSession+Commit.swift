@@ -73,15 +73,12 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return gone(settle) }
-            // The tab's own pane with its only tab: the owner spawns a fresh
-            // tab of the same kind there in the same op.
-            let respawn = liveContext(drag).splitRespawns(pane: paneID) ? TabMoves.respawn(for: tab, in: pane, services: services) : nil
+            // The tab's own pane with its only tab opens the New Tab page behind it (`TabMoves.splitBehind`).
             // The preview decided split or new column with the same room
             // rule (`LayoutTabDropTarget.removingPane`); run that decision.
-            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, respawn: respawn, roomDecided: true,
-                                transaction: transaction, completion: settle)
+            TabMoves.toNewSplit(tab, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction, completion: settle)
         case .newColumn(let screenID, let after):
-            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }
+            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow, avoiding: emptiedPane(drag)) else { return gone(settle) }
             TabMoves.toNewColumn(tab, anchor: anchor, afterColumn: column, services: services, transaction: transaction, completion: settle)
         case .newDock(let screenID, let edge):
             guard let anchor = screenAnchor(screenID: screenID, in: dropWindow),
@@ -125,10 +122,12 @@ extension TabDragSession {
             }
         case .newSplit(let paneID, let edge):
             guard let pane = paneModel(id: paneID) else { return gone(settle) }
-            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true, transaction: transaction,
+            if liveContext(drag).splitsBehind(pane: paneID) { return TabMoves.splitBehind(pane, edge: edge.paneEdge, services: services, completion: settle) }
+            TabGroupMoves.toNewSplit(group, pane: pane, edge: edge.paneEdge, services: services, roomDecided: true,
+                                     emptying: liveContext(drag).emptiesSourcePane ? drag.source.pane?.pane : nil, transaction: transaction,
                                      completion: settle)
         case .newColumn(let screenID, let after):
-            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow) else { return gone(settle) }
+            guard let (anchor, column) = columnAnchor(screenID: screenID, after: after, in: dropWindow, avoiding: emptiedPane(drag)) else { return gone(settle) }
             TabGroupMoves.toNewColumn(group, anchor: anchor, afterColumn: column, services: services, transaction: transaction,
                                       completion: settle)
         case .newDock:
@@ -228,6 +227,9 @@ extension TabDragSession {
         return nil
     }
 
+    /// The layout pane id of the pane the drag empties (it closes with the move); nil when it keeps a tab.
+    func emptiedPane(_ drag: Drag) -> String? { liveContext(drag).emptiesSourcePane ? liveContext(drag).sourcePaneID : nil }
+
     /// The pane to anchor a new column on (the last pane of the column the
     /// new one follows) and that column's daemon id.
     /// Any pane of `screenID` in `window` (a dock opens on the anchor's screen).
@@ -238,11 +240,14 @@ extension TabDragSession {
         return content.daemon.store.pane(handle)
     }
 
-    func columnAnchor(screenID: String, after: String, in window: WindowController?) -> (PaneModel, DaemonColumnID?)? {
+    /// `avoiding`: the pane the drag empties. Its only tab cannot leave through it (the daemon refuses that as
+    /// a split, as DockColumnHandlers notes), so another pane anchors the new column; `after` still places it.
+    func columnAnchor(screenID: String, after: String, in window: WindowController?, avoiding: String? = nil) -> (PaneModel, DaemonColumnID?)? {
         guard let content = window?.content,
               let screen = content.layoutModel.screens.first(where: { $0.id.rawValue == screenID }),
               let column = screen.layout.columns.first(where: { $0.id.rawValue == after }),
-              let anchor = column.root.panes.last, let handle = content.handles.panes[anchor],
+              let anchor = column.root.panes.last(where: { $0.rawValue != avoiding }) ?? screen.layout.panes.first(where: { $0.rawValue != avoiding }),
+              let handle = content.handles.panes[anchor],
               let pane = content.daemon.store.pane(handle) else { return nil }
         return (pane, content.handles.columns[column.id])
     }

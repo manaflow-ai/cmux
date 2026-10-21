@@ -17,8 +17,10 @@ The reserved `chatmux_relay` filter runs the complete `chatmux-relay` package;
 Cargo test names do not include their package name, so a plain test-name filter
 cannot select that crate.
 --full runs the cross-platform merge gate, including real Windows execution.
-Both modes build and download matching macOS arm64 cmux-tui and userland agent-plugin
-artifacts from the exact pushed HEAD.
+Both modes build and download the matching macOS arm64 cmux-tui artifact from the
+exact pushed HEAD. --full also downloads the separate userland agent-plugin artifact;
+--filter builds the macOS target on a Linux runner, which stages the plugin inside the
+cmux-tui artifact (when it built) instead.
 EOF
 }
 
@@ -347,11 +349,13 @@ gh run download \
 
 plugin_download_dir="$temp_dir/agent-plugin"
 mkdir -p "$plugin_download_dir"
-gh run download \
-  --repo "$REPO" \
-  "$run_id" \
-  --name cmux-agent-screen-detection-aarch64-apple-darwin \
-  --dir "$plugin_download_dir"
+if [[ "$mode" == "full" ]]; then
+  gh run download \
+    --repo "$REPO" \
+    "$run_id" \
+    --name cmux-agent-screen-detection-aarch64-apple-darwin \
+    --dir "$plugin_download_dir"
+fi
 
 downloaded_binary="$(find "$temp_dir" -type f -name cmux-tui-aarch64-apple-darwin -print | sed -n '1p')"
 if [[ -z "$downloaded_binary" ]]; then
@@ -359,10 +363,20 @@ if [[ -z "$downloaded_binary" ]]; then
   exit 1
 fi
 
-downloaded_plugin="$(find "$plugin_download_dir" -type f -name cmux-agent-screen-detection-aarch64-apple-darwin -print | sed -n '1p')"
-if [[ -z "$downloaded_plugin" ]]; then
-  echo "error: the macOS arm64 artifact did not contain the agent screen-detection plugin" >&2
-  exit 1
+if [[ "$mode" == "full" ]]; then
+  downloaded_plugin="$(find "$plugin_download_dir" -type f -name cmux-agent-screen-detection-aarch64-apple-darwin -print | sed -n '1p')"
+  if [[ -z "$downloaded_plugin" ]]; then
+    echo "error: the macOS arm64 artifact did not contain the agent screen-detection plugin" >&2
+    exit 1
+  fi
+else
+  # Focused runs build on Linux (darwin_builder=linux): the plugin rides the
+  # cmux-tui artifact, and scripts/ci/stage-agent-detector.sh leaves it out
+  # with a warning when it did not build.
+  downloaded_plugin="$(find "$temp_dir" -type f -name cmux-tui-agent-screen-detection-aarch64-apple-darwin -print | sed -n '1p')"
+  if [[ -z "$downloaded_plugin" ]]; then
+    echo "warning: the macOS arm64 artifact has no agent screen-detection plugin; installing cmux-tui without it" >&2
+  fi
 fi
 
 artifact_dir="cmux-tui/target/hosted/$commit"
@@ -370,9 +384,13 @@ artifact_binary="$artifact_dir/cmux-tui"
 artifact_plugin="$artifact_dir/cmux-agent-screen-detection"
 mkdir -p "$artifact_dir"
 install -m 0755 "$downloaded_binary" "$artifact_binary"
-install -m 0755 "$downloaded_plugin" "$artifact_plugin"
+if [[ -n "$downloaded_plugin" ]]; then
+  install -m 0755 "$downloaded_plugin" "$artifact_plugin"
+fi
 
 echo "Hosted verification passed: $run_url"
 echo "Artifact: $artifact_binary"
-echo "Artifact: $artifact_dir/cmux-agent-screen-detection"
+if [[ -n "$downloaded_plugin" ]]; then
+  echo "Artifact: $artifact_plugin"
+fi
 echo "Dogfood: $artifact_binary --session verify-${commit:0:8}"

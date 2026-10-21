@@ -4,7 +4,9 @@ public import AppKit
 /// the icon picker, page info, the palette's actions menu): the web's popup
 /// surface (webviews/src/ui/popupSurface.css, #18729) in AppKit. Small-radius
 /// rects, compact rows and one subtle shadow (`elevation`); each surface keeps its own
-/// material and theme colors. `PopupStyleTests` holds the two in step.
+/// material and theme colors. `PopupStyleTests` holds the two in step. Hover cards
+/// keep the shadow and rows but take the floating glass panels' larger radius
+/// (`HoverCardPanel.cornerRadius`).
 public struct PopupStyle: Sendable {
     /// The style every native popover uses.
     public static let standard = PopupStyle()

@@ -60,6 +60,8 @@ final class HostView: NSView {
     let headerBackdrop = HeaderBackdropView(frame: .zero)
     /// cmux: the in-pane header controls (HeaderBar's avatar and name pill).
     let paneHeader = PaneHeaderView(frame: .zero)
+    /// cmux: Home's glass band under the header controls (HeaderGlass.swift); nil until Home asks for it.
+    var headerGlass: HeaderGlassView?
     /// cmux: Reply to Selection's quote over the message box (HostView+QuoteCard.swift); nil when none shows.
     var quoteCard: ReplyQuoteCardView?
     private(set) var demo: MessagesWindowView?
@@ -172,8 +174,7 @@ final class HostView: NSView {
         if headerBackdrop.frame != hb { headerBackdrop.frame = hb }
         let ph = CGRect(x: 0, y: 0, width: bounds.width, height: Fixture.headerHeight)
         if paneHeader.frame != ph { paneHeader.frame = ph }
-        if headerZoneArea?.rect.width != bounds.width { updateHeaderZone() }
-        placeRowsUnderHeaderMask()
+        placeHeaderGlass()
         controller?.placeSendButton(animated: false)
         fieldChrome.place(field: demo.compose.fieldRect, plus: demo.compose.plusRect,
                           emoji: CGRect(x: bounds.width - Fixture.windowWidth + 586.5, y: demo.compose.plusRect.minY, width: 31, height: 30))
@@ -254,12 +255,8 @@ final class HostView: NSView {
     // button. The tracking area exists only while the field holds attachments,
     // covers only the field, and only for the key window (no wake-up per mouse move).
     private var hoverArea: NSTrackingArea?
-    /// cmux: the top zone that shows the header's fade (HeaderFade.swift).
-    var headerZoneArea: NSTrackingArea?
-    let headerZone = HeaderZoneTracker()
     override func updateTrackingAreas() {
         super.updateTrackingAreas()
-        updateHeaderZone()
         if let t = hoverArea { removeTrackingArea(t); hoverArea = nil }
         guard let demo, !demo.compose.strip.tiles.isEmpty else { return }
         let t = NSTrackingArea(rect: demo.compose.fieldRect, options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow], owner: self)
@@ -398,6 +395,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
     /// cmux: the Chief works: the round button beside the field is Stop,
     /// and Esc and Cmd-. in the field stop it (ChatController+Stop.swift).
     var isWorking = false { didSet { if isWorking != oldValue { updateStopButton() } } }
+    /// cmux: opens the system emoji picker (ChatController+Emoji.swift; tests count the calls).
+    var openEmojiPalette: () -> Void = { NSApp.orderFrontCharacterPalette(nil) }
     /// cmux: Up and Down in the field browse the sent messages (PaneHost+History.swift).
     var composerHistory = ComposerHistory()
     var clock: Double { CACurrentMediaTime() - start }
@@ -632,6 +631,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         guard let demo else { return }
         let tv = demo.compose.textView.view
         let draft = store?.state.ui.draft.attachments ?? []
+        // An edit can move the pictures: the remove button waits for the pointer to move again.
+        demo.compose.inlineHover.hide()
         // cmux: attachments are in the text (Draft+InlineMarks.swift). An attachment character that
         // stands for no draft attachment (a pasted U+FFFC, an undo of a removal) leaves the text.
         if let storage = tv.textStorage {
@@ -664,11 +665,6 @@ final class ChatController: NSObject, NSTextViewDelegate {
         intents?.acceptsAttachments(from: sender.draggingPasteboard) == true ? .copy : []
     }
     func performDrop(_ sender: NSDraggingInfo) -> Bool { takeDrop(sender.draggingPasteboard) }
-
-    func showEmojiPicker() {
-        focusCompose()
-        NSApp.orderFrontCharacterPalette(nil)
-    }
 
     // MARK: Clicks
 

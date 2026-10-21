@@ -41,7 +41,7 @@ public nonisolated enum SplitRoom {
         case let .splits(root):
             guard root.contains(pane) else { return .split }
             let need = minimumSize(splitting: pane, axis: axis, in: root, removing: removing, style: style)
-            return fits(need, in: viewport) ? .split : .refused(.notEnoughRoom)
+            return fits(need, in: viewport, scrolls: style.scrollAreasEnabled) ? .split : .refused(.notEnoughRoom)
         case let .columns(columns):
             guard let index = columns.firstIndex(where: { $0.root.contains(pane) }) else { return .split }
             // The column's real frame: a docked column is capped, docked
@@ -54,8 +54,11 @@ public nonisolated enum SplitRoom {
             let container = CGSize(width: frame?.width ?? viewport.width, height: frame?.height ?? viewport.height)
             let need = minimumSize(splitting: pane, axis: axis, in: row?.root ?? columns[index].root, removing: removing, style: style)
             if fits(need, in: container) { return .split }
-            // A docked column never grows a neighbor column.
-            if geometry.fixedPanes.contains(pane) { return .refused(.notEnoughRoom) }
+            // A docked column never grows a neighbor column; with scroll areas its splits
+            // scroll inside it (scroll-areas-DESIGN.md G1).
+            if geometry.fixedPanes.contains(pane) {
+                return fits(need, in: container, scrolls: style.scrollAreasEnabled) ? .split : .refused(.notEnoughRoom)
+            }
             if axis == .horizontal, fits(style.minimumPaneSize, in: CGSize(width: max(1, viewport.width - style.stripGap * 2), height: viewport.height)) {
                 return .newColumn
             }
@@ -70,7 +73,8 @@ public nonisolated enum SplitRoom {
         return SplitGeometry.minimumSize(of: split, style: style)
     }
 
-    static func fits(_ size: CGSize, in container: CGSize) -> Bool {
-        size.width <= container.width + 0.5 && size.height <= container.height + 0.5
+    /// `scrolls`: the container scrolls sideways (a scroll area), so only the height must fit.
+    static func fits(_ size: CGSize, in container: CGSize, scrolls: Bool = false) -> Bool {
+        (scrolls || size.width <= container.width + 0.5) && size.height <= container.height + 0.5
     }
 }

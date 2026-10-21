@@ -48,6 +48,7 @@ public final class SettingsApplier {
         if design.enabledAnimations != snapshot.animationKinds.enabled { design.enabledAnimations = snapshot.animationKinds.enabled }
         if design.animationBounce != snapshot.animationKinds.bounce { design.animationBounce = snapshot.animationKinds.bounce }
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
+        if design.calmMode != snapshot.calmMode { design.calmMode = snapshot.calmMode }
         if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
         if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
             design.disabledAnimationCategories = snapshot.motionCategories.disabled
@@ -56,12 +57,14 @@ public final class SettingsApplier {
         if design.homeChannelsEnabled != snapshot.homeChannelsEnabled { design.homeChannelsEnabled = snapshot.homeChannelsEnabled }
         let chiefBubblesThemed = snapshot.homeChiefBubbleStyle == HomeChiefBubbleStyleSetting.theme
         if design.homeChiefBubblesThemed != chiefBubblesThemed { design.homeChiefBubblesThemed = chiefBubblesThemed }
+        if design.homeChiefPetEnabled != snapshot.homeChiefPetEnabled { design.homeChiefPetEnabled = snapshot.homeChiefPetEnabled }
         if design.centerFocusedColumn != snapshot.centerFocusedColumn { design.centerFocusedColumn = snapshot.centerFocusedColumn }
         if design.tabOverflow != snapshot.tabOverflow { design.tabOverflow = snapshot.tabOverflow }
         if design.stripScrollbar != snapshot.stripScrollbar { design.stripScrollbar = snapshot.stripScrollbar }
         if design.sidebarSections != snapshot.sidebarSections { design.sidebarSections = snapshot.sidebarSections }
         if design.hoverCardsEnabled != snapshot.hoverCards.enabled { design.hoverCardsEnabled = snapshot.hoverCards.enabled }
         if design.colorTransition != snapshot.colorTransition.transition { design.colorTransition = snapshot.colorTransition.transition }
+        if design.inactiveWindowDim != snapshot.inactiveWindowDim { design.inactiveWindowDim = snapshot.inactiveWindowDim }
         let hoverCardDelay = Duration.milliseconds(Int(snapshot.hoverCards.delayMilliseconds.rounded()))
         if design.hoverCardDelay != hoverCardDelay { design.hoverCardDelay = hoverCardDelay }
         let workspaceHoverCard = snapshot.hoverCards.workspaceCardOptions
@@ -75,6 +78,7 @@ public final class SettingsApplier {
         if design.frameOrientation != snapshot.frameOrientation { design.frameOrientation = snapshot.frameOrientation }
         if design.layoutRows != snapshot.layoutRows { design.layoutRows = snapshot.layoutRows }
         if design.focusFollowsMouse != snapshot.focusFollowsMouse { design.focusFollowsMouse = snapshot.focusFollowsMouse }
+        if design.layoutScrollAreas != snapshot.layoutScrollAreas { design.layoutScrollAreas = snapshot.layoutScrollAreas }
         if design.minimumPaneContentSize != snapshot.minimumPaneContentSize { design.minimumPaneContentSize = snapshot.minimumPaneContentSize }
         if design.closeFocus != snapshot.closeFocus { design.closeFocus = snapshot.closeFocus }
         if design.defaultColumnWidth != snapshot.defaultColumnWidth { design.defaultColumnWidth = snapshot.defaultColumnWidth }

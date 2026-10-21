@@ -130,14 +130,14 @@ What Cmd-W does on a pinned tab.
 
 ```json
 {
-  "tabs": { "cmdWClosesPinnedTabs": true }
+  "tabs": { "cmdWClosesPinnedTabs": false }
 }
 ```
 
-- `false` (default): Cmd-W on a pinned tab selects the next tab and keeps the pinned tab, as in Chrome. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
-- `true`: Cmd-W closes a pinned tab like any other tab.
+- `true` (default): Cmd-W closes a pinned tab like any other tab, as in Chrome.
+- `false`: Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. When the pinned tab is the only tab in its pane, Cmd-W keeps it and shows a short notice. Close a pinned tab from its right-click menu.
 
-A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs true`.
+A tab closed by name (its menu, `cmux tab close`, MCP) closes with either value. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.cmdWClosesPinnedTabs false`.
 
 ## `tabs.swapCmdTAndCmdN`
 
@@ -315,6 +315,21 @@ Off by default: hovering or scrolling over a pane leaves keyboard focus where yo
 
 With it on, focus still stays where it is for momentum (the coast after a flick that started in another pane), for a scroll that moves columns or rows, while a mouse button is held, within a second of typing, and over a window that is not active. A pointer that stays inside one pane does not undo a keyboard move to another pane. Change it in **Settings > General > Columns**, with **Focus Follows Mouse** in the command palette (Cmd+Shift+P), or with `cmux settings set layout.focusFollowsMouse true`. It replaces `layout.focusPaneOnScroll`, which was on by default.
 
+## `layout.scrollAreas`
+
+Side-by-side panes that do not fit scroll sideways instead of shrinking below **Minimum Pane Width** (`layout.minimumPaneWidth`). This works in docked columns, in columns of the strip and on a screen without columns.
+
+```json
+{
+  "layout": { "scrollAreas": true }
+}
+```
+
+- `false` (default): today's layout. A column widens to fit its splits, and a docked column refuses a split that has no room.
+- `true`: a column keeps its width, and its splits scroll inside it. Each pane keeps the minimum width. Swipe sideways with two fingers, or use Shift with the mouse wheel, over the panes. Focus (Cmd-Opt-arrows, a click, the CLI with focus) scrolls the focused pane into view. Cmd-Opt-Left and Cmd-Opt-Right step through the panes, then go on to the next column.
+
+Change it in **Settings > General > Columns** or with `cmux settings set layout.scrollAreas true`. The design is in `plans/cmux-next/scroll-areas-DESIGN.md`.
+
 ## `workspaces.newPlacement`
 
 Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, New Workspace in the palette or menu, the sidebar's +, `cmux workspace new`, Home, a tab moved to a new workspace, a link opened in a new workspace, and a workspace an agent opens.
@@ -325,7 +340,7 @@ Where a new workspace goes in the sidebar when you do not pick a place: Cmd-N, N
 }
 ```
 
-- `"top"` (default): first in the group of the workspace the window shows. When that workspace is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
+- `"top"` (default): right below the workspace the window shows, inside its group, when that workspace is in a group. When it is not in a group, first in the workspace list, above every group. Pinned workspaces stay above it in the Pinned section, and it goes below the Home row when the list shows one.
 - `"afterCurrent"`: right after the workspace the window shows, inside that workspace's group when it has one. When that workspace is pinned, is Home, or is on another machine, the new one goes to the top.
 - `"bottom"`: last in the group of the workspace the window shows. When that workspace is not in a group, after the last workspace that is not in a group.
 
@@ -526,6 +541,24 @@ The panel can also open while another app is in front. This system-wide key is o
 ```
 
 Turn it on in Settings > General > Start Agent from Any App. Its key is a separate row, Start Agent from Any App (default Ctrl+Option+Cmd+Space), rebound from Settings > Keyboard Shortcuts or with `shortcuts.bindings["palette.startAgentFromAnyApp"]`. When another app (or another cmux global key) already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
+
+## Background mode and `app.hideDockIconWithoutWindows`
+
+When you close the last cmux window, cmux keeps running, and so do your terminals and agents. By default it then leaves the Dock and the app switcher (Cmd-Tab) and shows a cmux item in the menu bar instead, with Show cmux, New Window, Settings and Quit. Opening any window brings the Dock icon back: the menu bar item, opening cmux again from Finder or Spotlight, a notification, a link, or the `cmux` CLI. To keep the Dock icon while no window is open:
+
+```json
+{
+  "app": {
+    "hideDockIconWithoutWindows": false
+  }
+}
+```
+
+Or turn off Settings > General > Hide Dock Icon When No Windows Are Open.
+
+## Message the Chief from any app
+
+Message the Chief (command palette) shows the floating Chief pet with its reply box open. With the pet off, it shows the pet for that message only and hides it again when the box closes; `home.chiefPetEnabled` stays off. Its system-wide key is a separate Keyboard Shortcuts row, Message the Chief from Any App (default Ctrl+Option+Cmd+C), rebound with `shortcuts.bindings["home.messageChiefFromAnyApp"]`. It works from any app, cmux included, while the Chief pet is on (`home.chiefPetEnabled`, Settings > Home > Show Chief Pet or View > Show Chief Pet). With the pet off, cmux leaves the key to other apps; use Message the Chief in the command palette. When another app already holds the key, the Keyboard Shortcuts row shows a warning and the key works only inside cmux.
 
 ## `palette.scopes.<scope>.prefix`
 
@@ -728,7 +761,7 @@ Three keyboard shortcuts drive the todo state, all editable in **Settings > Keyb
 
 - `markWorkspaceDone` (default `cmd+;`) pins the selected workspace's status to done.
 - `cycleWorkspaceStatus` (default `cmd+shift+;`) advances the status one lane forward (todo → working → needs-attention → review → done → todo).
-- `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover.
+- `toggleChecklistItemComplete` (default `cmd+return`) toggles the highlighted checklist item in the focused todo pane or checklist popover. The default steps aside in a terminal, the code editor, an agent chat (where Cmd-Return steers the running turn) and a web page.
 
 cmux also posts a notification when a workspace's status first reaches done, and when its checklist first becomes fully complete, so you can watch agent progress without keeping the pane open.
 
