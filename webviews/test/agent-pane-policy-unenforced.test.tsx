@@ -103,7 +103,7 @@ test("a policy OpenCode cannot keep is noted where acpmux logged it", async () =
   );
   const { client, notes } = await connect(daemon);
   try {
-    expect(notes()).toEqual([{ policy: "approve-reads", harness: "opencode", why: "ownSettings" }]);
+    expect(notes()).toEqual([{ policy: "approve-reads", why: "ownSettings" }]);
     // A narrower policy set later that it cannot keep either gets its own note.
     daemon.push(
       record(
@@ -115,7 +115,7 @@ test("a policy OpenCode cannot keep is noted where acpmux logged it", async () =
       ),
     );
     await until(() => notes().length === 2, "the second note");
-    expect(notes()[1]).toEqual({ policy: "deny-all", harness: "opencode", why: "ownSettings" });
+    expect(notes()[1]).toEqual({ policy: "deny-all", why: "ownSettings" });
   } finally {
     client.close();
   }
@@ -129,13 +129,35 @@ test("a policy a harness with no mode that asks cannot keep is noted", async () 
   );
   const { client, notes } = await connect(daemon);
   try {
-    expect(notes()).toEqual([{ policy: "ask", harness: "pi", why: "noAskingMode" }]);
+    expect(notes()).toEqual([{ policy: "ask", why: "noAskingMode" }]);
   } finally {
     client.close();
   }
 });
 
-test("the note names the harness and the policy, never acpmux's reason", async () => {
+// A chat the pane read before is drawn from its kept tail before its summary is back: the note comes
+// from the record alone, so it says the same thing either way.
+test("the note comes from the record, not the chat's summary", async () => {
+  const daemon = fakeDaemon(
+    record([
+      ["mux", "policy_unenforced", { policy: "approve-reads", modeId: "build", reason: OPENCODE_REFUSAL }],
+      ["mux", "policy_unenforced", { policy: "deny-all", modeId: null, reason: NO_ASKING_MODE }],
+    ]),
+    "",
+    "",
+  );
+  const { client, notes } = await connect(daemon);
+  try {
+    expect(notes()).toEqual([
+      { policy: "approve-reads", why: "ownSettings" },
+      { policy: "deny-all", why: "noAskingMode" },
+    ]);
+  } finally {
+    client.close();
+  }
+});
+
+test("the note names the policy and why, never acpmux's reason", async () => {
   const { PolicyUnenforcedNote } = await import("../src/agent-session/acpmux/conversation/CompactionNote");
   const drawn = (note: Parameters<typeof PolicyUnenforcedNote>[0]["note"]) =>
     renderToStaticMarkup(<PolicyUnenforcedNote note={note} />)
@@ -143,10 +165,10 @@ test("the note names the harness and the policy, never acpmux's reason", async (
       .replace(/&#x27;/g, "'")
       .replace(/\s+/g, " ")
       .trim();
-  expect(drawn({ policy: "approve-reads", harness: "opencode", why: "ownSettings" })).toBe(
+  expect(drawn({ policy: "approve-reads", why: "ownSettings" })).toBe(
     "OpenCode can't keep this chat's permission policy (Approve reads): its own settings decide what it asks",
   );
-  expect(drawn({ policy: "deny-all", harness: "pi", why: "noAskingMode" })).toBe(
-    "Pi can't keep this chat's permission policy (Deny all): it runs without asking",
+  expect(drawn({ policy: "deny-all", why: "noAskingMode" })).toBe(
+    "This chat's agent has no mode that asks before each change, so it can't keep the permission policy (Deny all)",
   );
 });
