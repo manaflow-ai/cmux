@@ -89,7 +89,9 @@ export function NeedsYouButton({
         className="acpmux-header-tool acpmux-needs-you-button"
         data-count={count > 0 ? "" : undefined}
         aria-label={label}
-        title={label}
+        // A tooltip only names an icon-only control (test/tooltip-rules.ts): with asks open the
+        // count shows, so the button keeps just its aria-label; with none it is the inbox icon alone.
+        {...(count > 0 ? {} : { title: label })}
         aria-haspopup="dialog"
         aria-expanded={open}
         {...trigger}
