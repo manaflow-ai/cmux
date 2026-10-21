@@ -26,7 +26,11 @@ describe("parseImportCards", () => {
   test("drops cards without an id or title; an unknown state reads as ready", () => {
     const list = parseImportCards({
       title: "",
-      cards: [{ ...card, id: "" }, { ...card, title: 3 }, { ...card, id: "b", state: "weird" }],
+      cards: [
+        { ...card, id: "" },
+        { ...card, title: 3 },
+        { ...card, id: "b", state: "weird" },
+      ],
     });
     expect(list?.cards.map((c) => c.id)).toEqual(["b"]);
     expect(list?.cards[0]?.state).toBe("ready");
@@ -34,7 +38,10 @@ describe("parseImportCards", () => {
 
   test("takes only PNG data URLs as icons", () => {
     const list = parseImportCards({
-      cards: [{ ...card, icon: "https://example.com/x.png" }, { ...card, id: "b", icon: "data:image/png;base64,AAAA" }],
+      cards: [
+        { ...card, icon: "https://example.com/x.png" },
+        { ...card, id: "b", icon: "data:image/png;base64,AAAA" },
+      ],
     });
     expect(list?.cards[0]?.icon).toBeUndefined();
     expect(list?.cards[1]?.icon).toBe("data:image/png;base64,AAAA");

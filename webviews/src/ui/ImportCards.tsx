@@ -43,7 +43,8 @@ function text(value: unknown): string {
 
 function button(value: unknown): ImportCardButton | null {
   const raw = value as Partial<ImportCardButton> | null;
-  if (!raw || typeof raw !== "object" || typeof raw.action !== "string" || !/^[a-z]{1,16}$/.test(raw.action)) return null;
+  if (!raw || typeof raw !== "object" || typeof raw.action !== "string" || !/^[a-z]{1,16}$/.test(raw.action))
+    return null;
   const title = text(raw.title);
   return title ? { action: raw.action, title } : null;
 }
@@ -51,9 +52,13 @@ function button(value: unknown): ImportCardButton | null {
 function card(value: unknown): ImportCardData | null {
   const raw = value as Record<string, unknown> | null;
   if (!raw || typeof raw !== "object" || typeof raw.id !== "string" || !raw.id || !text(raw.title)) return null;
-  const state = typeof raw.state === "string" && STATES.has(raw.state) ? (raw.state as ImportCardData["state"]) : "ready";
+  const state =
+    typeof raw.state === "string" && STATES.has(raw.state) ? (raw.state as ImportCardData["state"]) : "ready";
   const primary = button(raw.primary);
-  const progress = typeof raw.progress === "number" && Number.isFinite(raw.progress) ? Math.min(1, Math.max(0, raw.progress)) : undefined;
+  const progress =
+    typeof raw.progress === "number" && Number.isFinite(raw.progress)
+      ? Math.min(1, Math.max(0, raw.progress))
+      : undefined;
   return {
     id: raw.id,
     kind: text(raw.kind),

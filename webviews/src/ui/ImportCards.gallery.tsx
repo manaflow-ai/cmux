@@ -149,7 +149,11 @@ function GalleryImportCards({ list, layout }: Props) {
   const [cards, setCards] = useState(list.cards);
   const [pressed, setPressed] = useState("");
   return (
-    <div className="import-cards-gallery" data-import-cards-fixture style={{ padding: 20, maxWidth: layout === "row" ? 760 : 560 }}>
+    <div
+      className="import-cards-gallery"
+      data-import-cards-fixture
+      style={{ padding: 20, maxWidth: layout === "row" ? 760 : 560 }}
+    >
       <ImportCards
         list={{ ...list, cards }}
         layout={layout}
