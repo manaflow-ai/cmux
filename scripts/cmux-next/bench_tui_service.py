@@ -163,6 +163,19 @@ def ps_pss_kb(pid):
     return None
 
 
+def reaped_children_cpu(pid):
+    """CPU seconds of a process's children it has waited for (Linux):
+    terminal hosts that exited during a scenario count here."""
+    if not LINUX:
+        return 0.0
+    try:
+        stat = open(f"/proc/{pid}/stat").read()
+    except OSError:
+        return 0.0
+    fields = stat[stat.rfind(")") + 2:].split(" ")
+    return (int(fields[13]) + int(fields[14])) / HZ
+
+
 def cpu_and_switches(pid):
     """(cpu seconds, context switches) of a process, all threads."""
     if LINUX:
@@ -282,8 +295,10 @@ class Daemon:
         hosts = self.hosts()
         daemon = cpu_and_switches(self.pid)
         host = [cpu_and_switches(pid) for pid in hosts]
+        # Live hosts plus hosts that exited and were reaped by the daemon.
         return {"daemon_cpu": daemon[0], "daemon_switches": daemon[1],
-                "host_cpu": sum(value[0] for value in host), "host_switches": sum(value[1] for value in host)}
+                "host_cpu": sum(value[0] for value in host) + reaped_children_cpu(self.pid),
+                "host_switches": sum(value[1] for value in host)}
 
     def stop(self):
         try:
