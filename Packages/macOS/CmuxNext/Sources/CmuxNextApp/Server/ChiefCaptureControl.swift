@@ -13,7 +13,8 @@ import Foundation
 /// a row's hover card.
 ///
 /// Params, each optional: `open: [name]` opens them (waits up to 30 s for the Chief owner), each
-/// running `command` when given (a capture's still must not show the mini's shell prompt);
+/// running `command` in `cwd` when given (a capture's still must not show the mini's shell prompt
+/// or its home path);
 /// `collapse: Bool` folds or opens the Chief group in the active window; `card: Int` shows the
 /// hover card of the opened workspace at that index. Answers the opened workspace ids.
 enum ChiefCaptureControl {
@@ -23,6 +24,7 @@ enum ChiefCaptureControl {
                 guard let services else { throw ControlError(code: "unavailable", message: "no services") }
                 let names = (call.params["open"]?.arrayValue ?? []).compactMap(\.stringValue)
                 let command = call.params["command"]?.stringValue
+                let cwd = call.params["cwd"]?.stringValue
                 guard let chief = await localChief(services) else {
                     throw ControlError(code: "unavailable", message: "no local Chief machine connected within 30 s")
                 }
@@ -30,7 +32,7 @@ enum ChiefCaptureControl {
                 var ids: [String] = []
                 for name in names {
                     let window = await MainActor.run { services.windows.targetWindow(preferring: services.windows.active?.state.id) }
-                    ids.append(try await services.windows.createWorkspace(WorkspaceSpawn(name: name, command: command), on: chief.daemon, into: window))
+                    ids.append(try await services.windows.createWorkspace(WorkspaceSpawn(cwd: cwd, name: name, command: command), on: chief.daemon, into: window))
                 }
                 if let collapse = call.params["collapse"]?.boolValue {
                     try await MainActor.run { try fold(services, chief: machineID, collapse: collapse) }

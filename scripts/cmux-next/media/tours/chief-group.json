@@ -15,7 +15,8 @@
             "Sidebar group drag"
           ],
           "card": 0,
-          "command": "cat"
+          "command": "cat",
+          "cwd": "/tmp"
         }
       },
       "wait": 3
