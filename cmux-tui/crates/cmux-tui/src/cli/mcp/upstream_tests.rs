@@ -164,7 +164,7 @@ fn a_waiting_proxied_call_never_holds_up_the_other_tools() {
 /// sub-session tools under the offer server's prefix.
 #[test]
 fn code_mode_instructions_name_every_folded_servers_prefix() {
-    let text = super::super::code_mode::INSTRUCTIONS;
+    let text = code_mode::INSTRUCTIONS;
     for server in [
         acpmux::cua_v2::SERVER_NAME,
         acpmux::secret_mcp::SERVER_NAME,
