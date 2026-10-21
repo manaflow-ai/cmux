@@ -54,7 +54,7 @@ export async function applyHexclaveWebhookEvent(
 }
 
 /**
- * The entity an event names, plus the memberships it may have ended. Several
+ * The entity an event names, plus the memberships it may have changed. Several
  * events for one entity coalesce into one target (the union of candidates):
  * the reconcile reads Hexclave fresh, so one read answers all of them.
  */
@@ -73,6 +73,10 @@ export function hexclaveEventTarget(event: HexclaveWebhookEvent): HexclaveSyncTa
     case "team_membership.deleted":
       return { kind: "user", id: event.data.user_id, revokeCandidateTeamIds: [event.data.team_id] };
     case "team_membership.created":
+      // The candidate survives an inbox retry after the mirror already holds
+      // the new membership. writePendingRevocations subtracts current teams,
+      // while seat reconciliation still retries this durable team id.
+      return { kind: "user", id: event.data.user_id, revokeCandidateTeamIds: [event.data.team_id] };
     case "team_permission.created":
     case "team_permission.deleted":
     case "project_permission.created":
@@ -116,12 +120,14 @@ export async function syncHexclaveUser(
     { revokeCandidateTeamIds },
   );
   const revoked: string[] = [];
-  const previous = new Set(result.previousTeamIds);
   const current = new Set(result.currentTeamIds);
   const dirtyTeamIds = [...new Set([
+    // Mark every current team, not only additions. If the queue write fails
+    // after the mirror commits, the retry can no longer reconstruct the diff;
+    // the current set is the retry-stable billing authority.
+    ...result.currentTeamIds,
     ...result.previousTeamIds.filter((teamId) => !current.has(teamId)),
-    ...result.currentTeamIds.filter((teamId) => !previous.has(teamId)),
-    ...revokeCandidateTeamIds.filter((teamId) => !current.has(teamId)),
+    ...revokeCandidateTeamIds,
   ])].sort();
   let sideEffectFailure: unknown;
   try {
