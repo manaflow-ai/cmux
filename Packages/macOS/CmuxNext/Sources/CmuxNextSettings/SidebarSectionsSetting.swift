@@ -19,10 +19,15 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showProjectsPath = ["sidebar", "showProjects"]
     public static let groupByPath = ["sidebar", "groupBy"]
     public static let showChatsPath = ["sidebar", "showChats"]
+    public static let sessionTreePath = ["sidebar", "sessionTree"]
     public static let showSpacesPath = ["sidebar", "showSpaces"]
     public static let showProfileControlPath = ["sidebar", "showProfileControl"]
+    public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
+    public static let showTimestampsPath = ["sidebar", "showTimestamps"]
+    public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
+    public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
 
     static func tipsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(tipsPath, section: .appearance, group: group,
@@ -51,6 +56,33 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
                           keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
+    }
+
+    static func showTimestampsDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(showTimestampsPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.showTimestamps", "Show Timestamps"),
+                          help: SettingsText.keyed("settings.sidebar.showTimestamps.help",
+                                                   "Workspace rows show when they last changed: a time today, else an age such as 3d. Off, rows show no times; the hover card still does."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showTimestamps),
+                          keywords: ["sidebar", "timestamps", "time", "times", "age", "ago", "elapsed", "duration", "last activity", "clock", "rows"])
+    }
+
+    static func groupHeaderMemberCountDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupHeaderMemberCountPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupHeader.memberCount", "Show Group Member Count"),
+                          help: SettingsText.keyed("settings.sidebar.groupHeader.memberCount.help",
+                                                   "A collapsed group shows how many workspaces it holds after its name. Off, it shows only its loading spinner."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupHeaderMemberCount),
+                          keywords: ["sidebar", "group", "groups", "count", "members", "workspaces", "number", "header"])
+    }
+
+    static func groupHeaderUnreadCountDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupHeaderUnreadCountPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount", "Show Group Unread Count"),
+                          help: SettingsText.keyed("settings.sidebar.groupHeader.unreadCount.help",
+                                                   "A collapsed group shows how many unread notifications its workspaces have. Off, it shows only its loading spinner."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupHeaderUnreadCount),
+                          keywords: ["sidebar", "group", "groups", "unread", "badge", "notifications", "count", "header"])
     }
 
     static func densityDescriptor(group: SettingText) -> SettingDescriptor {
@@ -93,8 +125,8 @@ public nonisolated enum SidebarSectionsSetting {
                           keywords: ["sidebar", "workspace", "tabs"])
     }
 
-    /// Projects, which its header's menu hides (Leo 2026-10-06). Chats has
-    /// Show Chats (`showChatsDescriptor`).
+    /// Projects, which its header's menu hides (Leo 2026-10-06). All chats has
+    /// Show All Chats on New Tab (`showChatsDescriptor`).
     static func sectionDescriptors(group: SettingText) -> [SettingDescriptor] {
         [
             SettingDescriptor(showProjectsPath, section: .appearance, group: group,
@@ -118,16 +150,32 @@ public nonisolated enum SidebarSectionsSetting {
                               title: SettingsText.keyed("settings.sidebar.showProfileControl", "Show Profile Button"),
                               kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showProfileControl),
                               keywords: ["sidebar", "profile", "account", "avatar", "footer", "hide", "show"]),
+            // The footer's Search button (plans/cmux-next/sidebar-search.md).
+            SettingDescriptor(showSearchButtonPath, section: .appearance, group: group,
+                              title: SettingsText.keyed("settings.sidebar.showSearchButton", "Show Search Button"),
+                              help: SettingsText.keyed("settings.sidebar.showSearchButton.help",
+                                                       "A magnifying glass after the profile button searches workspaces, tabs, history, agent chats, settings and commands. Off, Search stays in the command palette."),
+                              kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showSearchButton),
+                              keywords: ["sidebar", "search", "find", "magnifying glass", "everything", "footer", "hide", "show"]),
         ]
+    }
+
+    static func sessionTreeDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(sessionTreePath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.sessionTree", "Session Tree"),
+                          help: SettingsText.keyed("settings.sidebar.sessionTree.help",
+                                                   "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.sessionTree),
+                          keywords: ["sidebar", "tree", "nested", "parent", "child", "pull request", "keycap", "sessions"])
     }
 
     static func showChatsDescriptor(group: SettingText) -> SettingDescriptor {
         SettingDescriptor(showChatsPath, section: .appearance, group: group,
-                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats"),
+                          title: SettingsText.keyed("settings.sidebar.showChats", "Show All Chats on New Tab"),
                           help: SettingsText.keyed("settings.sidebar.showChats.help",
-                                                   "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."),
+                                                   "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.showChats),
-                          keywords: ["sidebar", "chats", "all chats", "agents", "conversations", "history"])
+                          keywords: ["new tab", "chats", "all chats", "agents", "conversations", "history", "threads", "console"])
     }
 
     /// The looks the setting accepts (CmuxNextSidebar.SectionsLookVariant).
@@ -177,6 +225,7 @@ public nonisolated enum SidebarSectionsSetting {
                 diagnostics.append(SettingsDiagnostic(kind: .invalidValue, path: "sidebar.showWorkspaceTabs", message: "expected true or false"))
             }
         }
+        result.sessionTree = flag(root, sessionTreePath, fallback: result.sessionTree, &diagnostics)
         if let value = root.value(at: tipsPath) {
             if let flag = value.boolValue {
                 result.showsTips = flag
@@ -189,8 +238,14 @@ public nonisolated enum SidebarSectionsSetting {
         result.showProjects = flag(root, showProjectsPath, fallback: result.showProjects, &diagnostics)
         result.showSpaces = flag(root, showSpacesPath, fallback: result.showSpaces, &diagnostics)
         result.showProfileControl = flag(root, showProfileControlPath, fallback: result.showProfileControl, &diagnostics)
+        result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
+        result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
+        result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
+        result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
+        result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)
+        result.priorityViewShown = flag(root, SidebarPriorityViewSetting.shownPath, fallback: result.priorityViewShown, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy

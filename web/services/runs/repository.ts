@@ -1,7 +1,7 @@
 import { randomUUID, randomBytes, createHash } from "node:crypto";
 import { and, asc, desc, eq, gt, inArray, isNotNull, isNull, lt, lte, or, sql } from "drizzle-orm";
 import { cloudDb } from "../../db/client";
-import { runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
+import { cloudRuntimes, runArtifacts, runAttempts, runEvents, runs } from "../../db/schema";
 import {
   DEFAULT_LEASE_TTL_MS,
   DEFAULT_ATTACH_TICKET_TTL_MS,
@@ -382,6 +382,14 @@ export async function scheduleAttemptRetention(input: {
  * stored a VM for this attempt: then nothing else owns the VM (the create is
  * idempotent per attempt), and a VM the reaper already destroyed and cleared
  * is never handed back to it. The fenced worker's other state is not written.
+ *
+ * A retention deadline alone does not mean a VM exists: a replacement lease
+ * that fails the attempt before creating one also sets it. Adoption therefore
+ * ignores the deadline and keys "nothing to reap" on the VM id and on the
+ * journal, and it journals the adopted id itself so that a VM it handed to the
+ * reaper, once destroyed and cleared, cannot be adopted a second time. A
+ * terminal status means no live lease owns the attempt, and a promoted VM is
+ * always recorded on the row or in the journal, so neither can be adopted.
  */
 async function adoptFencedAttemptVm(input: {
   readonly runId: string;
@@ -389,23 +397,38 @@ async function adoptFencedAttemptVm(input: {
   readonly leaseGeneration: number;
   readonly providerVmId: string;
 }): Promise<typeof runAttempts.$inferSelect | undefined> {
-  const nowAt = now();
-  return (await cloudDb().update(runAttempts).set({
-    providerVmId: input.providerVmId,
-    terminalRetainUntil: nowAt,
-    cleanupLeaseToken: null,
-    cleanupLeaseExpiresAt: null,
-    updatedAt: nowAt,
-  }).where(and(
-    eq(runAttempts.id, input.attemptId),
-    eq(runAttempts.runId, input.runId),
-    gt(runAttempts.leaseGeneration, input.leaseGeneration),
-    inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
-    isNull(runAttempts.providerVmId),
-    isNull(runAttempts.terminalRetainUntil),
-    isNull(runAttempts.cleanupLeaseToken),
-    sql`not exists (select 1 from run_events where run_events.attempt_id = ${input.attemptId} and run_events.payload->>'providerVmId' is not null)`,
-  )).returning())[0];
+  return cloudDb().transaction(async (tx) => {
+    // Same lock order as ingestRunEvent, which allocates journal sequences.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    const nowAt = now();
+    const adopted = (await tx.update(runAttempts).set({
+      providerVmId: input.providerVmId,
+      terminalRetainUntil: nowAt,
+      cleanupLeaseToken: null,
+      cleanupLeaseExpiresAt: null,
+      updatedAt: nowAt,
+    }).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+      gt(runAttempts.leaseGeneration, input.leaseGeneration),
+      inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+      isNull(runAttempts.providerVmId),
+      isNull(runAttempts.cleanupLeaseToken),
+      sql`not exists (select 1 from run_events where run_events.attempt_id = ${input.attemptId} and run_events.payload->>'providerVmId' is not null)`,
+    )).returning())[0];
+    if (!adopted) return undefined;
+    await tx.insert(runEvents).values({
+      runId: input.runId,
+      attemptId: input.attemptId,
+      sequence: await nextSequence(tx, input.runId),
+      externalId: `provider-vm-adopted:${input.leaseGeneration}`,
+      kind: "attempt.heartbeat",
+      payload: { providerVmId: input.providerVmId, adoptedFromLeaseGeneration: input.leaseGeneration },
+    });
+    return adopted;
+  });
 }
 
 type LeaseInput = { readonly runId: string; readonly attemptId: string; readonly leaseToken: string; readonly leaseGeneration: number };
@@ -775,13 +798,17 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
       attempt: runAttempts,
       userId: runs.userId,
       billingTeamId: runs.billingTeamId,
-    }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+    }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId))
+      .leftJoin(cloudRuntimes, eq(cloudRuntimes.id, runAttempts.runtimeId)).where(and(
       inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
       isNotNull(runAttempts.providerVmId),
+      // Every launched attempt has its own ephemeral runtime (dogfood.ts); a promoted attempt's VM
+      // belongs to a persistent runtime now, so only that one is never reaped.
+      or(isNull(runAttempts.runtimeId), eq(cloudRuntimes.runtimeKind, "ephemeral")),
       isNotNull(runAttempts.terminalRetainUntil),
       lte(runAttempts.terminalRetainUntil, nowAt),
       or(isNull(runAttempts.cleanupLeaseExpiresAt), lt(runAttempts.cleanupLeaseExpiresAt, nowAt)),
-    )).orderBy(asc(runAttempts.terminalRetainUntil)).limit(limit).for("update");
+    )).orderBy(asc(runAttempts.terminalRetainUntil)).limit(limit).for("update", { of: runAttempts });
     const claimed: ExpiredAttemptCleanup[] = [];
     for (const candidate of candidates) {
       const token = randomUUID();

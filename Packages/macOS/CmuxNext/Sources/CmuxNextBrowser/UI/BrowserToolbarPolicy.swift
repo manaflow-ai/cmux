@@ -38,16 +38,19 @@ public nonisolated struct BrowserToolbarPolicy {
         func hinted(_ text: String) -> String { shortcut.map { "\(text) (\($0))" } ?? text }
         switch button {
         case .media:
-            return BrowserToolbarButtonState(icon: .browserToolbarMedia, label: hinted(Strings.toolbarMedia), isActive: facts.media.isPlaying)
+            return BrowserToolbarButtonState(icon: .browserToolbarMedia, label: hinted(Strings.toolbarMedia))
         case .zoom:
             return BrowserToolbarButtonState(icon: BrowserZoom.percent(facts.zoom) < 100 ? .browserToolbarZoomOut : .browserToolbarZoomIn,
                                              label: hinted(Strings.toolbarZoom(BrowserZoom.percent(facts.zoom))))
         case .favorites:
             return BrowserToolbarButtonState(icon: .browserToolbarBookmarks, label: hinted(Strings.toolbarFavorites))
         case .downloads:
-            return BrowserToolbarButtonState(icon: facts.downloads.inProgress ? .browserToolbarDownloadsActive : .browserToolbarDownloads,
-                                             label: hinted(Strings.toolbarDownloads),
-                                             isActive: facts.downloads.inProgress)
+            var state = BrowserToolbarButtonState(icon: facts.downloads.inProgress ? .browserToolbarDownloadsActive : .browserToolbarDownloads,
+                                                  label: hinted(Strings.toolbarDownloads),
+                                                  isActive: facts.downloads.inProgress)
+            // Chrome's ring around the Downloads icon while a download runs.
+            if facts.downloads.inProgress { state.progress = facts.downloads.progress ?? -1 }
+            return state
         case .designMode:
             // chrome-icons: allow Chrome has no Design mode button
             return BrowserToolbarButtonState(icon: .theme,

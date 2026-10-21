@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHistory
@@ -80,6 +81,25 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// Opens the collapsed band while the top-left corner is hovered.
     let collapsedBand: CollapsedBandReveal
+    /// The right sidebar (`WindowController+RightSidebar`), on the edge
+    /// opposite the sidebar; nil until it first shows.
+    var rightPanel: RightSidebarView? {
+        didSet {
+            guard rightPanel !== oldValue else { return }
+            oldValue?.removeFromSuperview()
+            if let rightPanel { addSubview(rightPanel, positioned: .below, relativeTo: titlebarBandBlocker) }
+            needsLayout = true
+        }
+    }
+    /// The right sidebar's on-screen width (0 while hidden): the main pane
+    /// is inset by it (`applyMainPane`).
+    var rightPanelWidth: CGFloat = 0 {
+        didSet {
+            guard rightPanelWidth != oldValue else { return }
+            applyMainPane()
+            layoutSubtreeIfNeeded()
+        }
+    }
 
     /// - Parameter sidebar: The window's sidebar.
     /// - Parameter reduceTransparency: The user's Reduce Transparency
@@ -210,8 +230,11 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// when every frame is final: the agent cursor goes back on top after a
     /// reorder that added no view (no add hook ran), and the sidebar stays
     /// above Chromium pages and pane overlays (R126) as an occluder of the
-    /// window's overlay host.
+    /// window's overlay host. The sidebar's resize band gets a catcher panel
+    /// above pages, like a pane divider's hit area.
     func windowDidLayout() {
+        // Before the guard: the band's catcher needs no overlay host.
+        (window as? ShellWindow)?.overlayLayer.setSidebarResizeBand(sidebar.resizeBandInWindow)
         guard let window, let host = WindowOverlayHost.existingHost(for: window) else { return }
         host.repairAgentCursorOrder()
         let shows = sidebar.frame.width > 0.5 && !sidebar.isHidden
@@ -237,6 +260,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         var lightsMaxX: CGFloat = 0
         var midY = bounds.maxY - rowHeight / 2
         if let window, let lights = WindowTitlebar.trafficLightsFrame(in: window) {
+            (window as? ShellWindow)?.noteTrafficLights(lights)
             let local = convert(lights, from: nil)
             lightsMaxX = local.maxX
             midY = local.midY
@@ -256,6 +280,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         sidebar.sidebarView.titlebarLeadingReserve = sidebarSide == .left ? fullBandMaxX + Metrics.space2 : Metrics.space3
         if presenceChanged { onToolbarBandPresenceChange?() }
         layoutTitlebarReveal(rowHeight: rowHeight, fullBandMaxX: fullBandMaxX)
+        layoutRightPanel(rowHeight: rowHeight)
         guard let badge = titlebarBadge else { return }
         badge.isHidden = !showsTitlebarBadge
         guard showsTitlebarBadge else { return }
@@ -301,15 +326,21 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         }
         view.autoresizingMask = [.width, .height]
         view.isHidden = false
+        let paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         if holds, let outgoing {
-            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost) { [weak self] outgoing in
+            paintHold.begin(outgoing: outgoing, incoming: view, in: contentHost, release: { [weak self] outgoing in
                 guard let self, outgoing.superview === contentHost, outgoing !== content else { return }
                 withdraw(outgoing)
-            }
+            }, ended: { [weak self, weak view] in
+                // The shade cuts out the panes on screen: the incoming workspace's once it shows.
+                guard let self, let view, view === content else { return }
+                mainPaneShade.paneCards = paneCards
+            })
+        } else {
+            mainPaneShade.paneCards = paneCards
         }
         // A workspace's theme scope inherits this window's room theme.
         view.reparentRootedThemeScope()
-        mainPaneShade.paneCards = (view as? WorkspaceContentView)?.layoutView as? any PaneCardSource
         onContentChange?()
     }
 

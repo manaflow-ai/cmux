@@ -72,8 +72,8 @@ test("the popup names the full build, lists the highlights and has See all chang
   expect(text.split("See all changes").length - 1).toBe(1);
 });
 
-// The "Updated to" card (Leo 2026-10-13): the short build ("nightly 3845050", the long one
-// truncated), the terse fallback headline, and no Share cmux text link (it is the palette's).
+// The "Updated to" card (Leo 2026-10-13; version and date in words since 2026-10-20): "Nightly · Oct 13",
+// the terse fallback headline when no change is known, and no Share cmux text link (it is the palette's).
 test("the Updated card names the short build, says What's new in this build and has no Share link", async () => {
   const { createRoot } = await import("react-dom/client");
   const { UpdatedCard } = await import("../src/pages/changelog/UpdateSurfaces");
@@ -102,7 +102,7 @@ test("the Updated card names the short build, says What's new in this build and 
       />,
     ),
   );
-  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to nightly 3845050");
+  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toBe("Updated to Nightly · Oct 13");
   expect(host.querySelector(".wn-card-headline")?.textContent).toBe("What's new in this build");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
   expect(buttons).toEqual(["Close", "See What's New"]);
@@ -163,5 +163,69 @@ test("a change's picture shows inline and a click on it opens the notes", async 
   expect(button.getAttribute("aria-label")).toBe("The sidebar with workspace groups");
   expect(button.querySelector("img")?.getAttribute("src")).toBe(light);
   await act(async () => button.click());
+  expect(opened).toBe(1);
+});
+
+// Lawrence 2026-10-19 (msg 2371): hovering the Update Ready card must show at once what is going to
+// change: the version this Mac runs now beside the staged one, the changes, and a way to the notes.
+// A staged update without a change list still says what changes (the versions) and links its
+// release notes, never an empty card.
+const readyData = (items: { id: string; title: string; summary: string | null; category: "new" }[]) => ({
+  version: "1.0.0-nightly.3845050428001",
+  build: "3845050428001",
+  fromVersion: "1.0.0-nightly.3801702344901",
+  fromBuild: "3801702344901",
+  date: "2026-10-13",
+  source: (items.length ? "whatsNew" : "none") as "whatsNew" | "none",
+  language: "en",
+  items,
+  moreCount: 0,
+  changelog: { from: "1.0.0-nightly.3801702344901", to: "1.0.0-nightly.3845050428001" },
+});
+
+test("the update card's hover card says which version it updates from", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  act(() => root?.unmount());
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights
+        data={readyData([{ id: "groups", title: "Workspace groups", summary: null, category: "new" }])}
+        strings={createStrings(table)}
+        actions={{ openChangelog: () => undefined }}
+      />,
+    ),
+  );
+  expect(host.querySelector(".wn-pop-from")?.textContent).toBe("Updating from nightly 3801702");
+  expect(host.textContent).toContain("Workspace groups");
+  expect(host.textContent).toContain("See all changes");
+});
+
+test("without a change list the hover card shows the versions and See release notes", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { UpdateReadyHighlights } = await import("../src/pages/changelog/UpdateSurfaces");
+  const { createStrings } = await import("../src/pages/shared/i18n");
+  const table = (await import("../src/pages/changelog/generated/strings.json")).default;
+  act(() => root?.unmount());
+  root = createRoot(host);
+  let opened = 0;
+  await act(async () =>
+    root!.render(
+      <UpdateReadyHighlights
+        data={readyData([])}
+        strings={createStrings(table)}
+        actions={{ openChangelog: () => void opened++ }}
+      />,
+    ),
+  );
+  expect(host.querySelector(".wn-pop-from")?.textContent).toBe("Updating from nightly 3801702");
+  expect(host.querySelector(".wn-pop-list")).toBeNull();
+  const link = host.querySelector<HTMLButtonElement>(".wn-pop-all");
+  expect(link?.textContent).toContain("See release notes");
+  expect(host.textContent).not.toContain("See all changes");
+  await act(async () => link!.click());
   expect(opened).toBe(1);
 });

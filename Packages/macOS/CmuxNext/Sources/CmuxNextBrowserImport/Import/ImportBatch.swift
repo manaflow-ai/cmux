@@ -7,6 +7,8 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     public var history: [ImportedHistoryEntry] = []
     public var openTabs: [ImportedTab] = []
     public var extensions: [ImportedExtension] = []
+    /// The default search engine, when the profile set one.
+    public var searchEngine: ImportedSearchEngine?
     /// The kinds the user picked for this profile (an empty list then means
     /// "the source has none", not "not imported").
     public var kinds: Set<ImportDataKind> = []
@@ -27,7 +29,7 @@ public struct ImportBatch: Sendable, Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case source, bookmarks, history, openTabs, extensions, kinds, cookies, cookieError, passwords, passwordError, importedAt
+        case source, bookmarks, history, openTabs, extensions, searchEngine, kinds, cookies, cookieError, passwords, passwordError, importedAt
     }
 
     /// Files saved before `kinds` existed decode with the kinds that hold data.
@@ -38,6 +40,7 @@ public struct ImportBatch: Sendable, Codable, Equatable {
         history = try container.decodeIfPresent([ImportedHistoryEntry].self, forKey: .history) ?? []
         openTabs = try container.decodeIfPresent([ImportedTab].self, forKey: .openTabs) ?? []
         extensions = try container.decodeIfPresent([ImportedExtension].self, forKey: .extensions) ?? []
+        searchEngine = try container.decodeIfPresent(ImportedSearchEngine.self, forKey: .searchEngine)
         importedAt = try container.decode(Date.self, forKey: .importedAt)
         cookies = try container.decodeIfPresent(CookieImportReport.self, forKey: .cookies)
         cookieError = try container.decodeIfPresent(CookieImportError.self, forKey: .cookieError)
@@ -58,7 +61,7 @@ public struct ImportBatch: Sendable, Codable, Equatable {
 
     public var counts: ImportCounts {
         ImportCounts(bookmarks: bookmarks.count, history: history.count, openTabs: openTabs.count, extensions: extensions.count,
-                     cookies: cookies?.written ?? 0, passwords: passwords?.imported ?? 0)
+                     cookies: cookies?.written ?? 0, passwords: passwords?.imported ?? 0, searchEngines: searchEngine == nil ? 0 : 1)
     }
 }
 
@@ -76,6 +79,17 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     /// The source profile's own name ("Work"); nil for one-store browsers
     /// (Safari, Opera) and records saved by older builds.
     public var profileName: String?
+    /// Keep in Sync: the source's history database, read again whenever it
+    /// changes (``ImportHistorySync``); nil when the history was imported once.
+    public var syncedHistoryFile: URL?
+    /// Times a Clear History removed this source's pages from: a later
+    /// Keep in Sync read leaves out pages last visited in them.
+    public var clearedRanges: [DateInterval]?
+    /// Pages a Remove from History took out (URL to when): a later read or
+    /// re-import leaves out their visits up to then; a newer visit comes back.
+    public var removedPages: [String: Date]?
+    /// Sites a Remove Site took out (lowercased host to when), the same way.
+    public var removedSites: [String: Date]?
 
     public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
                 profileName: String? = nil) {
@@ -88,6 +102,29 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     }
 
     public var sourceKey: String { "\(browser.rawValue)/\(profileDirectory)" }
+
+    /// Whether a read page stays: not last visited in a cleared range, nor at or
+    /// before the removal of its page or its site.
+    public func keeps(_ page: ImportedHistoryEntry) -> Bool {
+        if clearedRanges?.contains(where: { $0.contains(page.lastVisit) }) == true { return false }
+        if let removed = removedPages?[page.url.absoluteString], page.lastVisit <= removed { return false }
+        if let host = page.url.host()?.lowercased(), let removed = removedSites?[host], page.lastVisit <= removed { return false }
+        return true
+    }
+
+    /// This record's fences joined with `other`'s (the record a fresh import builds has none).
+    func fences(adding other: ImportSourceRecord) -> ImportSourceRecord {
+        var joined = self
+        let cleared = ImportedDataStore.coalesced((clearedRanges ?? []) + (other.clearedRanges ?? []))
+        joined.clearedRanges = cleared.isEmpty ? nil : cleared
+        let latest = { (a: [String: Date]?, b: [String: Date]?) -> [String: Date]? in
+            let merged = (a ?? [:]).merging(b ?? [:], uniquingKeysWith: max)
+            return merged.isEmpty ? nil : merged
+        }
+        joined.removedPages = latest(removedPages, other.removedPages)
+        joined.removedSites = latest(removedSites, other.removedSites)
+        return joined
+    }
 
     /// The structured `source` for `create-browser-profile`.
     public var sourceFields: [String: String] {
@@ -112,4 +149,6 @@ public struct ImportSummary: Sendable, Equatable {
         return batches.flatMap(\.extensions).filter { seen.insert($0.id).inserted }
     }
     public var openTabs: [ImportedTab] { batches.flatMap(\.openTabs) }
+    /// The first imported profile's default search engine (cmux has one engine for every profile).
+    public var searchEngine: ImportedSearchEngine? { batches.lazy.compactMap(\.searchEngine).first }
 }

@@ -156,6 +156,12 @@ pub(super) fn parse(args: &[String], surface: super::Surface) -> Result<CommandP
         .first()
         .map(String::as_str)
         .ok_or_else(|| UsageError::new("missing resource scope"))?;
+    if tokens.argv.is_some() && !takes_argv(scope, &strs(&tokens.words[1..])) {
+        return Err(UsageError::new(format!(
+            "`{}` runs no command: drop the words after --",
+            tokens.words.join(" ")
+        )));
+    }
     let mut selectors = Selectors::default();
     let plan = match scope {
         "server" => parse_server(&tokens.words[1..], &mut tokens.flags)?,
@@ -283,6 +289,37 @@ fn tokenize(args: &[String]) -> Result<Tokens, UsageError> {
         index += 1;
     }
     Ok(Tokens { words, flags, argv })
+}
+
+/// Whether the command `scope words…` reads the words after `--`: workspace
+/// create and run, pane split and run (also under a workspace or screen
+/// path), the workspace status/progress/log and checklist commands (which
+/// check their own verbs), and agent messages. Every other command would drop
+/// them, so the caller is told instead.
+fn takes_argv(scope: &str, words: &[&str]) -> bool {
+    fn pane(words: &[&str]) -> bool {
+        matches!(words, [_, "split"] | [_, "run", ..])
+    }
+    fn screen(words: &[&str]) -> bool {
+        matches!(words, [_, "pane", tail @ ..] if pane(tail))
+    }
+    fn workspace(words: &[&str]) -> bool {
+        let area = |word: &&str| state::STATUS_AREAS.contains(word) || *word == "checklist";
+        match words {
+            ["create"] | [_, "run", ..] => true,
+            [first, ..] if area(first) => true,
+            [_, second, ..] if area(second) => true,
+            [_, "screen", tail @ ..] => screen(tail),
+            _ => false,
+        }
+    }
+    match scope {
+        "workspace" => workspace(words),
+        "screen" => screen(words),
+        "pane" => pane(words),
+        "agent" => matches!(words, ["message", ..]),
+        _ => false,
+    }
 }
 
 pub(super) fn is_boolean_flag(name: &str) -> bool {
@@ -589,6 +626,10 @@ fn parse_workspace(
     if let Some(plan) = state::parse_workspace_status(&refs, selectors, flags, argv.as_deref())? {
         return Ok(plan);
     }
+    if let Some(plan) = state::parse_workspace_checklist(&refs, selectors, flags, argv.as_deref())?
+    {
+        return Ok(plan);
+    }
     match refs.as_slice() {
         ["group", rest @ ..] => state::parse_workspace_group(rest, selectors, flags),
         ["placement", "list"] => {
@@ -679,7 +720,10 @@ fn parse_pane_strings(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     match words {
-        ["list"] => request(ResourceOperation::PaneList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen"])?;
+            request(ResourceOperation::PaneList, selectors, flags, Map::new())
+        }
         ["create"] => {
             let mut params = Map::new();
             add_size(&mut params, flags)?;
@@ -710,6 +754,22 @@ fn parse_pane_strings(
                 )?;
             }
             insert_optional_string(&mut params, flags, "cwd", "cwd");
+            // The new pane runs this instead of a shell, so no empty shell
+            // tab is left beside the command's (agent evals, mode 3).
+            match (argv, flags.take("shell")) {
+                (None, None) => {}
+                (Some(argv), None) if argv.first().is_some_and(|program| !program.is_empty()) => {
+                    params.insert("argv".into(), json!(argv));
+                }
+                (None, Some(script)) if !script.is_empty() => {
+                    params.insert("shell".into(), Value::String(script));
+                }
+                _ => return Err(UsageError::new("give exact argv after -- or one --shell script")),
+            }
+            // A script's split keeps the user's focus unless it asks.
+            if flags.boolean("focus") {
+                params.insert("focus".into(), Value::Bool(true));
+            }
             add_size(&mut params, flags)?;
             request(ResourceOperation::PaneSplit, selectors, flags, params)
         }
@@ -811,7 +871,10 @@ fn parse_tab_strings(
 ) -> Result<CommandPlan, UsageError> {
     match words {
         ["group", rest @ ..] => state::parse_tab_group(rest, flags),
-        ["list"] => request(ResourceOperation::TabList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+            request(ResourceOperation::TabList, selectors, flags, Map::new())
+        }
         ["create"] => Err(UsageError::new("tab create needs terminal or browser")),
         [selector, "show"] => {
             selectors.insert("tab", "tab", selector)?;
@@ -833,6 +896,7 @@ fn parse_tab_strings(
             }
             params.insert("url".into(), Value::String(url));
             insert_optional_string(&mut params, flags, "name", "name");
+            browser::insert_engine(&mut params, flags)?;
             add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
             add_pixel_size(&mut params, flags)?;
             request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
@@ -902,7 +966,14 @@ fn parse_terminal(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     match strs(words).as_slice() {
-        ["list"] => request(ResourceOperation::TerminalList, selectors, flags, Map::new()),
+        ["list"] => {
+            add_optional_parent_selectors(
+                selectors,
+                flags,
+                &["workspace", "screen", "pane", "tab"],
+            )?;
+            request(ResourceOperation::TerminalList, selectors, flags, Map::new())
+        }
         [selector, verb @ ("show" | "status")] => {
             selectors.insert("terminal", "term", selector)?;
             let plan = request(ResourceOperation::TerminalGet, selectors, flags, Map::new());
@@ -2231,14 +2302,11 @@ fn run_params(
     }
     if let Some(policy) = flags.take("on-exit") {
         match policy.as_str() {
-            "close" | "keep" => {
+            "close" | "keep" | "shell" => {
                 params.insert("on_exit".into(), Value::String(policy));
             }
-            "shell" => {
-                return Err(UsageError::new("--on-exit shell is not supported yet"));
-            }
             _ => {
-                return Err(UsageError::new("--on-exit must be close or keep"));
+                return Err(UsageError::new("--on-exit must be close, keep or shell"));
             }
         }
     }
@@ -3078,6 +3146,39 @@ mod tests {
     }
 
     #[test]
+    fn browser_open_and_tab_create_browser_take_an_engine() {
+        let chromium = protocol(&["browser", "open", "https://a.test", "--engine", "chromium"]);
+        assert_eq!(chromium.params["engine"], "cef");
+        let chrome = protocol(&[
+            "tab",
+            "create",
+            "browser",
+            "--url",
+            "https://a.test",
+            "--engine",
+            "Chrome",
+        ]);
+        assert_eq!(chrome.params["engine"], "cef");
+        let webkit = protocol(&["browser", "open", "https://a.test", "--engine", "webkit"]);
+        assert_eq!(webkit.params["engine"], "webkit");
+        // No flag: no field, so `browser.defaultEngine` decides.
+        assert!(protocol(&["browser", "open", "https://a.test"]).params.get("engine").is_none());
+        let profile = protocol(&[
+            "browser",
+            "profile",
+            "open",
+            "https://a.test",
+            "--profile",
+            "p",
+            "--engine",
+            "chromium",
+        ]);
+        assert_eq!(profile.params["engine"], "cef");
+        let unknown = strings(&["browser", "open", "https://a.test", "--engine", "gecko"]);
+        assert!(parse(&unknown, super::super::Surface::CmuxTui).is_err());
+    }
+
+    #[test]
     fn terminal_keep_maps_to_the_private_set_terminal_keep_command() {
         const TERMINAL: &str = "term_0123456789abcdef0123456789abcdef";
         let on = raw_request(&["terminal", TERMINAL, "keep", "on"]);
@@ -3328,6 +3429,16 @@ mod tests {
         assert_eq!(terminal.params["initial_content"], "terminal");
         let empty = protocol(&["workspace", "create", "--empty"]);
         assert_eq!(empty.params["initial_content"], "empty");
+    }
+
+    /// Agents pass `--no-focus` out of habit (`cmux open`, other CLIs).
+    /// Creating a workspace never moves focus, so the flag is accepted and
+    /// changes nothing.
+    #[test]
+    fn workspace_create_accepts_no_focus_as_a_no_op() {
+        let plain = protocol(&["workspace", "create", "--name", "w"]);
+        let quiet = protocol(&["workspace", "create", "--no-focus", "--name", "w"]);
+        assert_eq!(quiet.params, plain.params);
     }
 
     #[test]
@@ -3872,14 +3983,8 @@ mod tests {
             let default = protocol(&[scope[0], scope[1], "run", "--", "true"]);
             assert!(default.params.get("on_exit").is_none());
 
-            let shell_policy = parse(
-                &strings(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]),
-                super::super::Surface::CmuxTui,
-            );
-            assert!(
-                shell_policy.is_err_and(|error| error.to_string().contains("not supported yet")),
-                "--on-exit shell must be a typed not-yet-supported usage error"
-            );
+            let shell = protocol(&[scope[0], scope[1], "run", "--on-exit", "shell", "--", "true"]);
+            assert_eq!(shell.params["on_exit"], "shell");
             assert!(
                 parse(
                     &strings(&[scope[0], scope[1], "run", "--on-exit", "sh", "--", "true"]),
@@ -4295,7 +4400,9 @@ mod tests {
         }
     }
 
+    mod argv_tail_tests;
     mod name_source_tests;
+    mod split_focus_tests;
     mod transport_path_coverage_tests;
 
     fn record_covered_fields<'a>(

@@ -82,6 +82,22 @@ fn kind_schema(row: &Row) -> Value {
         Validation::Domain(DomainKind::ChatRoots) => {
             return json!({ "type": "array", "items": { "type": "string", "pattern": "^/" } });
         }
+        Validation::Domain(DomainKind::CustomDensities) => {
+            let density = json!({
+                "type": "object",
+                "required": ["id", "name"],
+                "properties": {
+                    "id": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,63}$" },
+                    "name": { "type": "string", "minLength": 1 },
+                    "basedOn": { "type": "string" },
+                    "level": { "type": "number" },
+                    "spacing": { "type": "number" },
+                    "fontSize": { "type": "number" },
+                    "tokens": { "type": "object", "additionalProperties": { "type": "number", "minimum": 0 } },
+                },
+            });
+            return json!({ "type": "array", "items": density });
+        }
         _ => {}
     }
     match &row.kind {
@@ -89,6 +105,15 @@ fn kind_schema(row: &Row) -> Value {
         Kind::Choice(choices) => choice(choices),
         Kind::ChoiceOrNumber(choices, range) => {
             json!({ "anyOf": [choice(choices), number(range)] })
+        }
+        Kind::ChoiceOrUrl(choices, url_key) => {
+            let url = json!({
+                "type": "object",
+                "properties": { url_key.as_str(): { "type": "string", "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#@\\s]+/?$" } },
+                "required": [url_key],
+                "additionalProperties": false,
+            });
+            json!({ "anyOf": [choice(choices), url] })
         }
         Kind::Number(range) => number(range),
         Kind::Color => json!({

@@ -196,7 +196,7 @@ extension UpdateController {
         readyCheckTask = nil
     }
 
-    private func describeLifecycleState(_ state: UpdateState) -> String {
+    func describeLifecycleState(_ state: UpdateState) -> String {
         switch state {
         case .idle: return "idle"
         case .permissionRequest: return "permissionRequest"
@@ -217,6 +217,7 @@ extension UpdateController: UpdateDriverEventDelegate {
     func updateDriverDidFinishCycle(_ updateCheck: SPUUpdateCheck, error: NSError?) {
         let finishedIntent = activeCheckIntent
         activeCheckIntent = nil
+        onUpdateCycleFinished?()
         log.append(
             "controller observed cycle finish (check=\(updateCheck.rawValue), active=\(finishedIntent?.rawValue ?? "external"), pending=\(pendingCheckIntent?.rawValue ?? "none"), state=\(describeLifecycleState(model.state)), error=\(error?.code.description ?? "none"))"
         )

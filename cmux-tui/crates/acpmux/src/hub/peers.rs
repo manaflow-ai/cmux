@@ -3,13 +3,13 @@
 use super::*;
 use crate::session_identity::SessionReceipt;
 
-fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
+pub(super) fn session_receipt(summary: &Value) -> Option<SessionReceipt> {
     summary.get("sessionReceipt").and_then(|value| serde_json::from_value(value.clone()).ok())
 }
 
 /// How long `peer_add` with `wait` waits for the first connect attempt: an
 /// ssh peer may take its ssh connect, tunnel and WebSocket timeouts in turn.
-const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const PEER_SETTLE_BUDGET: std::time::Duration = std::time::Duration::from_secs(30);
 
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
 /// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
@@ -36,9 +36,21 @@ impl Hub {
             }
             return tokio::sync::watch::channel(1).1;
         }
+        self.spawn_peer(name, pc, true).1
+    }
+
+    /// Run a peer under `name`, replacing any peer of that name; with
+    /// `cached`, it first lists its saved last-known sessions
+    /// (`peer_cache.rs`). Returns its generation and its settled receiver.
+    pub(super) fn spawn_peer(
+        &self,
+        name: &str,
+        pc: &crate::config::PeerConfig,
+        cached: bool,
+    ) -> (u64, tokio::sync::watch::Receiver<u64>) {
         let peer = crate::peer::Peer::new(
             name,
-            url,
+            &pc.url,
             pc.token.clone(),
             pc.peer_token.clone(),
             self.peer_notices.clone(),
@@ -46,9 +58,15 @@ impl Hub {
         let settled = peer.settled();
         if let Some(old) = self.peers.lock().unwrap().insert(name.to_owned(), peer.clone()) {
             old.stop();
+            // A reconnect keeps when the peer was last seen.
+            peer.seed_last_seen(old.link().last_seen);
         }
+        if cached {
+            self.load_peer_cache(&peer);
+        }
+        let generation = peer.generation;
         tokio::spawn(peer.run());
-        settled
+        (generation, settled)
     }
 
     /// Add (or replace) a peer. With `wait`, answer once its first connect
@@ -83,7 +101,17 @@ impl Hub {
                 tracing::warn!("save config failed: {e}");
             }
         }
-        let mut settled = self.start_peer(name, &pc);
+        let mut settled = {
+            // A saved peer takes the name over from a lease (`peer_lease.rs`),
+            // under the lease lock so no notice of the leased peer finds the
+            // name unleased first (lock order: `peer_leases`, then `peers`).
+            let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+            if leases.remove(name).is_some() {
+                // The leased machine's rows go; the saved peer lists its own.
+                self.purge_peer_rows(name);
+            }
+            self.start_peer(name, &pc)
+        };
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
@@ -123,6 +151,19 @@ impl Hub {
             return Err(RpcError::not_found(format!("no peer {name:?}")));
         };
         peer.stop();
+        self.forget_lease(name);
+        self.forget_peer_cache(name);
+        self.purge_peer_rows(name);
+        let mut cfg = self.config.write().await;
+        cfg.peers.remove(name);
+        if let Err(e) = cfg.save() {
+            tracing::warn!("save config failed: {e}");
+        }
+        Ok(())
+    }
+
+    /// Drop every row of peer `name` and tell watching clients they left.
+    pub(super) fn purge_peer_rows(&self, name: &str) {
         let gone: Vec<Value> = {
             let mut map = self.remote_sessions.lock().unwrap();
             let ids: Vec<String> =
@@ -133,15 +174,12 @@ impl Hub {
         for summary in gone {
             self.announce_remote(name, summary, "purged");
         }
-        let mut cfg = self.config.write().await;
-        cfg.peers.remove(name);
-        if let Err(e) = cfg.save() {
-            tracing::warn!("save config failed: {e}");
-        }
-        Ok(())
     }
 
     pub fn peers(&self) -> Vec<Value> {
+        // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
+        let leased: std::collections::HashSet<String> =
+            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         let mut v: Vec<Value> = self
             .peers
             .lock()
@@ -157,6 +195,9 @@ impl Hub {
                         .filter(|r| r.peer == p.name)
                         .count()
                 );
+                if leased.contains(&p.name) {
+                    s["leased"] = Value::Bool(true);
+                }
                 s
             })
             .collect();
@@ -251,26 +292,34 @@ impl Hub {
         }
     }
 
-    fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
+    pub(super) fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
         {
             match notice {
                 PeerNotice::Connected => tracing::info!(peer = %peer, "peer ready"),
                 PeerNotice::Disconnected(e) => {
-                    tracing::warn!(peer = %peer, "peer disconnected: {e}");
+                    let link = self.peer(&peer).map(|p| p.link()).unwrap_or_default();
+                    // One line per drop, not per failed attempt while it is down.
+                    if link.attempts <= 1 {
+                        tracing::warn!(peer = %peer, "peer disconnected: {e}");
+                    } else {
+                        tracing::debug!(peer = %peer, attempts = link.attempts, "peer still unreachable: {e}");
+                    }
                     // Keep the last known list, but flag it.
                     let changed: Vec<Value> = {
                         let mut map = self.remote_sessions.lock().unwrap();
                         map.values_mut()
                             .filter(|r| r.peer == peer)
-                            .map(|r| {
-                                r.summary["status"] = Value::String("unreachable".into());
-                                super::views::decide(&mut r.summary);
-                                r.summary.clone()
+                            .filter_map(|r| {
+                                super::peer_cache::mark_stale(&mut r.summary, link.last_seen)
+                                    .then(|| r.summary.clone())
                             })
                             .collect()
                     };
+                    if !changed.is_empty() {
+                        self.save_peer_cache(&peer, true);
+                    }
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -298,6 +347,7 @@ impl Hub {
                         }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
+                    self.save_peer_cache(&peer, true);
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -320,6 +370,7 @@ impl Hub {
                                 .map(|(key, _)| key.clone());
                             key.and_then(|key| map.remove(&key).map(|r| r.summary))
                         };
+                        self.save_peer_cache(&peer, false);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
                             record: EventRecord {
@@ -354,6 +405,7 @@ impl Hub {
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                     }
+                    self.save_peer_cache(&peer, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
                         record: EventRecord {
@@ -514,8 +566,27 @@ impl Hub {
         }
     }
 
+    /// Every peer's sessions, each with its peer's current `peerState` and
+    /// whether the row is `stale` (last-known while the peer is down).
     pub fn remote_sessions(&self) -> Vec<Value> {
-        self.remote_sessions.lock().unwrap().values().map(|r| r.summary.clone()).collect()
+        let states: HashMap<String, &'static str> = self
+            .peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .values()
+            .map(|p| (p.name.clone(), p.state().as_str()))
+            .collect();
+        let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
+        map.values()
+            .map(|r| {
+                let mut summary = r.summary.clone();
+                summary["stale"] = Value::Bool(summary["stale"] == true);
+                if let Some(state) = states.get(&r.peer) {
+                    summary["peerState"] = Value::String((*state).to_owned());
+                }
+                summary
+            })
+            .collect()
     }
 
     /// Every session, local and remote, newest first.

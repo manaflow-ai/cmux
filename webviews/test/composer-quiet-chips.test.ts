@@ -1,6 +1,7 @@
 // cmux-web-test-timeout: 300
 // The composer is quiet, like Claude's and ChatGPT's (Leo 2026-10-18): the box itself never answers
-// the pointer, while the model and reasoning pills do, with one subtle step. A click on a pill
+// the pointer, while the model button does, with one subtle step. The model button names the model
+// and its effort and is the one control for both (Leo 2026-10-20: no effort chip, no speed bolt). A click on a pill
 // holds that same step while its menu is open: no brighter press tone that flashes and no edge
 // ring around the open pill.
 //
@@ -70,26 +71,26 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
     await vite?.close();
   });
 
-  // The composer bar's buttons by their place: +, the model, effort and mode chips and the bolt.
+  // The composer bar's buttons by their place: +, the model button and the mode chip.
   // (The pane's composer shows no Plan toggle, App.tsx showPlan={false}; the picker rail's gallery
   // stage below covers Plan.)
   const BAR = {
     plus: ".acpmux-composer-bar .acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-composer-bar .acpmux-model .acpmux-picker-button",
-    effort: ".acpmux-composer-bar .acpmux-effort .acpmux-picker-button",
     mode: ".acpmux-composer-bar .acpmux-access .acpmux-picker-button",
-    fast: ".acpmux-composer-bar .acpmux-fast",
   };
   // A chip is named by its label, or by a selector (one that starts with ".").
   const STAGES = [
-    { entry: "agent-pane.new-tab", variant: "reasoning-chip", chips: ["Model", "Effort"] },
-    { entry: "agent-pane.composer", variant: "new-chat-reasoning", chips: ["Effort"] },
-    // The bolt on, so its resting look is asserted; + and the mode chip open menus.
+    { entry: "agent-pane.new-tab", variant: "reasoning-chip", chips: ["Model"] },
+    // The Default template's stage layout: the same button in the footer under the box.
+    { entry: "agent-pane.new-tab", variant: "reasoning-chip-stage", chips: ["Model"] },
+    { entry: "agent-pane.composer", variant: "new-chat-reasoning", chips: ["Model"] },
+    // Fast mode on (only in the model button's menu); + and the mode chip open menus.
     { entry: "agent-pane.composer", variant: "quiet-chips", chips: [BAR.plus, BAR.mode] },
   ];
   // Plan on (the picker rail's play turns it on): accent ink, no pill at rest.
   const REST_STAGES = [...STAGES, { entry: "agent-pane.composer-pickers", variant: "plan", chips: ["Model"] }];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan)";
   const chip = (name: string) => (name.startsWith(".") ? name : `button[aria-haspopup][aria-label="${name}"]`);
 
   const open = async (engine: string, entry: string, variant: string) => {
@@ -208,7 +209,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       });
 
     // Keyboard focus gives the focused button the hover's pill, with no edge, and keeps its outline:
-    // every bar button, + and the bolt included (Leo 2026-10-19).
+    // every bar button, + included (Leo 2026-10-19).
     test(`${engine}: keyboard focus pills the focused button only, ringless, with its outline`, async () => {
       const page = await open(engine, "agent-pane.composer", "quiet-chips");
       for (const [name, selector] of Object.entries(BAR)) {
@@ -231,9 +232,9 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       await page.close();
     });
 
-    // A press is the Claude app's: a tiny shrink with an almost invisible dip that springs back,
-    // never a brighter or tinted tone (that part is the test above). The chips that open a menu do
-    // it on pointerdown, which can take :active away before the press frame paints.
+    // A press changes nothing (Leo 2026-10-19: no mousedown and mouseup click feedback): no shrink,
+    // no dip and no spring back, and never a brighter or tinted tone (that part is the test above).
+    // The chips that open a menu do it on pointerdown, so the press is read held and released too.
     const PRESSED = [
       { name: "New Tab model", entry: "agent-pane.new-tab", variant: "reasoning-chip", selector: chip("Model") },
       ...Object.entries(BAR).map(([name, selector]) => ({
@@ -244,7 +245,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
       })),
     ];
     for (const target of PRESSED)
-      test(`${engine}: ${target.name}: a press shrinks the button a hair and dips it faintly, then springs back`, async () => {
+      test(`${engine}: ${target.name}: a press neither shrinks nor dims the button, held or released`, async () => {
         const page = await open(engine, target.entry, target.variant);
         const button = page.locator(target.selector).first();
         const read = () =>
@@ -253,29 +254,28 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
             const scale = style.transform === "none" ? 1 : new DOMMatrixReadOnly(style.transform).a;
             return { scale, opacity: Number(style.opacity) };
           });
-        // The release springs back: transform and opacity ease, never snap.
+        // Nothing to spring back: neither transform nor opacity is eased.
         const eased = await button.evaluate((element) => getComputedStyle(element).transitionProperty);
         const box = (await button.boundingBox())!;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.waitForTimeout(200);
+        const hover = await read();
         await page.mouse.down();
         const pressed = await read();
-        // Held past the release's spring: a chip whose menu opened on pointerdown has lost :active
-        // by now, so this is where a press keyed on :active alone springs back too soon.
+        // Held: a chip whose menu opened on pointerdown has lost :active by now, but keeps
+        // data-press-active (popoverTrigger.ts) until the release.
         await page.waitForTimeout(300);
         const held = await read();
         await page.mouse.up();
         await page.waitForTimeout(400);
         const after = await read();
         await page.close();
-        expect(eased, "the release eases the shrink back").toContain("transform");
-        expect(eased, "the release eases the dip back").toContain("opacity");
-        expect(pressed.scale, "the press shrinks the button").toBeLessThan(0.99);
-        expect(pressed.scale, "only a hair").toBeGreaterThanOrEqual(0.96);
-        expect(pressed.opacity, "a faint dip").toBeLessThan(1);
-        expect(pressed.opacity, "almost imperceptible").toBeGreaterThanOrEqual(0.9);
-        expect(held, "the press holds while the button is down").toEqual(pressed);
-        expect(after, "nothing lingers").toEqual({ scale: 1, opacity: 1 });
+        expect(eased, "no transform to ease").not.toContain("transform");
+        expect(eased, "no opacity to ease").not.toContain("opacity");
+        expect(hover, "at hover the button is full size and opaque").toEqual({ scale: 1, opacity: 1 });
+        expect(pressed, "mousedown changes nothing").toEqual(hover);
+        expect(held, "held, nothing changes").toEqual(hover);
+        expect(after, "mouseup changes nothing").toEqual(hover);
       });
   }
 });

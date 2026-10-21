@@ -1,0 +1,139 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Home composer send button: 6 designs</title>
+<style>
+  :root { --spring: cubic-bezier(.34, 1.45, .64, 1); }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 13px/1.4 -apple-system, BlinkMacSystemFont, "SF Pro Text", sans-serif; background: #f2f2f4; color: #1d1d1f; }
+  header { padding: 20px 24px 8px; }
+  h1 { font-size: 17px; margin: 0 0 4px; }
+  header p { margin: 0; color: #6e6e73; max-width: 820px; }
+  .controls { display: flex; gap: 8px; padding: 10px 24px 4px; flex-wrap: wrap; }
+  .controls button { font: inherit; border: 1px solid #c7c7cc; background: #fff; border-radius: 7px; padding: 4px 10px; cursor: pointer; }
+  .controls button.on { background: #1d1d1f; color: #fff; border-color: #1d1d1f; }
+  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(520px, 1fr)); gap: 16px; padding: 12px 24px 32px; }
+  .card { background: #fff; border-radius: 12px; padding: 14px 16px 16px; box-shadow: 0 1px 2px rgba(0,0,0,.06); }
+  .card.rec { outline: 2px solid #1d1d1f; }
+  .card h2 { font-size: 14px; margin: 0; display: flex; align-items: center; gap: 8px; }
+  .badge { font-size: 11px; font-weight: 600; background: #1d1d1f; color: #fff; border-radius: 5px; padding: 1px 6px; }
+  .card p { margin: 4px 0 10px; color: #6e6e73; }
+  .pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .stage { border-radius: 10px; padding: 14px 10px 12px; min-height: 120px; display: flex; flex-direction: column; justify-content: flex-end; gap: 6px; }
+  .stage.light { background: #ffffff; border: 1px solid #ececf0; }
+  .stage.dark { background: #1e1e1e; }
+  .label { font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; color: #8e8e93; }
+  .bar { display: flex; align-items: flex-end; gap: 6px; }
+  .round { flex: 0 0 auto; width: 30px; height: 30px; border-radius: 15px; display: grid; place-items: center; font-size: 16px; }
+  .light .round { background: #f2f2f4; color: #3a3a3c; border: 1px solid #e3e3e8; }
+  .dark .round { background: #2c2c2e; color: #e5e5ea; border: 1px solid #3a3a3c; }
+  .field { position: relative; flex: 1; border-radius: 15px; min-height: 31px; display: flex; align-items: flex-end; }
+  .light .field { background: #fff; border: 1px solid #d8d8dd; }
+  .dark .field { background: #2a2a2c; border: 1px solid #3c3c3f; }
+  .field textarea { flex: 1; border: 0; background: transparent; resize: none; outline: none; font: 13px/16px -apple-system, sans-serif;
+    padding: 7px 42px 7px 12px; max-height: 120px; overflow-y: auto; height: 31px; }
+  .light textarea { color: #1d1d1f; } .dark textarea { color: #f2f2f7; }
+  .light textarea::placeholder { color: #a1a1a6; } .dark textarea::placeholder { color: #7c7c80; }
+  /* The slot: bottom-right, pinned to the last line (15.5 pt from the field's bottom = one-line centre). */
+  .slot { position: absolute; right: 3.5px; bottom: 1.5px; width: 28px; height: 28px; display: grid; place-items: center; }
+  .wave, .send { grid-area: 1 / 1; transition: transform 200ms var(--spring), opacity 140ms ease-out; }
+  .wave { display: flex; gap: 1.8px; align-items: center; }
+  .wave i { display: block; width: 1.8px; border-radius: 1px; }
+  .wave i:nth-child(1), .wave i:nth-child(5) { height: 3.6px; } .wave i:nth-child(2), .wave i:nth-child(4) { height: 7.3px; } .wave i:nth-child(3) { height: 14.5px; }
+  .light .wave i { background: #a1a1a6; } .dark .wave i { background: rgba(212,212,212,.56); }
+  .send { width: 24px; height: 24px; border-radius: 12px; border: 0; padding: 0; display: grid; place-items: center; cursor: default; outline: none; }
+  .send svg { width: 12px; height: 12px; }
+  .send:focus-visible { box-shadow: 0 0 0 3px rgba(120,120,128,.55); }
+  .field:not(.has) .send { transform: scale(.55); opacity: 0; pointer-events: none; }
+  .field.has .wave { transform: scale(.6); opacity: 0; }
+  .send:active { transform: scale(.88) !important; transition-duration: 80ms; }
+  .send:disabled { opacity: .38 !important; }
+  @media (prefers-reduced-motion: reduce) { .wave, .send { transition: none !important; } }
+  body.still .wave, body.still .send { transition: none !important; }
+
+  /* 1 Graphite disc (Recommended) */
+  .v1.light .send { background: #2c2c2e; color: #fff; } .v1.light .send:hover { background: #3a3a3c; }
+  .v1.dark .send { background: #e5e5ea; color: #1c1c1e; } .v1.dark .send:hover { background: #f2f2f7; }
+  /* 2 Soft gray disc */
+  .v2.light .send { background: #d1d1d6; color: #2c2c2e; } .v2.light .send:hover { background: #c7c7cc; }
+  .v2.dark .send { background: #48484a; color: #f2f2f7; } .v2.dark .send:hover { background: #545456; }
+  /* 3 Outline ring, fills on hover */
+  .v3 .send { background: transparent; }
+  .v3.light .send { box-shadow: inset 0 0 0 1.5px #636366; color: #3a3a3c; } .v3.light .send:hover { background: #3a3a3c; color: #fff; }
+  .v3.dark .send { box-shadow: inset 0 0 0 1.5px #aeaeb2; color: #e5e5ea; } .v3.dark .send:hover { background: #e5e5ea; color: #1c1c1e; }
+  /* 4 Bare arrow, disc on hover */
+  .v4 .send { background: transparent; } .v4 .send svg { width: 15px; height: 15px; }
+  .v4.light .send { color: #48484a; } .v4.light .send:hover { background: #ececf0; }
+  .v4.dark .send { color: #d1d1d6; } .v4.dark .send:hover { background: #3a3a3c; }
+  /* 5 Glass disc (Liquid Glass stand-in) */
+  .v5.light .send { background: rgba(255,255,255,.7); color: #1d1d1f; box-shadow: 0 0.5px 0 rgba(0,0,0,.08), inset 0 0 0 0.5px rgba(0,0,0,.14), 0 1px 3px rgba(0,0,0,.12); }
+  .v5.dark .send { background: rgba(255,255,255,.16); color: #fff; box-shadow: inset 0 0 0 0.5px rgba(255,255,255,.28), 0 1px 3px rgba(0,0,0,.4); }
+  .v5 .send:hover { filter: brightness(1.06); }
+  /* 6 Slate (muted cool gray) */
+  .v6.light .send { background: #5e6673; color: #fff; } .v6.light .send:hover { background: #6b7380; }
+  .v6.dark .send { background: #8d95a1; color: #15171a; } .v6.dark .send:hover { background: #9aa2ad; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Home composer send button</h1>
+  <p>Six neutral designs, light and dark. Empty field: the voice waveform shows. Type: it morphs into the send button (spring scale + fade, ~200 ms; none under Reduce Motion). The button stays on the bottom-right of the last line while the field grows to its max height, then the text scrolls. Click = Return. Hit target 28 pt, disc 24 pt. Try typing, Shift+Return, or the presets.</p>
+</header>
+<div class="controls">
+  <button data-fill="">Empty</button>
+  <button data-fill="Looks good, ship it">One line</button>
+  <button data-fill="Three lines:&#10;first check the fleet run&#10;then land on feat-cmux-next">Three lines</button>
+  <button data-fill="long">Past max height (scrolls)</button>
+  <button data-fill="   ">Spaces only (disabled)</button>
+  <button id="still">Reduce Motion: off</button>
+</div>
+<div class="grid" id="grid"></div>
+<template id="variant">
+  <div class="pair">
+    <div class="stage light"><span class="label">Light</span><div class="bar"><div class="round">+</div><div class="field"><textarea rows="1" placeholder="iMessage"></textarea><div class="slot"><span class="wave"><i></i><i></i><i></i><i></i><i></i></span><button class="send" aria-label="Send"><svg viewBox="0 0 12 12"><path d="M6 10.5V1.8M2.2 5.4 6 1.6l3.8 3.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div><div class="round">☺</div></div></div>
+    <div class="stage dark"><span class="label">Dark</span><div class="bar"><div class="round">+</div><div class="field"><textarea rows="1" placeholder="iMessage"></textarea><div class="slot"><span class="wave"><i></i><i></i><i></i><i></i><i></i></span><button class="send" aria-label="Send"><svg viewBox="0 0 12 12"><path d="M6 10.5V1.8M2.2 5.4 6 1.6l3.8 3.8" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"/></svg></button></div></div><div class="round">☺</div></div></div>
+  </div>
+</template>
+<script>
+const variants = [
+  ["v1", "1. Graphite disc", "Near-black disc, white arrow in light; light-gray disc, dark arrow in dark. Highest contrast without colour; reads as the one action in the bar.", true],
+  ["v2", "2. Soft gray disc", "Mid-gray disc. Calmer than graphite, lower contrast (still WCAG AA for the glyph)."],
+  ["v3", "3. Outline ring", "1.5 pt ring and arrow; fills graphite on hover. Lightest weight at rest."],
+  ["v4", "4. Bare arrow", "Arrow only, a gray disc appears on hover. Closest to the waveform it replaces; weakest as a target."],
+  ["v5", "5. Glass disc", "Translucent disc like the + and emoji glass buttons. Matches the bar; can lose contrast over busy wallpapers."],
+  ["v6", "6. Slate", "Muted cool gray. A hint of colour, still neutral."],
+];
+const grid = document.getElementById("grid"), tpl = document.getElementById("variant");
+for (const [cls, name, note, rec] of variants) {
+  const card = document.createElement("div"); card.className = "card" + (rec ? " rec" : "");
+  card.innerHTML = `<h2>${name}${rec ? ' <span class="badge">Recommended</span>' : ''}</h2><p>${note}</p>`;
+  const body = tpl.content.cloneNode(true);
+  body.querySelectorAll(".stage").forEach(s => s.classList.add(cls));
+  card.appendChild(body); grid.appendChild(card);
+}
+function sync(t) {
+  t.style.height = "31px"; t.style.height = Math.min(t.scrollHeight, 120) + "px";
+  const f = t.parentElement, s = f.querySelector(".send");
+  f.classList.toggle("has", t.value.length > 0);
+  s.disabled = t.value.trim().length === 0;
+}
+document.querySelectorAll("textarea").forEach(t => {
+  t.addEventListener("input", () => sync(t));
+  t.addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey && !e.altKey) { e.preventDefault(); send(t); } });
+});
+document.querySelectorAll(".send").forEach(b => b.addEventListener("click", () => send(b.closest(".field").querySelector("textarea"))));
+function send(t) { if (!t.value.trim()) return; t.value = ""; sync(t); t.focus(); }
+const long = Array.from({length: 14}, (_, i) => `Line ${i + 1}: the field grows, then scrolls; the button stays put`).join("\n");
+document.querySelectorAll("[data-fill]").forEach(b => b.addEventListener("click", () => {
+  const v = b.dataset.fill === "long" ? long : b.dataset.fill;
+  document.querySelectorAll("textarea").forEach(t => { t.value = v; sync(t); t.scrollTop = t.scrollHeight; });
+}));
+document.getElementById("still").addEventListener("click", e => {
+  document.body.classList.toggle("still");
+  e.target.textContent = "Reduce Motion: " + (document.body.classList.contains("still") ? "on" : "off");
+  e.target.classList.toggle("on");
+});
+</script>
+</body>
+</html>

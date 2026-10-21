@@ -32,6 +32,7 @@ extension AgentPaneView {
         let configuration = WKWebViewConfiguration()
         configuration.websiteDataStore = sharedDataStore
         configuration.processPool = processPool
+        // webview-allow: agent chat warm-up process; agent chat needs WebKit
         let view = WKWebView(frame: .zero, configuration: configuration)
         view.loadHTMLString("<!doctype html><title></title>", baseURL: nil)
         warmupView = view
