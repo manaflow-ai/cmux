@@ -106,6 +106,14 @@ function fromEntry(entry: WhatsNewEntry, language: string): ReleaseItem {
   };
 }
 
+/** A highlight file's id as scripts/whats-new/digest.py writes it: lower case, other runs as "-". */
+function entryId(id: string): string {
+  return id
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "");
+}
+
 function fromHighlight(highlight: Highlight): ReleaseItem {
   const media = highlight.media?.find((m) => admissibleSource(m.url));
   const src = media ? admissibleSource(media.url)! : undefined;
@@ -227,9 +235,18 @@ export function releaseView(notes: ReleaseNotes, language: string): ReleaseView 
     seen.add(key);
     items.push(readable);
   };
+  // A digest entry has no picture of its own in a nightly; its highlight file's picture (taken
+  // from the change's pull request, release-notes.py) stands in. Ids match as digest.py makes them.
+  const pictures = new Map(notes.highlights.map((h) => [entryId(h.id), fromHighlight(h).media]));
   // A digest the pipeline made from summary lines names its entries "summary-N".
-  for (const entry of notes.whatsNew?.entries ?? [])
-    add(fromEntry(entry, language), false, entry.id.startsWith("summary-"));
+  for (const entry of notes.whatsNew?.entries ?? []) {
+    const item = fromEntry(entry, language);
+    add(
+      item.media ? item : { ...item, media: pictures.get(entryId(entry.id)) },
+      false,
+      entry.id.startsWith("summary-"),
+    );
+  }
   for (const highlight of notes.highlights) add(fromHighlight(highlight), true, false);
   for (const [index, line] of (notes.summary ?? []).entries()) {
     add({ id: `summary-${index}`, category: summaryCategory(line.group), title: line.title, summary: "" }, false, true);

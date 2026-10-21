@@ -53,6 +53,46 @@ html[data-cmux-page="changelog"] body {
 }
 .cl-media img,
 .cl-media video { display: block; width: 100%; height: 100%; object-fit: cover; object-position: left top; }
+/* A picture opens enlarged: the whole frame is the button, with no chrome of its own. */
+.cl-media-open { display: block; width: 100%; height: 100%; padding: 0; border: 0; background: none; cursor: zoom-in; }
+.cl-media-open:focus-visible { outline: 2px solid var(--cmux-accent, currentColor); outline-offset: -2px; }
+/* The enlarged picture: on glass over the page, the picture whole (contain), never cut. */
+.cl-lightbox-backdrop {
+  background: color-mix(in srgb, var(--cmux-surface-background, Canvas) 60%, transparent);
+  -webkit-backdrop-filter: var(--surface-blur);
+  backdrop-filter: var(--surface-blur);
+}
+.cl-lightbox.ui-dialog {
+  inset: 24px;
+  width: auto;
+  max-width: none;
+  max-height: none;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+  background: transparent;
+  box-shadow: none;
+}
+.cl-lightbox-bar { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.cl-lightbox-alt {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--page-text-2);
+  font-size: var(--text-detail);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cl-lightbox-stage { display: grid; flex: 1; min-height: 0; place-items: center; }
+.cl-lightbox-stage :is(img, video) {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 10px;
+  box-shadow: 0 0 0 1px var(--page-separator);
+}
 .cl-actions { display: flex; align-items: center; gap: 14px; margin: 4px 0 8px; }
 .cl-button {
   height: 26px;
