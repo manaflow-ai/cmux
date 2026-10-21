@@ -184,6 +184,9 @@ export default agentPaneEntry({
         assistant("Started the lanes.", 5.5),
       ]),
       play: async (ctx) => {
+        // At a width with no room for the inline column the card is a popover: open it from the header.
+        if (!ctx.document.querySelector(".acpmux-summary-card"))
+          await ctx.click({ selector: ".acpmux-summary-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-summary-card .acpmux-summary-subsession"));
         const rows = ctx.document.querySelectorAll(".acpmux-summary-card .acpmux-summary-subsession");
         if (rows.length !== CHILDREN.length)
