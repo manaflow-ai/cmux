@@ -1,3 +1,4 @@
+public import AppKit
 public import CoreGraphics
 public import Foundation
 public import Observation
@@ -92,6 +93,10 @@ public final class SidebarChatHistory {
     public private(set) var limit = SidebarChatHistory.pageSize
     /// Opens (resumes) a chat by key: the app's Open Chat path.
     @ObservationIgnored public var onOpen: (@MainActor (String) -> Void)?
+    /// A history row's right-click menu, by chat key: the app's, built from the action registry
+    /// (Pin or Unpin Chat on the row's chat, `SidebarChatHistoryFeed.bind`), so the row runs the
+    /// registered action.
+    @ObservationIgnored public var makeMenu: (@MainActor (String) -> NSMenu?)?
     @ObservationIgnored private let defaults: UserDefaults
 
     public static let pageSize = 20

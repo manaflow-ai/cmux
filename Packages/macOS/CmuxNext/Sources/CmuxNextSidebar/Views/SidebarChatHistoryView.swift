@@ -52,12 +52,6 @@ final class SidebarChatHistoryViews {
     }
 }
 
-/// A history row's right-click menu, by chat key: the app's, built from the action registry (Pin or
-/// Unpin Chat on the row's chat, `SidebarChatHistoryFeed.bind`), so the row runs the registered action.
-@MainActor public enum SidebarChatHistoryMenu {
-    public static var make: ((String) -> NSMenu?)?
-}
-
 /// One history block: a quiet header (Pinned, or Earlier, which folds), then one compact row per
 /// chat (its title and a faint age), and for Earlier a Show More row. A row resumes its chat on a
 /// click and pins or unpins it from its right-click menu. Rows are made for the shown page only.
@@ -123,7 +117,7 @@ final class SidebarChatHistoryView: NSView {
             row.configure(title: chat.title, meta: SidebarChatsDesign.age(from: chat.updatedAt, to: now), quiet: part == .earlier)
             row.onClick = { [weak self] in self?.history.open(key) }
             row.makeMenu = { [weak self] in
-                guard let self, let menu = SidebarChatHistoryMenu.make?(key) else { return nil }
+                guard let self, let menu = self.history.makeMenu?(key) else { return nil }
                 // The registry's Pin or Unpin Chat row, named for what it does to this chat.
                 let title = self.history.isPinned(key) ? Strings.chatHistoryUnpin : Strings.chatHistoryPin
                 if let item = menu.items.first(where: { !$0.isSeparatorItem }) { item.title = title }
