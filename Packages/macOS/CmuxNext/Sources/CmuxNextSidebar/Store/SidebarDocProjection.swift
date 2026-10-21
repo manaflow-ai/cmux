@@ -264,10 +264,7 @@ extension SidebarDocStore {
         let next = projection(live: live)
         if next != shown { shown = next }
         lastShownItems = next?.items ?? [:]
-        if let next {
-            let adopting = next.unplaced.filter { !placesItself($0) }
-            if !adopting.isEmpty { adopt(adopting) }
-        }
+        if let next, !next.unplaced.isEmpty { adopt(next.unplaced) }
         let now = Set(live)
         let stillConnected = connectedRemotes.intersection(lastConnectedRemotes)
         let closed = lastLive.subtracting(now).filter { stillConnected.contains($0.sessionID) && previous[$0] != nil }
