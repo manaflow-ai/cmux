@@ -62,6 +62,8 @@ pub struct SessionSummary {
     pub queue_paused: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
+    /// The family of a conversation another app runs that this chat only shows; null otherwise.
+    pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.
     pub steering: bool,
     /// `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
