@@ -1207,7 +1207,8 @@ final class ComposeView: UIView {
             Animate.scalar(glass, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin)
             for l in [veil, rim, tint] { Animate.scalar(l, "bounds.size.height", from: Double(old), to: Double(h), e, begin: begin) }
             let dTop = Double(h - old)
-            for l in [placeholderLayer, chipsLayer] {
+            // The capture caret rides with the placeholder (Fixture.SendCaret).
+            for l in [placeholderLayer, chipsLayer, caret] {
                 Animate.scalar(l, "position.y", from: Double(l.position.y) + dTop, to: Double(l.position.y), e, begin: begin)
             }
             // The text view's top stays on the field top: Catalyst animates
@@ -1285,8 +1286,8 @@ final class ComposeView: UIView {
     func applyCaret(sinceEdit tau: Double, sinceSend: Double?) {
         guard captureMode else { return }
         refreshTextSnapshot()
-        var alpha = 1.0, gray = false
-        if let s = sinceSend, s >= 0, s < 0.65 { alpha = s < 0.02 ? 0 : 1; gray = true }
+        var alpha = 1.0, color: UIColor = Fixture.caret
+        if let s = sinceSend, let st = Fixture.SendCaret.state(s) { alpha = st.alpha; color = st.color }
         else if tau >= 0.99 {
             let p = (tau - 0.99).truncatingRemainder(dividingBy: 1.0)
             alpha = p < 0.6 ? 1 : p < 0.65 ? 1 - (p - 0.6) / 0.05 : p < 0.95 ? 0 : (p - 0.95) / 0.05
@@ -1300,7 +1301,7 @@ final class ComposeView: UIView {
         CATransaction.begin(); CATransaction.setDisableActions(true)
         // Messages' caret: 1 x 17 pt, its top 7 pt under the field top (13.25 above the first baseline).
         caret.frame = CGRect(x: cx.px, y: base - 13.25 + row * 16, width: 1, height: 17)
-        caret.backgroundColor = (gray ? NSColor(white: 0.5, alpha: 1) : Fixture.caret).cgColor
+        caret.backgroundColor = color.cgColor
         caret.opacity = Float(alpha)
         CATransaction.commit()
     }

@@ -84,8 +84,14 @@ final class NotificationCenterService {
     /// Showcase captures seed the real daemon ledger without showing banners
     /// or prompting for system authorization at launch.
     @ObservationIgnored var desktopPostingEnabled = true
-    /// When a banner shows an agent's last message (Show Previews, like macOS) and the screen lock it reads; tests pin both.
-    @ObservationIgnored var previews: NotificationPreviews = .whenUnlocked
+    /// When a banner shows an agent's last message (`notifications.showPreviews`, like macOS's
+    /// Show Previews), and the screen lock it reads; tests pin both.
+    var previews: NotificationPreviews {
+        get { preferences.showPreviews }
+        set { preferences.showPreviews = newValue }
+    }
+    /// What each banner says: where, who and state, what (`NotificationBannerFormatter`).
+    @ObservationIgnored var bannerFormatter = NotificationBannerFormatter()
     @ObservationIgnored var screenLocked: () -> Bool = { NotificationPreviews.screenIsLocked }
     /// The deadline clock; tests inject their own.
     @ObservationIgnored var clock: any Clock<Duration> = ContinuousClock()
@@ -128,6 +134,10 @@ final class NotificationCenterService {
         desktop.onReply = { [weak self] id, surface, text in
             self?.reply(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), text: text)
         }
+        desktop.onMarkRead = { [weak self] id, surface in
+            guard let self, let store = self.services?.daemon.store else { return }
+            self.markRead(banner: id, surface: surface.map(SurfaceID.init(rawValue:)), in: store)
+        }
         followApprovals(services)
         let store = services.daemon.store
         lastSeen = store.notifications.map(\.notification.rawValue).max() ?? 0
@@ -140,6 +150,7 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followStatusRuns(store))
         tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
@@ -247,6 +258,18 @@ final class NotificationCenterService {
         type(text, into: located)
     }
 
+    /// A banner's Mark as Read: reads the tab of `surface` in place (no window, no focus change),
+    /// as a dismiss verb does.
+    func markRead(banner: String, surface: SurfaceID?, in store: DaemonStore) {
+        guard let surface, let located = locate(surface: surface, in: store) else {
+            note("mark read: \(banner) has no tab")
+            return
+        }
+        note("mark read \(banner) \(located.tab.id)")
+        ProgramStatusSeenStore.shared.markSeen(located.tab)
+        acknowledge(located.tab)
+    }
+
     /// Opening from a verb (jump to unread): reads it unless the policy is `never`.
     func opened(_ tab: TabModel) {
         interacted(.open, tabID: tab.id)
@@ -330,12 +353,22 @@ final class NotificationCenterService {
     private func arrived(_ notification: DaemonNotification) {
         guard let services else { return }
         let store = services.daemon.store
-        arrive(notification, located: notification.surface.flatMap { locate(surface: $0, in: store) })
+        let located = notification.surface.flatMap { locate(surface: $0, in: store) }
+        arrive(notification, located: located, workspace: located == nil ? Self.workspace(of: notification, in: store) : nil)
     }
 
-    /// One arrival on `located` (nil: its tab is not in the store). `visibility` is where the tab
-    /// is for the user now (`visibility(of:)` when nil); tests pass their own.
-    func arrive(_ notification: DaemonNotification, located: LocatedTab?, visibility: TerminalVisibility? = nil) {
+    /// The workspace a terminal-less notification names (`cmux notify --workspace ws_…`), when
+    /// it is in `store`.
+    static func workspace(of notification: DaemonNotification, in store: DaemonStore) -> WorkspaceModel? {
+        guard notification.surface == nil, let id = notification.workspaceID else { return nil }
+        return store.workspace(resourceID: id)
+    }
+
+    /// One arrival on `located` (nil: its tab is not in the store). `workspace`: the workspace a
+    /// notification with no tab belongs to (`notify --workspace`), else nil. `visibility` is where
+    /// the tab is for the user now (`visibility(of:)` when nil); tests pass their own.
+    func arrive(_ notification: DaemonNotification, located: LocatedTab?, workspace: WorkspaceModel? = nil,
+                visibility: TerminalVisibility? = nil) {
         let source = Self.source(notification.source)
         if source == .terminal, !terminalNotificationsEnabled() {
             note("arrived \(notification.notification.rawValue) terminal off (desktop-notifications = false)")
@@ -345,8 +378,10 @@ final class NotificationCenterService {
         var arrival = NotificationPolicy.Arrival(source: source)
         arrival.bannerAllowed = notification.desktop
         arrival.appActive = NSApp.isActive
+        if let workspace = located?.workspace ?? workspace {
+            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+        }
         if let located {
-            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
         }
@@ -357,7 +392,12 @@ final class NotificationCenterService {
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
-            if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
+            if let workspace, decision.attention { moveToTop(workspace) }
+            if decision.desktop {
+                // A workspace's notification names its workspace in the title, as a terminal's does.
+                post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
+                     sound: decision.sound)
+            }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return
@@ -433,10 +473,12 @@ final class NotificationCenterService {
             // Agents finishing together in one workspace share one silent digest banner (FinishedBannerBursts).
             let digest = program == nil ? finishedBursts.join(notification, workspace: located.workspace.id, tab: located.tab.id, clock: clock) : nil
             desktop.withdraw(digest?.replacing ?? [])
-            post(notification, tab: located.tab, workspace: located.workspace.id, sound: digest == nil ? decision.sound : nil,
-                 subtitle: digest == nil ? notification.shownSubtitle ?? Self.bannerSubtitle(source: source, workspace: located.workspace.displayName) : located.workspace.displayName,
-                 program: program, title: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
-                                                                    table: "NotificationsPanel", bundle: .module) })
+            // A digest names only its workspace: its agents sit in several tabs.
+            post(notification, tab: digest == nil ? located.tab : nil, workspace: located.workspace.id,
+                 workspaceName: located.workspace.displayName, sound: digest == nil ? decision.sound : nil,
+                 program: program, headline: digest.map { String(localized: "notifications.finishedBurst.title", defaultValue: "\($0.count) agents finished",
+                                                                       table: "NotificationsPanel", bundle: .module) },
+                 owner: located.tab)
         }
         if !decision.desktop, let sound = decision.sound {
             notification.desktop ? NotificationSounds.play(sound) : NotificationSounds.playWithoutBanner(sound)
@@ -445,34 +487,39 @@ final class NotificationCenterService {
         if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
     }
 
-    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, sound: String?,
-                      subtitle: String? = nil, program: ProgramStatusNotification? = nil, title: String? = nil) {
+    /// Posts `notification`'s banner. `tab` is the tab the banner names (nil: a digest, or no
+    /// tab in the store); `owner` (default `tab`) is the tab whose read withdraws it. The title is
+    /// where it came from (`workspaceName › tab`), which the app writes, so a terminal program
+    /// cannot pose as another terminal; the poster's title is the subtitle.
+    ///
+    /// `subtitle` overrides what goes under the title for a banner the app names itself: a
+    /// notification with no tab (`cmux notify --workspace ws_…`) keeps the poster's headline as
+    /// the title and names its workspace there, which is what a reader needs when there is no
+    /// `workspace › tab` to put above it.
+    private func post(_ notification: DaemonNotification, tab: TabModel?, workspace: String?, workspaceName: String? = nil,
+                      sound: String?, subtitle: String? = nil, program: ProgramStatusNotification? = nil,
+                      headline: String? = nil, owner: TabModel? = nil) {
         let id = "cmux-notification-\(notification.notification.rawValue)"
+        let owner = owner ?? tab
         // An OSC 7501 alert reads in the app's language; the daemon's English is the fallback.
-        let title = title ?? program?.title(localizations: localizations)
-            ?? (notification.title.isEmpty ? (tab?.displayTitle ?? "cmux") : notification.title)
+        let headline = headline ?? program?.title(localizations: localizations) ?? notification.title
         // An agent chat's permission prompt: Allow once and Deny, and what it asks as the body.
-        withApproval(of: notification, tab: tab) { [weak self] approval in
+        withApproval(of: notification, tab: owner) { [weak self] approval in
             guard let self else { return }
-            self.desktop.post(id: id, title: title, subtitle: subtitle, body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
+            let content = self.bannerFormatter.content(
+                headline: headline, posterSubtitle: subtitle ?? notification.shownSubtitle,
+                body: approval?.summary ?? notification.bannerBody(previews: self.previews, screenLocked: self.screenLocked()),
+                workspace: workspaceName, tab: tab?.displayTitle, host: tab?.remote?.sessionName, plain: approval == nil)
+            self.desktop.post(id: id, title: content.title, subtitle: content.subtitle, body: content.body,
                               surface: notification.surface?.rawValue, workspace: workspace, defaultSound: sound == "default",
                               attachment: program.flatMap { StatusNotificationImage.data($0.reason) },
-                              reply: notification.reply && tab?.kind == .pty, approval: approval != nil)
+                              reply: notification.reply && owner?.kind == .pty, approval: approval != nil)
             if let sound, sound != "default" { NotificationSounds.play(sound) }
-            if let tab {
-                self.banners[tab.id, default: []].append(id)
-                self.approvals.keep(id, approval: approval, tab: tab.id)
+            if let owner {
+                self.banners[owner.id, default: []].append(id)
+                self.approvals.keep(id, approval: approval, tab: owner.id)
             }
         }
-    }
-
-    /// A terminal program chose its banner's title and text (OSC 9/777/99,
-    /// an OSC 7501 record), so the banner names the workspace it came from
-    /// and a program cannot pose as one in another terminal. Other sources
-    /// keep no subtitle.
-    nonisolated static func bannerSubtitle(source: NotificationSource, workspace: String?) -> String? {
-        guard source == .terminal, let workspace, !workspace.isEmpty else { return nil }
-        return workspace
     }
 
     private func scheduleTimeout(_ seconds: Double, tabID: String) {

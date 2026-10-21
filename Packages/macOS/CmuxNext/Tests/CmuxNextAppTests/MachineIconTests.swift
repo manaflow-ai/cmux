@@ -172,8 +172,11 @@ struct MachineIconTests {
         }
         let set = try #require(ActionCatalog.all.first { $0.id.rawValue == "machine.setIcon" })
         #expect(set.arguments.contains { $0.name == "icon" }, "the CLI and MCP name the icon")
+        // Icon rows (identity), then Reconnect (connection), then Remove Remote Group, which
+        // ungroups the host's rows (close: "Close, delete, forget, ungroup").
         #expect(ContextMenuCatalog.shared.entries(for: .machineSection)
-            == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")])])
+            == [.folder(.appearance, [.action("machine.setIcon"), .action("machine.clearIcon")]),
+                .separator, .action("machine.reconnect"), .separator, .action("remote.removeGroup")])
     }
 
     /// Every machine header's right-click menu offers Set Icon, aimed at that machine, beside its

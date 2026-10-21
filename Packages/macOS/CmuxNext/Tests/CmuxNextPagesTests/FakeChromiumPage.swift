@@ -9,6 +9,7 @@ import Foundation
 final class FakeChromiumPage: PageChromiumPage {
     let contentView = NSView()
     var onEvent: ((PageChromiumEvent) -> Void)?
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)?
     /// Every DevTools call, in order.
     private(set) var calls: [(method: String, params: [String: any Sendable])] = []
     private(set) var loaded: [URL] = []

@@ -17,7 +17,7 @@ use serde_json::Value;
 pub use accepts::{Accepted, accepts, effective_value, is_hex_color};
 pub use chat_roots::chat_root_is_valid;
 pub use retired::{retired_keys, retired_reason};
-pub use url::new_tab_page_url_is_valid;
+pub use url::{is_http_origin, new_tab_page_url_is_valid};
 
 use crate::value::canonical;
 
@@ -58,6 +58,9 @@ pub enum Kind {
     Toggle,
     Choice(Vec<Choice>),
     ChoiceOrNumber(Vec<Choice>, NumberRange),
+    /// One of the choices, or an object whose only member (the key) is an
+    /// http(s) origin (Swift `choiceOrURL`, `home.server`).
+    ChoiceOrUrl(Vec<Choice>, String),
     Number(NumberRange),
     Color,
     Sound,
@@ -87,6 +90,7 @@ impl Kind {
             Kind::Toggle => "toggle",
             Kind::Choice(_) => "choice",
             Kind::ChoiceOrNumber(..) => "choice_or_number",
+            Kind::ChoiceOrUrl(..) => "choice_or_url",
             Kind::Number(_) => "number",
             Kind::Color => "color",
             Kind::Sound => "sound",
@@ -197,6 +201,8 @@ struct RawRow {
     #[serde(default)]
     ordered: bool,
     range: Option<NumberRange>,
+    #[serde(default)]
+    url_key: Option<String>,
     default: Option<Value>,
     default_label: Option<Text>,
     keywords: Vec<String>,
@@ -267,6 +273,10 @@ fn row(raw: Value) -> Result<Row, String> {
         "toggle" => Kind::Toggle,
         "choice" => Kind::Choice(parsed.choices.clone()),
         "choice_or_number" => Kind::ChoiceOrNumber(parsed.choices.clone(), range()?),
+        "choice_or_url" => Kind::ChoiceOrUrl(
+            parsed.choices.clone(),
+            parsed.url_key.clone().ok_or_else(|| format!("{}: url_key missing", parsed.key))?,
+        ),
         "number" => Kind::Number(range()?),
         "color" => Kind::Color,
         "sound" => Kind::Sound,
