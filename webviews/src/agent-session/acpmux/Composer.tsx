@@ -60,6 +60,7 @@ import { useComposerSettings } from "./composerSettings";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
+import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -190,6 +191,8 @@ type Props = {
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
   onUnsentDraft?(text: string): void;
+  /// Where the host keeps the chat's unsent chips, so they come back when the chat shows again.
+  keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -198,8 +201,9 @@ type Props = {
   /// or a window, attached as an image; an error for one too large to attach (shown as the
   /// composer's note); undefined when the person cancelled the pick.
   capture?(mode: "screen" | "window"): Promise<File | AttachmentError | undefined>;
-  /// Sends dropped or pasted files the composer can't attach to the chat's Cloud machine (a moved
-  /// chat): their machine paths go into the prompt. Undefined when this chat takes none.
+  /// Saves dropped, pasted or chosen files the composer can't attach where the agent reads them (a
+  /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
+  /// chat takes none.
   upload?(files: File[]): Promise<UploadResult>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
@@ -264,6 +268,7 @@ export function Composer({
   onEdit,
   onCmuxCommand,
   onUnsentDraft,
+  keptAttachments,
   onImportFile,
   searchFiles,
   capture,
@@ -394,22 +399,11 @@ export function Composer({
           ? { uploads: true }
           : undefined,
     ...(upload ? { upload } : {}),
-    insertPaths: (paths) => insertPaths(paths),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
-  /// Puts machine paths at the caret, one per line.
-  const insertPaths = (paths: string[]) => {
-    const handle = field.current;
-    if (!handle || paths.length === 0) return;
-    const { value, selectionStart, selectionEnd } = handle.text();
-    const before = value.slice(0, selectionStart);
-    const inserted = (before && !before.endsWith("\n") && !before.endsWith(" ") ? " " : "") + paths.join("\n");
-    const caret = before.length + inserted.length;
-    handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
-  };
   useLayoutEffect(() => {
     if (refocusField.current && !snapshot.isWorking) {
       refocusField.current = false;
@@ -513,6 +507,8 @@ export function Composer({
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
+  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // After the session effect, so a switch that ends with its session change still carries.
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
@@ -1480,6 +1476,7 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
+                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"
