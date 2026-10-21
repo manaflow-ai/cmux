@@ -213,6 +213,35 @@ await requireBrowserLane("agent-pane-queue-collapse.test.ts", async () => {
       await page.close();
     });
 
+    test("a glass queue band stays glass with the prompt focused, in each top strip (layout pass, 2026-10-20)", async () => {
+      const page = await openChat(["one line"]);
+      await page.locator(".acpmux-composer-prompt").click();
+      // What the see-through rule sets (composerStates.css); a CI host may ask for reduced transparency.
+      await page.evaluate(() => document.documentElement.style.setProperty("--acpmux-queue-glass", "60%"));
+      const alphas: Record<string, number> = {};
+      for (const strip of ["", "tray", "bump", "plain"]) {
+        alphas[strip || "none"] = await page.evaluate((strip) => {
+          const root = document.documentElement;
+          if (strip) root.setAttribute("data-top-strip", strip);
+          else root.removeAttribute("data-top-strip");
+          const fill = getComputedStyle(document.querySelector(".acpmux-composer-queue")!).backgroundColor;
+          // rgba(r, g, b, a), color(srgb r g b / a), or no alpha at all: opaque.
+          const alpha = fill.match(/[,/]\s*([\d.]+%?)\s*\)$/)?.[1];
+          if (alpha === undefined) return 1;
+          return alpha.endsWith("%") ? parseFloat(alpha) / 100 : parseFloat(alpha);
+        }, strip);
+      }
+      expect(await page.evaluate(() => !!document.activeElement?.closest(".acpmux-composer-prompt"))).toBe(true);
+      // Glass, focused or not: never solid; the plain strip has no fill at all.
+      expect({
+        none: alphas.none < 1,
+        tray: alphas.tray < 1,
+        bump: alphas.bump < 1,
+        plain: alphas.plain,
+      }).toEqual({ none: true, tray: true, bump: true, plain: 0 });
+      await page.close();
+    });
+
     test("six queued prompts fold behind '4 more queued', which opens and closes in place", async () => {
       const page = await openChat(PROMPTS);
       await page.locator(".acpmux-queue-fold").waitFor({ timeout: 10_000 });
