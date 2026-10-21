@@ -121,7 +121,7 @@ struct ClaudeConfigDirectorySaveCaptureTests {
             processIdentity: AgentPIDProcessIdentity(
                 pid: pid_t(processID),
                 startSeconds: 1_800_300_000,
-                startMicroseconds: processID % 1_000_000
+                startMicroseconds: Int64(processID % 1_000_000)
             )
         )
     }
