@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "3960894798201",
+  "notes": "notes/3960894798201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23394,
+      "title": "fix(agent-pane): deduplicate persisted attachment ids",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23365,
+      "title": "webviews: a ratchet refuses new fixed-time waits in tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23412,
+      "title": "fix(next): the Find section's search field draws no focus ring (base text-focus red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23372,
+      "title": "cmux setup machine: a default name never moves another peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23318,
+      "title": "cmux NEXT Chief pet: notices stay glass (the toasts' veil), not the opaque card fill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23357,
+      "title": "cmux-next motion follow-ups to #22795: suggestion-lists-float opens its own gallery entries; the pane motion help names the content hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23328,
+      "title": "cmux NEXT App Store: the Chief Pet card links to Settings › Chief Pet",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
