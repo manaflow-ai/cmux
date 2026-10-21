@@ -87,7 +87,12 @@ class AssessTests(unittest.TestCase):
         # trees while the issue said only "Nothing was promoted".
         tally = "120 refused: 87x the daemon tests have not passed for tree <sha> yet"
         stage = watch.assess(NOW, NEWEST, [run(1, 5)], [], lambda r: [], [], [], 3.0, tick_refusal=lambda: tally)
-        self.assertIn("refused every newer commit: " + tally, stage.reason)
+        self.assertIn("refused every newer commit: " + tally, stage.detail)
+        self.assertIn(stage.detail, watch.issue_body(stage, NEWEST, NOW, "", 3.0, "url"))
+        # The tally changes every tick; the issue comments only when the stage itself changes.
+        gh = FakeGitHub([{"number": 7, "body": watch.issue_body(stage, NEWEST, NOW, "", 3.0, "url")}])
+        watch.sync_issue(gh, watch.Stage(True, 5.5, stage.since, stage.reason, "121 refused: other"), "body", 3.0, "url")
+        self.assertEqual(gh.calls, [("PATCH", "/issues/7", None)])
         read = []
         stage = watch.assess(NOW, NEWEST, [run(1, 5)], [run(7, 2, conclusion="failure")], lambda r: JOBS.get(r["id"], []),
                              [], [], 3.0, tick_refusal=lambda: read.append(1) or tally)

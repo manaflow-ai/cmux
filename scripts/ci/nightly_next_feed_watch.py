@@ -45,11 +45,13 @@ PUBLISHED_MARKER = re.compile(r"<!--\s*cmux-published-sha:\s*([0-9a-f]{40})\s*--
 
 @dataclass(frozen=True)
 class Stage:
-    """What the watcher found; `reason` is the issue line that names the stuck stage."""
+    """What the watcher found; `reason` is the issue line that names the stuck stage. `detail`
+    (the tick's refusal tally) changes every tick, so it goes in the body, never in a comment."""
     stale: bool
     waited_hours: float
     since: dt.datetime | None
     reason: str
+    detail: str = ""
 
 
 def parse_time(value: str) -> dt.datetime:
@@ -81,6 +83,7 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
         return Stage(False, 0.0, None, "No feat-cmux-next push since the feed's newest item.")
     since = min(parse_time(run["created_at"]) for run in pushes)
     waited = (now - since).total_seconds() / 3600
+    detail = ""
     # The newest nightly-next run that is building or decided: a newer build supersedes an older failure.
     latest = next((run for run in nightly if run.get("status") != "completed" or run.get("conclusion") in ("success", "failure", "timed_out")), None)
     if latest and latest.get("status") != "completed":
@@ -93,7 +96,7 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
         reason = "Nothing was promoted to nightly-next since the feed's newest item."
         refusal = tick_refusal()
         if refusal:
-            reason += f" The latest nightly-next tick refused every newer commit: {refusal}"
+            detail = f"The latest nightly-next tick refused every newer commit: {refusal}"
         artifact = artifacts[0] if artifacts else None
         if artifact and artifact.get("conclusion") == "failure":
             reason += f" The latest feat-cmux-next cmux-tui artifacts run {artifact['html_url']} failed, so its tree is unpublished: {failed_steps(jobs_of(artifact))}."
@@ -105,7 +108,7 @@ def assess(now: dt.datetime, newest: dt.datetime, pushes: list[dict], nightly: l
                 reason += f" The latest feat-cmux-next {RELEASE_COMPILE_JOB} is {conclusion}: {compile_run['html_url']}."
             if conclusion in ("success", "failure", "timed_out"):
                 break
-    return Stage(waited > max_lag_hours, waited, since, reason)
+    return Stage(waited > max_lag_hours, waited, since, reason, detail)
 
 
 def issue_body(stage: Stage, newest: dt.datetime, now: dt.datetime, published_sha: str, max_lag_hours: float, run_url: str) -> str:
@@ -115,7 +118,7 @@ def issue_body(stage: Stage, newest: dt.datetime, now: dt.datetime, published_sh
         f"since {stage.since.isoformat(timespec='minutes') if stage.since else '?'}. The feed's newest item is {feed_hours:.1f} hours old "
         f"({newest.isoformat(timespec='minutes')}). Installed nightly-next apps report \"Up to Date\".",
         f"Last published commit: {published_sha or '(unknown)'}.",
-        stage.reason,
+        " ".join(filter(None, [stage.reason, stage.detail])),
         f"Checked by {run_url}. This issue is updated in place every 30 minutes, gets a comment when the stuck stage changes, and closes when the feed catches up.",
     ])
 
@@ -155,9 +158,10 @@ class GitHub:
         return self.call("GET", f"/actions/runs/{run['id']}/jobs?filter=latest&per_page=100")["jobs"]
 
     def tick_refusal(self) -> str:
-        """The refusal tally the latest finished nightly-next tick annotated, with its run URL; empty when none."""
+        """The refusal tally the latest successful nightly-next tick annotated, with its run URL; empty when
+        none. Successful only: a replaced (cancelled) or skipped tick has no annotation."""
         try:
-            runs = self.call("GET", f"/actions/workflows/{TICK_WORKFLOW}/runs?status=completed&per_page=1")["workflow_runs"]
+            runs = self.call("GET", f"/actions/workflows/{TICK_WORKFLOW}/runs?status=success&per_page=1")["workflow_runs"]
             for job in self.jobs(runs[0]) if runs else []:
                 for note in self.call("GET", f"/check-runs/{job['id']}/annotations?per_page=50"):
                     if note.get("title") == TICK_ANNOTATION:
@@ -263,7 +267,7 @@ def main(argv: list[str]) -> int:
         return 0
     if stage.stale:
         print(f"::error title=nightly-next feed stale::feat-cmux-next pushes have waited {stage.waited_hours:.1f}h "
-              f"(limit {args.max_lag_hours:g}h). {stage.reason}")
+              f"(limit {args.max_lag_hours:g}h). {' '.join(filter(None, [stage.reason, stage.detail]))}")
         return 1
     return 0
 
