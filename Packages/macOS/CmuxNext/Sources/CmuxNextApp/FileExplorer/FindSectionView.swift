@@ -56,6 +56,7 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private func build() {
         field.placeholderString = FileExplorerStrings.findPlaceholder
         field.sendsWholeSearchString = true
+        field.focusRingType = .none
         field.target = self
         field.action = #selector(submit)
         field.delegate = self
