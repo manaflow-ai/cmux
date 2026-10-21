@@ -125,7 +125,6 @@ export function SummaryBody({
               type="button"
               className="acpmux-summary-add"
               aria-label={t("summary.sources.attach")}
-              title={t("summary.sources.attach")}
               onClick={onAttach}
             >
               <Icon name="action.add" size={ROW_ICON} />

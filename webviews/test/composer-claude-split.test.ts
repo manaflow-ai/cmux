@@ -6,7 +6,7 @@
 //   row under the box: the mode on the left, on the prompt's text edge; the model and effort on the
 //   right, their labels about 8 px apart (Claude Code's spacing).
 // - The mic never leaves, at a roomy width or a narrow one.
-// - + is its glyph, named "Add" by the shared tooltip.
+// - + is its glyph, named "Add" for screen readers, with no tooltip (Leo, 2026-10-20: a plain + needs none).
 // - The mode menu marks the chosen mode with a check at the row's trailing edge, where the other
 //   rows show their number, as Claude's model menu does.
 // - The + menu's and the @ file picker's rows highlight under the pointer, one row at a time.
@@ -211,17 +211,18 @@ await requireBrowserLane("composer-claude-split.test.ts", async () => {
           expect(at.send!.right, "Send inside the box").toBeLessThanOrEqual(at.box.right);
         });
 
-    test(`${engine}: + is its glyph, named Add by the shared tooltip`, async () => {
+    test(`${engine}: + is its glyph, named Add with no tooltip`, async () => {
       const page = await open(engine, COMPOSERS[0]!);
       const plus = await page
         .locator(".acpmux-composer-plus .acpmux-picker-button")
         .first()
         .evaluate((element) => ({
           text: element.textContent?.trim() ?? "",
+          name: element.getAttribute("aria-label") ?? "",
           tooltip: element.getAttribute("data-tooltip") ?? element.getAttribute("title") ?? "",
         }));
       await page.close();
-      expect(plus).toEqual({ text: "", tooltip: "Add" });
+      expect(plus).toEqual({ text: "", name: "Add", tooltip: "" });
     });
 
     // The New Tab stage has no chat yet, so no mode menu; both pages draw the same AccessMenu.

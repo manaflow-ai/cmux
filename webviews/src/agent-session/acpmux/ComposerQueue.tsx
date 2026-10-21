@@ -413,7 +413,6 @@ export function ComposerQueue({
               type="button"
               className="acpmux-queued-action"
               aria-label={t("composer.queueEdit")}
-              title={t("composer.queueEdit")}
               onClick={() => setEditing(entry.id)}
             >
               <Icon name="action.edit" size={14} />
@@ -424,7 +423,6 @@ export function ComposerQueue({
               type="button"
               className="acpmux-queued-action"
               aria-label={t("composer.queueRemove")}
-              title={t("composer.queueRemove")}
               onClick={() => remove(entry)}
             >
               <Icon name="action.delete" size={14} />

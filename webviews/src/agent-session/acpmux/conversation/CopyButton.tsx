@@ -27,7 +27,6 @@ export function CopyButton({
       type="button"
       className={className}
       aria-label={name}
-      title={name}
       onClick={async () => {
         const done = await copyTextResult(text);
         window.clearTimeout(timer.current);
