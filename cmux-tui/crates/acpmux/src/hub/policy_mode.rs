@@ -48,6 +48,17 @@ pub(crate) fn policy_mode(
     super::start_mode::asking_mode(family, available)
 }
 
+/// `meta`'s config options with the `mode` option set to `mode`, or `None` when it has none.
+fn with_mode_option(meta: &SessionMeta, mode: &str) -> Option<Value> {
+    let mut options = meta.config_options.clone()?;
+    let option = options
+        .as_array_mut()?
+        .iter_mut()
+        .find(|o| o.get("id").and_then(Value::as_str) == Some("mode"))?;
+    option["currentValue"] = json!(mode);
+    Some(options)
+}
+
 impl Hub {
     /// `session`'s policy mode when its policy is narrower than approve-all (module docs):
     /// `Some(None)` when the harness offers no mode that asks, `None` when the policy does not
@@ -105,19 +116,30 @@ impl Hub {
         if current == wanted || (asks && !narrower) {
             return;
         }
-        // A chat whose agent is not running starts none: its saved mode becomes the policy's,
-        // which the agent's next start restores (`replay_config`, Claude's `--permission-mode`).
+        // Under the spawn lock: a start in flight (`ensure_child`) either ends first and its
+        // child is seen here, or starts after and reads the mode written here.
+        let spawning = session.spawn_lock.lock().await;
         let child = session.child.lock().await.clone();
         let running = match child {
             Some(child) => child.is_alive().await,
             None => false,
         };
+        // A chat whose agent is not running starts none: its saved mode becomes the policy's,
+        // which the agent's next start restores (`replay_config`, Claude's `--permission-mode`).
+        // The Codex bridge also reports the mode as its `mode` config option, which
+        // `replay_config` replays after the mode: it gets the policy's mode too.
         if !running {
-            self.write_mode_state(session, [ModeWrite::CurrentMode(json!(wanted))]);
+            let mut writes = vec![ModeWrite::CurrentMode(json!(wanted))];
+            if let Some(options) = with_mode_option(&session.meta(), &wanted) {
+                writes.push(ModeWrite::ConfigOptions(options));
+            }
+            self.write_mode_state(session, writes);
             self.append(session, "mux", "mode", json!({"modeId": wanted}));
             self.save_meta(session);
             return;
         }
+        // `set_mode` reaches the agent through `ensure_child`, which takes the spawn lock.
+        drop(spawning);
         if let Err(e) = self.set_mode(session, &wanted).await {
             tracing::warn!(session = %session.id, mode = %wanted, "policy mode not set: {}", e.message);
         }
