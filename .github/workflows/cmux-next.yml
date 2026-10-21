@@ -2812,8 +2812,9 @@ jobs:
           retention-days: 14
 
   # Generated files are fresh: the action catalog, surfaces and inventory
-  # (ActionSurfaceParityTests and its siblings), the CI target graph, and the
-  # settings exports with their source stamp and the defaults snapshot. Its
+  # (ActionSurfaceParityTests and its siblings) and the settings exports with
+  # their source stamp; the CI target graph and the defaults snapshot are
+  # bot-only (#21946) and not checked. Its
   # own job, so a pull request that skips the package tests still cannot land
   # a stale export (feat-cmux-next went red at a925bd9 that way). When a file
   # is stale, the job regenerates it, uploads the regenerated files as the
@@ -3010,13 +3011,15 @@ jobs:
       # The settings exports (schemas/settings/settings-schema.json, docs/mdm):
       # check-stamp recomputes the source stamp (schemas/settings-export) from
       # the CmuxNextSettings sources, so a settings edit without a re-export
-      # fails here and is regenerated below. The defaults snapshot is bot-only
-      # (#21946): it is stale on every event between a merge and the base
-      # autofix's commit, so no event checks it here.
+      # fails here and is regenerated below. --base HEAD^1 (the merge commit's
+      # base tip, or a push's parent): a source already stale on the base is a
+      # warning, since the base autofix regenerates it after the merge. The
+      # defaults snapshot is bot-only (#21946): it is stale on every event
+      # between a merge and the base autofix's commit, so no event checks it here.
       - name: Check the settings exports
         id: settings
         continue-on-error: true
-        run: python3 scripts/ci/defaults_guard.py check-stamp
+        run: python3 scripts/ci/defaults_guard.py check-stamp --base "$(git rev-parse HEAD^1)"
 
       # Only the generated paths are collected into the artifact.
       - name: Regenerate stale files
@@ -3027,8 +3030,7 @@ jobs:
           if [[ "${{ steps.actions.outcome }}" == failure ]]; then
             scripts/cmux-next/regenerate-action-contracts.sh
           fi
-          # The Swift settings export only when the source stamp is stale (a
-          # stale snapshot alone needs only the snapshot below). It writes the
+          # The Swift settings export only when the source stamp is stale. It writes the
           # files into the checkout, as the fleet export step does, and fails
           # when the stamp still does not match afterwards.
           if [[ "${{ steps.settings.outcome }}" == failure ]] && ! python3 scripts/ci/defaults_guard.py check-stamp; then

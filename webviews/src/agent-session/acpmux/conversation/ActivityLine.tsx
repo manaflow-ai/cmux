@@ -1,7 +1,7 @@
 // The running turn's activity line under its todo list (Debug Settings `agent.sessionStatus`,
-// cx-ncc.102; Claude Code desktop's `••• Edit ProductGrid.module.css 26s`): what turns.ts names
-// (the running tool call, else the todo in progress) and the turn's time, ticking each second from
-// the prompt like "Working for", whose place it takes.
+// cx-ncc.102; Claude Code desktop's `Edit ProductGrid.module.css 26s`): what turns.ts names (the
+// running tool call, else the todo in progress) and the turn's time, ticking each second from the
+// prompt like "Working for", whose place it takes. No dots blink before it, as on that line.
 import { useEffect, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -18,11 +18,6 @@ export function ActivityLine({ row, now = Date.now }: { row: AcpmuxRow; now?: ()
   }, [now]);
   return (
     <div className="cv-activity">
-      <span className="cv-activity__dots" aria-hidden="true">
-        <span />
-        <span />
-        <span />
-      </span>
       {row.text ? (
         <>
           <span className="cv-activity__label">{row.text}</span>

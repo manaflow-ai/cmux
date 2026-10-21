@@ -10,8 +10,8 @@ export interface TabRow {
   readonly trailingInset: number;
 }
 
-/// Space between the last tab and the tools, in the width the page reports.
-export const TAB_ROW_GAP = 8;
+/// Space between the last tab and the tools, in the width the page reports: the tools' own pitch, not a gutter.
+export const TAB_ROW_GAP = 4;
 
 const NONE: TabRow = { height: 0, trailingInset: 0 };
 let current: TabRow = NONE;

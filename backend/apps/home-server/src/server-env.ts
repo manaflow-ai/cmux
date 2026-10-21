@@ -6,11 +6,16 @@ import { ConversationDO } from "../../api/src/conversation-do.ts"
 import { MuxDO } from "../../api/src/mux-do.ts"
 import { UserDO } from "../../api/src/user-do.ts"
 import { DoRuntime, type ObjectClass } from "./do-runtime/runtime.ts"
+import { FixedLengthStream, FsBucket } from "./fs-bucket.ts"
 import { RosterDO } from "./roster-do.ts"
 
 // Workers' WebSocket has READY_STATE_* statics (socket-gate.ts reads READY_STATE_OPEN); Bun's has only OPEN and friends.
 const ws = globalThis.WebSocket as unknown as Record<string, number>
 for (const [k, v] of [["READY_STATE_CONNECTING", 0], ["READY_STATE_OPEN", 1], ["READY_STATE_CLOSING", 2], ["READY_STATE_CLOSED", 3]] as const) if (ws[k] === undefined) Object.defineProperty(ws, k, { value: v })
+
+// Workers' FixedLengthStream (attachment uploads pipe through one); Bun has none.
+const g = globalThis as unknown as { FixedLengthStream?: unknown }
+g.FixedLengthStream ??= FixedLengthStream
 
 /** Per-server secrets, made once and kept in `<data>/secrets.json` (mode 0600). */
 interface ServerSecrets {
@@ -74,6 +79,8 @@ export const buildServerRuntime = (dataDir: string, extraEnv: Record<string, unk
     CHIEF_BRAIN_ENABLED: "0",
     CHIEF_OPENCODE_ENABLED: "0",
     HOME_ATTACHMENT_LIMIT: openLimit,
+    // Attachments as files under <data>/blobs (the R2 subset the attachment code uses).
+    HOME_ATTACHMENTS: new FsBucket(join(dataDir, "blobs")),
     ...extraEnv
   }
   for (const b of ABSENT) env[b] = absentNamespace(b)
