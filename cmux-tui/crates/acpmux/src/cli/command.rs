@@ -135,10 +135,14 @@ pub enum Command {
         session: String,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
-        /// Interrupt the running turn with this message when the agent supports steering.
-        #[arg(long)]
+        /// Send this message into the running turn when the agent supports steering. On by
+        /// default with --no-wait; a send that waits for the reply queues unless given this.
+        #[arg(long, conflicts_with = "no_steer")]
         steer: bool,
-        /// Return as soon as the prompt is queued.
+        /// Queue behind the running turn even with --no-wait.
+        #[arg(long)]
+        no_steer: bool,
+        /// Return as soon as the prompt is steered in or queued.
         #[arg(long)]
         no_wait: bool,
         /// Do not stream; print only the final assistant text.
@@ -261,9 +265,15 @@ pub enum Command {
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
     /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill.
+    /// list, show (everything one printed, live with --follow), kill,
+    /// background (Ctrl-B: move a chat's running work there).
     #[command(subcommand, alias = "ps")]
     Process(crate::cli::process::ProcessCmd),
+    /// This machine's git worktrees, cleaned up after the agents that made
+    /// them: list, clean (archive work only there, then remove), restore,
+    /// archives.
+    #[command(subcommand, alias = "wt")]
+    Worktree(crate::cli::worktree::WorktreeCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
@@ -324,6 +334,8 @@ pub enum Command {
         #[arg(long)]
         purge: bool,
     },
+    #[command(hide = true)]
+    RestartAgent { session: String },
     #[command(hide = true, alias = "rename-session")]
     Rename { session: String, new_name: String },
     #[command(hide = true)]
@@ -579,6 +591,11 @@ pub enum SessionCmd {
         #[arg(long)]
         purge: bool,
     },
+    /// Restart the agent process in the same conversation: now when the
+    /// session is between turns, else when its turn ends (never cancelled).
+    /// It then runs the installed version and gets a new caller token (after
+    /// a daemon restart left it the earlier daemon's).
+    Restart { session: String },
     /// Rename a session.
     Rename { session: String, new_name: String },
     /// Fork a session into a new one that shares the history so far.
@@ -842,6 +859,7 @@ pub fn flatten(c: Command) -> Command {
             SessionCmd::Info { session } => Command::Info { session },
             SessionCmd::Cancel { session } => Command::Cancel { session },
             SessionCmd::Stop { session, purge } => Command::Kill { session, purge },
+            SessionCmd::Restart { session } => Command::RestartAgent { session },
             SessionCmd::Rename { session, new_name } => Command::Rename { session, new_name },
             SessionCmd::Fork { session, name, cwd } => Command::Fork { session, name, cwd },
             SessionCmd::Set { session, assignment } => Command::Set { session, assignment },

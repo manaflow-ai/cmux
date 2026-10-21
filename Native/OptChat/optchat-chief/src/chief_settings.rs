@@ -1,10 +1,11 @@
 //! Per-Chief settings, `$MUX_HOME/optchat/settings.json`
-//! (`{"remote": {"autoApprove": false}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
+//! (`{"cache": {"ttl": "1h"}}`), shown later in the Chief settings
 //! sidebar. The host reads the file once at start and owns the value after
-//! that: a change goes through the host (`Brain::set_setting`), which
-//! refuses to turn `remote.autoApprove` on during a remote-origin turn, and
-//! writes the file. An edit of the file by hand takes effect at the next
-//! host start (README "Remote-origin messages").
+//! that: a change goes through the host (`Brain::set_setting`), which writes
+//! the file. An edit of the file by hand takes effect at the next host start.
+//! No setting makes the Chief ask before it acts (Lawrence, 2026-10-20:
+//! "chief should never have to ask for approvals"); the old `remote.*` and
+//! `home.ask` keys are ignored when read and dropped at the next write.
 
 use std::path::Path;
 
@@ -15,10 +16,6 @@ use crate::prompt::CacheTtl;
 /// The settings this host knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
-    /// A remote-origin turn (the owner's own paired device) runs with the
-    /// configured policy instead of `ask`. Default false; true is an explicit
-    /// opt-in that applies only to that owner's paired devices.
-    pub remote_auto_approve: bool,
     /// How long a turn's prompt cache entries live (`5m` or `1h`); None: the
     /// engine's default (1 hour on the Claude Code path, 5 minutes on the
     /// native engine). `OPTCHAT_CACHE_TTL` wins over it.
@@ -73,7 +70,6 @@ impl ReplyThreads {
 impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
-            remote_auto_approve: false,
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
@@ -81,9 +77,6 @@ impl Default for ChiefSettings {
         }
     }
 }
-
-/// The key of `ChiefSettings::remote_auto_approve`.
-pub const REMOTE_AUTO_APPROVE: &str = "remote.autoApprove";
 
 /// The key of `ChiefSettings::cache_ttl`.
 pub const CACHE_TTL: &str = "cache.ttl";
@@ -105,7 +98,6 @@ impl ChiefSettings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         ChiefSettings {
-            remote_auto_approve: cmux_chief::policy::remote_auto_approve(&value),
             cache_ttl: value["cache"]["ttl"].as_str().and_then(CacheTtl::parse),
             reply_threads: value["replies"]["thread"]
                 .as_str()
@@ -119,7 +111,7 @@ impl ChiefSettings {
     }
 
     pub fn to_json(self) -> Value {
-        let mut value = json!({"remote": {"autoApprove": self.remote_auto_approve}});
+        let mut value = json!({});
         if let Some(ttl) = self.cache_ttl {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }

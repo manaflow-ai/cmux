@@ -206,11 +206,11 @@ Object.assign(variants, {
     },
     steps: [
       wait('[data-card="backdrop"]'),
-      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Daily"]'),
+      click('[data-card="backdrop"] .backdrop-tile[aria-label="Shuffle Paintings"]'),
       wait("[data-appearance-bar] [data-undo]:not([disabled])"),
       { selector: "[data-appearance-bar] [data-undo]", action: "focus" },
     ],
-    note: "Appearance's floating bar at the bottom right after picking Shuffle Daily: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
+    note: "Appearance's floating bar at the bottom right after picking Shuffle Paintings: Undo names the step, Redo waits, Reset offers Restore How It Was or Reset to Defaults.",
   }),
   // Unset surface rows rest on the window's values, dimmed under an "Inherits window" badge.
   "surfaces-inherit-window": variant("appearance", {
@@ -890,6 +890,7 @@ export default settingsPageEntry({
     "pages/settings/components/ArtBrowser.tsx",
     "pages/settings/components/BackdropLink.tsx",
     "pages/settings/components/BackdropScope.tsx",
+    "pages/settings/components/ChiefPetCard.tsx",
     "pages/settings/components/GhosttyDiagnostics.tsx",
     "pages/settings/components/GroupList.tsx",
     "pages/settings/components/Highlight.tsx",
@@ -928,6 +929,7 @@ export default settingsPageEntry({
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
+    "pages/settings/editors/StringMapEditor.tsx",
     "pages/settings/editors/TextEditor.tsx",
     "pages/settings/editors/TimeRangeEditor.tsx",
     "pages/settings/editors/ToggleEditor.tsx",

@@ -24,6 +24,7 @@
 mod approvals;
 mod children;
 mod control;
+mod desk;
 mod drafts;
 mod engine_control;
 pub mod files;
@@ -43,6 +44,7 @@ mod spawns;
 mod steer;
 mod turns;
 mod wakes;
+pub use desk::DESK_GRACE;
 pub use replies::{REACTIONS, reaction, tapback};
 pub use turns::stuck_notice;
 
@@ -172,6 +174,12 @@ pub enum Input {
         after_network: bool,
         online: bool,
     },
+    /// Subagent `id`, whose account hit a usage limit, continues in a new
+    /// session on `harness` (auto_resume.rs `Decision::Move`).
+    AutoMove {
+        id: String,
+        harness: String,
+    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -260,8 +268,7 @@ pub enum Input {
     },
     /// Once a minute while subagents work: stuck detection (control.rs).
     SubTick,
-    /// Changes a per-Chief setting (`chief_settings`); refused for
-    /// `remote.autoApprove` on during a remote-origin turn.
+    /// Changes a per-Chief setting (`chief_settings`).
     Setting {
         key: String,
         value: String,
@@ -274,6 +281,13 @@ pub enum Input {
     /// The policy floor for a child spawned now (`Brain::spawn_policy`).
     SpawnPolicy {
         reply: Sender<Option<String>>,
+    },
+    /// Whether the turn may run a Chief tool with these arguments
+    /// (`Brain::turn_gate`).
+    TurnGate {
+        tool: String,
+        input: serde_json::Value,
+        reply: Sender<Result<(), String>>,
     },
     /// A description of a turn's image arrived (or failed): logged as a note.
     Described {
@@ -311,6 +325,18 @@ pub enum Input {
     /// and the other subagents going on; answers `{"stopped": bool, ...}`.
     StopSubagent {
         name: String,
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {all: true} ("Stop all agents"): the running turn and
+    /// every subagent at work or queued; answers `{"stopped": bool,
+    /// "subagents": [ids]}`.
+    StopAll {
+        reply: Sender<serde_json::Value>,
+    },
+    /// chief.stop {restart: [ids]} (Restart on the stop-all toast): those
+    /// subagents go on; answers `{"restarted": [ids], "errors": [...]}`.
+    RestartSubagents {
+        names: Vec<String>,
         reply: Sender<serde_json::Value>,
     },
     /// The link preview thread's answer for reply `key`: its parts with the
@@ -663,16 +689,19 @@ pub struct Brain {
     turn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
     chief: crate::chief_settings::ChiefSettings,
-    /// The running turn has a remote origin (a paired device's message, or
-    /// a remote turn it supersedes): the strictest origin wins until it ends.
-    turn_remote: bool,
-    /// The running turn runs with policy `ask` (remote, no auto-approve).
+    /// The running turn carries another person's text: it runs with policy
+    /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
-    /// A remote-origin turn was stopped for a newer message: the turn that
-    /// answers both keeps its origin.
-    remote_taint: bool,
-    /// The running turn's permission requests waiting for a person.
-    approvals: VecDeque<crate::approval::Pending>,
+    /// The last turn was an ask turn: a tool call of it that reaches the
+    /// host after it ended is still held to its rules (`turn_gate`) until
+    /// the next turn starts.
+    last_turn_ask: bool,
+    /// Requests refused in the running turn (`approval::signature`): a
+    /// repeat counts toward stopping the turn.
+    turn_denied: Vec<String>,
+    /// Requests of the running turn denied again because they repeat one
+    /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
+    repeat_denials: u32,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
@@ -707,6 +736,16 @@ pub struct Brain {
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
+    /// The running turn was stopped for asking again and again for a tool
+    /// call it was denied (approvals.rs): later requests are denied, and the
+    /// turn posts one line saying so (what it asked for) instead of its text.
+    denial_stopped: Option<(String, approvals::DenyWhy)>,
+    /// Permission requests the host left open, denied once overdue
+    /// (`approvals::deny_overdue_permissions_at`).
+    unanswered: Vec<approvals::Unanswered>,
+    /// Subagent prompts whose refused allow the person was told about
+    /// (`control answer`): the line is posted once per prompt.
+    approval_told: HashSet<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
@@ -723,6 +762,15 @@ pub struct Brain {
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
     handoff_wait: std::time::Duration,
+    /// How long a message waits on a running turn before the front desk's
+    /// receipt (`desk.rs`); None: no receipts.
+    desk_grace: Option<Duration>,
+    /// The receipt waiting for its grace.
+    desk: Option<desk::DeskPending>,
+    /// The turn the last receipt was for: one receipt per turn.
+    desk_told: Option<String>,
+    /// The running turn's latest activity line, by turn key.
+    turn_activity: Option<(String, String)>,
 }
 
 impl Brain {
@@ -786,10 +834,10 @@ impl Brain {
             keep_pending: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
-            turn_remote: false,
             turn_ask: false,
-            remote_taint: false,
-            approvals: VecDeque::new(),
+            last_turn_ask: false,
+            turn_denied: Vec::new(),
+            repeat_denials: 0,
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -829,6 +877,9 @@ impl Brain {
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
+            denial_stopped: None,
+            unanswered: Vec::new(),
+            approval_told: HashSet::new(),
             previewer: None,
             cuts: 0,
             resume_at: None,
@@ -836,6 +887,10 @@ impl Brain {
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
+            desk_grace: None,
+            desk: None,
+            desk_told: None,
+            turn_activity: None,
         };
         // Each cut turn runs again first, on the reference client's note;
         // its messages are in the log already and are not logged again.
@@ -993,6 +1048,7 @@ impl Brain {
             self.resume_at,
             self.orphan_wait,
             self.handoff_at,
+            self.desk_due(),
         ]
         .into_iter()
         .flatten()
@@ -1001,22 +1057,31 @@ impl Brain {
 
     /// Runs until a fatal error; returns it.
     pub fn run(mut self, rx: Receiver<Input>) -> String {
+        self.rearm_auto_resumes();
         loop {
             if let Some(fatal) = &self.fatal {
                 return fatal.clone();
             }
             // The `sleep` wakes run on the same loop (wakes.rs); they stay
             // out of `next_timer`, which waits only for the outbox and resume.
-            let timer = match (self.next_timer(), self.next_wake()) {
-                (Some(a), Some(b)) => Some(a.min(b)),
-                (a, b) => a.or(b),
-            };
+            // So does the watch on permission requests nobody answers
+            // (approvals.rs).
+            let timer = [
+                self.next_timer(),
+                self.next_wake(),
+                self.next_unanswered_due(),
+            ]
+            .into_iter()
+            .flatten()
+            .min();
             let input = match timer {
                 Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                     Ok(input) => input,
                     Err(RecvTimeoutError::Timeout) => {
                         self.on_timer();
                         self.fire_wakes_at(now_ms());
+                        let now = (self.clock)();
+                        self.deny_overdue_permissions_at(now);
                         continue;
                     }
                     Err(RecvTimeoutError::Disconnected) => return "input channel closed".into(),
@@ -1088,6 +1153,7 @@ impl Brain {
                 after_network,
                 online,
             } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
+            Input::AutoMove { id, harness } => self.auto_move_due(&id, &harness),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }
@@ -1169,6 +1235,9 @@ impl Brain {
             Input::SpawnPolicy { reply } => {
                 let _ = reply.send(self.spawn_policy().map(str::to_owned));
             }
+            Input::TurnGate { tool, input, reply } => {
+                let _ = reply.send(self.turn_gate(&tool, &input));
+            }
             Input::Described { image, description } => self.described(&image, description),
             Input::Engine { request, reply } => {
                 let _ = reply.send(self.engine_control(request));
@@ -1191,6 +1260,12 @@ impl Brain {
             }
             Input::StopSubagent { name, reply } => {
                 let _ = reply.send(self.stop_subagent(&name));
+            }
+            Input::StopAll { reply } => {
+                let _ = reply.send(self.stop_all());
+            }
+            Input::RestartSubagents { names, reply } => {
+                let _ = reply.send(self.restart_subagents(&names));
             }
             Input::Previews { key, parts } => self.previews_fetched(&key, parts),
         }
@@ -1295,6 +1370,7 @@ impl Brain {
             self.flush_outbox();
         }
         self.on_resume_timer();
+        self.on_desk_timer(now);
         if self.orphan_wait.is_some_and(|at| at <= now) {
             (self.log)("an adopted turn session ran past its wait; folding and ending it");
             self.adopt_orphans(true);
@@ -1337,22 +1413,13 @@ impl Brain {
         }
     }
 
-    /// Whether `remote.autoApprove` is on.
-    pub fn remote_auto_approve(&self) -> bool {
-        self.chief.remote_auto_approve
-    }
-
-    /// Changes a per-Chief setting and saves it. `remote.autoApprove` can be
-    /// turned on only when no remote-origin work is running, settling or
-    /// queued: never by a paired device, nor by a command a remote turn runs
-    /// (an approved shell command reaches the host the same way). Turning
-    /// it off is always allowed.
+    /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
             parse_reply_threads, parse_ttl,
         };
-        if key == crate::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS {
+        if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
             let mut next = self.chief;
             next.cloud_auto_pause_idle_secs = secs;
@@ -1397,35 +1464,9 @@ impl Brain {
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
-        if key != REMOTE_AUTO_APPROVE {
-            return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
-            ));
-        }
-        let on = parse_bool(value)?;
-        let remote_queued = self.queue.iter().any(|q| {
-            matches!(
-                q.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        if on && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live()) {
-            (self.log)("refused: remote.autoApprove on during remote-origin work");
-            return Err(
-                "refused: remote.autoApprove can be turned on only from the Mac, outside a turn a paired device started"
-                    .to_owned(),
-            );
-        }
-        let mut next = self.chief;
-        next.remote_auto_approve = on;
-        next.save(&self.settings.settings_file)
-            .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
-        self.chief = next;
-        (self.log)(&format!("setting {key} = {on}"));
-        Ok(format!("{key} = {on}"))
+        Err(format!(
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+        ))
     }
 
     fn queue(&mut self, text: String, source: Source) {
@@ -1451,6 +1492,14 @@ impl Brain {
         // the next turn and never stops it (decision 2026-10-09).
         let human = matches!(source, Source::Message { .. } | Source::Spawn(_));
         let same = self.phase == Phase::Running && self.turn_side() == conversation;
+        // A person's message to the main conversation's running turn: the
+        // front desk answers if the turn is still at it after the grace.
+        if let Source::Message { seq, .. } = &source
+            && same
+            && conversation.is_none()
+        {
+            self.desk_arm(*seq);
+        }
         let item = Queued {
             logged: false,
             text,

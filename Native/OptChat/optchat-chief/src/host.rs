@@ -340,13 +340,19 @@ pub const TURN_TOOLS: [&str; 7] = [
     "ToolSearch",
 ];
 
-/// The Claude Code args of an isolated turn: no user or local setting
-/// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
+/// The settings a turn reads: the session folder's project and local
+/// files, never the user's. Claude Code takes an allow rule for an MCP tool
+/// only from the local file (2.1.305), and the Chief's own tools must never
+/// wait on an approval (`approval::turn_allowed_tools`).
+pub const TURN_SETTING_SOURCES: &str = "project,local";
+
+/// The Claude Code args of an isolated turn: no user setting source (the
+/// session folder's project and local files only), no skills or slash commands, only `TURN_TOOLS` of the built-ins
 /// (acpmux's preset allowlist).
 pub fn turn_isolation_args() -> Vec<String> {
     vec![
         "--setting-sources".to_owned(),
-        "project".to_owned(),
+        TURN_SETTING_SOURCES.to_owned(),
         "--disable-slash-commands".to_owned(),
         "--tools".to_owned(),
         TURN_TOOLS.join(","),
@@ -1244,6 +1250,23 @@ fn start(
                     .map(|v| v.to_string())
                     .map_err(late)
             }
+            ControlRequest::StopAll => {
+                let (reply, answer) = channel();
+                tx.send(Input::StopAll { reply }).map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
+            ControlRequest::Restart(names) => {
+                let (reply, answer) = channel();
+                tx.send(Input::RestartSubagents { names, reply })
+                    .map_err(stopping)?;
+                answer
+                    .recv_timeout(wait)
+                    .map(|v| v.to_string())
+                    .map_err(late)
+            }
         }
     });
     // Section 9: spawn and tell, served beside zoom and date (acpmux only).
@@ -1524,6 +1547,13 @@ fn start(
     ));
     // Finished subagents' workspaces stay, names untouched, unless this says close.
     brain.set_sub_close_on_finish(env("OPTCHAT_SUBAGENT_ON_FINISH").as_deref() == Some("close"));
+    // The front desk answers a message that waits on a running turn after
+    // 5 s (brain/desk.rs); OPTCHAT_DESK_GRACE_SECONDS=0 turns it off.
+    brain.set_desk_grace(Some(
+        env("OPTCHAT_DESK_GRACE_SECONDS")
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .map_or(crate::brain::DESK_GRACE, std::time::Duration::from_secs),
+    ));
     // Subagents that stop on a model or network error continue on their own
     // (auto_resume.rs); OPTCHAT_AUTO_RESUME=off turns it off.
     brain.set_auto_resume(crate::auto_resume::ResumePolicy::from_env(env), None);

@@ -16,7 +16,7 @@ final class AppPageInputCursor {
     /// The session an unnamed CLI agent's inputs draw as.
     static let sessionID = AgentCursorSessionLabel.cliSession
 
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     private var events = PageInputCursorEvents()
 
     init(services: AppServices) {
@@ -25,7 +25,7 @@ final class AppPageInputCursor {
 
     /// Draws `input` in tab `tabID` in every window that shows the tab.
     func publish(_ input: BrowserPageAgentInput, tabID: String) {
-        guard services.settings?.snapshot.browserShowAgentCursor ?? true,
+        guard let services, services.settings?.snapshot.browserShowAgentCursor ?? true,
               let made = events.event(for: input, tabID: tabID) else { return }
         // The tag names who drives and where, and links there (before the first input draws it).
         if let origin = input.origin {

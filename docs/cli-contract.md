@@ -205,8 +205,8 @@ cmux workspace <selector> show|focus|close
 cmux workspace <selector> rename --name <value>
 cmux workspace <selector> update [--title <value>|--clear-title] [--color <value>|--clear-color] [--icon <value>|--clear-icon]
 cmux workspace <selector> move --index <n>
-cmux workspace <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
-cmux workspace <selector> run [--on-exit <close|keep>] shell <script>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux workspace <selector> run [--on-exit <close|keep|shell>] shell <script>
 cmux workspace <selector> layout apply --layout <json>
 cmux workspace <selector> screen ...
 cmux workspace [<selector>] status list
@@ -290,7 +290,7 @@ cmux pane <selector> swap --other-workspace <sel> --other-screen <sel> --other-p
 cmux pane <selector> zoom [--enabled <bool>]
 cmux pane <selector> split ratio set --split <split_id> --ratio <value>
 cmux pane <selector> viewport width set --columns <value>
-cmux pane <selector> run [--on-exit <close|keep>] [--cwd <path>] [--name <value>] -- <argv...>
+cmux pane <selector> run [--on-exit <close|keep|shell>] [--cwd <path>] [--name <value>] -- <argv...>
 cmux pane <selector> tab ...
 ```
 

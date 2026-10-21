@@ -23,8 +23,6 @@ final class AgentActivityPageTab: BrowserTab {
     @ObservationIgnored let model: AgentActivityModel
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
-    /// Feeds the lanes view (``AgentActivityPageService``); cancelled on close.
-    @ObservationIgnored var lanesFeed: Task<Void, Never>?
 
     init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource) {
         self.id = id
@@ -73,5 +71,5 @@ final class AgentActivityPageTab: BrowserTab {
     func setZoom(_ zoom: Double) {}
     func exitContentFullscreen() {}
     func showDevTools() {}
-    func close() { lanesFeed?.cancel() }
+    func close() {}
 }

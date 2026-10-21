@@ -38,6 +38,16 @@ final class NotificationCenterService {
     /// The tabs viewed at the last viewed-tab pass: a tab marked unread
     /// (Mark Tab Unread) clears when it comes into view, not while it stays.
     @ObservationIgnored var viewedTabIDs: Set<String> = []
+    /// Tabs read because the person went into their pane (a click, a key, an
+    /// open), until the layout takes them for the ring's dismiss flash.
+    @ObservationIgnored var entryReads: Set<String> = []
+    /// Agent chat tabs whose turn ended, by the generation of their ring: the pane rings until
+    /// the person goes into it (acpmux reads a turn that ends in a shown chat at once, so no
+    /// notification marks it). Observed: the attention marks follow it.
+    var agentFinished: [String: UInt64] = [:]
+    /// Ring generations for ``agentFinished``, above any notification id, so a new finish
+    /// restarts the ring's arrival and never equals a notification's mark.
+    @ObservationIgnored private var agentFinishGeneration: UInt64 = 1 << 62
     @ObservationIgnored let desktop = DesktopNotifier()
     /// A passkey request's banner was clicked (its request id): the passkey hand-off answers it
     /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.2).
@@ -91,6 +101,7 @@ final class NotificationCenterService {
 
     func start(services: AppServices) {
         self.services = services
+        AgentTurnStateStore.shared.onTurnEnded = { [weak self] session in self?.agentTurnEnded(session: session) }
         ProgramStatusSeenStore.shared.persist(to: .standard)
         desktopPostingEnabled = !services.environment.showcase
         let feed = services.feed
@@ -129,6 +140,7 @@ final class NotificationCenterService {
             }
         })
         tasks.append(followViewedProgramStatus(store))
+        tasks.append(followStatusRuns(store))
         tasks.append(followNotificationLedger(services.daemon))
         tasks.append(Task { [weak self] in
             for await count in ObservationStream({ [weak self] in self?.currentUnreadCount() ?? 0 }) {
@@ -172,10 +184,35 @@ final class NotificationCenterService {
         interacted(.keystroke, tabID: tab)
     }
 
-    /// A mouse-down landed in `window` (after AppKit dispatched it).
-    func noteMouseDown(in window: NSWindow?) {
-        guard let tab = focusedTab(in: window) else { return }
+    /// A mouse-down landed in `window` at `location` (window coordinates,
+    /// after AppKit dispatched it): reads the pane under the pointer, never
+    /// another one, so a ring stays until its own pane is clicked. A click
+    /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing.
+    func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
+        guard let tab = clickedTab(in: window, at: location) else { return }
         interacted(.click, tabID: tab)
+    }
+
+    /// The selected tab of the pane under `location` in `window`. A child
+    /// window (a Chromium page's) is hit-tested in the workspace window it
+    /// belongs to. A window outside any workspace window, or one showing a top
+    /// page, reads the tab that has the keyboard, which the click gave it.
+    func clickedTab(in window: NSWindow?, at location: NSPoint) -> String? {
+        guard let services, let window else { return nil }
+        let host = CmuxApplication.accessibilityWindow(for: window) ?? window
+        guard let controller = services.windows.controllers.first(where: { $0.window === host }),
+              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window) }
+        let inHost = host === window ? location : host.convertPoint(fromScreen: window.convertPoint(toScreen: location))
+        let root = content.layoutView
+        let point = root.convert(inHost, from: nil)
+        let hits = content.layoutModel.visiblePanes.filter { root.frame(of: $0)?.contains(point) == true }
+        // Overlapping panes (a docked column over the strip): the click focused the front one. A
+        // click there that moved no focus reads nothing rather than a guess.
+        let focused = controller.focus.state.pane
+        guard let pane = hits.first(where: { $0.rawValue == focused }) ?? (hits.count == 1 ? hits.first : nil),
+              let model = content.paneModel(key: pane.rawValue), !model.tabs.isEmpty else { return nil }
+        let selected = controller.state.selection.selection(in: model.id)
+        return (model.tabs.first { $0.id == selected } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
     }
 
     /// A window's settled focus changed (window key, app active, workspace or
@@ -225,10 +262,24 @@ final class NotificationCenterService {
         // Any look at the tab sees its OSC 7501 done and error records and an
         // agent chat's completed turn (client view state; the owners keep the facts).
         ProgramStatusSeenStore.shared.markSeen(tab)
+        if agentFinished[tab.id] != nil, NotificationPolicy(prefs: preferences).clears(trigger, for: .agent) {
+            note("\(trigger.rawValue) read agent turn \(tab.id)")
+            agentFinished[tab.id] = nil
+            if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
+        }
         guard tab.hasUnread else { return }
         guard NotificationPolicy(prefs: preferences).clears(trigger, for: source(of: tab)) else { return }
         note("\(trigger.rawValue) read \(tab.id)")
+        if Self.flashesOnEntry(trigger, DesignSettings.shared.attention) { entryReads.insert(tab.id) }
         acknowledge(tab)
+    }
+
+    /// Whether reading a pane by `trigger` flashes its ring as it goes: going
+    /// into it (a click, a key, an open), as in classic, unless
+    /// `notifications.attention.flash` is off, or the key under `flashOnTyping` off.
+    nonisolated static func flashesOnEntry(_ trigger: NotificationTrigger, _ attention: AttentionSettings) -> Bool {
+        guard attention.flashesOnRead, [.click, .keystroke, .open].contains(trigger) else { return false }
+        return trigger != .keystroke || attention.flashesOnTyping
     }
 
     /// Typing into a terminal clears its workspace's manual unread mark, as
@@ -246,6 +297,7 @@ final class NotificationCenterService {
     /// Acknowledges `tab` in the daemon (a dismiss verb, or a policy trigger).
     func acknowledge(_ tab: TabModel) {
         note("ack \(tab.id)")
+        if agentFinished[tab.id] != nil { agentFinished[tab.id] = nil }
         timeouts.removeValue(forKey: tab.id)?.cancel()
         approvals.forget(tab: tab.id, retire: true)
         finishedBursts.read(tab: tab.id)
@@ -259,6 +311,18 @@ final class NotificationCenterService {
             let reply = try await connection.acknowledgeNotifications(of: surface)
             // Items that already moved are read in the cloud (B5).
             if let refused = reply.refused, !refused.isEmpty { await driver?.acknowledged(refused) }
+        }
+    }
+
+    /// An agent chat's turn ended: ring the panes that show its tab until the person goes in.
+    func agentTurnEnded(session: String) {
+        guard let services else { return }
+        for workspace in services.daemon.store.workspaces {
+            for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.agentSession?.session == session {
+                agentFinishGeneration &+= 1
+                agentFinished[tab.id] = agentFinishGeneration
+                note("agent turn ended \(tab.id)")
+            }
         }
     }
 
@@ -303,11 +367,17 @@ final class NotificationCenterService {
             acknowledge(located.tab)
             return
         }
-        // A turn that finished in front of the user is already seen (default call, cx-slk1h): the
-        // history keeps it, read. An agent that asks or fails stays unread even there, and so does
-        // an earlier ask or error the tab still holds (acknowledging reads the whole tab).
+        // A turn that finished in front of the user is already seen (cx-slk1h) when the dismissal
+        // reads a pane on sight (`focus`): the history keeps it, read. Under the default `click`
+        // (2026-10-20) its ring stays until the pane is clicked or typed in. An agent that asks or
+        // fails stays unread even there, and so does an earlier ask or error the tab still holds
+        // (acknowledging reads the whole tab).
         let shown = visibility ?? self.visibility(of: located)
         if notification.isFinishedTurn, shown.isVisible, !located.tab.holdsUnreadAsk(besides: notification) {
+            guard NotificationPolicy(prefs: preferences).clears(.focus, for: source) else {
+                // Seen finishing, so no banner; the ring waits for a click in the pane.
+                return keepSeenUnread(located, decision: decision, note: "finished turn visible: kept unread, no banner")
+            }
             note("finished turn visible: read at once")
             acknowledge(located.tab)
             return
@@ -323,12 +393,26 @@ final class NotificationCenterService {
         deliver(notification, source: source, located: located, decision: decision, program: program, visibility: shown)
     }
 
+    /// An arrival the user saw land, kept unread for a click in its pane: it posts nothing, the
+    /// feed hears it did not alert here (so it is not mirrored to the iPhone), and the timeout
+    /// dismissal still gets its deadline.
+    private func keepSeenUnread(_ located: LocatedTab, decision: NotificationPolicy.Decision, note line: String) {
+        note(line)
+        feedDriver?.noteArrival(terminal: located.tab.terminalResourceID?.rawValue, alerted: false)
+        if let seconds = decision.timeout { scheduleTimeout(seconds, tabID: located.tab.id) }
+    }
+
     /// The rest of an arrival once its OSC 7501 record (if any) is known.
     func deliver(_ notification: DaemonNotification, source: NotificationSource, located: LocatedTab,
                  decision: NotificationPolicy.Decision, program: ProgramStatusNotification?,
                  visibility: TerminalVisibility? = nil) {
-        // An OSC 7501 done for a terminal the user can see is read at once.
+        // An OSC 7501 done for a terminal the user can see posts nothing (cx-kxa2). It is read at
+        // once when the dismissal reads a pane on sight (`focus`); under `click` its ring stays
+        // until the pane is clicked or typed in.
         if let program, !program.notifies(visibility: visibility ?? self.visibility(of: located)) {
+            guard NotificationPolicy(prefs: preferences).clears(.focus, for: source) else {
+                return keepSeenUnread(located, decision: decision, note: "program status \(program.reason.rawValue) visible: kept unread, no banner")
+            }
             note("program status \(program.reason.rawValue) visible: read at once")
             acknowledge(located.tab)
             return
@@ -393,6 +477,7 @@ final class NotificationCenterService {
     }
 
     private func scheduleTimeout(_ seconds: Double, tabID: String) {
+        note("timeout \(tabID) in \(seconds)s")
         let timer = timeouts[tabID] ?? DemandTimer(owner: "notifications.timeout", clock: clock)
         timeouts[tabID] = timer
         timer.schedule(after: .seconds(seconds)) { @MainActor [weak self] in

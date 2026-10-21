@@ -26,6 +26,9 @@ public final class PointerHover: NSObject {
     public var isHoverable: () -> Bool = { true }
     /// The hover region in the view's coordinates (default: its bounds).
     public var region: ((NSView) -> CGRect)?
+    /// Windows above the view's window that pass hover through (click-catching panels over
+    /// page windows): the topmost check treats them as the view's window.
+    public var passThroughWindows: () -> Set<Int> = { [] }
     public let requiresKeyWindow: Bool
 
     private weak var view: NSView?
@@ -92,7 +95,12 @@ public final class PointerHover: NSObject {
     /// target's creation order (refreshes run targets in it).
     fileprivate var indexedWindow: ObjectIdentifier?
     fileprivate var order: UInt64 = 0
-    fileprivate var viewWindow: NSWindow? { view?.window }
+    /// The view's window; nil while that window deallocates (its teardown moves the view out, and
+    /// a weak reference to it aborts the runtime: "Cannot form weak reference to instance").
+    fileprivate var viewWindow: NSWindow? {
+        guard let window = view?.window, !window.isBeingDeallocated else { return nil }
+        return window
+    }
 
     private func computeHovering() -> Bool {
         guard let view, let window = view.window, !view.isHiddenOrHasHiddenAncestor, isHoverable(),
@@ -100,7 +108,7 @@ public final class PointerHover: NSObject {
         let local = view.convert(pointer, from: nil)
         let rect = (region?(view) ?? view.bounds).intersection(view.visibleRect)
         guard !rect.isNull, rect.contains(local) else { return false }
-        return Self.isTopmost(window)
+        return Self.isTopmost(window, passThrough: passThroughWindows())
     }
 
     // MARK: The pointer
