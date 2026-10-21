@@ -16,7 +16,7 @@ import { Icon } from "./icons/Icon";
 import { currentLanguage, useT } from "./i18n";
 import { useUpdateOffer } from "./HarnessHealthNotice";
 import { MODEL_PICKER_MIN_HEIGHT, pickerHeightBounds, type ModelPickerProps } from "./modelPickerLayout";
-import { modelSections } from "./modelSections";
+import { curatedSections, modelSections } from "./modelSections";
 import { effortWords, fitsQuery, modelEffort, parseQuery } from "./modelQuery";
 import { registerPicker } from "./pickerOpeners";
 import { QuickModelMenu, type QuickFamily, type QuickModel } from "./QuickModelMenu";
@@ -98,28 +98,6 @@ function sectionsFor(entry: HarnessChoice | undefined): { latest: ModelChoice[];
   const sections = curatedSections(modelSections(choices, entry.name), entry.top);
   choiceCache.set(entry, sections);
   return sections;
-}
-
-/// With a curated list: its models first, in its order, each followed by its variants ("Fable 5.1 ·
-/// 1M context"), and every other model under More models, newest family first, then older ones. Without one, or when
-/// the harness offers none of it, the catalog's newest family stays first.
-function curatedSections(
-  sections: { latest: ModelChoice[]; older: ModelChoice[] },
-  top: readonly string[] | undefined,
-): { latest: ModelChoice[]; older: ModelChoice[] } {
-  if (!top) return sections;
-  const all = [...sections.latest, ...sections.older];
-  const latest: ModelChoice[] = [];
-  for (const id of top) {
-    const model = all.find((choice) => choice.id === id || choice.release === id);
-    if (!model) continue;
-    const variants = all.filter(
-      (choice) => choice !== model && (choice.id.startsWith(`${id}[`) || choice.name.startsWith(`${model.name} · `)),
-    );
-    for (const choice of [model, ...variants]) if (!latest.includes(choice)) latest.push(choice);
-  }
-  if (latest.length === 0) return sections;
-  return { latest, older: all.filter((choice) => !latest.includes(choice)) };
 }
 
 /// `sectionsFor`, with the model the chat runs listed after the top ones when it is a folded one

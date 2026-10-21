@@ -13,7 +13,7 @@ public nonisolated protocol HomeChiefEngineSource: Sendable {
     /// one engine of its own, and the card hides the Harness row).
     var choosesHarness: Bool { get }
     func read() async throws(HomeChiefEngineError) -> HomeChiefSnapshot
-    /// Sets (nil: clears) any of harness, model and effort in one brain write; the snapshot after.
+    /// Sets (nil: clears) any of harness, model, effort and speed in one brain write; the snapshot after.
     func set(_ fields: [String: String?]) async throws(HomeChiefEngineError) -> HomeChiefSnapshot
 }
 
@@ -82,7 +82,7 @@ nonisolated enum HomeChiefEngineSet {
         let sent = { (key: String) in fields[key].map { $0 ?? "default" } }
         do {
             return try await ChiefControlClient(connection).setChiefEngine(harness: sent("harness"), model: sent("model"),
-                                                                           effort: sent("effort"), chief: chief)
+                                                                           effort: sent("effort"), speed: sent("speed"), chief: chief)
         } catch let error as ChiefControlError {
             throw HomeChiefEngineError(error)
         } catch {
@@ -124,9 +124,11 @@ public nonisolated struct HomeChiefRemoteEngine: HomeChiefEngineSource {
     }
 
     private func snapshot(_ report: ChiefEngineReport) -> HomeChiefSnapshot {
-        HomeChiefSnapshot(harness: report.choice.harness, model: report.choice.model, effort: report.choice.effort,
-                          avatar: files.avatar(), routeConfigured: false,
-                          turns: report.recent.map(HomeEngineTurn.init(report:))).offering(report)
+        var snapshot = HomeChiefSnapshot(harness: report.choice.harness, model: report.choice.model, effort: report.choice.effort,
+                                         avatar: files.avatar(), routeConfigured: false,
+                                         turns: report.recent.map(HomeEngineTurn.init(report:)))
+        snapshot.speed = report.choice.speed
+        return snapshot.offering(report)
     }
 }
 

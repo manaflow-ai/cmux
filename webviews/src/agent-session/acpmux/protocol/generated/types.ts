@@ -305,9 +305,42 @@ export interface PermissionRespondParams {
 
 export type PermissionRespondResult = Record<string, unknown>;
 
+/**
+ * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
+ * to the background, and the one tool call to move (none: every
+ * foreground task, as Claude Code's own Ctrl-B does).
+ */
+export interface ProcessBackgroundParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /** Only the task this tool call started. */
+  toolCallId?: (string | null);
+}
+
+export type ProcessBackgroundResult = {
+  /**
+   * Claude Code moved something: the tasks arrive as `process_update`s
+   * with origin `user_backgrounded`. False when nothing ran in the
+   * foreground (or no turn ran).
+   */
+  backgrounded: boolean;
+} & Record<string, unknown>;
+
 /** A purged session: only its id is left. */
 export type PurgedSession = {
   sessionId: string;
+} & Record<string, unknown>;
+
+/** An image a queued prompt sends. */
+export type QueuedImage = {
+  /**
+   * The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`
+   * reads it, and `_acpmux/queue_edit` `update` `images` keeps it.
+   */
+  id: string;
+  mimeType: string;
+  /** Its file name, when the client gave one. */
+  name: (string | null);
 } & Record<string, unknown>;
 
 /** A prompt waiting for the running turn to end. */
@@ -315,6 +348,8 @@ export type QueuedPromptSummary = {
   client: string;
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
+  /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
+  images: QueuedImage[];
   prompt: string;
   promptId: string;
   queuedAt: number;
