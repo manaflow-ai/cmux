@@ -78,4 +78,7 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case ended
     /// The page asked to open `url` in a new tab or window (`window.open`, a `target=_blank` link).
     case openRequested(URL)
+    /// A drag of these files from outside the app entered the page (their paths, which the page
+    /// itself never learns). The page still gets the drag.
+    case filesDragged([URL])
 }
