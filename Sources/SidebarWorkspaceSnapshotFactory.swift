@@ -138,11 +138,19 @@ struct SidebarWorkspaceSnapshotFactory {
             )
         }
         let checklistProgress = workspace.checklistProgressSummary
-        let statusEntries = SidebarCompactStatusGlyph.partition(
+        // Hidden keys apply to pills that show as rows. In compact mode the
+        // agent keys are already folded into the glyph, which reads every
+        // agent entry for its state and tooltip, so only the rows honor them.
+        let partitionedStatusEntries = SidebarCompactStatusGlyph.partition(
             detailVisibility.showsMetadata || settings.compactsAgentStatus
-                ? workspace.sidebarStatusEntriesInDisplayOrder().filter { !settings.details.hiddenStatusKeys.contains($0.key) }
+                ? workspace.sidebarStatusEntriesInDisplayOrder()
                 : [],
             compacts: settings.compactsAgentStatus
+        )
+        let hiddenStatusKeys = settings.details.hiddenStatusKeys
+        let statusEntries = (
+            agent: partitionedStatusEntries.agent,
+            rows: partitionedStatusEntries.rows.filter { !hiddenStatusKeys.contains($0.key) }
         )
         let activeCodingAgentCount = SidebarAgentActivitySummary.visibleActiveCodingAgentCount(
             showsAgentActivity: showsAgentActivity,

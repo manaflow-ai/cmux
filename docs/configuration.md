@@ -275,7 +275,7 @@ Status keys whose pills the sidebar leaves out. Use it when two pills say the sa
 ```
 
 - Default: `[]`.
-- Only the pill is hidden: the row in the full layout, and the entry's line in the `compactAgentStatus` glyph's tooltip. The glyph itself and the full layout's loading spinner still follow the agent, so a hidden Claude pane still shows the needs-input dot. The agent hooks, notifications, session restore, hibernation and every other pill keep working.
+- Only pills that show as rows are hidden. In `compactAgentStatus` an agent key in the list has no effect: the agent keys have no row there (they are folded into the glyph), so the glyph and its tooltip still follow every agent, and a hidden Claude pane still shows the needs-input dot. The keys that still show as rows in compact mode (`program_status`, `cmux set-status` keys) hide as usual. The agent hooks, notifications, session restore, hibernation and every other pill keep working.
 - `cmux list-status` and the socket still report the hidden keys.
 - Keys match exactly. They are the agent keys cmux uses (`claude_code`, `codex`, `gemini`, `cursor`, `copilot`, `opencode`, `pi`, …), `program_status` for the OSC 7501 row, and any key you set with `cmux set-status`.
 - `sidebar.showCustomMetadata: false` still hides every pill.
