@@ -5,17 +5,18 @@
 // (the transcript's room under its last row, for one) have run, a state the frame may never paint:
 // a probe read in a frame callback showed the last row 30 px low on the first frame of an opened
 // chat, and nobody saw it (scroll-jitter, 2026-10-21). A message posted from the frame callback
-// runs as a task after the frame has rendered, so every read here is of a painted state. The
-// browser runs queued input before that task, though: a key, a pointer or a wheel event handled
-// in between changes the page the read would lay out, a state no frame painted (a composer card a
-// line taller than the lift its frame painted, scroll-jitter 2026-10-21). That frame's read is
-// skipped. scripts/check-frame-reads.ts keeps browser tests on these.
+// runs as a task after the frame has rendered, so every read here is of a painted state. Input the
+// browser handles between the frame and that task would change the page the read lays out, a
+// state no frame painted (a composer card a line taller than the lift its frame painted,
+// scroll-jitter 2026-10-21): the first input event after a frame runs its read at once instead,
+// from a capturing listener on the window that comes before the page's own handlers.
+// scripts/check-frame-reads.ts keeps browser tests on these.
 import type { Page } from "playwright";
 
 declare global {
   interface Window {
-    /** Calls `read` after each painted frame, with that frame's time, until it returns false (a
-     *  frame whose page input changed before the read is not read);
+    /** Calls `read` after each painted frame, with that frame's time, until it returns false (an
+     *  input event that comes before the read runs it first, on the state the frame painted);
      *  `drive`, if given, runs in each frame's callbacks first (to set what the frame paints, or
      *  note what it paints at). Returns a function that stops it. */
     cmuxAfterPaint: (read: (frame: number) => boolean | void, drive?: (frame: number) => void) => () => void;
@@ -28,8 +29,8 @@ declare global {
 /** The page side; runs in the page, so it closes over nothing. */
 function definePaintedFrames() {
   if (typeof window.cmuxAfterPaint === "function") return;
-  // Input handled since a frame: one count for every kind the browser runs ahead of tasks.
-  let inputs = 0;
+  // Reads of painted frames not yet run: the next input event runs them before it changes anything.
+  const pending = new Set<() => void>();
   for (const kind of [
     "keydown",
     "keyup",
@@ -47,7 +48,7 @@ function definePaintedFrames() {
     "touchmove",
     "touchend",
   ])
-    addEventListener(kind, () => (inputs += 1), { capture: true, passive: true });
+    addEventListener(kind, () => [...pending].forEach((run) => run()), { capture: true, passive: true });
   const afterThisFrame = (then: () => void) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => {
@@ -64,10 +65,12 @@ function definePaintedFrames() {
       if (stopped) return;
       requestAnimationFrame(tick);
       drive?.(frame);
-      const painted = inputs;
-      afterThisFrame(() => {
-        if (!stopped && inputs === painted && read(frame) === false) stopped = true;
-      });
+      const run = () => {
+        if (!pending.delete(run)) return;
+        if (!stopped && read(frame) === false) stopped = true;
+      };
+      pending.add(run);
+      afterThisFrame(run);
     };
     requestAnimationFrame(tick);
     return () => {

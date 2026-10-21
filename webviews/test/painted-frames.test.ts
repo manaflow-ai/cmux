@@ -5,7 +5,8 @@
 // transcript's lift that frame painted (the ResizeObserver that lifts the rows runs in the next
 // frame), and failed on a 4px jump that was never on screen (scroll-jitter, 2026-10-21).
 //
-// Real Chromium and WebKit with real key events. Every read must see the page as its frame did.
+// Real Chromium and WebKit with real key events. Every read must see the page as its frame did,
+// and every frame is read: the test counts keys from a capturing listener added after the helper's.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/painted-frames.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
@@ -63,7 +64,9 @@ await requireBrowserLane("painted-frames.test.ts", async () => {
       return w.__reads;
     });
     await page.close();
+    // Every frame between the first key and the last is read, input or not.
     expect(reads.length).toBeGreaterThan(0);
+    expect(reads.filter(([, atRead], index) => index > 0 && atRead > reads[index - 1]![1]).length).toBeGreaterThan(0);
     // Keys counted by the read that its frame had not seen.
     expect(reads.filter(([atFrame, atRead]) => atRead !== atFrame)).toEqual([]);
   });
