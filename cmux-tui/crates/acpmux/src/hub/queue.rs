@@ -158,7 +158,13 @@ impl Hub {
             Wait::Withdrawn => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             Wait::Steer => {
                 let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
-                return Err(self.steer_queued(session, run, p.client, p.prompt_id).await);
+                let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
+                // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
+                if let Err(e) = &answer {
+                    let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
+                    self.append(session, "mux", "prompt_refused", msg);
+                }
+                return Err(answer);
             }
         };
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
