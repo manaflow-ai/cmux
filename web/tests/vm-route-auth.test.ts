@@ -3,6 +3,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, mock, tes
 import manifestJson from "../services/vms/images/manifest.json";
 import { pickVmImageSizeForMemory } from "../services/vms/images/sizes";
 import { vmCapabilitiesFor } from "../services/vms/drivers";
+import { installVercelFirewallMock } from "./vercel-firewall-mock";
 
 // The manifest is the only source of truth for images: the desktop default at
 // the plan's memory is what a create with no image (and no kind) resolves to,
@@ -54,6 +55,7 @@ const deleteVmPublicationsForVmDeletion = mock(async () => ({
 }));
 const VM_ENV_KEYS = [
   "CMUX_VM_CREATE_ENABLED",
+  "CMUX_VM_ALLOCATION_RATE_LIMIT_ID",
   "CMUX_VM_FREESTYLE_ENABLED",
   "CMUX_VM_PRIVATE_NETWORK_ENABLED",
   "CMUX_VM_ALLOWED_ORIGINS",
@@ -131,6 +133,8 @@ mock.module("../app/lib/stack", () => ({
   isStackConfigured: () => true,
   stackServerApp: { getUser },
 }));
+
+installVercelFirewallMock();
 
 mock.module("../services/vms/workflows", () => ({
   ...workflowsModule,
@@ -3204,6 +3208,7 @@ describe("VM REST auth", () => {
   test("requires manifest images in deployed environments before workflow", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
 
     const response = await POST(
@@ -3232,6 +3237,7 @@ describe("VM REST auth", () => {
     // resolves; the error must not name an image.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     manifestJson.images = originalManifestImages.map((entry) => entry.kind === "desktop" ? { ...entry, defaultForKind: false } : entry);
     getUser.mockResolvedValue(authedStackUser());
 
@@ -3262,6 +3268,7 @@ describe("VM REST auth", () => {
     // machine with a screen (#12239), never the shell-only ladder.
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({
       providerVmId: "provider-vm-manifest",
@@ -3291,6 +3298,7 @@ describe("VM REST auth", () => {
   test("the shell-only base image the CLI sends for `vm new --base` is manifest-listed", async () => {
     process.env.VERCEL = "1";
     process.env.VERCEL_ENV = "preview";
+    process.env.CMUX_VM_ALLOCATION_RATE_LIMIT_ID = "test-vm-allocation";
     process.env.CMUX_VM_DEFAULT_PROVIDER = "freestyle";
     getUser.mockResolvedValue(authedStackUser());
     runVmWorkflow.mockResolvedValue({

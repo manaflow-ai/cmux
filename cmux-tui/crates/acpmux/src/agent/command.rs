@@ -49,7 +49,8 @@ pub(crate) fn harness_command(
         ));
     }
     let owned = if let (true, Some((session_id, _))) = (claude_session, session) {
-        let extra = crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id);
+        let extra =
+            crate::agent_tools::claude_args_for(false, &profile.env, &owned.1, session_id, cwd);
         (owned.0, owned.1.into_iter().chain(extra).collect())
     } else {
         owned
@@ -349,7 +350,6 @@ mod tests {
     #[test]
     fn remote_scope_never_probes_a_profile_path_runner() {
         use std::io::Write as _;
-        use std::os::unix::fs::PermissionsExt;
         use std::process::{Command as StdCommand, Stdio};
 
         let root = std::env::temp_dir().join(format!("acpmux-remote-scope-{}", std::process::id()));

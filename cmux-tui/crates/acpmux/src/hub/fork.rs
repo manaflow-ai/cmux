@@ -92,9 +92,8 @@ impl Hub {
             (json!({}), String::new())
         } else {
             let child = self.child_for(session).await?;
-            let all = self.config.read().await.profile(&parent_meta.harness).is_some_and(|p| {
-                crate::agent_tools::lists_all_tools(&parent_meta.harness, p, &fork_env)
-            });
+            // The list the parent's agent got at its start (`spawn.rs`).
+            let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
             let res = child
                 .request(
                     method::SESSION_FORK,
@@ -141,6 +140,8 @@ impl Hub {
             title: None,
             title_source: None,
             title_prompt: None,
+            title_asking: false,
+            title_failures: 0,
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
