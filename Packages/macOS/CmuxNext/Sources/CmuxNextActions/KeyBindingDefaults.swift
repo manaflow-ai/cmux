@@ -64,8 +64,26 @@ public nonisolated struct KeyBindingDefaults {
         }
     }
 
-    /// Workspaces as tabs (`sidebar.workspacesAsTabs`, a Debug tunable, off).
-    public static let workspacesAsTabs: [KeyBinding] = []
+    /// Workspaces as tabs (`sidebar.workspacesAsTabs`, a Debug tunable, off; Leo, relayed
+    /// 2026-10-21): Cmd-Shift-] / [ step the sidebar's workspaces (`nextSidebarTab`, the walk
+    /// Ctrl-Cmd-] / [ run: sidebar order, across groups, wrapping with `sidebar.steppingWraps`).
+    /// They go after the Chrome tab keys, so with the toggle on they win over `nextSurface`; off,
+    /// their `when` never holds and the keymap is the shipped one. Home keeps its own keys.
+    public static let workspacesAsTabs: [KeyBinding] = {
+        let when = WhenClause.and([.has(KeyContext.workspacesAsTabs), .not(onHome)])
+        return [
+            KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "nextSidebarTab", when: when),
+            KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSidebarTab", when: when),
+        ]
+    }()
+
+    /// The workspaces-as-tabs keys whose action is on and not removed or rebound in cmux.json.
+    @MainActor static func workspacesAsTabs(registry: ActionRegistry) -> [KeyBinding] {
+        workspacesAsTabs.filter { binding in
+            registry.disabledFeature(for: binding.command) == nil && registry.effectiveShortcut(for: binding.command) != nil
+                && !registry.shortcutOverrides.keys.contains(binding.command) && registry.chordOverrides[binding.command] == nil
+        }
+    }
 
     /// Scoped defaults that replace a global default key in their context:
     /// placed after the catalog's defaults, so in their context they win and
