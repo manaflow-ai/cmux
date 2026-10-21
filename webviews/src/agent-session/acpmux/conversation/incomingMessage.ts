@@ -146,7 +146,7 @@ export function incomingPrompt(
   // Claude Code's envelopes start the prompt, after its line about them; one quoted later in it is
   // the person's text.
   const rest = withoutBookkeeping(text);
-  const delivered = rest.replace(PREFACE, "");
+  const delivered = withoutBookkeeping(rest.replace(PREFACE, ""));
   const envelope = CROSS_SESSION.exec(delivered) ?? AGENT_MESSAGE.exec(delivered);
   if (envelope) {
     const attributes = envelope[1]!;
@@ -155,8 +155,11 @@ export function incomingPrompt(
     const name = attribute(attributes, "from-name") || attribute(attributes, "name") || attribute(attributes, "from");
     const body = decodeXml(envelope[2]!).trim();
     // What follows the envelope is Claude Code's note to the agent about it. A session's title
-    // names it less well than the agent's own name first in brackets, as at a shell.
-    if (name) return { kind: "message", message: { ...(namedFirst(body) ?? { name, text: body }), raw: text } };
+    // names it less well than the agent's own name first in brackets, as at a shell, when the
+    // brackets hold an agent's name and not a tag (`[WIP]`, `[1/3]`).
+    const named = namedFirst(body);
+    const agent = named && ENVELOPE_AGENT.test(named.name) ? named : undefined;
+    if (name) return { kind: "message", message: { ...(agent ?? { name, text: body }), raw: text } };
   }
   const notification = NOTIFICATION.exec(rest);
   if (notification && !withoutBookkeeping(rest.slice(notification[0].length))) {
@@ -234,6 +237,10 @@ function namedFirst(text: string): { name: string; text: string } | undefined {
     ? { name, text: prefixed[2]!.trim() }
     : undefined;
 }
+
+/// An agent's name in brackets inside an envelope that names its sender already: lower-case words
+/// joined by `-` or `/` (`coord-deputy`, `claude-sr2/coordinator`), which a tag is not.
+const ENVELOPE_AGENT = /^(?=[^A-Z]*$)(?=.*[a-z])[\w.@:]+(?:[-/][\w.@:]+)+$/;
 
 /// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
 const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;

@@ -170,13 +170,28 @@ test("an envelope's sender is the agent named first in brackets, else its name, 
   };
   expect(desktop('from="uds:/tmp/a.sock" name="Grid fix"')).toBe("Grid fix");
   expect(desktop('name="Grid fix" from-name="leoli-fb"')).toBe("leoli-fb");
-  // A sentence in brackets is no name: the envelope's sender stays.
-  expect(desktop('from-name="leoli-fb"')).toBe("leoli-fb");
-  const sentence = incomingPrompt(
-    '<cross-session-message from-name="leoli-fb">[see the failing test in the log] then fix it</cross-session-message>',
-    adopted,
-  );
-  expect(sentence?.kind === "message" && sentence.message.name).toBe("leoli-fb");
+  // A sentence or a tag in brackets is no agent: the envelope's sender stays, and so does the text.
+  for (const body of ["[see the failing test in the log] then fix it", "[WIP] grid fix pushed", "[1/3] part one"]) {
+    const result = incomingPrompt(
+      `<cross-session-message from-name="leoli-fb">${body}</cross-session-message>`,
+      adopted,
+    );
+    expect(result).toEqual({
+      kind: "message",
+      message: {
+        name: "leoli-fb",
+        text: body,
+        raw: `<cross-session-message from-name="leoli-fb">${body}</cross-session-message>`,
+      },
+    });
+  }
+  // Bookkeeping between Claude Code's line and the envelope is skipped too.
+  const reminded =
+    'Another Claude session sent a message:\n<system-reminder>r</system-reminder>\n<agent-message from="a1">hi</agent-message>';
+  expect(incomingPrompt(reminded, adopted)).toEqual({
+    kind: "message",
+    message: { name: "a1", text: "hi", raw: reminded },
+  });
 });
 
 test("a task notification is its summary; a reminder or caveat draws nothing", () => {
