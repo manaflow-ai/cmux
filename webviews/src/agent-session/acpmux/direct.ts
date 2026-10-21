@@ -735,6 +735,9 @@ export class AcpmuxDirectClient {
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
   /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
   private steerRows = new Map<string, string>();
+  /// The promptIds drawn as prompts. An older page folds in after the rows below it, so the steer
+  /// a held prompt re-ran comes after that prompt: it draws nothing. Kept across that fold.
+  private promptsShown = new Set<string>();
   /// Prompts sent now to an agent that cannot steer (acpmux `queue_order` `next`): each stops the
   /// turn and runs next, so its row reads as sent now.
   private sentNow = new Set<string>();
@@ -1100,6 +1103,7 @@ export class AcpmuxDirectClient {
     this.queuedSends.clear();
     this.waitingSteers = [];
     this.steerRows.clear();
+    this.promptsShown.clear();
     this.sentNow.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
@@ -1758,6 +1762,7 @@ export class AcpmuxDirectClient {
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
     this.waitingSteers = [];
     this.steerRows.clear();
+    this.promptsShown.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
@@ -2043,6 +2048,13 @@ export class AcpmuxDirectClient {
         if (offer) this.addOffer(offer, event.at);
       } else if (event.kind === "session_offer_decision") {
         this.answerOffer(msg);
+      } else if (
+        event.kind === "user_message" &&
+        msg.steer === true &&
+        typeof msg.promptId === "string" &&
+        this.promptsShown.has(msg.promptId)
+      ) {
+        // The steer of a prompt already drawn below (it ran as that prompt): shown once, as the prompt.
       } else if (event.kind === "user_message") {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
@@ -2106,6 +2118,7 @@ export class AcpmuxDirectClient {
         }
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
+        if (msg.steer !== true && promptId) this.promptsShown.add(promptId);
         const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
