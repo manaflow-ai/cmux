@@ -217,6 +217,28 @@ import Testing
         #expect(last.snapshotImage != nil, "the latest hibernated page lost its snapshot")
     }
 
+    /// PR 23083 (Leo: wake from a snapshot): each picture was scaled to a quarter of the shared
+    /// 32 MB preview cache, so only the last four hibernated pages kept one and every other tab
+    /// woke to an empty pane.
+    @Test func everyHibernatedPageKeepsItsSnapshot() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        var keys: [String] = []
+        for index in 0..<8 {
+            let page = try await rig.page("kept\(index)", body: "<p>page \(index)</p>")
+            let picture = try Self.picture(shade: Double(index) / 8)
+            rig.hibernation.capture = { _ in picture }
+            let key = try await rig.hide(page)
+            try await rig.until("page \(index) hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
+            try #require(rig.isHibernated(key))
+            keys.append(key)
+        }
+        for (index, key) in keys.enumerated() {
+            let snapshot = (rig.services.cache.browsers[key]?.tab as? HibernatedBrowserTab)?.snapshotImage
+            #expect(snapshot != nil, "hibernated page \(index) of \(keys.count) lost its snapshot")
+        }
+    }
+
     private static func picture(shade: Double, width: Int = 2048, height: Int = 1536,
                                 space: CGColorSpace = CGColorSpaceCreateDeviceRGB()) throws -> CGImage {
         let context = try #require(CGContext(data: nil, width: width, height: height, bitsPerComponent: 8, bytesPerRow: 0,
