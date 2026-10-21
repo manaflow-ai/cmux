@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useLocation } from "@tanstack/react-router";
 import { useLocale, useTranslations } from "next-intl";
 import { localeHref } from "../lib/locale-href";
@@ -21,9 +21,13 @@ export function RequiresPro({ feature }: { readonly feature: ProFeature }) {
   const t = useTranslations("dashboard.upgrade");
   const locale = useLocale();
   const location = useLocation();
+  const queryClient = useQueryClient();
   const plan = useQuery(planQuery);
   const welcome = welcomePlan((location.search as Record<string, unknown>).welcome);
-  if (plan.isFetching || !plan.data) return null;
+  // A team switch or checkout invalidates the plan: hide the previous answer
+  // until it reloads. A routine focus refetch keeps the current prompt.
+  const outdated = plan.isFetching && queryClient.getQueryState(planQuery.queryKey)?.isInvalidated === true;
+  if (outdated || !plan.data) return null;
   // The welcome shows only once the plan confirms the upgrade; a stale
   // ?welcome link must not hide the prompt from a Free viewer.
   if (plan.data.isPro) return welcome ? <PlanWelcomeBanner plan={welcome} /> : null;
