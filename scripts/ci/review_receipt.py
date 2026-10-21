@@ -11,8 +11,9 @@ which then found cmux#22988. A receipt, for the exact head, is one of:
 - the autoreview marker `<!-- autoreview verdict=SHIP|BLOCK sha=<sha> -->` anywhere in a comment or review body
   (the marker decides its comment);
 - otherwise the body's first non-empty line, "Review (<reviewer>): SHIP|BLOCK|FIX|NOT SHIP|HOLD ...", whose
-  reviewer is not "self" and which names the head by a 7-40 character prefix, e.g.
-  "Review (subagent, correctness first): SHIP at 4b438e85a74f".
+  reviewer is not "self" and which names the head: a SHIP by the full 40-character sha, e.g.
+  "Review (subagent, correctness first): SHIP at 4b438e85a74f9c2d0e1f3a5b7c9d1e3f5a7b9c1d" (cmux#22762 merged at
+  3a97b47e on a receipt naming 0b4c5bf3); a wait verdict by any 7-40 character prefix, since refusing more is safe.
 
 Only people (author __typename User) with OWNER, MEMBER or COLLABORATOR association count. The newest verdict
 naming the head decides, so a later BLOCK beats an earlier SHIP. Before that, as next-autoland's review_state()
@@ -135,9 +136,10 @@ def review_state(pr: dict) -> tuple[str, str]:
     return state, detail
 
 
-def names_head(line: str, head: str) -> bool:
-    """The line names the head by a 7-40 character prefix near its top."""
-    return any(head.startswith(token) for token in SHA_TOKEN.findall(line[:600].lower()))
+def names_head(line: str, head: str, full: bool = True) -> bool:
+    """The line names the head near its top: by its full 40-character sha, or by a 7-40 character prefix when not
+    full (a wait verdict)."""
+    return any(token == head if full else head.startswith(token) for token in SHA_TOKEN.findall(line[:600].lower()))
 
 
 def head_verdicts(pr: dict, head: str) -> list[tuple[str, str, str]]:
@@ -153,7 +155,7 @@ def head_verdicts(pr: dict, head: str) -> list[tuple[str, str, str]]:
             return
         first = next((line for line in body.splitlines() if line.strip()), "")
         line = RECEIPT.match(first)
-        if line and "self" not in line.group(1).lower() and names_head(first, head):
+        if line and "self" not in line.group(1).lower() and names_head(first, head, full=line.group(2).lower() == "ship"):
             found.append((at, "ship" if line.group(2).lower() == "ship" else "block", f"{login}: {first.strip()[:60]}"))
 
     for item in (pr.get("reviews") or {}).get("nodes") or []:
@@ -255,7 +257,7 @@ def main(argv: list[str] | None = None, run: Runner = _gh) -> int:
         who, why = decide(pr, args.sha)
         if not who:
             raise Refused(f"{why}: after an independent review of this head, comment "
-                          f"'Review (subagent, correctness first): SHIP at {args.sha[:12]}'. A newer BLOCK, FIX, hold "
+                          f"'Review (subagent, correctness first): SHIP at {args.sha}'. A newer BLOCK, FIX, hold "
                           "or change request wins over a SHIP, and a base merge (merge-main.sh or update-branch) "
                           "makes a new head that needs its own receipt")
     except RateLimited as error:

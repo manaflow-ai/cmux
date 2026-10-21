@@ -47,7 +47,7 @@ def reviews_fixture(*comments, head=HEAD):
     return handle.name
 
 
-SHIP_RECEIPT = f"Review (subagent, correctness first): SHIP at {HEAD[:12]}"
+SHIP_RECEIPT = f"Review (subagent, correctness first): SHIP at {HEAD}"
 os.environ["GH_MERGE_GREEN_REVIEWS"] = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"))
 MERGED_SHA = "d" * 40
 BASE = "b" * 40
@@ -1101,7 +1101,7 @@ class InstalledHelperRegression(unittest.TestCase):
         """2026-10-21: cmux#22899 merged before its re-review, which then found cmux#22988, and
         #22911 merged before its green run. Into feat-cmux-next a head merges only with an
         independent review's SHIP receipt for that exact head, as next-autoland requires."""
-        old = reviews_fixture((f"Review (subagent, correctness first): SHIP at {'b' * 12}", "2026-10-21T05:00:00Z"))
+        old = reviews_fixture((f"Review (subagent, correctness first): SHIP at {'b' * 40}", "2026-10-21T05:00:00Z"))
         for name, reviews in (("none", reviews_fixture()), ("an older head", old)):
             for full in (False, True):
                 with self.subTest(receipt=name, full=full), tempfile.TemporaryDirectory() as directory:
@@ -1111,7 +1111,7 @@ class InstalledHelperRegression(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
                     self.assertFalse(marker.exists())
                     self.assertIn("no SHIP review receipt", result.stderr)
-                    self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD[:12]}", result.stderr)
+                    self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD}", result.stderr)
 
     def test_override_cannot_waive_the_review_receipt(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -2103,7 +2103,7 @@ class MergedHeadChecksRegression(unittest.TestCase):
                 self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
                 extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args),
                 full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head,
-                reviews=reviews_fixture((f"Review (subagent, correctness first): SHIP at {head[:12]}", "2026-10-21T05:00:00Z"), head=head))
+                reviews=reviews_fixture((f"Review (subagent, correctness first): SHIP at {head}", "2026-10-21T05:00:00Z"), head=head))
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
