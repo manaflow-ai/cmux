@@ -197,6 +197,17 @@
             }
           },
           {
+            "key" : "general.12",
+            "rows" : [
+              "updates.idleInstallMaxWaitSeconds",
+              "updates.idleInstallQuietSeconds"
+            ],
+            "title" : {
+              "key" : "settings.pageGroup.updatesAdvanced",
+              "text" : "Updates: Advanced"
+            }
+          },
+          {
             "key" : "settings.group.announcements",
             "rows" : [
               "announcements.enabled"
@@ -4115,6 +4126,120 @@
       "title" : {
         "key" : "settings.updates.showWhatsNew",
         "text" : "Show What's New After Updates"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        60,
+        7200,
+        3630
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 900,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.idleInstallMaxWait.help",
+        "text" : "A downloaded nightly installs by itself once agents and commands finish and you stop typing, and never waits longer than this. Terminals and agents carry on after the restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.idleInstallMaxWaitSeconds",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "wait",
+        "automatic",
+        "nightly"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "idleInstallMaxWaitSeconds"
+      ],
+      "range" : {
+        "max" : 7200,
+        "min" : 60,
+        "placeholder" : 60,
+        "step" : 60,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -7080,
+        14340,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.idleInstallMaxWait",
+        "text" : "Install Within"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        5,
+        600,
+        302.5
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 60,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.idleInstallQuiet.help",
+        "text" : "How long the keyboard and mouse must be idle before a downloaded nightly installs by itself."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.idleInstallQuietSeconds",
+      "keywords" : [
+        "update",
+        "install",
+        "idle",
+        "quiet",
+        "typing",
+        "nightly"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "idleInstallQuietSeconds"
+      ],
+      "range" : {
+        "max" : 600,
+        "min" : 5,
+        "placeholder" : 5,
+        "step" : 5,
+        "unit" : "seconds"
+      },
+      "refuses" : [
+        -590,
+        1195,
+        "1"
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.idleInstallQuiet",
+        "text" : "Quiet Time Before Installing"
       },
       "validation" : "portable"
     },
@@ -32683,6 +32808,99 @@
       ],
       "agent_refusal" : null,
       "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flashOnTyping",
+      "keywords" : [
+        "ring",
+        "flash",
+        "keystroke",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flashOnTyping"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flashOnTyping",
+        "text" : "Flash When Typing Reads It"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : {
+        "key" : "settings.attention.flash.help",
+        "text" : "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flash",
+      "keywords" : [
+        "ring",
+        "flash",
+        "blink",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flash"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flash",
+        "text" : "Flash the Pane When Read"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
       "consumers" : [
         "cmux-next"
       ],
