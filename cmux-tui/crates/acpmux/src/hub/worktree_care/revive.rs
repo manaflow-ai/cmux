@@ -54,14 +54,14 @@ enum Revived {
 }
 
 impl Hub {
-    /// The session's folder before its agent or a turn starts (`one` is the machine's
-    /// one-restore-at-a-time lock): there, it refreshes the record when `refresh`; gone, it
-    /// comes back or the session moves (module doc).
+    /// The session's folder before its agent starts (`starting`, from the cold start) or a
+    /// turn starts (`one` is the machine's one-restore-at-a-time lock): there, a start refreshes
+    /// the record; gone, it comes back or the session moves (module doc).
     pub(super) async fn revive_folder(
         &self,
         session: &Arc<Session>,
         one: &tokio::sync::Mutex<()>,
-        refresh: bool,
+        starting: bool,
     ) {
         let meta = session.meta();
         let cwd = meta.cwd.clone();
@@ -71,7 +71,7 @@ impl Hub {
             return;
         }
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {
-            if !refresh {
+            if !starting {
                 return;
             }
             let read = tokio::task::spawn_blocking(move || origin_of(&cwd, &GitState::read(&cwd)));
@@ -118,8 +118,9 @@ impl Hub {
                     "cwd_fallback",
                     json!({"from": cwd, "to": to, "reason": why}),
                 );
-                // A live agent still runs in the folder that is gone: it starts again here.
-                if session.child.lock().await.is_some() {
+                // At a turn's start, a live agent still runs in the folder that is gone: it
+                // starts again here. A cold start replaces the agent anyway.
+                if !starting && session.child.lock().await.is_some() {
                     self.detach_child(session).await;
                 }
                 format!("{why}; running in {} instead", to.display())

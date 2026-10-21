@@ -278,9 +278,9 @@ impl Hub {
 
     /// The session's folder there before its agent or a turn starts (`run_prompt`): restored
     /// from cleanup's archive, else added back or moved from (`revive.rs`).
-    pub(super) async fn ready_folder(&self, session: &Arc<Session>, refresh: bool) {
+    pub(super) async fn ready_folder(&self, session: &Arc<Session>, starting: bool) {
         self.care_restore_for(session).await;
-        self.revive_folder(session, &CARE.restoring, refresh).await;
+        self.revive_folder(session, &CARE.restoring, starting).await;
     }
 
     async fn care_restore_for(&self, session: &Arc<Session>) {
