@@ -171,6 +171,7 @@ import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
 import { IncomingMessageLine, IncomingNotice } from "./conversation/IncomingMessageCard";
+import type { IncomingMessage } from "./conversation/incomingMessage";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -253,6 +254,7 @@ import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
+import { SubagentPaneFooter } from "./subagents/SubagentPaneFooter";
 import { RecapCard, useRecapCard } from "./RecapCard";
 import { configureQuickActions, quickActions, type QuickActionMode } from "./header/quickActions";
 import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
@@ -269,6 +271,7 @@ import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
+import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
@@ -669,7 +672,13 @@ const MessageRow = memo(
     if (row.kind === "user" && row.incoming?.kind === "message")
       return (
         <div className="cv-incoming">
-          <IncomingMessageLine id={row.id} message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
+          <IncomingMessageLine
+            id={row.id}
+            message={row.incoming.message}
+            images={row.images}
+            onOpen={openOfferChat}
+            onReply={replyToMessage}
+          />
         </div>
       );
     if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
@@ -790,15 +799,24 @@ const ThinkingRow = memo(
     a.row.queued === b.row.queued,
 );
 const WorkingRow = memo(
-  function WorkingRow({ row }: RowProps) {
-    return <WorkingFor row={row} />;
+  function WorkingRow({ row, sessionId }: RowProps) {
+    // The session's disclosures say whether the running call's group shows its row (WorkingFor.tsx).
+    return (
+      <TranscriptDisclosureProvider sessionId={sessionId}>
+        <WorkingFor row={row} />
+      </TranscriptDisclosureProvider>
+    );
   },
   (a, b) =>
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&
-    a.row.doing === b.row.doing,
+    a.row.doing === b.row.doing &&
+    a.row.doingCommand === b.row.doingCommand &&
+    a.row.doingGroup === b.row.doingGroup &&
+    a.row.doingGroupOpen === b.row.doingGroupOpen &&
+    a.sessionId === b.sessionId,
 );
 /// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
 const ActivityLineRow = memo(
@@ -969,6 +987,14 @@ const EditedFilesRow = memo(
 
 /// Opens a chat started from an offer (`chat.offer.open`): beside this one, else here.
 const openOfferChat = (sessionId: string) => void callNative("chat.offer.open", { sessionId }).catch(() => undefined);
+/// Reply on another agent's message card (`chat.message.reply`): its sender gets it in the thread.
+const replyToMessage = (message: IncomingMessage, text: string) =>
+  callNative<void>("chat.message.reply", {
+    sessionId: message.sessionId,
+    msgId: message.msgId,
+    threadId: message.threadId,
+    text,
+  });
 const offerActions: OfferActions = {
   start: (offerId, worktree) => callNative("chat.offer.start", { offerId, worktree }),
   here: (offerId) => callNative("chat.offer.here", { offerId }),
@@ -2716,7 +2742,7 @@ export function VirtualTranscript({
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
-    // The wheel over Jump to latest and the bottom stack scrolls the transcript (wheelPassThrough.ts).
+    // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
     // The chat's own transcript only (a replay's sits in its own screen).
     const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
     const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
@@ -3268,10 +3294,14 @@ function AcpmuxPane() {
   /// once its chat is; such a pane shows the chat's other subagents in place, never in more panes.
   const [requestedSubagent, setRequestedSubagent] = useState<string>();
   const subagentPane = useRef(false);
+  /// This pane was opened on a subagent (a `subagent:` reveal): while it shows a subagent, it shows
+  /// it read only (`readOnlySubagent`).
+  const [ownSubagentPane, setOwnSubagentPane] = useState(false);
   const reveal = (value: string) => {
     const agent = revealedSubagent(value);
     if (agent === undefined) return void revealTurnWhenShown(value);
     subagentPane.current = true;
+    setOwnSubagentPane(true);
     setRequestedSubagent(agent);
   };
   const revealRef = useRef(reveal);
@@ -3724,6 +3754,10 @@ function AcpmuxPane() {
     setSubagentView(requestedSubagent);
     setRequestedSubagent(undefined);
   }, [requestedSubagent, shownSessionId]);
+  // A subagent's pane shows the subagent read only, never the chat's composer, queue or pull
+  // request: they are the chat's. Once it shows a chat ("Subagent of", a branch pill, another
+  // harness), that chat's composer is back: a prompt there goes to the chat it shows.
+  const readOnlySubagent = ownSubagentPane && (subagentView !== undefined || requestedSubagent !== undefined);
   // Find in Chat over the transcript (ChatFindScope, below the pane); the page actions read it
   // through `findRef`.
   const findRef = useRef<ChatFind | undefined>(undefined);
@@ -5399,6 +5433,13 @@ function AcpmuxPane() {
             if (!chat) throw new Error(translate("error.notOpen"));
             await client.dismissOffer(chat, String(offerId));
           },
+          // Reply on another agent's message card: the answer goes to the chat that sent it, in
+          // its thread (conversation/IncomingMessageCard.tsx).
+          "chat.message.reply": async ({ sessionId, msgId, threadId, text }) => {
+            const str = (value: unknown) => (typeof value === "string" && value ? value : undefined);
+            const [to, id, thread] = [str(sessionId), str(msgId), str(threadId)];
+            await client.reply({ sessionId: to, msgId: id, threadId: thread }, String(text ?? ""));
+          },
           // Open on a started offer: beside this chat, as a side chat opens; else here.
           "chat.offer.open": async ({ sessionId }) => {
             try {
@@ -6342,359 +6383,365 @@ function AcpmuxPane() {
         : {})}
     />
   );
-  const composer = !reviewing && (
-    <>
-      <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
-      {recapCard.recap && (
-        <RecapCard
-          recap={recapCard.recap}
-          onReply={recapCard.reply}
-          onDismiss={recapCard.dismiss}
-          keyHint={!quick && !composerShell}
-          failed={recapCard.failed}
-        />
-      )}
-      <Notice id="dictation" tier="error" when={dictation.notice?.message}>
-        <DictationNotice dictation={dictation} />
-      </Notice>
-      <Notice id="import-error" tier="error" when={importError}>
-        <p className="acpmux-composer-remote-note" role="alert">
-          {importError}
-        </p>
-      </Notice>
-      <Notice id="instructions" tier="error" when={instructionsFailure}>
-        <InstructionsNotice
-          failure={instructionsFailure?.failure}
-          onRetry={() =>
-            instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
-          }
-          onDismiss={() => setInstructionsFailure(undefined)}
-        />
-      </Notice>
-      {harnessCard ? (
-        <Notice id="harness-block" tier="error" when>
-          {harnessCard}
+  // A subagent's own pane is a tab on the chat's session: the chat's composer, queue and pull
+  // request bars there were the chat's, and a prompt typed in it went to the chat.
+  const composer = readOnlySubagent ? (
+    <SubagentPaneFooter chat={chatName} />
+  ) : (
+    !reviewing && (
+      <>
+        <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
+        {recapCard.recap && (
+          <RecapCard
+            recap={recapCard.recap}
+            onReply={recapCard.reply}
+            onDismiss={recapCard.dismiss}
+            keyHint={!quick && !composerShell}
+            failed={recapCard.failed}
+          />
+        )}
+        <Notice id="dictation" tier="error" when={dictation.notice?.message}>
+          <DictationNotice dictation={dictation} />
         </Notice>
-      ) : (
-        <Notice
-          id="switch"
-          tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
-          when={snapshot.switching && snapshot.switching.phase !== "starting"}
-        >
-          <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+        <Notice id="import-error" tier="error" when={importError}>
+          <p className="acpmux-composer-remote-note" role="alert">
+            {importError}
+          </p>
         </Notice>
-      )}
-      {!harnessCard && (
-        <HarnessHealthNotice
-          health={harnessHealth}
-          harness={healthHarness}
-          name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
-          {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
-          open={(params) => {
-            healthStale.current = true;
-            void callNative("tab.open", params).catch(() => undefined);
-          }}
-          native={callNative}
-          turnRunning={snapshot.isWorking}
-          onUpdated={recheckHealth}
-          onOffer={setUpdateOffer}
-        />
-      )}
-      <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
-        <MissingFolder
-          reason={folderNeeded?.reason ?? ""}
-          error={folderNeeded?.error}
-          onChoose={() => {
-            void chooseChatFolder(
-              () => callNative("chat.folder.choose"),
-              async (adopt) => {
-                const client = directClient.current;
-                if (!client) throw new Error(t("error.nativeUnavailable"));
-                const sessionId = await client.resume(adopt);
-                if (sessionId) await callNative("chat.persistSession", { sessionId });
-              },
-            ).then(
-              (result) => {
-                if (result.done) setFolderNeeded(undefined);
-                else if (result.reason) setFolderNeeded({ reason: result.reason });
-              },
-              (error: unknown) =>
-                setFolderNeeded((current) => current && { ...current, error: errorMessage(error) || String(error) }),
-            );
-          }}
-        />
-      </Notice>
-      {pendingFolder ? (
-        <StartFolderAsk
-          ask={pendingFolder.ask}
-          current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
-          error={pendingFolder.error}
-          onUse={() => {
-            // The question closes on the click, so a second click cannot use the folder twice.
-            const pending = pendingFolder;
-            setFolderAsk(undefined);
-            void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
-              setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
-            );
-          }}
-          onCancel={() => {
-            pendingFolder.cancel?.();
-            setFolderAsk(undefined);
-          }}
-        />
-      ) : (
-        <Notice
-          id="folder-choice"
-          tier="hint"
-          when={showsFolderChoice({
-            offered: chooseFolder,
-            freshChat,
-            quick,
-            projectDraft,
-            sessionId: snapshot.sessionId,
-            missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
-          })}
-        >
-          <FolderChoice
-            error={folderError}
+        <Notice id="instructions" tier="error" when={instructionsFailure}>
+          <InstructionsNotice
+            failure={instructionsFailure?.failure}
+            onRetry={() =>
+              instructionsFailure && openInstructions(instructionsFailure.cwd, instructionsFailure.failure.file)
+            }
+            onDismiss={() => setInstructionsFailure(undefined)}
+          />
+        </Notice>
+        {harnessCard ? (
+          <Notice id="harness-block" tier="error" when>
+            {harnessCard}
+          </Notice>
+        ) : (
+          <Notice
+            id="switch"
+            tier={snapshot.switching?.phase === "deferred" ? "status" : "error"}
+            when={snapshot.switching && snapshot.switching.phase !== "starting"}
+          >
+            <SwitchNotice switching={snapshot.switching} onRetry={() => void callNative("chat.harness.retry")} />
+          </Notice>
+        )}
+        {!harnessCard && (
+          <HarnessHealthNotice
+            health={harnessHealth}
+            harness={healthHarness}
+            name={catalog.find((entry) => entry.id === healthHarness)?.name ?? healthHarness ?? ""}
+            {...(snapshot.summary?.cwd ? { cwd: snapshot.summary.cwd } : {})}
+            open={(params) => {
+              healthStale.current = true;
+              void callNative("tab.open", params).catch(() => undefined);
+            }}
+            native={callNative}
+            turnRunning={snapshot.isWorking}
+            onUpdated={recheckHealth}
+            onOffer={setUpdateOffer}
+          />
+        )}
+        <Notice id="missing-folder" tier="error" when={folderNeeded && !snapshot.sessionId}>
+          <MissingFolder
+            reason={folderNeeded?.reason ?? ""}
+            error={folderNeeded?.error}
             onChoose={() => {
-              setFolderError(undefined);
-              void callNative<{ cwd?: string }>("workspace.chooseFolder")
-                .then((result) => {
-                  if (!result?.cwd) return;
-                  setChooseFolder(false);
-                  chooseProject(result.cwd);
-                })
-                .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+              void chooseChatFolder(
+                () => callNative("chat.folder.choose"),
+                async (adopt) => {
+                  const client = directClient.current;
+                  if (!client) throw new Error(t("error.nativeUnavailable"));
+                  const sessionId = await client.resume(adopt);
+                  if (sessionId) await callNative("chat.persistSession", { sessionId });
+                },
+              ).then(
+                (result) => {
+                  if (result.done) setFolderNeeded(undefined);
+                  else if (result.reason) setFolderNeeded({ reason: result.reason });
+                },
+                (error: unknown) =>
+                  setFolderNeeded((current) => current && { ...current, error: errorMessage(error) || String(error) }),
+              );
             }}
           />
         </Notice>
-      )}
-      <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
-        <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
-      </Notice>
-      <Notice id="worktree-error" tier="error" when={worktreeError && freshChat && !snapshot.sessionId}>
-        <WorktreeFailure error={worktreeError ?? ""} onDismiss={() => setWorktreeError(undefined)} />
-      </Notice>
-      {aside && (
-        <SideQuestion
-          state={aside}
-          githubRepository={githubRepository}
-          onDismiss={() => setAside(undefined)}
-          onAdd={() => {
-            setAside(undefined);
-            ignoreFailure(callNative("chat.send", { text: aside.question, attachments: [] }));
-          }}
-        />
-      )}
-      {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
-          running subagent, background command and started chat, one line each. */}
-      {!quick && !freshView && trayList.length > 0 && (
-        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <SubagentTray
-            key={shownSessionId}
-            items={trayList}
-            working={snapshot.isWorking}
-            waiting={waitingAgents}
-            onOpen={showSubagent}
-            onOpenCommand={openTrayCommand}
-            onOpenSession={openOfferChat}
-            stop={stopSubagent}
-            stopProcess={stopProcess}
+        {pendingFolder ? (
+          <StartFolderAsk
+            ask={pendingFolder.ask}
+            current={freshChat && !snapshot.sessionId ? projectDraft : snapshot.summary?.cwd}
+            error={pendingFolder.error}
+            onUse={() => {
+              // The question closes on the click, so a second click cannot use the folder twice.
+              const pending = pendingFolder;
+              setFolderAsk(undefined);
+              void confirmFolder(callNative, pending.ask, pending.use).catch((error: unknown) =>
+                setFolderAsk((current) => current ?? { ...pending, error: errorMessage(error) || String(error) }),
+              );
+            }}
+            onCancel={() => {
+              pendingFolder.cancel?.();
+              setFolderAsk(undefined);
+            }}
           />
-        </SubagentClockContext.Provider>
-      )}
-      {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
+        ) : (
+          <Notice
+            id="folder-choice"
+            tier="hint"
+            when={showsFolderChoice({
+              offered: chooseFolder,
+              freshChat,
+              quick,
+              projectDraft,
+              sessionId: snapshot.sessionId,
+              missingFolder: Boolean(folderNeeded && !snapshot.sessionId),
+            })}
+          >
+            <FolderChoice
+              error={folderError}
+              onChoose={() => {
+                setFolderError(undefined);
+                void callNative<{ cwd?: string }>("workspace.chooseFolder")
+                  .then((result) => {
+                    if (!result?.cwd) return;
+                    setChooseFolder(false);
+                    chooseProject(result.cwd);
+                  })
+                  .catch((error: unknown) => setFolderError(errorMessage(error) || undefined));
+              }}
+            />
+          </Notice>
+        )}
+        <Notice id="worktree-creating" tier="status" when={worktreeCreating && freshChat && !snapshot.sessionId}>
+          <output className="acpmux-switch-notice acpmux-worktree-creating">{t("worktree.creating")}</output>
+        </Notice>
+        <Notice id="worktree-error" tier="error" when={worktreeError && freshChat && !snapshot.sessionId}>
+          <WorktreeFailure error={worktreeError ?? ""} onDismiss={() => setWorktreeError(undefined)} />
+        </Notice>
+        {aside && (
+          <SideQuestion
+            state={aside}
+            githubRepository={githubRepository}
+            onDismiss={() => setAside(undefined)}
+            onAdd={() => {
+              setAside(undefined);
+              ignoreFailure(callNative("chat.send", { text: aside.question, attachments: [] }));
+            }}
+          />
+        )}
+        {/* The tray (subagents/SubagentTray.tsx): in the bottom stack, right above the composer, every
+          running subagent, background command and started chat, one line each. */}
+        {!quick && !freshView && trayList.length > 0 && (
+          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+            <SubagentTray
+              key={shownSessionId}
+              items={trayList}
+              working={snapshot.isWorking}
+              waiting={waitingAgents}
+              onOpen={showSubagent}
+              onOpenCommand={openTrayCommand}
+              onOpenSession={openOfferChat}
+              stop={stopSubagent}
+              stopProcess={stopProcess}
+            />
+          </SubagentClockContext.Provider>
+        )}
+        {/* The agents pill (subagents/AgentsPill.tsx), with the tray off (Debug Settings): in the bottom
           stack, right above the composer, while the turn works; an agent a cancel or a reconnect left
           "running" shows none. */}
-      {!subagentTray && !quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
-        <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-          <AgentsPill
-            key={shownSessionId}
-            agents={chatAgents}
-            waiting={waitingAgents}
-            tones={chatTones}
-            onOpen={showSubagent}
-          />
-        </SubagentClockContext.Provider>
-      )}
-      {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
-      <ImageViewerContext.Provider value={openImage}>
-        <Composer
-          snapshot={composerSnapshot}
-          headerCwd={snapshot.summary?.cwd ?? ""}
-          sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
-          switching={Boolean(switchView.intent)}
-          chips={ComposerChips}
-          permissionAccess={permissionAccess}
-          draft={draft}
-          onUnsentDraft={quick ? undefined : postUnsentDraft}
-          onCmuxCommand={(command, args) => {
-            if (command.action === "btw") {
-              const question = args?.trim();
-              const sessionId = snapshot.sessionId;
-              if (!asksAside || !question || !sessionId) return false;
-              const ask = ++asideAsks.current;
-              setAside({ sessionId, ask, question });
-              const settle = (outcome: Partial<SideQuestionState>) =>
-                setAside((current) => (current?.ask === ask ? { ...current, ...outcome } : current));
-              callNative<string>("chat.ask", { question }).then(
-                (answer) => settle({ answer: typeof answer === "string" ? answer : "" }),
-                (error: unknown) => settle({ error: errorMessage(error) || String(error) }),
-              );
+        {!subagentTray && !quick && !freshView && snapshot.isWorking && chatTones && chatAgents.some(running) && (
+          <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+            <AgentsPill
+              key={shownSessionId}
+              agents={chatAgents}
+              waiting={waitingAgents}
+              tones={chatTones}
+              onOpen={showSubagent}
+            />
+          </SubagentClockContext.Provider>
+        )}
+        {/* An attached image opens in the chat's image viewer, as a transcript image does. */}
+        <ImageViewerContext.Provider value={openImage}>
+          <Composer
+            snapshot={composerSnapshot}
+            headerCwd={snapshot.summary?.cwd ?? ""}
+            sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+            switching={Boolean(switchView.intent)}
+            chips={ComposerChips}
+            permissionAccess={permissionAccess}
+            draft={draft}
+            onUnsentDraft={quick ? undefined : postUnsentDraft}
+            onCmuxCommand={(command, args) => {
+              if (command.action === "btw") {
+                const question = args?.trim();
+                const sessionId = snapshot.sessionId;
+                if (!asksAside || !question || !sessionId) return false;
+                const ask = ++asideAsks.current;
+                setAside({ sessionId, ask, question });
+                const settle = (outcome: Partial<SideQuestionState>) =>
+                  setAside((current) => (current?.ask === ask ? { ...current, ...outcome } : current));
+                callNative<string>("chat.ask", { question }).then(
+                  (answer) => settle({ answer: typeof answer === "string" ? answer : "" }),
+                  (error: unknown) => settle({ error: errorMessage(error) || String(error) }),
+                );
+                return true;
+              }
+              if (command.action === "fork") {
+                if (!forkable || forkSeq === undefined || args?.trim()) return false;
+                ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
+                return true;
+              }
+              if (command.action !== "continue" || !canContinue) return false;
+              if (!args?.trim()) {
+                setContinuing(true);
+                return true;
+              }
+              const target = resolveHarnessTarget(args, handoffTargets);
+              if (!target) return false;
+              setContinuing(false);
+              ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
               return true;
-            }
-            if (command.action === "fork") {
-              if (!forkable || forkSeq === undefined || args?.trim()) return false;
-              ignoreFailure(callNative("chat.fork", { throughSeq: forkSeq }));
-              return true;
-            }
-            if (command.action !== "continue" || !canContinue) return false;
-            if (!args?.trim()) {
-              setContinuing(true);
-              return true;
-            }
-            const target = resolveHarnessTarget(args, handoffTargets);
-            if (!target) return false;
-            setContinuing(false);
-            ignoreFailure(callNative("chat.handoff.prepare", { harness: target.id }));
-            return true;
-          }}
-          onSend={(text, chips, steer) => {
-            // Until acpmux connects nothing takes a prompt; the composer keeps it.
-            if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
-            // Shell mode's chips carry their commands' output as it is now.
-            const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
-            if (!snapshot.sessionId) claimShellRuns.current = true;
-            // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
-            // it leaves the composer at once and shows as its own row, which says how far it got,
-            // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
-            // row showed (the chat could not take prompts) comes back to the composer.
-            if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft) {
+            }}
+            onSend={(text, chips, steer) => {
+              // Until acpmux connects nothing takes a prompt; the composer keeps it.
+              if (!window.cmuxAcpmuxActions?.["chat.send"]) return false;
+              // Shell mode's chips carry their commands' output as it is now.
+              const attachments = shellContextAttachments(chips ?? [], (id) => shellRuns.get(id));
+              if (!snapshot.sessionId) claimShellRuns.current = true;
+              // A started chat never holds the prompt (plans/cmux-next/composer-delivery-DESIGN.md):
+              // it leaves the composer at once and shows as its own row, which says how far it got,
+              // and a refusal stays on that row with Retry, Edit and Remove. One refused before any
+              // row showed (the chat could not take prompts) comes back to the composer.
+              if (snapshot.sessionId && surfaceRef.current !== "quick" && !projectDraft) {
+                const holder = composerHandle.current;
+                callNative("chat.send", { text, attachments, steer }).then(
+                  () => promptLanded.current(),
+                  (error: unknown) => {
+                    cancelOpenInWindow();
+                    if (failedRowOf(error) || isTrustRefusal(error)) return;
+                    // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
+                    if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
+                    (composerHandle.current ?? holder)?.restore(text, attachments);
+                  },
+                );
+                return true;
+              }
+              // A new chat's composer keeps the prompt until acpmux takes it: a refusal (folder
+              // trust, the remote guard, the sandbox) leaves it there to send again.
+              let accept: (taken: true) => void = () => undefined;
+              const taken = new Promise<true>((resolve) => (accept = resolve));
+              const send = async () => {
+                if (projectDraft && !snapshot.sessionId)
+                  // The chat's start is part of this send: a trust refusal there asks the folder's
+                  // question, keeps this prompt (with its send's gesture) and sends it after Trust
+                  // (cx-nn3e P0b; the prompt was lost when only the start ran again).
+                  await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
+                    if (isTrustRefusal(error)) {
+                      holdPrompt.current?.();
+                      trustRefused.current?.(error, () => composerHandle.current?.send());
+                    }
+                    throw error;
+                  });
+                return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
+              };
+              // The composer that holds the prompt: a refusal that comes once it is gone (the pane
+              // swaps it when the chat's session starts) puts the prompt in the one shown now.
               const holder = composerHandle.current;
-              callNative("chat.send", { text, attachments, steer }).then(
-                () => promptLanded.current(),
-                (error: unknown) => {
-                  cancelOpenInWindow();
-                  if (failedRowOf(error) || isTrustRefusal(error)) return;
-                  // A prompt a harness switch handed back (harnessSwitch.ts) is in the composer already.
-                  if ((error as { handedBack?: unknown } | null)?.handedBack === true) return;
-                  (composerHandle.current ?? holder)?.restore(text, attachments);
-                },
-              );
-              return true;
-            }
-            // A new chat's composer keeps the prompt until acpmux takes it: a refusal (folder
-            // trust, the remote guard, the sandbox) leaves it there to send again.
-            let accept: (taken: true) => void = () => undefined;
-            const taken = new Promise<true>((resolve) => (accept = resolve));
-            const send = async () => {
-              if (projectDraft && !snapshot.sessionId)
-                // The chat's start is part of this send: a trust refusal there asks the folder's
-                // question, keeps this prompt (with its send's gesture) and sends it after Trust
-                // (cx-nn3e P0b; the prompt was lost when only the start ran again).
-                await callNative("chat.new", { cwd: projectDraft, ...heldPick(snapshot) }).catch((error: unknown) => {
-                  if (isTrustRefusal(error)) {
-                    holdPrompt.current?.();
-                    trustRefused.current?.(error, () => composerHandle.current?.send());
+              // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
+              if (surfaceRef.current === "quick") startInBackground(text, taken);
+              const turn = send();
+              turn.then(() => promptLanded.current(), cancelOpenInWindow);
+              // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
+              const held = Promise.race([taken, turn.then(() => true as const)]);
+              held.catch(() => {
+                if (composerHandle.current === holder) return;
+                if (composerHandle.current) composerHandle.current.restore(text, attachments);
+                else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
+              });
+              return held;
+            }}
+            onStop={() => void callNative("chat.cancel")}
+            onQueueRemove={removeQueued}
+            onQueueChange={editQueued}
+            // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
+            onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+            onProject={chooseProject}
+            onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
+            onConnect={connectMachine}
+            onRefreshMachines={() => void directClient.current?.refreshPeers()}
+            // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
+            // panel lists them before its first prompt (cx-hkat).
+            projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
+            onBrowseProject={
+              freshChat && !quick
+                ? () => {
+                    void callNative<{ cwd?: string }>("project.browse")
+                      .then((result) => {
+                        if (result?.cwd) chooseProject(result.cwd);
+                      })
+                      .catch(() => undefined);
                   }
-                  throw error;
-                });
-              return callNative("chat.send", { text, attachments, accepted: () => accept(true), steer });
-            };
-            // The composer that holds the prompt: a refusal that comes once it is gone (the pane
-            // swaps it when the chat's session starts) puts the prompt in the one shown now.
-            const holder = composerHandle.current;
-            // Start Agent's Return; ⌘Return (onOpenInWindow, right after this) opens a window instead.
-            if (surfaceRef.current === "quick") startInBackground(text, taken);
-            const turn = send();
-            turn.then(() => promptLanded.current(), cancelOpenInWindow);
-            // Taken, or refused before acpmux took it (the turn's later failure is the transcript's).
-            const held = Promise.race([taken, turn.then(() => true as const)]);
-            held.catch(() => {
-              if (composerHandle.current === holder) return;
-              if (composerHandle.current) composerHandle.current.restore(text, attachments);
-              else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
-            });
-            return held;
-          }}
-          onStop={() => void callNative("chat.cancel")}
-          onQueueRemove={removeQueued}
-          onQueueChange={editQueued}
-          // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
-          onQueueLost={(text) => composerHandle.current?.restore(text, [])}
-          onProject={chooseProject}
-          onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
-          onConnect={connectMachine}
-          onRefreshMachines={() => void directClient.current?.refreshPeers()}
-          // A started local chat lists the same folders to move to (dogfood 09); Start Agent's
-          // panel lists them before its first prompt (cx-hkat).
-          projectChoices={freshChat || (!quick && canMove) ? newTabProjects : undefined}
-          onBrowseProject={
-            freshChat && !quick
-              ? () => {
-                  void callNative<{ cwd?: string }>("project.browse")
-                    .then((result) => {
-                      if (result?.cwd) chooseProject(result.cwd);
+                : undefined
+            }
+            // The host runs commands on this Mac: a Cloud chat has no shell mode.
+            onShell={
+              composerSnapshot.summary?.hostKind === "cloud"
+                ? undefined
+                : (command) =>
+                    shellRuns.start(command, {
+                      ...(composerSnapshot.summary?.cwd ? { cwd: composerSnapshot.summary.cwd } : {}),
+                      ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
                     })
-                    .catch(() => undefined);
-                }
-              : undefined
-          }
-          // The host runs commands on this Mac: a Cloud chat has no shell mode.
-          onShell={
-            composerSnapshot.summary?.hostKind === "cloud"
-              ? undefined
-              : (command) =>
-                  shellRuns.start(command, {
-                    ...(composerSnapshot.summary?.cwd ? { cwd: composerSnapshot.summary.cwd } : {}),
-                    ...(snapshot.sessionId ? { sessionId: snapshot.sessionId } : {}),
-                  })
-          }
-          localName={machineName}
-          environments={preview}
-          onBrowseFolder={
-            canMove
-              ? () =>
-                  callNative<{ cwd?: string }>("project.browse")
-                    .then((result) => result?.cwd)
-                    .catch(() => undefined)
-              : undefined
-          }
-          // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
-          // in a tab of its own; a Cloud chat's folder is a label.
-          // The floating chat has no tabs to open one in. Another machine's `~` is not this Mac's: a
-          // remote chat starts one only in an absolute folder.
-          onNewChat={
-            canMove && !quick
-              ? (cwd) => {
-                  if (!remoteChat || cwd.startsWith("/")) ignoreFailure(callNative("chat.newHere", { cwd }));
-                }
-              : undefined
-          }
-          onShellInterrupt={() => {
-            const running = shellRuns.running(snapshot.sessionId);
-            if (running) shellRuns.stop(running.id);
-            return running !== undefined;
-          }}
-          onMode={(modeId) => callNative("chat.mode", { modeId })}
-          // Without a folder there is nothing to search; the + menu leaves the item out.
-          searchFiles={fileRoot ? searchFiles : undefined}
-          capture={captureScreen}
-          upload={uploadFiles}
-          onOpenInWindow={quick ? openInWindow : undefined}
-          onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
-          onShellChange={setComposerShell}
-          prompt={prompt}
-          handle={composerRef}
-          // No prompt goes while a picked folder waits for the user's answer.
-          blocked={pendingFolder ? {} : trustAsk.blocked}
-          accessory={<DictationMic dictation={dictation} />}
-          onImportFile={importFile}
-          onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
-        />
-      </ImageViewerContext.Provider>
-    </>
+            }
+            localName={machineName}
+            environments={preview}
+            onBrowseFolder={
+              canMove
+                ? () =>
+                    callNative<{ cwd?: string }>("project.browse")
+                      .then((result) => result?.cwd)
+                      .catch(() => undefined)
+                : undefined
+            }
+            // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
+            // in a tab of its own; a Cloud chat's folder is a label.
+            // The floating chat has no tabs to open one in. Another machine's `~` is not this Mac's: a
+            // remote chat starts one only in an absolute folder.
+            onNewChat={
+              canMove && !quick
+                ? (cwd) => {
+                    if (!remoteChat || cwd.startsWith("/")) ignoreFailure(callNative("chat.newHere", { cwd }));
+                  }
+                : undefined
+            }
+            onShellInterrupt={() => {
+              const running = shellRuns.running(snapshot.sessionId);
+              if (running) shellRuns.stop(running.id);
+              return running !== undefined;
+            }}
+            onMode={(modeId) => callNative("chat.mode", { modeId })}
+            // Without a folder there is nothing to search; the + menu leaves the item out.
+            searchFiles={fileRoot ? searchFiles : undefined}
+            capture={captureScreen}
+            upload={uploadFiles}
+            onOpenInWindow={quick ? openInWindow : undefined}
+            onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
+            onShellChange={setComposerShell}
+            prompt={prompt}
+            handle={composerRef}
+            // No prompt goes while a picked folder waits for the user's answer.
+            blocked={pendingFolder ? {} : trustAsk.blocked}
+            accessory={<DictationMic dictation={dictation} />}
+            onImportFile={importFile}
+            onEdit={(command) => ignoreFailure(callNative("pane.edit", { command }))}
+          />
+        </ImageViewerContext.Provider>
+      </>
+    )
   );
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostError}>
@@ -6807,7 +6854,10 @@ function AcpmuxPane() {
             sessions={cardSessions}
             // The picks are this computer's files: only a chat whose folder is here (not a peer's or
             // another host's) and not Quick Chat.
-            onAttach={localCwd && !quick ? () => void attachLinks().catch(() => undefined) : undefined}
+            // A subagent's pane has no composer to attach to.
+            onAttach={
+              localCwd && !quick && !readOnlySubagent ? () => void attachLinks().catch(() => undefined) : undefined
+            }
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -6991,6 +7041,7 @@ function AcpmuxPane() {
                     )}
                     <ChatHeaderTools
                       tabTools={!quick}
+                      pullRequestChip={!readOnlySubagent}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.
                       folder={localCwd ?? (remoteChat ? undefined : startFolder)}
                       readStatus={readFolderStatus}
