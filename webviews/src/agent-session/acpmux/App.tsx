@@ -268,6 +268,7 @@ import { PendingSteer } from "./conversation/PendingSteer";
 import { SteerMark } from "./conversation/SteerMark";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
+import { chatWaitsOn, WaitingOnContext } from "./conversation/waitingOn";
 import { TranscriptDisclosureProvider } from "./conversation/transcriptDisclosure";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
 import { Notice, NoticeSlot } from "./NoticeSlot";
@@ -6137,6 +6138,18 @@ function AcpmuxPane() {
     () => directClient.current?.recordedEvents(replaying ?? "") ?? Promise.reject(new Error("no connection")),
     [replaying],
   );
+  const toolCards = useToolCards();
+  // What the chat waits on the person for: the running turn's line says it, never "Thinking".
+  const waiting = chatWaitsOn({
+    trust: trustAsk.ask,
+    holdsAsks: trustAsk.holdsAsks,
+    trustBlocks: Boolean(trustAsk.blocked),
+    isWorking: snapshot.isWorking,
+    individualPermission: Boolean(individualPermission),
+    permissionGroups: snapshot.permissionGroups?.supported ? snapshot.permissionGroups.groups : undefined,
+    secret: Boolean(snapshot.secret),
+    cards: toolCards,
+  });
   const transcript = (
     // Quick Chat's panel has no room beside it: its fences have no Open preview.
     <ArtifactContext.Provider value={quick ? undefined : openArtifact}>
@@ -6150,63 +6163,65 @@ function AcpmuxPane() {
                     <SubagentNavContext.Provider value={setSubagentView}>
                       <SubagentPaneContext.Provider value={showSubagent}>
                         <WorkingCountsContext.Provider value={workingCounts}>
-                          <SubagentStopContext.Provider value={stopSubagent}>
-                            <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
-                              <SubagentHarnessContext.Provider
-                                value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
-                              >
-                                <SessionHoverContext.Provider value={sessionHover}>
-                                  <StartedMentionsContext.Provider value={startedMentions}>
-                                    <ChatFindScope
-                                      rows={childRows ?? sourceRows}
-                                      shown={childRows ? undefined : transcriptRows}
-                                      openFold={openFold}
-                                      findRef={findRef}
-                                    >
-                                      {(find) => (
-                                        <VirtualTranscript
-                                          rows={drawnRows}
-                                          working={snapshot.isWorking}
-                                          // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
-                                          jumpButton={!quick}
-                                          focusComposer={() => composerHandle.current?.focus()}
-                                          // Quick Chat's panel stacks its composer below the transcript.
-                                          dock={quick ? undefined : dock}
-                                          queueWithdrawn={snapshot.queueWithdrawn}
-                                          find={quick ? undefined : find}
-                                          sessionId={
-                                            childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
-                                          }
-                                          canLoadOlder={!childRows && snapshot.canLoadOlder}
-                                          historyFrom={childRows ? undefined : snapshot.historyFrom}
-                                          onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
-                                          openAt={
-                                            !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
-                                              ? scrollAnchor
-                                              : undefined
-                                          }
-                                          anchorNow={quick || childRows ? undefined : transcriptAnchor}
-                                          onAnchor={
-                                            quick || childRows || !shownSessionId
-                                              ? undefined
-                                              : (anchor) => postScrollAnchor(shownSessionId, anchor)
-                                          }
-                                          expanded={expanded}
-                                          reveal={childRows ? undefined : revealRow}
-                                          registry={registry}
-                                          githubRepository={githubRepository}
-                                          fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
-                                          // The Quick Composer has no room for the changes view; its file rows stay plain.
-                                          onOpenDiff={quick ? undefined : openDiff}
-                                          onToggleActivity={toggleActivity}
-                                        />
-                                      )}
-                                    </ChatFindScope>
-                                  </StartedMentionsContext.Provider>
-                                </SessionHoverContext.Provider>
-                              </SubagentHarnessContext.Provider>
-                            </SubagentClockContext.Provider>
-                          </SubagentStopContext.Provider>
+                          <WaitingOnContext.Provider value={waiting}>
+                            <SubagentStopContext.Provider value={stopSubagent}>
+                              <SubagentClockContext.Provider value={snapshot.clockOffsetMs ?? 0}>
+                                <SubagentHarnessContext.Provider
+                                  value={knownMark(snapshot.summary?.harness, snapshot.summary?.family)}
+                                >
+                                  <SessionHoverContext.Provider value={sessionHover}>
+                                    <StartedMentionsContext.Provider value={startedMentions}>
+                                      <ChatFindScope
+                                        rows={childRows ?? sourceRows}
+                                        shown={childRows ? undefined : transcriptRows}
+                                        openFold={openFold}
+                                        findRef={findRef}
+                                      >
+                                        {(find) => (
+                                          <VirtualTranscript
+                                            rows={drawnRows}
+                                            working={snapshot.isWorking}
+                                            // Its stage positions Jump to latest; the Quick Composer's panel has no room for it.
+                                            jumpButton={!quick}
+                                            focusComposer={() => composerHandle.current?.focus()}
+                                            // Quick Chat's panel stacks its composer below the transcript.
+                                            dock={quick ? undefined : dock}
+                                            queueWithdrawn={snapshot.queueWithdrawn}
+                                            find={quick ? undefined : find}
+                                            sessionId={
+                                              childRows ? `${shownSessionId}:subagent:${subagentView}` : shownSessionId
+                                            }
+                                            canLoadOlder={!childRows && snapshot.canLoadOlder}
+                                            historyFrom={childRows ? undefined : snapshot.historyFrom}
+                                            onLoadOlder={() => directClient.current?.loadOlder() ?? Promise.resolve()}
+                                            openAt={
+                                              !childRows && shownSessionId && scrollAnchor?.sessionId === shownSessionId
+                                                ? scrollAnchor
+                                                : undefined
+                                            }
+                                            anchorNow={quick || childRows ? undefined : transcriptAnchor}
+                                            onAnchor={
+                                              quick || childRows || !shownSessionId
+                                                ? undefined
+                                                : (anchor) => postScrollAnchor(shownSessionId, anchor)
+                                            }
+                                            expanded={expanded}
+                                            reveal={childRows ? undefined : revealRow}
+                                            registry={registry}
+                                            githubRepository={githubRepository}
+                                            fallbackRepository={pullRequestRef(headerPullRequest?.url ?? "")?.repo}
+                                            // The Quick Composer has no room for the changes view; its file rows stay plain.
+                                            onOpenDiff={quick ? undefined : openDiff}
+                                            onToggleActivity={toggleActivity}
+                                          />
+                                        )}
+                                      </ChatFindScope>
+                                    </StartedMentionsContext.Provider>
+                                  </SessionHoverContext.Provider>
+                                </SubagentHarnessContext.Provider>
+                              </SubagentClockContext.Provider>
+                            </SubagentStopContext.Provider>
+                          </WaitingOnContext.Provider>
                         </WorkingCountsContext.Provider>
                       </SubagentPaneContext.Provider>
                     </SubagentNavContext.Provider>
@@ -6219,7 +6234,6 @@ function AcpmuxPane() {
       </ImageViewerContext.Provider>
     </ArtifactContext.Provider>
   );
-  const toolCards = useToolCards();
   // Folder trust is the first gate in the bottom stack. While its question is open (or after Don't
   // trust), permission and secret cards stay out of the tree so the user never has two different
   // asks competing for the same answer. A read in flight asks nothing and holds nothing: the cards

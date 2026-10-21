@@ -3187,3 +3187,8 @@ button.cv-received__name:focus-visible {
 .cv-incoming > .cv-user__steer {
   padding-left: 32.5px;
 }
+/* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
+   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
+.cv-waiting {
+  color: var(--cv-text);
+}
