@@ -438,6 +438,7 @@ fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace(
         start_nonce: "22".repeat(16),
         harness_pid: None,
         owner_token: "33".repeat(32),
+        caller_token: None,
         protocol_min: acpmux::agent_host::PROTOCOL_MIN,
         protocol_max: acpmux::agent_host::PROTOCOL_MAX,
         host_build: "test".into(),

@@ -34,7 +34,7 @@ PROMPT_FILE="${CMUX_DAYBREAK_PROMPT:-$STATE_DIR/prompt.md}"
 
 # name|checkout|branch|lanes ("lane=pathspec,pathspec;...")
 REPOS=(
-  "cmux|$HOME/fun/cmux|feat-cmux-next|app=Packages/macOS,Sources,Resources,webviews,cmuxUITests;rust=cmux-tui,Native,cmuxd;cloud=web,backend,workers;mobile=cnx-ios,Packages/iOS,Packages/Shared;ci=.github,scripts,ops,tests,Makefile,package.json,bun.lock"
+  "cmux|$HOME/fun/cmux|feat-cmux-next|app=Packages/macOS,Sources,Resources,webviews,cmuxUITests;rust=cmux-tui,Native,cmuxd;cloud=web,backend,workers;mobile=cmux-next-ios,Packages/iOS,Packages/Shared;ci=.github,scripts,ops,tests,Makefile,package.json,bun.lock"
   "hq|$HOME/fun/cmuxterm-hq|main|all=."
 )
 

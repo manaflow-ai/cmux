@@ -169,8 +169,8 @@ def main():
            "a newer opted-in push still cancels the pull request's older tour")
     _check(not expression(cancel, push_event()), "a merge tour in progress is never cancelled")
     merge_group = expression(group, push_event())
-    _check(merge_group == expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
-           f"merge tours share one group, so the newest merge waits and older pending ones are replaced ({merge_group!r})")
+    _check(merge_group != expression(group, dict(push_event(), github=dict(push_event()["github"], sha="b" * 40))),
+           f"each merge has its own group, so no merge's tour is replaced by a newer one ({merge_group!r})")
 
     route_env = jobs["route"]["steps"][-1]["env"]
     _check(str(expression(route_env["SAME_REPO"], push_event())).lower() == "true", "a merge counts as same-repository")
