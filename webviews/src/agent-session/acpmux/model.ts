@@ -280,12 +280,13 @@ export type AcpmuxCatalogModel = {
   release?: string;
 };
 
-/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or
-/// send it now.
+/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), send it
+/// now (steered into the running turn when its agent steers), or stop the turn and send it next.
 export type QueueEdit =
   | { op: "update"; text: string }
   | { op: "move"; index: number }
   | { op: "send_now" }
+  | { op: "interrupt" }
   /** Runs a queue a failed turn paused; any of its prompts names it. */
   | { op: "resume" };
 

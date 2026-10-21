@@ -238,8 +238,8 @@
 .acpmux-queued-text{display:block;min-width:0;margin:0;padding:0;border:0;background:none;color:inherit;font:inherit;line-height:18px;text-align:left;white-space:pre-wrap;overflow-wrap:anywhere;cursor:default}
 /* The clamp sits on the button's text: WebKit lays a button out as its own box and ignores -webkit-line-clamp on it. */
 .acpmux-queued-clamp{display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden}.acpmux-queued-text[data-open] .acpmux-queued-clamp{display:block;-webkit-line-clamp:none}
-.acpmux-queued-actions{grid-column:3;display:flex;align-items:center;gap:2px;margin-top:-4px;opacity:.55;transition:opacity var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-queued:hover .acpmux-queued-actions,.acpmux-queued:focus-within .acpmux-queued-actions{opacity:1}
+/* Every row's actions show at the same strength, hovered or not (Leo 2026-10-20: the faint, uneven ↑). */
+.acpmux-queued-actions{grid-column:3;display:flex;align-items:center;gap:2px;margin-top:-4px}
 .acpmux-queued-action{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;padding:0;border:0;border-radius:6px;background:none;color:var(--acpmux-composer-dim);cursor:default}
 .acpmux-queued-action:hover{background:var(--agent-control-hover);color:var(--agent-text)}
 .acpmux-queued-action:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1px}
