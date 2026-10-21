@@ -132,6 +132,23 @@ impl Hub {
         session.child.lock().await.clone().filter(|c| c.host_record().is_some())
     }
 
+    /// Ctrl-B of a chat whose agent runs in a host this daemon adopted or reached again
+    /// (`processes.rs`): what the host runs, whatever the config says now. A host that does not
+    /// answer goes by `kind`, its profile's; with no profile the chat keeps what it had.
+    pub(super) async fn note_host_kind(
+        &self,
+        session: &Session,
+        child: &ChildAgent,
+        kind: Option<crate::config::HarnessKind>,
+    ) {
+        let moves = match (child.runs_claude().await, kind) {
+            (Some(claude), _) => claude,
+            (None, Some(kind)) => super::processes::backgrounds_work(kind),
+            (None, None) => return,
+        };
+        session.backgrounds_work.store(moves, Ordering::SeqCst);
+    }
+
     /// Whether a host for `session` may still run (a live or unproven record).
     pub(super) fn host_record_live(session_id: &str) -> bool {
         Self::live_host_sessions().contains(session_id)
@@ -288,9 +305,14 @@ impl Hub {
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
         let (_, env) = self.harness_env(&meta).await;
-        let all = self.config.read().await.profile(&meta.harness).is_some_and(|p| {
-            crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
-        });
+        let (all, kind) = {
+            let cfg = self.config.read().await;
+            let profile = cfg.profile(&meta.harness);
+            let all = profile.is_some_and(|p| {
+                crate::agent_tools::lists_all_tools(&meta.harness, p, &env, &meta.cwd)
+            });
+            (all, profile.map(|p| p.kind))
+        };
         child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         *session.child.lock().await = Some(child.clone());
         self.wake_idle_reaper();
@@ -299,6 +321,8 @@ impl Hub {
             let s = session.clone();
             tokio::spawn(async move { hub.inbound_loop(s, rx).await });
         }
+        // Asked once the inbound loop drains the replay, which the answer comes behind.
+        self.note_host_kind(session, &child, kind).await;
         // Scan only once every entry the host had is in the log: what the
         // previous daemon wrote or answered may still sit in its buffer.
         if !child.wait_replayed(adopted.last_h, REPLAY_STALL, REPLAY_CEILING).await {
@@ -626,8 +650,9 @@ impl Hub {
                             (None, Some(rx)) => turn_answer(rx, steer_answers).await,
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
-                        let _ =
-                            hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
+                        let _ = hub
+                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
+                            .await;
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
                         // A route switch or an update asked for a restart

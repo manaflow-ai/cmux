@@ -29,6 +29,14 @@ final class LinkOpener {
 
     /// The app's services (they own this opener and outlive it).
     private weak var services: AppServices?
+    /// A pane a link's tab gives the focus back to when it closes (``returnPane(closing:in:)``).
+    private struct Return {
+        let pane: LayoutPaneID
+        weak var content: WorkspaceContentController?
+    }
+    /// Each focused tab a click opened outside the pane it was clicked in, by surface: where it was
+    /// clicked (a link here, the chat header's Changes, Preview or Files in AgentBesidePlacement).
+    private var returns: [SurfaceID: Return] = [:]
     /// The setting, read on every open (``LinkPlacement/fallback`` before settings load).
     var placement: () -> LinkPlacement
 
@@ -102,9 +110,45 @@ final class LinkOpener {
         }
     }
 
-    /// A web link in a cmux browser tab (``LinkRouter/openInCmux``).
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) {
-        open(from: source, background: background, cmdClick: cmdClick) { $0.newBrowserTab(url: url, background: background || $1 != nil, then: $1) }
+    /// A web link in a cmux browser tab (``LinkRouter/openInCmux``), as Chrome opens a clicked
+    /// link (Leo 2026-10-21). In the source's own pane the clicked tab is its opener: the new tab
+    /// goes right after it and its close selects it again (``BrowserTabOpeners``). A focused tab
+    /// anywhere else gives the focus back to the source when it closes (``returnPane(closing:in:)``).
+    @discardableResult
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) -> Bool {
+        let from = source ?? services?.windows.active?.focusedPane
+        // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
+        if !background { _ = from?.workspace?.beginFocusIntent() }
+        return open(from: from, background: background, cmdClick: cmdClick) { [weak self, weak from] pane, placed in
+            let here = pane === from && placed == nil
+            let opener = here ? from?.selectedTab?.surface : nil
+            let back = background || here ? nil : from
+            var then = placed
+            if back != nil {
+                then = { @MainActor [weak self, weak back] surface in
+                    if let back, let content = back.workspace { self?.returnFocus(of: surface, to: back.layoutPaneID, in: content) }
+                    placed?(surface)
+                }
+            }
+            return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
+        }
+    }
+
+    /// Records that closing `surface`'s tab gives the focus back to pane `pane` of `content`.
+    func returnFocus(of surface: SurfaceID, to pane: LayoutPaneID, in content: WorkspaceContentController) {
+        returns = returns.filter { $0.value.content != nil }
+        returns[surface] = Return(pane: pane, content: content)
+    }
+
+    /// The pane tab `id` of `pane` gives the focus back to as it closes: the pane it was clicked
+    /// open from (``returnFocus(of:to:in:)``), when `pane` has the focus and that pane still shows
+    /// in the same workspace. Nil otherwise. The record is spent either way.
+    func returnPane(closing id: StripTabID, in pane: PaneController) -> PaneController? {
+        returns = returns.filter { $0.value.content != nil }
+        guard let surface = pane.tab(id)?.surface, let back = returns.removeValue(forKey: surface),
+              let content = pane.workspace, back.content === content, back.pane != pane.layoutPaneID,
+              content.focusedPane === pane else { return nil }
+        return content.panes[back.pane]
     }
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).

@@ -26,7 +26,7 @@ GUARD_WORKFLOW = Path(__file__).resolve().parents[2] / ".github/workflows/ci-gua
 GUARD_JOB = "workflow-guard-tests"
 # A path a step runs directly, such as `python3 tests/x.py` or `./scripts/y.sh`.
 DIRECT_PATH = re.compile(r"(?:\./)?((?:tests(?:_v2)?|scripts|ios/tests)/[A-Za-z0-9_./-]+)")
-GROUP_CONDITION = re.compile(r"\$\{\{\s*matrix\.group\s*==\s*'([^']+)'\s*(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?\}\}")
+GROUP_CONDITION = re.compile(r"\$\{\{\s*(?:!cancelled\(\)\s*&&\s*)?matrix\.group\s*==\s*'([^']+)'\s*(?:&&\s*steps\.fast-guard\.outputs\.skip\s*!=\s*'true'\s*)?\}\}")
 # A guard job gates itself on the route that selects it, so the workflow also
 # names which route owns which job.
 ROUTE_CONDITION = re.compile(r"\$\{\{ inputs\.([A-Za-z0-9_]+) == 'true' \}\}")
@@ -64,6 +64,9 @@ PATH_OWNERS = {
     ".github/workflows/resolve-runners.yml": frozenset(("ci",)),
     ".github/workflows/ios-app-store.yml": frozenset(("ci",)),
     "scripts/ci/resolve_runners.py": frozenset(("ci",)),
+    # test_runner_routing_table.py imports the routing check and reads every
+    # workflow's runs-on against .github/runners.json.
+    "scripts/ci/runner_routing_table.py": frozenset(("ci",)),
 
     ".github/workflows/ci-health-report.yml": frozenset(("ci",)),
     ".github/workflows/ci-queue-janitor.yml": frozenset(("ci",)),
@@ -99,6 +102,9 @@ PATH_OWNERS = {
     "scripts/ci/build_graph_health.py": frozenset(("preflight",)),
     "scripts/ci/compile-app-host-test-product.sh": frozenset(("preflight",)),
     "scripts/ci/find_admitted_build.py": frozenset(("preflight",)),
+    # test_pr_capture_check.py runs the check, which imports the path map.
+    "scripts/ci/pr_capture_check.py": frozenset(("ci",)),
+    "scripts/cmux-next/media/path_map.py": frozenset(("ci",)),
     # test_ci_package_bisect.py loads it by path.
     "scripts/ci/package_bisect.py": frozenset(("ci",)),
     # test_ci_merge_receipt.py loads it by path and also reads its workflow
@@ -416,6 +422,11 @@ def groups_for_path(path: str) -> tuple[str, ...] | None:
 
     if path == ".github/workflows/ios-testflight.yml":
         owners.update(("preflight", "ci"))
+    # The ci group's routing-table check (tests/test_runner_routing_table.py)
+    # reads every workflow's runs-on, so it observes every workflow edit. An
+    # unowned workflow already runs every group (None below).
+    if owners and path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml")):
+        owners.add("ci")
 
     if not owners:
         return None

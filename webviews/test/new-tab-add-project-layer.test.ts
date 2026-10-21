@@ -4,8 +4,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -29,8 +29,8 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -40,7 +40,7 @@ await requireBrowserLane("new-tab-add-project-layer.test.ts", async () => {
   test("the Add project dialog is solid over the New Tab composer", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.new-tab&variant=empty`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.new-tab", { variant: "empty" })}`);
     // The shipped pane's page color (the gallery theme paints a solid one).
     await page.addStyleTag({ content: ":root { --agent-page-bg: transparent !important; }" });
     // The card's location strip (the agent composer's): Folder, then Add project. The first page waits on a

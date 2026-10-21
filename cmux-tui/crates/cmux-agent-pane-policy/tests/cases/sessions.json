@@ -451,5 +451,52 @@
    "a"
   ],
   "refused": true
+ },
+ {
+  "name": "btw about own session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "a",
+    "question": "why did it flake?"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": false
+ },
+ {
+  "name": "btw about another session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/btw",
+   "params": {
+    "sessionId": "b",
+    "question": "why did it flake?"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
+ },
+ {
+  "name": "btw without a session",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 4,
+   "method": "_acpmux/btw",
+   "params": {
+    "question": "q"
+   }
+  },
+  "sessions": [
+   "a"
+  ],
+  "refused": true
  }
 ]

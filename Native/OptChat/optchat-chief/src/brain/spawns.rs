@@ -1611,6 +1611,7 @@ impl Brain {
             .collect();
         for id in held {
             self.sub_prompted(&id);
+            self.stop_if_cancelled(&id);
         }
         let open: Vec<(String, Option<String>)> = self
             .state
@@ -1767,14 +1768,24 @@ impl Brain {
         if !live {
             return json!({"stopped": false, "error": format!("no subagent {name} at work")});
         }
-        let stopped = self.stop_subagents_where(|id| id == name);
+        let StopPick {
+            stopped,
+            starting,
+            errors,
+        } = self.stop_subagents_where(|id| id == name);
         if stopped.is_empty() {
-            return json!({"stopped": false, "error": format!("{name} is still starting; stop it again in a moment")});
+            let error = errors
+                .into_iter()
+                .next()
+                .unwrap_or_else(|| format!("no subagent {name} at work"));
+            return json!({"stopped": false, "error": error});
         }
         (self.log)(&format!("the owner stopped subagent {name}"));
         self.save();
         self.start_queued();
-        json!({"stopped": true, "subagents": stopped, "note": format!("Stopped by the user: {}.", stopped.join(", "))})
+        let note = starting_note(&starting)
+            .unwrap_or_else(|| format!("Stopped by the user: {}.", stopped.join(", ")));
+        json!({"stopped": true, "subagents": stopped, "note": note})
     }
 
     /// chief.stop {all: true} ("Stop all agents", never a plain Stop): the
@@ -1782,7 +1793,11 @@ impl Brain {
     /// names them for the undo toast's list and its Restart.
     pub(super) fn stop_all(&mut self) -> Value {
         let turn = self.owner_stop()["stopped"].as_bool().unwrap_or(false);
-        let stopped = self.stop_subagents_where(|_| true);
+        let StopPick {
+            stopped,
+            starting,
+            errors,
+        } = self.stop_subagents_where(|_| true);
         if !stopped.is_empty() {
             (self.log)(&format!(
                 "the owner stopped all agents: {}",
@@ -1790,7 +1805,13 @@ impl Brain {
             ));
             self.save();
         }
-        json!({"stopped": turn, "subagents": stopped})
+        // A cancel acpmux refused stopped nothing: that one is in `errors`,
+        // never in `subagents` (so Restart never touches it).
+        let mut answer = json!({"stopped": turn, "subagents": stopped, "errors": errors});
+        if let Some(note) = starting_note(&starting) {
+            answer["note"] = json!(note);
+        }
+        answer
     }
 
     /// chief.stop {restart: [ids]}: Restart on the stop-all toast. A started
@@ -1810,7 +1831,19 @@ impl Brain {
                 errors.push(format!("{name} is not stopped"));
                 continue;
             }
+            let still_starting = (sub.status == SubStatus::Starting && sub.session_id.is_none())
+                || (sub.session_id.is_some() && sub.awaiting_task);
             let result = match (sub.status, sub.session_id.is_some()) {
+                // Stopped while it was starting (no session, or its task not
+                // sent yet): it just goes on as it starts. Queued again it
+                // would start twice; a cancel now would cut its task turn.
+                _ if still_starting => {
+                    if let Some(s) = self.state.sub_mut(name) {
+                        s.cancelled = false;
+                        s.paused = false;
+                    }
+                    Ok(format!("outcome: done. {name} goes on as it starts"))
+                }
                 // Its cancelled turn has not ended yet: the message waits
                 // for that end (after_stop), never steered into a turn
                 // that is ending.
@@ -1827,7 +1860,17 @@ impl Brain {
             };
             match result {
                 Ok(text) if !text.starts_with("outcome: refused") => restarted.push(name.clone()),
-                Ok(text) | Err(text) => errors.push(format!("{name}: {text}")),
+                // Not restarted (acpmux refused the cancel that ends its
+                // stopped turn, say): it stays stopped as it was, so a
+                // later Restart still brings it back.
+                Ok(text) | Err(text) => {
+                    if let Some(s) = self.state.sub_mut(name) {
+                        s.cancelled = sub.cancelled;
+                        s.paused = sub.paused;
+                        s.resume_attempts = sub.resume_attempts;
+                    }
+                    errors.push(format!("{name}: {text}"));
+                }
             }
         }
         if !restarted.is_empty() {
@@ -1877,7 +1920,7 @@ impl Brain {
     }
 
     /// Stops the subagents at work (or queued) whose id `pick` takes.
-    fn stop_subagents_where(&mut self, pick: impl Fn(&str) -> bool) -> Vec<String> {
+    fn stop_subagents_where(&mut self, pick: impl Fn(&str) -> bool) -> StopPick {
         let subs: Vec<(String, SubStatus, Option<String>)> = self
             .state
             .spawns
@@ -1892,19 +1935,25 @@ impl Brain {
             })
             .map(|s| (s.id.clone(), s.status, s.session_id.clone()))
             .collect();
-        // Nothing a picked one was told is sent after the stop, and each
-        // picked queued one is cancelled before any stops: a slot one frees
-        // never starts another picked one.
+        // Nothing a picked one was told is sent after the stop (kept aside:
+        // a refused cancel gives it back), and each picked queued one is
+        // cancelled before any stops: a slot one frees never starts another
+        // picked one.
+        let mut told = std::collections::HashMap::new();
         for (id, status, _) in &subs {
             if let Some(s) = self.state.sub_mut(id) {
-                s.after_stop = None;
-                s.inbox.clear();
+                told.insert(
+                    id.clone(),
+                    (s.after_stop.take(), std::mem::take(&mut s.inbox)),
+                );
                 if *status == SubStatus::Queued {
                     s.cancelled = true;
                 }
             }
         }
         let mut stopped = Vec::new();
+        let mut starting = Vec::new();
+        let mut errors = Vec::new();
         for (id, status, session) in subs {
             match (status, session) {
                 (SubStatus::Queued, _) => {
@@ -1917,8 +1966,23 @@ impl Brain {
                     );
                 }
                 (_, Some(session)) => {
+                    // Its task is not sent yet: the cancel may land before
+                    // its turn does, so it is stopped again as it starts
+                    // (best effort, `stop_if_cancelled`).
+                    if self.state.sub(&id).is_some_and(|(_, s)| s.awaiting_task) {
+                        starting.push(id.clone());
+                    }
                     if let Err(e) = self.agents.cancel(&session) {
                         (self.log)(&format!("subagent {id}: stopping it: {e}"));
+                        // Not stopped: it stays as it was.
+                        if let Some(s) = self.state.sub_mut(&id)
+                            && let Some((after_stop, inbox)) = told.remove(&id)
+                        {
+                            s.after_stop = after_stop;
+                            s.inbox = inbox;
+                        }
+                        starting.retain(|s| s != &id);
+                        errors.push(format!("{id}: its turn did not stop: {e}"));
                         continue;
                     }
                     self.end_background_processes(&id, &session);
@@ -1928,17 +1992,86 @@ impl Brain {
                         s.cancelled = true;
                     }
                 }
-                // Its session is not made yet: nothing to stop.
-                (_, None) => continue,
+                // Its session is not made yet: cancelled now, so its turn
+                // is cancelled as soon as it starts (`stop_if_cancelled`).
+                (_, None) => {
+                    if let Some(s) = self.state.sub_mut(&id) {
+                        s.cancelled = true;
+                    }
+                    starting.push(id.clone());
+                }
             }
             stopped.push(id);
         }
-        stopped.sort_by_key(|id| {
-            id.trim_start_matches('a')
-                .parse::<u64>()
-                .unwrap_or(u64::MAX)
-        });
-        stopped
+        stopped.sort_by_key(|id| id_order(id));
+        starting.sort_by_key(|id| id_order(id));
+        StopPick {
+            stopped,
+            starting,
+            errors,
+        }
+    }
+
+    /// A subagent cancelled while it was starting has its first prompt
+    /// sent now: its turn is cancelled at once. Best effort: a cancel that
+    /// beats the prompt to acpmux is lost, same as before.
+    pub(super) fn stop_if_cancelled(&mut self, id: &str) {
+        let Some(session) = self
+            .state
+            .sub(id)
+            .filter(|(_, s)| s.cancelled && s.status == SubStatus::Running)
+            .and_then(|(_, s)| s.session_id.clone())
+        else {
+            return;
+        };
+        match self.agents.cancel(&session) {
+            Ok(()) => {
+                self.end_background_processes(id, &session);
+                (self.log)(&format!(
+                    "subagent {id}: stopped as it started (it was stopped while starting)"
+                ));
+            }
+            // Its turn goes on: it is at work again, not stopped.
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: stopping it as it started: {e}; it goes on"
+                ));
+                if let Some(s) = self.state.sub_mut(id) {
+                    s.cancelled = false;
+                }
+                self.save();
+            }
+        }
+    }
+}
+
+/// What a stop of several subagents did: the ones it stopped (in id
+/// order, the still-starting ones among them), and one line per one whose
+/// cancel acpmux refused.
+struct StopPick {
+    stopped: Vec<String>,
+    starting: Vec<String>,
+    errors: Vec<String>,
+}
+
+/// `a12` sorts after `a2`.
+fn id_order(id: &str) -> u64 {
+    id.trim_start_matches('a')
+        .parse::<u64>()
+        .unwrap_or(u64::MAX)
+}
+
+/// The answer's note for subagents stopped while still starting.
+fn starting_note(starting: &[String]) -> Option<String> {
+    match starting {
+        [] => None,
+        [one] => Some(format!(
+            "{one} is still starting; it stops as soon as it starts."
+        )),
+        many => Some(format!(
+            "{} are still starting; they stop as soon as they start.",
+            many.join(", ")
+        )),
     }
 }
 

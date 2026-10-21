@@ -38,6 +38,9 @@ export function automationState(host: AutomationHost) {
     harness: snapshot.summary?.harness ?? null,
     isWorking: snapshot.isWorking,
     rows: snapshot.rows.length,
+    /// Whether older history remains to page in, and the oldest event seq the pane holds.
+    canLoadOlder: snapshot.canLoadOlder,
+    historyFrom: snapshot.historyFrom ?? null,
     /// The session the tab recorded that the daemon lacks (the pane says "This chat isn't available").
     missingSession: snapshot.missingSession ?? null,
     /// The chat as the pane shows it: the last TRANSCRIPT_ROWS user and assistant rows, each cut
