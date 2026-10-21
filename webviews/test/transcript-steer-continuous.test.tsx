@@ -699,4 +699,9 @@ test("Find walks past a prompt that failed to send mid-turn to the fold the turn
   ];
   expect(turnFoldFor(rows, 2)).toBe(`${WORKED}-u`);
   expect(turnView(rows, new Set(), { now: START + 100_000 }).some((each) => each.id === `${WORKED}-u`)).toBe(true);
+  // A chat's first prompt that failed to send still opens its turn (acpmux ran it anyway).
+  const first = [{ ...rows[0]!, failed: true }, ...rows.slice(2)];
+  expect(turnFoldFor(first, 1)).toBe(`${WORKED}-u`);
+  const open = turnView(first, new Set([`${WORKED}-u`]), { now: START + 100_000 });
+  expect(open.some((each) => each.id === "a-b1")).toBe(true);
 });
