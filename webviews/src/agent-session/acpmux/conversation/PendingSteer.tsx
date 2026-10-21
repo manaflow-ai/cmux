@@ -32,7 +32,9 @@ export function PendingSteer({
           disabled={sending}
           onClick={() => {
             setSending(true);
-            void send(promptId, { op: "send_now" }).finally(() => setSending(false));
+            void send(promptId, { op: "send_now" })
+              .catch(() => false)
+              .finally(() => setSending(false));
           }}
         >
           {t("steer.sendNow")}
