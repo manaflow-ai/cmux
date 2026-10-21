@@ -1,5 +1,6 @@
 #if DEBUG
 @testable import CmuxNextPages
+import CmuxNextSettings
 import Foundation
 import Testing
 
