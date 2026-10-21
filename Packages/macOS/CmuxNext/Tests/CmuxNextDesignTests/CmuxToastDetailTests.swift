@@ -29,7 +29,7 @@ struct CmuxToastDetailTests {
                                                   action: CmuxToast.Action(title: "Restart")))
         view.layoutSubtreeIfNeeded()
         let label = try #require(view.messageLabel)
-        #expect(view.fittingSize.height >= label.intrinsicContentSize.height + 2 * CmuxToastView.messageInset)
+        #expect(view.fittingSize.height >= label.intrinsicContentSize.height + 2 * Metrics.space2)
 
         let one = CmuxToastView(toast: CmuxToast(id: "u", message: "Stopped all agents: a1 and a3", action: CmuxToast.Action(title: "Restart")))
         one.layoutSubtreeIfNeeded()
