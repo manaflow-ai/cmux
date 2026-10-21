@@ -667,11 +667,7 @@ pub(crate) async fn tail(
             client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await?;
             events_after(&client, &id, seq, 100000).await?
         }
-        None => {
-            let v =
-                client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": last})).await?;
-            with_older(&client, &id, &v, last as usize).await?
-        }
+        None => with_older(&client, json!({"sessionId": id, "limit": last})).await?,
     };
     let stdout = std::io::stdout();
     let mut sup = ReadSuppressor::default();

@@ -703,11 +703,19 @@ async fn collect_once(
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
 }
 
+/// The most JSON a page of the daemon's log may hold (`_acpmux/attach` `maxBytes`; it
+/// defaults to 1 MiB). A reply is read from one page of the newest transcript records; raw
+/// harness lines are left out so they cannot crowd the turn out of it.
+const TRANSCRIPT_PAGE_BYTES: usize = 4 << 20;
+
 /// The assistant reply of one turn, read from the session's log: the last
 /// assistant item between that turn's start and its result.
 async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
-    let events = with_older(client, id, &v, 5000).await?;
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
+    let events = with_older(client, page).await?;
     Ok(reply_of_turn(&events, turn))
 }
 
@@ -716,26 +724,21 @@ fn page_events(page: &Value) -> (Vec<Value>, bool) {
     (events, page.get("hasMore").and_then(Value::as_bool).unwrap_or(false))
 }
 
-/// The newest `limit` events of a chat, oldest first, from `page` (an attach or `beforeSeq`
-/// read) and the older pages before it: one reply holds at most `hub::MAX_PAGE_BYTES`.
-pub(crate) async fn with_older(
-    client: &Arc<Client>,
-    id: &str,
-    page: &Value,
-    limit: usize,
-) -> Result<Vec<Value>> {
-    let (mut events, mut more) = page_events(page);
+/// The newest `limit` events of a chat, oldest first: the attach `query` names (`sessionId`,
+/// `limit`, and any `kinds` or `maxBytes`), then the older pages before it with the same filter,
+/// since one reply holds at most `hub::MAX_PAGE_BYTES`.
+pub(crate) async fn with_older(client: &Arc<Client>, query: Value) -> Result<Vec<Value>> {
+    let limit = query.get("limit").and_then(Value::as_u64).unwrap_or(0) as usize;
+    let (mut events, mut more) =
+        page_events(&client.request(method::MUX_ATTACH, query.clone()).await?);
     while more && events.len() < limit {
         let Some(first) = events.first().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
             break;
         };
-        let v = client
-            .request(
-                method::MUX_EVENTS,
-                json!({"sessionId": id, "beforeSeq": first, "limit": limit - events.len()}),
-            )
-            .await?;
-        let (older, has_more) = page_events(&v);
+        let mut older = query.clone();
+        older["beforeSeq"] = json!(first);
+        older["limit"] = json!(limit - events.len());
+        let (older, has_more) = page_events(&client.request(method::MUX_EVENTS, older).await?);
         if older.is_empty() {
             break;
         }
@@ -804,9 +807,12 @@ pub(crate) async fn last_replies(
     id: &str,
     count: usize,
 ) -> Result<Vec<String>> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
     let mut t = Transcript::default();
-    for e in with_older(client, id, &v, 5000).await? {
+    for e in with_older(client, page).await? {
         t.apply_event(&e);
     }
     let mut out: Vec<String> = t

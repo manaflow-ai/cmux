@@ -3,8 +3,10 @@
 // commands (inspector/processes.ts `backgroundCommands`), running ones first and newest first, each
 // with how long it has run and a Stop button (inspector/TasksSection.tsx `StopButton`). The finished
 // ones fold into one "N finished" row that opens them in place. A row opens the command's terminal
-// beside the chat (processTerminal.ts).
+// beside the chat (processTerminal.ts). A command that starts while the card is drawn drops in at the
+// top (ui/presence.ts `useArrivals`); the ones the card is drawn with are simply there.
 import { useMemo, useState } from "react";
+import { useArrivals } from "../../../ui/presence";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -34,13 +36,19 @@ export function SummaryTasks({
   const [finishedOpen, setFinishedOpen] = useState(false);
   const { running, finished } = useMemo(() => splitCommands(commands), [commands]);
   const now = useNow(running.length > 0);
+  const arrived = useArrivals(commands.map((command) => command.id));
   if (commands.length === 0) return null;
   const title = t("summary.backgroundTasks");
   const row = (command: BackgroundCommand) => {
     const live = command.state === "running";
     const toolCallId = command.toolCallId;
     return (
-      <li key={command.id} className="acpmux-summary-task" data-state={command.state}>
+      <li
+        key={command.id}
+        className="acpmux-summary-task"
+        data-state={command.state}
+        data-enter={live && arrived.has(command.id) ? "top" : undefined}
+      >
         <button
           type="button"
           className="acpmux-summary-row acpmux-summary-link"

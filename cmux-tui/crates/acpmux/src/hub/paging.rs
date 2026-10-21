@@ -161,17 +161,22 @@ fn record_bytes(rec: &EventRecord) -> usize {
     serde_json::to_string(&rec.msg).map_or(0, |msg| msg.len()) + rec.kind.len() + 120
 }
 
-/// The most a page of records holds when its reader names no `maxBytes`, and the most it may ask:
-/// a page goes out as one message, under `rpc::MAX_MESSAGE_BYTES`. 5000 records of a chat with
-/// long tool outputs were 32.8 MB (2026-10-21).
-pub const MAX_PAGE_BYTES: usize = 8 << 20;
+/// The most JSON one page holds when the caller names no `maxBytes`, and the most it may
+/// name. A page's records are parsed trees until the reply is written, many times their
+/// JSON: one read of a whole 31 MB log held about 1 GB (huge-blue, 2026-10-21), and a 4 MiB
+/// page still grew the daemon by 95 MB. A longer read takes more pages through `hasMore`;
+/// the app's pages are 128 and 256 KiB. A page also goes out as one message, under
+/// `rpc::MAX_MESSAGE_BYTES`: 5000 records of a chat with long tool outputs were 32.8 MB.
+pub const DEFAULT_PAGE_BYTES: usize = 1 << 20;
+pub const MAX_PAGE_BYTES: usize = 4 << 20;
 
-/// The `maxBytes` a request's page keeps to.
+/// A page's byte limit from `maxBytes`: [`DEFAULT_PAGE_BYTES`] when absent, at most
+/// [`MAX_PAGE_BYTES`].
 pub fn page_bytes(params: &Value) -> usize {
-    params
-        .get("maxBytes")
-        .and_then(Value::as_u64)
-        .map_or(MAX_PAGE_BYTES, |b| usize::try_from(b).unwrap_or(usize::MAX).min(MAX_PAGE_BYTES))
+    let asked = params.get("maxBytes").and_then(Value::as_u64);
+    asked
+        .map_or(DEFAULT_PAGE_BYTES, |b| usize::try_from(b).unwrap_or(usize::MAX))
+        .min(MAX_PAGE_BYTES)
 }
 
 /// A record no page can carry goes as a stub with its kind and seq: what it left out, and how much.

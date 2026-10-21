@@ -55,7 +55,6 @@ test/composer-caret-focus.test.ts	21
 test/composer-chip-plain-rest.test.ts	4
 test/composer-chip-press.test.ts	8
 test/composer-claude-split.test.ts	8
-test/composer-draft-wrap.test.ts	4
 test/composer-location-strip.test.ts	1
 test/composer-menu-dismiss.test.ts	16
 test/composer-paste-images.test.tsx	7

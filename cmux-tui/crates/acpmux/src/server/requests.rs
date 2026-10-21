@@ -957,7 +957,7 @@ async fn dispatch_request(
             let page = hub
                 .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
-            let events: Vec<Value> = page.events.iter().map(|r| event_value(&s.id, r)).collect();
+            let events: Vec<Value> = events::values(&s.id, page.events);
             Ok(
                 json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": s.meta().last_seq}),
             )

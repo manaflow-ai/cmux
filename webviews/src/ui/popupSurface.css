@@ -42,7 +42,8 @@
 
 /* A popup also travels a few points out of its trigger (Leo 2026-10-20, directional motion): one
    above its trigger rises, one below drops, one beside it slides away from it. Base UI names the
-   side (`data-side`); the composer's own menus say "above". */
+   side (`data-side`); a menu useUiAnchor places gets its travel from the side it opened on (an
+   inline `--ui-popup-y`), so one that flips below its chip drops instead of rising. */
 :where(.ui-popup:is([data-side="top"], [data-side="above"])) {
   --ui-popup-y: 4px;
 }
@@ -68,6 +69,14 @@
   :where(.ui-popup) {
     animation: ui-popup-fade var(--ui-popup-open) ease-out;
   }
+}
+
+/* A popup takes focus when it opens so its keys work; it never draws the engine's `outline: auto`
+   ring, which WebKit paints in the macOS accent (orange when the person picks orange). Its rows show
+   the highlight instead. */
+:where(.ui-popup):focus,
+:where(.ui-popup):focus-visible {
+  outline: none;
 }
 
 /* A popup fades out when it closes (POLISH: no flash; a closed menu vanished in one frame). Base UI
@@ -182,16 +191,25 @@
   opacity: 0;
   translate: var(--ui-enter-x, 0) var(--ui-enter-y, 0);
 }
+/* Custom properties inherit: each edge sets both axes, and a surface inside another entering one (a
+   new row in a card that slid in) starts from the default distance, not its container's. */
+:where([data-enter] [data-enter]) {
+  --ui-enter-distance: 8px;
+}
 :where([data-enter="right"]) {
   --ui-enter-x: var(--ui-enter-distance);
+  --ui-enter-y: 0;
 }
 :where([data-enter="left"]) {
   --ui-enter-x: calc(-1 * var(--ui-enter-distance));
+  --ui-enter-y: 0;
 }
 :where([data-enter="bottom"]) {
+  --ui-enter-x: 0;
   --ui-enter-y: var(--ui-enter-distance);
 }
 :where([data-enter="top"]) {
+  --ui-enter-x: 0;
   --ui-enter-y: calc(-1 * var(--ui-enter-distance));
 }
 @media (prefers-reduced-motion: reduce) {

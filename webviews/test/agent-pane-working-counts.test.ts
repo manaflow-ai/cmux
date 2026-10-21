@@ -2,8 +2,10 @@
 // The running turn's line counts the work still going in the background, after Claude's phone
 // app ("Working… · 5 running tasks"): "Working for 42s · 2 agents · 1 command". It counts only
 // subagents still running and background shells that have not ended, each count opens what it
-// counts, and a count never moves the line or the rows under it. The page is the pane's dev entry
-// with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
+// counts, and a count never moves the line or the rows under it. That is the presentation with the
+// running tray off (Debug Settings agentPane.debug.subagentTray); with the tray on, the default, the
+// tray above the composer is the count and the line counts nothing. The page is the pane's dev
+// entry with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -167,10 +169,13 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  const open = async (session: string, width = 900) => {
+  /// The tray off, as the host sends it with the theme, unless `tray`.
+  const open = async (session: string, width = 900, tray = false) => {
     const page = await browser!.newPage({ viewport: { width, height: 760 } });
     await page.goto(url(session));
     await line(page).waitFor({ timeout: 25_000 });
+    if (!tray)
+      await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };
   // The running line reads the turn's time ("Working for 1m 30s", WorkingFor.tsx): the read in
@@ -225,6 +230,16 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     await plain.close();
   });
 
+  test("with the tray on, the line counts nothing: the tray lists the same work", async () => {
+    const page = await open(BUSY, 900, true);
+    const tray = page.locator(".acpmux-running-tray");
+    await tray.waitFor({ timeout: 5_000 });
+    const lines = await tray.locator(".acpmux-agent-line .acpmux-summary-agent__name").allInnerTexts();
+    expect(lines).toEqual(["Reviewer", "Tester", "npm run dev"]);
+    expect((await line(page).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Working for [^·]+$/);
+    await page.close();
+  });
+
   test("a count moves nothing: the line keeps its box and its label stays put", async () => {
     for (const width of [900, 420]) {
       const measure = async (session: string) => {
@@ -247,7 +262,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the command count opens the shell's row", async () => {
     const page = await open(BUSY);
-    const command = page.getByRole("button", { name: "1 command" });
+    const command = line(page).getByRole("button", { name: "1 command" });
     await command.click();
     // The first turn's "Worked for" opens, and its Bash row scrolls into view.
     const row = page.locator(".cv-tool", { hasText: "npm run dev" }).first();
@@ -264,7 +279,6 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the agent count opens the list of the chat's agents", async () => {
     const page = await open(BUSY);
-    // The agents pill above the composer says "2 agents" too; this is the working line's count.
     await line(page).getByRole("button", { name: "2 agents" }).click();
     const list = page.getByRole("region", { name: "Subagents" });
     await list.waitFor({ timeout: 5_000 });

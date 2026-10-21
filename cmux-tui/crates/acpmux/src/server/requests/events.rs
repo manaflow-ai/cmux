@@ -26,8 +26,14 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
         .events_page(&s.id, after, before, limit, max_bytes, before.is_some(), &filter)
         .map_err(|e| RpcError::internal(e.to_string()))?;
     Ok(json!({
-        "events": page.events.iter().map(|r| event_value(&s.id, r)).collect::<Vec<_>>(),
+        "events": values(&s.id, page.events),
         "hasMore": page.has_more,
         "lastSeq": last,
     }))
+}
+
+/// A page's records as `_acpmux/event` values, each moved into its value: the page is never
+/// held twice.
+pub(super) fn values(session_id: &str, records: Vec<crate::store::EventRecord>) -> Vec<Value> {
+    records.into_iter().map(|r| into_event_value(session_id, r)).collect()
 }

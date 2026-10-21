@@ -96,3 +96,17 @@ export function usePresence(shown: boolean, edge: EnterEdge, { appear = false }:
     props: { ref, "data-enter": edge, "data-presence": shownPhase },
   };
 }
+
+/// The keys that arrived after the first render, for a list whose new rows enter (`data-enter` on
+/// the row: ui/popupSurface.css plays it once when the row mounts) while the rows it is drawn with
+/// are simply there. A key stays arrived, so a row that remounts later (a fold reopening) replays
+/// its enter only where the caller asks for it.
+export function useArrivals(keys: readonly string[]): ReadonlySet<string> {
+  const [state, setState] = useState(() => ({ seen: new Set(keys), arrived: new Set<string>() }));
+  const fresh = keys.filter((key) => !state.seen.has(key));
+  if (fresh.length === 0) return state.arrived;
+  // Follow the keys during render, as usePresence follows `shown`.
+  const next = { seen: new Set([...state.seen, ...fresh]), arrived: new Set([...state.arrived, ...fresh]) };
+  setState(next);
+  return next.arrived;
+}
