@@ -94,6 +94,9 @@ pub struct Session {
     /// Set once the session is purged, so late events do not recreate its
     /// files while the directory is being removed.
     pub(super) purged: AtomicBool,
+    /// Set when the chat is closed (`kill`) until its agent starts again: its host may still
+    /// hold its record while it ends, and it is not running (`policy_mode.rs` `follow_policy`).
+    pub(super) closing: AtomicBool,
     /// Bumps on every status, permission and turn change; waits gate on it.
     pub(super) state_seq: AtomicU64,
     /// Clients attached right now (TUI, web, CLI streams).
