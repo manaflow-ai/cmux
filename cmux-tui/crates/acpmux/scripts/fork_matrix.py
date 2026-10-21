@@ -120,6 +120,14 @@ class Daemon:
             return p.returncode, last if isinstance(last, dict) else {}, p.stderr + p.stdout[-400:]
 
 
+# A refusal must say why in words a person can act on; a bare agent error is a failure.
+REASONS = ("no turn", "cannot fork", "could not fork", "working", "turn ends")
+
+
+def clear_refusal(why: str) -> bool:
+    return "timeout" not in why and any(r in why for r in REASONS) and "could not fork this chat: Internal error" not in why
+
+
 def token(prefix: str) -> str:
     return prefix + "-" + "".join(random.choices(string.ascii_uppercase + string.digits, k=6))
 
@@ -194,6 +202,10 @@ class Matrix:
     def seed(self) -> tuple[bool, str]:
         self.parent = f"{self.tag}-chat"
         ok, why = self.new(self.parent, f"Remember the secret token {self.t1}. Reply with just OK.")
+        if not ok and "connect" in why:  # the daemon's socket was not ready yet: once more
+            time.sleep(3)
+            self.parent = f"{self.tag}-chat2"
+            ok, why = self.new(self.parent, f"Remember the secret token {self.t1}. Reply with just OK.")
         if not ok:
             return False, f"turn 1: {why}"
         # A harness that answers with an error text (a model the account lacks) is no chat to fork.
@@ -294,7 +306,7 @@ class Matrix:
             return "fail", f"chat never finished its turn after a busy fork ({outcome})"
         if not ok:
             # A refusal must say why; a silent rc or a hang is the bug.
-            return ("pass", f"status={status}; {outcome}") if len(why) > 12 and "timeout" not in why else ("fail", outcome)
+            return ("pass", f"status={status}; {outcome}") if clear_refusal(why) else ("fail", outcome)
         if not self.wait_idle(fb, 120):
             return "fail", "busy fork never became ready"
         ok2, reply = self.send(fb, "Reply with only the first secret token I gave you.")
@@ -326,7 +338,7 @@ class Matrix:
             return "fail", f"empty chat: {why}"
         ok, why = self.fork(e, f"{e}-f")
         if not ok:
-            return ("pass", f"refused: {why[:160]}") if len(why) > 12 and "timeout" not in why else ("fail", f"refused without a reason: {why}")
+            return ("pass", f"refused: {why[:160]}") if clear_refusal(why) else ("fail", f"refused without a clear reason: {why}")
         ok, reply = self.send(f"{e}-f", "Reply with just OK.")
         return ("pass", "forked an empty chat; it answers") if ok else ("fail", f"empty fork unusable: {reply}")
 

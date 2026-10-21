@@ -6,6 +6,10 @@
 use super::*;
 use std::sync::atomic::Ordering;
 
+/// Why a chat with no turn cannot fork: its agent holds no conversation to copy yet.
+const NOTHING_TO_FORK: &str =
+    "the chat has no turn yet, so there is nothing to fork; send a message first";
+
 impl Hub {
     /// Whether the session runs Claude Code, and its profile env plus its
     /// preset's (`agent_tools::left_out`, where Claude keeps its store).
@@ -61,9 +65,7 @@ impl Hub {
         // conversation; a chat with no turn has none, and its fork would fail at its
         // first prompt ("No conversation found"). Refuse before a chat is made.
         if is_claude && cut.is_none() && parent_meta.turn_count == 0 {
-            return Err(RpcError::invalid_params(
-                "the chat has no turn yet, so there is nothing to fork; send a message first",
-            ));
+            return Err(RpcError::invalid_params(NOTHING_TO_FORK));
         }
         let mut turn_count = parent_meta.turn_count;
         let (res, new_sid) = if let Some(through) = cut {
@@ -122,8 +124,12 @@ impl Hub {
                     json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
                 )
                 .await
-                // The agent's own error is often bare ("Internal error"): say whose fork failed.
-                .map_err(|e| RpcError { message: format!("{} could not fork this chat: {}", parent_meta.harness, e.message), ..e })?;
+                // The agent's own error is often bare ("Internal error"): say whose fork failed,
+                // and why when the chat has no turn (Claude's ACP adapter fails those).
+                .map_err(|e| {
+                    let why = if parent_meta.turn_count == 0 { NOTHING_TO_FORK.to_owned() } else { e.message.clone() };
+                    RpcError { message: format!("{} could not fork this chat: {why}", parent_meta.harness), ..e }
+                })?;
             let new_sid = res
                 .get("sessionId")
                 .and_then(Value::as_str)
