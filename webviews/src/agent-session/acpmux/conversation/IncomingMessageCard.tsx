@@ -2,16 +2,25 @@
 // line, "Received message from <sender> ›", never the person's bubble and never folded away. The
 // sender's name opens its chat beside this one when it is a chat here; › opens the message under
 // the line, the body only; the prompt as the agent got it (cmux's or Claude Code's envelope) waits
-// behind Details under it. Whether it is open
-// lasts while the page does, so scrolling it out of the virtualized transcript keeps it.
+// behind Details under it. Whether it is open lasts while the page does, so scrolling it out of the
+// virtualized transcript keeps it. A sub-session family's sender reads with who it is to this chat:
+// "Received message from Parent · coordinator".
 import { useContext, useId, useLayoutEffect, useState } from "react";
-import { useT } from "../i18n";
+import { useT, type StringKey } from "../i18n";
 import type { PromptImage } from "../model";
-import type { IncomingMessage } from "./incomingMessage";
+import type { IncomingMessage, IncomingRelation } from "./incomingMessage";
 import { SentImages } from "./UserBubble";
 import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { ChevronRight, TerminalSquare } from "./icons";
+
+/// A family sender's label, its relation before its name ("Parent · coordinator").
+const RELATION_LABEL: Record<IncomingRelation, StringKey> = {
+  parent: "message.from.parent",
+  subsession: "message.from.subsession",
+  ancestor: "message.from.ancestor",
+  descendant: "message.from.descendant",
+};
 
 /// The messages the person opened, by chat and row (row ids repeat across chats).
 const opened = new Set<string>();
@@ -59,7 +68,9 @@ export function IncomingMessageLine({
   const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
   const sessionId = message.sessionId;
-  const label = t("message.label", { from: message.name, to: t("message.self") });
+  // A sub-session family's sender says who it is to this chat.
+  const from = message.relation ? t(RELATION_LABEL[message.relation], { name: message.name }) : message.name;
+  const label = t("message.label", { from, to: t("message.self") });
   return (
     <div className="cv-received" data-open={open || undefined}>
       <div className="cv-received__line">
@@ -75,11 +86,11 @@ export function IncomingMessageLine({
             aria-label={t("subagents.open", { name: message.name })}
             onClick={() => onOpen(sessionId)}
           >
-            {message.name}
+            {from}
           </button>
         ) : (
           <span className="cv-received__name is-plain" aria-hidden onClick={toggle}>
-            {message.name}
+            {from}
           </span>
         )}
         {after && (
