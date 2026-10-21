@@ -32,8 +32,10 @@ final class SidebarDoneFoldRowView: SidebarRowView {
         let b = layoutBounds
         let h = ceil(name.intrinsicContentSize.height)
         let icon = chevron.image?.size ?? .zero
-        let x = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
-        chevron.frame = NSRect(x: max(0, x - icon.width - Metrics.space1), y: (b.height - icon.height) / 2, width: icon.width, height: icon.height)
+        // The chevron starts where a row's title does, the count right after it.
+        let start = SidebarStyle.titleLeading - SidebarStyle.labelCellPadding
+        chevron.frame = NSRect(x: start, y: (b.height - icon.height) / 2, width: icon.width, height: icon.height)
+        let x = chevron.frame.maxX + Metrics.space1
         name.frame = NSRect(x: x, y: (b.height - h) / 2, width: max(0, b.width - x - Metrics.space2), height: h)
         needsDisplay = true
     }
