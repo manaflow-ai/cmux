@@ -69,6 +69,9 @@ public final class ActionRegistry {
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.
     @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// Asks for one argument inline, also an optional one (the palette installs itself here), then
+    /// calls `perform(_:invocation:)` again with it (`ask(_:_:_:)`).
+    @ObservationIgnored public var argumentAsker: (@MainActor (ActionID, ActionInvocation, ActionArgumentAsk) -> Void)?
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.

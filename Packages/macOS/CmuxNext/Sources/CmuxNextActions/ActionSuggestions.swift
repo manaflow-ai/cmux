@@ -33,4 +33,6 @@ public nonisolated struct ActionSuggestions: Sendable, Hashable {
     public static let paneBackgrounds = "paneBackgrounds"
     /// Marker tints a pane may take (`pane.setTint`): the pinned named colors.
     public static let paneTints = "paneTints"
+    /// The cmux Cloud teams of the signed-in account (Team Picker's `team`), by team id.
+    public static let cloudTeams = "cloudTeams"
 }
