@@ -27,13 +27,9 @@ public final class MainThreadWatchdog: Sendable {
         public var hangThreshold: Duration
         /// At most one hang report per this interval (default 5 min).
         public var hangReportInterval: Duration
-        /// Debug builds: when explicitly enabled, a hang still running this
-        /// long fails an assertion (10 s; nil by default and in release
-        /// builds), if the main thread used CPU for at least half of it
-        /// (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
-        /// Dogfood builds keep the hang report and stack sample without
-        /// terminating the app; set `CMUX_NEXT_ASSERT_HANGS=1` when
-        /// deliberately testing the crash path.
+        /// Debug builds: a hang still running this long fails an assertion
+        /// (default 10 s; nil in release builds), if the main thread used
+        /// CPU for at least half of it (``hangFailsAssertion(elapsedNanos:mainThreadCPUNanos:assertNanos:)``).
         public var hangAssertThreshold: Duration?
 
         /// `CMUX_NEXT_HANG_THRESHOLD_MS` lowers the threshold for a
@@ -44,23 +40,14 @@ public final class MainThreadWatchdog: Sendable {
             return .milliseconds(min(max(raw, 4), 1_000))
         }
 
-        static func defaultHangAssertThreshold(environment: [String: String], isDebugBuild: Bool) -> Duration? {
-            let enabled = environment["CMUX_NEXT_ASSERT_HANGS"]?.lowercased()
-            guard enabled == "1" || enabled == "true" || enabled == "yes" else { return nil }
-            return hangAssertThreshold(debugBuild: isDebugBuild,
-                                       noActivate: environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
-        }
-
-        /// The opt-in debug crash threshold. Hang reports stay enabled by
-        /// default; only the fatal assertion is gated for dogfood stability.
-        public static var environmentHangAssertThreshold: Duration? {
-            defaultHangAssertThreshold(environment: ProcessInfo.processInfo.environment,
-                                        isDebugBuild: ControlService.isDebugBuild)
-        }
-
         /// The debug assertion is useful for interactive launches, but a
         /// `CMUX_NEXT_NO_ACTIVATE=1` diagnostic launch must stay alive long
         /// enough to preserve its watchdog evidence after reporting a hang.
+        public static var defaultHangAssertThreshold: Duration? {
+            hangAssertThreshold(debugBuild: ControlService.isDebugBuild,
+                                noActivate: ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
+        }
+
         /// Policy seam kept explicit so diagnostic-launch behavior is tested
         /// without mutating the process environment.
         public static func hangAssertThreshold(debugBuild: Bool, noActivate: Bool) -> Duration? {
@@ -70,7 +57,7 @@ public final class MainThreadWatchdog: Sendable {
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,
                     logStalls: Bool = ControlService.isDebugBuild, hangThreshold: Duration = .seconds(2),
                     hangReportInterval: Duration = .seconds(300),
-                    hangAssertThreshold: Duration? = Configuration.environmentHangAssertThreshold) {
+                    hangAssertThreshold: Duration? = Configuration.defaultHangAssertThreshold) {
             self.threshold = threshold
             self.capacity = capacity
             self.sampleStacks = sampleStacks

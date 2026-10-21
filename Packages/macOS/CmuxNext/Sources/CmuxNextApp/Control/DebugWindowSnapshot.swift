@@ -46,8 +46,9 @@ enum DebugWindowSnapshot {
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
             let snapshot = try window.snapshotImage()
-            _ = try await NSWindow.encodeSnapshotPNG(snapshot.image, to: URL(fileURLWithPath: path))
+            // Read before the encode's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
+            try await NSWindow.encodeSnapshotPNG(snapshot.image, to: URL(fileURLWithPath: path))
             return .object([
                 "path": .string(path), "width": JSONValue(snapshot.image.width), "height": JSONValue(snapshot.image.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(snapshot.method.rawValue),
@@ -140,7 +141,7 @@ enum DebugWindowSnapshot {
             let output = WindowImageLayer.composite(base: base.image, window: window, layers: layers) ?? base.image
             // AppKit/WebKit capture and compositing stay on the main actor;
             // PNG compression and the file write run off-main.
-            _ = try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
+            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
                 "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),

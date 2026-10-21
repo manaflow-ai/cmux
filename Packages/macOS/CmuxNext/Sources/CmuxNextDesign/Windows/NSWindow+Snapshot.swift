@@ -1,9 +1,7 @@
 public import AppKit
 import Darwin
-import ImageIO
-import UniformTypeIdentifiers
 
-/// How ``NSWindow/writeSnapshot(to:)`` captured a window.
+/// How ``NSWindow/snapshotImage()`` captured a window.
 public nonisolated enum WindowSnapshotMethod: String, Sendable {
     /// The window server's composited image of the window (vibrancy,
     /// Liquid Glass and Metal layers as on screen).
@@ -13,18 +11,13 @@ public nonisolated enum WindowSnapshotMethod: String, Sendable {
 }
 
 extension NSWindow {
-    /// Encodes an immutable capture and writes it atomically off the main
-    /// actor. The Bool lets the regression test verify executor placement.
-    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws -> Bool {
+    /// Encodes an immutable capture as PNG and writes it atomically, off the
+    /// main actor: AppKit capture stays on the main actor, the compression
+    /// and the file write do not.
+    public static func encodeSnapshotPNG(_ image: CGImage, to url: URL) async throws {
         try await Task.detached(priority: .userInitiated) {
-            let data = NSMutableData()
-            guard let destination = CGImageDestinationCreateWithData(data, UTType.png.identifier as CFString, 1, nil) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            CGImageDestinationAddImage(destination, image, nil)
-            guard CGImageDestinationFinalize(destination) else { throw CocoaError(.fileWriteUnknown) }
-            try (data as Data).write(to: url, options: .atomic)
-            return pthread_main_np() == 0
+            guard let data = image.pngData() else { throw CocoaError(.fileWriteUnknown) }
+            try data.write(to: url, options: .atomic)
         }.value
     }
 
@@ -186,17 +179,5 @@ extension NSWindow {
             return (image, .appkit)
         }
         throw CocoaError(.fileWriteUnknown)
-    }
-
-    /// Writes the window as PNG to `url`: composited when the window server
-    /// gives an image (``compositedSnapshot()``), else AppKit drawing
-    /// (``renderSnapshot()``). Returns the pixel size and the method used.
-    public func writeSnapshot(to url: URL) throws -> (size: CGSize, method: WindowSnapshotMethod) {
-        let snapshot = try snapshotImage()
-        let rep = NSBitmapImageRep(cgImage: snapshot.image)
-        let method = snapshot.method
-        guard let data = rep.representation(using: .png, properties: [:]) else { throw CocoaError(.fileWriteUnknown) }
-        try data.write(to: url, options: .atomic)
-        return (CGSize(width: rep.pixelsWide, height: rep.pixelsHigh), method)
     }
 }

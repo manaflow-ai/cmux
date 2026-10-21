@@ -7,8 +7,8 @@ import Testing
 import UniformTypeIdentifiers
 
 /// `debug.window_snapshot` keeps AppKit capture on the main actor but hands the
-/// immutable image to the concurrent PNG encoder. This exercises the encoder's
-/// real ImageIO/file path from a main-actor caller, which is the watchdog repro.
+/// immutable image to the off-main PNG encoder. This exercises the encoder's
+/// real ImageIO and file path from a main-actor caller.
 @MainActor
 @Suite
 struct DebugWindowSnapshotPNGTests {
@@ -29,8 +29,7 @@ struct DebugWindowSnapshotPNGTests {
         defer { try? FileManager.default.removeItem(at: directory) }
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
 
-        let encodedOffMain = try await NSWindow.encodeSnapshotPNG(image, to: url)
-        #expect(encodedOffMain)
+        try await NSWindow.encodeSnapshotPNG(image, to: url)
 
         let source = try #require(CGImageSourceCreateWithURL(url as CFURL, nil))
         let decoded = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
