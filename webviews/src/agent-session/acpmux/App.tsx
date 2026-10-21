@@ -4316,8 +4316,12 @@ function AcpmuxPane() {
   const tabRow = useTabRow();
   const inTabRow = tabRow.height > 0 && !quick;
   const tabRowTools = useTabRowTools(inTabRow ? tabRow : undefined, reportTabRowTools);
-  // Only Claude's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`).
-  const stopsSubagents = snapshot.summary?.harness === "claude";
+  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
+  // running command's row says so (conversation/runInBackground.ts).
+  const canBackground = backgroundsWork(snapshot.summary);
+  // Only Claude Code's agents and workflows stop on their own (acpmux `_acpmux/subagent_stop`, which
+  // this acpmux serves where it moves work: a Claude Code chat whatever its harness is named).
+  const stopsSubagents = canBackground;
   const stopSubagent = useMemo(
     () =>
       stopsSubagents
@@ -4325,9 +4329,6 @@ function AcpmuxPane() {
         : undefined,
     [stopsSubagents],
   );
-  // Ctrl-B moves a Claude Code chat's running command or subagent to the background, and a
-  // running command's row says so (conversation/runInBackground.ts).
-  const canBackground = backgroundsWork(snapshot.summary);
   // When nothing moves (nothing in the foreground, a refusal, no answer), a line above the composer
   // says so (conversation/backgroundNotice.ts).
   const background = useBackgroundNotice(shownSessionId);
