@@ -692,9 +692,9 @@ export type SessionSummary = {
   unread: boolean;
   updatedAt: number;
   /** What it waits on the person for: `question` (an agent question) or `permission`; null while nothing is pending. Only the person answers. */
-  waitingOn: (string | null);
+  waitingOn?: (string | null);
   /** The first prompt of the question it waits on, cut to 120 characters. */
-  waitingPrompt: (string | null);
+  waitingPrompt?: (string | null);
   /** The family of a conversation another app runs that this chat only shows; null otherwise. */
   watching?: (string | null);
 } & Record<string, unknown>;

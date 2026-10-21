@@ -3239,8 +3239,6 @@
         "backgroundsWork",
         "queue",
         "pendingPermissions",
-        "waitingOn",
-        "waitingPrompt",
         "enforcement",
         "rules",
         "tags",
