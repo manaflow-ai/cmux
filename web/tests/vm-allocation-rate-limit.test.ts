@@ -70,4 +70,27 @@ describe("Cloud VM allocation rate limit", () => {
       retryAfterSeconds: 60,
     });
   });
+
+  test("aborts a stalled Firewall check and fails closed", async () => {
+    let observedSignal: AbortSignal | undefined;
+    const response = await enforceVmAllocationRateLimit({
+      request: request(),
+      route: "vm.create",
+      billingTeamId: "team-1",
+      ruleId: "rule-allocation",
+      isVercel: true,
+      timeoutMs: 10,
+      check: async (_ruleId, options) => {
+        observedSignal = options.signal;
+        if (!options.signal) return { rateLimited: false };
+        return await new Promise((_, reject) => {
+          options.signal.addEventListener("abort", () => reject(options.signal.reason), { once: true });
+        });
+      },
+    });
+
+    expect(observedSignal?.aborted).toBe(true);
+    expect(response?.status).toBe(503);
+    expect(await response?.json()).toMatchObject({ error: "rate_limit_unavailable" });
+  });
 });
