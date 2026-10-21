@@ -188,6 +188,8 @@ extension PageWebView {
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):
             filesDragged(urls)
+        case .userInput, .contextMenu(_):
+            break
         }
     }
 

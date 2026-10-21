@@ -218,6 +218,62 @@ extension PageWebViewChromiumTests {
     }
 }
 
+extension PageWebViewChromiumTests {
+    /// A real key or mouse event in the Chromium page backs the page's calls as the person's gesture,
+    /// as one in the WebKit view does.
+    @Test func aKeyOrClickInTheChromiumPageIsTheUsersGesture() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        #expect(view.router.userGestureEvent?() == nil)
+        let uptime = ProcessInfo.processInfo.systemUptime
+        page.onEvent?(.userInput(uptime))
+        #expect(view.lastUserEventUptime == uptime)
+        #expect(view.router.userGestureEvent?() == uptime)
+        view.close()
+    }
+
+    /// A right-click in the Chromium page shows the host's menu, built as on the WebKit page: Copy on
+    /// a selection, then the host's own rows (``PageWebView/contextMenuEditor``). Chromium hears
+    /// the menu closed once, also when nothing is shown.
+    @Test func aRightClickInTheChromiumPageShowsTheHostsMenu() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        view.chromiumClock = PageTestClock.never
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        var shown: [[String]] = []
+        view.chromiumMenuPresenter = { menu, _, _ in shown.append(menu.items.map(\.title)) }
+        var finished = 0
+
+        // The desktop default: Copy on a selection.
+        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: CGPoint(x: 4, y: 5), selection: "hello", isEditable: false) {
+            finished += 1
+        }))
+        #expect(shown == [[PageWebView.copyTitle]])
+        #expect(finished == 1)
+
+        // Nothing selected and no rows: no menu, and Chromium still hears it closed.
+        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "", isEditable: false) { finished += 1 }))
+        #expect(shown.count == 1)
+        #expect(finished == 2)
+
+        // A host's editor gets the menu with Copy in it and adds its rows.
+        view.contextMenuEditor = { menu in
+            PageWebView.keepDefaultMenuItems(in: menu)
+            menu.addItem(PageWebView.menuItem("Quote") {})
+        }
+        page.onEvent?(.contextMenu(PageChromiumContextMenu(location: .zero, selection: "hello", isEditable: false) { finished += 1 }))
+        #expect(shown.last == [PageWebView.copyTitle, "Quote"])
+        #expect(finished == 3)
+        view.close()
+    }
+}
+
 /// A dynamic source with two resources: `a.png` (typed) and `b.json` (typed by its name).
 @MainActor
 private final class OneResource: PageDynamicResourceSource {
