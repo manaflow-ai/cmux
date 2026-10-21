@@ -44,9 +44,11 @@ extension PaneHandlers {
             // split is cancelled, never the old pane closed (CancelledCreation); so is a provisional pane named.
             if invocation.target == nil, let content = ctx.focusedContent, case .tab(let id)? = content.focus.state.expectation?.key, content.daemon.cancelSplit(showing: id) { return ctx.services.keyRouter.creationInputCoordinator.drop(tab: id, in: content.contentView.window) }
             guard let pane = ctx.daemonPane(invocation), !ctx.services.daemon(for: pane).cancelCreation(pane: pane.handle) else { return }
-            // A person's close in the Home Chief pane does nothing, silently; the CLI and MCP still ask
-            // and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
-            if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true { return }
+            // A person's close in the Home Chief pane keeps the pane and says why; the CLI and MCP
+            // still ask and get the daemon's `dock-column-pinned` refusal (home-chief-pane.md).
+            if invocation.origin == .user, ctx.services.paneController(for: pane)?.isPinnedDockPane == true {
+                return ctx.refuse(MiscHandlerStrings.homeChiefPaneStays)
+            }
             let handle = pane.handle
             // The pane leaves its window now and its neighbours spring into its space
             // (close-animation DESIGN.md); a refused close brings it back.

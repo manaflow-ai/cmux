@@ -140,11 +140,11 @@
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153-155,224-234 (ThemeTokens.derive)"
    },
    "textSecondary": {
-    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over worst (see textPrimary)); steps of 0.01",
+    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over inkWorst); steps of 0.01. inkWorst = worst (see textPrimary), or with background-opacity < 1 the lowest-contrast for textPrimary of worst, tint, over(pressedFill,tint) and over(selectionFill,tint), tint = over(alpha(bg, background-opacity), dark ? white : black)",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156,239-247 (ThemeTokens.derive)"
    },
    "textTertiary": {
-    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over worst (see textPrimary))",
+    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over inkWorst (see textSecondary))",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
    },
    "textPlaceholder": {

@@ -10,6 +10,24 @@ public struct LinkMenuRow: Sendable, Equatable {
         case open, openInTextEditor, openWith, openWithOther, revealInFinder, copyPath
         /// One app in an Open In or Open With submenu.
         case app
+
+        /// The row's SF Symbol (the catalog's for the same action: Open Link in New Tab, Copy
+        /// Link, Reveal in Finder, Copy Path); nil for an app row, which shows the app's icon.
+        var symbol: String? {
+            switch self {
+            case .openInCmuxBrowser: "globe"
+            case .openInNewCmuxTab: "plus.square.on.square"
+            case .openInDefaultBrowser: "arrow.up.right.square"
+            case .openIn, .openWith: "arrow.up.forward.app"
+            case .copyLink: "link"
+            case .open: "doc"
+            case .openInTextEditor: "square.and.pencil"
+            case .openWithOther: "ellipsis.circle"
+            case .revealInFinder: "folder"
+            case .copyPath: "doc.on.doc"
+            case .app: nil
+            }
+        }
     }
 
     public var kind: Kind
@@ -190,6 +208,10 @@ public struct LinkMenu {
             let item = PageMenuAction.item(row.title) { perform(row, link: link, file: file) }
             if let app = row.app, row.kind == .app {
                 item.image = LinkMenuAppCache.icon(for: app)
+            } else if let symbol = row.kind.symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
+                // Every cmux menu row shows its action's symbol, as the action registry's menus do.
+                image.isTemplate = true
+                item.image = image
             }
             if !row.children.isEmpty {
                 let submenu = NSMenu(title: row.title)

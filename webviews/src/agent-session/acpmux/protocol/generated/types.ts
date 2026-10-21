@@ -390,6 +390,12 @@ export type SessionSummary = {
   agentSessionId?: (string | null);
   /** Attached clients. */
   attached: number;
+  /**
+   * `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+   * harness is Claude Code (claude-stdio), whatever the harness's name.
+   * Clients offer Ctrl-B from this, not from `harness`.
+   */
+  backgroundsWork: boolean;
   /** Its sub-sessions that are not closed. */
   children: number;
   createdAt: number;
@@ -485,10 +491,21 @@ export type SessionSummary = {
   updatedAt: number;
 } & Record<string, unknown>;
 
-export type SessionsParams = Record<string, never>;
+/** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
+export interface SessionsParams {
+  /** A previous reply's `nextCursor`: the page starts after that session. */
+  cursor?: (string | null);
+  /** Page size, at least 1. Without it the reply is the whole list. */
+  limit?: (number | null);
+}
 
 export type SessionsResult = {
-  /** Local and peer sessions, newest first. */
+  /**
+   * With `limit`: the cursor for the next page, null when the list is
+   * done. Absent without `limit`.
+   */
+  nextCursor?: (string | null);
+  /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
 

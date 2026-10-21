@@ -163,11 +163,14 @@ pub(crate) fn version_cmd(bin: &str) -> String {
 
 /// Copy this very binary to the remote `bin` (rm then mv, never in place:
 /// macOS kills a running binary that is overwritten); its version line.
+/// Only the file goes (`self_command.rs`'s executable); no subcommand runs
+/// here, so no prefix: a copy named `acpmux` runs as acpmux by its argv0
+/// (cmux-tui's too), and [`version_cmd`] gives another name its `acp`.
 pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
     if !plain_path(bin) {
         return Err(anyhow!("refusing that remote binary path (not a plain path)"));
     }
-    let exe = std::env::current_exe()?;
+    let exe = crate::self_command::SelfCommand::current()?.exe;
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
     run(r, &format!("mkdir -p {dir} {REMOTE_HOME}"))?;
     r.push(&exe, &format!("{bin}.new"))?;

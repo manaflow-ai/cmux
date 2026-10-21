@@ -613,7 +613,7 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     }
     // cmux-tui runs as acpmux under that name; a standalone acpmux cannot
     // stand in for the app's cmux-tui.
-    let exe = std::env::current_exe().ok();
+    let exe = crate::self_command::SelfCommand::current().ok().map(|c| c.exe);
     let exe_name =
         exe.as_deref().and_then(Path::file_name).map(|n| n.to_string_lossy().into_owned());
     let bin_name = bin.rsplit('/').next().unwrap_or(bin);
