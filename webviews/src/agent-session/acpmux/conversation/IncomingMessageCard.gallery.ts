@@ -42,7 +42,7 @@ export default agentPaneEntry({
       ]),
     },
     opened: {
-      note: "› opens the message under its line, set off by a hairline; an envelope's raw prompt follows it.",
+      note: "› opens the message under its line, set off by a hairline.",
       snapshot: chat([
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),

@@ -716,7 +716,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   // row's line (conversation/IncomingMessageCard.tsx).
   // Its images' 120px row with 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT), and a steer's status line, as under a bubble.
   if (row.incoming?.kind === "message")
-    return 26 + 4 + (row.images?.length ? 126 : 0) + (row.steer ? USER_STATUS_HEIGHT : 0);
+    return 26 + 4 + (row.images?.length ? 128 : 0) + (row.steer ? USER_STATUS_HEIGHT : 0);
   if (row.incoming?.kind === "notice") return 26 + 8;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return 0;

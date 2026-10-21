@@ -55,8 +55,8 @@ export function formatDuration(ms: number): string {
 export const toolCalls = (t: Translate, count = 0) => t("turn.toolCalls", { n: count });
 
 /// The disclosure's label: "Worked for 1m 16s", "You stopped after 40s",
-/// or "34 previous messages" for a turn whose timing is unknown (a reloaded turn without a
-/// summary). It shows no tool-call count.
+/// or "34 previous messages" for a row that carries a count instead of timing (turns without a
+/// summary no longer fold, so none does today). It shows no tool-call count.
 export function workedLabel(t: Translate, row: AcpmuxRow): string {
   if (row.previous !== undefined)
     return row.previous === 1 ? t("turn.previous.one") : t("turn.previous.other", { n: row.previous });
@@ -447,8 +447,10 @@ const endedPlan = (row: AcpmuxRow): AcpmuxRow =>
 /// It draws as it came: the agent's messages stay in place, each on its own, and nothing folds
 /// that the person did not fold (Leo, 2026-10-20: never auto-collapse messages into "N previous
 /// messages").
+/// Its edits still close it as one card, which offers Undo.
 function settledWithoutSummary(turn: AcpmuxRow[]): AcpmuxRow[] {
-  return turn.filter((row) => row.kind !== "typing").map(endedPlan);
+  const rows = turn.filter((row) => row.kind !== "typing");
+  return [...rows.filter((row) => !isEdit(row)).map(endedPlan), ...editsCard(rows.filter(isEdit))];
 }
 
 /// The live status, shaped as the turn will fold when it ends: rows before the latest text are

@@ -3,14 +3,16 @@
 // sender's name opens its chat beside this one when it is a chat here; › opens the message under
 // the line (and, for a Claude Code envelope, the prompt as the agent got it). Whether it is open
 // lasts while the page does, so scrolling it out of the virtualized transcript keeps it.
-import { useId, useState } from "react";
+import { useContext, useId, useLayoutEffect, useState } from "react";
 import { useT } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage } from "./incomingMessage";
 import { SentImages } from "./UserBubble";
+import { FindReveal } from "./chatFind";
+import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { ChevronRight, TerminalSquare } from "./icons";
 
-/// The rows whose message the person opened.
+/// The messages the person opened, by chat and row (row ids repeat across chats).
 const opened = new Set<string>();
 
 export function IncomingMessageLine({
@@ -27,13 +29,25 @@ export function IncomingMessageLine({
   onOpen(sessionId: string): void;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(() => opened.has(id));
-  const toggle = () =>
-    setOpen((value) => {
-      if (value) opened.delete(id);
-      else opened.add(id);
-      return !value;
-    });
+  const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
+  const [open, setOpen] = useState(() => opened.has(key));
+  const show = (next: boolean) => {
+    if (next) opened.add(key);
+    else opened.delete(key);
+    setOpen(next);
+  };
+  const toggle = () => show(!open);
+  // Find in Chat opens a closed message that holds its match, as a folded thought opens.
+  const reveal = useContext(FindReveal);
+  const hit = Boolean(
+    reveal && reveal.rowId === id && reveal.needle && message.text.toLocaleLowerCase().includes(reveal.needle),
+  );
+  useLayoutEffect(() => {
+    if (!hit) return;
+    show(true);
+    reveal?.repaint();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
+  }, [hit, reveal]);
   const bodyId = useId();
   // The name sits where the sentence puts it ("Received message from {title}").
   const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
@@ -71,7 +85,7 @@ export function IncomingMessageLine({
           type="button"
           className="cv-received__toggle"
           aria-expanded={open}
-          aria-controls={bodyId}
+          aria-controls={open ? bodyId : undefined}
           aria-label={label}
           onClick={toggle}
         >
