@@ -327,7 +327,15 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             p["cwd"] = json!(cwd);
-            let v = client.request(method::SESSION_NEW, p).await?;
+            // A route check an agent runs from its shell ("Reply with only: OK") is not its
+            // subagent: it never folds under the agent's chat as one.
+            let parentless = (one_shot && args.ephemeral)
+                || crate::probe_prompt::is_probe(&args.prompt.join(" "));
+            let v = if parentless {
+                client.request_parentless(method::SESSION_NEW, p).await?
+            } else {
+                client.request(method::SESSION_NEW, p).await?
+            };
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             let name =
                 v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();

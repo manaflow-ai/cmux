@@ -170,3 +170,30 @@ fn ephemeral_run_with_a_bad_flag_value_leaves_no_session() {
     assert!(!out.status.success(), "a bad --on-permission passed: {}", text(&out));
     daemon.assert_no_session_within(Duration::from_secs(10), "after a usage error");
 }
+
+/// A session an agent's shell starts (`ACPMUX_SESSION_ID` set) folds under that agent's chat,
+/// unless it is a throwaway check: a probe prompt or an ephemeral run is no subagent.
+#[test]
+fn a_probe_from_an_agents_shell_is_not_its_subagent() {
+    let daemon = Daemon::start("parent");
+    let started = |prompt: &str, parent: Option<&str>| -> String {
+        let mut cmd = daemon.cmd();
+        if let Some(parent) = parent {
+            cmd.env("ACPMUX_SESSION_ID", parent);
+        }
+        let out = cmd.args(["--json", "run", "--timeout", "60", prompt]).output().expect("run");
+        assert!(out.status.success(), "run {prompt:?} failed: {}", text(&out));
+        let v: Value = serde_json::from_slice(&out.stdout)
+            .unwrap_or_else(|e| panic!("run printed no JSON ({e}): {}", text(&out)));
+        v["sessionId"].as_str().expect("sessionId").to_owned()
+    };
+    let parent = started("Plan the release", None);
+    let probe = started("Reply with only: OK", Some(&parent));
+    let child = started("Review the release diff", Some(&parent));
+    let spawned_by = |id: &str| -> Value {
+        let session = daemon.sessions().into_iter().find(|s| s["sessionId"] == id);
+        session.unwrap_or_else(|| panic!("{id} is not listed"))["spawnedBy"].clone()
+    };
+    assert_eq!(spawned_by(&child), json!(parent), "a real task from the agent is its subagent");
+    assert_eq!(spawned_by(&probe), Value::Null, "the probe is not");
+}
