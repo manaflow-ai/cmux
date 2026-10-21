@@ -75,6 +75,34 @@ nonisolated extension SidebarLayout {
         return (.collapsed, rollUp.isEmpty ? nil : rollUp)
     }
 
+    /// One loose row as the session tree draws it (`treeRows`): its model index, depth, chevron and roll-up.
+    struct TreeRow {
+        var index = 0, depth = 0
+        var fold: SidebarTreeFold?
+        var rollUp: SidebarTreeRollUp?
+    }
+
+    /// A section's loose rows (`nodes`) in the session tree's drawn order, each with its depth and,
+    /// on a parent, its fold and roll-up. A filter opens every fold: the order and the chevrons both
+    /// draw it open. Without `tree` the order is the model's, flat.
+    static func treeRows(_ nodes: [SidebarNode], tree live: SidebarSessionTreeState?, filtering: Bool) -> [TreeRow] {
+        let ids = workspaceIDs(nodes)
+        let tree = live.map { shown in
+            var tree = shown
+            if filtering { tree.collapsed = [] }
+            return tree
+        }
+        let children = tree.map { treeChildren(ids, parents: $0.parents) } ?? [:]
+        let state: (Int) -> SidebarAgentState = { i in
+            guard case let .workspace(ws) = nodes[i] else { return .idle }
+            return SidebarAgentState.of(ws, lane: live?.states[ws.id])
+        }
+        return treeOrder(ids, parents: tree?.parents, collapsed: tree?.collapsed ?? [], children: children).map { entry in
+            let (fold, rollUp) = treeFold(entry.index, ids, tree: tree, children: children, states: state)
+            return TreeRow(index: entry.index, depth: entry.depth, fold: fold, rollUp: rollUp)
+        }
+    }
+
     /// The workspace of each node (nil: a group or an item), for `treeOrder`.
     static func workspaceIDs(_ nodes: [SidebarNode]) -> [WorkspaceID?] {
         nodes.map { node in if case let .workspace(ws) = node { ws.id } else { nil } }

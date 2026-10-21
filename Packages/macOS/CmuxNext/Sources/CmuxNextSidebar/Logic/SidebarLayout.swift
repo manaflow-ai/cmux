@@ -286,15 +286,13 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             }
 
             // One node at its model index (drops resolve by it, whatever the drawn order).
-            // `depth`: the session tree's (`treeOrder`).
-            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), depth: Int = 0,
-                      fold: (fold: SidebarTreeFold?, rollUp: SidebarTreeRollUp?) = (nil, nil)) {
+            // `tree`: the session tree's depth, chevron and roll-up (`treeRows`).
+            func emit(_ index: Int, _ entry: (node: SidebarNode, children: [SidebarWorkspace]), tree: TreeRow = TreeRow()) {
                 openGapIfNeeded(section: section.id, group: nil, index: index)
                 switch entry.node {
                 case let .workspace(ws):
                     var content = o.rowContent(ws, machine: machineLabel)
-                    content.treeDepth = depth
-                    (content.treeFold, content.rollUp) = fold
+                    (content.treeDepth, content.treeFold, content.rollUp) = (tree.depth, tree.fold, tree.rollUp)
                     let h = m.height(for: content)
                     rows.append(SidebarRow(
                         key: .workspace(ws.id), y: y, height: h, section: section.id,
@@ -415,23 +413,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
 
             let byFolder = o.groupsByFolder && section.machine != nil && machineCount == 1 && !filtering
             guard byFolder else {
-                let ids = Self.workspaceIDs(nodes.map { $0.node })
-                // A filter opens every fold: the order and the chevrons both draw it open.
-                let tree = o.sessionTree.map { live in
-                    var tree = live
-                    if filtering { tree.collapsed = [] }
-                    return tree
-                }
-                let children = tree.map { Self.treeChildren(ids, parents: $0.parents) } ?? [:]
-                let drawn = Self.treeOrder(ids, parents: tree?.parents, collapsed: tree?.collapsed ?? [], children: children)
-                let listed = nodes
-                let state: (Int) -> SidebarAgentState = { i in
-                    guard case let .workspace(ws) = listed[i].node else { return .idle }
-                    return SidebarAgentState.of(ws, lane: o.sessionTree?.states[ws.id])
-                }
-                for (index, depth) in drawn {
-                    emit(index, nodes[index], depth: depth, fold: Self.treeFold(index, ids, tree: tree, children: children, states: state))
-                }
+                for row in Self.treeRows(nodes.map { $0.node }, tree: o.sessionTree, filtering: filtering) { emit(row.index, nodes[row.index], tree: row) }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue
             }
