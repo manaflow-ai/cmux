@@ -110,11 +110,20 @@ setup_next() {
     && echo "stamp old" > schemas/settings-export/settings-schema.sources.sha256 \
     && echo "mdm old" > docs/mdm/com.manaflow.cmux.json \
     && echo "strings old" > webviews/src/pages/home/generated/strings.json \
-    && printf '%s\n' 'import pathlib' \
-      'r = pathlib.Path(".")' \
-      'out = r.joinpath("schemas/settings/settings-schema.json").read_text() + r.joinpath("Flags.swift").read_text()' \
-      'r.joinpath("schemas/defaults/cmux-next.json").write_text(out)' > scripts/ci/defaults_guard.py \
-    && python3 scripts/ci/defaults_guard.py snapshot \
+    && cat > scripts/ci/defaults_guard.py <<'GUARD' &&
+import pathlib, subprocess, sys
+# check-stamp --ref R: the stamp is current when it names R's settings source.
+if sys.argv[1:2] == ["check-stamp"]:
+    ref = sys.argv[sys.argv.index("--ref") + 1]
+    def show(path):
+        return subprocess.run(["git", "show", f"{ref}:{path}"], capture_output=True, text=True).stdout.strip()
+    source = show("Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift")
+    sys.exit(0 if show("schemas/settings-export/settings-schema.sources.sha256") == f"stamp for {source}" else 1)
+r = pathlib.Path(".")
+out = r.joinpath("schemas/settings/settings-schema.json").read_text() + r.joinpath("Flags.swift").read_text()
+r.joinpath("schemas/defaults/cmux-next.json").write_text(out)
+GUARD
+    python3 scripts/ci/defaults_guard.py snapshot \
     && git add -A && git commit -q -m base && git push -q origin feat)
   git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/bot"
   base="$(git -C "$tmp/bot" rev-parse HEAD)"
@@ -239,4 +248,195 @@ fi
 [[ "$(remote_tip)" == "$moved" ]] || fail "a repair landed although the newer commits were unreadable"
 grep -q "cannot read the commits" "$tmp/out" || fail "the run does not say why: $(cat "$tmp/out")"
 
-echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait"
+# 16. Only a commit's subject marks it as base autofix's own: a lane commit that quotes an autofix
+#     subject in its body (a squash merge, say) is a newer write like any other, and its file waits.
+setup
+(cd "$tmp/lane" && git pull -q --ff-only origin feat && echo "lane wrote it" > "$gen" \
+  && git commit -q -am "lane edits $gen" -m "chore(next): base autofix at 0123456789ab" && git push -q origin feat)
+moved="$(remote_tip)"
+if run > "$tmp/out" 2>&1; then fail "a repair over a lane commit quoting an autofix subject was pushed: $(cat "$tmp/out")"; fi
+[[ "$(remote_show "$gen")" == "lane wrote it" ]] || fail "the lane's newer write was overwritten"
+[[ "$(remote_tip)" == "$moved" ]] || fail "the remote moved although the repair was refused"
+
+# The settings exports made at SETTINGS_MADE_AT (the 4th argument): the Mac job regenerates them on
+# the newest tip when their inputs moved during the run (base-autofix-settings-exports.sh).
+settings_exports=(schemas/settings/settings-schema.json schemas/settings-export/settings-schema.sources.sha256 docs/mdm/com.manaflow.cmux.json)
+run_at() { (cd "$tmp/bot" && bash "$script" "$tmp/remote.git" feat "$base" "$1"); }
+# The bot's repair writes only these of its files (the rest stay as at BASE_SHA).
+repair_only() {
+  (cd "$tmp/bot" && for f in $(git diff --name-only HEAD^ HEAD); do
+      keep=0; for p in "$@"; do [[ "$f" == "$p" ]] && keep=1; done
+      (( keep )) || git checkout -q HEAD^ -- "$f"
+    done && git commit -q --amend --no-edit)
+}
+settings_set=("${settings_exports[@]}" schemas/defaults/cmux-next.json)
+
+# 17. (a) Exports regenerated on the moved tip (made at T1, after its settings change) land there,
+#     and on a tip that moved again elsewhere: their inputs did not move after T1.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane edits a setting" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2"
+made="$(remote_tip)"
+lane_commit "lane edits a doc" README.md "lane"
+moved="$(remote_tip)"
+run_at "$made" > "$tmp/out" 2>&1 || fail "exports made at the moved tip did not land: $(cat "$tmp/out")"
+[[ "$(git -C "$tmp/remote.git" rev-parse feat^)" == "$moved" ]] || fail "the exports are not on top of the newest tip"
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema new" ]] || fail "the schema made at the tip did not land"
+[[ "$(remote_show schemas/settings-export/settings-schema.sources.sha256)" == "stamp new" ]] || fail "the stamp made at the tip did not land"
+[[ "$(remote_show docs/mdm/com.manaflow.cmux.json)" == "mdm new" ]] || fail "docs/mdm made at the tip did not land"
+[[ "$(remote_show schemas/defaults/cmux-next.json)" == "$(printf 'schema new\nflag on')" ]] \
+  || fail "the snapshot was not derived on the tip from the landed exports: $(remote_show schemas/defaults/cmux-next.json)"
+
+# 18. (a) An export the tip's regeneration left as it was at BASE_SHA still replaces what the
+#     tip holds: the repair carries the whole export made at T1, not only its diff from BASE_SHA.
+setup_next
+repair_only schemas/settings/settings-schema.json schemas/settings-export/settings-schema.sources.sha256 schemas/defaults/cmux-next.json
+lane_commit "lane edits a setting and a stale doc" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2" \
+  docs/mdm/com.manaflow.cmux.json "mdm stale"
+made="$(remote_tip)"
+run_at "$made" > "$tmp/out" 2>&1 || fail "exports made at the moved tip did not land: $(cat "$tmp/out")"
+[[ "$(remote_show docs/mdm/com.manaflow.cmux.json)" == "mdm old" ]] \
+  || fail "docs/mdm as made at the tip did not replace the tip's stale copy: $(remote_show docs/mdm/com.manaflow.cmux.json)"
+
+# 19. (b) The invariant: an export made at T1 whose inputs moved after T1 never lands as it is.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane edits a setting" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2"
+made="$(remote_tip)"
+lane_commit "lane edits it again" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v3"
+moved="$(remote_tip)"
+if run_at "$made" > "$tmp/out" 2>&1; then fail "exports whose inputs moved after they were made passed the run"; fi
+[[ "$(remote_tip)" == "$moved" ]] || fail "exports whose inputs moved after they were made were pushed"
+for f in "${settings_exports[@]}"; do
+  [[ "$(remote_show "$f")" == *old ]] || fail "$f landed although its inputs moved after it was made"
+done
+grep -q "schemas/settings/settings-schema.json" "$tmp/out" || fail "the run does not name the held export: $(cat "$tmp/out")"
+
+# 20. (b) A made-at commit that is not between BASE_SHA and the tip proves nothing: the exports wait.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane edits a doc" README.md "lane"
+moved="$(remote_tip)"
+if run_at "$(printf 'de%.0s' {1..20})" > "$tmp/out" 2>&1; then fail "exports made at an unknown commit passed the run"; fi
+[[ "$(remote_tip)" == "$moved" ]] || fail "exports made at an unknown commit were pushed"
+grep -q "made at" "$tmp/out" || fail "the run does not say why the exports wait: $(cat "$tmp/out")"
+
+# 21. (d) Someone else already regenerated the exports on the tip (its stamp is current): the
+#     held settings exports are dropped, nothing else waits, and the run passes.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane regenerates the exports" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2" \
+  schemas/settings-export/settings-schema.sources.sha256 "stamp for setting v2" schemas/settings/settings-schema.json "schema lane"
+run > "$tmp/out" 2>&1 || fail "a repair the tip already superseded failed the run: $(cat "$tmp/out")"
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema lane" ]] || fail "the tip's own export was overwritten"
+[[ "$(remote_show schemas/settings-export/settings-schema.sources.sha256)" == "stamp for setting v2" ]] || fail "the tip's own stamp was overwritten"
+[[ "$(remote_show schemas/defaults/cmux-next.json)" == "$(printf 'schema lane\nflag on')" ]] \
+  || fail "the snapshot was not derived from the tip's exports: $(remote_show schemas/defaults/cmux-next.json)"
+grep -q "already current" "$tmp/out" || fail "the run does not say the exports were superseded: $(cat "$tmp/out")"
+
+# 21b. A made-at commit that exists but is not between BASE_SHA and the tip (here the repair itself)
+#      holds the exports and fails the run with an error, even when the tip's own stamp is current:
+#      a bad SETTINGS_MADE_AT is a workflow defect, never a silent pass.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane regenerates the exports" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2" \
+  schemas/settings-export/settings-schema.sources.sha256 "stamp for setting v2" schemas/settings/settings-schema.json "schema lane"
+moved="$(remote_tip)"
+if run_at "$(git -C "$tmp/bot" rev-parse HEAD)" > "$tmp/out" 2>&1; then
+  fail "exports made at a commit off the branch passed the run: $(cat "$tmp/out")"
+fi
+[[ "$(remote_show schemas/settings/settings-schema.json)" == "schema lane" ]] || fail "exports made off the branch landed"
+grep -q "::error::.*made at" "$tmp/out" || fail "the run does not raise an error for the made-at commit: $(cat "$tmp/out")"
+
+# 21c. What changed after SETTINGS_MADE_AT can't be read (the areas script fails on that range):
+#      the exports never land as if nothing moved. Here the settings did move after T1.
+setup_next
+repair_only "${settings_set[@]}"
+lane_commit "lane edits a setting" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v2" marker.txt "made here"
+made="$(remote_tip)"
+lane_commit "lane edits it again" Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift "setting v3"
+moved="$(remote_tip)"
+# Fails on any range without marker.txt, i.e. on SETTINGS_MADE_AT..tip but not on BASE..tip.
+printf '#!/usr/bin/env bash\nin="$(cat)"\ngrep -qx marker.txt <<<"$in" || exit 3\nexec "%s" <<<"$in"\n' \
+  "$here/../autofix-areas.sh" > "$tmp/flaky-areas.sh"
+chmod +x "$tmp/flaky-areas.sh"
+if (cd "$tmp/bot" && CMUX_BASE_AUTOFIX_AREAS="$tmp/flaky-areas.sh" bash "$script" "$tmp/remote.git" feat "$base" "$made") > "$tmp/out" 2>&1; then
+  fail "a run that could not read what moved after SETTINGS_MADE_AT passed: $(cat "$tmp/out")"
+fi
+[[ "$(remote_tip)" == "$moved" ]] || fail "exports landed although what moved after they were made was unreadable"
+grep -q "cannot read" "$tmp/out" || fail "the run does not say why: $(cat "$tmp/out")"
+
+# base-autofix-settings-exports.sh (the Mac job): regenerates on the newest tip while the inputs
+# move, at most CMUX_BASE_AUTOFIX_SETTINGS_TRIES times, and says which commit it made them at.
+regen_script="$here/../base-autofix-settings-exports.sh"
+# A stand-in for regenerate-settings-exports.sh: the export names the source it was made from, and
+# FAKE_MOVE pushes a lane commit after each regeneration (always, once, or elsewhere).
+cat > "$tmp/fake-regenerate.sh" <<'FAKE'
+#!/usr/bin/env bash
+set -euo pipefail
+out="$1"
+source="$(cat Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift)"
+echo "schema for $source" > schemas/settings/settings-schema.json
+echo "stamp for $source" > schemas/settings-export/settings-schema.sources.sha256
+for f in schemas/settings/settings-schema.json schemas/settings-export/settings-schema.sources.sha256 docs/mdm/com.manaflow.cmux.json; do
+  if [[ "${CMUX_SETTINGS_EXPORTS_ALL:-}" == 1 ]] || ! git diff --quiet -- "$f"; then
+    mkdir -p "$out/$(dirname "$f")"; cp "$f" "$out/$f"; echo "regenerated: $f"
+  fi
+done
+n="$(( $(cat "$FAKE_COUNT" 2>/dev/null || echo 0) + 1 ))"; echo "$n" > "$FAKE_COUNT"
+case "$FAKE_MOVE" in
+  always | once) [[ "$FAKE_MOVE" == always || "$n" == 1 ]] || exit 0
+    file=Packages/macOS/CmuxNext/Sources/CmuxNextSettings/Settings.swift text="setting v$((n + 1))" ;;
+  elsewhere) file=README.md text="readme $n" ;;
+  *) exit 0 ;;
+esac
+(cd "$FAKE_LANE" && git pull -q --ff-only origin feat && echo "$text" > "$file" && git add -A \
+  && git commit -q -m "lane moves $file" && git push -q origin feat)
+FAKE
+chmod +x "$tmp/fake-regenerate.sh"
+regen() { # <FAKE_MOVE> : runs the Mac step in a fresh shallow checkout of the remote's tip
+  rm -rf "$tmp/mac" "$tmp/mac-out" "$tmp/count"
+  git clone -q --depth=1 -b feat "file://$tmp/remote.git" "$tmp/mac"
+  (cd "$tmp/mac" && FAKE_MOVE="$1" FAKE_COUNT="$tmp/count" FAKE_LANE="$tmp/lane" \
+    CMUX_SETTINGS_REGENERATE="$tmp/fake-regenerate.sh" bash "$regen_script" "$tmp/mac-out" "$tmp/remote.git" feat)
+}
+
+# 22. The inputs did not move: one regeneration, made at the run's own commit.
+setup_next
+start="$(remote_tip)"
+regen none > "$tmp/out" 2>"$tmp/err" || fail "an unmoved regeneration failed: $(cat "$tmp/out" "$tmp/err")"
+grep -qx "made at: $start" "$tmp/out" || fail "the exports are not made at the run's commit: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/mac-out/schemas/settings/settings-schema.json")" == "schema for setting v1" ]] || fail "the export is not the run's"
+[[ "$(cat "$tmp/count")" == 1 ]] || fail "an unmoved regeneration ran $(cat "$tmp/count") times"
+
+# 23. (a) The inputs moved once during the regeneration: it runs again on the newest tip, which it
+#     names, and the export is that tip's.
+setup_next
+regen once > "$tmp/out" 2>"$tmp/err" || fail "a regeneration on the moved tip failed: $(cat "$tmp/out" "$tmp/err")"
+grep -qx "made at: $(remote_tip)" "$tmp/out" || fail "the exports are not made at the newest tip: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/mac-out/schemas/settings/settings-schema.json")" == "schema for setting v2" ]] \
+  || fail "the export is not the newest tip's: $(cat "$tmp/mac-out/schemas/settings/settings-schema.json")"
+[[ "$(cat "$tmp/count")" == 2 ]] || fail "the regeneration ran $(cat "$tmp/count") times, not 2"
+# Every export file comes along (docs/mdm here is the same as at the start): the repair carries the
+# whole export made at the tip.
+grep -qx "regenerated: docs/mdm/com.manaflow.cmux.json" "$tmp/out" && fail "an export the same as the run's commit was handed on"
+
+# 24. Only the settings inputs count: a move elsewhere needs no second regeneration.
+setup_next
+start="$(remote_tip)"
+regen elsewhere > "$tmp/out" 2>"$tmp/err" || fail "a regeneration past an unrelated move failed: $(cat "$tmp/out" "$tmp/err")"
+grep -qx "made at: $start" "$tmp/out" || fail "an unrelated move made it regenerate: $(cat "$tmp/out")"
+[[ "$(cat "$tmp/count")" == 1 ]] || fail "an unrelated move ran the regeneration $(cat "$tmp/count") times"
+
+# 25. (c) The inputs move under every regeneration: it stops after the tries, hands on no export,
+#     fails, and says so.
+setup_next
+if CMUX_BASE_AUTOFIX_SETTINGS_TRIES=3 regen always > "$tmp/out" 2>"$tmp/err"; then
+  fail "a regeneration whose inputs never held still passed: $(cat "$tmp/out" "$tmp/err")"
+fi
+[[ "$(cat "$tmp/count")" == 3 ]] || fail "the regeneration ran $(cat "$tmp/count") times, not 3"
+grep -q "::error::" "$tmp/err" || fail "the run does not raise an error: $(cat "$tmp/err")"
+[[ -z "$(find "$tmp/mac-out" -type f 2>/dev/null)" ]] || fail "exports whose inputs kept moving were handed on: $(find "$tmp/mac-out" -type f)"
+grep -q "^made at:" "$tmp/out" && fail "a held regeneration still names a commit: $(cat "$tmp/out")"
+
+echo "PASS: base autofix lands its repair on a moved feat-cmux-next; files whose inputs moved or that a newer commit wrote wait; the settings exports are regenerated on the newest tip, or wait"

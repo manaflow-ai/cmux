@@ -353,12 +353,22 @@ final class NotificationCenterService {
     private func arrived(_ notification: DaemonNotification) {
         guard let services else { return }
         let store = services.daemon.store
-        arrive(notification, located: notification.surface.flatMap { locate(surface: $0, in: store) })
+        let located = notification.surface.flatMap { locate(surface: $0, in: store) }
+        arrive(notification, located: located, workspace: located == nil ? Self.workspace(of: notification, in: store) : nil)
     }
 
-    /// One arrival on `located` (nil: its tab is not in the store). `visibility` is where the tab
-    /// is for the user now (`visibility(of:)` when nil); tests pass their own.
-    func arrive(_ notification: DaemonNotification, located: LocatedTab?, visibility: TerminalVisibility? = nil) {
+    /// The workspace a terminal-less notification names (`cmux notify --workspace ws_…`), when
+    /// it is in `store`.
+    static func workspace(of notification: DaemonNotification, in store: DaemonStore) -> WorkspaceModel? {
+        guard notification.surface == nil, let id = notification.workspaceID else { return nil }
+        return store.workspace(resourceID: id)
+    }
+
+    /// One arrival on `located` (nil: its tab is not in the store). `workspace`: the workspace a
+    /// notification with no tab belongs to (`notify --workspace`), else nil. `visibility` is where
+    /// the tab is for the user now (`visibility(of:)` when nil); tests pass their own.
+    func arrive(_ notification: DaemonNotification, located: LocatedTab?, workspace: WorkspaceModel? = nil,
+                visibility: TerminalVisibility? = nil) {
         let source = Self.source(notification.source)
         if source == .terminal, !terminalNotificationsEnabled() {
             note("arrived \(notification.notification.rawValue) terminal off (desktop-notifications = false)")
@@ -368,8 +378,10 @@ final class NotificationCenterService {
         var arrival = NotificationPolicy.Arrival(source: source)
         arrival.bannerAllowed = notification.desktop
         arrival.appActive = NSApp.isActive
+        if let workspace = located?.workspace ?? workspace {
+            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(workspace.id)
+        }
         if let located {
-            arrival.workspaceMuted = preferences.mutedWorkspaces.contains(located.workspace.id)
             arrival.paneIsViewed = isViewed(located.tab.id)
             arrival.typedAgo = lastKeystroke[located.tab.id].map { Self.seconds(ContinuousClock.now - $0) }
         }
@@ -380,7 +392,12 @@ final class NotificationCenterService {
         guard let located else {
             guard desktopPostingEnabled else { return note("desktop posting suppressed") }
             feedDriver?.run()
-            if decision.desktop { post(notification, tab: nil, workspace: nil, sound: decision.sound) }
+            if let workspace, decision.attention { moveToTop(workspace) }
+            if decision.desktop {
+                // A workspace's notification names its workspace in the title, as a terminal's does.
+                post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
+                     sound: decision.sound)
+            }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
             return

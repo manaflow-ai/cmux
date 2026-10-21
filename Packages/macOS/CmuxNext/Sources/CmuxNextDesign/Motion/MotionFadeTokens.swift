@@ -17,6 +17,9 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     /// The veil over an unfocused pane easing in and out when focus moves (Leo 2026-10-21: a short
     /// ease, about 150 ms, not a jump).
     case paneDim
+    /// The focus ring shown at once on a pane focus moved to without a click, fading out
+    /// (`focus.flashOnMove`, a Debug toggle). Instant, so nothing shows, with no animation.
+    case focusFlash
     /// A view or panel fades in.
     case fadeIn
     /// A view, panel or window fades out. Faster than `fadeIn`.
