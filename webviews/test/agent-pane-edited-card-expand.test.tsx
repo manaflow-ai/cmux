@@ -135,6 +135,28 @@ const writeOverFile = () =>
     { status: "completed", content: result(`The file ${NOTES} has been updated. Here's the result:`) },
   ]);
 
+/// Claude Code's Write as the acpmux translator sends it (claude_stdio `edit_diffs`): the whole new
+/// text with no old text, marked a fragment until the result says what the Write did. `settled`: the
+/// result confirmed a create, so the mark is gone (`settle_write`); else the result said the file was
+/// updated and held no old text, so the mark stays and the old contents are unknown.
+const translatorWrite = (id: string, path: string, settled: boolean) => {
+  const fragment = { type: "diff", path, oldText: null, newText: setupText, _meta: { acpmux: { fragment: true } } };
+  return toolCall(id, [
+    {
+      title: `Write ${path.split("/").pop()}`,
+      kind: "edit",
+      status: "pending",
+      rawInput: { file_path: path, content: setupText },
+      content: [fragment],
+      locations: [{ path }],
+    },
+    {
+      status: "completed",
+      content: [settled ? { type: "diff", path, oldText: null, newText: setupText } : fragment],
+    },
+  ]);
+};
+
 /// Claude Code's Edit inside the chat folder, with only `old_string` and `new_string` in its input.
 const editInFolder = () =>
   toolCall("edit-1", [
@@ -304,6 +326,77 @@ test("a Write over an existing file lists its path without counts, not as a new 
   expect(host.querySelector(".acpmux-review-changes")).toBeNull();
   expect(host.querySelector(".acpmux-edited-toggle")).toBeNull();
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([]);
+});
+
+test("a Write whose old contents never came lists its path without counts, chevron or Undo", async () => {
+  const row = activity("turn-8", [await translatorWrite("write-3", NOTES, false)]);
+  await renderCard(row);
+  // Not "+9 -0": the file was there, and what it held is unknown.
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(NOTES);
+  expect(host.querySelector(".acpmux-edited-toggle")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
+  expect(host.querySelector(".acpmux-review-changes")).toBeNull();
+  // The turn's own diff has nothing to show for it.
+  expect(await viewedFiles([row], { state: "unsupported" })).toEqual([]);
+});
+
+test("beside a Write of unknown old contents, a fragment Edit keeps its counts", async () => {
+  const row = activity("turn-9", [
+    await translatorWrite("write-4", NOTES, false),
+    await toolCall("edit-4", [
+      {
+        title: "Edit Cargo.toml",
+        kind: "edit",
+        status: "completed",
+        content: [
+          {
+            type: "diff",
+            path: `${FOLDER}/Cargo.toml`,
+            oldText: 'version = "1.2.0"\n',
+            newText: 'version = "1.3.0"\n',
+            _meta: { acpmux: { fragment: true } },
+          },
+        ],
+      },
+    ]),
+  ]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 2 files");
+  expect(text(".acpmux-edited-sub")).toBe("+1-1");
+  const rows = [...host.querySelectorAll(".acpmux-edited-file")].map((entry) => [
+    entry.querySelector(".acpmux-edited-path")?.getAttribute("data-path"),
+    entry.querySelector(".acpmux-diff-counts")?.textContent,
+  ]);
+  expect(rows).toEqual([
+    [`${FOLDER}/Cargo.toml`, "+1-1"],
+    [NOTES, undefined],
+  ]);
+  expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
+});
+
+test("a Write of unknown old contents outside the repository still lists once the checkpoint loads", async () => {
+  const row = activity("turn-10", [await translatorWrite("write-5", SETUP, false)]);
+  await renderCard(row, emptyCheckpoint);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(SETUP);
+  expect(await viewedFiles([row], emptyCheckpoint)).toEqual([]);
+});
+
+test("the same Write once its result confirmed a create is a new file, all lines added", async () => {
+  const row = activity("turn-11", [await translatorWrite("write-6", SETUP, true)]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited l-setup.txt");
+  expect(text(".acpmux-edited-sub")).toBe("+9-0");
+  // Undo may move the new file to the Trash.
+  expect(host.querySelector(".acpmux-edited-undo")).not.toBeNull();
+  await click(host.querySelector(".acpmux-edited-toggle"));
+  expect(inlineDiff()).toEqual({ name: "l-setup.txt", added: "+9", removed: "-0" });
+  expect(await viewedFiles([row], { state: "unsupported" })).toEqual([
+    { path: SETUP, created: true, additions: 9, deletions: 0, lines: Array(9).fill("add") },
+  ]);
 });
 
 test("a file outside the repository keeps its counts and opens inline once the checkpoint loads", async () => {
