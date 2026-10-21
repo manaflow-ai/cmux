@@ -865,6 +865,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
 
+      - name: Validate the PR media privacy gate
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_privacy.py
+
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
         run: |
