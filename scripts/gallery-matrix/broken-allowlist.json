@@ -48,5 +48,6 @@
   "pages.markdown#showcase": "Headless Chromium's renderer crashes on the showcase's 193 highlighted code blocks; WebKit (the app's engine) renders it in 5-9 s.",
   "pages.markdown#showcase-syntax-highlighting-gallery": "Headless Chromium's renderer crashes on the showcase's 193 highlighted code blocks; WebKit (the app's engine) renders it in 5-9 s.",
   "pages.settings#chief-chiefs": "Fails to mount on CI's Linux Chromium only (Gallery control missing: [data-card=\"chiefs\"] [data-chief], 3 of 3 runs); renders on macOS Chromium in 0.7 s. Cause not found yet (gallery-perf). Broken since 2026-10-21.",
-  "pages.settings#chief-editor": "Fails to mount on CI's Linux Chromium only (Gallery control missing: [data-card=\"chiefs\"] [data-chief], 3 of 3 runs); renders on macOS Chromium in 0.7 s. Cause not found yet (gallery-perf). Broken since 2026-10-21."
+  "pages.settings#chief-editor": "Fails to mount on CI's Linux Chromium only (Gallery control missing: [data-card=\"chiefs\"] [data-chief], 3 of 3 runs); renders on macOS Chromium in 0.7 s. Cause not found yet (gallery-perf). Broken since 2026-10-21.",
+  "pages.settings#font-picker": "The font list ignores a click in the first 400 ms after the page loads (DomainListEditor closedAt starts at 0), and the play clicks that early on CI: Gallery control missing: .domain-panel, 3 of 3 runs. Its fix PR (gallery-perf) removes this line. Broken since 2026-10-21."
 }
