@@ -87,13 +87,33 @@ public struct LinkMenu {
     // MARK: App lists (LaunchServices, when a menu opens)
 
     /// The browsers that open `url`, the default first, without this app.
+    /// The shared workspace's answer is kept per scheme (``LinkMenuAppCache``).
     public func browsers(for url: URL, workspace: NSWorkspace = .shared) -> [URL] {
-        Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url), excluding: Bundle.main.bundleURL)
+        let ask: @Sendable () -> [URL] = { [url] in
+            let workspace = NSWorkspace.shared
+            return Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url),
+                                excluding: Bundle.main.bundleURL)
+        }
+        guard workspace === NSWorkspace.shared, let scheme = url.scheme?.lowercased() else {
+            return Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url),
+                                excluding: Bundle.main.bundleURL)
+        }
+        // http and https open in the same browsers.
+        return LinkMenuAppCache.shared.apps(for: "link:" + (scheme == "https" ? "http" : scheme), compute: ask)
     }
 
-    /// The apps that open `file`, its default first.
+    /// The apps that open `file`, its default first. The shared workspace's answer is kept per
+    /// content type (``LinkMenuAppCache``); a file without one is asked every time.
     public func apps(for file: URL, workspace: NSWorkspace = .shared) -> [URL] {
-        Self.ordered(workspace.urlsForApplications(toOpen: file), first: workspace.urlForApplication(toOpen: file), excluding: nil)
+        guard workspace === NSWorkspace.shared,
+              let type = try? file.resourceValues(forKeys: [.contentTypeKey]).contentType else {
+            return Self.ordered(workspace.urlsForApplications(toOpen: file), first: workspace.urlForApplication(toOpen: file), excluding: nil)
+        }
+        let kept = LinkMenuAppCache.shared.apps(for: "type:" + type.identifier) { [type] in
+            NSWorkspace.shared.urlsForApplications(toOpen: type)
+        }
+        // The default stays per file: Get Info's "Open with" can name another app for one document.
+        return Self.ordered(kept, first: workspace.urlForApplication(toOpen: file), excluding: nil)
     }
 
     /// `files.textEditor` when it names an installed app, else the system's app for source code
@@ -137,7 +157,7 @@ public struct LinkMenu {
         return folders.map { $0.appending(path: bundleName) }.first { paths.fileExists(atPath: $0.path) }
     }
 
-    static func ordered(_ apps: [URL], first: URL?, excluding own: URL?) -> [URL] {
+    nonisolated static func ordered(_ apps: [URL], first: URL?, excluding own: URL?) -> [URL] {
         var seen = Set<String>()
         let own = own?.standardizedFileURL.path
         return ([first].compactMap { $0 } + apps).filter { app in
@@ -165,9 +185,7 @@ public struct LinkMenu {
         rows.map { row in
             let item = PageMenuAction.item(row.title) { perform(row, link: link, file: file) }
             if let app = row.app, row.kind == .app {
-                let icon = NSWorkspace.shared.icon(forFile: app.path)
-                icon.size = NSSize(width: 16, height: 16)
-                item.image = icon
+                item.image = LinkMenuAppCache.icon(for: app)
             }
             if !row.children.isEmpty {
                 let submenu = NSMenu(title: row.title)

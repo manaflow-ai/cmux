@@ -28,7 +28,8 @@ enum DebugCEF {
             }),
             "prefetch": services.cache.cef.frameworkPrefetch.map {
                 .object(["bytes": .number(Double($0.bytes)), "files": .number(Double($0.files)), "ms": .number($0.milliseconds),
-                         "services_ms": .number($0.servicesMilliseconds)])
+                         "services_ms": .number($0.servicesMilliseconds), "binary_ms": .number($0.binaryMilliseconds),
+                         "map_ms": .number($0.mapMilliseconds)])
             } ?? .null,
         ]
         if case let browserTabs = services.cache.browserTabs {

@@ -174,9 +174,12 @@ public final class CEFEngine: BrowserEngine {
 
     /// The framework read before CefInitialize (`CEFFrameworkPrefetch`):
     /// bytes, files and milliseconds; nil before one ran.
-    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double, servicesMilliseconds: Double)? {
+    /// `mapMilliseconds` is the time inside `cef_load_library`, which holds
+    /// dyld's loader lock (every main-thread dlopen/dladdr waits on it).
+    public var frameworkPrefetch: (bytes: Int, files: Int, milliseconds: Double, servicesMilliseconds: Double,
+                                   binaryMilliseconds: Double, mapMilliseconds: Double)? {
         let ms: (Duration) -> Double = { Double($0.components.attoseconds) / 1e15 + Double($0.components.seconds) * 1000 }
-        return CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, ms($0.duration), ms($0.services)) }
+        return CEFFrameworkPrefetch.last.map { ($0.bytes, $0.files, ms($0.duration), ms($0.services), ms($0.binary), ms($0.map)) }
     }
 
     /// `none`, `creating`, `live`, `taken` or `closed` (`debug.cef`).
