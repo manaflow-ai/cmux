@@ -12,6 +12,7 @@ import {
   css,
   deriveTokens,
   GHOSTTY_DEFAULT,
+  litGlyph,
   MINIMUM_TEXT_CONTRAST,
   parseHex,
   readable,
@@ -33,6 +34,8 @@ export function themeInput(theme: GhosttyTheme, accent: AppAccent = "neutral"): 
     selectionForeground: color(theme.selectionForeground) ?? undefined,
     backgroundOpacity: 1,
     accent,
+    // The theme's own `# cmux-accent`, which wins over `accent` as ThemeBridge's does in the app.
+    accentColor: color(theme.accent),
   };
 }
 
@@ -67,6 +70,7 @@ export function webThemePayload(
       "--cmux-caret": css(tokens.textPrimary),
       "--cmux-accent": css(tokens.accent),
       "--cmux-on-accent": css(tokens.onAccent),
+      "--cmux-lit-glyph": css(litGlyph(tokens)),
       ...(app ? appThemeVariables(app) : {}),
     },
     colorScheme: tokens.isDark ? "dark" : "light",
@@ -105,6 +109,7 @@ export function agentPaneTheme(tokens: ThemeTokens, reducedMotion: boolean): Rec
     accent: css(tokens.accent),
     onAccent: css(tokens.onAccent),
     accentSoft: css(tokens.selectionFill),
+    litGlyph: css(litGlyph(tokens)),
     accentText: css(opaquePage),
     danger: css(tokens.danger),
     warning: css(tokens.attention),

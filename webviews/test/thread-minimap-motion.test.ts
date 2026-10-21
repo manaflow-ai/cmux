@@ -1,6 +1,7 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The thread minimap's motion, measured in WebKit (the engine the app draws the pane in) against the
-// Codex desktop app's recordings (minimap-ref SPEC): hover grows the tick to 26 px within 160 ms
+// Codex desktop app's recordings (minimap-ref SPEC): hover grows the tick to 26 px within 120 ms
+// (the motion scale's micro step; Codex's spring curve, run faster than its 160 ms)
 // with no delay; a click scrolls on cubic-bezier(0.35, 0.05, 0, 1) for about 400 ms and lands the
 // prompt's bubble 35 px below the transcript's top; its bubble's highlight runs 1400 ms. Under
 // Reduce Motion none of them animate.
@@ -99,14 +100,14 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
       const box = document.querySelector<HTMLElement>(`[data-tick="${at}"]`)!.getBoundingClientRect();
       return { x: box.left + 8, y: box.top + box.height / 2 };
     }, index);
-  test("hover grows the tick to 26 px within 160 ms, with no delay, on the spring curve", async () => {
+  test("hover grows the tick to 26 px within 120 ms, with no delay, on the spring curve", async () => {
     const page = await open(false);
     const style = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
       return { delay: css.transitionDelay, duration: css.transitionDuration, easing: css.transitionTimingFunction };
     });
     expect(style.delay).toBe("0s");
-    expect(style.duration).toBe("0.15s"); // at rest: the 150 ms settle; hovered rows use 160 ms
+    expect(style.duration).toBe("0.12s"); // at rest and hovered alike: the scale's micro step
     const point = await tickPoint(page, 5);
     await page.mouse.move(point.x + 300, point.y);
     // The pointer's arrival starts a transform transition at once (no dwell). Its timeline is read
@@ -143,8 +144,8 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
         running.currentTime = ms;
         return 26 * new DOMMatrixReadOnly(getComputedStyle(bar).transform).a;
       };
-      const widths = [0, 40, 80, 112, 160].map(width);
-      running.currentTime = 160;
+      const widths = [0, 30, 60, 84, 120].map(width);
+      running.currentTime = 120;
       running.play();
       return {
         duration: timing.duration,
@@ -156,23 +157,23 @@ await requireBrowserLane("thread-minimap-motion.test.ts", async () => {
     });
     expect(transition).toBeDefined();
     expect(transition!.wait).toBeLessThan(60);
-    // 160 ms, no delay, on the spring (the CSS `linear()` curve, or its cubic-bezier fallback).
-    expect(transition!.duration).toBe(160);
+    // 120 ms, no delay, on the spring (the CSS `linear()` curve, or its cubic-bezier fallback).
+    expect(transition!.duration).toBe(120);
     expect(transition!.delay).toBe(0);
-    const [w0, w40, w80, w112, w160] = transition!.widths;
+    const [w0, w30, w60, w84, w120] = transition!.widths;
     // From the 6 px rest through the lengths between (a transition, not a jump) to 26 px.
     expect(Math.round(w0!)).toBe(6);
-    expect(w40!).toBeGreaterThan(8);
-    expect(w40!).toBeLessThan(25.4);
-    expect(w80!).toBeGreaterThan(w40!);
+    expect(w30!).toBeGreaterThan(8);
+    expect(w30!).toBeLessThan(25.4);
+    expect(w60!).toBeGreaterThan(w30!);
     // The spring's small overshoot (about 0.8%), then 26 px.
-    expect(w112!).toBeLessThan(26 * 1.012);
-    expect(Math.round(w160!)).toBe(26);
+    expect(w84!).toBeLessThan(26 * 1.012);
+    expect(Math.round(w120!)).toBe(26);
     const hovered = await page.evaluate(() => {
       const css = getComputedStyle(document.querySelector<HTMLElement>('[data-tick="5"] .acpmux-minimap__bar')!);
       return { delay: css.transitionDelay, duration: css.transitionDuration };
     });
-    expect(hovered).toEqual({ delay: "0s", duration: "0.16s" });
+    expect(hovered).toEqual({ delay: "0s", duration: "0.12s" });
     await page.close();
   });
 

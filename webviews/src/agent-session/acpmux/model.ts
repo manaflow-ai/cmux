@@ -1,6 +1,7 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
@@ -10,10 +11,10 @@ import type { IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { BACKGROUND_WORK } from "./conversation/backgroundWork";
+import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -24,6 +25,10 @@ export type AcpmuxBackgroundTask = {
   command: string;
   state: "completed" | "failed" | "stopped";
   reason?: string;
+  /// Claude Code's own words on how it ended (its task notification's summary).
+  summary?: string;
+  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  exitCode?: number;
 };
 
 /// A shell call's life in the background, on the call that started it (direct.ts
@@ -177,6 +182,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
+  /// as a chip that opens in place (conversation/promptCollapse.ts).
+  pasted?: PasteRange[];
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
@@ -501,6 +509,9 @@ export type AcpmuxSnapshot = {
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
+  /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
+  /// array until one comes or goes.
+  asks?: WatchedAsk[];
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
@@ -698,10 +709,7 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
 /// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
-/// The "Running in background" row after it (summary/backgroundWork.ts) leaves it the last: the
-/// row comes and goes under the footer without moving it.
-export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "turnSummary" && (!next || next.kind === BACKGROUND_WORK);
+export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) => row.kind === "turnSummary" && !next;
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
@@ -771,7 +779,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === BACKGROUND_WORK ||
+    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "plan" ||
@@ -922,15 +930,33 @@ function measuredRowHeight(
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
   }
-  if (entry.text !== row.text || entry.lexedLength === 0) {
+  const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
     lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
-  if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
-  let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-  for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  let contentHeight: number;
+  if (pasted) {
+    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+    // however long it is (conversation/UserBubble.tsx).
+    const { lineHeight } = metrics();
+    contentHeight = 0;
+    for (const part of promptParts(row.text, row.pasted!))
+      contentHeight +=
+        part.kind === "paste"
+          ? PASTE_CHIP_HEIGHT
+          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
+  } else {
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  }
+  // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
+  // Chief's draws its own bubble (ChiefPromptBubble.tsx).
+  if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
+    contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
   const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
   return beforeFooter ? height : Math.max(34, height);
 }

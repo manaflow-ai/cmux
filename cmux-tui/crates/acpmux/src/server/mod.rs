@@ -1010,7 +1010,7 @@ mod pending;
 mod processes;
 mod worktrees;
 use crate::hub::is_permission_ask;
-pub use pending::event_value;
+pub use pending::{event_value, into_event_value};
 use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;

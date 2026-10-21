@@ -243,11 +243,12 @@ declare namespace Cmux {
   type LaunchCredential = { credential: string; actor: string }
   type LaunchKeyRotation = { kid: string }
   type LayoutBulkResult = { tab_ids: Array<string /* tab_… */>; pane_ids: Array<string /* pane_… */>; screen_ids: Array<string /* screen_… */>; workspace_ids: Array<string /* workspace_… */>; closed_ids?: Array<Cmux.StateId> }
-  type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null }
+  type LayoutColumn = { column_id: string /* split_… */; width: number; root: Cmux.LayoutNode; dock?: Cmux.LayoutColumnDock | null; rows?: Array<Cmux.LayoutRow> }
   type LayoutColumnDock = { edge: "left" | "right" | "top" | "bottom"; mode: "docked" | "overlay"; role?: "agent_chat"; permanent?: boolean; pinned?: boolean; allow_tabs?: boolean }
   type LayoutDocument = { version: number; screen_id: string /* screen_… */; active_pane_id: string /* pane_… */; zoomed_pane_id: string /* pane_… */ | null; root: Cmux.LayoutNode; extra?: Record<string, Cmux.JsonValue> }
   type LayoutLeaf = { kind: "leaf"; pane_id: string /* pane_… */; tab_ids: Array<string /* tab_… */>; active_tab_id?: string /* tab_… */ }
   type LayoutNode = unknown
+  type LayoutRow = { row_id?: string /* split_… */; height: number }
   type LayoutSplit = { kind: "split"; split_id: string /* split_… */; direction: "horizontal" | "vertical"; ratio: number; first: Cmux.LayoutNode; second: Cmux.LayoutNode }
   type LayoutStack = { kind: "stack"; pane_ids: Array<string /* pane_… */>; expanded_pane_id: string /* pane_… */ }
   type LayoutViewport = { kind: "viewport"; base_width: number; columns: Array<Cmux.LayoutColumn> }

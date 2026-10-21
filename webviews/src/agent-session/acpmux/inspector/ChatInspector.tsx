@@ -21,6 +21,7 @@
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { usePresence, type Presence } from "../../../ui/presence";
 import { useChatDisplay } from "../chatDisplay";
 import { useHeaderState } from "../header/headerState";
 import { useT } from "../i18n";
@@ -136,18 +137,22 @@ export function useChatInspector({
   // Closed for now (not remembered): an output's diff split left no room beside the chat.
   const [suppressed, setSuppressed] = useState(false);
   const shown = on && open && !suppressed;
-  const paneWidth = usePaneWidth(shell, shown);
+  // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
+  // while it leaves.
+  const presence = usePresence(shown, "right");
+  const drawn = presence.present;
+  const paneWidth = usePaneWidth(shell, drawn);
   const push = pushes(placement, paneWidth, width);
   const rows = snapshot.rows;
-  const made = useMemo(() => (shown ? sessionSummary(rows) : undefined), [shown, rows]);
-  const links = useMemo(() => (shown ? outputLinks(rows) : []), [shown, rows]);
-  const artifacts = useMemo(() => (shown ? chatGallery(rows).length : 0), [shown, rows]);
+  const made = useMemo(() => (drawn ? sessionSummary(rows) : undefined), [drawn, rows]);
+  const links = useMemo(() => (drawn ? outputLinks(rows) : []), [drawn, rows]);
+  const artifacts = useMemo(() => (drawn ? chatGallery(rows).length : 0), [drawn, rows]);
   const views = subagents?.views;
   const asks = subagents?.asks;
-  const agents = useMemo(() => (shown ? [...subagentsIn(rows, views).values()] : []), [shown, rows, views]);
+  const agents = useMemo(() => (drawn ? [...subagentsIn(rows, views).values()] : []), [drawn, rows, views]);
   const waiting = useMemo(
-    () => (shown && asks ? waitingSubagents(asks, views) : new Set<string>()),
-    [shown, asks, views],
+    () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
+    [drawn, asks, views],
   );
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
   // The section a running line's count asked for, scrolled to once drawn.
@@ -206,9 +211,11 @@ export function useChatInspector({
         <Icon name="pane.split.right" size={15} />
       </button>
     ),
-    panel: shown ? (
-      <InspectorPanel width={width} placement={push ? "push" : "overlay"}>
+    panel: drawn ? (
+      <InspectorPanel width={width} placement={push ? "push" : "overlay"} presence={presence}>
+        {/* Another chat's sections start drawn with what that chat has: none of its rows drops in. */}
         <ChatInspector
+          key={snapshot.sessionId}
           summary={snapshot.summary}
           machineName={machineName}
           peerKinds={snapshot.peerKinds}
@@ -241,22 +248,30 @@ export function useChatInspector({
 }
 
 /// The panel's frame: its width, its place beside or over the chat, and the drag handle on its
-/// left edge (a double-click puts the width back).
+/// left edge (a double-click puts the width back). With `presence`, it enters from and leaves toward
+/// the pane's right edge.
 export function InspectorPanel({
   width,
   placement,
+  presence,
   children,
 }: {
   width: number;
   placement: InspectorPlacement;
+  presence?: Presence;
   children: ReactNode;
 }) {
   const t = useT();
-  const frame = useRef<HTMLElement>(null);
+  const frame = useRef<HTMLElement | null>(null);
   const drag = useRef<{ right: number } | undefined>(undefined);
   return (
     <aside
-      ref={frame}
+      {...presence?.props}
+      ref={(node) => {
+        frame.current = node;
+        presence?.props.ref(node);
+      }}
+      inert={presence?.leaving}
       className="acpmux-chat-inspector"
       data-placement={placement}
       style={{ width }}

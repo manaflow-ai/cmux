@@ -1412,7 +1412,7 @@ body[data-loading="true"] #status::before {
   display: inline-flex;
   gap: 2px;
   opacity: 0;
-  transition: opacity 100ms ease;
+  transition: opacity var(--cmux-motion-quick) ease;
 }
 .comment-card:hover .comment-card-actions,
 .comment-card:focus-within .comment-card-actions {
@@ -1982,8 +1982,8 @@ svg[data-icon-fill] {
   pointer-events: none;
   opacity: 0;
   transition:
-    opacity 90ms ease,
-    translate 90ms ease;
+    opacity var(--cmux-motion-quick) ease,
+    translate var(--cmux-motion-quick) ease;
 }
 .diff-pill-button:last-child::after {
   left: auto;

@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextPages
 import CmuxNextFocus
+import CmuxNextSidebar
 
 // The context keys of the window a key goes to (plans/cmux-next/keybindings.md
 // section 4): built from that window's focus, never from the process-wide
@@ -58,6 +59,7 @@ extension KeyRouter {
         let omnibarList = facts.omnibarListOpen && { if case .addressBar = resolved { true } else { false } }()
         if facts.listFocus || omnibarList || Self.isNativeList(resolved) { context[KeyContext.listFocus] = .bool(true) }
         if facts.sidebarMultiSelection, case .sidebar = resolved { context[KeyContext.sidebarMultiSelection] = .bool(true) }
+        if facts.workspacesAsTabs { context[KeyContext.workspacesAsTabs] = .bool(true) }
         return context
     }
 
@@ -130,7 +132,8 @@ extension KeyRouter {
                      pageKeySequencePending: editor.map { services?.viewers.editorPages.keySequencePending(on: $0) ?? false } ?? false,
                      textBoxFocused: window.firstResponder is TextBoxTextView,
                      sidebarMultiSelection: controller.sidebar.model.selection.count > 1,
-                     fileExplorerFocused: FileExplorerService.hasKeyboard(window))
+                     fileExplorerFocused: FileExplorerService.hasKeyboard(window),
+                     workspacesAsTabs: SidebarTunables.workspacesAsTabs.value)
     }
 
     /// The page id of the focused internal page tab.

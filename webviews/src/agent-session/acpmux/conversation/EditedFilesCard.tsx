@@ -11,7 +11,7 @@
 // cmux.json `agentPane.editedFiles.*` (turnChanges/settings.ts): `show` always, collapsed (the
 // header only, a chevron shows the rows) or never (the plain tool rows); `maxRows` rows before
 // "Show N more"; `scope` turn, or session (one card, at the session's latest edit).
-import { useContext, useMemo, useState } from "react";
+import { useContext, useMemo, useState, type ReactNode } from "react";
 import { commonDirectory, turnFiles, turnPathsOnly, type TurnFile } from "../diff";
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
@@ -24,11 +24,23 @@ import { SessionEditsContext } from "../turnChanges/sessionRows";
 import { useEditedFilesSettings } from "../turnChanges/settings";
 import { applyUndo, cancelUndo, checkUndo, useUndoState, type UndoState } from "../turnChanges/undoStore";
 import { setCardOpen, useCardOpen } from "../turnChanges/openStore";
+import { FindReveal, isRevealRow } from "./chatFind";
 import { EditDiff } from "./EditDiff";
 import { Undo } from "./icons";
 import { ToolRows } from "./TurnRows";
 
 /// `onOpenDiff` opens the turn's changes, at `path` when given; focus returns to `opener`.
+/// Find in Chat's reveal for `row` only: the card draws outside ToolRows (which passes the reveal to
+/// its match's row alone), under the transcript-wide one, and a diff opens on the reveal it sees.
+function OwnFindReveal({ row, children }: { row: AcpmuxRow; children: ReactNode }) {
+  const reveal = useContext(FindReveal);
+  return (
+    <FindReveal.Provider value={reveal && isRevealRow(row, reveal) ? reveal : undefined}>
+      {children}
+    </FindReveal.Provider>
+  );
+}
+
 export function EditedFilesCard({
   row,
   sessionId,
@@ -189,7 +201,9 @@ function Card({
       )}
       {single && diffOpen && (
         <div className="acpmux-edited-diff">
-          <EditDiff file={single} />
+          <OwnFindReveal row={row}>
+            <EditDiff file={single} />
+          </OwnFindReveal>
         </div>
       )}
       {shown.map((entry) => {
