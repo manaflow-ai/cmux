@@ -214,13 +214,13 @@ public final class WindowOverlayHost {
         isReordering = true
         defer { isReordering = false }
         // AppKit places its own children (the full screen titlebar); they are never re-added.
-        // Parked panels (alpha 0, no mouse: divider catchers with no divider)
-        // draw nothing and take nothing, so their order does not matter: they
-        // never trigger a reorder and are not re-added (each re-add is an
-        // AppKit ordering pass over the window's whole group).
-        let children = (window.childWindows ?? []).filter { !Self.isAppKitChrome($0) && !Self.isParked($0) }
+        let children = (window.childWindows ?? []).filter { !Self.isAppKitChrome($0) }
         guard let index = children.firstIndex(where: { $0 === panel }) else { return }
-        let visible = children.enumerated().filter { $0.element.isVisible || $0.element === panel }
+        // Parked panels (alpha 0, no mouse: divider catchers with no divider)
+        // draw and take nothing, so they never start a reorder. A reorder that
+        // runs anyway moves them too, so they are above the panel when they
+        // unpark on the next workspace switch (no second reorder then).
+        let visible = children.enumerated().filter { ($0.element.isVisible && !Self.isParked($0.element)) || $0.element === panel }
         let pageAbove = visible.contains { $0.offset > index && Self.isPageWindow($0.element) }
         let panelBelow = visible.contains { $0.offset < index && !Self.isPageWindow($0.element) && $0.element.level <= panel.level }
         guard pageAbove || panelBelow else { return }
