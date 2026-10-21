@@ -59,10 +59,13 @@ export function keptTail(sessionId: string): KeptTail | undefined {
 /// and nothing is kept behind a client that no longer exists.
 ///
 /// With a host this costs the next client in that page one in-process read instead of a map hit,
-/// and it draws the same tail. It matters where there is no host to read back from — a page outside
-/// the app, the gallery, a test — and where `writeHostTail` cut the tail to nothing: there the map
-/// would be the only copy, and a later client would draw a chat it never attached to as though it
-/// had. Session ids are not reused, so the rows would be that chat's; they would simply be rows
+/// and what it reads back is at most what the map held: `writeHostTail`'s byte bound may have cut
+/// the tail, so the chat draws fewer rows (with its older turns still loadable), and the host's
+/// chat cap is shared by every page where `KEPT_TAILS` is per page, so the copy can be gone and the
+/// chat opens cold. Each of those is a colder draw of the same chat, which is the trade. It matters
+/// where there is no host to read back from — a page outside the app, the gallery, a test — and
+/// where `writeHostTail` cut the tail to nothing: there the map would be the only copy, and a later
+/// client would draw a chat it never attached to as though it had. Session ids are not reused, so the rows would be that chat's; they would simply be rows
 /// this client never read and cannot stand behind, which is the same thing `forgetTail` exists to
 /// prevent after a failed attach.
 export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {

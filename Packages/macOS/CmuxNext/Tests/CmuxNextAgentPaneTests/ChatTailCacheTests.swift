@@ -205,12 +205,17 @@ struct ChatTailCacheTests {
         // comment, which today is the one on `reply(for:)`.
         let rest = source[handler.lowerBound...]
         let body = rest.range(of: "\n    /// ").map { String(rest[..<$0.lowerBound]) } ?? String(rest)
-        #expect(body.contains("AgentPaneTailCache"),
+        // The routing AND how it decides: a `hasPrefix("chat.tail")` here would still mention the
+        // type and still open the chat, while taking a later `chat.tail.forget` as a write and
+        // erasing the tail. `handles(method:)` is the one that names its ops.
+        #expect(body.contains("AgentPaneTailCache.handles(method:"),
                 """
                 AgentPaneBridge.userContentController no longer routes chat.tail to \
-                AgentPaneTailCache, so the ops reach AgentPaneModel, which has no case for them: \
-                every chat opened in a new tab waits for acpmux again. Route them again, or give \
-                AgentPaneModel the ops and update this test.
+                AgentPaneTailCache.handles(method:), so either the ops reach AgentPaneModel, which \
+                has no case for them (every chat opened in a new tab waits for acpmux again), or \
+                they are matched some other way — by prefix, which erases the tail of any later \
+                chat.tail.* op. Route them through handles(method:) again, or give AgentPaneModel \
+                the ops and update this test.
                 """)
     }
 }
