@@ -357,7 +357,7 @@ public final class SidebarModel {
         case let .toggleCollapse(.section(id)):
             let collapse = !(section(id)?.isCollapsed ?? collapsedSections.contains(id))
             if collapse { collapsedSections.insert(id) } else { collapsedSections.remove(id) }
-            setSections(sections)
+            sections = Self.folding(sections, collapsedSections)
         case let .reorderProfile(id, index):
             guard let from = profiles.firstIndex(where: { $0.id == id }),
                   let to = ProfileBarLogic.finalIndex(from: from, insertion: index, count: profiles.count) else { return }
@@ -375,12 +375,8 @@ public final class SidebarModel {
     /// collapsed sections applied; assigns only when something changed.
     public func setSections(_ new: [SidebarSection]) {
         // The sidebar document places every item: links in machine lists, Pinned and custom groups in their own list sections.
-        var shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
-        for index in shown.indices {
-            let collapsed = collapsedSections.contains(shown[index].id)
-            if shown[index].isCollapsed != collapsed { shown[index].isCollapsed = collapsed }
-        }
-        sections = shown // the setter skips an unchanged list
+        let shown = docDrag.flatMap { drag in SidebarDocStore.current?.shown.map { $0.arrange(new, drag: drag) } } ?? new
+        sections = Self.folding(shown, collapsedSections) // the setter skips an unchanged list
     }
 
     /// Row content of listed workspaces (status, title, unread, progress, icon), written in place with no structural
@@ -451,7 +447,7 @@ public final class SidebarModel {
         if !layoutIDs.isEmpty { collapsedLayoutSections.subtract(layoutIDs) }
         guard !sectionIDs.isEmpty else { return }
         collapsedSections.subtract(sectionIDs)
-        setSections(sections)
+        sections = Self.folding(sections, collapsedSections)
     }
 
     private func listedPaths(of id: WorkspaceID) -> [SidebarRowIndex.Path] {

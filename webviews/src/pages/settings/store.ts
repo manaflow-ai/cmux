@@ -41,10 +41,13 @@ import {
   type AccountsState,
   type AgentsRun,
   type AgentsState,
+  type ChannelsState,
   type Domains,
   type HarnessesRun,
   type HarnessesState,
   type HostLists,
+  type IntegrationsRun,
+  type IntegrationsState,
   type ListRow,
   type ManagedInfo,
   type MuseumArtResult,
@@ -479,6 +482,12 @@ export class SettingsStore {
     call: <R>(op: string, params: unknown): Promise<R> => this.client.call<R>(op, params),
   };
 
+  /** Settings > Updates' channels; null when the host has no updater. */
+  async channelsState(): Promise<ChannelsState | null> {
+    const reply = await this.request("cmux.settings.channels.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
   /** Settings > Agents' state; null when the host has no Agents part. */
   async agentsState(): Promise<AgentsState | null> {
     const reply = await this.request("cmux.settings.agents.state", {});
@@ -499,6 +508,18 @@ export class SettingsStore {
     } catch {
       return () => {};
     }
+  }
+
+  /** Settings > Agents > Agent integrations; null when the host has none. */
+  async integrationsState(): Promise<IntegrationsState | null> {
+    const reply = await this.request("cmux.settings.integrations.state", {});
+    return reply.ok ? reply.value : null;
+  }
+
+  /** One Agent integrations gesture, then the part as it is after it (null: the host has none). */
+  async runIntegrations(run: IntegrationsRun): Promise<IntegrationsState | null> {
+    await this.request("cmux.settings.integrations.run", run);
+    return this.integrationsState();
   }
 
   /** One Harnesses gesture (Settings > Agents), then a fresh read of the part. */

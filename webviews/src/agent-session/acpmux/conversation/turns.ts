@@ -520,7 +520,7 @@ const staysOut = (row: AcpmuxRow) =>
   row.kind === "failover" ||
   // A paused agent pair waits for the person's Resume.
   row.kind === "agentPair" ||
-  // Where the session started: what it runs on and how it compacts.
+  // Where the session started: what it runs on.
   row.kind === "sessionStart" ||
   // A session offer waits for the person's Start or Dismiss.
   row.kind === "sessionOffer" ||
