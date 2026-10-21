@@ -206,6 +206,8 @@ sys.stdin.read()
         self.start_forwarder()
         sequence = [('prompt-submit', {'prompt': 'hi'}),
                     ('pre-tool-use', {'tool_name': 'Read', 'tool_input': {'file_path': '/tmp/日本語'}}),
+                    ('post-tool-use', {'tool_name': 'AskUserQuestion'}),
+                    ('post-tool-use', {'tool_name': 'ExitPlanMode'}),
                     ('pre-tool-use', {'tool_name': 'Bash', 'tool_input': {'command': "echo 'a\nb'"}}),
                     ('stop', {'stop_hook_active': False})]
         for index, (subcommand, payload) in enumerate(sequence):
