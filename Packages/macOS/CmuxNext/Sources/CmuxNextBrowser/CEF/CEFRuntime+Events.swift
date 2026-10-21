@@ -201,6 +201,8 @@ extension CEFRuntime {
         }
         devToolsCalls.failAll(where: { $0.browser == browser }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { siteReplyBrowsers[$0] == browser }, with: BrowserTabError.closed)
+        // The fork counts a browser's window until its destructor, after this close.
+        if let shim { shutdownSequence?.windowsOpen(Int(shim.windowCount())) }
         shutdownSequence?.browserClosed(remaining: tabsByBrowser.count + pendingWindows.count)
         shutdownProgressed()
         pump?.scheduleNow()
