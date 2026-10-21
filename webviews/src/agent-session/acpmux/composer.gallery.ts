@@ -885,7 +885,12 @@ export default agentPaneEntry({
         return {
           ...failed,
           isWorking: false,
-          summary: { ...failed.summary!, status: "ready", queuePaused: true },
+          summary: {
+            ...failed.summary!,
+            status: "ready",
+            queuePaused: true,
+            queuePausedError: "stream disconnected before completion: error sending request for url",
+          },
           queue: waiting,
         };
       })(),

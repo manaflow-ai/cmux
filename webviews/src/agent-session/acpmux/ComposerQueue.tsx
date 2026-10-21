@@ -93,13 +93,8 @@ function reveal(list: HTMLElement, row: HTMLElement) {
   if (Math.abs(to - list.scrollTop) > 0.5) list.scrollTop = to;
 }
 
-/** Longest error the paused note quotes; the whole one is its tooltip. */
+/** Longest error the paused note shows before Show more opens the whole one. */
 const PAUSED_ERROR_CHARS = 160;
-
-function shortError(error: string) {
-  const line = error.trim().replace(/\s+/g, " ");
-  return line.length > PAUSED_ERROR_CHARS ? `${line.slice(0, PAUSED_ERROR_CHARS - 1)}…` : line;
-}
 
 /** Shows the full prompt as a tooltip only when its two lines (the button's inner text) cut it off. */
 function titleWhenTruncated(event: React.PointerEvent<HTMLElement>, prompt: string) {
@@ -143,6 +138,10 @@ export function ComposerQueue({
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
   const [editing, setEditingId] = useState<string>();
+  // The paused note's whole error, opened with Show more.
+  const [errorOpen, setErrorOpen] = useState(false);
+  const pausedLine = pausedError?.trim().replace(/\s+/g, " ");
+  const longError = pausedLine !== undefined && pausedLine.length > PAUSED_ERROR_CHARS;
   // The images the open edit drops from its prompt.
   const [dropped, setDropped] = useState<ReadonlySet<string>>(new Set());
   const setEditing = (id: string | undefined) => {
@@ -513,10 +512,22 @@ export function ComposerQueue({
       >
         {paused && (
           <li className="acpmux-queue-paused">
-            <span title={pausedError}>
-              {pausedError
-                ? t("composer.queuePausedError", { error: shortError(pausedError) })
+            <span>
+              {pausedLine
+                ? t("composer.queuePausedError", {
+                    error: longError && !errorOpen ? `${pausedLine.slice(0, PAUSED_ERROR_CHARS - 1)}…` : pausedLine,
+                  })
                 : t("composer.queuePaused")}
+              {longError && (
+                <button
+                  type="button"
+                  className="acpmux-queue-paused-more"
+                  aria-expanded={errorOpen}
+                  onClick={() => setErrorOpen(!errorOpen)}
+                >
+                  {t(errorOpen ? "message.less" : "message.more")}
+                </button>
+              )}
             </span>
             {onChange && (
               <button

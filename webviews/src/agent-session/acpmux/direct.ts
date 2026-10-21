@@ -941,8 +941,10 @@ export class AcpmuxDirectClient {
   /// The prompt sent now whose turn ended (`continued`) and that has not run yet. It may never run:
   /// removed, withdrawn or refused, the turn it ended reads as ended again (``dropContinuation``).
   private awaiting?: string;
-  /// The error of the newest failed turn: what paused the queue (`queuePausedError`).
-  private failedTurnError?: string;
+  /// Each failed turn's error by its turn id, and the turn whose failure paused the queue
+  /// (`queue_paused`): what the paused note names (`queuePausedError`).
+  private turnErrors = new Map<string, string>();
+  private pausingTurnId?: string;
   /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
   /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
   private steerRows = new Map<string, string>();
@@ -1407,7 +1409,8 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
-    this.failedTurnError = undefined;
+    this.turnErrors = new Map();
+    this.pausingTurnId = undefined;
     this.continuations.clear();
     this.steerRows.clear();
     this.promptsShown.clear();
@@ -2150,6 +2153,17 @@ export class AcpmuxDirectClient {
     this.emit("commands");
   }
 
+  /// What paused the queue: the error of the turn that held it, else the session's last turn's
+  /// when that failed (a pause whose turn this page never saw); undefined names none.
+  private pausedError(lastTurn: unknown): string | undefined {
+    const held = this.pausingTurnId === undefined ? undefined : this.turnErrors.get(this.pausingTurnId);
+    if (held) return held;
+    const last = lastTurn as { status?: unknown; errorText?: unknown } | null | undefined;
+    return last?.status === "failed" && typeof last.errorText === "string" && last.errorText
+      ? last.errorText
+      : undefined;
+  }
+
   private sessionChanged(params: SessionChanged): void {
     // Only a purge carries the id alone; every other change carries the whole summary.
     const session = params?.session as SessionSummary | undefined;
@@ -2260,7 +2274,8 @@ export class AcpmuxDirectClient {
     this.waitingSteers = [];
     this.interrupting = undefined;
     this.awaiting = undefined;
-    this.failedTurnError = undefined;
+    this.turnErrors = new Map();
+    this.pausingTurnId = undefined;
     this.steerRows.clear();
     this.promptsShown.clear();
     this.firstSeq = undefined;
@@ -2736,10 +2751,12 @@ export class AcpmuxDirectClient {
           this.awaiting = this.interrupting;
         }
         if (event.kind === "turn_result") this.interrupting = undefined;
-        if (event.kind === "turn_result" && status === "failed")
-          this.failedTurnError =
-            [msg.errorText, msg.error].find((value): value is string => typeof value === "string" && value !== "") ??
-            undefined;
+        // A turn that failed before its agent started has only `error` (`fail_unstarted_turn`).
+        const failure = [msg.errorText, msg.error].find(
+          (value): value is string => typeof value === "string" && value !== "",
+        );
+        if (event.kind === "turn_result" && status === "failed" && failure && typeof msg.turnId === "string")
+          this.turnErrors.set(msg.turnId, failure);
         if (event.kind === "turn_result")
           this.rows.set(`summary-${event.seq}`, {
             id: `summary-${event.seq}`,
@@ -2765,6 +2782,10 @@ export class AcpmuxDirectClient {
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
+      } else if (event.kind === "queue_paused") {
+        // The failed turn that held the queue. Messages put back after a failed turn of agent
+        // messages name none: the pause stays the one before.
+        if (typeof msg.turnId === "string") this.pausingTurnId = msg.turnId;
       } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
@@ -3157,7 +3178,9 @@ export class AcpmuxDirectClient {
             steering: summary.steering === true,
             backgroundsWork: summary.backgroundsWork === true,
             queuePaused: summary.queuePaused === true,
-            ...(summary.queuePaused === true && this.failedTurnError ? { queuePausedError: this.failedTurnError } : {}),
+            ...(summary.queuePaused === true && this.pausedError(summary.lastTurn)
+              ? { queuePausedError: this.pausedError(summary.lastTurn) }
+              : {}),
             ...(text(summary.watching) ? { watching: text(summary.watching) } : {}),
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
@@ -4691,8 +4714,8 @@ export class AcpmuxDirectClient {
       // A Send now still waiting for the cancel it causes is the live turn's, never the page's.
       interrupting: this.interrupting,
       awaiting: this.awaiting,
-      // The live queue pause names the newest failure, never an older one the page holds.
-      failedTurnError: this.failedTurnError,
+      // The live queue pause names its own turn, never an older pause the page holds.
+      pausingTurnId: this.pausingTurnId,
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
