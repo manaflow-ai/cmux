@@ -1434,12 +1434,14 @@ pre.cv-math-source {
   white-space: nowrap;
   color: var(--cv-text-muted);
 }
-/* The running turn's line as its last row (`below`): the meta row's line with a gap over it, so its
-   words stand 16px under a reply (the reply keeps the footer's 4px meta gap, so the end moves
-   nothing above it) and 20px under a tool row, as the Codex and Claude desktop apps space it,
-   never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE"). */
+/* The running turn's line as its last row (`below`): its words stand 16px under a reply (the reply
+   keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
+   space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
+   The gap comes out of the row's bottom padding, so the line's row is the chat's last footer's
+   32px (its 24px line and the 8px message gap) and the turn's end, which swaps one for the other,
+   moves nothing. */
 .cv-worked.is-below {
-  height: calc(var(--cv-live-gap) + var(--cv-meta-row));
+  height: calc(var(--cv-meta-row) + var(--cv-message-gap));
   padding-top: calc(var(--cv-live-gap) + 2px);
 }
 /* Its time is quieter than its words, as the tool rows' time is. */
@@ -1455,10 +1457,11 @@ pre.cv-math-source {
 .cv-worked.is-below:hover .cv-command__bg {
   opacity: 1;
 }
-/* Its row drops the transcript row's 34px floor (.acpmux-row), so it is the footer's 32px and its
-   estimate's (model.ts fallbackRowHeight), not 2px taller. */
+/* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
+   last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
 .acpmux-row:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
   min-height: 0;
+  padding-bottom: 0;
 }
 /* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
 .cv-worked.is-quiet {

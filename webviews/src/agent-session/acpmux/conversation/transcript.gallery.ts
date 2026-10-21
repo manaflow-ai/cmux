@@ -470,6 +470,7 @@ const liveLineClear = async (ctx: PlayContext) => {
   const over = [...doc.querySelectorAll(".cv-tool, .cv-md")]
     .map((node) => node.getBoundingClientRect().bottom)
     .filter((bottom) => bottom <= words.top + 1);
+  if (!over.length) throw new Error("no tool row or reply draws over the live line");
   const gap = words.top - Math.max(...over);
   if (!(gap >= 14)) throw new Error(`the live line sits ${gap.toFixed(1)}px under the row over it, not 14px or more`);
   const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
