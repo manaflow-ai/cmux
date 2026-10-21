@@ -12,10 +12,13 @@ export function CopyButton({
   text,
   label,
   className = "cv-codeblock__action",
+  copy = copyTextResult,
 }: {
   text: string;
   label: string;
   className?: string;
+  /** Puts `text` on the clipboard; a table's also adds its other formats (tableFormats.ts). */
+  copy?: (text: string) => Promise<boolean>;
 }) {
   const t = useT();
   const [copied, setCopied] = useState(false);
@@ -28,7 +31,7 @@ export function CopyButton({
       className={className}
       aria-label={name}
       onClick={async () => {
-        const done = await copyTextResult(text);
+        const done = await copy(text);
         window.clearTimeout(timer.current);
         setCopied(done);
         if (done) timer.current = window.setTimeout(() => setCopied(false), COPIED_MS);

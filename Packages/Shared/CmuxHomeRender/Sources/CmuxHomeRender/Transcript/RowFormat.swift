@@ -61,6 +61,11 @@ enum HomeStrings {
     static func from(_ name: String) -> String {
         String(format: String(localized: "ax.from.name", defaultValue: "From %@", bundle: .module), name)
     }
+    /// The label of a run in a voice of the Chief's team: `desk` is the front
+    /// desk; another voice (a subagent's id, `a7`) shows as itself.
+    static func voice(_ name: String) -> String {
+        name == "desk" ? String(localized: "label.voice.desk", defaultValue: "Front desk", bundle: .module) : name
+    }
     static var typing: String { String(localized: "ax.typing", defaultValue: "Typing", bundle: .module) }
     static var composeLabel: String { String(localized: "ax.compose", defaultValue: "Message", bundle: .module) }
 }

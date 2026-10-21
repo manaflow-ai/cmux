@@ -247,6 +247,7 @@
     "setting.announcements.enabled": true,
     "setting.announcements.fetch": true,
     "setting.app.globalHotKey": false,
+    "setting.app.hideDockIconWithoutWindows": true,
     "setting.app.quitBehavior": "ask",
     "setting.app.startAgentGlobalHotKey": false,
     "setting.app.uiScale": 1,
@@ -695,6 +696,7 @@
     "setting.ui.animations.tabs": true,
     "setting.ui.animations.web": true,
     "setting.ui.paneAnimations": true,
+    "setting.updates.channel": "nightly",
     "setting.updates.checkAutomatically": true,
     "setting.updates.checkIntervalSeconds": 3600,
     "setting.updates.downloadAutomatically": true,
@@ -709,6 +711,7 @@
     "setting.workspaces.autoName": true,
     "setting.workspaces.newPlacement": "top",
     "steps-aside.yieldsToCodeEditor": ["all common vscode shortcuts", "focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight", "toggleChecklistItemComplete", "toggleSplitZoom"],
-    "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "focusHistoryBack", "focusHistoryForward", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"]
+    "steps-aside.yieldsToTerminal": ["decreaseWorkspaceTerminalFontSize", "focusHistoryBack", "focusHistoryForward", "groupSelectedWorkspaces", "increaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize", "toggleChecklistItemComplete"],
+    "steps-aside.yieldsToWebContent": ["toggleChecklistItemComplete"]
   }
 }
