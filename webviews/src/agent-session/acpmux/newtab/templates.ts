@@ -28,8 +28,8 @@ export type ScreenSections = {
 };
 
 const SECTIONS: Record<ScreenTemplate, ScreenSections> = {
-  // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field with the Search | Ask
-  // switch in it, the project and the agent's chips in a row under it, then three chat cards.
+  // Cards (u2851, from a scrawl of Aside's New Tab page): one rounded field, the project and
+  // the agent's chips in a row under it, then three chat cards.
   // The page an unset template shows (shownTemplate).
   cards: { chats: "cards", allChats: false, recent: 3, prompt: false, closed: false, stage: false },
   // Calm (Leo 2026-10-11): the composer, then a few recent chats as quiet rows. The pane's

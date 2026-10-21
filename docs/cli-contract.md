@@ -257,7 +257,7 @@ two records share is `selector.ambiguous` with their ids.
 
 ```text
 cmux screen list
-cmux screen create [--name <value>] [--correlation-key <value>]
+cmux screen create [--name <value>] [--correlation-key <value>] [--shell <script> | -- <argv...>]
 cmux screen <selector> show|focus|close
 cmux screen <selector> rename --name <value>
 cmux screen <selector> pin|unpin
@@ -281,7 +281,7 @@ Pinned screens sort first and leave their group. Group colors are `grey`,
 
 ```text
 cmux pane list
-cmux pane create [--cwd <path>]
+cmux pane create [--cwd <path>] [--shell <script> | -- <argv...>]
 cmux pane <selector> show|focus|close
 cmux pane <selector> rename --name <value>
 cmux pane <selector> split [--right|--down] [--ratio <value>] [--viewport-width <fraction>] [--cwd <path>]
@@ -304,7 +304,7 @@ cmux tab list
 cmux tab <selector> show|focus|close
 cmux tab <selector> rename --name <value>
 cmux tab <selector> move --workspace <sel> --screen <sel> --pane <sel> --index <n>
-cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
+cmux tab create terminal [--cwd <path>] [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>] [--shell <script> | -- <argv...>]
 cmux tab create browser --url <value> [--name <value>] [--workspace <sel>] [--screen <sel>] [--pane <sel>]
 cmux tab <selector> terminal|browser ...
 cmux tab <selector> pin|unpin

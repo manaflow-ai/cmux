@@ -2407,6 +2407,16 @@
       "title" : "Open Links and Files",
       "type" : "string"
     },
+    "layout.mainPane" : {
+      "default" : "agent-chats",
+      "description" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back.",
+      "enum" : [
+        "agent-chats",
+        "off"
+      ],
+      "title" : "Main Pane",
+      "type" : "string"
+    },
     "layout.minimumPaneHeight" : {
       "default" : 64,
       "description" : "layout.minimumPaneHeight",
@@ -4342,7 +4352,7 @@
       "type" : "boolean"
     },
     "workspaces.newPlacement" : {
-      "default" : "afterCurrent",
+      "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",
