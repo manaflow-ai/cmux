@@ -1233,6 +1233,12 @@
       "title" : "Theme Edits",
       "type" : "object"
     },
+    "appearance.wallpaperTint" : {
+      "default" : true,
+      "description" : "The glass takes the colors of your desktop picture and follows it when the picture or Space changes.",
+      "title" : "Tint with Desktop Wallpaper",
+      "type" : "boolean"
+    },
     "browser.agentMouse.maxMoveMs" : {
       "default" : 350,
       "description" : "The longest time one agent pointer move takes with human motion. Short moves take less.",
@@ -2663,7 +2669,7 @@
       "type" : "number"
     },
     "notifications.attention.moveToTop" : {
-      "default" : true,
+      "default" : false,
       "description" : "A notification moves its workspace to the top of the unpinned rows, unless you are looking at its pane.",
       "title" : "Move the Workspace to the Top",
       "type" : "boolean"
