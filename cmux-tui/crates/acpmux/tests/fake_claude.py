@@ -385,6 +385,9 @@ while True:
         if os.environ.get("FAKE_CLAUDE_CONTROL_LOG"):
             with open(os.environ["FAKE_CLAUDE_CONTROL_LOG"], "a") as f:
                 f.write(str(request.get("subtype")) + "\n")
+        # Like Claude Code, the next init reports the mode the session was switched to.
+        if request.get("subtype") == "set_permission_mode" and isinstance(request.get("mode"), str):
+            MODE = request["mode"]
         answer = {}
         if request.get("subtype") == "initialize" and SKILLS:
             answer = {"commands": COMMANDS}

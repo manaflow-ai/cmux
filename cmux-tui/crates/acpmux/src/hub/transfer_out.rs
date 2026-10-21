@@ -299,7 +299,7 @@ impl Hub {
 
     /// `_acpmux/set_policy`: a chat being moved keeps the rules it moves with.
     pub async fn set_policy_unless_moving(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         policy: crate::config::PermissionPolicy,
     ) -> Result<(), RpcError> {
@@ -311,9 +311,10 @@ impl Hub {
     }
 
     /// The move did not happen: the chat takes prompts and runs its queue again. `reason` says
-    /// why when the source ended it itself (`transfer_watch.rs`).
+    /// why when the source ended it itself (`transfer_watch.rs`). A policy that changed while it
+    /// moved (a deny-all default skips a moving chat, `policy_mode.rs`) is followed now.
     pub(super) fn transfer_abort(
-        &self,
+        self: &Arc<Self>,
         session: &Arc<Session>,
         transfer_id: &str,
         reason: Option<&str>,
@@ -331,7 +332,12 @@ impl Hub {
             record["reason"] = json!(reason);
         }
         self.append(session, "mux", "transfer_aborted", record);
-        session.queue_moved.notify_waiters();
+        // Its queue runs again once the policy's mode holds.
+        let (hub, followed) = (self.clone(), session.clone());
+        tokio::spawn(async move {
+            hub.follow_policy(&followed).await;
+            followed.queue_moved.notify_waiters();
+        });
         let _ = std::fs::remove_dir_all(transfers_dir().join(transfer_id));
         Ok(json!({"sessionId": session.id, "transferId": transfer_id, "aborted": true}))
     }

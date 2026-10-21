@@ -721,6 +721,7 @@ impl Hub {
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
             purged: AtomicBool::new(false),
+            closing: AtomicBool::new(false),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
