@@ -499,6 +499,97 @@ final class WorkspaceContentViewVisibilityTests {
         )
     }
 
+    /// Sparkle records its last-check date in the app's defaults after every
+    /// background check, and other subsystems write keys no view reads. Each
+    /// write posts `UserDefaults.didChangeNotification`. A write to a key that
+    /// no view displays must not rebuild the window's chrome or pane content:
+    /// with many panes each rebuild runs every pane's `updateNSView` and portal
+    /// reconciliation, which is the 0.65.x idle hang (issue 22703).
+    @Test(.timeLimit(.minutes(1)))
+    @MainActor
+    func testUnrelatedDefaultsWriteDoesNotReevaluateChromeBodies() async throws {
+        _ = NSApplication.shared
+
+        let suiteName = "WorkspaceContentViewDefaultsWriteTests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defaults.removePersistentDomain(forName: suiteName)
+        defer {
+            defaults.removePersistentDomain(forName: suiteName)
+        }
+
+        // Loading-card workspaces, as in the tests above, so no shell or git
+        // probe publishes during the measured window.
+        let tabManager = TabManager(autoWelcomeIfNeeded: false, createInitialWorkspace: false)
+        for index in 0..<3 {
+            tabManager.addWorkspace(
+                initialSurface: .cloudVMLoading,
+                select: index == 0,
+                autoWelcomeIfNeeded: false
+            )
+        }
+        let counts = MinimalModeBodyProbeCounts()
+        let root = ContentView(updateViewModel: UpdateStateModel(), windowId: UUID())
+            .environmentObject(tabManager)
+            .environmentObject(TerminalNotificationStore.shared)
+            .environmentObject(SidebarState())
+            .environmentObject(SidebarSelectionState())
+            .environmentObject(FileExplorerState(defaults: defaults))
+            .environmentObject(CmuxConfigStore())
+            .environment(
+                \.minimalModeInvalidationProbe,
+                MinimalModeInvalidationProbe(
+                    shouldTraceBodyChanges: { counts.isMeasuringInvalidations },
+                    contentViewBody: { counts.contentViewBody += 1 },
+                    workspaceContentBody: { counts.workspaceContentBody += 1 },
+                    verticalTabsSidebarBody: { counts.verticalTabsSidebarBody += 1 }
+                )
+            )
+            .defaultAppStorage(defaults)
+
+        let window = NSWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 900, height: 640),
+            styleMask: [.titled, .closable, .resizable],
+            backing: .buffered,
+            defer: false
+        )
+        window.isReleasedWhenClosed = false
+        window.contentView = MainWindowHostingView(rootView: root)
+        defer {
+            window.contentView = nil
+            tabManager.finalizeAllWorkspacesForWindowClose()
+            window.close()
+        }
+
+        await Self.drainMainRunLoop(for: window)
+        #expect(counts.contentViewBody > 0)
+        #expect(counts.workspaceContentBody > 0)
+        let settled = await Self.waitForQuietChromeBodies(counts: counts, window: window)
+        try #require(settled, "The window must stop re-evaluating chrome bodies while idle")
+
+        counts.reset()
+        counts.isMeasuringInvalidations = true
+        defer { counts.isMeasuringInvalidations = false }
+        // The key Sparkle's SPUUpdater writes after each scheduled check, plus
+        // a key no cmux code reads at all.
+        defaults.set(Date(), forKey: "SULastCheckTime")
+        defaults.set(UUID().uuidString, forKey: "cmux.tests.unrelatedDefaultsWrite")
+        await Self.drainMainRunLoop(for: window)
+        counts.isMeasuringInvalidations = false
+
+        #expect(
+            counts.contentViewBody == 0,
+            "An unrelated defaults write must not re-evaluate ContentView (\(counts.contentViewBody) evaluations)."
+        )
+        #expect(
+            counts.workspaceContentBody == 0,
+            "An unrelated defaults write must not rebuild pane content (\(counts.workspaceContentBody) evaluations)."
+        )
+        #expect(
+            counts.verticalTabsSidebarBody == 0,
+            "An unrelated defaults write must not rebuild the sidebar (\(counts.verticalTabsSidebarBody) evaluations)."
+        )
+    }
+
     @Test
     @MainActor
     func testUnreadApplyPublishesOneAtomicSnapshot() {
