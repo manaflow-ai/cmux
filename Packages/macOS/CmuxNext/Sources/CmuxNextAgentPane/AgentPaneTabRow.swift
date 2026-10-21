@@ -47,6 +47,7 @@ import CmuxNextSettings
         let on = ChromeTunables.tabRowTools.value && height > 0
         let row = view.model.tabRow
         let next = (height: on ? height / zoom : 0, trailingInset: on ? max(0, trailingInset) / zoom : 0)
+        view.setTabRowCover(on && row.toolsWidth > 0 ? height : 0) // the pane lays the view under the strip only then
         guard row.offered.map({ $0 != next }) ?? (next.height > 0) else { return }
         row.offered = next
         let event = row.event
