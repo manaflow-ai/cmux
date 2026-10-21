@@ -19,11 +19,13 @@ enum SidebarDocWiring {
                                     unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
     }
 
-    /// The document is shown but does not place `workspace` (of `session`) yet: `sections` lists it after every placed
-    /// row until a later projection places it (its adopt, or Cmd-N's move, is on the way).
+    /// The document has applied a change `shown` does not show yet (rebuilt a hop later), and `shown` does not place
+    /// `workspace` (of `session`): `sections` would list it after every placed row for that hop. Only while `shown`
+    /// lags: a workspace a current projection does not place (its adopt still on the way, or refused) lists its own
+    /// row, so a pending row never stands in for it for long.
     static func awaitsPlacement(_ workspace: WorkspaceModel, session: String?) -> Bool {
-        // No ref: the document can never place it, so its own row lists (last) rather than a pending row for good.
-        guard let shown = SidebarDocStore.current?.shown, let ref = SidebarDocSections.ref(of: workspace, session: session) else { return false }
+        guard let store = SidebarDocStore.current, let shown = store.shown, store.version != store.shownVersion,
+              let ref = SidebarDocSections.ref(of: workspace, session: session) else { return false }
         return shown.items[ref] == nil
     }
 
