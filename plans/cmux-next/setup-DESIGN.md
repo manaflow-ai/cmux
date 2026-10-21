@@ -180,7 +180,9 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
      the name;
    - a named harness that is not installed: `needs_user` (`kind`
      `install`, `cmux setup harness ID`); one not named is
-     `not_applicable`.
+     `not_applicable`;
+   - neither installed and none named: nothing to wire, so the task is
+     `ok` with no `user_action`, whether the switch below is on or not.
 
    `cmux mcp serve` answers a client outside a cmux chat only when the
    settings file says `"mcp": {"enabled": true}`, the person's opt-in. It
@@ -190,7 +192,10 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    `needs_user` (`kind` `setting`) naming the file and the key. The result
    adds `server` (`{name, command, args}`), `settings`, `enabled` and
    `clients` (`{id, name, state, installed, config, entry, undo,
-   user_action, error}`). `cmux setup status` adds an `mcp` check.
+   user_action, error}`). `cmux setup status` adds an `mcp` check by the
+   same rules (`ok` with neither harness installed). A harness CLI that
+   cannot be waited on is killed and reaped before the row is `failed`, as
+   one past the 30 s limit is.
 5. `computer-use`: lets agents use the Mac through cmux Computer Use. The
    state is the app's `computer_use.status` (`{phase, accessibility,
    screen_recording, helper}`, the model behind Computer Use Setup and
@@ -203,8 +208,9 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    caught up (`kind` `wait`). A rerun reads `settings.get
    computerUse.enabled` first, so a lagging phase never shows a second
    sheet. Not allowed is `needs_user` (`kind` `declined`: the person
-   declined, or cmux had no window for the sheet), and the agent asks
-   before trying again. Once on, each missing grant is `needs_user`
+   declined, cmux had no window for the sheet, or the sheet went
+   unanswered past the app's 120 s deadline, error code `timeout`), and
+   the agent asks before trying again. Once on, each missing grant is `needs_user`
    (`kind` `grant`) whose `command` opens its System Settings pane (`open
    'x-apple.systempreferences:...'`), Accessibility first. Managed
    settings that turn it off (`kind` `policy`), a helper that is starting
@@ -212,7 +218,9 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    palette.computerUse.setup`) and no running app (`kind` `app`) are named
    and left. Capture consent is not reported by the app yet. Off macOS,
    with no app socket named, it is `not_applicable`. `cmux setup status`
-   adds a `computer_use` check.
+   adds a `computer_use` check: `needs_setup` while off, and, as the run
+   says, `needs_user` (`kind` `wait`) when `computerUse.enabled` is already
+   on but the phase still reads `off`.
 6. `cloud-machine [--forget]`: makes sure the person has a cmux Cloud
    machine for agents. All of it goes through the app socket: `auth.status`
    (signed in, `cloud_unavailable`), `cloud.machines` (`machines`, the
