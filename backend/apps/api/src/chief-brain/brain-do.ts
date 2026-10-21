@@ -441,7 +441,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** The Claude Code route's turn machine (POST /v1/chief-cc/<agent>/<conversation>/notes, chief-brain-cc/turn.ts). */
-  async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown }): Promise<{ status: number }> {
+  async ccNotes(token: string, body: { run?: unknown; events?: unknown; result?: unknown; net?: unknown }): Promise<{ status: number; json?: unknown }> {
     return ccNotes(this, token, body)
   }
 

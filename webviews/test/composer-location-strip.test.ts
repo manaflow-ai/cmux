@@ -12,6 +12,8 @@
 //     the controls keep their places when the values arrive (the effort is the model button's own
 //     label since Leo 2026-10-20, not a chip of its own);
 //   - the folder popover filters with its search field and tells duplicate names apart;
+//   - the folder popover folds a repository's worktrees under one row (Austin 2026-10-20: each cmux
+//     worktree listed as a project of its own), opened by → or the count and found by branch;
 //   - the strip and the card read as one surface: no hairline draws across the seam where the
 //     strip stands on the card (Leo: the card's top hairline showed under the strip).
 //   - design panel (compact composer): the strip's first and last marks line up with the prompt's
@@ -271,6 +273,65 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector(".acpmux-location-menu"));
     expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Folder");
+    await page.close();
+  });
+
+  test("the folder popover folds worktrees under their repository and opens them by arrow or count", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees", 720);
+    const rows = () =>
+      page
+        .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+        .evaluateAll((all) =>
+          all.map(
+            (row) =>
+              (row.hasAttribute("data-worktree") ? "  " : "") +
+              (row.querySelector(".acpmux-menu-text")?.textContent ?? "").replace(/\s+/g, " ").trim(),
+          ),
+        );
+    // One cmux row, named by the current worktree's branch; its five folders are one project.
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "atlas-web", "relay", "notes"]);
+    expect(await page.locator(".acpmux-location-worktrees").first().textContent()).toBe("4");
+    // The strip names the repository, not the worktree's folder.
+    expect(await page.getByRole("button", { name: "Folder", exact: true }).textContent()).toContain("cmux");
+    // → opens the highlighted repository's other worktrees, newest first; ← closes them.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowRight");
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await rows()).toEqual([
+      "cmux · issue-22273-runaway-children",
+      "  feat-cmux-next-unread-ring-classic",
+      "  feat-cmux-next",
+      "  agent-caller-scoped-current-selector",
+      "  agent-21352-sidebar-drag",
+      "atlas-web",
+      "relay",
+      "notes",
+    ]);
+    await page.keyboard.press("ArrowLeft");
+    await page.waitForFunction(() => !document.querySelector(".acpmux-location-row[data-worktree]"));
+    // The count opens them too, and a press on it never picks the row.
+    await page.locator(".acpmux-location-worktrees").first().click();
+    await page.waitForFunction(() => document.querySelector(".acpmux-location-row[data-worktree]"));
+    expect(await page.locator(".acpmux-location-menu").count()).toBe(1);
+    // A branch search lists the worktree it names under its repository; the repository's name, once.
+    await page.getByRole("combobox", { name: "Search projects" }).fill("unread");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 2,
+    );
+    expect(await rows()).toEqual(["cmux · issue-22273-runaway-children", "  feat-cmux-next-unread-ring-classic"]);
+    await page.getByRole("combobox", { name: "Search projects" }).fill("cmux");
+    await page.waitForFunction(
+      () => document.querySelectorAll(".acpmux-location-menu .acpmux-location-row").length === 1,
+    );
+    await page.close();
+  });
+
+  test("an older host's worktrees still fold under their repository by path", async () => {
+    const page = await open("agent-pane.composer-context", "repo-worktrees-guessed", 720);
+    const names = await page
+      .locator('.acpmux-location-menu [role="option"] .acpmux-location-row')
+      .evaluateAll((all) => all.map((row) => (row.querySelector(".acpmux-menu-label")?.textContent ?? "").trim()));
+    expect(names).toEqual(["cmux", "atlas-web", "relay", "notes"]);
     await page.close();
   });
 

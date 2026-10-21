@@ -365,6 +365,9 @@ final class AgentTabStore {
             let key = resolve(provisional)
             newTabPages[key] = nil
             views[key]?.applyTheme() // now the agent chat surface (R55)
+            // The first session is the outside chat's resume; a later switch shows another chat,
+            // so the tab no longer answers for the outside chat it adopted (cmux://agent links).
+            if let shown = sessions[key], shown != session { adoptions = adoptions.filter { $0.value != key } }
             sessions[key] = session
             // Another machine's store keeps its own record of the session: its daemon bound it at
             // the start, so no bind goes from here (cx-k21v). Its git reads go there (``gitLink``).
@@ -387,11 +390,11 @@ final class AgentTabStore {
         model.onSetNewTabTemplate = { [weak self] template in self?.pageHandler(provisional)?.setTemplate(template) }
         model.onJump = { [weak self] target, id in self?.newTabPage(provisional)?.handler.jump(target, id) }
         model.onEditShortcut = { [weak self] kind in self?.newTabPage(provisional)?.handler.editShortcut(kind) }
-        model.onRunAction = { [weak self] id in
+        model.onRunAction = { [weak self] id, arguments in
             guard let self else { return false }
             // On this tab's pane: the New Tab page opens beside the tab that asked.
             let target = ActionTargetRef(kind: .tab, id: resolve(provisional))
-            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, origin: .user)) ?? false
+            return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
         model.onBrowseProject = { [weak self] in
