@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """merge_compile_guard: a hand merge of a feat-cmux-next PR that changes Swift waits for its Release compile.
 
-On 2026-10-21 #22835, #21480 and #21487 were merged with `gh pr merge` while their compile was pending.
+On 2026-10-21 (UTC) #22835, #21480 and #21487 were merged with `gh pr merge` while their compile was pending.
 """
 from __future__ import annotations
 
@@ -43,10 +43,14 @@ class Verdict(unittest.TestCase):
         # A rerun that passed after a red counts.
         self.assertEqual(guard.verdict(pr(), SWIFT, [check(COMPILE, conclusion="failure"), check(COMPILE)]), "")
 
-    def test_a_compile_not_created_yet_waits_while_cmux_next_routes(self):
-        routing = [check("cmux-next path routing", "in_progress")]
-        self.assertIn("has not created", guard.verdict(pr(), SWIFT, routing))
+    def test_a_compile_not_created_yet_waits_while_cmux_next_routes_and_places(self):
+        for job in guard.ROUTING:
+            with self.subTest(job=job):
+                self.assertIn("has not created", guard.verdict(pr(), SWIFT, [check(job, "in_progress")]))
+        self.assertIn("no checks yet", guard.verdict(pr(), SWIFT, []))
+        # cmux-next finished routing without a compile, or never ran on this head.
         self.assertEqual(guard.verdict(pr(), SWIFT, [check("cmux-next path routing")]), "")
+        self.assertEqual(guard.verdict(pr(), SWIFT, [check("web / lint")]), "")
 
     def test_what_the_compile_does_not_cover_is_not_held(self):
         # The router skipped it (iOS, a package outside the graph, a fork).
@@ -62,32 +66,61 @@ class Verdict(unittest.TestCase):
 
 
 class Targets(unittest.TestCase):
+    def targets(self, command):
+        return [(repo, selector) for repo, selector, _ in guard.merge_targets(command, "/tmp")]
+
     def test_every_merge_form_names_its_pull_request(self):
+        cmux = "manaflow-ai/cmux"
         cases = {
-            "gh pr merge 22835 --squash": [(None, 22835)],
-            "gh pr merge 22835 -R manaflow-ai/cmux --squash": [("manaflow-ai/cmux", 22835)],
-            "gh pr merge --squash --repo manaflow-ai/cmux #21480": [("manaflow-ai/cmux", 21480)],
-            "gh pr merge https://github.com/manaflow-ai/cmux/pull/21487 --auto --squash": [("manaflow-ai/cmux", 21487)],
-            "gh pr merge --squash -t 'fix 123' 9": [(None, 9)],
+            "gh pr merge 22835 --squash": [(None, "22835")],
+            "gh pr merge 22835 -R manaflow-ai/cmux --squash": [(cmux, "22835")],
+            "gh pr merge --squash --repo manaflow-ai/cmux '#21480'": [(cmux, "21480")],
+            # Unquoted, `#21480` is a shell comment: the checkout's branch is what merges.
+            "gh pr merge --squash --repo manaflow-ai/cmux #21480": [(cmux, None)],
+            "gh pr merge --repo=manaflow-ai/cmux 8": [(cmux, "8")],
+            "gh pr merge https://github.com/manaflow-ai/cmux/pull/21487 --auto --squash": [(cmux, "21487")],
+            "gh pr merge --squash -t 'fix 123' 9": [(None, "9")],
+            'gh pr merge -b "it\\"s 99" 7': [(None, "7")],
             "gh pr merge --squash": [(None, None)],
+            # A redirect's fd is not a pull request; the checkout's branch is merged.
+            "gh pr merge --squash 2>/dev/null": [(None, None)],
+            "gh pr merge --squash --delete-branch 2>&1": [(None, None)],
+            "gh pr merge --squash\ngit log -1 4242": [(None, None)],
+            "gh pr merge my-branch": [(None, "my-branch")],
+            "gh pr merge 123-fix": [(None, "123-fix")],
+            'gh pr merge "$PR" --squash': [(None, guard.UNKNOWN)],
             "gh api -X PUT repos/manaflow-ai/cmux/pulls/22914/merge -f merge_method=squash -f sha=abc":
-                [("manaflow-ai/cmux", 22914)],
-            "gh api -X PUT repos/{owner}/{repo}/pulls/5/merge": [(None, 5)],
-            "git log && gh pr merge 3 -R manaflow-ai/cmux --squash": [("manaflow-ai/cmux", 3)],
+                [(cmux, "22914")],
+            "gh api -X PUT repos/{owner}/{repo}/pulls/5/merge": [(None, "5")],
+            'gh api -X PUT "repos/manaflow-ai/cmux/pulls/$N/merge"': [(cmux, guard.UNKNOWN)],
+            'gh api graphql -f query="mutation{mergePullRequest(input:{})}"': [(None, guard.UNKNOWN)],
+            "GH_REPO=manaflow-ai/cmux gh pr merge 5": [(cmux, "5")],
+            "git log && gh pr merge 3 -R manaflow-ai/cmux --squash": [(cmux, "3")],
         }
         for command, want in cases.items():
             with self.subTest(command=command):
-                self.assertEqual(guard.merge_targets(command, None), want)
+                self.assertEqual(self.targets(command), want)
 
-    def test_commands_that_merge_nothing_name_nothing(self):
+    def test_a_cd_before_the_merge_moves_its_checkout(self):
+        self.assertEqual(guard.merge_targets("cd ../other && gh pr merge 6", "/tmp/a"), [(None, "6", "/tmp/a/../other")])
+
+    def test_text_that_only_mentions_a_merge_names_nothing(self):
         for command in ("git merge origin/feat-cmux-next", "gh pr view 3 --json mergeable",
-                        "gh api repos/manaflow-ai/cmux/pulls/3/update-branch -X PUT", "echo gh pr merged"):
+                        "gh api repos/manaflow-ai/cmux/pulls/3/update-branch -X PUT", "echo gh pr merged",
+                        'git grep -n "gh pr merge"', 'rg "gh pr merge N --squash" CLAUDE.md',
+                        'git commit -m "docs: use gh pr merge 22835 --squash"',
+                        "cat > notes.md <<'EOF'\nthen gh pr merge 77\nEOF\necho done",
+                        "echo 'unbalanced"):
             with self.subTest(command=command):
-                self.assertEqual(guard.merge_targets(command, None), [])
+                self.assertEqual(self.targets(command), [])
 
     def test_other_repositories_are_not_guarded(self):
         reader = lambda *a: self.fail("read another repo")  # noqa: E731
         self.assertEqual(guard.refusal("gh pr merge 662 -R teamleaderleo/leo-workspace --squash", None, reader), "")
+
+    def test_a_merge_it_cannot_name_is_refused(self):
+        why = guard.refusal('gh pr merge "$PR" -R manaflow-ai/cmux', None, lambda *a: self.fail("read"))
+        self.assertIn("can't name", why)
 
 
 def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
@@ -146,7 +179,7 @@ class Hook(unittest.TestCase):
 
     def test_an_unreadable_github_refuses(self):
         out, _ = self.run_hook("gh pr merge 1 -R manaflow-ai/cmux --squash", None)
-        self.assertIn("could not read #1", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertIn("could not read #1 from GitHub", out["hookSpecificOutput"]["permissionDecisionReason"])
 
     def test_other_commands_never_start_python_or_gh(self):
         out, calls = self.run_hook("git status && gh pr view 22835", None)
