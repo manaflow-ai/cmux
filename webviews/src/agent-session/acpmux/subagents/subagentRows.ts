@@ -6,6 +6,9 @@ import { SUBAGENTS, type Subagent } from "./subagentFold";
 export const SUBAGENT_ROW = "subagent";
 /// The child view's "Subagent of" pill (SubagentOfRow in SubagentGroup.tsx).
 export const SUBAGENT_OF = "subagentOf";
+/// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
+/// runningTray.ts).
+export const SUBAGENT_DONE = "subagentDone";
 
 /// Every subagent the rows list, nested views' included.
 export function subagentsIn(

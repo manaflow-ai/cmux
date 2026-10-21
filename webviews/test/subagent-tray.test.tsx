@@ -1,0 +1,293 @@
+// l10n-allow-file: test fixture subagent names and commands, not shipped UI.
+// Running subagents sit in one tray above the composer, never mid-transcript (Leo 2026-10-20:
+// "put the subagent situation at the bottom of the chat and anchor"; subagents/runningTray.ts).
+// - The transcript drops the group card where subagents started; a subagent that ended leaves one
+//   line where it ended, with its name and how long it ran, a failure in the danger color.
+// - The tray lists each running subagent (nested ones under their parent) and background command:
+//   name, what it does now, its state and its time. Several get a header; more than three fold.
+// - The tray's lines are the summary card's Subagents rows: one component (AgentLine.tsx).
+import { afterAll, describe, expect, test } from "bun:test";
+import { JSDOM, VirtualConsole } from "jsdom";
+
+const dom = new JSDOM("<!doctype html><div id=root></div>", {
+  url: "http://localhost/",
+  pretendToBeVisual: true,
+  virtualConsole: new VirtualConsole(),
+});
+const scope = globalThis as Record<string, unknown>;
+const replacements: Record<string, unknown> = {
+  window: dom.window,
+  document: dom.window.document,
+  navigator: dom.window.navigator,
+  HTMLElement: dom.window.HTMLElement,
+  Element: dom.window.Element,
+  customElements: dom.window.customElements,
+  Node: dom.window.Node,
+  MutationObserver: dom.window.MutationObserver,
+  IntersectionObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  ResizeObserver: class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  },
+  requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
+  cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
+  IS_REACT_ACT_ENVIRONMENT: true,
+};
+for (const key of Object.getOwnPropertyNames(dom.window))
+  if (/^(HTML|SVG|CSS|Shadow|Document|Mutation)/.test(key) && !(key in scope))
+    replacements[key] = (dom.window as unknown as Record<string, unknown>)[key];
+const saved = Object.keys(replacements).map((key) => [key, key in scope, scope[key]] as const);
+Object.assign(scope, replacements);
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => 10_000 });
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 760 });
+
+const { act, createElement } = await import("react");
+const { createRoot } = await import("react-dom/client");
+const { VirtualTranscript } = await import("../src/agent-session/acpmux/App");
+const { setPaneLanguage } = await import("../src/agent-session/acpmux/i18n");
+const { SUBAGENTS } = await import("../src/agent-session/acpmux/subagents/subagentFold");
+const { SUBAGENT_DONE } = await import("../src/agent-session/acpmux/subagents/subagentRows");
+const { trayItems, withSubagentLines, configureSubagentTray } =
+  await import("../src/agent-session/acpmux/subagents/runningTray");
+const { SubagentTray, TRAY_OPEN_MAX } = await import("../src/agent-session/acpmux/subagents/SubagentTray");
+const { SubagentStatusList } = await import("../src/agent-session/acpmux/summary/SubagentStatusList");
+const { SubagentNavContext } = await import("../src/agent-session/acpmux/subagents/SubagentGroup");
+type Row = import("../src/agent-session/acpmux/model").AcpmuxRow;
+type Subagent = import("../src/agent-session/acpmux/subagents/subagentFold").Subagent;
+
+afterAll(() => {
+  setPaneLanguage("en");
+  configureSubagentTray(true);
+  dom.window.close();
+  for (const [key, had, value] of saved) {
+    if (had) scope[key] = value;
+    else delete scope[key];
+  }
+});
+setPaneLanguage("en");
+
+const T0 = Date.UTC(2026, 9, 20, 9, 0, 0);
+const at = (seconds: number) => T0 + seconds * 1000;
+const agent = (id: string, fields: Partial<Subagent> = {}): Subagent => ({
+  id,
+  parent: null,
+  name: id,
+  state: "running",
+  startedAt: at(10),
+  ...fields,
+});
+const row = (id: string, kind: string, seconds: number, fields: Partial<Row> = {}): Row => ({
+  id,
+  version: 1,
+  at: at(seconds),
+  kind,
+  ...fields,
+});
+
+async function render(
+  node: ReturnType<typeof createElement>,
+): Promise<{ root: HTMLElement; done: () => Promise<void> }> {
+  const host = dom.window.document.getElementById("root")!;
+  const root = createRoot(host);
+  await act(async () => root.render(node));
+  return { root: host, done: async () => act(async () => root.unmount()) };
+}
+
+describe("the transcript keeps no running card", () => {
+  const transcript = (agents: Subagent[]) => [
+    row("u1", "user", 0, { text: "Review it" }),
+    row("a1", "assistant", 5, { text: "Starting two reviewers." }),
+    row(`${SUBAGENTS}-3`, SUBAGENTS, 10, { subagents: agents }),
+    row("t1", "activity", 30, { items: [] }),
+    row("a2", "assistant", 100, { text: "Both are back." }),
+  ];
+
+  test("a running subagent draws no row; the tray has it", () => {
+    const rows = transcript([agent("Reviewer", { action: "Read src/app.ts" })]);
+    const out = withSubagentLines(rows);
+    expect(out.map((entry) => entry.kind)).toEqual(["user", "assistant", "activity", "assistant"]);
+    const items = trayItems([agent("Reviewer", { action: "Read src/app.ts" })], [], true);
+    expect(items.map((item) => item.id)).toEqual(["Reviewer"]);
+  });
+
+  test("a subagent that ended leaves one line where it ended, after the rows before its end", () => {
+    const rows = transcript([
+      agent("Reviewer", { state: "completed", endedAt: at(90) }),
+      agent("Tester", { state: "failed", endedAt: at(40) }),
+    ]);
+    const out = withSubagentLines(rows);
+    expect(out.map((entry) => entry.id)).toEqual([
+      "u1",
+      "a1",
+      "t1",
+      `${SUBAGENT_DONE}:Tester`,
+      `${SUBAGENT_DONE}:Reviewer`,
+      "a2",
+    ]);
+    // The rows around them are the same objects, and so is a line whose subagent did not change.
+    expect(out[2]).toBe(rows[3]!);
+    const cache = new Map();
+    const first = withSubagentLines(rows, cache);
+    const again = withSubagentLines([...rows], cache);
+    expect(again[3]).toBe(first[3]!);
+  });
+
+  test("a transcript without subagents is returned as it is", () => {
+    const rows = [row("u1", "user", 0), row("a1", "assistant", 5)];
+    expect(withSubagentLines(rows)).toBe(rows);
+  });
+
+  test("the line names the subagent and how long it ran; a failure is marked failed", async () => {
+    const rows = withSubagentLines(
+      transcript([
+        agent("Reviewer", { state: "completed", startedAt: at(10), endedAt: at(90) }),
+        agent("Tester", { state: "failed", startedAt: at(10), endedAt: at(40) }),
+      ]),
+    ) as Row[];
+    const opened: string[] = [];
+    const { root, done } = await render(
+      createElement(
+        SubagentNavContext.Provider,
+        { value: (id: string | undefined) => void opened.push(String(id)) },
+        createElement(VirtualTranscript, { rows, onToggleActivity: () => {}, expanded: new Set<string>() }),
+      ),
+    );
+    try {
+      const lines = [...root.querySelectorAll<HTMLButtonElement>(".cv-subagent-done")];
+      expect(lines.map((line) => [line.dataset.state, line.textContent])).toEqual([
+        ["failed", "Subagent failed: Tester · 30s"],
+        ["completed", "Subagent finished: Reviewer · 1m 20s"],
+      ]);
+      expect(root.querySelector(".cv-subagents")).toBeNull();
+      await act(async () => lines[1]!.click());
+      expect(opened).toEqual(["Reviewer"]);
+    } finally {
+      await done();
+    }
+  });
+});
+
+describe("the tray", () => {
+  test("lists running subagents, nested ones under their parent, then running commands", () => {
+    const agents = [
+      agent("Tester", { startedAt: at(12) }),
+      agent("Reviewer", { startedAt: at(10) }),
+      agent("Scout", { parent: "Reviewer", startedAt: at(14) }),
+      agent("Linter", { state: "completed", endedAt: at(20) }),
+    ];
+    const commands = [
+      { id: "bg1", command: "bun run dev", state: "running" as const, startedAt: at(5) },
+      { id: "bg2", command: "make", state: "completed" as const },
+    ];
+    expect(trayItems(agents, commands, true).map((item) => [item.id, item.kind === "agent" ? item.depth : -1])).toEqual(
+      [
+        ["Reviewer", 0],
+        ["Scout", 1],
+        ["Tester", 0],
+        ["bg1", -1],
+      ],
+    );
+    // Between turns only background subagents still run; a foreground one left "running" pins nothing.
+    const between = trayItems([...agents, agent("Watcher", { background: true })], commands, false);
+    expect(between.map((item) => item.id)).toEqual(["Watcher"]);
+  });
+
+  test("one running subagent is its line alone: name, what it does now, its time and state", async () => {
+    const now = Date.now();
+    const items = trayItems([agent("Explore the daemon", { startedAt: now - 80_000, action: "Bash" })], [], true);
+    const opened: string[] = [];
+    const { root, done } = await render(
+      createElement(SubagentTray, { items, waiting: new Set<string>(), onOpen: (id: string) => opened.push(id) }),
+    );
+    try {
+      expect(root.querySelector(".acpmux-running-tray__head")).toBeNull();
+      const lines = [...root.querySelectorAll(".acpmux-running-tray .acpmux-agent-line")];
+      expect(lines.length).toBe(1);
+      const text = (selector: string) => lines[0]!.querySelector(selector)?.textContent;
+      expect(text(".acpmux-summary-agent__name")).toBe("Explore the daemon");
+      expect(text(".acpmux-summary-agent__kind")).toBe("Bash");
+      expect(text(".acpmux-summary-agent__state")).toBe("Running");
+      expect(text(".acpmux-agent-line__time")).toMatch(/^1m 2\ds$/);
+      expect(lines[0]!.querySelector(".acpmux-lineage__icon")?.getAttribute("data-state")).toBe("running");
+      await act(async () => lines[0]!.querySelector("button")!.click());
+      expect(opened).toEqual(["Explore the daemon"]);
+    } finally {
+      await done();
+    }
+  });
+
+  test("several get a header; past three they start folded", async () => {
+    const now = Date.now();
+    const few = trayItems(
+      [agent("A", { startedAt: now - 5000 }), agent("B", { startedAt: now - 4000 })],
+      [{ id: "bg1", command: "bun run dev", state: "running", startedAt: now - 3000 }],
+      true,
+    );
+    const shown = await render(
+      createElement(SubagentTray, { items: few, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = shown.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.getAttribute("aria-expanded")).toBe("true");
+      expect(head.querySelector(".acpmux-running-tray__title")?.textContent).toBe("2 subagents running · 1 command");
+      expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(3);
+      await act(async () => head.click());
+      expect(shown.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+    } finally {
+      await shown.done();
+    }
+    const many = trayItems(
+      Array.from({ length: TRAY_OPEN_MAX + 1 }, (_, index) => agent(`Agent ${index}`, { startedAt: now - index })),
+      [],
+      true,
+    );
+    const folded = await render(
+      createElement(SubagentTray, { items: many, waiting: new Set<string>(), onOpen: () => {} }),
+    );
+    try {
+      const head = folded.root.querySelector<HTMLButtonElement>(".acpmux-running-tray__head")!;
+      expect(head.getAttribute("aria-expanded")).toBe("false");
+      expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(0);
+      await act(async () => head.click());
+      expect(folded.root.querySelectorAll(".acpmux-agent-line").length).toBe(TRAY_OPEN_MAX + 1);
+    } finally {
+      await folded.done();
+    }
+  });
+
+  test("a subagent waiting on the person says so", async () => {
+    const items = trayItems([agent("Reviewer", { startedAt: Date.now() })], [], true);
+    const { root, done } = await render(
+      createElement(SubagentTray, { items, waiting: new Set(["Reviewer"]), onOpen: () => {} }),
+    );
+    try {
+      expect(root.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Waiting");
+      expect(root.querySelector(".acpmux-agent-line")?.getAttribute("data-status")).toBe("waiting");
+    } finally {
+      await done();
+    }
+  });
+
+  test("the summary card's Subagents list draws the tray's own line", async () => {
+    const { root, done } = await render(
+      createElement(SubagentStatusList, {
+        agents: [agent("Reviewer", { startedAt: Date.now() })],
+        waiting: new Set<string>(),
+        onOpen: () => {},
+      }),
+    );
+    try {
+      const line = root.querySelector(".acpmux-summary-agents .acpmux-agent-line");
+      expect(line).not.toBeNull();
+      expect(line!.querySelector(".acpmux-summary-agent__name")?.textContent).toBe("Reviewer");
+      expect(line!.querySelector(".acpmux-summary-agent__state")?.textContent).toBe("Running");
+    } finally {
+      await done();
+    }
+  });
+});

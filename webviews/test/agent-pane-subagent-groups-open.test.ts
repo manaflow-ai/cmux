@@ -1,5 +1,5 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
-// A transcript group of subagents (subagents/SubagentGroup.tsx) starts open while its agents run
+// With Debug Settings agentPane.debug.subagentTray off (the tray is the default), a transcript group of subagents (subagents/SubagentGroup.tsx) starts open while its agents run
 // in the working turn, so their lines show without a click, after Codex and Claude Code. A finished
 // chat's groups start closed. A group the person closes stays closed as its agents work, and the
 // open and closed groups are the chat's own: another chat's group at the same place starts as its
@@ -146,7 +146,11 @@ await requireBrowserLane("agent-pane-subagent-groups-open.test.ts", async () => 
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
-    await page.getByText(shown).waitFor({ timeout: 25_000 });
+    await page.getByText(shown).first().waitFor({ timeout: 25_000 });
+    // Group cards are the older presentation: by default running subagents sit in the tray above
+    // the composer (agent-pane-agents-pill.test.ts). The host turns the tray off with the theme
+    // (Debug Settings agentPane.debug.subagentTray).
+    await page.evaluate(() => (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }));
     return page;
   };
   const select = (page: Page, sessionId: string) =>

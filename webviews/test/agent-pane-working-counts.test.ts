@@ -248,7 +248,8 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
 
   test("the command count opens the shell's row", async () => {
     const page = await open(BUSY);
-    const command = page.getByRole("button", { name: "1 command" });
+    // The running line's count (the tray's header above the composer says "1 command" too).
+    const command = line(page).getByRole("button", { name: "1 command" });
     await command.click();
     // The first turn's "Worked for" opens, and its Bash row scrolls into view.
     const row = page.locator(".cv-tool", { hasText: "npm run dev" }).first();

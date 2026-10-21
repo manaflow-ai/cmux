@@ -103,8 +103,8 @@ await requireBrowserLane("agent-pane-subagent-of-untitled.test.ts", async () => 
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
     await page.getByText("The review is in.").waitFor({ timeout: 25_000 });
-    await page.locator("button.cv-subagents").click();
-    await page.getByRole("button", { name: /Reviewer/ }).click();
+    // The line the subagent left where it ended opens its view (subagents/SubagentDoneLine.tsx).
+    await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).click();
     await page.locator(".cv-subagent-of").waitFor({ timeout: 5_000 });
     const parent = (await page.locator(".cv-subagent-of__parent").textContent())?.trim();
     await page.close();

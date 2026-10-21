@@ -381,6 +381,7 @@ public nonisolated struct AgentPaneTunables {
             sessionStatus.descriptor,
             sidebarPreviewVariant.descriptor,
             sideSessions.descriptor,
+            subagentTray.descriptor,
             suggestedTasks.descriptor,
             terminalButtonAdds.descriptor,
             browserOpensPreview.descriptor,
