@@ -229,8 +229,8 @@ public nonisolated struct AgentPaneTunables {
     /// The answer footer's copy/retry/fork actions (the webview's `turnActionsPlacement`).
     public static let turnActionsPlacement = Tunable<AgentPaneTurnActionsPlacement>.choice(
         "agentPane.debug.turnActionsPlacement", PageTunables.section, "Turn footer actions",
-        help: "Place the answer footer's copy, retry and fork actions on the left or right.",
-        default: .right, code: "AgentPaneTunables.turnActionsPlacement")
+        help: "Place the answer footer's copy, retry and fork actions on the left, under the answer as Claude Code desktop does, or on the right.",
+        default: .left, code: "AgentPaneTunables.turnActionsPlacement")
 
     /// The composer footer's plain look (Claude Code desktop's footer): the model name muted, no
     /// brand mark or mode lock, Plan as accent text; a chip's wash only on hover, focus or an open
@@ -359,6 +359,7 @@ public nonisolated struct AgentPaneTunables {
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
             newTabPicksFollowLinks.descriptor,
+            newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,

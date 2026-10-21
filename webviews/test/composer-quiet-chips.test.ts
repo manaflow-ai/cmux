@@ -90,7 +90,7 @@ await requireBrowserLane("composer-quiet-chips.test.ts", async () => {
   ];
   // Plan on (the picker rail's play turns it on): accent ink, no pill at rest.
   const REST_STAGES = [...STAGES, { entry: "agent-pane.composer-pickers", variant: "plan", chips: ["Model"] }];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-steer)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan)";
   const chip = (name: string) => (name.startsWith(".") ? name : `button[aria-haspopup][aria-label="${name}"]`);
 
   const open = async (engine: string, entry: string, variant: string) => {

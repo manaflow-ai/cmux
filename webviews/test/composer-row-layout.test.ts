@@ -46,7 +46,9 @@ type Row = {
   send: Rect | undefined;
   stop: Rect | undefined;
   stopGlyph: Rect | undefined;
-  /** Send's or Stop's fill and ink, whichever shows. */
+  /** The trailing cluster's controls, left to right by position (mic, Send or Stop, ↵). */
+  trailing: string[];
+  /** Send's or Stop's fill and ink, whichever shows; empty when neither does. */
   fill: string;
   ink: string;
   /** The theme's --agent-text and --acpmux-base, resolved in the bar. */
@@ -111,6 +113,20 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       footer: footer && rect(footer),
       left,
       right: rect(bar.querySelector(".acpmux-composer-actions")!),
+      trailing: [...bar.querySelectorAll<HTMLElement>(".acpmux-composer-actions button")]
+        .filter(visible)
+        .sort((a, b) => a.getBoundingClientRect().left - b.getBoundingClientRect().left)
+        .map((button) =>
+          button.classList.contains("acpmux-mic")
+            ? "mic"
+            : button.classList.contains("acpmux-steer-now")
+              ? "steer"
+              : button.classList.contains("acpmux-cancel")
+                ? "stop"
+                : button.classList.contains("acpmux-send")
+                  ? "send"
+                  : button.className,
+        ),
       barGap: parseFloat(getComputedStyle(bar).columnGap) || 0,
       labels: {
         model: label(
@@ -141,8 +157,15 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
       stopGlyph: bar.querySelector(".acpmux-cancel svg rect")
         ? rect(bar.querySelector(".acpmux-cancel svg rect")!)
         : undefined,
-      fill: getComputedStyle(bar.querySelector(".acpmux-send")!).backgroundColor,
-      ink: getComputedStyle(bar.querySelector(".acpmux-send")!).color,
+      // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20), so an idle row may have neither.
+      fill: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).backgroundColor : "";
+      })(),
+      ink: (() => {
+        const shown = bar.querySelector(".acpmux-send");
+        return shown ? getComputedStyle(shown).color : "";
+      })(),
       ...(() => {
         const probe = document.createElement("span");
         probe.style.color = "var(--agent-text)";
@@ -197,12 +220,18 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     await vite?.close();
   });
 
-  const row = async (variant: string, width: number) => {
+  /** The row's geometry; `draft` is typed first, so an idle row draws its Send. */
+  const row = async (variant: string, width: number, draft?: string) => {
     const page = await browser!.newPage({ viewport: { width, height: 300 } });
     await page.goto(stageURL(variant));
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");
     await page.locator(".acpmux-model .acpmux-model-detail").first().waitFor();
     await page.evaluate(() => document.fonts.ready);
+    if (draft) {
+      await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+      await page.keyboard.type(draft);
+      await page.locator(".acpmux-composer-bar .acpmux-send:not(.acpmux-cancel)").waitFor();
+    }
     const measured = await page.evaluate(measure);
     await page.close();
     return measured;
@@ -307,19 +336,23 @@ await requireBrowserLane("composer-row-layout.test.ts", async () => {
     });
 
   for (const width of [420, 720, 1100])
-    test(`at ${width} px Stop takes Send's box as a solid, theme-inverted disc`, async () => {
-      const idle = await row("claude-auto", width);
+    test(`at ${width} px Stop has Send's footprint as a solid, theme-inverted disc`, async () => {
+      // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, so the idle row
+      // Stop is held against has a prompt typed; there Send comes after the mic. While a turn
+      // runs Stop comes before the mic, which keeps the right edge, so Stop matches Send's size
+      // and line, not its x.
+      const idle = await row("claude-auto", width, "Add a test for the 429 path");
       const running = await row("queued", width);
       const send = idle.send!;
       const stop = running.stop!;
       expect(stop).toBeDefined();
-      const off = (["left", "right", "top", "bottom"] as const).filter(
-        (side) => Math.abs(send[side] - stop[side]) > 0.5,
-      );
+      const off = (["width", "top", "bottom"] as const).filter((side) => Math.abs(send[side] - stop[side]) > 0.5);
       expect(off.map((side) => `${side} ${send[side].toFixed(1)} -> ${stop[side].toFixed(1)}`)).toEqual([]);
-      // A solid disc in the text color with a base-colored square, never the faint resting circle
-      // of an empty draft's Send (design panel Q4-B: that read as a disabled Send).
-      expect(running.fill).not.toBe(idle.fill);
+      expect(idle.trailing.slice(-2)).toEqual(["mic", "send"]);
+      expect(running.trailing.slice(-2)).toEqual(["stop", "mic"]);
+      // A solid disc in the text color with a base-colored square, never the faint off circle
+      // (design panel Q4-B: that read as a disabled Send). An empty draft draws no Send at all now,
+      // so the solid text fill is the check, not a difference from the idle row's ready Send.
       expect(running.fill).toBe(running.text);
       expect(running.ink).toBe(running.base);
       // The square sits in the disc's centre.

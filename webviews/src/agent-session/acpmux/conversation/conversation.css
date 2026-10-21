@@ -373,6 +373,7 @@
    reached them, as Claude's. */
 .cv-user__actions {
   display: flex;
+  align-items: center;
   gap: 2px;
   margin-top: 4px;
   padding-right: 2px;
@@ -380,9 +381,26 @@
   transition: opacity 120ms ease-out;
 }
 .cv-user:hover .cv-user__actions,
+.acpmux-row[data-last-prompt] .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions--versions {
   opacity: 1;
+}
+/* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
+.cv-user__time {
+  margin-inline-end: 4px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-caption);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.cv-user__read {
+  display: inline-flex;
+  margin-inline-end: 4px;
+  color: var(--cv-text-dim);
+}
+.cv-user__read.is-unread {
+  opacity: 0.5;
 }
 /* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
 .cv-user__versions {
@@ -1634,29 +1652,24 @@ pre.cv-math-source {
   margin: 0 10px 8px 32.5px;
 }
 
-/* Copy under an answer; the row's height is reserved. One quiet line at the column's right edge,
-   as a prompt's actions under its bubble (2px in, .cv-user__actions). */
+/* The answer's action row; its height is reserved. One quiet line under the answer, where its text
+   starts, as Claude Code desktop's: the time, then Copy, Retry and Fork. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: flex-start;
   gap: 8px;
   min-height: 28px;
-  padding-right: 2px;
+  padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
 }
-/* Debug Settings `agentPane.debug.turnActionsPlacement`: keep the default desktop placement on
-   the right, while allowing a left action rail for people who scan the footer from the transcript
-   edge. The action group leads the row when left, followed by the quiet time label. */
-:root[data-turn-actions-placement="left"] .cv-turn-actions {
-  justify-content: flex-start;
-  padding-right: 0;
-  padding-left: 2px;
-}
-:root[data-turn-actions-placement="left"] .cv-turn-actions .cv-turn-action-group {
-  order: -1;
+/* Debug Settings `agentPane.debug.turnActionsPlacement` "right": the earlier row at the column's
+   right edge, the actions after the time. */
+:root[data-turn-actions-placement="right"] .cv-turn-actions {
+  justify-content: flex-end;
+  padding-inline: 0 2px;
 }
 .cv-turn-action-group {
   display: inline-flex;
@@ -1859,40 +1872,6 @@ pre.cv-math-source {
  * compositor. The text holds its final layout while transparent, so no line ever reflows. */
 .cv-fresh {
   animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) both;
-}
-
-/* R104: the live edge, a soft bar after the newest character while a reply streams. It takes no
- * width (the bar is absolutely placed), so the text never reflows when it leaves. It pulses only
- * while the reveal has caught up and waits for more. */
-.cv-caret {
-  position: relative;
-  display: inline-block;
-  width: 0;
-  height: 1em;
-  vertical-align: -0.12em;
-}
-.cv-caret::after {
-  content: "";
-  position: absolute;
-  left: 2px;
-  top: 0.05em;
-  width: 0.5em;
-  height: 0.9em;
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--cv-text) 55%, transparent);
-}
-@keyframes cv-caret-wait {
-  50% {
-    opacity: 0.35;
-  }
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-md.is-waiting .cv-caret::after {
-    animation: cv-caret-wait 1s ease-in-out infinite;
-  }
-}
-:root[data-status-indicators="static"] .cv-md.is-waiting .cv-caret::after {
-  animation: none;
 }
 
 /* Footnotes (Markdown.tsx): a superscript number that scrolls to its note, and the notes
