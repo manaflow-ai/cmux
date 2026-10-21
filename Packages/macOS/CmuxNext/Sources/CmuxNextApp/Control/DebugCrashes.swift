@@ -84,9 +84,10 @@ enum DebugCrashes {
         }
     }
 
-    /// Points the task's EXC_BREAKPOINT exception port at a new port no
-    /// thread receives on (`frozen`).
+    /// Starts the crash path, then points the task's EXC_BREAKPOINT
+    /// exception port at a new port no thread receives on (`frozen`).
     private static func freezeNextTrap() {
+        CrashReporter.beginCrashDeadline()
         let task = mach_task_self_
         var port = mach_port_t(0)
         guard mach_port_allocate(task, MACH_PORT_RIGHT_RECEIVE, &port) == KERN_SUCCESS,

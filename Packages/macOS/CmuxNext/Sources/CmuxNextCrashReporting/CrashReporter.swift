@@ -81,7 +81,9 @@ public final class CrashReporter: Sendable {
         _ = Locale.current
         _ = NSLocale.preferredLanguages
         let appOwned = SignalActions(capturing: Self.appOwnedSignals)
+        TaskExceptionPorts.captureBeforeSentry()
         SentrySDK.start(options: options())
+        TaskExceptionPorts.noteSentryStarted()
         appOwned.restore()
         let handlers = SignalActions(capturing: Self.fatalSignals)
         sentryHandlers.withLock { $0 = handlers }
@@ -93,6 +95,28 @@ public final class CrashReporter: Sendable {
     /// start after its report.
     public func reassertSignalHandlers() {
         sentryHandlers.withLock { $0 }?.restore()
+    }
+
+    /// Gives back the Mach exception ports Sentry took at start while its
+    /// port is still registered (``TaskExceptionPorts``): a fault that runs
+    /// again after a fatal-signal handler returns then reaches the system's
+    /// handler and ends the process, instead of waiting forever on a port
+    /// whose receiver thread Sentry ended. Async-signal-safe; for
+    /// fatal-signal handlers.
+    public static func releaseSentryExceptionPorts() {
+        TaskExceptionPorts.restoreIfSentryOwned()
+    }
+
+    /// Starts the crash deadline thread (``CrashDeadline``). Call once at
+    /// launch, before the handlers that call ``beginCrashDeadline()``.
+    public static func installCrashDeadline() {
+        CrashDeadline.install()
+    }
+
+    /// A crash has begun: the process ends within ``CrashDeadline/seconds``
+    /// even if the crash path blocks. Async-signal-safe.
+    public static func beginCrashDeadline() {
+        CrashDeadline.arm()
     }
 
     /// Records a non-fatal product failure (a warning event tagged `failure`)

@@ -1,3 +1,4 @@
+import CmuxNextCrashReporting
 import Darwin
 import Foundation
 import os
@@ -17,7 +18,14 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 /// On Darwin arm64 `si_code` cannot tell them apart (XNU never reports `SI_USER`, cx-sjv65), so a
 /// signal that arrives as a system call returns (raised, or sent to a waiting thread) is re-raised.
 /// One sent to a thread running user code still reads as a fault and is lost, as before.
+///
+/// First it gives back the Mach exception ports Sentry took, so the fault
+/// that runs again reaches the system's handler (with Sentry's port left
+/// behind it waited forever, 2026-10-20), and starts the crash deadline, so
+/// the process ends even if something else blocks.
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
+    CrashReporter.releaseSentryExceptionPorts()
+    CrashReporter.beginCrashDeadline()
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
     let descriptor = fatalSignalDescriptor
     if descriptor >= 0 {
@@ -195,6 +203,7 @@ final class AppRunMarker {
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
+        CrashReporter.installCrashDeadline()
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in

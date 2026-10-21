@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCrashReporting
 import CmuxNextWakeups
 import os
 
@@ -99,7 +100,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     /// `NSApplicationCrashOnExceptions` (`CrashOnExceptions`) AppKit traps
     /// here and the uncaught-exception handler never runs, so the record is
     /// written first; the next launch's notice and report then name it.
+    ///
+    /// With crashing on, the crash has begun here: the crash deadline then
+    /// ends the process even if a crash handler after this blocks.
     override func reportException(_ exception: NSException) {
+        if UserDefaults.standard.bool(forKey: CrashOnExceptions.key) { CrashReporter.beginCrashDeadline() }
         UncaughtExceptionRecorder.handle(exception)
         super.reportException(exception)
     }

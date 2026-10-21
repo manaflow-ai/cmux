@@ -1,4 +1,5 @@
 import CmuxNextControl
+import CmuxNextCrashReporting
 import Foundation
 import os
 
@@ -37,7 +38,11 @@ nonisolated enum UncaughtExceptionRecorder {
     /// installs an uncaught-exception handler (CEF and Ghostty do not).
     static func install(writingTo url: URL) {
         file.withLock { $0 = url }
-        NSSetUncaughtExceptionHandler { exception in UncaughtExceptionRecorder.handle(exception) }
+        // The runtime aborts after this handler: the crash has begun.
+        NSSetUncaughtExceptionHandler { exception in
+            CrashReporter.beginCrashDeadline()
+            UncaughtExceptionRecorder.handle(exception)
+        }
     }
 
     /// Stops recording (a clean exit).
