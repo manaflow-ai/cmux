@@ -37,7 +37,7 @@ extension ChiefConversationOwner {
                             userDisplayName: String? = nil,
                             allowRules: ChiefAllowRules = ChiefAllowRules(),
                             now: @escaping @Sendable () -> Date = { Date() },
-                            clock: any Clock<Duration> = ContinuousClock(),
+                            clock: any Clock<Duration> = HomeSleepClock(),
                             context: @escaping ChiefTurnContextProvider) async throws -> ChiefConversationOwner {
         allowRules.load(home)
         let loaded = try await Task.detached(priority: .userInitiated) {
