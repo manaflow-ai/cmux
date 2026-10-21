@@ -88,7 +88,10 @@ impl Mux {
         };
         let mut handled_terminals = HashSet::new();
         // Live hosts this pass hands to their adoption threads.
-        let mut deferred = Vec::new();
+        let mut deferred: Vec<(
+            crate::terminal_host_runtime::TerminalHostRecord,
+            std::path::PathBuf,
+        )> = Vec::new();
         // At most one warm snapshot host becomes the first terminal of a
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
