@@ -517,8 +517,6 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   // envelopes in a prompt (an adopted Claude session's history).
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
-    /// A line's text as it reads: the name and › are flex items, which innerText puts on lines of their own.
-    const lineText = (text: string) => text.replace(/\s+/g, " ");
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -556,9 +554,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      // One quiet line, "Received message from Grid fix ›"; the message waits behind ›.
-      expect(lineText(await card.innerText())).toContain("Received message from Grid fix");
-      expect(await card.innerText()).not.toContain("The grid fix is on cmux/grid-fix; tests pass.");
+      // One line at the left: the sender's chip and the message's first line as a preview; the
+      // card waits behind it.
+      expect(await card.locator(".cv-received__name").innerText()).toBe("Grid fix");
+      expect(await card.locator(".cv-received__preview").innerText()).toBe(
+        "The grid fix is on cmux/grid-fix; tests pass.",
+      );
+      expect(await card.locator(".cv-received__body").count()).toBe(0);
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
       // Opened, the line shows the sender's words only; the prompt as the agent got it (cmux's
       // envelope, message id and note) waits behind Details.
@@ -624,7 +626,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(lineText(await card.innerText())).toContain("Received message from leoli-fb");
+      expect(await card.locator(".cv-received__name").innerText()).toBe("leoli-fb");
       const body = await page.locator("body").innerText();
       expect(body).not.toContain("<cross-session-message");
       expect(body).not.toContain("This came from another Claude session");

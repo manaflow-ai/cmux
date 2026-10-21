@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt } from "./incomingMessage";
+import { incomingPrompt, messagePreview } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -295,4 +295,12 @@ test("a reply in place reaches the sender's chat as the replying chat's message,
       raw: text,
     },
   });
+});
+
+test("a message's closed line previews its first line of text, its spaces collapsed", () => {
+  expect(messagePreview("\n\n  More ready   risk:high heads\n- #23599 at f6f9432c")).toBe("More ready risk:high heads");
+  expect(messagePreview("")).toBe("");
+  expect(messagePreview("## **Merged** `#23727`")).toBe("Merged #23727");
+  expect(messagePreview("- [x] landed")).toBe("landed");
+  expect(messagePreview("x".repeat(400))).toHaveLength(240);
 });
