@@ -291,8 +291,8 @@ export function inspectorLists(
   };
 }
 
-/// The Inspector section the running line's background counts open (App.tsx `openBackground`,
-/// `openCommands`): Background tasks while a command that is not a dev server runs, Servers when
+/// The Inspector section a background command opens (App.tsx `openCommands` and
+/// `openTrayCommand`): Background tasks while a command that is not a dev server runs, Servers when
 /// every running command is one (the Inspector draws no Background tasks for those), else
 /// Subagents (only subagents and started chats run). `running` is the chat's running commands,
 /// servers included, as the running line counts them.
