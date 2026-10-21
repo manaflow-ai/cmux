@@ -27,7 +27,8 @@
 //! - The block and the prompt say who wrote each rule: a person's is an
 //!   instruction, an agent's is information.
 //! - Sessions that get no cmux tools (remote origin, `ACPMUX_AGENT_TOOLS=0`
-//!   such as a compactor, Claude Code with `--strict-mcp-config`) get no rules.
+//!   such as a compactor, Claude Code with `--strict-mcp-config`, a restricted
+//!   chat) get no rules.
 
 use super::*;
 use crate::forum::{Author, Forum, Kind, MAX_BODY_BYTES, MAX_KEY_BYTES, Post, RULES_TOPIC};
@@ -283,11 +284,13 @@ impl Hub {
     /// Whether `session` gets rules: the sessions that get cmux's tools, as
     /// its agent was launched (`record_spawn_inputs`), else by the profile it
     /// spawns with (its preset's env and args included, as `child_for`
-    /// resolves it), and the daemon-wide switch.
+    /// resolves it), and the daemon-wide switch. A restricted chat gets none:
+    /// it has no cmux tools and takes prompts from the app's pane only
+    /// (`restricted.rs`).
     async fn forum_reaches(&self, session: &Session) -> bool {
         let m = session.meta();
         let switch = std::env::var_os(crate::agent_tools::SWITCH_ENV);
-        if m.remote_origin || switch.is_some_and(|v| v == "0") {
+        if m.remote_origin || m.restricted || switch.is_some_and(|v| v == "0") {
             return false;
         }
         match session.launched_with_tools.load(Ordering::SeqCst) {
