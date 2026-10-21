@@ -106,6 +106,7 @@ struct CloudListMachinesTests {
     @Test func aPersonsRunAnswersNoResult() async throws {
         let services = Self.services()
         _ = MachineIconTests.cloudMachine(services, id: "vm-list-user-\(UUID().uuidString.prefix(8))")
-        #expect(try await Self.run(services, origin: .user) == nil)
+        let fields = try await Self.run(services, origin: .user)
+        #expect(fields == nil)
     }
 }
