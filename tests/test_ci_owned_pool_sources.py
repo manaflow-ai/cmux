@@ -14,7 +14,8 @@ runs-on. This test reads them from the working tree and from the other branch
 from main's copy of the rescue (the working tree on main, origin/main on
 feat-cmux-next, since that is the copy that runs). It fails when an owned
 workflow of either branch is not listed, and when a listed one is owned in
-neither. The other branch is read with `git show`; under GitHub Actions the
+neither (on feat-cmux-next that only warns: main's list cannot change in the
+same commit that moves a workflow off the minis, and a stale entry is harmless). The other branch is read with `git show`; under GitHub Actions the
 test fetches it (one shallow, blob-less fetch, then the files it reads) and
 fails if it still cannot read it. Off CI a missing ref only skips that branch.
 
@@ -145,8 +146,14 @@ class OwnedPoolSources(unittest.TestCase):
             self.skipTest("both branches are needed to call an entry stale")
         found = set().union(*(set(owned) for owned in self.owned.values()))
         stale = sorted((self.watched | self.unrescued) - found)
-        self.assertFalse(stale, f"{sources.RESCUE_SCRIPT} lists workflows that take no owned pool on main or "
-                                f"feat-cmux-next any more; remove them: {stale}")
+        message = (f"{sources.RESCUE_SCRIPT} lists workflows that take no owned pool on main or "
+                   f"feat-cmux-next any more; remove them: {stale}")
+        if stale and on_feat():
+            # The list is main's: a feat-cmux-next change that moves a workflow off the minis cannot
+            # remove its entry in the same commit, and a stale entry only watches a run with no owned job.
+            print(f"::warning title=owned pool sources::{message} (in a pull request to main)", file=sys.stderr)
+        else:
+            self.assertFalse(stale, message)
         self.assertFalse(self.watched & self.unrescued, "a workflow is both watched and left to a person")
 
     def test_the_markers_come_from_the_pool_code(self) -> None:
