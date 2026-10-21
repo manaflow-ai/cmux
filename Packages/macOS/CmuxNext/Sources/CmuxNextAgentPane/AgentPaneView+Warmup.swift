@@ -1,11 +1,12 @@
 import AppKit
 import WebKit
 
-/// Starts WebKit for the agent pages at the top of launch (cx-z9kz0): its
-/// first-use setup and the shared pool's first web content process then run
-/// while the windows build, so the first agent page loads sooner (live
-/// about 65 ms earlier on a cold launch). The empty page goes once an agent
-/// page has loaded or the launch settled (`LaunchSettle`).
+/// Starts WebKit for the agent pages once the first window frame is committed
+/// (cx-z9kz0): its first-use setup and the shared pool's first web content
+/// process then run before most agent pages load. It used to run before
+/// NSApplication.run, where it held the main thread 80-350 ms ahead of the
+/// first frame. The empty page goes once an agent page has loaded or the
+/// launch settled (`LaunchSettle`).
 ///
 /// It no longer has the pool prewarm a second, page-less web content process
 /// (`-[WKProcessPool _warmInitialProcess]`, cx-z9kz0, #19847). On some Macs
