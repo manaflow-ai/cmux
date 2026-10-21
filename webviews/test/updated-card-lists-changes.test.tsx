@@ -72,13 +72,17 @@ async function renderCard(d: typeof data) {
   );
 }
 
-test("the Updated card leads with the top change, then lists the next ones, then the count of the rest", async () => {
+test("the Updated card lists the changes by area, then the count of the rest", async () => {
   await renderCard(data);
   // 2026-10-20, Lawrence on "Updated to nightly 3939068 / What's new in this build": "not descriptive
-  // enough at all". The card names what changed: a headline, then bullets.
-  expect(host.querySelector(".wn-card-headline")?.textContent).toBe(data.items[0]!.title);
-  const items = [...host.querySelectorAll(".wn-card-changes li")].map((li) => li.textContent);
-  expect(items).toEqual(data.items.slice(1).map((i) => i.title));
+  // enough at all". The card names what changed, one line per area (updated-card-summary.test.tsx).
+  expect(host.querySelector(".wn-card-headline")).toBeNull();
+  const rows = [...host.querySelectorAll(".wn-card-areas li")].map((li) => li.textContent);
+  expect(rows).toEqual([
+    "Composer: dictation progress is announced to VoiceOver",
+    "New Tab: New Tab names its project and machine at once",
+    "Agent Chat: chats stay smooth while an agent streams",
+  ]);
   expect(host.querySelector(".wn-card-more")?.textContent).toBe("+35 more");
   const buttons = [...host.querySelectorAll("button")].map((b) => b.textContent || b.getAttribute("aria-label"));
   expect(buttons).toEqual(["Close", "See What's New"]);
@@ -100,6 +104,6 @@ test("a release version reads as itself, with its date", async () => {
 
 test("the Updated card with every change listed shows no count", async () => {
   await renderCard({ ...data, moreCount: 0 });
-  expect(host.querySelectorAll(".wn-card-changes li").length).toBe(2);
+  expect(host.querySelectorAll(".wn-card-areas li").length).toBe(3);
   expect(host.querySelector(".wn-card-more")).toBeNull();
 });
