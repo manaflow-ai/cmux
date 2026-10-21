@@ -30,6 +30,11 @@
             "type": "command",
             "command": "bash \"${CLAUDE_PROJECT_DIR:-$(git rev-parse --show-toplevel)}/scripts/ci/format-post-edit.sh\" || true",
             "timeout": 30
+          },
+          {
+            "type": "command",
+            "command": "bash \"$CLAUDE_PROJECT_DIR/scripts/ci/check-post-edit.sh\"",
+            "timeout": 15
           }
         ]
       }

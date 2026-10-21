@@ -273,8 +273,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
+    let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // The forum log (`forum.rs`): on disk unless the store is in memory; a
+    // log that cannot open leaves the posts in memory.
+    if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
+        tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
+    }
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
