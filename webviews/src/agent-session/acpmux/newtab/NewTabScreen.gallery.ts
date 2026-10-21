@@ -238,6 +238,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/newtab/RowGlyph.tsx#RowGlyph",
     "agent-session/acpmux/newtab/StyleSwitch.tsx#StyleSwitch",
     "agent-session/acpmux/newtab/WidgetCards.tsx#WidgetCards",
+    "agent-session/acpmux/newtab/WidgetEditing.tsx",
     "agent-session/acpmux/newtab/StageCards.tsx",
     "agent-session/acpmux/DictationMic.tsx#DictationMic",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
