@@ -27,6 +27,7 @@ impl Brain {
         match event {
             AgentEvent::Up(sessions) => {
                 self.agents_up = true;
+                self.reap_closed_compactor_sessions(&sessions);
                 self.reconcile_spawns(&sessions);
                 // Only the Chief's own children: the compactor and turn
                 // sessions come and go by the thousand.
@@ -100,6 +101,44 @@ impl Brain {
                 }
             }
         }
+    }
+
+    /// Ends this Chief's compactor sessions that acpmux lists as closed.
+    /// The compactor purges each node's session when the node is built, so
+    /// a closed one is a leftover: an acpmux that saved a purged session's
+    /// record again (a late generated title) loaded about 450 of them back
+    /// after a restart (2026-10-20). Never a live one, a turn session or
+    /// another Chief's.
+    fn reap_closed_compactor_sessions(&self, sessions: &[SessionSummary]) {
+        let leftovers: Vec<&SessionSummary> = sessions
+            .iter()
+            .filter(|s| {
+                s.status == SessionStatus::Closed
+                    && s.tags.get(crate::acpmux::CHIEF_TAG) == Some(&self.settings.chief_id)
+                    && s.tags
+                        .get(crate::acpmux::CHIEF_ROLE_TAG)
+                        .map(String::as_str)
+                        == Some(crate::acpmux::COMPACTOR_ROLE)
+            })
+            .collect();
+        if leftovers.is_empty() {
+            return;
+        }
+        let mut failed = 0;
+        for s in &leftovers {
+            if self.agents.end_session(&s.session_id).is_err() {
+                failed += 1;
+            }
+        }
+        (self.log)(&format!(
+            "ended {} closed compactor session(s) a stopped host or an older acpmux left{}",
+            leftovers.len() - failed,
+            if failed > 0 {
+                format!(" ({failed} could not be ended)")
+            } else {
+                String::new()
+            }
+        ));
     }
 
     /// One of the Chief's `chief agents` children; a subagent (section 9,
