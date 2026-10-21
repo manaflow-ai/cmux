@@ -98,7 +98,7 @@ enum NewTabPage {
     /// somewhere real on (Leo 2026-10-11: "about:blank Home", a bare "~ ~" folder, each
     /// workspace twice). A New Tab page, a page tab and a blank browser tab are no place; a chat
     /// is one; the home folder is not a project. Another workspace with one place lists once, as
-    /// the workspace (a jump to either shows the same tab), named by that tab.
+    /// that tab: a row that reads as a tab jumps to the tab (Leo 2026-10-19).
     static func places(_ workspaces: [PlaceSource], current: String?, excluding selectedID: String?, home: String,
                        icon: (TabModel) -> String? = { _ in nil })
         -> (tabs: [AgentPaneOmnibar.Tab], workspaces: [AgentPaneOmnibar.Workspace], folders: [String]) {
@@ -113,13 +113,10 @@ enum NewTabPage {
                                          workspace: workspace.name, icon: place.kind == .browser ? icon(tab) : nil)
                 }
             }
-            guard workspace.id != current else {
-                tabs += rows
-                continue
-            }
-            if rows.count > 1 { tabs += rows }
-            let named = rows.count == 1 ? rows[0].detail ?? rows[0].title : nil
-            let detail = named ?? workspace.tabs.lazy.compactMap(\.cwd).first.map { abbreviated($0, home: home) }
+            tabs += rows
+            // Another workspace's only place is that tab's row (Switch to tab lands on it), not the workspace's.
+            guard workspace.id != current, rows.count != 1 else { continue }
+            let detail = workspace.tabs.lazy.compactMap(\.cwd).first.map { abbreviated($0, home: home) }
             others.append(AgentPaneOmnibar.Workspace(id: workspace.id, name: workspace.name, detail: detail))
         }
         return (tabs, others, folders)
@@ -195,7 +192,8 @@ enum NewTabPage {
             lastAgent: services.newTabChoices.agent, lastPicks: services.newTabChoices.picks,
             home: machine.home,
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac(machine.remoteFolders == nil)
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services))
+            .warmedOnThisMac(machine.remoteFolders == nil)
     }
 
     /// What a prewarmed spare page loads with before Cmd-T adopts it
@@ -206,8 +204,11 @@ enum NewTabPage {
             layout: NewTabTunables.layout.value.pageLayout, lastAgent: services.newTabChoices.agent,
             lastPicks: services.newTabChoices.picks, home: NSHomeDirectory(),
             template: services.settings?.snapshot.newTabTemplate?.rawValue
-        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).warmedOnThisMac()
+        ).dismissingHarnessHint(services.newTabChoices.harnessHintDismissed).listingAllChats(showsAllChats(services)).warmedOnThisMac()
     }
+
+    /// Show All Chats on New Tab (`sidebar.showChats`; All chats left the sidebar for this page, cx-n0i9).
+    static func showsAllChats(_ services: AppServices) -> Bool { services.settings?.snapshot.sidebarSections.showChats ?? true }
 
     /// Startup folders only without `project-list-v1`; else the page asks `project.list` (removals win, cx-m0p7).
     static func projects(_ services: AppServices) -> [String] { services.machines.local.projectStore == nil ? services.onboarding.projectFolders : [] }
@@ -296,6 +297,11 @@ extension PaneController {
             _ = services.registry.perform("focusBrowserAddressBar", invocation: invocation)
             return
         }
+        // A Markdown tab has the browser's omnibar row above its page (markdown-omnibar-DESIGN.md).
+        if case .page(let view) = currentContent, let bar = view.topBar as? MarkdownOmnibarBar {
+            bar.focusLocation()
+            return
+        }
         // `open` focuses the field of a New Tab page already showing, else opens one. In a pane
         // of another machine it is the same page; nothing starts there before a send (cx-k21v).
         NewTabPage.open(in: self, seed: nil, reusingShown: true)
@@ -307,6 +313,13 @@ extension AgentPaneNewTab {
     func dismissingHarnessHint(_ dismissed: Bool) -> AgentPaneNewTab {
         var page = self
         page.harnessHintDismissed = dismissed ? true : nil
+        return page
+    }
+
+    /// The page with All chats left out (recent chats only) when Show All Chats on New Tab is off.
+    func listingAllChats(_ shown: Bool) -> AgentPaneNewTab {
+        var page = self
+        page.allChats = shown ? nil : false
         return page
     }
 }

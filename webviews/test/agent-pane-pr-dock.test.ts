@@ -192,8 +192,9 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
       };
     });
     expect(chip).toEqual({ narrower: true, inside: true, titles: 0 });
-    // The dock takes its own space in the column (Leo, 2026-10-14: the PR chip sat over the chat):
-    // the transcript ends above it, its last line too when scrolled to the end, at any height.
+    // The dock takes its own space in the bottom stack (Leo, 2026-10-14: the PR chip sat over the chat):
+    // the transcript runs under the stack (bottomStack.css), and keeps its last line above the dock
+    // when scrolled to the end, at any height.
     for (const height of [760, 360]) {
       await page.setViewportSize({ width: 900, height });
       const overlap = await page.evaluate(async () => {
@@ -203,12 +204,14 @@ await requireBrowserLane("agent-pane-pr-dock.test.ts", async () => {
         const dock = document.querySelector(".acpmux-pr-dock")!.getBoundingClientRect();
         const rows = [...scroller.querySelectorAll(".acpmux-row")].map((row) => row.getBoundingClientRect());
         const last = Math.max(...rows.map((row) => Math.min(row.bottom, scroller.getBoundingClientRect().bottom)));
+        const stack = document.querySelector(".acpmux-main > .acpmux-dock")!.getBoundingClientRect();
         return {
-          scroller: Math.max(0, Math.round(scroller.getBoundingClientRect().bottom - dock.top)),
+          // The stack holds the dock: nothing of the stack lies above it but the stack's own parts.
+          dockInStack: dock.top >= stack.top - 0.5,
           lastLine: Math.max(0, Math.round(last - dock.top)),
         };
       });
-      expect(overlap).toEqual({ scroller: 0, lastLine: 0 });
+      expect(overlap).toEqual({ dockInStack: true, lastLine: 0 });
     }
     await page.setViewportSize({ width: 900, height: 760 });
 

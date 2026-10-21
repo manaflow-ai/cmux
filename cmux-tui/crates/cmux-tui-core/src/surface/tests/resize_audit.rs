@@ -59,3 +59,38 @@ fn resize_audit_hosted_aba_reversion_reaches_the_host() {
         "the host was left at the intermediate size; viewer sizes sent: {sent:?}"
     );
 }
+
+/// Resize audit item 5: a grid over the host's cell-area limit failed on
+/// the hosted path only. The mux clamps it the same way for every terminal.
+#[test]
+fn resize_audit_hosted_grid_over_the_cell_area_limit_is_clamped() {
+    let mux = Mux::new_for_test("hosted-resize-area", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, mut host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let surface = Surface::spawn_hosted(
+        4243,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+    mux.insert_surface_runtime_for_test(surface.clone());
+    host.set_read_timeout(Some(Duration::from_millis(500))).unwrap();
+
+    let result = mux.resize_surface_for_client(surface.id, 0, 10_000, 401);
+    assert!(result.is_ok(), "the hosted path refused a grid the mux accepts: {result:?}");
+    let sent = viewer_sizes_sent(&mut host);
+    assert_eq!(sent.last(), Some(&(10_000, 400)), "viewer sizes sent: {sent:?}");
+}

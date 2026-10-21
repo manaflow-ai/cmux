@@ -181,4 +181,17 @@ typealias TabAudioStripID = CmuxNextTabs.TabID
         #expect(descriptor.surfacePlan.mcp?.isOffered == true, "\(id) is no MCP tool")
         if id != "toggleTabAudioMute" { #expect(descriptor.isPaletteVisible, "\(id) is not in the palette") }
     }
+
+    /// Mute Other Tabs and Mute/Unmute Workspace Tabs each have a menu position no other
+    /// action's row shares, so their order in the tab and workspace menus is fixed.
+    @Test(arguments: ["tab.muteOtherAudio", "workspace.toggleAudioMute"])
+    func theMuteRowsHaveTheirOwnMenuPosition(_ id: String) throws {
+        let own = try #require(ActionSurfaceCatalog.placements[ActionID(stringLiteral: id)], "\(id) has no menu row")
+        for row in own {
+            let shared = ActionSurfaceCatalog.placements.filter { key, rows in
+                key.rawValue != id && rows.contains { $0.context == row.context && $0.group == row.group && $0.rank == row.rank }
+            }.map(\.key.rawValue)
+            #expect(shared.isEmpty, "\(id) shares rank \(row.rank) with \(shared)")
+        }
+    }
 }

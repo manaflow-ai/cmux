@@ -45,14 +45,14 @@ struct SidebarGroupFlow {
     /// asks without a name: that group's name editor opens (repeated New
     /// Group, cx-rcby). Automation, and a person who names the group, get
     /// the group they asked for; the group it empties goes.
-    /// A person's new group gets the next palette color and its editor
-    /// opens on it (the Chrome flow). `index` places the group
+    /// Every new group gets the next palette color (Leo 2026-10-20: agents'
+    /// groups were all grey); a person's also opens its editor (the Chrome flow). `index` places the group
     /// (`SidebarIntent.createGroup`), else it forms at its first member.
     func newGroup(of ids: [SidebarWorkspaceID], name: String, byUser: Bool, index: Int? = nil) {
         if byUser, name.isEmpty, bridge.usesPersonalOrganization, let whole = bridge.life.whole(bridge.placements(ids)) { return editGroup(whole) }
         let id = CmuxNextSidebar.GroupID.make()
         let used = Set(bridge.services.machines.local.store.personal.groups.compactMap(\.color))
-        bridge.handle(.createGroup(id, name: name, color: byUser ? GroupColor.automatic(used: used) ?? .grey : .grey, workspaces: ids,
+        bridge.handle(.createGroup(id, name: name, color: GroupColor.automatic(used: used) ?? .grey, workspaces: ids,
                                    index: index))
         if byUser, name.isEmpty, bridge.model.group(id) != nil { editGroup(WorkspaceGroupID(rawValue: id.rawValue)) }
     }
@@ -67,9 +67,9 @@ struct SidebarGroupFlow {
 
     /// Called after each sidebar update: opens a waiting group editor.
     func openPendingEditor() {
-        guard let pending = editor.pending, bridge.model.group(CmuxNextSidebar.GroupID(pending.rawValue)) != nil else { return }
+        // On the sidebar document the group shows as its item (`itm_g_<id>`).
+        guard let pending = editor.pending, case let id = bridge.model.groupID(personal: pending.rawValue), bridge.model.group(id) != nil else { return }
         editor.pending = nil
-        let id = CmuxNextSidebar.GroupID(pending.rawValue)
         bridge.container.beginRename(group: id)
         // No editor came up (a drag, a row out of view): a group made empty does not wait for one.
         if bridge.container.editingGroup != id { endUnedited(pending) }
@@ -178,8 +178,8 @@ struct SidebarGroupFlow {
     /// group as their target, the same path as the palette, menus and CLI.
     func wireEditor() {
         let container = bridge.container
-        container.groupEditorItems = { [weak bridge = self.bridge] _ in
-            bridge.map { SidebarGroupFlow(bridge: $0).editorItems() } ?? SidebarContainerView.standardGroupEditorItems()
+        container.groupEditorItems = { [weak bridge = self.bridge] group in
+            bridge.map { SidebarGroupFlow(bridge: $0).editorItems(group) } ?? SidebarContainerView.standardGroupEditorItems()
         }
         container.onGroupEditorItem = { [weak bridge = self.bridge] group, item in
             guard let bridge else { return }
@@ -187,10 +187,11 @@ struct SidebarGroupFlow {
         }
     }
 
-    /// The standard rows with each action's current shortcut.
-    private func editorItems() -> [[SidebarGroupEditorItem]] {
+    /// The standard rows with each action's current shortcut; the pin row reads as the change it makes.
+    private func editorItems(_ group: CmuxNextSidebar.GroupID) -> [[SidebarGroupEditorItem]] {
         let registry = bridge.services.registry
-        return SidebarContainerView.standardGroupEditorItems().map { section in
+        let pinned = bridge.model.group(group)?.isPinned ?? false
+        return SidebarContainerView.standardGroupEditorItems(pinned: pinned).map { section in
             section.map { item in
                 var item = item
                 item.shortcut = registry.shortcutDisplay(for: ActionID(rawValue: item.id))
@@ -203,7 +204,8 @@ struct SidebarGroupFlow {
         // A group made empty that is about to get a member (New Workspace in
         // Group, or an action from its full menu) does not go when the editor closes.
         // Delete, Ungroup and Close end the group themselves (no second delete).
-        let local = WorkspaceGroupID(rawValue: group.rawValue)
+        // On the sidebar document a group from the personal store shows as its item (`itm_g_<id>`).
+        let local = WorkspaceGroupID(rawValue: SidebarDocStore.personalGroupID(item: group.rawValue))
         // The emoji picker (Set Icon) and the color panel edit it after the editor closes.
         if ["workspaceGroup.newWorkspace", SidebarContainerView.moreActionsItem, SidebarContainerView.keepGroupItem,
             "workspaceGroup.setIcon", "workspaceGroup.delete", "workspaceGroup.ungroup", "workspaceGroup.closeWorkspaces"].contains(item) {

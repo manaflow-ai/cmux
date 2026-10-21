@@ -1,25 +1,26 @@
 {
-  "description": "The Chief's tool to see, make and edit other Chiefs (hq .cmux-scratch/hqec-slack/CHIEF-TOOLS.md). The brain (optchat-chief) offers it to a Chief's own turn only when the Chief's record holds the `chiefs` tool, never to a subagent, and answers each call on its own bound daemon connection (principal = the Chief's id) with chief.profile.list, chief.profile.get, chief.profile.create, chief.profile.update and chief.profile.avatar.set. The daemon enforces the rules (a new or edited Chief gets only what the calling Chief holds; no Chief deletes a Chief; the default Chief's grant is the person's); this text only tells the model. The brain reads this file at build time, so the turn's tool list stays byte-identical while the file does not change.",
+  "description": "The Chief's tool to see, make and edit other Chiefs (hq .cmux-scratch/hqec-slack/CHIEF-TOOLS.md). The brain (optchat-chief) offers it to a Chief's own turn only when the Chief's record holds the `chiefs` tool, never to a subagent, and answers each call on its own bound daemon connection (principal = the Chief's id) with chief.profile.list, chief.profile.get, chief.profile.create, chief.profile.update, chief.profile.avatar.set, chief.profile.history and chief.profile.undo. The daemon enforces the rules (a new or edited Chief gets only what the calling Chief holds; no Chief deletes a Chief; the default Chief's tools, harnesses and self_edit are the person's; a locked Chief refuses every Chief); this text only tells the model. The brain reads this file at build time, so the turn's tool list stays byte-identical while the file does not change.",
   "tool": {
     "name": "chiefs",
-    "description": "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions; the tools, harnesses, self_edit, harness, model and effort you omit are taken from your own grant). update changes another Chief (chief plus the fields to change). avatar_path is a PNG, JPEG, GIF or WebP file on this machine, at most 1 MiB, that becomes that Chief's picture; clear_avatar true removes it. You can give a Chief only tools, harnesses, engine and self_edit that you hold yourself, you cannot edit a Chief that holds more than you, you cannot change the default Chief's grant, and you cannot delete a Chief (the person does). Change yourself with the profile tool. After a create, the answer says whether the new Chief's brain started; tell the person exactly that, and never say it answers when its brain did not start.",
+    "description": "See, make and edit the person's other Chiefs. action list returns every Chief; get returns one (chief: its id or name). create makes a new Chief (display_name required; role, personality, instructions; the tools, harnesses, self_edit, harness, model and effort you omit are taken from your own grant). update changes another Chief (chief plus the fields to change: name, role, personality, instructions, picture, and its backend: harness, model, effort). history lists a Chief's kept versions (rev, when, who); undo restores the version before its last change, or to_rev. avatar_path is a PNG, JPEG, GIF or WebP file on this machine, at most 1 MiB, that becomes that Chief's picture; clear_avatar true removes it. You can give a Chief only tools, harnesses and self_edit that you hold yourself and a harness you may use, you cannot edit a Chief that holds more than you or one the person locked, you cannot change the default Chief's grant, and you cannot delete a Chief (the person does). Change yourself with the profile tool. After a create, the answer says whether the new Chief's brain started; tell the person exactly that, and never say it answers when its brain did not start.",
     "inputSchema": {
       "type": "object",
       "properties": {
-        "action": {"type": "string", "enum": ["list", "get", "create", "update"]},
-        "chief": {"type": "string", "minLength": 1, "description": "The Chief's id (agent_...) or its name; for get and update."},
+        "action": {"type": "string", "enum": ["list", "get", "create", "update", "history", "undo"]},
+        "chief": {"type": "string", "minLength": 1, "description": "The Chief's id (agent_...) or its name; for get, update, history and undo."},
         "display_name": {"type": "string", "minLength": 1, "maxLength": 100},
         "role": {"type": "string", "maxLength": 200},
         "personality": {"type": "string", "maxLength": 4000},
         "instructions": {"type": "string", "maxLength": 32000},
         "tools": {"type": "array", "items": {"type": "string", "enum": ["browser", "chiefs", "cloud_vms", "memory_import", "spawn", "tell", "workspaces"]}},
         "harnesses": {"type": "array", "items": {"type": "string", "minLength": 1}},
-        "self_edit": {"type": "array", "items": {"type": "string", "enum": ["avatar", "display_name", "instructions", "personality", "role"]}},
-        "harness": {"type": "string", "description": "The new Chief's engine harness: claude, codex, or unii (UniiChat: the person's uniichat.com chat, signed in with `unii login` on this Mac)."},
+        "self_edit": {"type": "array", "items": {"type": "string", "enum": ["avatar", "display_name", "engine", "instructions", "personality", "role"]}},
+        "harness": {"type": "string", "description": "The engine harness: any acpmux harness id the caller may use, e.g. claude, codex, claude-sr2, opencode, unii (UniiChat: the person's uniichat.com chat, signed in with `unii login` on this Mac), or the person's own (cmux harness add)."},
         "model": {"type": "string"},
         "effort": {"type": "string"},
         "avatar_path": {"type": "string", "minLength": 1},
-        "clear_avatar": {"type": "boolean"}
+        "clear_avatar": {"type": "boolean"},
+        "to_rev": {"type": "integer", "minimum": 1}
       },
       "required": ["action"],
       "additionalProperties": false

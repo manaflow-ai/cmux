@@ -3,6 +3,7 @@ import type { CreateOptions, EdgeTlsRule, ListedVm, RawCloudDriver, VmResources,
 import type { GuestExecResult } from "./cloud-driver-exec.ts"
 import type { VmApiSettings } from "./cloud-vm-api-config.ts"
 import { sha256Hex } from "./cloud-link.ts"
+import { VmApiSnapshotCaptures } from "./cloud-vm-api-snapshot.ts"
 import { DriverError } from "./team-vm-driver.ts"
 
 const unavailable = (message: string, final = false) => new DriverError("cloud.provider.unavailable", `VM API: ${message}`, final)
@@ -13,10 +14,12 @@ type Snapshot = components["schemas"]["SnapshotSummary"]
 
 /** The generated public API is the only transport here; provider IDs and credentials never enter it. */
 export class VmApiCloudDriver implements RawCloudDriver {
+  private readonly captures: VmApiSnapshotCaptures
   private readonly client
   constructor(private readonly settings: VmApiSettings, tenant: string, private readonly team: string, fetchFn: typeof fetch = fetch) {
     this.client = createCmuxVmClient({ token: settings.key, teamId: tenant, baseUrl: settings.origin, fetch: (request) =>
       fetchFn(new Request(request, { redirect: "manual", signal: AbortSignal.any([request.signal, AbortSignal.timeout(request.url.endsWith("/exec") ? 310_000 : 30_000)]) })) })
+    this.captures = new VmApiSnapshotCaptures(this.client, team, (name, expected) => this.findSnapshot(name, expected))
   }
 
   /** JSON decode, network and abort exceptions must not carry response bodies, stdin or credentials. */
@@ -101,15 +104,15 @@ export class VmApiCloudDriver implements RawCloudDriver {
     const r = this.value(await this.request(() => this.client.POST("/v1/vms/{vmId}/start", { params: { path: { vmId: id } } })))
     if (r.id !== id) throw unavailable("wrong start answer")
   }
-  async findSnapshot(name: string): Promise<{ id: string; sourceVmId: string | null } | null> {
+  async findSnapshot(name: string, expected?: { machine?: string; source?: string }): Promise<{ id: string; sourceVmId: string | null } | null> {
     const found: Snapshot[] = [], seen = new Set<string>()
     let cursor: string | undefined
-    const labels = this.labels(name)
+    const labels = this.labels(name, expected?.machine)
     for (let page = 0; page < 512; page++) {
       const r = this.value(await this.request(() => this.client.GET("/v1/snapshots", { params: { query: { createdBy: "caller", limit: "100", labels: Object.entries(labels).map(([k, v]) => `${k}=${v}`).join(","), ...(cursor ? { cursor } : {}) } } })))
       if (!Array.isArray(r.items)) throw unavailable("invalid snapshot list")
       for (const snapshot of r.items) {
-        if (!SNAPSHOT_ID.test(snapshot.id) || !Object.entries(labels).every(([k, v]) => snapshot.labels?.[k] === v)) throw unavailable("unconfirmed snapshot selector", true)
+        if (!SNAPSHOT_ID.test(snapshot.id) || (expected?.source !== undefined && snapshot.sourceVmId !== expected.source) || !Object.entries(labels).every(([k, v]) => snapshot.labels?.[k] === v)) throw unavailable("unconfirmed snapshot selector", true)
         found.push(snapshot)
       }
       if (found.length > 1) throw unavailable("ambiguous snapshot name", true)
@@ -119,13 +122,19 @@ export class VmApiCloudDriver implements RawCloudDriver {
     }
     throw unavailable("snapshot discovery page limit")
   }
-  async createSnapshot(vmId: string, name: string): Promise<{ id: string }> {
+  async resumeSnapshot(name: string, tag: VmTag, allowSend = true): Promise<{ id: string } | null> {
+    return this.captures.resumeFor(tag, name, allowSend)
+  }
+  async createSnapshot(vmId: string, name: string, tag?: VmTag): Promise<{ id: string }> {
+    if (tag && tag.team !== this.team) throw unavailable("wrong Cloud team", true)
+    const resumed = await this.captures.resume(name, { source: vmId, ...(tag ? { machine: tag.machine } : {}) }, true)
+    if (resumed) return resumed
     const vm = await this.vm(vmId)
     if (!vm) throw unavailable("snapshot source is missing", true)
-    const r = this.value(await this.request(() => this.client.POST("/v1/vms/{vmId}/snapshots", { params: { path: { vmId }, header: { "idempotency-key": `cloud-snapshot:${name}` } }, body: { displayName: name, labels: this.labels(name, vm.labels.cmux_next_machine) } })), 201)
-    if (!SNAPSHOT_ID.test(r.id) || r.sourceVmId !== vmId || !Object.entries(this.labels(name)).every(([k, v]) => r.labels[k] === v)) throw unavailable("unconfirmed snapshot")
-    return { id: r.id }
+    if (tag && vm.labels.cmux_next_machine !== tag.machine) throw unavailable("unconfirmed snapshot source", true)
+    return this.captures.create(vmId, name, this.labels(name, vm.labels.cmux_next_machine))
   }
+  async cancelSnapshot(name: string, tag: VmTag, allowEmptyFence: boolean): Promise<void> { return this.captures.cancel(name, tag, allowEmptyFence) }
   async deleteSnapshot(id: string): Promise<void> { this.empty(await this.request(() => this.client.DELETE("/v1/snapshots/{snapshotId}", { params: { path: { snapshotId: id } } }))) }
   async resize(id: string, size: VmResources): Promise<void> {
     const key = `cloud-resize:${await sha256Hex(JSON.stringify([id, size.cpu, size.memory, size.storage]))}`

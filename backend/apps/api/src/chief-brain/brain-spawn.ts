@@ -5,6 +5,7 @@ import type { Principal } from "@cmux/ownership"
 import { liveFrame, postWork, runChanged } from "./brain-io.ts"
 import type { BrainConfig } from "./brain-store.ts"
 import { replyTarget } from "./brain-text.ts"
+import { effectRefusal } from "./effect-policy.ts"
 import { readRun, readSteps } from "./brain-runs.ts"
 
 /**
@@ -112,6 +113,7 @@ export interface SpawnHost {
   config(): BrainConfig
   /** True in a child object: no deeper spawn. */
   isChild(): boolean
+  effectsAuthorized(): boolean
   /** The settings object queues the children and starts as many as its cap allows. */
   enqueue(items: ReadonlyArray<ChildStart>): Promise<{ running: number; waiting: number }>
   /** The live "N subagents" line changed. */
@@ -127,6 +129,7 @@ export const spawnTool = (host: SpawnHost): ToolRegistration<typeof Args> => ({
     const text = (t: string) => ({ content: [{ type: "text" as const, text: t }] })
     const args = raw as ArgsT
     if (host.isChild()) return text("spawn: a subagent cannot start subagents; do the task yourself.")
+    if (!host.effectsAuthorized()) return effectRefusal()
     const turn = host.turn()
     const cfg = host.config()
     if (!turn || !cfg.agent || !cfg.owner) return text("spawn: no running turn")
@@ -286,7 +289,7 @@ export const postReports = async (env: Env, sql: SqlStorage, transaction: (f: ()
       const seq = Number(sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, r.conversation).toArray()[0]?.seq ?? 0)
       const busy = sql.exec<{ name: string }>(`SELECT name FROM cb_spawn WHERE parent_run = ? AND conversation = ? AND state IN ('queued', 'enqueued') ORDER BY n`, r.parent_run, r.conversation).toArray().map((x) => x.name)
       const text = `[${r.name}] ${report}${r.state === "done" ? "" : " (the subagent failed)"}${busy.length > 0 ? `\n(still at work: ${busy.join(", ")})` : "\n(all subagents of this request have reported)"}`
-      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, woke) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `spawn:${r.n}`, r.conversation, seq, r.kind, r.thread_root, text)
+      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, ?, ?, ?, 1, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `spawn:${r.n}`, r.conversation, seq, r.kind, r.thread_root, text)
       conversations.add(r.conversation)
     })
   }
@@ -399,7 +402,7 @@ export const postOutcomes = async (env: Env, sql: SqlStorage, transaction: (f: (
     transaction(() => {
       sql.exec(`UPDATE cb_agent_out SET posted = 1 WHERE key = ?`, r.key)
       const seq = Number(sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, r.conversation).toArray()[0]?.seq ?? 0)
-      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, woke) VALUES (?, ?, ?, ?, ?, ?, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `agent:${r.key}`, r.conversation, seq, r.kind, r.thread_root, text.slice(0, REPORT_MAX))
+      sql.exec(`INSERT INTO cb_inbox (message, conversation, seq, kind, thread_root, text, effect_authorized, woke) VALUES (?, ?, ?, ?, ?, ?, 1, 1) ON CONFLICT (message) DO NOTHING`, (res.ok && res.message) || `agent:${r.key}`, r.conversation, seq, r.kind, r.thread_root, text.slice(0, REPORT_MAX))
       conversations.add(r.conversation)
     })
   }

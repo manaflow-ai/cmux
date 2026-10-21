@@ -18,10 +18,15 @@ final class SidebarIconButton: NSButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            themedToolTip = label
+            themedToolTip = showsLabelToolTip ? label : nil
             renderedSize = 0
             renderIcon()
         }
+    }
+    /// Hovering shows the label as the themed tooltip. Off for a glyph that names itself (a card's
+    /// ×, media controls), which keeps the label for VoiceOver only (Leo, 2026-10-20).
+    var showsLabelToolTip = true {
+        didSet { if showsLabelToolTip != oldValue { themedToolTip = showsLabelToolTip ? label : nil } }
     }
     /// Full Keyboard Access reaches this button (a card's x, UPDATE-CARD-CLOSE): Tab focuses it,
     /// Space presses it, and the focus shows as a ring in the theme's focus color (cx-wqn5), not
@@ -74,6 +79,16 @@ final class SidebarIconButton: NSButton {
     required init?(coder: NSCoder) { fatalError() }
 
     @objc private func pressed() { onPress?() }
+
+    /// AXPress runs `onPress` and reports success. NSButton's own press ran the action yet
+    /// answered -25205 (kAXErrorActionUnsupported) for the sidebar's New Workspace, so a
+    /// computer-use agent that read the error pressed again and made a second workspace.
+    override func accessibilityPerformPress() -> Bool {
+        guard let onPress else { return super.accessibilityPerformPress() }
+        guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
+        onPress()
+        return true
+    }
 
     /// The button's right-click menu (cx-2lm4; the sidebar's New button shows
     /// the list's empty-space menu); nil keeps AppKit's.

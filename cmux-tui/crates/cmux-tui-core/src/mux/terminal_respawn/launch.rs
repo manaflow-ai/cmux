@@ -12,7 +12,8 @@
 //!   allowlisted keys (`TERM` only with a usable `TERMINFO`).
 //! - seed: the previous screen (the exit replay of the lost incarnation,
 //!   else the latest journal checkpoint of the terminal, else nothing),
-//!   modes a dead program left on reset, then one dim marker line.
+//!   modes a dead program left on reset, then one dim marker line that
+//!   names what it ran (an agent's resume command, else its command line).
 
 use std::path::Path;
 
@@ -41,13 +42,18 @@ pub(in crate::mux) struct RespawnLaunch {
 }
 
 impl Mux {
-    /// The lost incarnation's screen: its exit replay, else the latest
-    /// journal checkpoint of the terminal.
+    /// The lost incarnation's screen: its exit replay, else the output
+    /// store's snapshot, else the latest journal checkpoint of the terminal
+    /// (registries written before the output store).
     pub(in crate::mux) fn previous_screen(
         &self,
         registry: &WorkspaceRegistry,
         plan: &RespawnPlan,
     ) -> Option<TerminalReplay> {
+        // terminal.persistence.mode memory: no earlier screen comes from disk.
+        if self.output_store.memory_only() {
+            return None;
+        }
         let public_id = plan.public_id.as_str();
         match registry.terminal_exit_snapshot(public_id) {
             Ok(Some(snapshot)) if snapshot.generation == plan.old_incarnation => {
@@ -62,6 +68,9 @@ impl Mux {
                 "cmux-tui: terminal {} exit replay is unreadable: {error:#}",
                 plan.terminal_id
             ),
+        }
+        if let Some(screen) = self.output_store.previous_screen(&plan.public_id) {
+            return Some(screen);
         }
         registry.latest_checkpoint_terminal_replay(public_id).unwrap_or_else(|error| {
             eprintln!(
@@ -103,30 +112,32 @@ impl Mux {
         let env = record.map(|record| usable_env(&record.env)).unwrap_or_default();
         let (mut options, creation_cell_pixels) =
             self.terminal_spawn_options(cwd, None, size, &env);
-        let shell = record
-            .filter(|record| record.kind == RelaunchKind::Shell)
-            .and_then(|record| record.shell_path.clone())
-            .filter(|shell| Path::new(shell).is_file())
-            .unwrap_or_else(crate::platform::default_shell);
+        let shell = respawn_shell(record);
         let integrated = crate::shell_integration::integrate_default_shell(
             vec![shell],
             options.extra_env.clone(),
         );
         options.command = Some(integrated.command);
         options.extra_env = integrated.env;
-        // A command whose argv neither this daemon nor its record has is
-        // only named.
-        let program = record
-            .filter(|record| record.kind == RelaunchKind::Command && record.argv.is_none())
-            .filter(|_| self.terminal_respawns.argv(&plan.terminal_id).is_none())
-            .and_then(|record| record.program.as_deref());
-        let marker = crate::terminal_respawn_text::marker(program);
+        // What it ran: an agent's resume command, else the command line.
+        let ran = self.respawn_ran(&plan.terminal_id, record);
+        let marker = crate::terminal_respawn_text::marker(ran.as_ref().map(|ran| ran.as_ran()));
         RespawnLaunch {
             options,
             cell_pixels: geometry.map_or(creation_cell_pixels, |(_, cell_pixels)| cell_pixels),
             seed: respawn_seed(previous.map(|previous| previous.bytes), Some(&marker)),
         }
     }
+}
+
+/// The shell a respawn starts: the recorded shell of a shell terminal while
+/// it exists, else the platform's default shell.
+pub(in crate::mux) fn respawn_shell(record: Option<&StoredRelaunch>) -> String {
+    record
+        .filter(|record| record.kind == RelaunchKind::Shell)
+        .and_then(|record| record.shell_path.clone())
+        .filter(|shell| Path::new(shell).is_file())
+        .unwrap_or_else(crate::platform::default_shell)
 }
 
 /// The record's environment, without `TERM` and `TERMINFO` when the
