@@ -298,7 +298,7 @@ mod terminal_create;
 mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
-use terminal_lifecycle_commit::commit_terminal_lifecycle;
+use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
