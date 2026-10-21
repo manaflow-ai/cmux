@@ -118,7 +118,7 @@ export default componentEntry<Props>({
   area: "Agent pane",
   pane: true,
   height: 180,
-  widths: { narrow: 360, normal: 520, wide: 720 },
+  widths: { narrow: 260, normal: 520, wide: 720 },
   anchors: [{ selector: "[data-dictation-fixture]" }],
   covers: [
     "agent-session/acpmux/DictationButton.tsx#DictationButton",

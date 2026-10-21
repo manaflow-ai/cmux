@@ -16,7 +16,7 @@ Layers (each one only on files the push changes under Packages/macOS/CmuxNext, c
                notification centers, string tables, module resources, capability text, browser
                chrome icons, App Store review rules (also on cmux-next-ios/ changes)
   ast-grep     scripts/cmux-next/lint/ast-grep-rules: try!, blocking calls, raw font sizes, system
-               dialogs (tree-sitter, so comments, strings and `case .alert` never match)
+               dialogs, opaque glass (tree-sitter, so comments, strings and `case .alert` never match)
   swiftformat  --lint with scripts/cmux-next/lint/swiftformat.conf
   swiftlint    swift-syntax rules only (scripts/cmux-next/lint/swiftlint.yml), no SourceKit
 Tool versions are pinned in scripts/cmux-next/lint-tools.lock and downloaded once (sha256 checked)
@@ -111,6 +111,7 @@ ESCAPES = {
     "no-try-bang": re.compile(r"//\s*crash-allow:\s*\S"),
     "no-main-thread-block": re.compile(r"//\s*concurrency-allow:\s*\S"),
     "no-system-dialog": re.compile(r"dialog-keys-exempt:\s*\S"),
+    "no-opaque-glass": re.compile(r"//\s*glass-opaque-allow:\s*\S"),
 }
 COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 LOCATION = re.compile(r"(?P<path>[\w.+@/-]+\.(?:swift|rs|ts|tsx|py|sh|json|xcstrings|md)):(?P<line>\d+)(?::\d+)?")
@@ -537,8 +538,8 @@ def print_findings(found: list[tuple[str, list[str]]], header: str) -> None:
 HOW_TO_FIX = """\
 Fix them before pushing (AGENTS.md, "Before every push"): background APIs instead of blocking calls,
 typed errors instead of try!, TypeScale/Typography fonts, CmuxDialogSpec / CmuxDialogActionButton for
-dialogs. A reviewed escape comment (`// concurrency-allow: <why>`, `// crash-allow: <why>`,
-`dialog-keys-exempt: <why>`) is allowed only when the code is provably safe.
+dialogs, translucent theme tints on glass. A reviewed escape comment (`// concurrency-allow: <why>`,
+`// crash-allow: <why>`, `dialog-keys-exempt: <why>`, `// glass-opaque-allow: <why>`) is allowed only when the code is provably safe.
 Never --no-verify: CI names every commit that adds a violation (step "Pushed commits add no violations")."""
 
 

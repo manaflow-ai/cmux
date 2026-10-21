@@ -42,7 +42,7 @@ jobs:
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_COMPILE_CHECK_GATEWAY || 'blacksmith-4vcpu-ubuntu-2404' }}
     permissions:
       statuses: write
-    timeout-minutes: 35  # the client waits up to 600 + 1200 s plus its own slack
+    timeout-minutes: 50  # the client waits up to 600 + 1200 s plus its own slack; the posts up to 2 x 30 s and 6 x 30 s, plus backoff (155 s, or up to 5 x 120 s when GitHub sends Retry-After)
     steps:
       # The gateway checks nothing out: the fleet fetches the commit itself.
       # Exit 0 is a pass, 1 a compile failure, anything else no verdict; only
@@ -65,12 +65,14 @@ jobs:
           # run here failed before cmux-ci started), 429 or 5xx under load: retry with backoff, honoring
           # Retry-After, and print what GitHub said. Any other 4xx, and a 403 that is not a rate limit, is final; a
           # status posted twice is harmless (the newest wins). Only the final post decides the step.
+          # Each try gives up after 30 s, so a connection GitHub never answers is retried, not waited on until the job times out.
           post() {
             local body code wait attempt tries="${3:-6}"
             body="$(printf '{"state":"%s","description":"%s","target_url":"%s","context":"%s"}' \
               "$1" "$2" "$RUN_URL" "$CONTEXT")"
             for ((attempt = 1; attempt <= tries; attempt++)); do
-              code="$(curl -sS -o "$RUNNER_TEMP/status-response" -D "$RUNNER_TEMP/status-headers" -w '%{http_code}' \
+              : > "$RUNNER_TEMP/status-response"
+              code="$(curl -sS --connect-timeout 10 --max-time 30 -o "$RUNNER_TEMP/status-response" -D "$RUNNER_TEMP/status-headers" -w '%{http_code}' \
                 -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
                 "$API/statuses/$SHA" -d "$body")" || code=000
               case "$code" in

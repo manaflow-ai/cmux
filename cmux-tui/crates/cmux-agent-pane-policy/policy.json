@@ -49,7 +49,7 @@
   "known_params": {
     "initialize": {"params": ["protocolVersion", "clientInfo", "clientCapabilities"], "acpmux": []},
     "session/new": {"params": ["cwd", "mcpServers", "_meta"], "acpmux": ["harness", "adopt", "peer", "noProject"]},
-    "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "provenance"]},
+    "session/prompt": {"params": ["sessionId", "prompt", "_meta"], "acpmux": ["promptId", "steer", "interrupt", "context", "provenance", "surface"]},
     "session/set_model": {"params": ["sessionId", "modelId"], "acpmux": []},
     "session/cancel": {"params": ["sessionId"], "acpmux": []},
     "_acpmux/watch": {"params": ["enabled", "limit"], "acpmux": []},
