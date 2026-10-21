@@ -310,11 +310,25 @@ export type PurgedSession = {
   sessionId: string;
 } & Record<string, unknown>;
 
+/** An image a queued prompt sends. */
+export type QueuedImage = {
+  /**
+   * The SHA-256 of its bytes (64 lowercase hex digits): `_acpmux/attachment {sessionId, id}`
+   * reads it, and `_acpmux/queue_edit` `update` `images` keeps it.
+   */
+  id: string;
+  mimeType: string;
+  /** Its file name, when the client gave one. */
+  name: (string | null);
+} & Record<string, unknown>;
+
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
   client: string;
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
+  /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */
+  images: QueuedImage[];
   prompt: string;
   promptId: string;
   queuedAt: number;
