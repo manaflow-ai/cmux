@@ -25,6 +25,7 @@ public nonisolated enum SidebarSectionsSetting {
     public static let showSearchButtonPath = ["sidebar", "showSearchButton"]
     public static let tipsPath = ["sidebar", "cards", "tips"]
     public static let detailedStatusIconsPath = ["sidebar", "detailedStatusIcons"]
+    public static let groupLineJoinsHeaderPath = ["sidebar", "groupLineJoinsHeader"]
     public static let showTimestampsPath = ["sidebar", "showTimestamps"]
     public static let groupHeaderMemberCountPath = ["sidebar", "groupHeader", "memberCount"]
     public static let groupHeaderUnreadCountPath = ["sidebar", "groupHeader", "unreadCount"]
@@ -56,6 +57,15 @@ public nonisolated enum SidebarSectionsSetting {
                                                    "Workspace rows show a separate icon for working, waiting for input, error and done. Off, a row shows a spinner while it works and a blue dot when it is ready for you."),
                           kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.detailedStatusIcons),
                           keywords: ["sidebar", "status", "icons", "badge", "working", "waiting", "input", "error", "done", "agent", "osc 7501"])
+    }
+
+    static func groupLineJoinsHeaderDescriptor(group: SettingText) -> SettingDescriptor {
+        SettingDescriptor(groupLineJoinsHeaderPath, section: .appearance, group: group,
+                          title: SettingsText.keyed("settings.sidebar.groupLineJoinsHeader", "Join Group Lines to Headers"),
+                          help: SettingsText.keyed("settings.sidebar.groupLineJoinsHeader.help",
+                                                   "The line beside a group's workspaces runs into the group's header as one shape. Off, the line starts just below the header, with a small gap."),
+                          kind: .toggle, default: .bool(SidebarSectionsPreferences.defaults.groupLineJoinsHeader),
+                          keywords: ["sidebar", "group", "groups", "line", "header", "join", "connect", "gap", "chrome"])
     }
 
     static func showTimestampsDescriptor(group: SettingText) -> SettingDescriptor {
@@ -241,6 +251,7 @@ public nonisolated enum SidebarSectionsSetting {
         result.showSearchButton = flag(root, showSearchButtonPath, fallback: result.showSearchButton, &diagnostics)
         result.minimal = flag(root, minimalPath, fallback: result.minimal, &diagnostics)
         result.detailedStatusIcons = flag(root, detailedStatusIconsPath, fallback: result.detailedStatusIcons, &diagnostics)
+        result.groupLineJoinsHeader = flag(root, groupLineJoinsHeaderPath, fallback: result.groupLineJoinsHeader, &diagnostics)
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)

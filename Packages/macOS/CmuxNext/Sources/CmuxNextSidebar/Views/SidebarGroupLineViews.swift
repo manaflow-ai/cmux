@@ -25,7 +25,18 @@ final class SidebarGroupLineViews {
     /// moves to its new frame, a new one starts at `start` (the line over
     /// its rows' start frames) so both its ends move with the rows, and a
     /// line whose group closed or left shrinks back up into its header.
-    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, above decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+    ///
+    /// Lines go in under the decorations, so every row, whenever the list
+    /// adds it (right above the decorations), draws over every line. A drop
+    /// gap the decorations draw inside a group washes over its line with its
+    /// translucent fill; member rows start right of the gutter and never do.
+    func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, below decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
+        // A reload without motion shows the lines as they are now: a line still fading out
+        // from an earlier, animated update (the join setting turned on, a group closed) goes now.
+        if !animated {
+            leavingViews.forEach { $0.removeFromSuperview() }
+            leavingViews.removeAll()
+        }
         lines = new
         var gone = views
         let starts = Dictionary(start.map { ($0.group, $0.frame) }, uniquingKeysWith: { first, _ in first })
@@ -34,7 +45,7 @@ final class SidebarGroupLineViews {
             gone[line.group] = nil
             let view = views[line.group] ?? {
                 let view = GroupLineView()
-                list.addSubview(view, positioned: .above, relativeTo: decorations)
+                list.addSubview(view, positioned: .below, relativeTo: decorations)
                 views[line.group] = view
                 Motion.withoutAnimation {
                     view.frame = animated ? starts[line.group] ?? Self.top(of: line.frame) : line.frame
@@ -71,12 +82,12 @@ final class SidebarGroupLineViews {
     /// none (a group whose rows a drag hid: the last apply left its line out),
     /// and leaves every other line, moving or not, as it is. The shown line joins `lines`: a fold keeps the lines
     /// it does not touch from there, and without it the next fold took this line away.
-    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, above decorations: NSView) {
+    func showMissing(_ lines: [SidebarGroupLine], in list: NSView, below decorations: NSView) {
         for line in lines where views[line.group] == nil {
             self.lines.removeAll { $0.group == line.group }
             self.lines.insert(line, at: self.lines.firstIndex { $0.frame.minY > line.frame.minY } ?? self.lines.count) // list order
             let view = GroupLineView()
-            list.addSubview(view, positioned: .above, relativeTo: decorations)
+            list.addSubview(view, positioned: .below, relativeTo: decorations)
             views[line.group] = view
             Motion.withoutAnimation {
                 view.frame = line.frame
@@ -109,7 +120,6 @@ final class GroupLineView: NSView {
     init() {
         super.init(frame: .zero)
         wantsLayer = true
-        layer?.cornerCurve = .continuous
     }
 
     @available(*, unavailable)
@@ -124,19 +134,62 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
+    /// The line's outline at its size now: Chrome's trimmed ends (`SidebarGroupLineShape.line`).
+    var outline: CGPath { SidebarGroupLineShape.line(width: bounds.width, height: bounds.height) }
+
     override func layout() {
         super.layout()
-        layer?.cornerRadius = bounds.width / 2
+        if bounds.width != drawnWidth { needsDisplay = true }
     }
 
     override func updateLayer() {
-        let themed = observedThemed()
-        performWithTheme { layer?.backgroundColor = color.lineColor(themed: themed).cgColor }
+        let look = observedLook()
+        // Under the solid band, the band's exact color (Leo 2026-10-19); else the dot's color.
+        performWithTheme {
+            let fill = (look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)).cgColor
+            drawEnds(fill)
+        }
     }
 
-    /// Reads `sidebar.groupColors` and repaints once when it changes; one observation at a time.
-    private func observedThemed() -> Bool {
-        let read = { SidebarGroupPalette.tunable.value == .theme }
+    private var drawnWidth: CGFloat = 0
+    /// The color the line draws in.
+    private(set) var fill: CGColor?
+
+    /// The line draws as its own layer's stretched contents, not a mask: the frame springs in the
+    /// rows' Motion block, and only the layer's own contents follow its size in every frame of it.
+    /// A mask stays at the size of its last layout, so a shrinking line was cut to its end size at
+    /// once and a growing one showed a square end until it stopped. The image is the two trimmed
+    /// ends with one point between them, which stretches.
+    private func drawEnds(_ fill: CGColor) {
+        guard let layer else { return }
+        let w = max(bounds.width, 1), h = 2 * w + 1
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        drawnWidth = bounds.width
+        self.fill = fill
+        let pixels = (width: Int((w * scale).rounded(.up)), height: Int((h * scale).rounded(.up)))
+        guard let context = CGContext(data: nil, width: pixels.width, height: pixels.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        context.scaleBy(x: scale, y: scale)
+        context.addPath(SidebarGroupLineShape.line(width: w, height: h)) // the same both ways up
+        context.setFillColor(fill)
+        context.fillPath()
+        layer.backgroundColor = nil
+        layer.contentsScale = scale
+        layer.contentsGravity = .resize
+        layer.contentsCenter = CGRect(x: 0, y: w / h, width: 1, height: 1 / h)
+        layer.contents = context.makeImage()
+    }
+
+    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes;
+    /// one observation at a time.
+    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
+        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
         guard !observesPalette else { return read() }
         observesPalette = true
         return withObservationTracking(read) { [weak self] in
