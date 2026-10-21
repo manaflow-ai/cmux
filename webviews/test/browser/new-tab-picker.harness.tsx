@@ -1,9 +1,10 @@
 // The New Tab screen as the agent pane lays it out (App.tsx): the screen is the page's one scroller,
 // with the template pager under it, and its composer carries the pane's own model chip
 // (NewTabComposerChips). The host's actions answer nothing. `?reported` gives the chips a session
-// that reported its reasoning levels and access modes, so the effort and access menus show.
-// `?template=cards` draws the Cards page, the app's default, with Claude Code's split (the mode,
-// model and effort in the quiet row under the box); with no template it draws Default, the stage layout
+// that reported its reasoning levels and access modes, so the model menu's Effort submenu and the
+// access menu show. `?template=cards` draws the Cards page, the app's default, with Claude Code's
+// split (the mode and the one model button in the quiet row under the box); with no template it
+// draws Default, the stage layout
 // (the composer at the foot of the page).
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { createRoot } from "react-dom/client";

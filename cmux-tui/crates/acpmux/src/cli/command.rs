@@ -270,7 +270,8 @@ pub enum Command {
     #[command(subcommand)]
     Chats(crate::cli::chats::ChatsCmd),
     /// Background processes agents left running (dev servers, watchers):
-    /// list, show (everything one printed, live with --follow), kill.
+    /// list, show (everything one printed, live with --follow), kill,
+    /// background (Ctrl-B: move a chat's running work there).
     #[command(subcommand, alias = "ps")]
     Process(crate::cli::process::ProcessCmd),
     /// This machine's git worktrees, cleaned up after the agents that made
