@@ -62,3 +62,32 @@ fn a_subagents_text_is_not_the_turns_reply() {
     }
     assert_eq!(fold.final_text().as_deref(), Some("the answer"));
 }
+
+#[test]
+fn the_main_agents_text_after_a_background_subagents_line_is_the_reply() {
+    let mut fold = TurnFold::new();
+    let events = [
+        ev(
+            1,
+            "in",
+            "claude.stream_event",
+            json!({"type": "stream_event", "event": {"type": "message_start", "message": {"id": "msg_1"}}}),
+        ),
+        text(2, "acp-1", "the "),
+        // A background subagent's raw line; the main agent's later deltas are not logged.
+        ev(
+            3,
+            "in",
+            "claude.assistant",
+            json!({"type": "assistant", "parent_tool_use_id": "toolu_bg", "message": {"id": "msg_sub",
+                   "content": [{"type": "text", "text": "subagent notes"}]}}),
+        ),
+        text(4, "acp-1/toolu_bg", "subagent notes"),
+        text(5, "acp-1", "answer"),
+        ev(6, "mux", "turn_end", json!({"stopReason": "end_turn"})),
+    ];
+    for event in &events {
+        fold.apply(event);
+    }
+    assert_eq!(fold.final_text().as_deref(), Some("the answer"));
+}
