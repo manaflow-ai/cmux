@@ -35,15 +35,16 @@ extension SidebarContainerView {
         return handle.convert(handle.bounds, to: nil)
     }
 
-    /// The pointer is over the band's catcher panel: the handle under it gets no pointer events.
-    public func setResizeHovered(_ hovered: Bool) {
-        handle.setHovered(hovered)
-    }
-
     /// The catcher panels changed: the handle's hover passes through `windows` and is recomputed,
     /// so it never stays lit after the last page closes under a still pointer.
     public func refreshResizeHover(passThrough windows: @escaping () -> Set<Int>) {
         handle.hoverPassThroughWindows = windows
+        handle.refreshHover()
+    }
+
+    /// The pointer entered or left the band's catcher panel, so the handle under it got no event:
+    /// its hover is recomputed from the pointer (`PointerHover` stays its one owner).
+    public func refreshResizeHover() {
         handle.refreshHover()
     }
 

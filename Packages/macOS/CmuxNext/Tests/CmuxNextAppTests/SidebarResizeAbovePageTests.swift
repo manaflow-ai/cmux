@@ -77,6 +77,6 @@ import Testing
     @Test func aHiddenSidebarHasNoCatcherArea() throws {
         let (window, root) = root(sidebarHidden: true)
         defer { window.close() }
-        #expect(window.overlayLayer.dividerAreas.allSatisfy { $0.rect.minX > 20 }, "\(window.overlayLayer.dividerAreas)")
+        #expect(!window.overlayLayer.dividerAreas.contains { $0.id == WindowOverlayLayer.sidebarResizeAreaID }, "\(window.overlayLayer.dividerAreas)")
     }
 }

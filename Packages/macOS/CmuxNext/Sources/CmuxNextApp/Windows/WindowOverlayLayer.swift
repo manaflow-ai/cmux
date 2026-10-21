@@ -350,7 +350,7 @@ final class WindowOverlayLayer {
         if catchers.onHover == nil {
             catchers.onHover = { [weak self] id, hovered in
                 if id == Self.sidebarResizeAreaID {
-                    (self?.window.contentView as? WindowRootView)?.sidebar.setResizeHovered(hovered)
+                    (self?.window.contentView as? WindowRootView)?.sidebar.refreshResizeHover()
                     return
                 }
                 for plane in self?.planes ?? [] { (plane.home as? LayoutRootView)?.setDividerHovered(id, hovered) }
