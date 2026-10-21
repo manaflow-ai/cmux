@@ -346,6 +346,36 @@ async fn fork_copies_history_and_gets_its_own_agent() {
     assert_eq!(r["stopReason"], "end_turn");
 }
 
+/// An agent that does not offer `session/fork` (Kimi, DeepSeek, Prime, Unii in
+/// the fork matrix) is not asked: the fork is refused with a reason that names
+/// the harness, and no chat is made, instead of the agent's bare "Internal error".
+#[tokio::test]
+async fn a_fork_on_an_agent_without_session_fork_is_refused_with_a_reason() {
+    let env = BTreeMap::from([("FAKE_NO_FORK".to_owned(), "1".to_owned())]);
+    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "nofork"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let err = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .expect_err("the agent cannot fork");
+    assert!(err.contains("cannot fork") && err.contains("fake"), "{err}");
+    let list = c.request(method::SESSION_LIST, json!({})).await.unwrap();
+    assert_eq!(list["sessions"].as_array().map(Vec::len), Some(1), "no chat is made: {list}");
+}
+
 #[tokio::test]
 async fn set_mode_and_config_and_list() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
