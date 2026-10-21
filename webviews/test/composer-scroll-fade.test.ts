@@ -81,9 +81,10 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const field = document.querySelector<HTMLElement>(selector)!;
         const data = new DataTransfer();
         // Long lines: the draft overflows the field's eight lines however the pasted lines wrap or join.
+        // At most 20 of them, under 2,000 characters: a larger paste is a chip (pastedText.ts).
         const lines = Array.from(
           { length: count },
-          (_, i) => `draft line ${i + 1}: keep the retry rules and the tests in sync with the docs.`,
+          (_, i) => `draft line ${i + 1}: keep the retry rules and the tests in sync with the docs, and say why.`,
         );
         data.setData("text/plain", lines.join("\n"));
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
@@ -141,10 +142,10 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(seen.end).toBeLessThanOrEqual(0);
         expect([seen.fadeTop, seen.fadeBottom, seen.mask]).toEqual([false, false, "none"]);
 
-        // A 40-line paste shows its end: the top fades, the bottom does not.
+        // A 20-line paste shows its end: the top fades, the bottom does not.
         await page.keyboard.press("ControlOrMeta+A");
         await page.keyboard.press("Backspace");
-        await paste(page, 40);
+        await paste(page, 20);
         seen = await edges(page);
         expect(seen.end).toBeGreaterThan(100);
         expect(seen.end - seen.top).toBeLessThan(2);
@@ -186,7 +187,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       test("the faded edge is see-through: what is behind the prompt shows, nothing covers it", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
-        await paste(page, 40);
+        await paste(page, 20);
         await scrollTo(page, "middle");
         const seen = await edges(page);
         expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, true]);
@@ -233,7 +234,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
-        await paste(page, 40);
+        await paste(page, 20);
         await scrollTo(page, "middle");
         const seen = await edges(page);
         expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, true]);

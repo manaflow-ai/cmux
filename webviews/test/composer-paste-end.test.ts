@@ -77,8 +77,13 @@ await requireBrowserLane("composer-paste-end.test.ts", async () => {
       await page.evaluate((last) => {
         const field = document.querySelector<HTMLElement>(".acpmux-composer-prompt [contenteditable='true']")!;
         const data = new DataTransfer();
-        // Under the chip's 20 lines (pastedText.ts): a larger paste is a chip, not prompt text.
-        const lines = Array.from({ length: 15 }, (_, index) => `pasted line ${index + 1}`);
+        // Under the chip's 20 lines and 2,000 characters (pastedText.ts): a larger paste is a chip,
+        // not prompt text. The field shows pasted lines joined as one paragraph, so they are long
+        // enough to wrap past its eight lines (40 short lines did that before the chip).
+        const lines = Array.from(
+          { length: 15 },
+          (_, index) => `pasted line ${index + 1}: keep the retry rules and the tests in sync with the docs.`,
+        );
         lines[14] = last;
         data.setData("text/plain", lines.join("\n"));
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
