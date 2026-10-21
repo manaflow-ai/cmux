@@ -70,5 +70,25 @@ class TheBaseIsCheckedOutOnPullRequests(unittest.TestCase):
         self.assertNotIn(f"github.event.before != '{'0' * 40}'", step["if"])
 
 
+class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
+    """run_ci_guards.py skips `uses:` steps, so the job itself provides what ci-guards.yml's setup steps do:
+    bun for preflight-agent-chat, and python3.9 (beside the default python3) for release-tooling's nightly
+    prune compatibility step, which runs `PYTHON_BIN=python3.9` (red on #23534's first run)."""
+
+    def test_the_guard_group_job_sets_up_bun_and_python_3_9(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["ci-guard-group"]["steps"]
+        uses = {str(step.get("uses", "")).split("@")[0]: step for step in steps if step.get("uses")}
+        self.assertIn("oven-sh/setup-bun", uses)
+        python = uses.get("actions/setup-python")
+        self.assertIsNotNone(python, "no setup-python step")
+        self.assertEqual(str(python["with"]["python-version"]), "3.9")
+        # The default python3 stays the runner's: the guard venv and the other groups need it.
+        self.assertIs(python["with"].get("update-environment"), False)
+        runs = "\n".join(str(step.get("run", "")) for step in steps)
+        self.assertIn("python3.9", runs)
+        self.assertIn("GITHUB_PATH", runs)
+
+
 if __name__ == "__main__":
     unittest.main()

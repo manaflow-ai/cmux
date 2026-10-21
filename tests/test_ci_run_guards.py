@@ -178,6 +178,15 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         ])
         self.assertTrue(run_ci_guards.is_stateful(unit))
 
+    def test_the_submodule_init_script_makes_its_group_sequential(self) -> None:
+        """release-tooling initializes ghostty with scripts/ci/init-submodule.sh before the Zig version
+        sync reads ghostty/build.zig.zon; run in parallel, the sync ran first and failed (#23534)."""
+        unit = run_ci_guards.Unit("j", "g", [
+            run_ci_guards.Step("init", "bash scripts/ci/init-submodule.sh ghostty", {}, None),
+            run_ci_guards.Step("use", "./tests/test_ghostty_zig_version_sync.sh", {}, None),
+        ])
+        self.assertTrue(run_ci_guards.is_stateful(unit))
+
 
 class StepsFinish(unittest.TestCase):
     def test_a_leaked_background_child_does_not_hang_the_runner(self) -> None:
