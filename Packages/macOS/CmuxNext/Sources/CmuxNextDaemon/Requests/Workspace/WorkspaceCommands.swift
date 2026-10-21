@@ -5,19 +5,25 @@ public struct CreateWorkspaceRequest: DaemonRequest {
     public static let command = "create-workspace"
     public var name: String?
     public var key: WorkspaceKey?
+    /// The workspace the creating window shows: the daemon places the new one by
+    /// `workspaces.newPlacement` against it, as the app does, not against the
+    /// session's active workspace. An older daemon ignores it.
+    public var current: WorkspaceKey?
     public var mutation: MutationIdentity?
 
-    public init(name: String? = nil, key: WorkspaceKey? = nil, mutation: MutationIdentity?) {
+    public init(name: String? = nil, key: WorkspaceKey? = nil, current: WorkspaceKey? = nil, mutation: MutationIdentity?) {
         self.name = name
         self.key = key
+        self.current = current
         self.mutation = mutation
     }
 
-    enum CodingKeys: String, CodingKey { case name, key }
+    enum CodingKeys: String, CodingKey { case name, key, current }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         try c.encodeIfPresent(name, forKey: .name)
         try c.encodeIfPresent(key, forKey: .key)
+        try c.encodeIfPresent(current, forKey: .current)
         try MutationFields(identity: mutation).encode(to: encoder)
     }
 }

@@ -54,12 +54,11 @@ enum AgentSessionWorkspace {
         // workspace the window shows, when it is in one (cx-caoh). A caller's
         // key that names a listed workspace leaves that workspace where it is.
         let windows = services.windows
-        if services.machines.workspace(id: key.rawValue) == nil {
-            NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows), windows: windows)
-        }
+        let rule = services.machines.workspace(id: key.rawValue) == nil ? NewWorkspacePlacements.rule(for: nil, in: windows) : nil
+        if let rule { NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: rule, windows: windows) }
         return Task { @MainActor in
             do {
-                _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
+                _ = try await WorkspaceCreation.create(key, name: name, current: rule?.current, on: connection, repair: repair) { workspace in
                     try await connection.createTerminal(in: workspace, cwd: cwd)
                 }
                 // The workspace's first pane once the store mirrors it, found

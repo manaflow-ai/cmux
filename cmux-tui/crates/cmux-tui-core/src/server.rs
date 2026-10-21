@@ -1255,6 +1255,11 @@ enum Command {
         /// generates a UUIDv4 key and returns it.
         #[serde(default)]
         key: Option<String>,
+        /// The key of the workspace the creating window shows: the current
+        /// workspace of `workspaces.newPlacement`, so the new workspace's first
+        /// place is the one that client gives it. Absent: the session's active one.
+        #[serde(default)]
+        current: Option<String>,
         #[serde(flatten)]
         mutation: MutationRequest,
     },

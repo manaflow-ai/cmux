@@ -290,6 +290,72 @@ fn a_new_workspace_follows_the_before_current_setting() {
     mux.shutdown();
 }
 
+/// `create-workspace {current}`: the workspace the creating client shows
+/// places the new one, not the session's active workspace (a legacy default
+/// the app's windows never move). `afterCurrent` goes right after it; `top`
+/// and `bottom` keep the new row in its group (right after it, last), as the
+/// app places it, so the app's own placement after the create moves nothing.
+#[test]
+fn a_new_workspace_follows_the_creating_clients_current_workspace() {
+    use crate::user_settings::NewWorkspacePlacement;
+    let session = Session::new("new-client-current");
+    let mux = session.open();
+    let create = |name: &str, current: Option<&str>| {
+        let key =
+            crate::state::personal_order::with_client_current(current.map(str::to_string), || {
+                mux.create_empty_workspace(Some(name.to_string()), None, None)
+            })
+            .unwrap()
+            .key;
+        let id = mux
+            .personal_state_read(|connection| {
+                crate::state::values::workspace_public_id_for_key(connection, &key)
+            })
+            .unwrap()
+            .unwrap();
+        (key, id)
+    };
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let (a_key, a) = create("a", None);
+    let (b_key, b) = create("b", None);
+    drop(bottom);
+    let work = group(&mux, "Work");
+    mutate(&mux, "workspace.place", json!({"workspace": a, "group": work}), "a-in-work");
+    // Personal order now: b, then Work [a]. The session's active workspace is a.
+    mutate(&mux, "workspace.focus", json!({"workspace": a}), "focus-a");
+    let after = NewWorkspacePlacement::AfterCurrent.set_for_test();
+    let (_, c) = create("c", Some(&b_key));
+    drop(after);
+    let top = NewWorkspacePlacement::Top.set_for_test();
+    let (_, d) = create("d", Some(&a_key));
+    drop(top);
+    let bottom = NewWorkspacePlacement::Bottom.set_for_test();
+    let (_, e) = create("e", Some(&a_key));
+    drop(bottom);
+    let ids = [&a, &b, &c, &d, &e].map(String::as_str);
+    assert_eq!(
+        listed(&mux, Some("personal"), &ids),
+        [b.as_str(), c.as_str(), a.as_str(), d.as_str(), e.as_str()]
+    );
+    let placements = read(&mux, "workspace.placement.list", json!({}));
+    let group_of = |id: &str| {
+        placements
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|row| row["workspace"]["workspace_id"] == id)
+            .map(|row| row["group_id"].clone())
+            .unwrap()
+    };
+    assert!(
+        group_of(&c).is_null(),
+        "after the client's loose current workspace, not the active grouped one"
+    );
+    assert_eq!(group_of(&d), json!(work), "top from a grouped workspace: in its group");
+    assert_eq!(group_of(&e), json!(work), "bottom from a grouped workspace: last in its group");
+    mux.shutdown();
+}
+
 /// A place across a group changes the group's `top_index` (its place stays
 /// among the other rows); the same commit's `session.events` batch carries
 /// the group's new snapshot, so mirrors never keep a stale `top_index`.
