@@ -2385,6 +2385,26 @@ def test_helper_named_by_product_source_or_a_native_test_fails_open() -> None:
     assert helper_areas({}, references=native) is None
 
 
+def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> None:
+    """feat-cmux-next's cmux-next.yml and nightly.yml, outside ci.yml's call tree, run tests (the
+    checks-workflow test, the nightly strip test) that name ci.yml helpers. Such a test is a dead end
+    like its workflow, not a native test that fails open. (Naming those tests' paths here would make
+    this file a runner of them.)"""
+    unrouted_test = {
+        "tests/test_unrouted.py": "# runs scripts/ci/helper.py\nimport helper\n",
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: python3 tests/test_unrouted.py\n",
+        # A path list names it without running it.
+        "tests/test-execution.toml": '[[test]]\npath = "tests/test_unrouted.py"\n',
+    }
+    assert helper_areas(unrouted_test) == areas()
+    # A test a routed job names, or that something else runs, still fails open.
+    run_by_a_script = {**unrouted_test, "scripts/run-it.sh": "python3 tests/test_unrouted.py\n"}
+    assert helper_areas(run_by_a_script) is None
+    nothing_runs = {"tests/test_unrouted.py": unrouted_test["tests/test_unrouted.py"]}
+    assert helper_areas(nothing_runs) is None
+
+
 def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
     tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
     why: list[str] = []
