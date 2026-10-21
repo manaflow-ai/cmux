@@ -75,7 +75,9 @@ enum NewWorkspacePlacements {
     /// any hop and before the claim selects the new workspace. A window
     /// showing a top page (Home, Chats, a pinned page) selects that page's row
     /// in its sidebar, not a workspace's, so it has no current workspace: the
-    /// one it showed last is not the one the person sees selected.
+    /// one it showed last is not the one the person sees selected. (The
+    /// daemon still places the new row by its own active workspace when it
+    /// creates it; the placement here moves it in the turn the window lists it.)
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
         let state = (windowID ?? windows.registry.value.mostRecentOpen()).flatMap { windows.states[$0] }

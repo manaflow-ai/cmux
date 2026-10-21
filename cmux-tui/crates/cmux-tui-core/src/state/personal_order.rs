@@ -190,7 +190,13 @@ fn place_created_rows(
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
         NewWorkspacePlacement::BeforeCurrent | NewWorkspacePlacement::AfterCurrent => {
             let after = placement == NewWorkspacePlacement::AfterCurrent;
-            match beside_current_slot(transaction, &local, &placed, created.current.as_deref(), after)? {
+            match beside_current_slot(
+                transaction,
+                &local,
+                &placed,
+                created.current.as_deref(),
+                after,
+            )? {
                 Some(slot) => Some(slot),
                 None => Some(top_slot(transaction, &local, &placed)?),
             }

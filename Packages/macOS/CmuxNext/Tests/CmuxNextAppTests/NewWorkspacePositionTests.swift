@@ -15,6 +15,7 @@ import Testing
 /// workspace in the middle of the list selected, a new workspace (Cmd-N, quick Cmd-N presses, or a
 /// create that waits for the daemon, like a link opened in a new workspace) is drawn at its
 /// `workspaces.newPlacement` slot in its first frame and in every frame after, and stays there.
+/// "Frame" here is a sample of the sidebar model every few milliseconds (`frames`).
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewWorkspacePositionTests {
     /// Polls until `done` holds or `limit` passes (a poll, as in `RapidWorkspaceCreateTests`).
@@ -165,16 +166,20 @@ struct NewWorkspacePositionTests {
         let launched = try await Self.launch("afterCurrent")
         let middle = try await Self.selectMiddle(in: launched)
         var keys: [String] = []
+        var selectedAtPress: [Bool] = []
         let (frames, new) = await Self.frames(in: launched, count: 3) {
             for press in 1...3 {
                 _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("quick-\(press)")]))
                 for row in PendingWorkspaceRows.shared.rows(in: launched.window.id) where !keys.contains(row.id) { keys.append(row.id) }
+                // The press selects its workspace, so the next press anchors on it.
+                selectedAtPress.append(launched.window.workspaceID == keys.last)
                 try? await Task.sleep(for: .milliseconds(33)) // key repeat
             }
         }
         await launched.stop()
 
         try #require(new.count == 3, "new rows: \(new)")
+        try #require(keys.count == 3 && selectedAtPress == [true, true, true], "a press did not select its workspace: \(selectedAtPress)")
         let order = keys.count == 3 ? keys : new
         // Every frame lists the new rows it has right below the selected one, in press order.
         let wrong = frames.filter { frame in
@@ -221,8 +226,10 @@ struct NewWorkspacePositionTests {
     @Test func afterCurrentFromATopPageGoesToTheTopNotBelowTheParkedWorkspace() async throws {
         let launched = try await Self.launch("afterCurrent")
         let middle = try await Self.selectMiddle(in: launched)
-        try #require(TopPages.show(.home, services: launched.services, in: launched.window) != nil, "Home did not show")
-        try #require(launched.window.page == .home && launched.window.workspaceID == middle)
+        // History: Home is the home workspace since the docked Home, not a top page (`AgentChatFromHomeTests`).
+        let page = TopPageRoute.page(.history)
+        try #require(TopPages.show(page, services: launched.services, in: launched.window) != nil, "History did not show")
+        try #require(launched.window.page == page && launched.window.workspaceID == middle)
         let home = NewWorkspacePlacements.home(launched.services.machines)
         let (frames, new) = await Self.frames(in: launched, count: 1) {
             _ = launched.services.registry.perform("newTab", invocation: ActionInvocation(arguments: ["name": .string("new")]))
