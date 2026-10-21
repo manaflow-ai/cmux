@@ -1,8 +1,6 @@
 export type ActivityNative = {
   request<T>(method: string, params?: Record<string, unknown>): Promise<T>;
   onState(callback: (state: unknown) => void): void;
-  /** Hook-fed session changes; unlike onState this never polls or resyncs. */
-  onEvent(callback: (event: unknown) => void): void;
 };
 export const native: ActivityNative = {
   request(method, params = {}) {
@@ -21,8 +19,5 @@ export const native: ActivityNative = {
   },
   onState(callback) {
     (window as any).cmuxActivityReceive = callback;
-  },
-  onEvent(callback) {
-    (window as any).cmuxActivityReceiveEvent = callback;
   },
 };
