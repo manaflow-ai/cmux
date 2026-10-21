@@ -457,7 +457,8 @@ export function ComposerQueue({
           };
           const options = { capture: true, signal: ended.signal };
           for (const type of ["pointerup", "pointercancel", "keydown"]) page.addEventListener(type, done, options);
-          page.defaultView?.addEventListener("blur", done, options);
+          // Not capturing: a capturing window listener also hears the blur of whatever had focus.
+          page.defaultView?.addEventListener("blur", done, { signal: ended.signal });
         }}
         aria-label={`${t("composer.queue")} (${shown.length})`}
       >
