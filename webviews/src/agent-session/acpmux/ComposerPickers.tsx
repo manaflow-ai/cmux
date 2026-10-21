@@ -1334,7 +1334,12 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={attach} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
+        <div
+          ref={attach}
+          style={menuStyle}
+          className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
+          data-side="above"
+        >
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

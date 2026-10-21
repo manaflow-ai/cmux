@@ -1419,7 +1419,7 @@ export function Composer({
       />
       {context}
       {/* oxlint-disable-next-line jsx-a11y/no-static-element-interactions -- A pointer convenience only: the prompt inside is the control and takes the keyboard itself. */}
-      <div className="acpmux-composer-box" onMouseDown={focusFromCard}>
+      <div className="ui-glass acpmux-composer-box" onMouseDown={focusFromCard}>
         <input
           ref={importInput}
           className="acpmux-import-input"
@@ -1756,7 +1756,7 @@ function SlashMenu({
   if (matches.length === 0)
     return (
       <div
-        className="ui-popup acpmux-slash-menu acpmux-slash-empty"
+        className="ui-popup ui-glass acpmux-slash-menu acpmux-slash-empty"
         id="acpmux-slash-menu"
         // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
         role="listbox"
@@ -1768,7 +1768,7 @@ function SlashMenu({
   return (
     <div
       ref={setList}
-      className="ui-popup acpmux-slash-menu"
+      className="ui-popup ui-glass acpmux-slash-menu"
       id="acpmux-slash-menu"
       // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role
       role="listbox"
