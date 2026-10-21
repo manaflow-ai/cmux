@@ -1,7 +1,7 @@
 @testable import CmuxNextApp
 import Testing
 
-/// "Move Chief to…" targets (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac,
+/// "Move Chief To…" targets (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac,
 /// every SSH or server remote group, and cmux Cloud while signed in, each mapped to one `--to` value.
 /// A paired server moves over SSH like an SSH host; one with no SSH route is listed but greyed out;
 /// an offline host is listed but greyed out; a host

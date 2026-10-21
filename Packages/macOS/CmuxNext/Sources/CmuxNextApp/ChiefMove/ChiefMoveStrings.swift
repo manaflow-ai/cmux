@@ -1,6 +1,6 @@
 import Foundation
 
-/// The "Move Chief to…" texts (Resources/Remote.xcstrings).
+/// The "Move Chief To…" texts (Resources/Remote.xcstrings).
 nonisolated enum ChiefMoveStrings {
     static var cloud: String { text("chiefMove.cloud", "cmux Cloud") }
     static var move: String { text("chiefMove.move", "Move") }

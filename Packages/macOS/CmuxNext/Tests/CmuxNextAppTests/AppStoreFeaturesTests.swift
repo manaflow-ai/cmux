@@ -3,6 +3,7 @@ import CmuxNextActions
 @testable import CmuxNextApps
 import CmuxNextDesign
 @testable import CmuxNextSettings
+import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import Foundation
 import Testing
@@ -62,6 +63,28 @@ import Testing
                         "\(feature.id) is on by default, so Remove could not turn it off")
             }
         }
+    }
+
+    /// The Chief Pet card's Settings… link opens Settings > Chief Pet (Settings on its key's rows);
+    /// a card whose feature names no rows, or an app that cannot show Settings, has no link.
+    @Test func theChiefPetCardLinksToItsSettings() throws {
+        for feature in AppFeature.catalog {
+            guard let key = feature.settingsLink else { continue }
+            // The anchor Settings scrolls to (`SettingsWindowService.show(setting:)`), not just a schema key.
+            #expect(SettingsAnchor(key: key) != nil, "\(feature.id) links to \(key), which Settings cannot show")
+        }
+        var shown: [String] = []
+        let bridge = SettingsAppFeatures(settings: { nil }, showSettings: { shown.append($0) })
+        let pet = try Self.feature("chief.pet")
+        #expect(bridge.hasSettings(pet))
+        AppStoreModel(client: AppsClient(transport: FeaturesOfflineAppsTransport()), features: bridge).openSettings(pet)
+        #expect(shown == ["home.chiefPetEnabled"])
+
+        let perPane = try Self.feature("backgrounds.perPane")
+        #expect(!bridge.hasSettings(perPane))
+        bridge.openSettings(perPane)
+        #expect(shown == ["home.chiefPetEnabled"], "a feature with no settings rows opened Settings")
+        #expect(!SettingsAppFeatures(settings: { nil }).hasSettings(pet), "a link that cannot open Settings is shown")
     }
 
     @Test func getWritesTheOnValueAndRemoveTurnsItOff() async throws {
