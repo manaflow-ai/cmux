@@ -16,6 +16,10 @@ extension SidebarListViewComponents {
     /// (16% of the main thread while scrolling 1,000 rows, perf round 2). A view in another superview
     /// (a lift) leaves it, and a view the pool evicts leaves the list.
     func recycle(_ view: SidebarRowView) {
+        if view.key == hoveredKey {
+            hoveredKey = nil
+            view.clearHoverImmediately()
+        }
         if view.superview === self { view.isHidden = true } else { view.removeFromSuperview() }
         for evicted in rowPool.put(view) where evicted.superview === self { evicted.removeFromSuperview() }
     }
@@ -39,7 +43,7 @@ extension SidebarListViewComponents {
             }
         case let (.group(id), view as GroupHeaderRowView):
             view.onMore = { [weak self] in self?.groupEditing.showMenu(id) } // VoiceOver's full menu; the chip and more button edit
-            view.onEdit = { [weak self] in self?.groupEditing.open(id) }
+            view.onEdit = { [weak self] in self?.groupEditing.open(id, from: .moreButton) }
             // The header's + runs the editor's New Workspace in Group (one action path).
             view.onAdd = onGroupEditorItem == nil ? nil : { [weak self] in self?.onGroupEditorItem?(id, "workspaceGroup.newWorkspace") }
             view.isEditing = groupEditor.shownGroup == id

@@ -143,7 +143,7 @@ final class PaletteMenuRow: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     override func mouseDown(with event: NSEvent) {
         onPress?(event)
@@ -206,5 +206,5 @@ final class PaletteMenuRow: NSView {
 
 /// Top-left origin container.
 final class FlippedView: NSView {
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 }

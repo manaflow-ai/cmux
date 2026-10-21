@@ -20,7 +20,7 @@ fail() { printf 'FAIL: %s\n' "$@" >&2; exit 1; }
 src="$TMP/src"
 mkdir -p "$src"
 
-git -C "$ROOT" archive HEAD webviews web/data Resources/markdown-viewer config schemas/settings \
+git -C "$ROOT" archive HEAD webviews web/data Resources/markdown-viewer config schemas \
   Packages/Shared/CmuxAgentQuestion scripts/cmux-next/web-bundle-key.py README.md | tar -x -C "$src"
 cp "$KEY" "$src/scripts/cmux-next/web-bundle-key.py"
 git -C "$src" init -q

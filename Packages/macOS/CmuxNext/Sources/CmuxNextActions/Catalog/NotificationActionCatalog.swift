@@ -34,7 +34,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleUnread",
-                title: String(localized: "action.toggleUnread", defaultValue: "Toggle Unread", bundle: .module),
+                title: String(localized: "action.toggleUnread", defaultValue: "Toggle Tab Unread", bundle: .module),
                 keywords: ["notifications", "read"], defaultShortcut: Shortcut("u", modifiers: [.option, .command]),
                 category: .notifications, symbol: "circle.badge", surfaces: [.palette, .keyboard, .menu],
                 cliName: "notification toggle-unread", mainMenu: .window
@@ -84,7 +84,7 @@ nonisolated enum NotificationActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "notifications.toggleWorkspaceMute",
-                title: String(localized: "action.notifications.toggleWorkspaceMute", defaultValue: "Mute or Unmute Workspace Notifications", bundle: .module),
+                title: String(localized: "action.notifications.toggleWorkspaceMute", defaultValue: "Mute/Unmute Workspace Notifications", bundle: .module),
                 keywords: ["mute", "silence", "quiet", "notifications", "workspace"], category: .notifications, symbol: "bell.slash.circle",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "notification toggle-workspace-mute"
             ),

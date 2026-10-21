@@ -92,10 +92,12 @@ impl Hub {
             (json!({}), String::new())
         } else {
             let child = self.child_for(session).await?;
+            // The list the parent's agent got at its start (`spawn.rs`).
+            let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
             let res = child
                 .request(
                     method::SESSION_FORK,
-                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id)}),
+                    json!({"sessionId": sid, "cwd": cwd, "mcpServers": crate::agent_tools::acp_servers_for(parent_meta.remote_origin, &fork_env, &id, all)}),
                 )
                 .await?;
             let new_sid = res
@@ -127,6 +129,7 @@ impl Hub {
             fork_seq: Some(fork_seq),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
+            steering: parent_meta.steering,
             modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),
             config_options: res
                 .get("configOptions")
@@ -138,6 +141,8 @@ impl Hub {
             title: None,
             title_source: None,
             title_prompt: None,
+            title_asking: false,
+            title_failures: 0,
             last_prompt: parent_meta.last_prompt.clone(),
             preview: parent_meta.preview.clone(),
             event_count: 0,
@@ -159,6 +164,8 @@ impl Hub {
             adopted_cwd: None,
             harness_roots: vec![],
             composer_draft: None,
+            // It runs the parent's mode: a spawn from other preset contents leaves it too.
+            preset_mode_approval: parent_meta.preset_mode_approval.clone(),
             // Filled below with the fork's own seqs of the marked prompts it copies.
             bookmarks: Default::default(),
             // The fork keeps the chat's tools off (`hub/tools.rs`); its spawn lists them again.
@@ -172,6 +179,9 @@ impl Hub {
             // whole-chat fork; a fork through an earlier turn has no known baseline.
             totals: None,
             harness_cost_usd: if cut.is_none() { parent_meta.harness_cost_usd } else { None },
+            // A fork is the person's new chat, never a sub-session of the parent's parent.
+            subsession: None,
+            subsession_limits: Default::default(),
         };
         let new = self.make_session(meta);
         if is_claude && cut.is_none() {

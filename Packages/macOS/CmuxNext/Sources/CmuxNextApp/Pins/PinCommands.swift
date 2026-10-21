@@ -36,23 +36,18 @@ struct PinCommands {
         return true
     }
 
-    /// The id of the pin undo toast (one per window; a newer pin change replaces it).
-    static let undoToastID = "pin-undo"
-
-    /// Shows the undo toast for a user's pin or sidebar change in the active
-    /// window and puts the same step on the window's undo stack. The toast
-    /// only hides after its time: Edit > Undo and Cmd-Z still undo the step
-    /// later, like any macOS undo. While the toast shows, its Undo button and
-    /// Cmd-Z (TOAST-UNDO-KEY, or the undo stack when it holds the step) run
-    /// `inverse` once; the other path then does nothing. `inverse` shows the
-    /// next toast (registered during an undo, its step becomes the redo). Nil `inverse`: a change sent, not answered yet
-    /// (`ToastUndoStep.pending`, cx-kpicb); the reply fills the step it returns.
+    /// Puts a user's pin or sidebar change (a move, a reorder, a group's
+    /// place, Pin, Add to Top) on the active window's undo stack: Edit > Undo
+    /// and Cmd-Z run `inverse` once, like any macOS undo. No toast: these are
+    /// not destructive and happen often (Lawrence 2026-10-18: the "Move Undo"
+    /// toast "keeps on showing up every single time"). `inverse` registered
+    /// during an undo fills the redo. Nil `inverse`: a change sent, not
+    /// answered yet (`ToastUndoStep.pending`, cx-kpicb); the reply fills the step it returns.
     @discardableResult func registerUndo(title: String, filling: PinUndoStep? = nil, _ inverse: (@MainActor (PinCommands) -> Void)?) -> PinUndoStep? {
         let windows = context.services.windows
         guard let window = windows.active?.window ?? NSApp.keyWindow ?? NSApp.mainWindow ?? windows.controllers.last?.window else { return nil }
-        let handle = CmuxToastCenter.shared.show(CmuxToast(id: Self.undoToastID, message: PinStrings.done(title), action: .undo()), in: window)
-        guard let inverse else { return ToastUndoStep.pending(title: title, undoManager: window.undoManager, handle: handle) }
-        return ToastUndoStep.attach(title: title, filling: filling, undoManager: window.undoManager, handle: handle) { inverse(self) }
+        guard let inverse else { return ToastUndoStep.pending(title: title, undoManager: window.undoManager, handle: nil) }
+        return ToastUndoStep.attach(title: title, filling: filling, undoManager: window.undoManager, handle: nil) { inverse(self) }
     }
 }
 

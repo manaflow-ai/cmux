@@ -7,8 +7,9 @@ extension SidebarViewComponents {
     /// Everything the list renders. Emitting a value type lets the list
     /// skip reloads when an unrelated model property changes.
     struct RenderState: Hashable, Sendable {
-        /// `SidebarModel.sectionsRevision`: a structural change, compared
-        /// instead of every row (a row content change patches its row).
+        /// `SidebarModel.structureRevision`: a structural change, compared
+        /// instead of every row (a row content change patches its row; a
+        /// group's fold splices its rows through `onGroupFolded`).
         var sectionsRevision: UInt64
         var selection: Set<WorkspaceID>
         var selected: SidebarItem?
@@ -30,7 +31,7 @@ extension SidebarViewComponents {
         var titlebarHeight: CGFloat
         var cards: SidebarBottomCards
         init(_ model: SidebarModel, _ design: DesignSettings) {
-            sectionsRevision = model.observedSectionsRevision
+            sectionsRevision = model.observedStructureRevision
             selection = model.selection
             selected = model.selectedItem
             profiles = model.profiles
@@ -59,13 +60,21 @@ extension SidebarViewComponents {
     }
     /// Draws the model now, in the caller's turn (SidebarSameTurn); the observation's next, equal state is skipped.
     public func renderNow() { render(RenderState(model, design)) }
+
+    /// Draws the model now and scrolls the selection into view, with the header
+    /// and list top around it, even when it did not change: Cmd-`n`, Cmd-Ctrl-[ / ]
+    /// and the palette pressed again on the item they already selected.
+    public func revealSelection() {
+        renderNow()
+        list.revealSelectionNow()
+    }
     func render(_ state: RenderState) {
         guard state != lastState else { return }
         let chromeChanged = lastState?.metrics != state.metrics || lastState?.fontSize != state.fontSize
             || lastState?.titlebarHeight != state.titlebarHeight
         let profileChanged = lastState?.activeProfile != state.activeProfile
         let profilesChanged = lastState?.profiles != state.profiles || profileChanged
-            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo || Self.bandsDrawSelectionChange(from: lastState?.selected, to: state.selected)
+            || lastState?.layout != state.layout || lastState?.itemInfo != state.itemInfo
             || lastState?.transientTopItems != state.transientTopItems
             || lastState?.collapsedSections != state.collapsedSections || lastState?.look != state.look
             || lastState?.drawsLines != state.drawsLines || lastState?.preferences != state.preferences || lastState?.suppressedApps != state.suppressedApps
@@ -79,6 +88,9 @@ extension SidebarViewComponents {
         if lastState?.preferences.minimalMode != state.preferences.minimalMode || lastState?.itemInfo != state.itemInfo {
             setChromeRevealed(isChromeRevealed)
         }
+        // A selected top item (a workspace's tile, a band item) repaints only itself and the one before it;
+        // before any reload below, so a block it configures draws the new selection.
+        if lastState?.selected != state.selected { showActiveTopItem() }
         // A document change (a drop) moves the list's rows and its blocks together: the blocks update now, not at
         // the next layout pass, so the list reloads once with both (ptr8: a settle on the rows alone showed the
         // stale blocks for a frame: the dragged tile back in Pinned, the rows bumped, the card aimed 24 pt off).
@@ -86,8 +98,15 @@ extension SidebarViewComponents {
         if listChanged {
             if profileChanged {
                 switchSpace(from: lastState?.activeProfile, to: state.activeProfile, profiles: state.profiles, oldSections: previous ?? [])
-            } else if rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
-                list.reload(animated: Self.animatesReload(from: previous, to: model.sections))
+            } else if selectionChanged, rowsChanged || !list.patchSelection(from: lastState?.selected, oldSelection: lastState?.selection ?? []) {
+                // A new selection shows now, wherever the pointer is (it is the user's, or asks to be seen).
+                list.reload(animated: Self.animatesReload(from: previous, to: model.sections) && model.followsUserIntent, fromModel: true)
+                if rowsChanged { SidebarNewRowTimer.shared.drew(model.sections, in: window) }
+            } else if rowsChanged {
+                // Only a change the user asked for moves rows; others show in place, after the pointer leaves (calm-sidebar-movement).
+                if list.showModelChange(animates: Self.animatesReload(from: previous, to: model.sections)) {
+                    SidebarNewRowTimer.shared.drew(model.sections, in: window)
+                }
             }
             lastSections = model.sections
         }
@@ -95,15 +114,8 @@ extension SidebarViewComponents {
         if chromeChanged || profilesChanged { bandsDirty = true; needsLayout = true }
         lastState = state
     }
-    /// The bands draw only a top item's selection; a move between two list rows leaves them as they are.
-    static func bandsDrawSelectionChange(from old: SidebarItem?, to new: SidebarItem?) -> Bool {
-        guard old != new else { return false }
-        if case .topItem? = old { return true }
-        if case .topItem? = new { return true }
-        return false
-    }
     /// Whether a sections change animates its rows. Provisional rows swap in place.
     static func animatesReload(from old: [SidebarSection]?, to new: [SidebarSection]) -> Bool {
-        !((old ?? []) + new).contains(where: \.hasProvisionalRows)
+        !new.contains(where: \.hasProvisionalRows) && !(old ?? []).contains(where: \.hasProvisionalRows)
     }
 }

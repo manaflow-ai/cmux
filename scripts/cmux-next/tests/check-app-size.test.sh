@@ -35,7 +35,12 @@ fi
 
 printf '10\n' > "$tmp/scripts/cmux-next/app-size-baseline.txt"
 echo 'let fourth = 4' >> "$tmp/Packages/macOS/CmuxNext/Sources/CmuxNextApp/Example.swift"
-if "$tmp/scripts/cmux-next/check-app-size.sh" --base HEAD "$tmp"; then
+if "$tmp/scripts/cmux-next/check-app-size.sh" --base HEAD "$tmp" 2> "$tmp/growth.err"; then
   echo "expected real source growth to fail against the base" >&2
+  exit 1
+fi
+if ! grep -qF '+1 Example.swift (3 -> 4)' "$tmp/growth.err"; then
+  echo "expected the growth failure to name the file that grew" >&2
+  cat "$tmp/growth.err" >&2
   exit 1
 fi

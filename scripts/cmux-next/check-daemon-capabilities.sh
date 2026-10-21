@@ -136,6 +136,13 @@ if still_unserved:
     print("check-daemon-capabilities: note: app features waiting for a daemon half (disabled with a reason): "
           + ", ".join(still_unserved))
 failed = False
+both = sorted(set(needed) & set(unserved_list))
+if both:
+    failed = True
+    print("check-daemon-capabilities: error: " + ", ".join(both)
+          + " is in required/optional AND in unservedByBundledDaemon; keep it in one list "
+          "(unservedByBundledDaemon until the bundled daemon serves it)", file=sys.stderr)
+    missing = [c for c in missing if c not in both]
 if missing:
     failed = True
     print("check-daemon-capabilities: error: the bundled cmux-tui does not serve "

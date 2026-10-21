@@ -6,13 +6,17 @@ public struct PaletteWorkspace: Identifiable, Sendable, Hashable {
     public var directory: String?
     public var isSelected: Bool
     public var unreadCount: Int
+    /// The sidebar group the workspace is in, or nil.
+    public var groupName: String?
 
-    public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0) {
+    public init(id: String, title: String, directory: String? = nil, isSelected: Bool = false, unreadCount: Int = 0,
+                groupName: String? = nil) {
         self.id = id
         self.title = title
         self.directory = directory
         self.isSelected = isSelected
         self.unreadCount = unreadCount
+        self.groupName = groupName
     }
 }
 

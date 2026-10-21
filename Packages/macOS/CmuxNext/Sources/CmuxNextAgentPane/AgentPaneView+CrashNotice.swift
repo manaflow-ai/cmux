@@ -52,7 +52,7 @@ extension AgentPaneView {
     func themeCrashNotice(_ tokens: ThemeTokens) {
         guard let notice = crashNotice else { return }
         notice.appearance = NSAppearance(named: tokens.isDark ? .darkAqua : .aqua)
-        for case let label as NSTextField in notice.subviews {
+        for case let label as ChromeLabel in notice.subviews {
             label.textColor = tokens.textSecondary.nsColor
         }
     }

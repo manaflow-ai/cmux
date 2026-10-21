@@ -17,6 +17,24 @@ public nonisolated enum ChiefHostStop {
         return pid
     }
 
+    /// An update: asks the host that holds the home's lock to hand off when idle (SIGUSR1). Its
+    /// running turn goes on to its end, then it exits without ending its acpmux, and the restart
+    /// (`ChiefBrainWatch` at a relaunch, `ChiefAcpmuxHeal` while the app runs) hands acpmux off and
+    /// starts the next host, so an update never cuts a Chief turn. Only a host whose
+    /// `state/host.handoff` names its own pid takes the signal (an older host would end at once on
+    /// SIGUSR1); returns the pid it asked, nil when it asked none.
+    @discardableResult
+    static func askToHandOffWhenIdle(home: ChiefHome, isChiefHost: (pid_t) -> Bool = ChiefHostStop.isChiefHost,
+                                     signal: (pid_t, Int32) -> Bool = { kill($0, $1) == 0 }) -> pid_t? {
+        guard let pid = runningHostPID(home: home, isChiefHost: isChiefHost) else { return nil }
+        let mark = home.root.appendingPathComponent("state/host.handoff")
+        // concurrency-allow: a small local file read; callers run off the main actor
+        guard let text = try? String(contentsOf: mark, encoding: .utf8),
+              let named = text.split(separator: "\n").first.flatMap({ pid_t($0.trimmingCharacters(in: .whitespaces)) }),
+              named == pid, signal(pid, SIGUSR1) else { return nil }
+        return pid
+    }
+
     /// The pid of the host that holds the home's lock: the pid in the lock's
     /// text while that process runs an `optchat-chief`. A host writes the
     /// text only after it holds the flock, so a live host named there holds
@@ -47,7 +65,30 @@ public nonisolated enum ChiefHostStop {
     /// Whether `pid` runs an `optchat-chief` executable.
     public static func isChiefHost(_ pid: pid_t) -> Bool {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return false }
-        return String(cString: buffer).hasSuffix("/" + HomeBrainHost.bundledChiefName)
+        let path = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
+        return isChiefHost(path: path, processName: path == nil ? processName(pid) : nil)
+    }
+
+    /// Whether a process with executable `path` (nil: `proc_pidpath` failed) and kernel process
+    /// name `processName` is a Chief host. `proc_pidpath` fails once the executable's file is
+    /// gone: an update replaced the bundle the host ran from. Such a host still holds the Chief
+    /// home's lock and runs the old acpmux, so it must stay stoppable (the Chief acpmux handoff
+    /// after an update); its process name is then the only fact left. Only a pid the held lock
+    /// names reaches this check, and only one of this user's processes (`processName`).
+    static func isChiefHost(path: String?, processName: String?) -> Bool {
+        if let path { return path.hasSuffix("/" + HomeBrainHost.bundledChiefName) }
+        return processName == HomeBrainHost.bundledChiefName
+    }
+
+    /// The kernel's name of `pid` (`pbi_name`, else `pbi_comm`) when it is one of this user's
+    /// processes; nil otherwise.
+    static func processName(_ pid: pid_t) -> String? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size, info.pbi_uid == getuid() else { return nil }
+        let name = withUnsafeBytes(of: info.pbi_name) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        if !name.isEmpty { return name }
+        let command = withUnsafeBytes(of: info.pbi_comm) { String(decoding: $0.prefix { $0 != 0 }, as: UTF8.self) }
+        return command.isEmpty ? nil : command
     }
 }

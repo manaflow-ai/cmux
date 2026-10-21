@@ -158,11 +158,13 @@ fn push_arg(line: &mut Vec<u16>, arg: &OsStr) {
 
 /// This process's environment for the daemon: `ACPMUX_HOME` set to `home`
 /// (a host override its own environment would not reproduce), without the
-/// nested Claude keys `scrub_nested_claude_env` removes. Sorted, as
+/// nested Claude keys `scrub_nested_claude_env` removes and without its
+/// starter's turn values (`config::inherited_caller_scoped_keys`). Sorted, as
 /// CreateProcessW expects (names compare without case).
 fn environment_block(home: &Path, extra: &[(&str, &OsStr)]) -> Vec<u16> {
     let drop: Vec<String> = crate::config::nested_claude_keys()
         .iter()
+        .chain(crate::config::inherited_caller_scoped_keys().iter())
         .map(|k| k.to_string_lossy().to_uppercase())
         .collect();
     let mut vars: Vec<(OsString, OsString)> = std::env::vars_os()
@@ -288,7 +290,7 @@ async fn wait_for_winner(home: &Path, deadline: tokio::time::Instant) {
         // empty file, which std returns as Ok(0). Proven on NTFS (Windows
         // Server 2022) for an empty and a 1-byte lock file (cx-ncc.54). A
         // free lock means the winner has already exited.
-        let held = File::open(&lock).is_ok_and(|file| {
+        let held = crate::config::private_state_file(&lock).is_ok_and(|file| {
             let mut byte = [0u8; 1];
             let read = file.seek_read(&mut byte, 0);
             read.is_err_and(|e| e.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32))
@@ -399,7 +401,7 @@ fn spawn_this(
 /// Starts `<exe> [prefix] daemon run --ready-fd <handle>` (see the module
 /// comment) and returns the read end of its readiness pipe.
 pub(super) fn spawn_detached(home: &Path, prefix: &[OsString]) -> Result<File> {
-    std::fs::create_dir_all(home)?;
+    crate::config::private_state_dir(home)?;
     let log_path = home.join("daemon.log");
     // Owner-only, as on Unix: the log can carry agent output and requests.
     let log = crate::owner_only::open_append(&log_path)

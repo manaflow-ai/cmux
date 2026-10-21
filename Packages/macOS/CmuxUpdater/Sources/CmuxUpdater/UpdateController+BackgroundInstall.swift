@@ -43,6 +43,7 @@ extension UpdateController {
         }
         if case .installing(let installing) = model.state, installing.isAutoUpdate {
             log.append("background install: installing the update Sparkle staged silently")
+            driver.quitInstallItem = nil
             model.setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
             installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
@@ -98,6 +99,13 @@ extension UpdateController {
     public var feedOverride: String? {
         get { driver.feedOverride }
         set { driver.feedOverride = newValue }
+    }
+
+    /// The release ring (`updates.channel`) whose appcast items are offered; the next check
+    /// uses it. Only the cmux-next feed has rings.
+    public var ring: UpdateRing {
+        get { driver.ring }
+        set { driver.ring = newValue }
     }
 
     /// Builds at or below this `sparkle:version` are not offered (the build a rollback left).

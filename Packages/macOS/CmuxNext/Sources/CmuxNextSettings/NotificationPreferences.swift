@@ -3,7 +3,8 @@ public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.
 public nonisolated struct NotificationPreferences: Hashable, Sendable {
-    public var dismissal: NotificationDismissal = .keystroke
+    /// `focus` (Lawrence, 2026-10-19): classic's rule, a focus, click or key in the pane reads it.
+    public var dismissal: NotificationDismissal = .focus
     public var timeoutSeconds: Double = 30
     public var desktop: DesktopNotificationMode = .unlessFocused
     /// `"default"`, a sound in /System/Library/Sounds (for example `"Glass"`), or `"none"`.
@@ -13,6 +14,8 @@ public nonisolated struct NotificationPreferences: Hashable, Sendable {
     /// read at once (no ring, banner or sound). 0 turns it off.
     public var suppressWhileTypingSeconds: Double = 0
     public var dockBadge = true
+    /// `notifications.dockBounce`: the Dock icon bounces when an alert arrives while cmux is inactive.
+    public var dockBounce: DockBounceMode = .once
     /// Workspace ids whose notifications post no banner, sound or ring.
     public var mutedWorkspaces: Set<String> = []
     public var sources: [NotificationSource: NotificationSourceOverrides] = [:]

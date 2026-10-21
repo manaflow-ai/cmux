@@ -69,6 +69,9 @@ const CLOUD_RUNS_CAPABILITY = "cloud-conversation-runs-v1";
 const LIVE_CAPABILITY = "chief-live-v1";
 /** A Cloud Chief's live frames through the daemon (`cloud-conversation-live`). */
 const CLOUD_LIVE_CAPABILITY = "cloud-chief-live-v1";
+/** The daemon passes a cloud conversation's typing (`cloud-conversation-typing`) to a connection that
+ *  echoes this. */
+const CLOUD_TYPING_CAPABILITY = "cloud-conversation-typing-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
@@ -518,7 +521,13 @@ export class DaemonHomeClient implements PageClient {
       started = (async () => {
         await socket.request("set-client-info", {
           name: "cmux page: home-channels",
-          capabilities: ["conversation-draft-events-v1", RUNS_CAPABILITY, AVATARS_CAPABILITY, LIVE_CAPABILITY],
+          capabilities: [
+            "conversation-draft-events-v1",
+            RUNS_CAPABILITY,
+            AVATARS_CAPABILITY,
+            LIVE_CAPABILITY,
+            CLOUD_TYPING_CAPABILITY,
+          ],
         });
         await socket.request("subscribe");
       })().catch((error) => {
@@ -904,8 +913,9 @@ export class DaemonHomeClient implements PageClient {
         return {
           chief: await this.people.setChiefAvatar(
             str(params, "chief", 64),
-            str(params, "mediaType", 32),
-            str(params, "data", 1_500_000),
+            params.clear === true
+              ? null
+              : { mediaType: str(params, "mediaType", 32), data: str(params, "data", 1_500_000) },
             this.key(params, options),
           ),
         };
@@ -1128,6 +1138,7 @@ export class DaemonHomeClient implements PageClient {
           if (cloud.removed?.length) (batch.removed ??= []).push(...cloud.removed);
           if (cloud.stale) (batch.stale ??= []).push(cloud.stale);
           if (cloud.inboxStale) batch.inboxStale = true;
+          if (cloud.typing) (batch.typing ??= []).push(cloud.typing);
           if (cloud.live) {
             const frame = liveFrame(cloud.live);
             if (frame) (batch.live ??= []).push(frame);

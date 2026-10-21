@@ -173,3 +173,46 @@ fn the_engine_set_names_the_compactors_harness_and_model_acpmux_has() {
         "{cleared:#}"
     );
 }
+
+#[test]
+fn a_chief_switches_its_turn_harness_to_uniichat_and_back() {
+    use optchat_chief::acpmux::Family;
+    let dir = tempfile::tempdir().unwrap();
+    // acpmux's built-in `unii` (UniiChat through uniichat-agent) is an Other family.
+    let mut brain = brain(
+        dir.path(),
+        &[
+            ("claude-sr", Family::Claude),
+            ("codex", Family::Codex),
+            ("unii", Family::Other),
+        ],
+    );
+    let set = |harness: &str| EngineRequest::Set {
+        harness: Some(harness.to_owned()),
+        model: None,
+        effort: None,
+        speed: None,
+        compactor_speed: None,
+        compactor_harness: None,
+        compactor_model: None,
+    };
+
+    let answer = engine(&mut brain, set("unii"));
+    assert_eq!(answer["engine"]["harness"], "unii", "{answer:#}");
+    let file = optchat_chief::engine::load(&dir.path().join("engine.json"));
+    assert_eq!(
+        file.harness.as_deref(),
+        Some("unii"),
+        "the next turn runs on UniiChat"
+    );
+    // The compactor stays on Claude: UniiChat keeps its own memory, the
+    // Chief's summaries still need a Claude route.
+    assert_eq!(file.compactor_harness, None);
+
+    let back = engine(&mut brain, set("default"));
+    assert_eq!(back["engine"]["harness"], "claude-sr", "{back:#}");
+    assert_eq!(
+        optchat_chief::engine::load(&dir.path().join("engine.json")).harness,
+        None
+    );
+}

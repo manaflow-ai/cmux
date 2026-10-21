@@ -754,6 +754,7 @@ dependencies = [
  "optchat-core",
  "optchat-host",
  "ring",
+ "rusqlite",
  "serde",
  "serde_json",
  "sha2",

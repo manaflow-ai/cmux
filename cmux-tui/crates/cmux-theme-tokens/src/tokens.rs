@@ -236,6 +236,11 @@ impl ThemeTokens {
             Some(accent) => accent.with_alpha(if is_dark { 0.26 } else { 0.16 }),
             None => color("selectionFill"),
         };
+        // The other rows of a multi-selection: the selection's color at 0.7 of its weight.
+        let secondary_selection = match accent {
+            Some(accent) => accent.with_alpha(if is_dark { 0.18 } else { 0.11 }),
+            None => color("secondarySelectionFill"),
+        };
         let pressed = color("pressedFill");
         // Text must hold its contrast on the strongest fill it can sit on.
         let worst_surface = [pressed.composited(bg), selection.composited(bg)]
@@ -283,7 +288,7 @@ impl ThemeTokens {
             text_tertiary: tertiary,
             hover_fill: hover,
             selection_fill: selection,
-            secondary_selection_fill: color("secondarySelectionFill"),
+            secondary_selection_fill: secondary_selection,
             pressed_fill: pressed,
             badge_fill: color("badgeFill"),
             separator: color("separator"),

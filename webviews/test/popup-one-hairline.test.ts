@@ -161,8 +161,7 @@ describe("web popups draw one hairline edge", () => {
       ".lg-palette",
       ".acpmux-file-menu-list",
       ".nt-popover",
-      ".acpmux-mp-cascade .acpmux-mp-sub",
-      ".acpmux-find__bar",
+      ".find-pill",
       ".ui-popup",
     ]) {
       expect(selectors).toContain(popup);

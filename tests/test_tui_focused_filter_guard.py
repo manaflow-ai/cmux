@@ -201,13 +201,16 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["strategy"]["matrix"]["include"] == [
         {
             "os": "linux",
-            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
+            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}",
         },
     ]
-    assert test["strategy"]["matrix"]["include"] == lint["strategy"]["matrix"]["include"]
+    # Same OS matrix; only lint honors a LINUX_RUNNER override.
+    oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
+    assert oses(test) == oses(lint) == ["linux"]
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
-    assert "cargo fmt --check" in test_commands
+    # Formatting is gated once, by lint; a format diff must not stop the tests.
+    assert "cargo fmt --check" not in test_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
     macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
     assert macos["name"] == "macOS lint and tests"
@@ -343,3 +346,41 @@ def test_dogfood_artifacts_never_wait_for_the_side_lane() -> None:
             "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
             "'blacksmith-6vcpu-macos-15' }}"
         )
+
+
+def test_focused_dogfood_builds_the_macos_target_on_linux() -> None:
+    """Focused runs cross-compile the macOS target on a Linux runner.
+
+    The Mac leg queued 23-84 min and ran 17-20 min on 2026-10-20 and was the
+    focused run's critical path. Full runs keep the Mac build: the Linux path
+    packages neither npm nor PyPI, and cmux-tui-build-package.yml refuses
+    build_agent_plugin with it (the Linux path builds the plugin into its tree).
+    """
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    build = workflow["jobs"]["build-artifacts"]["with"]
+
+    assert build["darwin_builder"] == "${{ inputs.mode == 'full' && 'mac' || 'linux' }}"
+    assert build["build_agent_plugin"] == "${{ inputs.mode == 'full' }}"
+    assert build["package_npm"] == "${{ inputs.mode == 'full' }}"
+    assert build["package_pypi"] == "${{ inputs.mode == 'full' }}"
+
+
+def test_hosted_verification_gate_reports_every_selected_job_before_failing() -> None:
+    """A red lint (often a base clippy red) must not hide whether the
+    filtered Rust tests passed: the gate lists each selected job's result
+    and fails once, at the end."""
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    gate = workflow["jobs"]["hosted-verification"]
+    step = next(s for s in gate["steps"] if s.get("name") == "Require selected verification jobs")
+    env = {key: "success" for key, value in gate["env"].items() if key.endswith("_RESULT")}
+    env.update({"MODE": "focused", "TEST_FILTER": "some_test", "LINT_RESULT": "failure",
+                "MACOS_RESULT": "failure", "PATH": "/usr/bin:/bin"})
+    with tempfile.TemporaryDirectory() as tmp:
+        script = Path(tmp) / "gate.sh"
+        script.write_text(step["run"], encoding="utf-8")
+        run = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+    output = run.stdout + run.stderr
+    assert run.returncode == 1, output
+    assert "lint finished with result 'failure'" in output, output
+    assert "macOS lint and tests finished with result 'failure'" in output, output
+    assert "Rust tests: success" in output, output

@@ -45,7 +45,7 @@ impl HostShared {
         let previous = *cell_pixels;
         let changed = previous != next;
         let resize_sizes = if changed {
-            Some((pty_size(size.0, size.1, previous)?, pty_size(size.0, size.1, next)?))
+            Some((pty_size(size.0, size.1, previous), pty_size(size.0, size.1, next)))
         } else {
             None
         };

@@ -1,6 +1,7 @@
 // The editor's keys. Monaco handles plain typing, navigation and its own editing chords inside the
 // editor; the app's single key dispatcher resolves every chord first (keybindings.md 4.2), so a chord
-// bound in the app (Cmd-S, Cmd-P, Cmd-D, Cmd-Shift-[ ...) never reaches Monaco. App actions the
+// bound in the app (Cmd-S, Cmd-P, Cmd-W ...) never reaches Monaco, except the app chords that yield
+// to the editor (Cmd-D, Shift-Cmd-L, Cmd-L ...). App actions the
 // editor should run arrive as page commands (`cmux.page.command`), mapped here to Monaco actions:
 // the shared ones (`find`, `save`) and `editorAction` with a Monaco action id from `EDITOR_ACTIONS`,
 // so the Keys lead can bind any of them under an editor context without a page change.
@@ -71,7 +72,6 @@ export const EDITOR_ACTIONS: ReadonlySet<string> = new Set([
   "editor.action.smartSelect.shrink",
   "editor.action.expandLineSelection",
   "editor.action.triggerSuggest",
-  "editor.action.quickCommand",
   "editor.action.gotoLine",
   "editor.action.startFindReplaceAction",
   "editor.fold",
@@ -91,6 +91,12 @@ export const EDITOR_ACTIONS: ReadonlySet<string> = new Set([
   "cursorUndo",
   "cursorRedo",
 ]);
+
+/**
+ * Monaco's own command palette. It is not an `EDITOR_ACTIONS` id: the editor hands it to the app's
+ * native command palette (view.ts), and no page command may open Monaco's widget.
+ */
+export const MONACO_QUICK_COMMAND = "editor.action.quickCommand";
 
 export function isEditorAction(id: string): boolean {
   return EDITOR_ACTIONS.has(id);

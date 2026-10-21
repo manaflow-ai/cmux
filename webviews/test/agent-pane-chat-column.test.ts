@@ -4,7 +4,7 @@
 // panes, as Codex and Claude desktop do. While a reply streams the view stays at its latest line
 // unless the reader scrolls up, and nothing it shows moves when a queue appears or a row opens.
 //
-// A prompt is a solid bubble on the composer's surface, its text inset evenly; a hover shows no Copy
+// A prompt is a translucent tinted-glass bubble, its text inset evenly; a hover shows no Copy
 // on it or on a tool row (both are on right-click; a turn's answer has its own in the footer).
 //
 // Before: the transcript's rows used a 720px column inside 26.5px gutters and the composer a 760px
@@ -172,15 +172,25 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// view must follow what is drawn, not an estimate a later frame takes back (cx-next-ghostty-config).
   const LOADED = 6;
 
-  async function open(chat: Chat, width: number, height = 700, loaded = false, foldThoughts = false): Promise<Page> {
+  async function open(
+    chat: Chat,
+    width: number,
+    height = 700,
+    loaded = false,
+    foldThoughts = false,
+    attributes: Record<string, string> = {},
+  ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
-    // The Debug toggle agentPane.debug.foldLongThoughts, as the app sets it on <html>.
-    if (foldThoughts)
-      await page.addInitScript(() => {
-        const set = () => document.documentElement.setAttribute("data-fold-long-thoughts", "on");
-        if (document.documentElement) set();
-        else document.addEventListener("readystatechange", set, { once: true });
-      });
+    // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on <html>.
+    const set = { ...(foldThoughts && { "data-fold-long-thoughts": "on" }), ...attributes };
+    if (Object.keys(set).length)
+      await page.addInitScript((names: Record<string, string>) => {
+        const apply = () => {
+          for (const [name, value] of Object.entries(names)) document.documentElement.setAttribute(name, value);
+        };
+        if (document.documentElement) apply();
+        else document.addEventListener("readystatechange", apply, { once: true });
+      }, set);
     if (loaded)
       await (await page.context().newCDPSession(page)).send("Emulation.setCPUThrottlingRate", { rate: LOADED });
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -193,7 +203,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   }
 
   /// What a painted frame shows: how far the view sits above the transcript's end, where it is
-  /// scrolled to, and how far the last line of text sits above the view's bottom; or, given
+  /// scrolled to, and how far the last line of text sits above the view's foot (the bottom stack's
+  /// top, which lies over the transcript); or, given
   /// `text`, the top of the row that holds it, and where the row is placed under the thread's glide.
   /// `glided` sums the glides the thread started since the frame before.
   type Frame = {
@@ -218,6 +229,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       };
       const sample = () => {
         const view = scroller.getBoundingClientRect();
+        // The view's foot: the top of the bottom stack lying over the transcript, else its bottom.
+        const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
+        const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
         const thread = document.querySelector<HTMLElement>(".acpmux-thread");
         const lines = [...scroller.querySelectorAll("p")];
         const holds = (node: Element) => node.textContent?.includes(text!) ?? false;
@@ -228,7 +242,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         return {
           fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
           scrollTop: Math.round(scroller.scrollTop),
-          lastLine: Math.round(view.bottom - (lines.at(-1)?.getBoundingClientRect().bottom ?? view.bottom)),
+          lastLine: Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)),
           top: row ? Math.round(row.getBoundingClientRect().top) : null,
           placed: row ? row.getBoundingClientRect().top - new DOMMatrix(getComputedStyle(thread!).transform).m42 : null,
           glides: thread?.getAnimations().length ?? 0,
@@ -277,7 +291,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   /// How far the newest line may rest from where the last one did: lines are 22.75px and rows are
   /// placed by their drawn heights, so the end can settle a few pixels off; a jump is a line.
   const REST_SLACK = 4;
-  /// How far the last line of text sits above the view's bottom once the thread has stopped
+  /// How far the last line of text sits above the view's foot once the thread has stopped
   /// gliding: a row placed by its drawn height late slides there over 180 ms, and a loaded runner
   /// can still be in that slide when the frames stop. Only running, finite animations count: a
   /// looping one (a streaming mark) never ends, and a finished one held by its fill stays listed.
@@ -307,8 +321,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           requestAnimationFrame(() =>
             requestAnimationFrame(() => {
               const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
+              const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
+              const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
               const lines = [...document.querySelectorAll(".acpmux-scroll p")];
-              done(Math.round(view.bottom - (lines.at(-1)?.getBoundingClientRect().bottom ?? view.bottom)));
+              done(Math.round(foot - (lines.at(-1)?.getBoundingClientRect().bottom ?? foot)));
             }),
           ),
         ),
@@ -480,7 +496,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  test("a prompt is a solid bubble with its text inset evenly, at the column's right edge", async () => {
+  test("a prompt is a translucent glass bubble with its text inset evenly, at the column's right edge", async () => {
     const page = await open(newChat(), 900);
     const bubble = await page.evaluate(() => {
       const node = document.querySelector<HTMLElement>(".cv-user__bubble")!;
@@ -507,7 +523,9 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
         right: Math.round(row.right - box.right),
       };
     });
-    expect(bubble.alpha).toBe(255);
+    // Tinted glass (Leo 2026-10-20): the window shows through, but the tint is there.
+    expect(bubble.alpha).toBeGreaterThan(0);
+    expect(bubble.alpha).toBeLessThan(255);
     expect(bubble.radius).toBeLessThanOrEqual(12);
     expect(bubble.left).toBeGreaterThanOrEqual(10);
     expect(bubble.left).toBeLessThanOrEqual(12);
@@ -517,9 +535,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.close();
   });
 
-  // Leo dogfood 2026-10-13 (hover buttons everywhere): a prompt's Copy and a tool row's are on the
-  // right-click menu (Copy Message, Copy Output), so a hover shows neither.
-  test("a hover shows no Copy on a prompt or a tool row", async () => {
+  // Leo dogfood 2026-10-13 (hover buttons everywhere): a tool row's Copy is on the right-click menu
+  // (Copy Output), so a hover shows none. A prompt's action row has Copy, as Claude Code's does
+  // (Leo, 2026-10-20).
+  test("a hover shows Copy on a prompt's action row, none on a tool row", async () => {
     const page = await open(newChat(), 900);
     /// The Copy buttons in the row holding `text` that show, by their own and their parents' opacity.
     const shown = (text: string) =>
@@ -542,7 +561,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
     await page.waitForTimeout(250);
-    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 0, onTool: 0 });
+    expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
   });
 
@@ -551,11 +570,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   const THOUGHT = Array.from({ length: 60 }, (_, index) => `Step ${index + 1}: check the retry path.`).join("\n");
   const thoughtToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "Thought" });
 
-  test("a long thought streams in full, then folds when the next step starts without moving the rows above it", async () => {
+  test("a long thought streams, then folds when the next step starts without moving the rows above it", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
-    // Streaming: the whole thought, with nothing to open.
+    // Streaming: the whole thought's text (in the live viewport), with nothing to open.
     await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
@@ -595,6 +614,50 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
     expect(new Set(tops)).toEqual(new Set([tops[0]!]));
+    await page.close();
+  });
+
+  // While it streams, a long thought holds Codex's seven-line viewport with its newest line in view
+  // (Debug toggle agentPane.debug.liveThoughtViewport, on by default).
+  const liveThought = async (attributes: Record<string, string> = {}) => {
+    const chat = newChat();
+    thinks(chat, THOUGHT);
+    const page = await open(chat, 900, 700, false, true, attributes);
+    const text = page.locator(".cv-thought__text");
+    await text.waitFor({ state: "attached" });
+    await text.scrollIntoViewIfNeeded();
+    return { page, text };
+  };
+
+  test("a long live thought holds a 140px viewport with its newest line in view", async () => {
+    const { page, text } = await liveThought();
+    expect(await page.locator(".cv-thought.is-live .cv-thought__label").textContent()).toBe("Thinking");
+    const seen = await text.evaluate((element) => {
+      const box = element.getBoundingClientRect();
+      const node = element.firstChild!;
+      const at = (words: string) => {
+        const range = document.createRange();
+        const start = node.textContent!.indexOf(words);
+        range.setStart(node, start);
+        range.setEnd(node, start + words.length);
+        return range.getBoundingClientRect();
+      };
+      const last = at("Step 60: check the retry path.");
+      const first = at("Step 1: check the retry path.");
+      return {
+        height: Math.round(box.height),
+        lastInView: last.top >= box.top - 1 && last.bottom <= box.bottom + 1,
+        firstOut: first.bottom <= box.top + 1,
+      };
+    });
+    expect(seen).toEqual({ height: 140, lastInView: true, firstOut: true });
+    await page.close();
+  });
+
+  test("with the live viewport off, a long live thought streams in full", async () => {
+    const { page, text } = await liveThought({ "data-live-thought-viewport": "off" });
+    expect(await page.locator(".cv-thought.is-live").count()).toBe(0);
+    expect(await text.evaluate((element) => element.getBoundingClientRect().height)).toBeGreaterThan(600);
     await page.close();
   });
 

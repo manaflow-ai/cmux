@@ -57,6 +57,13 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     grant (`rawCdp`) is not a tool argument. When no host listens the call fails with
     `browser_host.unavailable`; the server does not start the host (the session daemon
     will supervise it, browser-host.md decision 1);
+  - `machine_list` and `machine_get` read the connected daemon's machine catalog.
+    The native owner stays authoritative; admitted Cloud/SSH/server records are
+    bounded metadata from the app's existing connections. `machine_list` uses
+    the normal list pagination. `machine_get` requires a `machine` selector;
+    the selector looks up metadata and grants no connection or execution rights.
+    Session operations remain excluded, and other tools keep their existing
+    machine scope. No catalog read starts, enrolls or reconnects a machine;
   - `window_list` (the app's windows, for `win_` targets);
   - `agents_snapshot` (the composed app and daemon topology, paged) and one tool per
     `cmux agents` action (`cli/agents.rs`): `agents_workspace_select`,
@@ -133,6 +140,24 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
     ids, states and short titles; no terminal text, chat text or tool input, and notification title and
     body are cut to 80 and 160 characters (`truncated: true`). Kinds not asked for are
     skipped, not kept. Read-only;
+  - `agents_chat_send` and `agents_chat_read` (`cmux agents chat send|read`,
+    `cli/agents/chat.rs`): one agent prompts another agent chat and reads its
+    transcript. Both reach only chats whose acpmux session runs in a workspace of this
+    cmux session (`sessionEnv.CMUX_WORKSPACE_ID` against the snapshot's `extra.key`); a
+    chat with none is refused (`chat.out_of_scope`). A send is a `cmux agent message`:
+    the daemon stores it under its policy and limits, then it reaches the chat as an
+    acpmux prompt with `_meta.acpmux.provenance`, so the chat shows it as another agent's
+    message. It never goes to the caller's own chat (`chat.own_chat`), refuses empty text
+    and text over 32 KiB, is `destructiveHint`, and answers `{action, origin, result:
+    {chat, message_id, state}, idempotency_key}`; a retry with the key is the same
+    message. A message stored but not handed to the chat is an error that keeps its
+    receipt (`state: failed`; the CLI exits 1). The CLI takes the text as one argument
+    or after `--`. A read answers items `{id, role, text}` (`user` with `origin`/`from`
+    for an agent's prompt, `assistant`, `tool` as kind and status only, never its title,
+    which harnesses fill with the input, `turn_end`), paged with `after` = `next_after`;
+    an answer being written or a tool call running is `partial`, and `next_after` never
+    passes it.
+    Waiting for the reply is `agents_wait` with `until: idle` and the chat as target;
   - `render` (`html`, `title`): a page the cmux NEXT chat draws as a live render card
     above the turn's answer (webviews `renderCall.ts`). It reaches no owner; the result is
     the receipt (`rendered`, `bytes`, `title`);
@@ -179,7 +204,7 @@ when `cmux` is not on the client's `PATH`. Global options go before `mcp`:
 | --- | --- |
 | stream operations (`session.events`, `terminal.attach`, `browser.attach`, `sidebar_view.attach`, `session.journal.subscribe`) | tools are request and response |
 | connection control (`client.*` sizing and metadata, viewer resize and release, `request.cancel`, `stream.cancel`, renderer grants) | scoped to one socket connection |
-| `machine.*`, `session.*` (list, get, open, snapshot, ping, creation, journal, defaults, window title, shutdown, reload), `client.get/list`, `frontend_projection.*`, `pairing_request.*`, `sidebar_view.*` | cmux-tui-only scopes the curated `cmux` CLI also refuses; pairing needs a person |
+| `session.*` (list, get, open, snapshot, ping, creation, journal, defaults, window title, shutdown, reload), `client.get/list`, `frontend_projection.*`, `pairing_request.*`, `sidebar_view.*` | cmux-tui-only scopes the curated `cmux` CLI also refuses; pairing needs a person |
 | app actions the app exempts from MCP (`surfaces.mcp` in `action.list`, its `ActionSurfacePlan`: `credentials` such as account connect/remove and sign in/out, `endsApp` such as quit, `systemChange` such as toggle setting or install CLI) | the app owns the decision; the server words the reason and refuses an action whose app reports no `surfaces.mcp` |
 | GUI-only actions, `action.run` by id | only `cli: true` actions |
 | `settings.*`, `history.list`, `bookmark.list`, `accounts.list`, `browser.page.*`, `events.stream`, `system.*` | not catalog operations or CLI actions; private data, credentials or page access; later phases decide |

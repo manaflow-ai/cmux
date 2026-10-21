@@ -189,6 +189,29 @@ impl ReadOnly {
         export_text(&self.0, dir)
     }
 
+    /// A consistent copy of the whole database at `to` (`VACUUM INTO` from
+    /// this read connection, so the writer is not held), mode 0600: the
+    /// backup the memory inspector writes before its first change. `to`
+    /// must not exist or be empty.
+    pub fn snapshot(path: &Path, to: &Path) -> io::Result<()> {
+        if let Some(dir) = to.parent() {
+            private_dir(dir)?;
+        }
+        // Created empty first, so the copy is never readable by others.
+        private_file(to)?;
+        let target = to
+            .to_str()
+            .ok_or_else(|| io::Error::other("the backup path is not UTF-8"))?;
+        let conn = Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        )
+        .map_err(sql)?;
+        conn.busy_timeout(BUSY).map_err(sql)?;
+        conn.execute("VACUUM INTO ?1", [target]).map_err(sql)?;
+        private_file(to)
+    }
+
     pub fn state(&self, key: &str) -> io::Result<Option<String>> {
         state(&self.0, key)
     }
@@ -200,6 +223,23 @@ impl ReadOnly {
             .and_then(|mut s| {
                 s.query_row([id as i64], |r| Ok((r.get(0)?, r.get(1)?)))
                     .optional()
+            })
+            .map_err(sql)
+    }
+
+    /// Kind, stored ISO date and text of message `id`, if it exists.
+    pub fn message_row(&self, id: u64) -> io::Result<Option<MessageRow>> {
+        self.0
+            .prepare_cached("SELECT kind, date, text FROM messages WHERE id = ?1")
+            .and_then(|mut s| {
+                s.query_row([id as i64], |r| {
+                    Ok(MessageRow {
+                        kind: r.get(0)?,
+                        date: r.get(1)?,
+                        text: r.get(2)?,
+                    })
+                })
+                .optional()
             })
             .map_err(sql)
     }
@@ -411,6 +451,76 @@ impl Db {
         Ok(())
     }
 
+    /// Replaces the text of message `id` in place (an owner's edit or
+    /// delete in the memory inspector): same id, kind and date; the search
+    /// index follows. Returns the old text; None when there is no such message.
+    pub fn rewrite_message(&mut self, id: u64, text: &str) -> io::Result<Option<String>> {
+        let tx = self.conn.transaction().map_err(sql)?;
+        let old: Option<String> = tx
+            .query_row(
+                "SELECT text FROM messages WHERE id = ?1",
+                [id as i64],
+                |r| r.get(0),
+            )
+            .optional()
+            .map_err(sql)?;
+        let Some(old) = old else { return Ok(None) };
+        tx.execute(
+            "INSERT INTO messages_fts(messages_fts, rowid, text) VALUES ('delete', ?1, ?2)",
+            params![id as i64, old],
+        )
+        .map_err(sql)?;
+        tx.execute(
+            "UPDATE messages SET text = ?2 WHERE id = ?1",
+            params![id as i64, text],
+        )
+        .map_err(sql)?;
+        tx.execute(
+            "INSERT INTO messages_fts(rowid, text) VALUES (?1, ?2)",
+            params![id as i64, text],
+        )
+        .map_err(sql)?;
+        fault("rewrite:before-commit");
+        tx.commit().map_err(sql)?;
+        Ok(Some(old))
+    }
+
+    /// Replaces the text of built node `node` in place (an owner's edit, or
+    /// the node built again after a change below it); its size and the
+    /// search index follow. Returns the old text; None when it is not built.
+    pub fn rewrite_node(&mut self, node: NodeId, text: &str) -> io::Result<Option<String>> {
+        let tx = self.conn.transaction().map_err(sql)?;
+        let old: Option<(i64, String)> = tx
+            .query_row(
+                "SELECT rowid, text FROM nodes WHERE level = ?1 AND idx = ?2",
+                params![node.l as i64, node.i as i64],
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()
+            .map_err(sql)?;
+        let Some((rowid, old)) = old else {
+            return Ok(None);
+        };
+        tx.execute(
+            "INSERT INTO nodes_fts(nodes_fts, rowid, text) VALUES ('delete', ?1, ?2)",
+            params![rowid, old],
+        )
+        .map_err(sql)?;
+        tx.execute(
+            "UPDATE nodes SET text = ?2, bytes = ?3 WHERE rowid = ?1",
+            params![rowid, text, text.len() as i64],
+        )
+        .map_err(sql)?;
+        tx.execute(
+            "INSERT INTO nodes_fts(rowid, text) VALUES (?1, ?2)",
+            params![rowid, text],
+        )
+        .map_err(sql)?;
+        fault("rewrite:before-commit");
+        tx.commit().map_err(sql)?;
+        Ok(Some(old))
+    }
+
     /// Writes state keys in one transaction.
     pub fn put_state(&mut self, writes: &[StateWrite]) -> io::Result<()> {
         if writes.is_empty() {
@@ -439,6 +549,19 @@ impl Db {
             // crash-allow: a committed row that cannot be read means the disk is failing (see `message`).
             .unwrap_or_else(|e| panic!("optchat: cannot read the message with key {key}: {e}"))
             .map(|id| id as u64)
+    }
+
+    /// The key message `i` was logged with (`<conversation>#<seq>`), if any:
+    /// the reverse of [`Self::logged_id`].
+    pub fn logged_key(&self, i: u64) -> Option<String> {
+        if i >= self.t {
+            return None;
+        }
+        self.conn
+            .prepare_cached("SELECT conv_msg FROM messages WHERE id = ?1")
+            .and_then(|mut s| s.query_row([i as i64], |r| r.get::<_, Option<String>>(0)))
+            // crash-allow: a committed row that cannot be read means the disk is failing (see `message`).
+            .unwrap_or_else(|e| panic!("optchat: cannot read message {i}: {e}"))
     }
 
     /// The stored ISO date of message `i`.
@@ -561,6 +684,15 @@ pub fn counts(conn: &Connection) -> io::Result<Counts> {
         messages: messages as u64,
         nodes: nodes as u64,
     })
+}
+
+/// One message as stored: what `ReadOnly::message_row` returns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct MessageRow {
+    pub kind: String,
+    /// The stored ISO date (RFC 3339).
+    pub date: String,
+    pub text: String,
 }
 
 /// One full-text match.

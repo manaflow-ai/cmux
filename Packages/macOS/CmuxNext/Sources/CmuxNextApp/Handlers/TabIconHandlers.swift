@@ -53,18 +53,15 @@ enum TabIconHandlers {
         return Target(tab: tab, pane: pane, resource: resource, daemon: daemon)
     }
 
-    /// The id of the tab icon undo toast (one per window; a newer change replaces it).
-    static let undoToastID = "tab-icon-undo"
-
-    /// Changes the tab's icon (nil removes it); a user's change offers an undo toast (IconHistory).
+    /// Changes the tab's icon (nil removes it); a user's change is an undo step (IconHistory).
     static func change(_ target: Target, to icon: String?, origin: ActionOrigin, _ ctx: AppActionContext) {
         // The icon the tab shows now (the picker may have been open while it changed).
         let previous = ctx.services.locateTab(target.tab.id)?.0.userIcon ?? target.tab.userIcon
         try? history(ctx).change(target.tab.id, from: previous, to: icon, origin: origin)
     }
 
-    /// Icon updates by tab id, so an undo after the tab moved still finds it; the undo toast shows
-    /// in the window that shows the tab (not the picker panel that is key while it closes).
+    /// Icon updates by tab id, so an undo after the tab moved still finds it; the undo step goes on
+    /// the undo stack of the window that shows the tab (not the picker panel that is key while it closes).
     static func history(_ ctx: AppActionContext) -> IconHistory {
         let shownIn = UndoToastWindow()
         return IconHistory(messages: .tab, apply: { id, update in
@@ -77,8 +74,7 @@ enum TabIconHandlers {
         }, offerUndo: { message, undo in
             let windows = ctx.services.windows
             guard let window = shownIn.window ?? windows.active?.window ?? NSApp.mainWindow else { return }
-            let handle = CmuxToastCenter.shared.show(CmuxToast(id: undoToastID, message: message, action: .undo()), in: window)
-            handle.onAction = { undo() }
+            IconHistory.registerUndo(message, in: window, undo)
         })
     }
 

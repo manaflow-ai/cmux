@@ -1,29 +1,65 @@
-/* The chat's bottom stack (hq#1957, Leo 2026-10-14): everything under the transcript, in the layout
-   flow and in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the pull
-   request dock (summary/PullRequestDock.tsx), then the composer form, which holds the queued
-   prompts (ComposerQueue.tsx), the location strip and the card. Every part takes its own height,
-   so none draws over another or under the pane's edge. The transcript gives up height first, down
-   to --acpmux-transcript-min; in a pane shorter still, the dock and the queue give up theirs, down
-   to one row, and scroll inside it. A new part joins the flow here; none is laid over the
-   transcript with absolute positioning. */
+/* The chat's bottom stack (hq#1957, Leo 2026-10-14), .acpmux-dock: everything under the transcript,
+   in this order: a question waiting for an answer (.acpmux-asks-stack), notices, the pull request
+   dock (summary/PullRequestDock.tsx), the agents pill while subagents run (subagents/AgentsPill.tsx),
+   then the composer form, which holds the queued prompts (ComposerQueue.tsx), the location strip and
+   the card. Every part takes its own height in the stack's own flow, so none draws over another or
+   under the pane's edge; a new part joins that flow here.
+   While the stage shows the transcript (.acpmux-main[data-dock=float]), the stack lies over the
+   transcript's foot, as the Claude and Codex apps lay their composer (Leo 2026-10-19): the
+   transcript runs the pane's height, its scrollbar's track to the pane's bottom corner, and keeps
+   the stack's height as room under its last row (VirtualTranscript `dock`), hiding the rows that
+   pass under it (conversation.css). The stack never takes the transcript's last
+   --acpmux-transcript-min under the header; in a pane shorter still, the dock and the queue give up
+   their height, down to one row, and scroll inside it. Elsewhere (a new chat's hero, a handoff
+   review, the diff, the inspector) the stack is in the pane's flow under the stage. */
 /* The stage holds the header (44px, styles.css) over the transcript. */
 .acpmux-main > .acpmux-stage {
   min-height: calc(44px + var(--acpmux-transcript-min, 96px));
 }
-.acpmux-main > .acpmux-composer {
+.acpmux-dock {
+  display: contents;
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  display: flex;
+  flex-direction: column;
+  max-height: calc(100% - 44px - var(--acpmux-transcript-min, 96px));
+  /* The gutters beside and under the card pass the wheel to the transcript under them. */
+  pointer-events: none;
+}
+/* Claude Code's split adds the quiet row (28 px and its 4 px gap) under the card: the transcript
+   gives that up first, down to 64 px above the stack, so a short pane with a queued prompt keeps the
+   quiet row inside it (re-review of #22285). */
+.acpmux-main[data-dock="float"]:has(.acpmux-composer-foot) > .acpmux-dock {
+  max-height: calc(100% - 44px - max(64px, var(--acpmux-transcript-min, 96px) - 32px));
+}
+.acpmux-main[data-dock="float"] > .acpmux-dock > :not(.acpmux-composer),
+.acpmux-main[data-dock="float"] > .acpmux-dock > .acpmux-composer > * {
+  pointer-events: auto;
+}
+.acpmux-dock > .acpmux-agents-pill-anchor {
+  position: relative;
+  flex: none;
+  display: flex;
+  padding: 0 var(--cv-inset) 8px;
+}
+.acpmux-dock > .acpmux-composer {
   display: flex;
   flex: 0 1 auto;
   flex-flow: column nowrap;
   min-height: 0;
 }
-.acpmux-main > .acpmux-composer > * {
+.acpmux-dock > .acpmux-composer > * {
   flex: none;
 }
 /* A permission card's numbered options can outgrow a short pane: it scrolls inside the height it
    keeps, so the composer card stays in view. */
-.acpmux-main > .acpmux-composer > .acpmux-composer-queue,
-.acpmux-main > .acpmux-pr-dock,
-.acpmux-main > .acpmux-asks-stack {
+.acpmux-dock > .acpmux-composer > .acpmux-composer-queue,
+.acpmux-dock > .acpmux-pr-dock,
+.acpmux-dock > .acpmux-asks-stack {
   flex: 0 1 auto;
   min-height: var(--acpmux-stack-row-min, 34px);
   overflow-y: auto;

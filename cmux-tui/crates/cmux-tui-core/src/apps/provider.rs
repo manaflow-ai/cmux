@@ -6,9 +6,17 @@
 //! stamped actor (`app:<id>`) and origin and enforces its own owner rules.
 //!
 //! Wire (local connections only):
-//! - `apps-provider-register {families}` -> `{families}`; one provider per
-//!   family, a later registration replaces an earlier one; it ends with the
-//!   connection.
+//! - `apps-provider-register {families, inventory_watch?}` -> `{families}`;
+//!   one live provider per family, ending with its connection. Opting into
+//!   inventory watch requires `agent_cli` and returns `inventory_demand`
+//!   `{sequence, enabled}` alongside the families (legacy replies stay exact).
+//! - targeted `apps-agent-inventory-demand {sequence, enabled}` follows
+//!   current readable subscriptions. Sequence is UInt64, scoped to the
+//!   supervisor boot and provider connection; discard older snapshots/events.
+//! - `apps-agent-inventory-changed {demand_sequence}` accepts only the
+//!   current verified non-agent Unix provider and current enabled demand.
+//!   It queues empty `agent_cli.changed` invalidations, never caller rows,
+//!   commands or selectors (`subscriptions.rs`).
 //! - event `apps-provider-request {request_id, app, actor, origin, op,
 //!   params, idempotency_key?, deadline_ms}` to the provider only;
 //! - `apps-provider-result {request_id, ok, body}` (ABI bodies) -> `{}`;
@@ -49,6 +57,9 @@ pub const FAMILIES: &[&str] = &[
     "team",
     "app",
     "coderouter",
+    // Session-host-owned agent environment operations. A host must still
+    // register this family through the verified app/provider boundary.
+    "agent_cli",
     "credential",
 ];
 
@@ -175,6 +186,26 @@ impl Supervisor {
         claim: ProviderClaim,
         families: Vec<String>,
     ) -> Result<Value, ApiError> {
+        self.register_provider_options(client, claim, families, false)
+    }
+
+    /// Opts into the inventory demand snapshot without changing legacy registration replies.
+    pub fn register_inventory_provider(
+        &self,
+        client: u64,
+        claim: ProviderClaim,
+        families: Vec<String>,
+    ) -> Result<Value, ApiError> {
+        self.register_provider_options(client, claim, families, true)
+    }
+
+    fn register_provider_options(
+        &self,
+        client: u64,
+        claim: ProviderClaim,
+        families: Vec<String>,
+        inventory_watch: bool,
+    ) -> Result<Value, ApiError> {
         if !hosting_app_connection(&claim) {
             let why = if claim.agent {
                 "agent connections cannot provide app ops"
@@ -186,6 +217,12 @@ impl Supervisor {
         if families.is_empty() {
             return Err(ApiError::new("bad-request", "families must not be empty"));
         }
+        if inventory_watch && !families.iter().any(|family| family == "agent_cli") {
+            return Err(ApiError::new(
+                "bad-request",
+                "inventory watch requires the agent_cli provider family",
+            ));
+        }
         if let Some(unknown) = families.iter().find(|f| !FAMILIES.contains(&f.as_str())) {
             return Err(ApiError::new(
                 "bad-request",
@@ -193,6 +230,12 @@ impl Supervisor {
             ));
         }
         let mut inner = self.inner.lock().unwrap();
+        if inventory_watch && !inner.sinks.contains_key(&client) {
+            return Err(ApiError::new(
+                "apps.provider.unknown",
+                "inventory provider connection is not registered",
+            ));
+        }
         // No takeover: a family held by another live connection stays with it
         // until that connection closes (any same-uid process may connect).
         if let Some(taken) = families
@@ -207,7 +250,14 @@ impl Supervisor {
         for family in &families {
             inner.providers.insert(family.clone(), client);
         }
-        Ok(json!({ "families": families }))
+        let demand = Self::inventory_demand_locked(&mut inner);
+        let mut result = json!({ "families": families });
+        if inventory_watch {
+            result["inventory_demand"] = inner.inventory_demand.snapshot();
+        }
+        drop(inner);
+        self.emit(demand.into_iter().collect());
+        Ok(result)
     }
 
     /// Queues an admitted call for its provider; the error is the ABI body
@@ -456,6 +506,7 @@ mod tests {
     fn families_and_methods() {
         assert_eq!(family_of("app.settings.set"), "app.settings");
         assert_eq!(family_of("fs.pick"), "fs");
+        assert!(FAMILIES.contains(&family_of("agent_cli.list")));
         let mut params = json!({ "provider": "github" });
         normalize_method(&mut params);
         assert_eq!(params["method"], "GET");

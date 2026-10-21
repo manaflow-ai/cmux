@@ -143,7 +143,7 @@ pid, fd = pty.fork()
 if pid == 0:
     os.execv(sys.argv[1], [sys.argv[1], "-i"])
 buf, sent, end = b"", False, time.time() + 30
-while time.time() < end and not re.search(rb"cmux=/[^\r\n]* leak=[0-9]|replay-env=(unset|/)[^\r\n]*[\r\n]", buf):
+while time.time() < end and not re.search(rb"cmux=/[^\r\n]* leak=[0-9]|replay-env=(unset|/)[^\r\n]*[\r\n]|codex=/[^\r\n]*[\r\n]", buf):
     if select.select([fd], [], [], 0.2)[0]:
         try: buf += os.read(fd, 65536)
         except OSError: break
@@ -160,5 +160,38 @@ else
   echo "SKIP: fish not installed"
 fi
 
+# The cmux-tui daemon names its agent shim directory (`codex` and `claude`
+# that add the terminal's hooks) in CMUX_TUI_AGENT_SHIMS and puts it first on
+# the spawn PATH. The startup files prepend ~/.local/bin, which holds the real
+# `codex`; the layers move the shim directory back to the front before each
+# command (zsh, fish) or at each prompt (bash), so plain `codex` still starts
+# through the shim. Codex runs its hooks in a shared daemon that cannot see
+# the terminal's environment, so only the shim can route them.
+shims="$TMP/shims [x]"
+mkdir -p "$shims"
+printf '#!/bin/sh\necho shim\n' >"$shims/codex"
+printf '#!/bin/sh\necho real\n' >"$home/.local/bin/codex"
+chmod +x "$shims/codex" "$home/.local/bin/codex"
+shim_env=(CMUX_TUI_AGENT_SHIMS="$shims" PATH="$shims:$resources/bin:/usr/bin:/bin:/usr/sbin:/sbin")
+codex_probe='printf "codex=%s\n" "$(command -v codex)"'
+check_codex() {
+  local name="$1" out="$2" line
+  line=$(grep -aoE 'codex=[^[:space:]]*.*' <<<"$out" | tr -d '\r' | tail -1 || true)
+  if [[ "$line" != "codex=$shims/codex" ]]; then
+    echo "FAIL: $name: plain codex skipped the agent shim: ${line:-no answer}" >&2
+    printf "%s\n" "$out" | tail -20 | cat -v >&2; fail=1; return
+  fi
+  echo "PASS: $name"
+}
+if command -v zsh >/dev/null; then
+  check_codex "zsh -i agent shim" "$(run_zsh "$codex_probe" "${shim_env[@]}")"
+fi
+if [[ "$(command -v bash)" != /bin/bash ]] || [[ -n "${CMUX_TEST_BASH:-}" ]]; then
+  check_codex "bash -i agent shim" "$(run_bash "$codex_probe" "${shim_env[@]}")"
+fi
+if command -v fish >/dev/null; then
+  check_codex "fish -i agent shim" "$(run_fish 'printf "codex=%s\n" (command -v codex)' "${shim_env[@]}")"
+fi
+
 [[ $fail -eq 0 ]] || exit 1
-echo "PASS: plain cmux is the bundled CLI after user startup files"
+echo "PASS: plain cmux is the bundled CLI, and plain codex the agent shim, after user startup files"

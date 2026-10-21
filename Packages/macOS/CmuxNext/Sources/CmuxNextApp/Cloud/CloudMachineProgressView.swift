@@ -22,7 +22,7 @@ final class CloudMachineProgressView: NSView {
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let elapsedLabel = ChromeLabel(labelWithString: "")
     private let stepsStack = NSStackView()
-    private var stepRows: [(icon: NSImageView, label: NSTextField)] = []
+    private var stepRows: [(icon: NSImageView, label: ChromeLabel)] = []
     private let detailLabel = NSTextField(wrappingLabelWithString: "")
     private let typingLabel = ChromeLabel(wrappingLabelWithString: "")
     private let retryButton = ThemedDefaultButton()
@@ -75,7 +75,7 @@ final class CloudMachineProgressView: NSView {
             button.action = action
             buttons.addArrangedSubview(button)
         }
-        retryButton.keyEquivalent = "\r"
+        retryButton.keyHint = .return
         buttons.orientation = .horizontal
         buttons.spacing = Metrics.space2
         let stack = NSStackView(views: [titleLabel, elapsedLabel, stepsStack, detailLabel, buttons, typingLabel])

@@ -87,7 +87,15 @@ const busy: ActivityState = {
 
 const hoursAgo = (n: number) => minutesAgo(n * 60);
 const lanes: Lane[] = [
-  { id: "chief", name: "chief", title: "Coordinator", state: "working", since: hoursAgo(0.1) },
+  {
+    id: "chief",
+    name: "chief",
+    title: "Coordinator",
+    state: "working",
+    since: hoursAgo(0.1),
+    harness: "claude",
+    step: "Check the four open PRs and send the green ones to merge",
+  },
   {
     id: "l1",
     name: "op-restore",
@@ -97,8 +105,26 @@ const lanes: Lane[] = [
     since: hoursAgo(3),
     error: "Credit balance too low",
   },
-  { id: "l2", name: "op-keys", title: "Keymaps call", parent: "chief", state: "input", since: hoursAgo(0.2) },
-  { id: "l3", name: "op-gallery", title: "Gallery previews", parent: "chief", state: "idle", since: hoursAgo(5) },
+  {
+    id: "l2",
+    name: "op-keys",
+    title: "Keymaps call",
+    parent: "chief",
+    state: "input",
+    since: hoursAgo(0.2),
+    harness: "codex",
+    step: "Should Cmd-K open the palette or clear the terminal?",
+  },
+  {
+    id: "l3",
+    name: "op-gallery",
+    title: "Gallery previews",
+    parent: "chief",
+    state: "idle",
+    since: hoursAgo(5),
+    harness: "claude",
+    step: "Opened #21700; CI is green.",
+  },
   {
     id: "l4",
     name: "op-cursors",
@@ -106,6 +132,8 @@ const lanes: Lane[] = [
     parent: "chief",
     state: "working",
     since: hoursAgo(0.5),
+    harness: "codex",
+    step: "Run the lanes tests",
   },
   { id: "l5", name: "scratch", title: "Scratch chat", state: "idle", since: hoursAgo(26) },
   { id: "l6", name: "mini/op-web", title: "Web bundles", peer: "mini", state: "lost", since: hoursAgo(4) },
@@ -140,7 +168,7 @@ export default componentEntry<Props>({
     timeline: { note: "Every session as a lane of steps.", props: { state: { ...busy, layout: "timeline" } } },
     grid: { note: "One tile per session with its latest step.", props: { state: { ...busy, layout: "grid" } } },
     lanes: {
-      note: "Labs: every agent session by machine and coordinator; what needs a person first.",
+      note: "Labs: every agent session by machine and coordinator, with its harness and current step; what needs a person first.",
       props: { state: { ...busy, lanes } },
     },
   },

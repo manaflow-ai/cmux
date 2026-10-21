@@ -81,8 +81,12 @@ const MAX_SMART_RETAINED_FRAMES: usize = 4096;
 const HOST_PARSER_QUEUE_CAPACITY: usize = 256;
 const MAX_HOST_PARSER_QUEUED_BYTES: usize = 16 * 1024 * 1024;
 const HOST_START_NONCE_LEN: usize = 32;
-const TERMINAL_DIMENSION_MAX: u16 = 10_000;
-const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
+/// The largest terminal side, in cells. `crate::mux::clamp_terminal_size`
+/// applies it (and the area limit) to every request; the host keeps the
+/// check for sizes that come over its socket.
+pub(crate) const TERMINAL_DIMENSION_MAX: u16 = 10_000;
+/// The largest terminal grid, in cells.
+pub(crate) const TERMINAL_CELL_AREA_MAX: u64 = 4_000_000;
 const DEFAULT_CELL_PIXELS: (u16, u16) = (8, 16);
 const CELL_PIXEL_SIZE_ENCODED_LEN: usize = 2 * size_of::<u16>();
 const KITTY_GRAPHICS_LIMITS_ENCODED_LEN: usize = 4 * size_of::<u64>();
@@ -702,17 +706,23 @@ mod unix {
         bootstrapped: &crate::terminal_host::BootstrappedHost,
     ) -> anyhow::Result<Arc<HostShared>> {
         let cell_pixels = (launch.cell_pixels.0.max(1), launch.cell_pixels.1.max(1));
-        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels)?;
+        let initial_pty_size = pty_size(launch.cols, launch.rows, cell_pixels);
         let pty = cmux_pty::open(initial_pty_size)?;
         crate::debug_spans::mark("host.pty_opened");
-        let mut command = PtyCommand::new(&launch.command[0]);
-        command.args(launch.command[1..].iter().cloned());
+        // A frontend's shell starts through login(1) (`login_shell`); the
+        // recorded launch command stays the shell's.
+        let login = crate::login_shell::wrap(&launch.command, &launch.extra_env);
+        let argv = login.as_deref().unwrap_or(&launch.command);
+        let mut command = PtyCommand::new(&argv[0]);
+        command.args(argv[1..].iter().cloned());
         command.env("TERM", &launch.term);
         // Terminal-host children get the same truecolor guarantee as directly
         // spawned surfaces (see Surface spawn in surface.rs); extra_env wins.
         command.env("COLORTERM", "truecolor");
         for (key, value) in &launch.extra_env {
-            command.env(key, value);
+            if !crate::login_shell::is_marker(key) {
+                command.env(key, value);
+            }
         }
         if let Some(cwd) = launch.cwd.as_deref() {
             command.cwd(cwd);

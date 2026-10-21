@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""Exercise actual retained Release state and content-checked input timestamps."""
-import os
-import shutil
+"""A trusted NEXT worker keeps its package checkouts and compilation cache, never its build state.
+
+An incremental Xcode build can keep stale autolink and force-load data in
+objects it did not recompile after an import set changed, so a shipped build
+starts from an empty DerivedData even on a worker that kept one before.
+"""
 from pathlib import Path
-import subprocess
 import sys
 import tempfile
 import unittest
@@ -21,69 +23,52 @@ class NightlyBuildState(unittest.TestCase):
         self.workspace = self.root / 'src'
         self.workspace.mkdir()
         self.home = self.root / 'home'
-        subprocess.run(['git', 'init', '-q', str(self.workspace)], check=True)
-        self.source = self.workspace / 'main.swift'
-        self.source.write_text('old')
-        subprocess.run(['git', '-C', str(self.workspace), 'add', 'main.swift'], check=True)
 
     def prepare(self, runner='cmux15-glaeda', toolchain='Xcode 26.6'):
         return state.prepare(self.workspace, self.home, runner, 'nightly-next', toolchain)
 
-    def test_checkout_cleanup_preserves_build_database_products_and_packages(self):
+    def retained(self, runner='cmux15-glaeda'):
+        return self.home / 'Library/Caches/cmux-nightly-next' / runner
+
+    def test_kept_build_state_is_deleted_and_package_checkouts_stay(self):
+        # State that an earlier revision of this script retained, for this
+        # toolchain and for an older one, and linked into the workspace.
+        for identity in ('current', 'older-xcode'):
+            for path in ('DerivedData/Build/Intermediates.noindex/build.db',
+                         'DerivedData/Build/Products/Release/cmux.app/binary',
+                         'DerivedData/cmux-nightly-inputs.json'):
+                target = self.retained() / identity / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text('stale')
+        (self.workspace / 'build-universal').symlink_to(self.retained() / 'current/DerivedData')
+
         self.assertTrue(self.prepare())
-        for path in ('build-universal/Build/Intermediates.noindex/build.db',
-                     'build-universal/Build/Products/Release/cmux.app/binary', '.spm-cache/checkouts/pkg/source.swift'):
-            target = self.workspace / path
-            target.parent.mkdir(parents=True, exist_ok=True)
-            target.write_text('kept')
-        (self.workspace / 'build-universal').unlink()
-        (self.workspace / '.spm-cache').unlink()
-        self.prepare()
-        self.assertEqual((self.workspace / 'build-universal/Build/Intermediates.noindex/build.db').read_text(), 'kept')
-        self.assertEqual((self.workspace / '.spm-cache/checkouts/pkg/source.swift').read_text(), 'kept')
-        first = (self.workspace / 'build-universal').resolve()
-        self.prepare(toolchain='Xcode 27')
-        self.assertNotEqual((self.workspace / 'build-universal').resolve(), first)
-        self.prepare(runner='cmux15-glaeda-1')
-        self.assertNotEqual((self.workspace / 'build-universal').resolve(), first)
-        self.assertTrue((first / 'Build/Products/Release/cmux.app/binary').is_file())
-
-    def test_only_identical_sources_and_rebuilt_resources_reuse_times(self):
-        self.prepare()
-        resource = self.workspace / state.GENERATED_INPUTS[0] / 'index.html'
-        resource.parent.mkdir(parents=True)
-        resource.write_text('same output')
-        old = 1_000_000_000_000_000_000
-        os.utime(self.source, ns=(old, old))
-        os.utime(resource, ns=(old, old))
-        state.inputs(self.workspace, 'record')
-        self.source.write_text('changed')
-        os.utime(self.source, ns=(old, old))  # archive or reset gave changed input an old time
-        resource.write_text('same output')  # forced web bundle rebuild
-        state.inputs(self.workspace, 'replay')
-        self.assertGreater(self.source.stat().st_mtime_ns, old)
-        self.assertEqual(resource.stat().st_mtime_ns, old)
-        resource.write_text('changed output')
-        os.utime(resource, ns=(old, old))
-        state.inputs(self.workspace, 'replay')
-        self.assertGreater(resource.stat().st_mtime_ns, old)
-
-    def test_missing_or_corrupt_retained_state_falls_back_to_fresh_inputs(self):
-        self.prepare()
+        checkout = self.workspace / '.spm-cache/checkouts/pkg/source.swift'
+        checkout.parent.mkdir(parents=True)
+        checkout.write_text('kept')
         derived = self.workspace / 'build-universal'
-        shutil.rmtree(derived.resolve())
-        self.prepare()
-        self.assertTrue(derived.is_dir())
-        (derived / state.MANIFEST).write_text('incomplete JSON')
-        old = 1_000_000_000_000_000_000
-        os.utime(self.source, ns=(old, old))
-        state.inputs(self.workspace, 'replay')
-        self.assertGreater(self.source.stat().st_mtime_ns, old)
+        (derived / 'Build').mkdir()
+        (derived / 'Build/object.o').write_text('built by this job')
+        cas = derived / 'CompilationCache.noindex/v1.1/data'
+        cas.parent.mkdir(parents=True)
+        cas.write_text('content-keyed')
+
+        # Checkout's clean drops the workspace links; the next job prepares again.
+        (self.workspace / '.spm-cache').unlink()
+        self.assertTrue(self.prepare())
+
+        self.assertFalse(derived.is_symlink())
+        self.assertEqual([path.name for path in derived.iterdir()], ['CompilationCache.noindex'])
+        self.assertTrue((derived / 'CompilationCache.noindex').is_symlink())
+        self.assertEqual(cas.read_text(), 'content-keyed')
+        self.assertEqual(sorted(self.retained().glob('*/DerivedData')), [])
+        self.assertEqual(checkout.read_text(), 'kept')
 
     def test_hosted_and_classic_do_not_acquire_next_state(self):
         self.assertFalse(self.prepare(runner='blacksmith-12vcpu-macos-26-1'))
         self.assertFalse(state.prepare(self.workspace, self.home, 'cmux15-glaeda', 'nightly', 'Xcode 26.6'))
         self.assertFalse((self.workspace / 'build-universal').exists())
+        self.assertFalse((self.workspace / '.spm-cache').exists())
 
 
 if __name__ == '__main__':

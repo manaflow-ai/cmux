@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "erforderlich: Diese Maschine wird mit dem Team geteilt" },
   "agentHarness": {
     "title": "Erkannte Harness-Konfiguration",
     "selectionNotice": "Die Auswahl eines Anbieters startet oder aktiviert diese Harnesses nicht.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Planung, TDD, Subagenten und Review"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud-VM-Anfrage verzögert",
+      "message": "Die Zuweisung einer Cloud-VM ist vorübergehend nicht verfügbar.",
+      "action": "Warte eine Minute und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot-Anfrage benötigt einen Wiederholungsschlüssel",
+      "message": "Cloud-VM-Snapshots benötigen einen Idempotenzschlüssel.",
+      "action": "Versuche es mit einem festen Idempotency-Key mit höchstens 128 Zeichen erneut."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot wird noch erstellt",
+      "message": "Ein Snapshot mit diesem Idempotenzschlüssel wird für diese Cloud-VM noch erstellt.",
+      "action": "Warte, bis der erste Snapshot fertig ist, und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot-Wiederholungsschlüssel bereits verwendet",
+      "message": "Dieser Idempotenzschlüssel wurde bereits für eine andere Snapshot-Anfrage dieser Cloud-VM verwendet.",
+      "action": "Verwende für einen Snapshot mit einem anderen Namen einen neuen Idempotenzschlüssel."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot-Limit erreicht",
+      "message": "Diese Cloud-VM hat ihr Snapshot-Limit erreicht.",
+      "action": "Lösche einen vorhandenen Snapshot und versuche es dann mit demselben Idempotenzschlüssel erneut."
+    },
     "guestInstall": {
       "title": "Cloud-VM-Einrichtung nicht abgeschlossen",
       "reason": "Die Gast-Einrichtung der Cloud-VM wurde nicht abgeschlossen.",
@@ -2258,6 +2284,7 @@
           "currentLineHighlight": "Hebt die Zeile mit dem Textcursor farbig hervor, solange nichts ausgewählt ist.",
           "tabWidth": "Wie viele Spalten ein Tabstopp umfasst. Die Einrückungshilfslinien verwenden denselben Abstand."
         },
+        "actions": "Wiederverwendbare Aktionen für die Befehlspalette, Tastenkürzel, Schaltflächen der Tableiste und das Menü der Plus-Schaltfläche. Unterstützt builtin, command, agent, workspaceCommand, workspace, setting, settingPreset und text. Textaktionen fügen Text im fokussierten Terminal ein und erhalten Zeilenumbrüche; submit: true drückt Enter. Einstellungsaktionen erfordern eine globale Konfiguration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

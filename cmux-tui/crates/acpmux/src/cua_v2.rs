@@ -34,6 +34,8 @@ use tokio::net::UnixStream;
 mod liveness;
 
 pub use liveness::Owner;
+#[cfg(target_os = "macos")]
+pub(crate) use liveness::start_time;
 
 /// The helper v2 endpoint folder the app exports to this daemon.
 pub const ENDPOINT_DIR_ENV: &str = "CMUX_NEXT_CUA_V2_DIR";

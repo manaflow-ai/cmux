@@ -35,12 +35,15 @@ impl Until {
         let status = s.get("status").and_then(Value::as_str).unwrap_or("");
         let pending = s.get("pendingPermissions").and_then(Value::as_u64).unwrap_or(0) > 0;
         let unread = s.get("unread").and_then(Value::as_bool).unwrap_or(false);
+        // An accepted turn whose agent is still starting is not ready yet
+        // (its status turns running only once the prompt goes out).
+        let turn = s.get("turn").is_some_and(|t| !t.is_null());
         match self {
-            Self::Ready => status != "running" && status != "waiting" && !pending,
+            Self::Ready => status != "running" && status != "waiting" && !pending && !turn,
             Self::Permission => pending || status == "waiting",
             Self::Closed => status == "closed",
             Self::Done => unread && status != "running" && status != "waiting",
-            Self::Running => status == "running" || status == "waiting",
+            Self::Running => status == "running" || status == "waiting" || turn,
         }
     }
 }

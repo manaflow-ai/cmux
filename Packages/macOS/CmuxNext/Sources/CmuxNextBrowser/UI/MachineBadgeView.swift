@@ -50,7 +50,7 @@ final class MachineBadgeView: NSView {
         updateLayer()
     }
 
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     override func updateLayer() {
         performWithTheme {

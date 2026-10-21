@@ -358,7 +358,7 @@ final class TiledBody {
         if let img = TiledBody.bandImages[key] { band.contentsScale = s; band.contents = img; return }
         defer { if let raw = band.contents, CFGetTypeID(raw as AnyObject) == CGImage.typeID { TiledBody.bandImages[key] = unsafeDowncast(raw as AnyObject, to: CGImage.self); if TiledBody.bandImages.count > 64 { TiledBody.bandImages.removeAll() } } }
         let font = HomeFonts.system(ofSize: Fixture.bodyFont.pointSize, weight: .semibold)
-        let color = p.outgoing ? Fixture.outgoingText : UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1)
+        let color = p.outgoing ? Fixture.outgoingText : Fixture.incomingLink // cmux: themed link tint
         let rule = (p.outgoing ? Fixture.outgoingText : Fixture.incomingText).withAlphaComponent(0.25)
         Reclaimer.release(band.contents)
         band.contentsScale = s
@@ -399,8 +399,8 @@ final class TiledBody {
         // the first 40 lines, and the last 40 lines moved up under the band (both clipped).
         var segments: [(lines: Range<Int>, shift: CGFloat, parent: CALayer)] = [(0..<total, 0, container)]
         if folded {
-            let tailFirst = max(LongTextFold.headLines, total - LongTextFold.tailLines)
-            segments = [(0..<min(total, LongTextFold.headLines), 0, headClip),
+            let tailFirst = LongTextFold.tailFirst(total) // cmux: never above total
+            segments = [(LongTextFold.head(total), 0, headClip),
                         (tailFirst..<total, CGFloat(LongTextFold.headLines - tailFirst) * lh + LongTextFold.bandHeight, tailClip)]
         }
         var wanted: [(TileCache.Key, CGRect, Bool, Int, CALayer)] = []

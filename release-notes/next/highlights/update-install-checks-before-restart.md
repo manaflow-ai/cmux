@@ -1,4 +1,5 @@
 title: A failed update tells you why and offers a manual download
 category: fixed
+action: palette.checkForUpdates | Check for Updates
 
-Before Restart to Update quits cmux, it now checks that cmux can replace itself in its folder, that the disk has room, and that the downloaded update is still there. If a check fails, cmux keeps running and shows the reason with Try Again and Download Manually, instead of quitting and not coming back.
+Before Restart to Update quits cmux, it checks that cmux can replace itself, the disk has room and the update is still there. If not, cmux keeps running and shows why, with Try Again and Download Manually.

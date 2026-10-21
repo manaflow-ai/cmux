@@ -77,14 +77,19 @@ browser authentication. The machine's `cmux --help` is authoritative.
 - App actions can change focus. Prefer working inside the machine's session, which
   does not move the Mac's focus.
 
-## Removed, with no CLI replacement
+## Old `vm` verbs
 
-`vm exec`, `vm run`, `vm agent`, `vm dev`, `vm route`, `vm push|pull`, `vm ssh`,
-`vm tree`, `vm open <m>:port/<n>`, `vm terminal …` against a machine from the Mac,
-`vm layout|env` from the Mac, `vm wait`, `vm pause|resume`, `cloud domains`,
-`vpn`, `surface ls|open|new-terminal` and `vm ls --json`. Run commands by opening a
-terminal on the machine and using its session there; copy a port link with
-`cmux cloud copy-machine-link --target machine:vm-… --port 3000`.
+The Swift `cmux vm …` family is gone. Its replacements are app actions:
+`cmux cloud exec --command …` and `cmux cloud ssh` (both open a terminal),
+`cmux cloud file-write`, `cmux cloud file-read|files-list|prepare-scp` (these
+show their result to the person in a toast, not on stdout),
+`cmux cloud pause-machine|resume-machine`, and `cmux cloud domain-list` (listing
+only). These have no CLI path: `vm route|tree|wait|restart|stats|prompt`,
+`vm open <m>:port/<n>`, `vm terminal …` against a machine from the Mac,
+`vm layout|env` from the Mac, domain publishing, and `vm ls --json`. Copy a port
+link from the machine's menu (Copy Machine Link): the copy actions are menu-only. The
+[command reference](references/commands.md#old-vm-verbs-and-their-replacements)
+maps every old verb.
 
 ## Read only the relevant detail
 

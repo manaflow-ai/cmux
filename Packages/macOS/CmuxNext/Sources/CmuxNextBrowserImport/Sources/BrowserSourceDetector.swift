@@ -64,7 +64,8 @@ public struct BrowserSourceDetector: Sendable {
                     bookmarksFile = sidebar
                 }
                 return BrowserSourceProfile(browser: browser, directoryName: entry.directoryName, displayName: entry.displayName,
-                                            path: path, availability: availability, avatar: avatar, bookmarksFile: bookmarksFile)
+                                            path: path, availability: availability, avatar: avatar, color: entry.color,
+                                            bookmarksFile: bookmarksFile)
             }
             return profiles.isEmpty ? nil : BrowserSource(browser: browser, appURL: appURL, profiles: profiles)
         case .firefox:
@@ -129,6 +130,7 @@ public struct BrowserSourceDetector: Sendable {
             .history: present(files?.history ?? "History") ? .available : .absent,
             .openTabs: hasSession ? .available : .absent,
             .extensions: present("Extensions") ? .available : .absent,
+            .searchEngines: present("Preferences") ? .available : .absent,
             // Read only after the consent step (PasswordImporter).
             .passwords: !present(files?.passwords ?? "Login Data") ? .absent : browser.readsSavedPasswords ? .available : .unsupported(.exportFromSource),
             .cookies: chromiumCookieFile(profile) != nil ? .available : .absent,

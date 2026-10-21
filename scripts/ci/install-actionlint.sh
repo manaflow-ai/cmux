@@ -7,7 +7,7 @@ set -euo pipefail
 : "${ACTIONLINT_ASSET_ID:?ACTIONLINT_ASSET_ID must be set}"
 : "${RUNNER_TEMP:?RUNNER_TEMP must be set}"
 
-if [[ ! "$ACTIONLINT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+if [[ ! "$ACTIONLINT_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-manaflow\.[0-9]+)?$ ]]; then
   echo "invalid actionlint version: $ACTIONLINT_VERSION" >&2
   exit 2
 fi
@@ -23,11 +23,13 @@ fi
 archive="$RUNNER_TEMP/actionlint.tar.gz"
 binary="$RUNNER_TEMP/actionlint"
 asset_name="actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
-release_url="https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/${asset_name}"
-# The asset ID is immutable for the lifetime of a GitHub release asset. This
+# The manaflow-ai fork publishes the pinned build (rhysd/actionlint has no
+# release with the shellcheck stdin deadlock fix yet).
+release_url="https://github.com/manaflow-ai/actionlint/releases/download/v${ACTIONLINT_VERSION}/${asset_name}"
+# The asset ID names one upload of the release asset (a re-upload gets a new ID). This
 # endpoint is a separate GitHub API path from the browser download redirect;
 # the SHA-256 below still authenticates the bytes before they are extracted.
-api_url="https://api.github.com/repos/rhysd/actionlint/releases/assets/${ACTIONLINT_ASSET_ID}"
+api_url="https://api.github.com/repos/manaflow-ai/actionlint/releases/assets/${ACTIONLINT_ASSET_ID}"
 
 download() {
   local url="$1"

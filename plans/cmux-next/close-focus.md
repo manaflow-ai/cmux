@@ -50,8 +50,15 @@ the strip's scroll function (column-scroll.md).
   the newest surviving pane of this window's history on that screen, else the default.
   Closing the right docked column focuses the strip's last column; the left one, the
   strip's first.
-- Tab: the next shown tab, else the previous shown one; members of a collapsed
-  group are skipped while a shown tab survives.
+- Tab: a browser link tab with a live opener relation (`BrowserTabOpeners`) goes back to
+  its family first, in Chrome's order (`DetermineNewSelectedIndex`): its next child, else
+  a sibling (the next tab with the same opener), else the opener. "Next" means the nearest
+  after the closed tab, else the nearest before it. Otherwise, and for terminal and agent
+  tabs, which have no openers: the next shown tab, else the previous shown one. Members of
+  a collapsed group are skipped while a shown tab survives, so a hidden opener or sibling
+  is passed over. Relations end where Chrome ends them: a switch to an unrelated tab or a
+  typed navigation forgets them all (except a typed navigation in a New Tab page at the end
+  of the strip). Rule changed 2026-10-18 (manaflow-ai/cmux#21805 row 1).
 - Workspace: the next workspace below, else the one above (`WindowRegistry.repairedSelection`).
 - A rejected close (the tab or pane comes back) does not move focus back.
 
@@ -59,19 +66,23 @@ Scroll (strip and sidebar):
 
 - V1 clamped to the content; V2 the focused item is fully visible after settle when it
   must be revealed; V3 a focused item that stays focused and visible keeps its screen
-  position unless the clamp forces a move; the sidebar reveal-scrolls a moved row only
-  after the user's own move (a keyboard move, the Move Up/Down action, an explicit focus
-  change); it never reveal-scrolls on a drop (only the drag autoscroll moves the view
-  during and after a drop), and never on a change from another client; V4 a reveal aligns
+  position unless the clamp forces a move; the sidebar reveal-scrolls the focused row
+  whenever focus changes, the focused row moves (a drop, Move to Top, a sort, a regroup, a
+  keyboard move, a move from the CLI or another client), or a change pushes it out of view;
+  V4 a reveal aligns
   the nearer edge; V5 items removed, added or moved before the visible ones do not move
   what the user sees (the strip anchors on the focused column; the sidebar list anchors
   on the first visible row that did not move); V6 the same geometry settled again does not scroll (one scroll per
   change; animations interpolate to the computed target with the `.move`/`.scroll`
   Motion tokens, instant under Reduce Motion).
-  Rule changed 2026-10-16, chief approved, cx-ml98q.
-- Sidebar reveal happens when the active workspace changed, or when it was fully visible
-  before. A user who scrolled the list away from the active row keeps that view through
-  unrelated closes.
+  Rule changed 2026-10-16, chief approved, cx-ml98q; changed again 2026-10-19 (Lawrence:
+  "if we focus on workspace, or our focused workspace moves, invariant is it needs to
+  always be in user's sidebar, visible").
+- Sidebar reveal happens when the active workspace changed, moved by itself, or was fully
+  visible before. A new selection also opens a collapsed section (machine, Pinned, document
+  section) that hides it; a collapsed group draws its active member as its one row. A user
+  who scrolled the list away from the active row keeps that view through changes that do
+  not move it.
 - Docked columns are not in `ColumnStrip`, so they never enter strip scroll math.
 
 ## Entry points
@@ -103,6 +114,10 @@ successor), the strip's model sync to `ColumnScrollState`, and the sidebar's
   clamped, target shows focus); action properties UnfocusedCloseKeepsFocus, NoJump,
   MinimalReveal, SuccessorRule, NoSecondScroll; liveness Settles (after the last user step
   the view settles with the focus visible).
+- Tab opener order: `FocusAfterCloseOpenerTests` (child, sibling, opener, hidden ones
+  skipped, and every strip of up to 4 tabs with every opener forest and hidden set) and
+  `BrowserTabOpenersCloseFocusTests` (relations forgotten after an unrelated switch, a
+  closed opener's children take its opener).
 - Behavior tests: `CloseFocusReducerTests` (B1, B2, docked, screens, reject),
   `SidebarCloseScrollTests` (S1-S3, no jump), `FocusReducerTests`.
 
@@ -143,7 +158,8 @@ pill and animation smoothness (screenshots are settled frames).
 2. Entering the left column after a column closes lands on that column's most recently
    focused pane, else its first (each column keeps an active tile), not the
    geometrically nearest pane.
-3. Tabs keep their own rule (right, else left) and do not follow `layout.closeFocus`.
+3. Tabs keep their own rule (opener family for link tabs, then right, else left) and do
+   not follow `layout.closeFocus`.
    Workspaces keep next-below, else above.
 4. The sidebar reveals the active row only when it changed or was visible; it does not
    pull a manually scrolled list back on unrelated closes.

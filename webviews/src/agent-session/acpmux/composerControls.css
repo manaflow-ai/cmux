@@ -1,8 +1,7 @@
-/* Reasoning menu: one checked row per level the model offers, drawn as a native menu (NSMenu):
-   a fixed leading check gutter, so every label starts at the same x whether or not its row is
-   checked; one row height; section headers and separators on the label column's rhythm. The access
-   menu (composerLocation.css) uses the same gutter and row. The track below is the model menu's
-   inline effort row (modelMenuNodes.tsx). Theme tokens only. */
+/* Reasoning menu: one row per level the model offers, the chosen one marked by a check at the
+   row's trailing edge as Claude's model list marks it, so every label starts at the row's own
+   inset with no empty leading gutter (Leo 2026-10-18); one row height; section headers and
+   separators on the label column's rhythm. Theme tokens only. */
 .acpmux-effort-menu {
   --acpmux-menu-gutter: 16px;
   --acpmux-menu-gutter-gap: 8px;
@@ -18,20 +17,21 @@
 }
 .ui-menu-item.acpmux-effort-item {
   display: grid;
-  grid-template-columns: var(--acpmux-menu-gutter) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) var(--acpmux-menu-gutter);
   align-items: center;
   gap: var(--acpmux-menu-gutter-gap);
   height: var(--ui-row-height);
   min-height: 0;
   padding-block: 0;
-  padding-inline: var(--ui-row-padding-inline) calc(var(--ui-row-padding-inline) + 4px);
+  padding-inline: var(--ui-row-padding-inline);
   border-radius: var(--ui-row-radius);
   font-size: var(--text-control);
   color: var(--agent-text);
 }
 .ui-menu-item.acpmux-effort-item[data-highlighted] { background: var(--acpmux-menu-hover); }
 .acpmux-effort-item .ui-menu-check {
-  grid-column: 1;
+  grid-row: 1;
+  grid-column: 2;
   display: inline-flex;
   width: var(--acpmux-menu-gutter);
   justify-content: center;
@@ -40,7 +40,8 @@
   font-weight: 600;
 }
 .acpmux-effort-text {
-  grid-column: 2;
+  grid-row: 1;
+  grid-column: 1;
   display: flex;
   align-items: baseline;
   gap: 6px;
@@ -63,8 +64,7 @@
   align-items: center;
   height: 24px;
   padding-block: 0;
-  padding-inline: calc(var(--ui-row-padding-inline) + var(--acpmux-menu-gutter) + var(--acpmux-menu-gutter-gap))
-    var(--ui-row-padding-inline);
+  padding-inline: var(--ui-row-padding-inline);
   color: var(--agent-muted);
   font-size: var(--text-caption);
   line-height: var(--text-caption--line-height);

@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextTabs
@@ -18,6 +19,9 @@ struct TabTitleResolver {
     var newTabPageTitle: @MainActor (TabModel) -> String? = { _ in nil }
     /// An agent chat's title before the user names it (`AgentChatTabTitle`).
     var chatTitle: @MainActor (TabModel) -> String = { AgentChatTabTitle.untitled($0.agentSession) }
+    /// The name of the workspace an asked tab is in, when the caller knows it: an agent chat
+    /// with no title yet reads as it (`AgentChatTabTitle`).
+    var workspaceName: String?
     /// A Home conversation tab's title (`HomeService.tabTitle(for:)`).
     var conversationTitle: @MainActor (TabModel) -> String = { _ in Strings.untitledBrowser }
     /// The page an app or page tab shows, named and badged like that page.
@@ -25,10 +29,11 @@ struct TabTitleResolver {
     /// An incognito browser tab's live title (its daemon record is a placeholder).
     var incognitoTitle: @MainActor (TabModel) -> String?? = { _ in nil }
 
-    /// The app's live sources.
-    init(services: AppServices) {
+    /// The app's live sources. `workspace`: the one workspace every asked tab is in, when the
+    /// caller knows it (a pane snapshot: `RestoredNewTabPages.shows` then looks nothing up).
+    init(services: AppServices, workspace: WorkspaceHandle? = nil) {
         let agentTabs = services.agentTabs
-        showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0) } ?? false }
+        showsNewTabPage = { [weak agentTabs] tab in agentTabs.map { RestoredNewTabPages.shows(tab, in: $0, workspace: workspace) } ?? false }
         newTabPageTitle = { [weak services] tab in services.flatMap { AgentHistoryPage.title(tab.id, $0) } }
         conversationTitle = { [weak services] tab in services?.home.tabTitle(for: tab) ?? Strings.untitledBrowser }
         page = { [weak services] tab in
@@ -64,7 +69,10 @@ struct TabTitleResolver {
     /// for a terminal).
     func untitled(_ tab: TabModel, fallback: String = Strings.untitledTerminal) -> String {
         if tab.agentSession != nil {
-            return isNewTabPage(tab) ? newTabPageTitle(tab) ?? Strings.untitledBrowser : chatTitle(tab)
+            if isNewTabPage(tab) { return newTabPageTitle(tab) ?? Strings.untitledBrowser }
+            let title = chatTitle(tab)
+            if title == AgentPaneModel.tabTitle, let name = workspaceName.flatMap(AgentChatTabTitle.taskName) { return name }
+            return title
         }
         switch tab.kind {
         case .conversation: return conversationTitle(tab)

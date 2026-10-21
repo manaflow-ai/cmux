@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::entry::{HistoryEntry, HistoryKind};
@@ -15,7 +16,7 @@ pub const AGENT_JOURNAL_KINDS: [&str; 3] =
     ["agent.session.*", "agent.turn.*", "agent.state.changed"];
 
 /// An agent session as the journal records it through agent hooks.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentSession {
     /// The session (machine) whose journal recorded it.
     pub machine: String,
@@ -67,7 +68,11 @@ impl AgentSession {
 /// Folds one machine's agent journal records into sessions. Constant work
 /// per record; a record at or below the cursor is ignored, so re-reading
 /// from an older cursor never double counts.
-#[derive(Clone, Debug, PartialEq, Eq)]
+///
+/// Serializable, so a host can keep the fold with its cursor and, after a
+/// restart, read only the journal records after it instead of the whole
+/// journal again.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct AgentSessionFold {
     machine: String,
     capacity: usize,

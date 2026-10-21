@@ -20,8 +20,22 @@ extension NotificationCenterService {
         Task { [weak self] in // task-owner: start(services:) keeps the handle in tasks
             for await _ in ObservationStream({ [weak self] in self?.viewedFacts(store) ?? ViewedTabsFacts(revision: 0, tabs: []) }) {
                 guard let self else { return }
-                for tab in self.viewedTabs(store) { self.interacted(.focus, tab: tab) }
+                let viewed = self.viewedTabs(store)
+                for tab in viewed { self.interacted(.focus, tab: tab) }
+                self.clearTabMarks(entering: viewed)
             }
+        }
+    }
+
+    /// Clears the manual mark (Mark Tab Unread, `TabUnreadMark`) of each tab
+    /// that came into view since the last pass. A tab marked while viewed
+    /// keeps the mark until it is viewed again.
+    func clearTabMarks(entering viewed: [TabModel]) {
+        let entered = Set(TabUnreadMark.entered(viewed.map(\.id), previous: viewedTabIDs))
+        viewedTabIDs = Set(viewed.map(\.id))
+        guard let services else { return }
+        for tab in viewed where tab.markedUnread && entered.contains(tab.id) {
+            try? TabUnreadMark.set(false, tab: tab, daemon: services.daemon)
         }
     }
 

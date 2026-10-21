@@ -123,6 +123,19 @@ nonisolated enum FilePageStrings {
                               table: "FilePages", bundle: .module), name)
     }
 
+    /// The Copy Settings from VS Code or Zed action found no other editor's settings.
+    static var noEditorSettings: String {
+        String(localized: "filePages.editorSettings.none",
+               defaultValue: "No VS Code, Cursor, Windsurf, VSCodium or Zed settings were found.", table: "FilePages", bundle: .module)
+    }
+
+    /// The action copied `count` keys from `from` (a product name) into cmux.json.
+    static func editorSettingsCopied(_ count: Int, from: String) -> String {
+        String(format: String(localized: "filePages.editorSettings.copied",
+                              defaultValue: "Code editor settings from %1$@ copied into cmux.json: %2$ld.", table: "FilePages", bundle: .module),
+               from, count)
+    }
+
     static var noPane: String {
         String(localized: "filePages.noPane", defaultValue: "No pane is open to show the file.", table: "FilePages", bundle: .module)
     }

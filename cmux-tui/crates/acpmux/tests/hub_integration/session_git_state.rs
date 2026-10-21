@@ -1,6 +1,8 @@
 //! A session records its folder's git branch and HEAD commit as they were
 //! when it started (hq#1920), so a later report can join it to the pull
 //! request it produced. A fork records its own folder's state at fork time.
+//! Each turn's `turn_result` records the folder's state when that turn ended,
+//! so a session whose agent switches branch follows it there.
 
 use super::*;
 use std::path::{Path, PathBuf};
@@ -53,6 +55,21 @@ fn saved(hub: &Hub, id: &str) -> Value {
     serde_json::to_value(hub.resolve(id).unwrap().meta()).unwrap()
 }
 
+/// The session's `turn_result` records, oldest first.
+fn turn_results(hub: &Hub, id: &str) -> Vec<Value> {
+    hub.events(id, 0, 10_000)
+        .unwrap()
+        .into_iter()
+        .filter(|e| e.dir == "mux" && e.kind == "turn_result")
+        .map(|e| e.msg)
+        .collect()
+}
+
+async fn say(c: &mut TestClient, id: &str) {
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "hi"}]});
+    c.request(method::SESSION_PROMPT, prompt).await.unwrap();
+}
+
 #[tokio::test]
 async fn git_state_records_the_branch_and_head_at_session_new() {
     let dir = scratch("branch");
@@ -99,6 +116,31 @@ async fn git_state_outside_a_repository_records_nothing() {
     assert!(meta.get("gitHead").is_none(), "{meta}");
     let info = c.request(method::MUX_INFO, json!({"sessionId": id})).await.unwrap();
     assert!(info["gitBranch"].is_null() && info["gitHead"].is_null(), "{info}");
+    say(&mut c, &id).await;
+    let turn = &turn_results(&hub, &id)[0];
+    assert!(turn.get("gitBranch").is_none() && turn.get("gitHead").is_none(), "{turn}");
+}
+
+#[tokio::test]
+async fn git_state_records_the_branch_each_turn_ended_on() {
+    let dir = scratch("turns");
+    let first = repo(&dir, "first");
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, &dir).await;
+    say(&mut c, &id).await;
+
+    // The agent switched branch between turns: the next turn records where it ended.
+    git(&dir, &["checkout", "-q", "-b", "second"]);
+    git(&dir, &["commit", "-q", "--allow-empty", "-m", "second"]);
+    let second = git(&dir, &["rev-parse", "HEAD"]);
+    say(&mut c, &id).await;
+
+    let turns = turn_results(&hub, &id);
+    assert_eq!(turns.len(), 2, "{turns:?}");
+    assert_eq!((&turns[0]["gitBranch"], &turns[0]["gitHead"]), (&json!("first"), &json!(first)));
+    assert_eq!((&turns[1]["gitBranch"], &turns[1]["gitHead"]), (&json!("second"), &json!(second)));
+    // The session's own branch stays the one it started on.
+    assert_eq!(saved(&hub, &id)["gitBranch"], "first");
 }
 
 #[tokio::test]

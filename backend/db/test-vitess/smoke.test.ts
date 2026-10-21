@@ -30,8 +30,21 @@ const KEYS: Record<string, string> = {
   home_message_search: "conversation_id = 'conv_P1'"
 }
 
+/**
+ * Each body against the shared branch may take long when the branch is slow (2026-10-19: every hook
+ * hit the 5 s default). Hooks and bodies get one generous limit, and afterAll first waits for a body
+ * that is still running after its own timeout, so the cleanup never deletes rows under it.
+ */
+const LIMIT = 60_000
+
 run("projection SQL on Vitess (test-only keys)", () => {
   let db: mysql.Connection
+  let running: Promise<unknown> = Promise.resolve()
+  const tracked = (body: () => Promise<void>) => () => {
+    const done = body()
+    running = Promise.all([running, done.catch(() => {})])
+    return done
+  }
   const cleanup = async () => {
     for (const table of Object.keys(PROJECTION_TABLES)) await db.query(`DELETE FROM \`${table}\` WHERE ${KEYS[table]}`)
   }
@@ -39,13 +52,14 @@ run("projection SQL on Vitess (test-only keys)", () => {
     db = await mysql.createConnection({ uri: url!, timezone: "Z", dateStrings: true })
     await db.query("SET time_zone = '+00:00'")
     await cleanup()
-  })
+  }, LIMIT)
   afterAll(async () => {
+    await running
     await cleanup()
     await db.end()
-  })
+  }, LIMIT)
 
-  it("every projection kind parses and applies with the seq guard", async () => {
+  it("every projection kind parses and applies with the seq guard", tracked(async () => {
     for (const c of cases) {
       for (const v of [5, 3, 7]) {
         const s = projectionStatementMysql(c.kind, c.payload(v), "vitess:smoke", v)!
@@ -54,9 +68,9 @@ run("projection SQL on Vitess (test-only keys)", () => {
       const [rows] = (await db.query(c.read)) as unknown as [Array<Record<string, unknown>>]
       expect([c.kind, rows[0]?.[c.field]]).toEqual([c.kind, c.expect(7)])
     }
-  }, 60_000)
+  }), LIMIT)
 
-  it("the drain batch (transaction, savepoints, a poison row) works", async () => {
+  it("the drain batch (transaction, savepoints, a poison row) works", tracked(async () => {
     const rows = [
       { id: 1, seq: 1, kind: "team.upsert", payload: { id: "team_vsmoke1", kind: "personal", display_name: "One" } },
       { id: 2, seq: 2, kind: "team.upsert", payload: { id: "team_vsmoke2", kind: "x".repeat(40), display_name: "Too long kind" } },
@@ -65,5 +79,5 @@ run("projection SQL on Vitess (test-only keys)", () => {
     const res = await applyRows({ query: (sql: string, values?: Array<unknown>) => db.query(sql, values) }, "team:vsmoke", rows, projectionStatementMysql)
     expect(res.sent).toEqual([1, 3])
     expect(res.dead.map((d) => d.id)).toEqual([2])
-  }, 60_000)
+  }), LIMIT)
 })

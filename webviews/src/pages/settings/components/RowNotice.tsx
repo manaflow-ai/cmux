@@ -1,4 +1,4 @@
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { settingsFileName } from "../format";
 import { Icon } from "../icons";
 import { t } from "../strings";
@@ -14,7 +14,7 @@ export function RowNotice({
   disabled: boolean;
 }) {
   const store = useStore();
-  const { host } = useSettingsState();
+  const host = useSettingsSelector((state) => state.host);
   return (
     <output className="notice" data-notice="">
       <Icon name="warning" />

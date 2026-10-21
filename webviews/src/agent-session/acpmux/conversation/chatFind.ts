@@ -6,6 +6,7 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -18,9 +19,16 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 
 /** What a tool call or thought draws: a thought's text, or a call's command (else its title) and
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */
+/// An MCP call draws its pretty request and response (McpCallRows.tsx); other output draws
+/// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  return (tool ? [tool.command || tool.title, tool.output] : [item.text]).filter(Boolean).join("\n");
+  if (!tool) return item.text;
+  const call = mcpCall(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  return [tool.command || tool.title, output].filter(Boolean).join("\n");
 }
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */
@@ -145,7 +153,15 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
 /** The transcript row that draws the current match (`id` and whether it is an edited-files card)
  * and the query, while Find shows one; ToolRows passes it to that row only. `repaint` redraws the
  * highlights once a part opens (only that part re-renders otherwise). */
-export type FindRevealTarget = { rowId: string; card: boolean; needle: string; repaint: () => void };
+export type FindRevealTarget = {
+  rowId: string;
+  card: boolean;
+  needle: string;
+  repaint: () => void;
+  /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
+   * the running line, WorkingFor.tsx). */
+  toolId?: string;
+};
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
 /** Whether `row` draws match row `rowId` itself: the row or its copy in an open fold. */
@@ -169,7 +185,14 @@ export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
   const reveal = useContext(FindReveal);
-  const hit = Boolean(reveal && items.some((item) => searchableActivityText(item).includes(reveal.needle)));
+  const hit = Boolean(
+    reveal &&
+    items.some((item) =>
+      reveal.toolId !== undefined
+        ? item.tool?.id === reveal.toolId
+        : searchableActivityText(item).includes(reveal.needle),
+    ),
+  );
   useLayoutEffect(() => {
     if (!hit) return;
     open();

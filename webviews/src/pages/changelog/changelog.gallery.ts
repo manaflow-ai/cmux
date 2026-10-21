@@ -2,6 +2,8 @@
 import { changelogPageEntry } from "../../gallery/format";
 import { sampleNotes } from "./mockProvider";
 import { realNightlies } from "./realNightlyFixtures";
+import nightly3913596493801 from "./fixtures/nightly-3913596493801-span.json";
+import type { ReleaseNotes } from "./types";
 import { journalNotes } from "./whatsNewFixtures";
 
 const manyNotes = Array.from({ length: 18 }, (_, index) => ({
@@ -36,6 +38,11 @@ export default changelogPageEntry({
     "pages/changelog/ReleaseParts.tsx",
   ],
   variants: {
+    "nightly-3913596493801": {
+      note: "The update from 1.0.0-nightly.3911762409401 to 3913596493801 (2026-10-18): the ten signed notes of that span as published, perf-split commits, cut titles and bead ids included.",
+      notes: nightly3913596493801 as ReleaseNotes[],
+      route: "#/?from=1.0.0-nightly.3911762409401&to=1.0.0-nightly.3913596493801",
+    },
     "nightly-update": {
       note: "Real nightly-next notes: opened after the update from 1.0.0-nightly.3797234815201 to 3832783556401. Highlights of the span first, then one section per day.",
       notes: realNightlies,
@@ -50,14 +57,24 @@ export default changelogPageEntry({
       note: "Opened from the Help menu (no update span): one section per day.",
       notes: realNightlies,
     },
-    journal: {
-      note: "Design A (default): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
+    ledger: {
+      note: "Ledger (default, u5099): conductor.build/changelog's layout. Each day's newest version as a small mono tag and its date sticky in the left margin; New / Improved / Fixed as headings over bullet lists.",
       notes: journalNotes,
+    },
+    "ledger-update-span": {
+      note: "Ledger opened by See What's New after an update from 1.0.0-nightly.410 to 413: Since your last update first, then the days with their margin tags.",
+      notes: journalNotes,
+      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+    },
+    journal: {
+      note: "Design A (Debug Settings whatsNew.design = journal): four nightlies stacked; the lead change with light/dark media, grouped rows, folded commits.",
+      notes: journalNotes,
+      route: "#/?design=journal",
     },
     "journal-update-span": {
       note: "Design A opened by See What's New after an update from 1.0.0-nightly.410 to 413: those releases come first under Since your last update.",
       notes: journalNotes,
-      route: "#/?from=1.0.0-nightly.410&to=1.0.0-nightly.413",
+      route: "#/?design=journal&from=1.0.0-nightly.410&to=1.0.0-nightly.413",
     },
     rail: {
       note: "Design B (Debug Settings whatsNew.design = rail) on the same update span.",

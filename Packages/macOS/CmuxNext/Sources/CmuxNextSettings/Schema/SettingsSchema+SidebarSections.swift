@@ -63,8 +63,13 @@ nonisolated enum SidebarSectionSettingsSchema {
         ] + SidebarSectionsSetting.sectionDescriptors(group: sidebar) + [
             SidebarSectionsSetting.minimalDescriptor(group: sidebar),
             SidebarSectionsSetting.densityDescriptor(group: sidebar),
+            SidebarSectionsSetting.detailedStatusIconsDescriptor(group: sidebar),
+            SidebarSectionsSetting.showTimestampsDescriptor(group: sidebar),
+            SidebarSectionsSetting.groupHeaderMemberCountDescriptor(group: sidebar),
+            SidebarSectionsSetting.groupHeaderUnreadCountDescriptor(group: sidebar),
             SidebarSectionsSetting.minimalModeDescriptor(group: sidebar),
             SidebarSectionsSetting.tipsDescriptor(group: sidebar),
+        ] + SidebarPriorityViewSetting.descriptors(group: sidebar) + [
             ChromePlacementSetting.sidebarSideDescriptor(group: sidebar),
             ChromePlacementSetting.spacesPositionDescriptor(group: sidebar),
             ChromePlacementSetting.spacesVisibilityDescriptor(group: sidebar),

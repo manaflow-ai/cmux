@@ -1,7 +1,7 @@
 // Browser harness for test/ui-a11y.test.ts: the ui wrapper's widgets and the migrated pages in a
 // real engine. `?case=widgets` a menu with a submenu, a toolbar with tooltips and the recent list;
 // `?case=picker` the real path picker sheet over a fake file system (one folder of 2,000 entries);
-// `?case=markdown` the real markdown page toolbar and editor (link popover, hover card).
+// `?case=markdown` the real markdown page toolbar and editor (link bubble and its edit form).
 // `&rtl` runs right to left (Arabic). Outcomes go to #result for the keyboard scripts.
 import { createRoot } from "react-dom/client";
 import { useState } from "react";
@@ -139,7 +139,7 @@ function Picker() {
   );
 }
 
-/** The markdown page over a fake store (no host): toolbar, editor, link popover, hover card. */
+/** The markdown page over a fake store (no host): toolbar, editor, link bubble and its edit form. */
 function markdown() {
   const strings = createStrings(markdownTable, [language]);
   let state = {

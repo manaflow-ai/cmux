@@ -1,5 +1,5 @@
 import { isProviderId, type ProviderId } from "./drivers/types";
-import { vmErrorResponse } from "./routeHelpers";
+import { jsonResponse, vmErrorResponse } from "./routeHelpers";
 
 export type ParsedOptionalObjectBody =
   | { readonly ok: true; readonly body: Record<string, unknown> }
@@ -86,12 +86,30 @@ export function capabilityList(value: unknown): string[] | undefined {
   return tokens.length ? Array.from(new Set(tokens)).slice(0, 16) : undefined;
 }
 
-export function idempotencyKeyFromRequest(request: Request): string | undefined {
+export const VM_IDEMPOTENCY_KEY_MAX_LENGTH = 128;
+
+export type IdempotencyKeyResult =
+  | { readonly ok: true; readonly key: string | undefined }
+  | { readonly ok: false; readonly response: Response };
+
+export function idempotencyKeyFromRequest(request: Request): IdempotencyKeyResult {
   const raw = [
     request.headers.get("idempotency-key"),
     request.headers.get("x-cmux-idempotency-key"),
   ].map((value) => value?.trim()).find(Boolean) ?? "";
-  return raw ? raw.slice(0, 128) : undefined;
+  if (raw.length > VM_IDEMPOTENCY_KEY_MAX_LENGTH) {
+    return {
+      ok: false,
+      response: jsonResponse({
+        error: "vm_idempotency_key_too_long",
+        details: {
+          field: "idempotencyKey",
+          maxLength: VM_IDEMPOTENCY_KEY_MAX_LENGTH,
+        },
+      }, 400),
+    };
+  }
+  return { ok: true, key: raw || undefined };
 }
 
 export type ProviderFieldResult =

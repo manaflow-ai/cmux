@@ -9,7 +9,8 @@ SAMPLE=SECONDS with SAMPLE_OUT=PATH runs `sample` on the daemon meanwhile,
 SPANS=1 turns on the daemon's debug timing marks (CMUX_TUI_DEBUG_SPANS) and
 prints the mean and p95 gap before each mark, then the p50 and p95 time from
 request arrival to each first-output mark of the tab (`new-tab.follow` lines:
-host.first_output, first_prompt_mark, attach.first_output_sent; the last needs
+host.first_output, first_printable_output, first_prompt_mark,
+attach.first_output_sent; the last needs
 an attached client, which this bench does not have).
 Run it on a fleet Mac, never on the laptop.
 """
@@ -121,7 +122,7 @@ try:
             values = sorted(gaps[key])
             print(f"{key[:58]:58s} {len(values):5d} {sum(values) / n:8.2f} {sum(values) / len(values):7.2f} {values[min(len(values) - 1, int(0.95 * len(values)))]:7.2f}")
         print(f"{'request arrival to first-output mark':58s} {'count':>5s} {'p50':>8s} {'p95':>7s}")
-        for name in ("host.first_output", "first_prompt_mark", "attach.first_output_sent"):
+        for name in ("host.first_output", "first_printable_output", "first_prompt_mark", "attach.first_output_sent"):
             values = sorted(follow.get(name, []))
             if not values:
                 print(f"{name:58s} {0:5d} {'-':>8s} {'-':>7s}")

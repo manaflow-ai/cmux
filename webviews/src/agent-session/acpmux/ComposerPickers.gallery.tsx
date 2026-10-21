@@ -209,8 +209,9 @@ const openMode: Play = async (ctx) => {
 const accessGrants: Play = async (ctx) => {
   const trigger = ctx.find({ role: "button", name: "Mode" });
   if (trigger.textContent?.includes("Trusted")) throw new Error("Trust state leaked into the Access trigger");
-  if (!trigger.querySelector(".acpmux-access-grant-count"))
-    throw new Error("Access trigger is missing the compact allowed-rule count");
+  // The allowed rules live in the menu only; the trigger shows no count beside the mode.
+  if (trigger.querySelector(".acpmux-access-grant-count") || /\d/.test(trigger.textContent ?? ""))
+    throw new Error("Access trigger shows an allowed-rule count");
   await ctx.click({ role: "button", name: "Mode" });
   await ctx.waitFor(() => ctx.document.querySelector(".acpmux-access-grants") !== null);
   const grants = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-access-grant")];

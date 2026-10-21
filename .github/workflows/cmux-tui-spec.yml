@@ -55,6 +55,10 @@ jobs:
       - name: Check SDK schema against runtime inventory
         run: python3 cmux-tui/scripts/check-sdk-schema.py
 
+      # A schema change can change what a phone may send (DaemonLanePolicy+Fields.generated.swift).
+      - name: Check the phone lane field allowlist
+        run: python3 -I scripts/cmux-next/gen-phone-lane-fields.py --check
+
       - name: Test public resource boundary checker
         run: python3 cmux-tui/scripts/test_check_resource_api_boundary.py
 
@@ -63,6 +67,23 @@ jobs:
 
       - name: Check generated SDK wire layers
         run: python3 cmux-tui/bindings/codegen/generate.py --check
+
+  # A daemon protocol change that can break an older or newer peer must ship
+  # a compat rule (cmux-tui/crates/cmux-api-compat; spec/api-compat.json).
+  api-compat:
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up pinned Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
+      - name: Protocol changes need compat rules
+        working-directory: cmux-tui
+        run: cargo run --locked -p cmux-api-compat --bin api-compat-check
 
   # PR CI never runs cmux-tui.yml (dispatch only), so #18706 landed unformatted
   # Rust and broke base `cargo fmt --check`. rustfmt alone on the packages the
@@ -98,7 +119,17 @@ jobs:
           fi
           echo "sha=$BASE_SHA" >> "$GITHUB_OUTPUT"
 
+      # Formatting is a style guard: for pull requests into feat-cmux-next it warns
+      # (Leo 2026-10-19); elsewhere it still fails.
       - name: cargo fmt --check on changed cmux-tui packages
         env:
           BASE_SHA: ${{ steps.base.outputs.sha }}
-        run: python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA"
+          CMUX_NEXT_STYLE_GUARDS: ${{ github.base_ref == 'feat-cmux-next' && 'warn' || 'fail' }}
+        run: |
+          rc=0
+          python3 .github/scripts/cmux-tui-fmt-changed.py --base "$BASE_SHA" || rc=$?
+          if [[ "$rc" != 0 && "$CMUX_NEXT_STYLE_GUARDS" == warn ]]; then
+            echo "::warning title=cmux-tui rustfmt (warn-only)::changed cmux-tui packages are not rustfmt-clean; run cargo fmt in cmux-tui"
+            exit 0
+          fi
+          exit "$rc"

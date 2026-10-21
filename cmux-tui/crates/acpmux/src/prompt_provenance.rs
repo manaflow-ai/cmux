@@ -10,9 +10,11 @@
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
 //! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
 //!
-//! The hub sets one more kind itself, never taken from a client: `{kind: "offer_result",
+//! The hub sets two more kinds itself, never taken from a client: `{kind: "offer_result",
 //! offerId, childSessionId, title}` on the prompt that brings a suggested task's first reply
-//! back to the chat that offered it (`hub/offer_results.rs`, cx-lo9yf).
+//! back to the chat that offered it (`hub/offer_results.rs`, cx-lo9yf), and `{kind:
+//! "auto_resume", promptId, attempt, turnId}` on the prompt that continues a turn a
+//! connection error cut off (`hub/auto_resume.rs`).
 
 use serde_json::{Map, Value, json};
 

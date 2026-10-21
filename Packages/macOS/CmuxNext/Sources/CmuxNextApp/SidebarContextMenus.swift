@@ -14,7 +14,7 @@ enum SidebarContextMenus {
         case .tab(let workspace, let tab):
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
             let model = services.locateTab(tab.rawValue)?.0
-            let menu = PaneController.tabMenu(tab.rawValue, tab: model, workspaceKind: services.workspace(id: workspace.rawValue)?.kind,
+            let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
                                               sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
             menu.themeRows(in: scope)
             return menu
@@ -48,6 +48,11 @@ enum SidebarContextMenus {
             return registry.makeContextMenu(for: .sidebarBackground)
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
+        case .nowPlaying:
+            // The media card's rows (u2437): Play/Pause, Hide, Hide Until Relaunch, Never Show Media Card.
+            let menu = registry.makeContextMenu(for: .nowPlayingCard)
+            menu.themeRows(in: scope)
+            return menu
         case .layoutItem, .layoutSection:
             return nil
         }

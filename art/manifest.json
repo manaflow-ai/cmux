@@ -53,7 +53,13 @@
    ],
    "darkest": "#030000",
    "lightest": "#AAA062",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.572,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "goya-saturn",
@@ -106,7 +112,13 @@
    ],
    "darkest": "#000002",
    "lightest": "#FAF5CB",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.66,
+    0.04,
+    0.985,
+    0.7
+   ]
   },
   {
    "id": "velde-small-ship-storm",
@@ -159,7 +171,13 @@
    ],
    "darkest": "#010302",
    "lightest": "#FFFCCC",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.537,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "bosch-garden-right",
@@ -212,7 +230,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#F8F2E2",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.773,
+    0.04,
+    0.99,
+    0.7
+   ]
   },
   {
    "id": "bosch-ascent-blessed",
@@ -265,7 +289,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#F7FFF2",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.759,
+    0.04,
+    0.989,
+    0.7
+   ]
   },
   {
    "id": "goya-witches-flight",
@@ -318,7 +348,13 @@
    ],
    "darkest": "#0A0300",
    "lightest": "#FDF9E0",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.574,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "bocklin-self-portrait-death",
@@ -371,7 +407,13 @@
    ],
    "darkest": "#000102",
    "lightest": "#FFFDE5",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.556,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "caravaggio-medusa",
@@ -424,7 +466,13 @@
    ],
    "darkest": "#060000",
    "lightest": "#FFFFF3",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.467,
+    0.04,
+    0.976,
+    0.7
+   ]
   },
   {
    "id": "martin-pandemonium",
@@ -477,7 +525,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFDCC",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.55,
+    0.3,
+    0.8,
+    0.7
+   ]
   },
   {
    "id": "moran-burning-philadelphia",
@@ -530,7 +584,13 @@
    ],
    "darkest": "#080806",
    "lightest": "#FFFFDF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.56,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "goya-burial-sardine",
@@ -583,7 +643,13 @@
    ],
    "darkest": "#010103",
    "lightest": "#D7CBA5",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.593,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "arbo-wild-hunt",
@@ -636,7 +702,13 @@
    ],
    "darkest": "#10110B",
    "lightest": "#E5D3A2",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.25,
+    0.25,
+    0.9,
+    0.6
+   ]
   },
   {
    "id": "caravaggio-david-goliath",
@@ -689,7 +761,13 @@
    ],
    "darkest": "#080000",
    "lightest": "#FFFCED",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.5,
+    0.04,
+    0.977,
+    0.7
+   ]
   },
   {
    "id": "van-gogh-skeleton-cigarette",
@@ -742,7 +820,13 @@
    ],
    "darkest": "#000300",
    "lightest": "#FFFFD7",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.585,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "altdorfer-battle-of-issus",
@@ -795,7 +879,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FEF7E5",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.579,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "gentileschi-judith",
@@ -848,7 +938,13 @@
    ],
    "darkest": "#020001",
    "lightest": "#FFFFDD",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.555,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "munch-madonna",
@@ -901,7 +997,13 @@
    ],
    "darkest": "#0E0E0E",
    "lightest": "#B8AD99",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.574,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "bocklin-isle-of-the-dead",
@@ -954,7 +1056,13 @@
    ],
    "darkest": "#040100",
    "lightest": "#FFFFF3",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.25,
+    0.15,
+    0.7,
+    0.9
+   ]
   },
   {
    "id": "klee-fish-magic",
@@ -1007,7 +1115,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FFFFF4",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.1,
+    0.35,
+    0.95,
+    0.6
+   ]
   },
   {
    "id": "friedrich-forest-moonlight",
@@ -1060,7 +1174,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FDFFFA",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.597,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "goya-witches-sabbath",
@@ -1113,7 +1233,13 @@
    ],
    "darkest": "#000002",
    "lightest": "#FFF0B9",
-   "tint": 0.36
+   "tint": 0.36,
+   "subject": [
+    0.2,
+    0.1,
+    0.8,
+    0.6
+   ]
   },
   {
    "id": "bosch-garden-left",
@@ -1166,7 +1292,13 @@
    ],
    "darkest": "#020001",
    "lightest": "#F8EDBF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.775,
+    0.04,
+    0.99,
+    0.7
+   ]
   },
   {
    "id": "rembrandt-storm-galilee",
@@ -1219,7 +1351,13 @@
    ],
    "darkest": "#000100",
    "lightest": "#F5FFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.558,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "cole-voyage-manhood",
@@ -1272,7 +1410,13 @@
    ],
    "darkest": "#0C0200",
    "lightest": "#FAFFD9",
-   "tint": 0.35
+   "tint": 0.35,
+   "subject": [
+    0.2,
+    0.55,
+    0.5,
+    0.95
+   ]
   },
   {
    "id": "fuseli-nightmare-2",
@@ -1325,7 +1469,13 @@
    ],
    "darkest": "#060002",
    "lightest": "#FDFFF2",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.562,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "hiremy-hirschl-souls-of-acheron",
@@ -1378,7 +1528,13 @@
    ],
    "darkest": "#000005",
    "lightest": "#FBFFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.3,
+    0.05,
+    0.85,
+    0.8
+   ]
   },
   {
    "id": "munch-scream",
@@ -1431,7 +1587,13 @@
    ],
    "darkest": "#181617",
    "lightest": "#E4CBB4",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.556,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "klimt-judith",
@@ -1484,7 +1646,13 @@
    ],
    "darkest": "#02000E",
    "lightest": "#FFFFCD",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.729,
+    0.04,
+    0.988,
+    0.7
+   ]
   },
   {
    "id": "repin-ivan",
@@ -1537,7 +1705,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.35,
+    0.2,
+    0.75,
+    0.95
+   ]
   },
   {
    "id": "millais-ophelia",
@@ -1590,7 +1764,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFD",
-   "tint": 0.36
+   "tint": 0.36,
+   "subject": [
+    0.18,
+    0.4,
+    0.6,
+    0.7
+   ]
   },
   {
    "id": "bruegel-fall-rebel-angels",
@@ -1643,7 +1823,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#E9D29E",
-   "tint": 0.36
+   "tint": 0.36,
+   "subject": [
+    0.25,
+    0.1,
+    0.75,
+    0.9
+   ]
   },
   {
    "id": "fuseli-nightmare",
@@ -1696,7 +1882,13 @@
    ],
    "darkest": "#040100",
    "lightest": "#F4EBCC",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.25,
+    0.0,
+    0.85,
+    0.8
+   ]
   },
   {
    "id": "bundy-death-general",
@@ -1749,7 +1941,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFD",
-   "tint": 0.36
+   "tint": 0.36,
+   "subject": [
+    0.4,
+    0.05,
+    0.75,
+    0.95
+   ]
   },
   {
    "id": "wright-vesuvius",
@@ -1802,7 +2000,13 @@
    ],
    "darkest": "#0D0713",
    "lightest": "#F0E5B5",
-   "tint": 0.38
+   "tint": 0.38,
+   "subject": [
+    0.15,
+    0.15,
+    0.5,
+    0.9
+   ]
   },
   {
    "id": "gerome-botsaris",
@@ -1855,7 +2059,13 @@
    ],
    "darkest": "#030000",
    "lightest": "#FCFFFD",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.576,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "durer-knight-death-devil",
@@ -1908,7 +2118,13 @@
    ],
    "darkest": "#0B0A05",
    "lightest": "#FFFFF1",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.583,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "martin-joshua",
@@ -1961,7 +2177,13 @@
    ],
    "darkest": "#030000",
    "lightest": "#FFFFDE",
-   "tint": 0.36
+   "tint": 0.36,
+   "subject": [
+    0.4,
+    0.25,
+    0.95,
+    0.92
+   ]
   },
   {
    "id": "velde-gale",
@@ -2014,7 +2236,13 @@
    ],
    "darkest": "#0E0300",
    "lightest": "#FFEBC6",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.551,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "hogai-nio",
@@ -2067,7 +2295,13 @@
    ],
    "darkest": "#14090F",
    "lightest": "#FEFFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.718,
+    0.04,
+    0.987,
+    0.7
+   ]
   },
   {
    "id": "klimt-death-and-life",
@@ -2120,7 +2354,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#EBFEFC",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.368,
+    0.04,
+    0.971,
+    0.7
+   ]
   },
   {
    "id": "klimt-medicine",
@@ -2173,7 +2413,13 @@
    ],
    "darkest": "#1C1004",
    "lightest": "#FFF7EE",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.634,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "bosch-garden-central",
@@ -2226,7 +2472,13 @@
    ],
    "darkest": "#000105",
    "lightest": "#E1E6D0",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.488,
+    0.04,
+    0.977,
+    0.7
+   ]
   },
   {
    "id": "martin-great-day-wrath",
@@ -2279,7 +2531,13 @@
    ],
    "darkest": "#050100",
    "lightest": "#FFFFF8",
-   "tint": 0.4
+   "tint": 0.4,
+   "subject": [
+    0.25,
+    0.1,
+    0.75,
+    0.75
+   ]
   },
   {
    "id": "bonheur-wounded-eagle",
@@ -2332,7 +2590,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FBF8CB",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.572,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "gerome-pollice-verso",
@@ -2385,7 +2649,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FEFFFF",
-   "tint": 0.39
+   "tint": 0.39,
+   "subject": [
+    0.12,
+    0.3,
+    0.55,
+    0.95
+   ]
   },
   {
    "id": "cole-voyage-old-age",
@@ -2438,7 +2708,13 @@
    ],
    "darkest": "#0F0A06",
    "lightest": "#FFF8D8",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.5,
+    0.6,
+    0.75,
+    1.0
+   ]
   },
   {
    "id": "friedrich-abbey-oakwood",
@@ -2491,7 +2767,13 @@
    ],
    "darkest": "#150900",
    "lightest": "#FAF0BA",
-   "tint": 0.37
+   "tint": 0.37,
+   "subject": [
+    0.2,
+    0.35,
+    0.9,
+    0.75
+   ]
   },
   {
    "id": "goya-sleep-of-reason",
@@ -2544,7 +2826,13 @@
    ],
    "darkest": "#070000",
    "lightest": "#FFFEF3",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.636,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "bosch-garden-fragment",
@@ -2597,7 +2885,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFF1",
-   "tint": 0.39
+   "tint": 0.39,
+   "subject": [
+    0.25,
+    0.15,
+    0.7,
+    0.95
+   ]
   },
   {
    "id": "bruegel-triumph-death",
@@ -2650,7 +2944,13 @@
    ],
    "darkest": "#040000",
    "lightest": "#FFFFE9",
-   "tint": 0.39
+   "tint": 0.39,
+   "subject": [
+    0.3,
+    0.2,
+    0.8,
+    0.9
+   ]
   },
   {
    "id": "spilliaert-vertigo",
@@ -2703,7 +3003,13 @@
    ],
    "darkest": "#0F0F0D",
    "lightest": "#F9F5DC",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.586,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "rothaug-melpomene",
@@ -2756,7 +3062,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FFFFFA",
-   "tint": 0.46
+   "tint": 0.46,
+   "subject": [
+    0.35,
+    0.25,
+    0.65,
+    1.0
+   ]
   },
   {
    "id": "schiele-death-and-the-maiden",
@@ -2809,7 +3121,13 @@
    ],
    "darkest": "#0E0200",
    "lightest": "#FFFFF0",
-   "tint": 0.45
+   "tint": 0.45,
+   "subject": [
+    0.15,
+    0.05,
+    0.7,
+    0.85
+   ]
   },
   {
    "id": "aivazovsky-ship-stormy-seas",
@@ -2862,7 +3180,13 @@
    ],
    "darkest": "#000406",
    "lightest": "#FEFFF5",
-   "tint": 0.51
+   "tint": 0.51,
+   "subject": [
+    0.33,
+    0.35,
+    0.6,
+    0.7
+   ]
   },
   {
    "id": "vereshchagin-apotheosis-war",
@@ -2915,7 +3239,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFD",
-   "tint": 0.53
+   "tint": 0.53,
+   "subject": [
+    0.2,
+    0.25,
+    0.9,
+    0.95
+   ]
   },
   {
    "id": "ensor-skeleton-painter",
@@ -2968,7 +3298,13 @@
    ],
    "darkest": "#000407",
    "lightest": "#FFFFED",
-   "tint": 0.56
+   "tint": 0.56,
+   "subject": [
+    0.4,
+    0.25,
+    0.9,
+    0.95
+   ]
   },
   {
    "id": "cabanel-fallen-angel",
@@ -3021,7 +3357,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.53
+   "tint": 0.53,
+   "subject": [
+    0.1,
+    0.05,
+    0.75,
+    0.9
+   ]
   },
   {
    "id": "spilliaert-woman-shoreline",
@@ -3074,7 +3416,13 @@
    ],
    "darkest": "#010100",
    "lightest": "#F8EFDE",
-   "tint": 0.58
+   "tint": 0.58,
+   "subject": [
+    0.25,
+    0.25,
+    0.5,
+    0.75
+   ]
   },
   {
    "id": "el-greco-view-of-toledo",
@@ -3127,7 +3475,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.516,
+    0.04,
+    0.978,
+    0.7
+   ]
   },
   {
    "id": "gericault-raft-of-the-medusa",
@@ -3180,7 +3534,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.37
+   "tint": 0.37,
+   "subject": [
+    0.2,
+    0.1,
+    0.9,
+    0.85
+   ]
   },
   {
    "id": "moreau-apparition",
@@ -3233,7 +3593,13 @@
    ],
    "darkest": "#090604",
    "lightest": "#FFF5CA",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.539,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "rembrandt-prodigal-son",
@@ -3286,7 +3652,13 @@
    ],
    "darkest": "#060100",
    "lightest": "#FFF3AD",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.579,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "velazquez-las-meninas",
@@ -3339,7 +3711,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#F8E1C1",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.521,
+    0.04,
+    0.978,
+    0.7
+   ]
   },
   {
    "id": "matejko-stanczyk",
@@ -3392,7 +3770,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFF8F2",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.35,
+    0.1,
+    0.65,
+    0.85
+   ]
   },
   {
    "id": "sargent-madame-x",
@@ -3445,7 +3829,13 @@
    ],
    "darkest": "#000103",
    "lightest": "#EFE6DD",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.718,
+    0.04,
+    0.987,
+    0.7
+   ]
   },
   {
    "id": "millais-joan-of-arc",
@@ -3498,7 +3888,13 @@
    ],
    "darkest": "#0B0000",
    "lightest": "#FEEED7",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.569,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "cot-storm",
@@ -3551,7 +3947,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFF3",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.632,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "rembrandt-night-watch",
@@ -3604,7 +4006,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FCFFEC",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.35,
+    0.25,
+    0.75,
+    0.95
+   ]
   },
   {
    "id": "vigee-lebrun-madame-grand",
@@ -3657,7 +4065,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#EFE6C3",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.565,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "waterhouse-lady-shalott",
@@ -3710,7 +4124,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#E0D7C8",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.2,
+    0.1,
+    0.55,
+    0.9
+   ]
   },
   {
    "id": "draper-lament-icarus",
@@ -3763,7 +4183,13 @@
    ],
    "darkest": "#100000",
    "lightest": "#FFFFF0",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.535,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "fragonard-swing",
@@ -3816,7 +4242,13 @@
    ],
    "darkest": "#030000",
    "lightest": "#EFF0D0",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.562,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "rubens-st-francis-xavier",
@@ -3869,7 +4301,13 @@
    ],
    "darkest": "#040100",
    "lightest": "#FFF9E0",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.59,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "vermeer-pearl-earring",
@@ -3922,7 +4360,13 @@
    ],
    "darkest": "#060000",
    "lightest": "#FFFFFA",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.535,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "danielson-gambogi-self",
@@ -3975,7 +4419,13 @@
    ],
    "darkest": "#0B0100",
    "lightest": "#FDFDF5",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.636,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "beard-his-majesty",
@@ -4028,7 +4478,13 @@
    ],
    "darkest": "#0A0000",
    "lightest": "#FFFFFA",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.3,
+    0.2,
+    0.8,
+    0.95
+   ]
   },
   {
    "id": "marc-foxes",
@@ -4081,7 +4537,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFEDD",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.59,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "degas-green-dancers",
@@ -4134,7 +4596,13 @@
    ],
    "darkest": "#000B00",
    "lightest": "#FFFEED",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.692,
+    0.04,
+    0.986,
+    0.7
+   ]
   },
   {
    "id": "modigliani-nude-divan",
@@ -4187,7 +4655,13 @@
    ],
    "darkest": "#1A100F",
    "lightest": "#F4ECE1",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.653,
+    0.04,
+    0.984,
+    0.7
+   ]
   },
   {
    "id": "raphael-sistine-madonna",
@@ -4240,7 +4714,13 @@
    ],
    "darkest": "#080000",
    "lightest": "#FFEBAE",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.595,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "bouguereau-virgin-lilies",
@@ -4293,7 +4773,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.625,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "wood-american-gothic",
@@ -4346,7 +4832,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FAEDC2",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.544,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "steinlen-chat-noir",
@@ -4399,7 +4891,13 @@
    ],
    "darkest": "#130000",
    "lightest": "#FFFFF6",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.613,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "degas-blue-dancers",
@@ -4452,7 +4950,13 @@
    ],
    "darkest": "#010D01",
    "lightest": "#E3EFE5",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.44,
+    0.04,
+    0.975,
+    0.7
+   ]
   },
   {
    "id": "botticelli-primavera",
@@ -4505,7 +5009,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.37
+   "tint": 0.37,
+   "subject": [
+    0.15,
+    0.05,
+    0.75,
+    0.95
+   ]
   },
   {
    "id": "van-gogh-cafe-terrace",
@@ -4558,7 +5068,13 @@
    ],
    "darkest": "#141817",
    "lightest": "#FFF5B6",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.581,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "matisse-red-room",
@@ -4611,7 +5127,13 @@
    ],
    "darkest": "#110D0C",
    "lightest": "#FFFFE2",
-   "tint": 0.41
+   "tint": 0.41,
+   "subject": [
+    0.4,
+    0.15,
+    1.0,
+    0.8
+   ]
   },
   {
    "id": "kandinsky-deepened-impulse",
@@ -4664,7 +5186,13 @@
    ],
    "darkest": "#150000",
    "lightest": "#F2F9D9",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.581,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "friedrich-wanderer",
@@ -4717,7 +5245,13 @@
    ],
    "darkest": "#0E0200",
    "lightest": "#FFFCE2",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.571,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "klimt-adele",
@@ -4770,7 +5304,13 @@
    ],
    "darkest": "#040000",
    "lightest": "#FFFFE8",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.451,
+    0.04,
+    0.975,
+    0.7
+   ]
   },
   {
    "id": "mucha-job",
@@ -4823,7 +5363,13 @@
    ],
    "darkest": "#020001",
    "lightest": "#FFFFFB",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.623,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "van-gogh-starry-night",
@@ -4876,7 +5422,13 @@
    ],
    "darkest": "#000005",
    "lightest": "#FFFFD2",
-   "tint": 0.41
+   "tint": 0.41,
+   "subject": [
+    0.1,
+    0.0,
+    0.95,
+    0.75
+   ]
   },
   {
    "id": "klimt-tree-of-life",
@@ -4929,7 +5481,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FFFFFA",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.71,
+    0.04,
+    0.987,
+    0.7
+   ]
   },
   {
    "id": "klimt-the-kiss",
@@ -4982,7 +5540,13 @@
    ],
    "darkest": "#100100",
    "lightest": "#FFF39C",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.453,
+    0.04,
+    0.975,
+    0.7
+   ]
   },
   {
    "id": "van-gogh-starry-night-rhone",
@@ -5035,7 +5599,13 @@
    ],
    "darkest": "#24231F",
    "lightest": "#F0F7EF",
-   "tint": 0.41
+   "tint": 0.41,
+   "subject": [
+    0.2,
+    0.15,
+    0.95,
+    0.95
+   ]
   },
   {
    "id": "delacroix-liberty",
@@ -5088,7 +5658,13 @@
    ],
    "darkest": "#020003",
    "lightest": "#FFFFFD",
-   "tint": 0.39
+   "tint": 0.39,
+   "subject": [
+    0.3,
+    0.0,
+    0.75,
+    0.8
+   ]
   },
   {
    "id": "van-gogh-sunflowers",
@@ -5141,7 +5717,13 @@
    ],
    "darkest": "#0F110E",
    "lightest": "#FBF3A8",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.567,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "klimt-mada-primavesi",
@@ -5194,7 +5776,13 @@
    ],
    "darkest": "#030000",
    "lightest": "#F5FEEB",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.592,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "schiele-kneeling-orange",
@@ -5247,7 +5835,13 @@
    ],
    "darkest": "#0D0000",
    "lightest": "#FFE7DC",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.616,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "van-gogh-sunflowers-munich",
@@ -5300,7 +5894,13 @@
    ],
    "darkest": "#190100",
    "lightest": "#FBFACC",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.56,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "michelangelo-sistine-ceiling",
@@ -5353,7 +5953,13 @@
    ],
    "darkest": "#170600",
    "lightest": "#FFFFFF",
-   "tint": 0.44
+   "tint": 0.44,
+   "subject": [
+    0.25,
+    0.2,
+    0.8,
+    0.8
+   ]
   },
   {
    "id": "mondrian-composition-red-plane",
@@ -5406,7 +6012,13 @@
    ],
    "darkest": "#020300",
    "lightest": "#FFFFFF",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.446,
+    0.04,
+    0.975,
+    0.7
+   ]
   },
   {
    "id": "lemoyne-apotheosis-hercules",
@@ -5459,7 +6071,13 @@
    ],
    "darkest": "#080000",
    "lightest": "#FFFDF5",
-   "tint": 0.44
+   "tint": 0.44,
+   "subject": [
+    0.2,
+    0.15,
+    0.8,
+    0.85
+   ]
   },
   {
    "id": "schiele-moa",
@@ -5512,7 +6130,13 @@
    ],
    "darkest": "#010200",
    "lightest": "#FFFDF4",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.616,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "aivazovsky-ninth-wave",
@@ -5565,7 +6189,13 @@
    ],
    "darkest": "#010006",
    "lightest": "#FFF7C2",
-   "tint": 0.42
+   "tint": 0.42,
+   "subject": [
+    0.2,
+    0.3,
+    0.8,
+    0.98
+   ]
   },
   {
    "id": "popova-painterly-architectonic",
@@ -5618,7 +6248,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.49
+   "tint": 0.49,
+   "subject": [
+    0.2,
+    0.1,
+    0.8,
+    0.9
+   ]
   },
   {
    "id": "bruegel-tower-babel",
@@ -5671,7 +6307,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FFFDE8",
-   "tint": 0.55
+   "tint": 0.55,
+   "subject": [
+    0.25,
+    0.0,
+    0.75,
+    0.95
+   ]
   },
   {
    "id": "botticelli-birth-of-venus",
@@ -5724,7 +6366,13 @@
    ],
    "darkest": "#000200",
    "lightest": "#FDFFF9",
-   "tint": 0.5
+   "tint": 0.5,
+   "subject": [
+    0.3,
+    0.0,
+    0.7,
+    0.9
+   ]
   },
   {
    "id": "kandinsky-yellow-red-blue",
@@ -5777,7 +6425,13 @@
    ],
    "darkest": "#0B0000",
    "lightest": "#F6F6EE",
-   "tint": 0.62
+   "tint": 0.62,
+   "subject": [
+    0.2,
+    0.05,
+    0.9,
+    0.9
+   ]
   },
   {
    "id": "kandinsky-composition-viii",
@@ -5830,7 +6484,13 @@
    ],
    "darkest": "#030000",
    "lightest": "#FFFFFD",
-   "tint": 0.63
+   "tint": 0.63,
+   "subject": [
+    0.15,
+    0.1,
+    0.85,
+    0.85
+   ]
   },
   {
    "id": "kramskoi-unknown-woman",
@@ -5883,7 +6543,13 @@
    ],
    "darkest": "#100A00",
    "lightest": "#FFFFFB",
-   "tint": 0.64
+   "tint": 0.64,
+   "subject": [
+    0.4,
+    0.0,
+    0.75,
+    0.75
+   ]
   },
   {
    "id": "michelangelo-creation-of-adam",
@@ -5936,7 +6602,13 @@
    ],
    "darkest": "#090000",
    "lightest": "#FFFFEC",
-   "tint": 0.58
+   "tint": 0.58,
+   "subject": [
+    0.2,
+    0.2,
+    0.75,
+    0.65
+   ]
   },
   {
    "id": "hokusai-great-wave",
@@ -5989,7 +6661,13 @@
    ],
    "darkest": "#112C3D",
    "lightest": "#FDF6DB",
-   "tint": 0.7
+   "tint": 0.7,
+   "subject": [
+    0.05,
+    0.05,
+    0.8,
+    0.95
+   ]
   },
   {
    "id": "holbein-ambassadors",
@@ -6042,7 +6720,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#E3E2D1",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.442,
+    0.04,
+    0.975,
+    0.7
+   ]
   },
   {
    "id": "brueghel-wooden-vessel",
@@ -6095,7 +6779,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFF3",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.606,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "dahl-dresden-moonlight",
@@ -6148,7 +6838,13 @@
    ],
    "darkest": "#000100",
    "lightest": "#FEFFF6",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.4,
+    0.3,
+    0.9,
+    0.85
+   ]
   },
   {
    "id": "bosschaert-wan-li-vase",
@@ -6201,7 +6897,13 @@
    ],
    "darkest": "#040000",
    "lightest": "#F8EEBB",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.595,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "cot-springtime",
@@ -6254,7 +6956,13 @@
    ],
    "darkest": "#000200",
    "lightest": "#FFFFF8",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.674,
+    0.04,
+    0.985,
+    0.7
+   ]
   },
   {
    "id": "ruysch-flowers",
@@ -6307,7 +7015,13 @@
    ],
    "darkest": "#000002",
    "lightest": "#FDFFFE",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.572,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "van-gogh-flowering-plum",
@@ -6360,7 +7074,13 @@
    ],
    "darkest": "#0B0000",
    "lightest": "#FFF0D3",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.539,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "toulmouche-reluctant-bride",
@@ -6413,7 +7133,13 @@
    ],
    "darkest": "#080000",
    "lightest": "#FFFFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.551,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "rosso-musical-angel",
@@ -6466,7 +7192,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#DBB993",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.25,
+    0.1,
+    0.85,
+    0.95
+   ]
   },
   {
    "id": "grimshaw-blackman-street",
@@ -6519,7 +7251,13 @@
    ],
    "darkest": "#000002",
    "lightest": "#FFF724",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.56,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "waterhouse-ophelia",
@@ -6572,7 +7310,13 @@
    ],
    "darkest": "#090000",
    "lightest": "#FFFFF6",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.678,
+    0.04,
+    0.985,
+    0.7
+   ]
   },
   {
    "id": "biard-magdalena-bay",
@@ -6625,7 +7369,13 @@
    ],
    "darkest": "#050100",
    "lightest": "#F3E4C5",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.25,
+    0.1,
+    0.75,
+    0.92
+   ]
   },
   {
    "id": "renoir-vase-roses",
@@ -6678,7 +7428,13 @@
    ],
    "darkest": "#020500",
    "lightest": "#FFFFE2",
-   "tint": 0.35
+   "tint": 0.35,
+   "subject": [
+    0.2,
+    0.0,
+    0.8,
+    0.95
+   ]
   },
   {
    "id": "roerich-himalayas",
@@ -6731,7 +7487,13 @@
    ],
    "darkest": "#00030C",
    "lightest": "#F3FFFB",
-   "tint": 0.36
+   "tint": 0.36,
+   "subject": [
+    0.15,
+    0.1,
+    0.85,
+    0.75
+   ]
   },
   {
    "id": "velde-close-hauled",
@@ -6784,7 +7546,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#E8EAE5",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.5,
+    0.2,
+    0.85,
+    0.95
+   ]
   },
   {
    "id": "sohlberg-flower-meadow",
@@ -6837,7 +7605,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FCFFFF",
-   "tint": 0.37
+   "tint": 0.37,
+   "subject": [
+    0.2,
+    0.15,
+    0.8,
+    0.9
+   ]
   },
   {
    "id": "dahl-cloud-study",
@@ -6890,7 +7664,13 @@
    ],
    "darkest": "#000D16",
    "lightest": "#FFFFFD",
-   "tint": 0.35
+   "tint": 0.35,
+   "subject": [
+    0.15,
+    0.35,
+    0.55,
+    0.9
+   ]
   },
   {
    "id": "friedrich-two-men-moon",
@@ -6943,7 +7723,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FED688",
-   "tint": 0.37
+   "tint": 0.37,
+   "subject": [
+    0.12,
+    0.25,
+    0.55,
+    0.8
+   ]
   },
   {
    "id": "monet-waterlily-pond",
@@ -6996,7 +7782,13 @@
    ],
    "darkest": "#071903",
    "lightest": "#E5E0BA",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.433,
+    0.04,
+    0.974,
+    0.7
+   ]
   },
   {
    "id": "hesselbom-dusk",
@@ -7049,7 +7841,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#F2EDE7",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.599,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "toulmouche-vanity",
@@ -7102,7 +7900,13 @@
    ],
    "darkest": "#020001",
    "lightest": "#FDFFFE",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.646,
+    0.04,
+    0.984,
+    0.7
+   ]
   },
   {
    "id": "hiroshige-zoshigaya",
@@ -7155,7 +7959,13 @@
    ],
    "darkest": "#0F0800",
    "lightest": "#FFFFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.622,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "monet-water-lilies",
@@ -7208,7 +8018,13 @@
    ],
    "darkest": "#001711",
    "lightest": "#FFFFF8",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.428,
+    0.04,
+    0.974,
+    0.7
+   ]
   },
   {
    "id": "monet-water-lilies-1907",
@@ -7261,7 +8077,13 @@
    ],
    "darkest": "#000321",
    "lightest": "#FEFFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.518,
+    0.04,
+    0.978,
+    0.7
+   ]
   },
   {
    "id": "bierstadt-storm-rockies",
@@ -7314,7 +8136,13 @@
    ],
    "darkest": "#010101",
    "lightest": "#FFFFE4",
-   "tint": 0.38
+   "tint": 0.38,
+   "subject": [
+    0.2,
+    0.1,
+    0.85,
+    0.85
+   ]
   },
   {
    "id": "korovin-place-opera",
@@ -7367,7 +8195,13 @@
    ],
    "darkest": "#00000C",
    "lightest": "#FFFFFD",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.532,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "klimt-garden-sunflowers",
@@ -7420,7 +8254,13 @@
    ],
    "darkest": "#1E1B14",
    "lightest": "#FFF3E9",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.458,
+    0.04,
+    0.975,
+    0.7
+   ]
   },
   {
    "id": "redon-butterflies",
@@ -7473,7 +8313,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFDF",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.593,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "aivazovsky-winter-landscape",
@@ -7526,7 +8372,13 @@
    ],
    "darkest": "#020200",
    "lightest": "#FEFFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.583,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "aivazovsky-along-coast",
@@ -7579,7 +8431,13 @@
    ],
    "darkest": "#090000",
    "lightest": "#E1D6D4",
-   "tint": 0.43
+   "tint": 0.43,
+   "subject": [
+    0.38,
+    0.4,
+    0.68,
+    0.85
+   ]
   },
   {
    "id": "grimshaw-silver-moonlight",
@@ -7632,7 +8490,13 @@
    ],
    "darkest": "#000002",
    "lightest": "#F9FFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.532,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "monet-water-lilies-setting-sun",
@@ -7685,7 +8549,13 @@
    ],
    "darkest": "#191700",
    "lightest": "#FFEDC2",
-   "tint": 0.4
+   "tint": 0.4,
+   "subject": [
+    0.2,
+    0.1,
+    0.8,
+    0.9
+   ]
   },
   {
    "id": "hiroshige-hota-coast",
@@ -7738,7 +8608,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FEFFFA",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.637,
+    0.04,
+    0.984,
+    0.7
+   ]
   },
   {
    "id": "durer-praying-hands",
@@ -7791,7 +8667,13 @@
    ],
    "darkest": "#000201",
    "lightest": "#FFFFFF",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.622,
+    0.04,
+    0.983,
+    0.7
+   ]
   },
   {
    "id": "cole-voyage-childhood",
@@ -7844,7 +8726,13 @@
    ],
    "darkest": "#040400",
    "lightest": "#FFEEB3",
-   "tint": 0.35
+   "tint": 0.35,
+   "subject": [
+    0.1,
+    0.55,
+    0.45,
+    0.95
+   ]
   },
   {
    "id": "monet-impression-sunrise",
@@ -7897,7 +8785,13 @@
    ],
    "darkest": "#000901",
    "lightest": "#FFDBC4",
-   "tint": 0.45
+   "tint": 0.45,
+   "subject": [
+    0.35,
+    0.2,
+    0.75,
+    0.85
+   ]
   },
   {
    "id": "monet-woman-parasol",
@@ -7950,7 +8844,13 @@
    ],
    "darkest": "#000A16",
    "lightest": "#FAFCFB",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.556,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "velde-cannon-shot",
@@ -8003,7 +8903,13 @@
    ],
    "darkest": "#120300",
    "lightest": "#F0EED7",
-   "tint": 0.34
+   "tint": 0.34,
+   "subject": [
+    0.537,
+    0.04,
+    0.979,
+    0.7
+   ]
   },
   {
    "id": "cross-pink-cloud",
@@ -8056,7 +8962,13 @@
    ],
    "darkest": "#030027",
    "lightest": "#FFFFFA",
-   "tint": 0.37
+   "tint": 0.37,
+   "subject": [
+    0.38,
+    0.04,
+    0.972,
+    0.7
+   ]
   },
   {
    "id": "laurence-mckinley",
@@ -8109,7 +9021,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#F5EDDE",
-   "tint": 0.48
+   "tint": 0.48,
+   "subject": [
+    0.25,
+    0.0,
+    0.9,
+    0.6
+   ]
   },
   {
    "id": "van-gogh-irises",
@@ -8162,7 +9080,13 @@
    ],
    "darkest": "#090000",
    "lightest": "#FEFFFF",
-   "tint": 0.48
+   "tint": 0.48,
+   "subject": [
+    0.1,
+    0.05,
+    0.9,
+    0.9
+   ]
   },
   {
    "id": "kramskoi-christ-in-the-desert",
@@ -8215,7 +9139,13 @@
    ],
    "darkest": "#0E0100",
    "lightest": "#F9EFE3",
-   "tint": 0.38
+   "tint": 0.38,
+   "subject": [
+    0.373,
+    0.04,
+    0.972,
+    0.7
+   ]
   },
   {
    "id": "turner-temeraire",
@@ -8268,7 +9198,13 @@
    ],
    "darkest": "#13120E",
    "lightest": "#FCF1DD",
-   "tint": 0.49
+   "tint": 0.49,
+   "subject": [
+    0.05,
+    0.15,
+    0.75,
+    0.95
+   ]
   },
   {
    "id": "leonardo-vitruvian-man",
@@ -8321,7 +9257,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFED6",
-   "tint": 0.33
+   "tint": 0.33,
+   "subject": [
+    0.593,
+    0.04,
+    0.982,
+    0.7
+   ]
   },
   {
    "id": "bruegel-hunters-snow",
@@ -8374,7 +9316,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFED",
-   "tint": 0.49
+   "tint": 0.49,
+   "subject": [
+    0.2,
+    0.25,
+    0.85,
+    0.95
+   ]
   },
   {
    "id": "cole-voyage-youth",
@@ -8427,7 +9375,13 @@
    ],
    "darkest": "#180600",
    "lightest": "#FFFACC",
-   "tint": 0.42
+   "tint": 0.42,
+   "subject": [
+    0.4,
+    0.55,
+    0.85,
+    0.95
+   ]
   },
   {
    "id": "friedrich-monk-by-the-sea",
@@ -8480,7 +9434,13 @@
    ],
    "darkest": "#000600",
    "lightest": "#DFE2D1",
-   "tint": 0.54
+   "tint": 0.54,
+   "subject": [
+    0.25,
+    0.3,
+    0.6,
+    0.97
+   ]
   },
   {
    "id": "van-gogh-wheat-field-cypresses",
@@ -8533,7 +9493,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFF2",
-   "tint": 0.53
+   "tint": 0.53,
+   "subject": [
+    0.3,
+    0.1,
+    0.95,
+    0.85
+   ]
   },
   {
    "id": "monet-cliff-pourville",
@@ -8586,7 +9552,13 @@
    ],
    "darkest": "#240F0A",
    "lightest": "#FDFFF5",
-   "tint": 0.57
+   "tint": 0.57,
+   "subject": [
+    0.4,
+    0.2,
+    0.95,
+    0.8
+   ]
   },
   {
    "id": "van-gogh-almond-blossom",
@@ -8639,7 +9611,13 @@
    ],
    "darkest": "#000200",
    "lightest": "#FFFFF0",
-   "tint": 0.59
+   "tint": 0.59,
+   "subject": [
+    0.15,
+    0.05,
+    0.85,
+    0.95
+   ]
   },
   {
    "id": "van-gogh-fishing-boats",
@@ -8692,7 +9670,13 @@
    ],
    "darkest": "#020100",
    "lightest": "#FEFFF5",
-   "tint": 0.57
+   "tint": 0.57,
+   "subject": [
+    0.1,
+    0.15,
+    0.8,
+    0.95
+   ]
   },
   {
    "id": "hokusai-umezawa",
@@ -8745,7 +9729,13 @@
    ],
    "darkest": "#143242",
    "lightest": "#FFFFEF",
-   "tint": 0.7
+   "tint": 0.7,
+   "subject": [
+    0.05,
+    0.05,
+    0.8,
+    0.95
+   ]
   },
   {
    "id": "whistler-falling-rocket",
@@ -8798,7 +9788,13 @@
    ],
    "darkest": "#040806",
    "lightest": "#FFEC9C",
-   "tint": 0.3
+   "tint": 0.3,
+   "subject": [
+    0.586,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "dore-fall-of-satan",
@@ -8851,7 +9847,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.564,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "dore-flood",
@@ -8904,7 +9906,13 @@
    ],
    "darkest": "#010000",
    "lightest": "#FFFEE8",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.572,
+    0.04,
+    0.981,
+    0.7
+   ]
   },
   {
    "id": "dore-wolves-sheep",
@@ -8957,7 +9965,13 @@
    ],
    "darkest": "#020202",
    "lightest": "#FFFFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.558,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "dore-leviathan",
@@ -9010,7 +10024,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.562,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "dore-paradise-lost-book-vi",
@@ -9063,7 +10083,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.562,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "dore-moses-tables",
@@ -9116,7 +10142,13 @@
    ],
    "darkest": "#000000",
    "lightest": "#FFFFFF",
-   "tint": 0.31
+   "tint": 0.31,
+   "subject": [
+    0.562,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "dore-empyrean",
@@ -9169,7 +10201,13 @@
    ],
    "darkest": "#080808",
    "lightest": "#FFFFFF",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.555,
+    0.04,
+    0.98,
+    0.7
+   ]
   },
   {
    "id": "dore-raven",
@@ -9222,7 +10260,13 @@
    ],
    "darkest": "#1B191A",
    "lightest": "#FFFFFA",
-   "tint": 0.32
+   "tint": 0.32,
+   "subject": [
+    0.625,
+    0.04,
+    0.983,
+    0.7
+   ]
   }
  ]
 }

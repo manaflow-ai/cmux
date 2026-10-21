@@ -1,19 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import { Popover } from "../../../ui/Popover";
-import { useSettingsState, useStore } from "../context";
+import { useSettingsSelector, useStore } from "../context";
 import { Icon } from "../icons";
 import { t, text } from "../strings";
 import { TextEditor } from "./TextEditor";
 import type { EditorProps } from "./types";
 
 /**
- * theme and font_family: a searchable list of the names the app published in ready().domains.
+ * font_family (and a theme row, before ThemeRowEditor): a searchable list of the names the app published in ready().domains.
  * Font names render in their own face as the sample. With no published names, a text field.
  * The list is a pop-up over the rows, so opening it pushes no row down (cx-jh7kq).
  */
 export function DomainListEditor({ row, value, disabled, labelId }: EditorProps) {
   const store = useStore();
-  const domains = useSettingsState().domains;
+  const domains = useSettingsSelector((state) => state.domains);
   const names = row.kind === "theme" ? domains.themes : domains.font_families;
   const [open, setOpen] = useState(false);
   const [filter, setFilter] = useState("");

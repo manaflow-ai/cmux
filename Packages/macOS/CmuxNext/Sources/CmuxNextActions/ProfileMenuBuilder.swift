@@ -1,7 +1,7 @@
 public import AppKit
 
-/// The profile the menu's "Profiles" section shows: today only the
-/// current one (real profiles are a later lane).
+/// The profile the menu's first row shows: today only the current one
+/// (real profiles are a later lane).
 public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
     public var name: String
 
@@ -22,11 +22,14 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         self.registry = registry
     }
 
-    public func make(profile: ProfileMenuProfile, spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
+    /// `avatar` is drawn in the current-profile row's image column. `chiefPetShown` (the
+    /// `home.chiefPetEnabled` that applies now) adds Show Chief or Hide Chief above Settings; nil
+    /// leaves the row out.
+    public func make(profile: ProfileMenuProfile, avatar: NSImage? = nil, chiefPetShown: Bool? = nil,
+                     spec: ProfileMenuSpec = ProfileMenuSpec()) -> NSMenu {
         let menu = NSMenu()
         menu.autoenablesItems = true
-        menu.addItem(.sectionHeader(title: spec.sectionTitle))
-        menu.addItem(profileRow(profile, actions: spec.profileActions))
+        menu.addItem(profileRow(profile, avatar: avatar, actions: spec.profileActions))
         menu.addItem(.separator())
         for submenu in spec.submenus {
             let rows = submenu.actions.compactMap(boundMenuItem)
@@ -40,6 +43,7 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             item.submenu = sub
             menu.addItem(item)
         }
+        if let chiefPetShown, let chief = chiefPetRow(shown: chiefPetShown) { menu.addItem(chief) }
         if let settings = row(spec.settings) { menu.addItem(settings) }
         let creation = spec.creation.compactMap(row)
         if !creation.isEmpty {
@@ -49,14 +53,11 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
         return menu
     }
 
-    /// The current profile and a "…" submenu with its options. No checkmark
-    /// and no avatar: a checked row reserves a state column, and an image
-    /// reserves an image column, for every row of the menu, which pushed
-    /// them all right of the menu's inset (the sidebar control the menu
-    /// opens from shows the avatar). With one profile a checkmark meant
-    /// nothing.
-    private func profileRow(_ profile: ProfileMenuProfile, actions: [ActionID]) -> NSMenuItem {
+    /// The current profile, its avatar and a submenu with its options. A
+    /// checkmark and section header are unnecessary with one current profile.
+    private func profileRow(_ profile: ProfileMenuProfile, avatar: NSImage?, actions: [ActionID]) -> NSMenuItem {
         let item = NSMenuItem(title: profile.name, action: nil, keyEquivalent: "")
+        item.image = avatar
         item.identifier = NSUserInterfaceItemIdentifier("profileMenu.currentProfile")
         let options = actions.compactMap(boundMenuItem)
         if !options.isEmpty {
@@ -65,6 +66,23 @@ public nonisolated struct ProfileMenuProfile: Sendable, Hashable {
             options.forEach(sub.addItem)
             item.submenu = sub
         }
+        return item
+    }
+
+    /// Show Chief / Hide Chief (Leo 2026-10-20, as Codex's profile menu toggles its floating
+    /// window): flips `home.chiefPetEnabled` to the other value through the one setting path,
+    /// `palette.toggleSetting`, as the palette and `cmux settings toggle-setting` do.
+    private func chiefPetRow(shown: Bool) -> NSMenuItem? {
+        let toggle: ActionID = "palette.toggleSetting"
+        guard let item = boundMenuItem(toggle) else { return nil }
+        item.title = shown ? ProfileMenuSpec.text("menu.profile.hideChief", "Hide Chief")
+            : ProfileMenuSpec.text("menu.profile.showChief", "Show Chief")
+        item.keyEquivalent = ""
+        item.keyEquivalentModifierMask = []
+        item.image = Self.symbol(shown ? "eye.slash" : "eye", label: item.title)
+        item.identifier = NSUserInterfaceItemIdentifier("profileMenu.chiefPet")
+        item.representedObject = ActionMenuPayload(id: toggle, target: nil,
+                                                   arguments: ["setting": .string(ProfileMenuSpec.chiefPetSetting), "on": .bool(!shown)])
         return item
     }
 

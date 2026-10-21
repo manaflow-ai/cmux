@@ -26,10 +26,24 @@ cd "$REPO_ROOT"
 
 # Register new Python tests that a workflow already runs, so adding a test and
 # its ci-guards.yml step is all a commit needs. Best effort: CI still validates.
+# Only this commit's tests: the ones it adds, and the ones its workflow changes
+# name. Registering every unregistered test the base carries wrote the same
+# entries into every pull request, which then conflicted (#21946).
 REGISTRY="tests/test-execution.toml"
 if git diff --cached --name-only --diff-filter=ACMRT | grep -Eq '^(tests/test_[^/]+\.py|\.github/workflows/.+)$' \
     && git diff --quiet -- "$REGISTRY"; then
-    "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write >/dev/null 2>&1 || true
+    OWN_TESTS=()
+    while IFS= read -r test_path; do
+        [[ -n "$test_path" ]] && OWN_TESTS+=(--only "$test_path")
+    done < <(
+        {
+            git diff --cached --name-only --diff-filter=A -- 'tests/test_*.py'
+            git diff --cached -U0 -- .github/workflows | grep -E '^\+' | grep -oE 'tests/test_[A-Za-z0-9_]+\.py' || true
+        } | sort -u
+    )
+    if (( ${#OWN_TESTS[@]} > 0 )); then
+        "$PYTHON3_BIN" -I "$REGISTRY_VALIDATOR" --repo-root "$REPO_ROOT" --write "${OWN_TESTS[@]}" >/dev/null 2>&1 || true
+    fi
     if ! git diff --quiet -- "$REGISTRY"; then
         git add "$REGISTRY"
         echo "pre-commit: registered new tests in $REGISTRY"
@@ -127,6 +141,9 @@ if (( ${#STAGED_WEB_PATHS[@]} > 0 )); then
     if [[ ! -x "$VP_BIN" ]] && command -v bun >/dev/null 2>&1; then
         echo "pre-commit: installing webviews packages for vp (bun install --frozen-lockfile --ignore-scripts)" >&2
         (cd "$REPO_ROOT/webviews" && bun install --frozen-lockfile --ignore-scripts >/dev/null 2>&1) || true
+        # --ignore-scripts skips the postinstall that writes the pages' strings tables (build
+        # output since #21946); write them so a later typecheck in this checkout finds them.
+        (cd "$REPO_ROOT/webviews" && bun scripts/pages/gen-strings.mjs --best-effort >/dev/null 2>&1) || true
     fi
     if [[ ! -x "$VP_BIN" ]]; then
         formatter_missing "vp is unavailable (install bun, then run bun install in webviews)"

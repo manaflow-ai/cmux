@@ -18,6 +18,10 @@ final class SidebarListDrag {
     /// head alone, as for a one-row card, so its centre can still reach a
     /// row's onto band (cx-ikxz).
     var headHeight: CGFloat?
+    /// A dragged group's header height: on the document path its header, not the tall card's centre, decides the drop.
+    var groupHeadHeight: CGFloat?
+    /// A dragged group's drop blocks (`SidebarGroupReorder.blocks`) in the list without it, built with `docGeometry`.
+    var groupBlocks: [ClosedRange<CGFloat>] = []
     /// The card as drops see it: the head row of a workspace card.
     var probeCard: CGRect {
         var card = lift.frame

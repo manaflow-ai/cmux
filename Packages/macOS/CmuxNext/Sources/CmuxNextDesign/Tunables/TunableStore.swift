@@ -25,6 +25,10 @@ public nonisolated final class TunableStore: Observable, Sendable {
         var overrides: [String: TunableValue] = [:]
         var descriptors: [String: TunableDescriptor] = [:]
         var revision = 0
+        /// One Observation key path per key, made once (at `register`, at launch): a key path with
+        /// a subscript argument is a new object (and, the first time, a runtime type lookup) per
+        /// call, 5-10 ms cold on a read path such as a tab switch (cx-8w027.25).
+        var keyPaths: [String: KeyPath<TunableStore, Int> & Sendable] = [:]
     }
 
     private let registrar = ObservationRegistrar()
@@ -55,7 +59,20 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// Declares the tunables the window lists and the store accepts.
     public func register(_ descriptors: [TunableDescriptor]) {
         state.withLock { state in
-            for descriptor in descriptors { state.descriptors[descriptor.key] = descriptor }
+            for descriptor in descriptors {
+                state.descriptors[descriptor.key] = descriptor
+                if state.keyPaths[descriptor.key] == nil { state.keyPaths[descriptor.key] = \TunableStore.[observed: descriptor.key] }
+            }
+        }
+    }
+
+    /// The Observation key path of `key`: made once per key.
+    private func keyPath(_ key: String) -> KeyPath<TunableStore, Int> & Sendable {
+        state.withLock { state in
+            if let made = state.keyPaths[key] { return made }
+            let made: KeyPath<TunableStore, Int> & Sendable = \TunableStore.[observed: key]
+            state.keyPaths[key] = made
+            return made
         }
     }
 
@@ -88,7 +105,7 @@ public nonisolated final class TunableStore: Observable, Sendable {
     /// The override for `key`, if any. Registers an Observation dependency.
     public func override(_ key: String) -> TunableValue? {
         guard active.load(ordering: .relaxed) else { return nil }
-        registrar.access(self, keyPath: \.[observed: key])
+        registrar.access(self, keyPath: keyPath(key))
         return state.withLock { $0.overrides[key] }
     }
 
@@ -167,20 +184,24 @@ public nonisolated final class TunableStore: Observable, Sendable {
         }
     }
 
-    private func mutate(_ keys: [String], persist: Bool = true, _ body: (inout [String: TunableValue]) -> Void) {
-        func apply(_ remaining: ArraySlice<String>) {
-            guard let key = remaining.first else {
-                registrar.withMutation(of: self, keyPath: \.revision) {
-                    state.withLock { state in
-                        body(&state.overrides)
-                        state.revision += 1
-                    }
+    /// One observation mutation per key, nested, with `body` inside the last one. A method, not a
+    /// recursive local function that captures `body` (Swift 6.3.3's SendNonSendable pass crashed
+    /// now and then on such captures in Release).
+    private func apply(_ remaining: ArraySlice<String>, _ body: (inout [String: TunableValue]) -> Void) {
+        guard let key = remaining.first else {
+            registrar.withMutation(of: self, keyPath: \.revision) {
+                state.withLock { state in
+                    body(&state.overrides)
+                    state.revision += 1
                 }
-                return
             }
-            registrar.withMutation(of: self, keyPath: \.[observed: key]) { apply(remaining.dropFirst()) }
+            return
         }
-        apply(keys[...])
+        registrar.withMutation(of: self, keyPath: keyPath(key)) { apply(remaining.dropFirst(), body) }
+    }
+
+    private func mutate(_ keys: [String], persist: Bool = true, _ body: (inout [String: TunableValue]) -> Void) {
+        apply(keys[...], body)
         guard persist else { return }
         guard let snapshot = state.withLock({ $0.loading ? nil : $0.overrides }) else { return }
         writer.withLock { $0?.write(snapshot) }

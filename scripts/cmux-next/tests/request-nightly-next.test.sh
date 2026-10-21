@@ -218,13 +218,14 @@ fetches=$(grep -c . "$TMP/git.log" || true)
 
 # A commit whose generated page strings are stale fails the nightly's web
 # bundle step 30 minutes in (nightly-next run 38348747848): never promoted.
-# A stub node stands in for gen-strings --check (exit 1 = stale).
+# A stub node stands in for gen-strings (exit 1 = stale, or since #21946, for a
+# commit that no longer tracks the tables, a missing translation).
 git_q -C "$src" checkout -q -b strings "$app"
 mkdir -p "$src/webviews/scripts/pages"; echo "// gen-strings" > "$src/webviews/scripts/pages/gen-strings.mjs"
 git_q -C "$src" add -A; git_q -C "$src" commit -m "app with page strings"
 strings=$(git -C "$src" rev-parse HEAD)
 # The stub reads the commit it runs in: a STALE marker beside gen-strings.mjs means stale strings.
-printf '#!/usr/bin/env bash\n[[ "$*" == *"gen-strings.mjs --check"* ]] || exit 9\n[[ ! -f scripts/pages/STALE ]] || exit 1\nexit "${STUB_STRINGS_EXIT:-0}"\n' > "$TMP/bin/node"; chmod +x "$TMP/bin/node"
+printf '#!/usr/bin/env bash\n[[ "$*" == *"gen-strings.mjs"* ]] || exit 9\n[[ ! -f scripts/pages/STALE ]] || exit 1\nexit "${STUB_STRINGS_EXIT:-0}"\n' > "$TMP/bin/node"; chmod +x "$TMP/bin/node"
 STUB_STRINGS_EXIT=1 request --sha "$strings" --release-compile-green
 [[ "$status" == 0 ]] && ! dispatched "$strings" || fail "a commit with stale page strings must not be promoted (exit $status):" "$out" "$(cat "$TMP/gh.log")"
 grep -q "page strings are stale" <<<"$out" || fail "the refusal must name the stale strings:" "$out"

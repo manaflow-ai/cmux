@@ -29,7 +29,7 @@ jobs:
     # A visual receipt must never hold up a functional PR. The final artifact
     # step still runs when a browser or gallery build is unavailable.
     continue-on-error: true
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 20
     steps:
       - name: Initialize evidence directory
@@ -41,11 +41,15 @@ jobs:
           The full gallery PR matrix remains the authoritative visual check.
           EOF
 
+      # Full history for the merge base, but blobless: a full clone spent about
+      # 188 s of this job's 4.7 min (six runs, 2026-10-19). Git fetches the
+      # head's and the base worktree's files on checkout.
       - name: Checkout the PR head
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.head.sha }}
           fetch-depth: 0
+          filter: blob:none
           persist-credentials: false
 
       - name: Setup Bun
@@ -83,9 +87,10 @@ jobs:
           fi
 
           # Pair the default dark/light themes at one compact width. The cap is
-          # intentional: the full gallery workflow owns exhaustive coverage.
+          # intentional: the full gallery workflow owns exhaustive coverage. The
+          # manifests list every touched state; the sample below picks 16.
           bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
-            --frame component --limit 16 --out "$RUNNER_TEMP/head.json"
+            --frame component --out "$RUNNER_TEMP/head-all.json"
           CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-head" bun run gallery:build
 
           git worktree add --detach "$RUNNER_TEMP/base" "$base_sha"
@@ -93,23 +98,41 @@ jobs:
             cd "$RUNNER_TEMP/base/webviews"
             bun install --frozen-lockfile
             bun scripts/gallery/manifest.ts --entries "$ids" --themes pair --widths narrow \
-              --frame component --limit 16 --out "$RUNNER_TEMP/base.json"
+              --frame component --out "$RUNNER_TEMP/base-all.json"
             CMUX_GALLERY_OUT_DIR="$RUNNER_TEMP/gallery-base" bun run gallery:build
           else
-            echo '[]' > "$RUNNER_TEMP/base.json"
+            echo '[]' > "$RUNNER_TEMP/base-all.json"
           fi
+
+          # The sample: the states this PR adds first (no base case has their id),
+          # then the rest in order, 16 at most. A PR that touches a shared file
+          # touches every entry, and the first 16 in order are then unrelated to
+          # it. The base keeps the sampled states, then the ones this PR removes.
+          jq -s '(.[1] | map({key: .id, value: true}) | from_entries) as $base
+            | ([.[0][] | select($base[.id] | not)] + [.[0][] | select($base[.id])]) | .[0:16]' \
+            "$RUNNER_TEMP/head-all.json" "$RUNNER_TEMP/base-all.json" > "$RUNNER_TEMP/head.json"
+          jq -s '(.[0] | map({key: .id, value: true}) | from_entries) as $head
+            | (.[2] | map({key: .id, value: true}) | from_entries) as $all
+            | ([.[1][] | select($head[.id])] + [.[1][] | select($all[.id] | not)]) | .[0:16]' \
+            "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base-all.json" "$RUNNER_TEMP/head-all.json" > "$RUNNER_TEMP/base.json"
 
           cd "$GITHUB_WORKSPACE/scripts/gallery-matrix"
           bun install --frozen-lockfile
           ./node_modules/.bin/playwright install --with-deps --only-shell chromium
-          jq -s '.[0] as $head | $head + [.[1][] | select(.id as $id | any($head[]; .id == $id) | not)]' \
-            "$RUNNER_TEMP/head.json" "$RUNNER_TEMP/base.json" > "$RUNNER_TEMP/cases.json"
+          # Each stage renders its own states: a state the PR adds has no base
+          # variant to render (the base reports it not ready), and one it removes
+          # has no head variant.
           for stage in base head; do
             gallery="$RUNNER_TEMP/gallery-$stage"
             out="$evidence/$stage"
             mkdir -p "$out"
+            if [ "$(jq length "$RUNNER_TEMP/$stage.json")" = 0 ]; then
+              # Every sampled state is new: nothing to render before.
+              echo '[]' > "$out/results.json"
+              continue
+            fi
             if [ -d "$gallery" ]; then
-              bun runner.ts --manifest "$RUNNER_TEMP/cases.json" --gallery-dir "$gallery" \
+              bun runner.ts --manifest "$RUNNER_TEMP/$stage.json" --gallery-dir "$gallery" \
                 --output-dir "$out" --engines chromium --shard-count 1 --shard-index 0
             else
               echo "Missing $stage gallery build; advisory capture failed." >&2
@@ -136,7 +159,7 @@ jobs:
             "$evidence/diff/outcomes.json" > "$evidence/summary.tsv"
           {
             echo "Captured advisory receipt for $HEAD_SHA (base $base_sha)."
-            echo "Sample: up to 16 states, dark/light themes, narrow component width, Chromium."
+            echo "Sample: up to 16 states, new ones first, dark/light themes, narrow component width, Chromium."
             echo "The receipt is informational and never a merge gate."
           } | tee "$evidence/summary.txt" >> "$GITHUB_STEP_SUMMARY"
 

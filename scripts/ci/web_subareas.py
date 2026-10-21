@@ -278,13 +278,16 @@ def route() -> int:
         WebSubareas.all().emit(output)
         return 0
 
+    # A feat-cmux-next push routes from what the push brought (event.before), not its last
+    # commit: a multi-commit push can end on a commit that touches no web path.
+    push_base = os.environ.get("WEB_SUBAREAS_BASE", "").strip()
     base = subprocess.run(
-        ["git", "rev-parse", "-q", "--verify", "HEAD^1"],
+        ["git", "rev-parse", "-q", "--verify", f"{push_base}^{{commit}}" if push_base else "HEAD^1"],
         text=True,
         capture_output=True,
     )
     if base.returncode != 0:
-        print("comparison parent unavailable; running every web subarea")
+        print(f"comparison base {push_base or 'HEAD^1'} unavailable; running every web subarea")
         WebSubareas.all().emit(output)
         return 0
 
