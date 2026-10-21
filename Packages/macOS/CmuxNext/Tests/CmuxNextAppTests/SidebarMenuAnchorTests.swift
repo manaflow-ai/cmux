@@ -152,7 +152,9 @@ import Testing
         defer { sidebar.list.groupEditor.hide(); window.close() }
         let list = sidebar.list
         let row = try #require(list.displayed.row(for: .group(id)))
-        let point = NSPoint(x: 500, y: list.frame(for: row).midY)
+        // Room for the card on the pointer's trailing side: past the window's edge it slides back
+        // inside (theGroupEditorStaysInsideTheWindow), which only a host with no screen skipped.
+        let point = NSPoint(x: 300, y: list.frame(for: row).midY)
         list.groupEditing.open(id, from: .pointer(point))
         let pointer = try #require(list.window).convertPoint(toScreen: list.convert(point, to: nil))
         let card = try Self.card(sidebar)
