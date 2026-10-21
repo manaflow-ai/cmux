@@ -279,6 +279,7 @@ public final class FilesPaneView: NSView {
 
     // QLPreviewPanel calls these on the main thread (it is an AppKit panel).
     override nonisolated public func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        // main-proof: QLPreviewPanel calls its controller, data source and delegate on the main thread (an AppKit panel driven by the main run loop).
         MainActor.assumeIsolated {
             panel.dataSource = quickLook
             panel.delegate = quickLook
@@ -287,6 +288,7 @@ public final class FilesPaneView: NSView {
     }
 
     override nonisolated public func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        // main-proof: QLPreviewPanel calls its controller, data source and delegate on the main thread (an AppKit panel driven by the main run loop).
         MainActor.assumeIsolated {
             panel.dataSource = nil
             panel.delegate = nil

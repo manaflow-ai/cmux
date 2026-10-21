@@ -97,6 +97,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Shorter lag spikes (250 ms and up, rate-limited) go there too, once they end.
         let lagSpikes = LagSpikeReporter(reporter: reporter)
         lagSpikes.setContextProvider {
+            // main-proof: the watchdog calls onStall, the only caller of this provider (noteStall), from its run-loop observers on CFRunLoopGetMain (MainThreadWatchdog.onStall: MAIN thread).
             MainActor.assumeIsolated {
                 let windows = NSApp.windows
                 return ["windows": String(windows.count), "visible_windows": String(windows.filter(\.isVisible).count),

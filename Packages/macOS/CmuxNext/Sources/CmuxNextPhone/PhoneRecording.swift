@@ -50,11 +50,13 @@ public struct PhoneRecording: Sendable, Hashable, Codable, Identifiable {
         poster = try values.decodeIfPresent(String.self, forKey: .poster)
         events = try values.decode([PhoneRecordingEvent].self, forKey: .events)
         notes = try values.decode(String.self, forKey: .notes)
-        folder = (decoder.userInfo[.phoneRecordingFolder] as? URL) ?? URL(fileURLWithPath: "/")
+        folder = CodingUserInfoKey.phoneRecordingFolder.flatMap { decoder.userInfo[$0] as? URL } ?? URL(fileURLWithPath: "/")
     }
 }
 
 extension CodingUserInfoKey {
-    /// The folder a decoded ``PhoneRecording`` was read from.
-    public static let phoneRecordingFolder = CodingUserInfoKey(rawValue: "phoneRecordingFolder")!
+    /// The folder a decoded ``PhoneRecording`` was read from. Optional because
+    /// `CodingUserInfoKey.init?(rawValue:)` is failable (it never fails for this literal);
+    /// without it, a decoded recording's folder is `/`.
+    public static let phoneRecordingFolder = CodingUserInfoKey(rawValue: "phoneRecordingFolder")
 }

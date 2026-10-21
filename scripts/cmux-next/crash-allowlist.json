@@ -620,6 +620,167 @@
    "count": 2,
    "reason": "The checked accessors themselves: subscript(checked:) and modify(checked:) read or write self[index] only after startIndex <= index < endIndex on the line above.",
    "reviewer": "crash-lead 2026-10-09 (checked accessors themselves)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeTurnStatusPopover.swift",
+   "class": "swift.assume_isolated",
+   "count": 1,
+   "reason": "NSPopoverDelegate.popoverDidClose: NSPopover (an AppKit view) posts it on main. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/ComposerHistory.swift",
+   "class": "swift.index_subscript",
+   "count": 3,
+   "reason": "snapshot[i + 1] after guard i + 1 < snapshot.count, snapshot[i - 1] after i == 0 returns, and shown reads the index those steps set on the same snapshot. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeAutoLinks.swift",
+   "class": "swift.index_subscript",
+   "count": 1,
+   "reason": "id.index(underscore, offsetBy: 8) after id.distance(from: underscore, to: id.endIndex) > 9 on the line above. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeDiagramRowProvider.swift",
+   "class": "swift.int_conversion",
+   "count": 6,
+   "reason": "UInt32(byte) widens a UInt8, Int(hash & 0x7fff_ffff) fits Int; the width and height keys convert a measured diagram size bounded by maxWidth and maxHeight. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeMarkdownRenderer.swift",
+   "class": "swift.index_subscript",
+   "count": 7,
+   "reason": "Markdown line pass: every index comes from the same string's utf8 view (firstIndex, index(after:), index(before:) after nl > startIndex) or a prefix length checked by hasPrefix and utf8.count >= n. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeProjection+Streams.swift",
+   "class": "swift.index_subscript",
+   "count": 4,
+   "reason": "shownStreams[i] with i from shownStreams.firstIndex on the line above, no change to its length between. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeProjectionInputs.swift",
+   "class": "swift.index_subscript",
+   "count": 1,
+   "reason": "store.typing is a dictionary keyed by ConversationID: the subscript returns an optional and cannot trap. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Cmux/HomeTurnSteps.swift",
+   "class": "swift.index_subscript",
+   "count": 2,
+   "reason": "steps[steps.count - 1] inside if let last = steps.last: steps is not empty. Vendored MessagesLab code (pin d7b2df6): fixed upstream, not edited here.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/Shared/CmuxHomeRender/Sources/CmuxHomeRender/Diagrams/HomeMermaidSplitter.swift",
+   "class": "swift.index_subscript",
+   "count": 7,
+   "reason": "Mermaid fence splitter: scalar indices are walked from startIndex while < endIndex, lines[k] takes k in 0..<lines.count, and block open/close are line numbers it found in that range.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextControl/Browser/BrowserPageScripts+BrowserUse.swift",
+   "class": "swift.index_subscript",
+   "count": 1,
+   "reason": "JavaScript in a Swift multi-line string literal (bytes[i] = bin.charCodeAt(i) on a Uint8Array): the ratchet reads it as Swift; it runs in the page, not in the app.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridCollectionView.swift",
+   "class": "swift.iuo",
+   "count": 7,
+   "reason": "Objective-C signature of a Quick Look override or protocol method (QLPreviewPanel!, NSEvent!, (any QLPreviewItem)!): the IUO is AppKit's declared type, and every body guards or ignores the nil.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid/FileGridCollectionView.swift",
+   "class": "swift.force_unwrap",
+   "count": 1,
+   "reason": "Objective-C signature of a Quick Look override or protocol method (QLPreviewPanel!, NSEvent!, (any QLPreviewItem)!): the IUO is AppKit's declared type, and every body guards or ignores the nil.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/FilesPaneView.swift",
+   "class": "swift.iuo",
+   "count": 3,
+   "reason": "Objective-C signature of a Quick Look override or protocol method (QLPreviewPanel!, NSEvent!, (any QLPreviewItem)!): the IUO is AppKit's declared type, and every body guards or ignores the nil.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/QuickLookSource.swift",
+   "class": "swift.iuo",
+   "count": 4,
+   "reason": "Objective-C signature of a Quick Look override or protocol method (QLPreviewPanel!, NSEvent!, (any QLPreviewItem)!): the IUO is AppKit's declared type, and every body guards or ignores the nil.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFilesUI/QuickLookSource.swift",
+   "class": "swift.force_unwrap",
+   "count": 1,
+   "reason": "Objective-C signature of a Quick Look override or protocol method (QLPreviewPanel!, NSEvent!, (any QLPreviewItem)!): the IUO is AppKit's declared type, and every body guards or ignores the nil.",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Control/AppPageInputCursor.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPage.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/MobilePairing/MobilePairingPageProvider.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteNavigation/AppPaletteGoToSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/PaletteNavigation/AppPaletteNavigationSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Screenshots/ScreenshotsPageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TaskManager/AppTaskManagerSource.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
+  },
+  {
+   "path": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/TaskManager/TaskManagerPageService.swift",
+   "class": "swift.unowned",
+   "count": 1,
+   "reason": "owner is the explicit process root AppServices (AppProcessRoot holds it for the life of the process; OwnedChildLifetimeTests.theProcessRootHoldsTheServicesItAdopts)",
+   "reviewer": "review subagent 2026-10-21 (feat-cmux-next crash ratchet base red)"
   }
  ]
 }

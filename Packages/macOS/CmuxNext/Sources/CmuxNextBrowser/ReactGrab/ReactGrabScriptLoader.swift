@@ -16,8 +16,9 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
     /// The SHA-256 (lowercase hex) of ``pinnedVersion``'s `dist/index.global.js`.
     public static let pinnedSHA256 = "4a1e71090e8ad8bb6049de80ccccdc0f5bb147b9f8fb88886d871612ac7ca04b"
 
-    /// Where the library is downloaded from.
-    public nonisolated let url: URL
+    /// Where the library is downloaded from; nil when the version does not make a valid URL,
+    /// and then ``script()`` throws `URLError(.badURL)`.
+    public nonisolated let url: URL?
     private let sha256: String
     private let fetch: @Sendable (URL) async throws -> Data
     private var cached: String?
@@ -34,7 +35,7 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
         fetch: @escaping @Sendable (URL) async throws -> Data = { try await URLSession.shared.data(from: $0).0 }
     ) {
         // The version is a fixed npm semver from this file or a test, never user input.
-        self.url = URL(string: "https://unpkg.com/react-grab@\(version)/dist/index.global.js")!
+        self.url = URL(string: "https://unpkg.com/react-grab@\(version)/dist/index.global.js")
         self.sha256 = sha256
         self.fetch = fetch
     }
@@ -42,11 +43,13 @@ public actor ReactGrabScriptLoader: ReactGrabScriptSource {
     /// The library source, downloaded on first use and cached for the run.
     ///
     /// - Throws: ``ReactGrabError/integrityMismatch`` when the hash differs from the pin,
-    ///   ``ReactGrabError/notText`` for a non-UTF-8 file, or the download's error.
+    ///   ``ReactGrabError/notText`` for a non-UTF-8 file, `URLError(.badURL)` when ``url`` is nil,
+    ///   or the download's error.
     public func script() async throws -> String {
         if let cached { return cached }
         if let inFlight { return try await inFlight.value }
         let task = Task { [url, sha256, fetch] in
+            guard let url else { throw URLError(.badURL) }
             let data = try await fetch(url)
             let hex = SHA256.hash(data: data).map { String(format: "%02x", $0) }.joined()
             guard hex == sha256 else { throw ReactGrabError.integrityMismatch }

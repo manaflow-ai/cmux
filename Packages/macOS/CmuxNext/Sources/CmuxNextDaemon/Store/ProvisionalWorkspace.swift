@@ -52,8 +52,10 @@ public struct ProvisionalWorkspace: Sendable, Hashable {
 /// The one model and screen of each pending workspace create, by key: every overlay restore shows
 /// the same objects, and the daemon's workspace takes the model over in place.
 struct ProvisionalWorkspaceModels {
-    var workspaces: [String: WorkspaceModel] = [:]
-    var screens: [String: ScreenModel] = [:]
+    // Keyed by WorkspaceKey.rawValue. Named apart from the module's `workspaces` and `screens`
+    // arrays, so the crash ratchet reads these lookups as dictionary subscripts.
+    var workspaceByKey: [String: WorkspaceModel] = [:]
+    var screenByKey: [String: ScreenModel] = [:]
 }
 
 extension DaemonStore {
@@ -72,7 +74,7 @@ extension DaemonStore {
 /// - the daemon's workspace with a tab: nothing (the intent has nothing left to show).
 @MainActor struct ProvisionalWorkspaceOverlay {
     static func apply(_ provisional: ProvisionalWorkspace, index: Int?, to store: DaemonStore) -> IntentUndo? {
-        let model = store.provisionalWorkspaces.workspaces[provisional.key.rawValue]
+        let model = store.provisionalWorkspaces.workspaceByKey[provisional.key.rawValue]
         let confirmed = store.workspacesByKey[provisional.key]
         if let confirmed, confirmed.screens.contains(where: { $0.panes.contains { !$0.tabs.isEmpty } }) { return nil }
         if confirmed == nil, store.tabsBySurface[provisional.tab.surface] != nil { return nil }
@@ -82,25 +84,25 @@ extension DaemonStore {
             workspace = confirmed
         } else {
             workspace = model ?? WorkspaceModel(provisional.workspaceSnapshot)
-            store.provisionalWorkspaces.workspaces[provisional.key.rawValue] = workspace
+            store.provisionalWorkspaces.workspaceByKey[provisional.key.rawValue] = workspace
             let at = min(max(index ?? store.workspaces.count, 0), store.workspaces.count)
             store.workspaces.insert(workspace, at: at)
             store.index.insert(workspace)
             store.sidebarNeedsRecompute = true
             inserted = true
         }
-        let screen = store.provisionalWorkspaces.screens[provisional.key.rawValue] ?? ScreenModel(provisional.screenSnapshot)
-        store.provisionalWorkspaces.screens[provisional.key.rawValue] = screen
+        let screen = store.provisionalWorkspaces.screenByKey[provisional.key.rawValue] ?? ScreenModel(provisional.screenSnapshot)
+        store.provisionalWorkspaces.screenByKey[provisional.key.rawValue] = screen
         workspace.screens.append(screen)
         store.indexed(screen, in: workspace)
         return .createdWorkspace(key: provisional.key, inserted: inserted)
     }
 
     static func undo(key: WorkspaceKey, inserted: Bool, in store: DaemonStore) {
-        guard let workspace = store.workspacesByKey[key] ?? store.provisionalWorkspaces.workspaces[key.rawValue] else {
+        guard let workspace = store.workspacesByKey[key] ?? store.provisionalWorkspaces.workspaceByKey[key.rawValue] else {
             return store.reportMirrorViolation("intent overlay undo found workspace \(key) missing")
         }
-        if let screen = store.provisionalWorkspaces.screens[key.rawValue] {
+        if let screen = store.provisionalWorkspaces.screenByKey[key.rawValue] {
             store.index.remove(screen)
             workspace.screens.removeAll { $0 === screen }
         }

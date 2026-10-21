@@ -91,6 +91,7 @@ final class FileGridCollectionView: NSCollectionView {
     nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
 
     nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        // main-proof: QLPreviewPanel calls its controller, data source and delegate on the main thread (an AppKit panel driven by the main run loop).
         MainActor.assumeIsolated {
             panel.dataSource = self
             panel.delegate = self
@@ -98,6 +99,7 @@ final class FileGridCollectionView: NSCollectionView {
     }
 
     nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
+        // main-proof: QLPreviewPanel calls its controller, data source and delegate on the main thread (an AppKit panel driven by the main run loop).
         MainActor.assumeIsolated {
             panel.dataSource = nil
             panel.delegate = nil

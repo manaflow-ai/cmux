@@ -89,9 +89,11 @@ final class MarkdownLiveShareServer {
             let listener: NWListener
             do { listener = try NWListener(using: parameters) } catch { throw Failure.listenerFailed("\(error)") }
             listener.stateUpdateHandler = { [weak self] state in
+                // main-proof: the listener starts on queue .main, so NWListener delivers its handlers on main.
                 MainActor.assumeIsolated { self?.listenerChanged(state) }
             }
             listener.newConnectionHandler = { [weak self] connection in
+                // main-proof: the listener starts on queue .main, so NWListener delivers its handlers on main.
                 MainActor.assumeIsolated { self?.accept(connection) }
             }
             self.listener = listener
@@ -127,6 +129,7 @@ final class MarkdownLiveShareServer {
         connections[id] = connection
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
+            // main-proof: the connection starts on queue .main, so NWConnection delivers its handlers on main.
             case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) }
             default: break
             }
@@ -142,6 +145,7 @@ final class MarkdownLiveShareServer {
 
     private func receive(_ connection: NWConnection, head: Data) {
         connection.receive(minimumIncompleteLength: 1, maximumLength: Self.headLimit) { [weak self] data, _, complete, error in
+            // main-proof: every connection starts on queue .main (accept), so NWConnection completes receives on main.
             MainActor.assumeIsolated {
                 guard let self else { return }
                 var head = head

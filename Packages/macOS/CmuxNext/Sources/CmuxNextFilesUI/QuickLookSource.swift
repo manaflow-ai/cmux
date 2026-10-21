@@ -13,10 +13,12 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource, QLPreviewPanelD
     var onKey: ((NSEvent) -> Bool)?
 
     nonisolated func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+        // main-proof: QLPreviewPanel calls its controller, data source and delegate on the main thread (an AppKit panel driven by the main run loop).
         MainActor.assumeIsolated { urls.count }
     }
 
     nonisolated func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+        // main-proof: QLPreviewPanel calls its controller, data source and delegate on the main thread (an AppKit panel driven by the main run loop).
         let url: URL? = MainActor.assumeIsolated { index < urls.count ? urls[index] : nil }
         return url.map { $0 as NSURL }
     }
@@ -25,6 +27,7 @@ final class QuickLookSource: NSObject, QLPreviewPanelDataSource, QLPreviewPanelD
         guard let event, event.type == .keyDown else { return false }
         // QLPreviewPanel calls this on the main thread, and the event never leaves it.
         nonisolated(unsafe) let mainEvent = event
+        // main-proof: QLPreviewPanel calls its controller, data source and delegate on the main thread (an AppKit panel driven by the main run loop).
         return MainActor.assumeIsolated { onKey?(mainEvent) ?? false }
     }
 
