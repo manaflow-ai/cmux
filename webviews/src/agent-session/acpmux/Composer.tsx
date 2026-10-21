@@ -2,10 +2,16 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind } from "./environments";
+import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { MAX_ATTACHMENTS, type AttachmentError, type ComposerAttachment } from "./attachments";
+import {
+  MAX_ATTACHMENTS,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -48,7 +54,6 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
-import { useDictationListening } from "./dictation";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -59,7 +64,12 @@ import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
-import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
+import {
+  appendAttachments,
+  AttachmentStrip,
+  attachmentErrorText,
+  useAttachmentIntake,
+} from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -168,6 +178,9 @@ type Props = {
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
   onQueueLost?(text: string): void;
+  /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
+  /// Stable: each queued thumbnail reads once.
+  queueImage?(id: string): Promise<string | undefined>;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -182,6 +195,8 @@ type Props = {
   permissionAccess?: ComposerPermissionAccess;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
+  /// A dictation session is waiting for words: the empty prompt reads "Listening…" in italic.
+  dictating?: boolean;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
   prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
@@ -212,6 +227,9 @@ type Props = {
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
   upload?(files: File[]): Promise<UploadResult>;
+  /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
+  /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
+  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -222,6 +240,9 @@ type Props = {
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
   onConnect?(kind: ConnectKind): void;
+  /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
+  onOffload?(kind: OffloadKind): void;
+  offloads?: readonly OffloadKind[];
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// This Mac's name for the location row.
@@ -267,10 +288,12 @@ export function Composer({
   onQueueRemove,
   onQueueChange,
   onQueueLost,
+  queueImage,
   draft,
   leading,
   permissionAccess,
   accessory,
+  dictating = false,
   prompt,
   onEdit,
   onCmuxCommand,
@@ -280,12 +303,15 @@ export function Composer({
   searchFiles,
   capture,
   upload,
+  localPaths,
   onProject,
   projectChoices,
   onBrowseProject,
   onNewWorktree,
   onBrowseFolder,
   onConnect,
+  onOffload,
+  offloads,
   onRefreshMachines,
   localName,
   environments,
@@ -407,6 +433,7 @@ export function Composer({
           ? { uploads: true }
           : undefined,
     ...(upload ? { upload } : {}),
+    ...(localPaths ? { localPaths } : {}),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -447,16 +474,17 @@ export function Composer({
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
-        const held = attachmentsRef.current.filter((chip) => chip.id !== attachment.id);
-        if (held.length >= MAX_ATTACHMENTS) {
+        const held = attachmentsRef.current;
+        const next = appendAttachments(held, [attachment]);
+        if (next.length > MAX_ATTACHMENTS) {
           setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
           return;
         }
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
-        attachmentsRef.current = [...held, attachment];
+        attachmentsRef.current = next;
         setAttachments((current) => {
-          const kept = current.filter((chip) => chip.id !== attachment.id);
-          return kept.length >= MAX_ATTACHMENTS ? current : [...kept, attachment];
+          const next = appendAttachments(current, [attachment]);
+          return next.length > MAX_ATTACHMENTS ? current : next;
         });
       },
       detach(ids) {
@@ -1097,8 +1125,6 @@ export function Composer({
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
     placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
-  // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
-  const dictating = useDictationListening();
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;
@@ -1288,6 +1314,8 @@ export function Composer({
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
+      {...(onOffload ? { onOffload } : {})}
+      {...(offloads ? { offloads } : {})}
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
@@ -1377,6 +1405,7 @@ export function Composer({
         onRemove={onQueueRemove}
         onChange={onQueueChange}
         onLost={onQueueLost}
+        readImage={queueImage}
         onLeave={() => field.current?.focus()}
       />
       {context}
@@ -1517,7 +1546,8 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
-                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
+                // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
+                tooltip={t("composer.addTooltip")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"

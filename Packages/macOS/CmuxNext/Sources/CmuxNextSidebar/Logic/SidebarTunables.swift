@@ -84,11 +84,24 @@ public nonisolated enum SidebarTunables {
         default: false, code: "SidebarTunables.presenceDots")
 
     /// Rows show their agent sessions' acpmux lane state (`SidebarLaneStatus`): working, waiting
-    /// on you, failed, idle, even when no turn state reached the row. Off by default.
+    /// on you, failed, idle, even when no turn state reached the row. On by default.
     public static let laneStatus = Tunable<Bool>.toggle(
         "sidebar.laneStatus", .sidebar, "Rows show acpmux lane status",
         help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
-        default: false, code: "SidebarTunables.laneStatus")
+        default: true, code: "SidebarTunables.laneStatus")
+
+    /// A row names the state of its most urgent agent chat with the Priority view's words (needs
+    /// you, done, failed, lost) at the right of its name (`SidebarLaneStatus`). On by default.
+    public static let rowStatus = Tunable<Bool>.toggle(
+        "sidebar.rowStatus", .sidebar, "Rows name their agent's state",
+        help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
+        default: true, code: "SidebarTunables.rowStatus")
+
+    /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
+    public static let laneFixture = Tunable<Bool>.toggle(
+        "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
+        help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
+        default: false, code: "SidebarTunables.laneFixture")
 
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
     /// `sidebar.sessionTree`); on by default.
@@ -125,6 +138,16 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
         default: .instant, code: "SidebarTunables.workspaceTitleMotion")
 
+    /// "Workspaces as tabs" (Leo, relayed 2026-10-21; prototype, off): every workspace row is one
+    /// line (its icon, name, status and pull request badge, as Claude desktop's chat list), and
+    /// Cmd-Shift-[ / ] step the workspaces in sidebar order as tabs (`nextSidebarTab`), wrapping,
+    /// across groups, everywhere but Home. Off, Cmd-Shift-[ / ] cycle a pane's tabs as they ship
+    /// (Lawrence 2026-10-15), so the default keymap does not change.
+    public static let workspacesAsTabs = Tunable<Bool>.toggle(
+        "sidebar.workspacesAsTabs", .sidebar, "Workspaces as tabs",
+        help: "Workspace rows are one line (name, status, pull request), and Cmd-Shift-[ / ] go to the previous or next workspace, wrapping, instead of the previous or next tab (Home keeps its own keys).",
+        default: false, code: "SidebarTunables.workspacesAsTabs")
+
     /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
     /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
@@ -136,6 +159,8 @@ public nonisolated enum SidebarTunables {
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
             laneStatus.descriptor,
+            rowStatus.descriptor,
+            laneFixture.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
@@ -147,9 +172,12 @@ public nonisolated enum SidebarTunables {
             SidebarGroupPalette.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
+            simulatePendingUpdate.descriptor,
+            updateCardAutomaticControl.descriptor,
             updateCardButton.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
+            workspacesAsTabs.descriptor,
             workspaceTitleMotion.descriptor,
         ] + SidebarSectionTunables.all
     }

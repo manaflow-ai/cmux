@@ -140,7 +140,8 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
       groupByKind: false,
       lineNumbers: true,
       showBackgrounds: true,
-      wordDiffs: false,
+      // The setting's default (DiffViewerSettingsSchema.swift `diff.wordDiffs`).
+      wordDiffs: true,
       wordWrap: false,
       ...seededOptions,
       layout: initialDiffViewerLayout(payload),
