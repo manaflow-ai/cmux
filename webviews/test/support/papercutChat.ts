@@ -14,9 +14,22 @@ const update = (update: Record<string, unknown>) => ({
   params: { sessionId: "agent-1", update },
 });
 
-type Step = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
+export type PapercutStep = [dir: string, kind: string, msg: Record<string, unknown>, at?: number];
+type Step = PapercutStep;
 
-export function papercutEvents({ turns, running }: { turns: number; running: boolean }) {
+/// `extra` steps follow the chat's last turn (inside the running turn when `running`); `session`
+/// adds to or replaces the chat's summary fields (a queue, say).
+export function papercutEvents({
+  turns,
+  running,
+  extra = [],
+  session: fields = {},
+}: {
+  turns: number;
+  running: boolean;
+  extra?: Step[];
+  session?: Record<string, unknown>;
+}) {
   const steps: Step[] = [];
   let clock = START;
   for (let n = 1; n <= turns; n++) {
@@ -55,6 +68,7 @@ export function papercutEvents({ turns, running }: { turns: number; running: boo
       ]);
     }
   }
+  for (const [dir, kind, msg, at] of extra) steps.push([dir, kind, msg, at ?? clock]);
   const events = steps.map(([dir, kind, msg, at], index) => ({
     sessionId: PAPERCUT_CHAT,
     seq: index + 1,
@@ -74,12 +88,16 @@ export function papercutEvents({ turns, running }: { turns: number; running: boo
     turnCount: turns + (running ? 1 : 0),
     updatedAt: clock,
     lastSeq: events.length,
+    ...fields,
   };
   return { events, session };
 }
 
 /// Starts the stand-in daemon and the dev server; returns `open` and `close`.
-export async function papercutPane(browser: () => Browser, options: { turns: number; running: boolean }) {
+export async function papercutPane(
+  browser: () => Browser,
+  options: { turns: number; running: boolean; extra?: PapercutStep[]; session?: Record<string, unknown> },
+) {
   const { createServer } = await import("vite");
   const webviews = path.resolve(import.meta.dir, "../..");
   const { events, session } = papercutEvents(options);
