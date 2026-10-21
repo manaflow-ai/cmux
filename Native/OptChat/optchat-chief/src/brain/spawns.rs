@@ -606,6 +606,7 @@ impl Brain {
             if let Some(sub) = self.state.sub_mut(id) {
                 sub.resume_attempts = 0;
                 sub.moved = false;
+                sub.moving = None;
             }
             return None;
         }
@@ -787,6 +788,14 @@ impl Brain {
                 "subagent.auto_move.skip",
                 json!({"id": id, "harness": harness, "status": format!("{:?}", sub.status)}),
             );
+            // Not this move any more (it runs again, or was paused or
+            // cancelled): a later restart must not start it.
+            if let Some(sub) = self.state.sub_mut(id)
+                && sub.moving.as_deref() == Some(harness)
+            {
+                sub.moving = None;
+                self.save();
+            }
             return;
         }
         let (task, session, policy) =
@@ -1295,6 +1304,9 @@ impl Brain {
                 if sub.session_id.is_some()
                     && !sub.awaiting_task
                     && !sub.paused
+                    // A move is planned: the inbox goes with its new
+                    // session's task, never to the used-up account.
+                    && sub.moving.is_none()
                     && !sub.inbox.is_empty() =>
             {
                 std::mem::take(&mut sub.inbox)
