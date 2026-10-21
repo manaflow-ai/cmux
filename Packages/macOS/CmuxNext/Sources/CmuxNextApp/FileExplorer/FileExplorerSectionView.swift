@@ -1,6 +1,8 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFiles
+import CmuxNextFilesUI
 
 /// The right sidebar's Files section (classic's file explorer): the focused
 /// terminal's folder as a tree. Click selects, double-click, Return and
@@ -10,6 +12,10 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     let model: FileExplorerModel
     private let rootFolder: @MainActor @Sendable () -> URL?
     private let perform: @MainActor (String) -> Void
+    private let openWith: @MainActor (String) -> Void
+    private let apps: any FileAppsProviding
+    /// The open menu's Open With rows (menu items hold their target weakly).
+    private var openWithMenu: FileExplorerOpenWithMenu?
     private let header = NSTextField(labelWithString: "")
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
@@ -22,10 +28,15 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     ///   - rootFolder: The focused terminal's folder, nil when the focused tab has no local folder
     ///     (the tree keeps its root). Read in an observation, so a `cd` there moves the tree.
     ///   - perform: Runs an explorer action with `fileExplorerFocused` (``FileExplorerHandlers``).
-    init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void) {
+    ///   - openWith: Runs Open With (`fileExplorerOpenWith`) with the app at this path.
+    ///   - apps: The apps that open a file (LaunchServices; a fake in tests).
+    init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void,
+         openWith: @escaping @MainActor (String) -> Void = { _ in }, apps: any FileAppsProviding = WorkspaceFileApps()) {
         self.model = model
         self.rootFolder = rootFolder
         self.perform = perform
+        self.openWith = openWith
+        self.apps = apps
         super.init(frame: NSRect(x: 0, y: 0, width: RightSidebarModel.width, height: 400))
         build()
         observation = Task { [weak self] in
@@ -129,7 +140,6 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
         let menu = NSMenu()
         let items: [(String, String)] = [
             ("fileExplorerOpenInCmux", FileExplorerStrings.openInCmux),
-            ("fileExplorerOpenWith", FileExplorerStrings.openWith),
             ("fileExplorerReveal", FileExplorerStrings.revealInFinder),
             ("fileExplorerCopyPath", FileExplorerStrings.copyPath),
             ("fileExplorerCopyRelativePath", FileExplorerStrings.copyRelativePath),
@@ -139,6 +149,14 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
             item.target = self
             item.representedObject = id
             menu.addItem(item)
+        }
+        if let row = model.selectedRow {
+            let openWith = openWith
+            let builder = FileExplorerOpenWithMenu(open: openWith, chooseOther: {
+                FileExplorerOpenWithMenu.chooseApp(for: row.url, then: openWith)
+            })
+            openWithMenu = builder
+            menu.insertItem(builder.item(for: row, apps: apps), at: min(1, menu.items.count))
         }
         return menu
     }
