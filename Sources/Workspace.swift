@@ -1962,9 +1962,22 @@ extension Workspace {
             } else {
                 true
             }
+            let restorePassCapacityDeferred = if shouldAutoResumeAgent,
+               restorableAgentCanAutoResume,
+               restoredHibernation == nil,
+               !suppressesResumeForBackgroundSession,
+               let restorableAgent {
+                !ownsRestorePassCheckpoint && SurfaceResumeRunPromptBatch.shared.wasDeferredForCapacity(
+                    kind: restorableAgent.kind.rawValue,
+                    sessionID: restorableAgent.sessionId
+                )
+            } else {
+                false
+            }
             let duplicateRestoreOwner = shouldAutoResumeAgent &&
                 restorableAgentCanAutoResume &&
-                !ownsRestorePassCheckpoint
+                !ownsRestorePassCheckpoint &&
+                !restorePassCapacityDeferred
             let usesExecutionAdmission = !restoresRemoteWorkspaceTerminalSnapshot &&
                 (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
             let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
@@ -2220,8 +2233,9 @@ extension Workspace {
             // ordinary shell instead of waiting behind deferred admission.
             let deferredAgentResumeCandidateInput: String? = if
                 !legacySubrouterRestoreBlocked &&
-                ownsRestorePassCheckpoint &&
-                (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil),
+                (ownsRestorePassCheckpoint || restorePassCapacityDeferred),
+                (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil ||
+                    restorePassCapacityDeferred),
                 restoredHibernation == nil,
                 restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
                 if let legacySubrouterResumeInput {

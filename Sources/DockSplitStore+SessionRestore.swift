@@ -416,9 +416,22 @@ extension DockSplitStore {
         } else {
             true
         }
+        let restorePassCapacityDeferred = if shouldAutoResumeAgent,
+           restorableAgentCanAutoResume,
+           hibernation == nil,
+           !suppressesResumeForBackgroundSession,
+           let restorableAgent {
+            !ownsRestorePassCheckpoint && SurfaceResumeRunPromptBatch.shared.wasDeferredForCapacity(
+                kind: restorableAgent.kind.rawValue,
+                sessionID: restorableAgent.sessionId
+            )
+        } else {
+            false
+        }
         let duplicateRestoreOwner = shouldAutoResumeAgent &&
             restorableAgentCanAutoResume &&
-            !ownsRestorePassCheckpoint
+            !ownsRestorePassCheckpoint &&
+            !restorePassCapacityDeferred
         let usesExecutionAdmission = terminalSnapshot.isRemoteTerminal != true &&
             (restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true)
         let shouldCheckAgentOwnership = shouldAutoResumeAgent &&
@@ -602,7 +615,9 @@ extension DockSplitStore {
         let deferredAgentResumeCandidateInput: String? = if
             !compatibilityBindingOwnsStartup,
             ownsRestorePassCheckpoint,
-            (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil),
+            (restoreStartupBlocked || liveSessionOwner != nil || legacySubrouterResumeInput != nil ||
+                restorePassCapacityDeferred),
+            (ownsRestorePassCheckpoint || restorePassCapacityDeferred),
             hibernation == nil,
             restorableAgentCanAutoResume || resumeBinding?.isAgentHookBinding == true {
             if let legacySubrouterResumeInput {
