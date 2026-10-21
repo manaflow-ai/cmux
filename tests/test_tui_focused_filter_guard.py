@@ -201,13 +201,16 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["strategy"]["matrix"]["include"] == [
         {
             "os": "linux",
-            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || 'blacksmith-32vcpu-ubuntu-2404' }}",
+            "runner": "${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || contains(vars.LINUX_RUNNER, '32vcpu') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}",
         },
     ]
-    assert test["strategy"]["matrix"]["include"] == lint["strategy"]["matrix"]["include"]
+    # Same OS matrix; only lint honors a LINUX_RUNNER override.
+    oses = lambda job: [row["os"] for row in job["strategy"]["matrix"]["include"]]
+    assert oses(test) == oses(lint) == ["linux"]
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
-    assert "cargo fmt --check" in test_commands
+    # Formatting is gated once, by lint; a format diff must not stop the tests.
+    assert "cargo fmt --check" not in test_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
     macos_commands = "\n".join(str(step.get("run", "")) for step in macos["steps"])
     assert macos["name"] == "macOS lint and tests"

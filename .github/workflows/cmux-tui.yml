@@ -959,11 +959,8 @@ jobs:
       - name: Test isolated TUI test-runner policy
         run: python3 .github/scripts/test_run_cmux_tui_core_tests_isolated.py
 
-      - name: cargo fmt
-        id: rustfmt-check
-        working-directory: cmux-tui
-        run: cargo fmt --check
-
+      # No `cargo fmt --check` here: lint (linux) gates formatting (and uploads
+      # the patch). Here a format-only diff ended the job before any test ran.
       - name: userland agent plugin package tests
         working-directory: cmux-tui
         # The reference plugin is an independent Cargo workspace, so the
@@ -1146,6 +1143,11 @@ jobs:
           # the start lock, the saved token, shutdown.
           cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
             --test windows_daemon -- --test-threads=1
+          # The handle-bound DACL/path identity discriminators are Windows-only
+          # lib tests; compiling them does not prove SetSecurityInfo stayed on
+          # the opened object.
+          cargo test --locked --target x86_64-pc-windows-gnu -p acpmux \
+            --lib owner_only::tests:: -- --test-threads=1
           # Per-terminal hosts on Windows (bead cx-ko2e,
           # plans/cmux-next/windows-terminal-hosts.md): a terminal survives a
           # fenced daemon restart, and a daemon in a kill-on-close job without

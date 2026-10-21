@@ -41,6 +41,11 @@ pub async fn spawn_within(
     let mut cmd = tokio::process::Command::new(&launcher.exe);
     cmd.args(&launcher.prefix)
         .arg(HOST_ARG)
+        // The host itself is inspectable by its same-uid harness child on
+        // some platforms. It needs only OS identity/locale; the complete
+        // child environment arrives over the private bootstrap pipe.
+        .env_clear()
+        .envs(crate::agent::host_environment())
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::null())
