@@ -182,6 +182,71 @@ async fn a_purged_chat_loses_its_files_and_takes_no_more() {
     assert!(reply.get("error").is_some(), "{reply}");
 }
 
+/// Moves chat `id` from `src` to `dst` (`_acpmux/transfer_*`, as the app's Move and Bring Back
+/// do) and retires it on `src`.
+async fn transfer(src: &mut Client, dst: &mut Client, id: &str) {
+    let begin = src.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+    let begin = begin["result"].clone();
+    let received = dst.call("_acpmux/transfer_receive", json!({"manifest": begin})).await;
+    let receive_id =
+        received["result"]["receiveId"].as_str().unwrap_or_else(|| panic!("{received}"));
+    for file in begin["files"].as_array().unwrap_or_else(|| panic!("{begin}")) {
+        let path = file["path"].as_str().unwrap();
+        let mut offset = 0u64;
+        loop {
+            let part = src
+                .call(
+                    "_acpmux/transfer_read",
+                    json!({"transferId": begin["transferId"], "path": path, "offset": offset, "limit": 1 << 16}),
+                )
+                .await;
+            let part = &part["result"];
+            let wrote = dst
+                .call(
+                    "_acpmux/transfer_write",
+                    json!({"receiveId": receive_id, "path": path, "offset": offset, "data": part["data"]}),
+                )
+                .await;
+            assert!(wrote.get("error").is_none(), "{wrote}");
+            offset = part["next"].as_u64().unwrap_or_else(|| panic!("{part}"));
+            if part["eof"] == true {
+                break;
+            }
+        }
+    }
+    let finished = dst.call("_acpmux/transfer_finish", json!({"receiveId": receive_id})).await;
+    assert_eq!(finished["result"]["sessionId"], id, "{finished}");
+    let committed = src
+        .call(
+            "_acpmux/transfer_commit",
+            json!({"sessionId": id, "transferId": begin["transferId"], "to": {"sessionId": id}}),
+        )
+        .await;
+    assert_eq!(committed["result"]["committed"], true, "{committed}");
+}
+
+/// A chat moved away and brought back replaces its closed copy under the same id: the files its
+/// prompts name stay. Deleting the chat then deletes them.
+#[tokio::test]
+async fn a_chat_brought_back_keeps_its_files() {
+    let (here, there) = (hub(), hub());
+    let mut a = client(&here, Origin::Local);
+    let mut b = client(&there, Origin::Local);
+    let id = a.new_session("round-trip").await;
+    let reply = a.call(method::MUX_FILE_PUT, put(&id, "a.txt", b"x")).await;
+    let file = assert_saved(&reply, &id, "a.txt", b"x");
+    transfer(&mut a, &mut b, &id).await;
+    transfer(&mut b, &mut a, &id).await;
+    assert_eq!(
+        std::fs::read(&file).ok().as_deref(),
+        Some(&b"x"[..]),
+        "the returning chat's file went"
+    );
+    let killed = a.call(method::MUX_KILL, json!({"sessionId": id, "purge": true})).await;
+    assert!(killed.get("error").is_none(), "{killed}");
+    assert!(!home().join("uploads").join(&id).exists(), "the deleted chat's uploads stayed");
+}
+
 /// B's WebSocket listener with a peer token; returns its port and the token.
 async fn listen_with_peer_token(b: Arc<Hub>, tag: &str) -> (u16, String) {
     let dir = std::env::temp_dir().join(format!("file-put-{tag}-{}", std::process::id()));
