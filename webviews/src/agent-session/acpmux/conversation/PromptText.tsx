@@ -49,17 +49,26 @@ export function PromptText({
       // The node's own window: a test DOM may install none as a global.
       const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
       const lineHeight = parseFloat(style?.lineHeight ?? "");
+      // Clamped, the text is a box that scrolls; drawn whole it is no box of its own (CSS
+      // `display: contents`, so the bubble insets its text as before), and its lines measure it.
+      let height = node.scrollHeight;
+      if (!node.classList.contains("is-clamped")) {
+        const range = node.ownerDocument.createRange();
+        range.selectNodeContents(node);
+        height = typeof range.getBoundingClientRect === "function" ? range.getBoundingClientRect().height : 0;
+      }
       // No layout (a test DOM) keeps the guess.
-      if (!node.scrollHeight || !Number.isFinite(lineHeight)) return;
-      const next = node.scrollHeight > COLLAPSED_PROMPT_LINES * lineHeight + 1;
+      if (!height || !Number.isFinite(lineHeight)) return;
+      const next = height > COLLAPSED_PROMPT_LINES * lineHeight + 1;
       setMeasured((last) => (last?.parts === parts && last.long === next ? last : { parts, long: next }));
     };
     measure();
     if (typeof ResizeObserver !== "function") return;
     const observer = new ResizeObserver(measure);
-    observer.observe(node);
+    // The bubble: a text drawn whole has no box to observe.
+    observer.observe(node.parentElement ?? node);
     return () => observer.disconnect();
-  }, [parts]);
+  }, [parts, long, open]);
   const collapsed = long && !open;
   // Find's current match in this prompt opens it; one in a typed part past the fold, or in a paste,
   // needs it open to draw.

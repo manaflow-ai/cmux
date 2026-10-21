@@ -147,7 +147,15 @@ await requireBrowserLane("agent-pane-long-prompt.test.ts", async () => {
         const style = getComputedStyle(node);
         const bubble = node.closest(".cv-user__bubble")!.getBoundingClientRect().height;
         return {
-          height: node.getBoundingClientRect().height,
+          // Clamped, the text is a box; drawn whole it has none of its own (display: contents), and
+          // its lines are its height.
+          height: node.classList.contains("is-clamped")
+            ? node.getBoundingClientRect().height
+            : (() => {
+                const range = document.createRange();
+                range.selectNodeContents(node);
+                return range.getBoundingClientRect().height;
+              })(),
           bubble,
           lineHeight: parseFloat(style.lineHeight),
           mask: style.maskImage || style.getPropertyValue("-webkit-mask-image"),

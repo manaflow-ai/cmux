@@ -280,7 +280,12 @@
 /* A long prompt (PromptText.tsx, promptCollapse.ts): its first ten lines, the last two fading out
    under a mask (the bubble's glass shows through, never a cover), with Show more under them: a plain
    text button whose hover brightens its text. model.ts estimates the same heights: change them together. */
+/* Drawn whole, the text is no box of its own: the bubble's padding alone insets it, as before. */
+.cv-user__text {
+  display: contents;
+}
 .cv-user__text.is-clamped {
+  display: block;
   max-height: calc(var(--cv-line-height) * 10);
   overflow: hidden;
 }
