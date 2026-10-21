@@ -92,22 +92,30 @@ impl Mux {
         // then agent-record locks, so teardown acquires sequence before those
         // locks as well.
         let mut fences = self.agent_hook_fences.lock().unwrap();
-        // A tool hook moves only a waiting hook agent back to work (its wait was answered,
-        // #22995); read under the fences lock, which orders this terminal's hooks.
-        let state = match kind_state {
-            Some(state) => state,
-            None if waiting() => AgentState::Working,
-            None => return Ok(()),
-        };
-        let explicit_session_id = ingress
-            .payload
-            .get("normalized")
+        let normalized = ingress.payload.get("normalized");
+        let explicit_session_id = normalized
             .and_then(|value| value.get("agent_session_id"))
             .and_then(Value::as_str)
             .filter(|session_id| !session_id.is_empty());
+        let native_agent =
+            normalized.and_then(|value| value.get("native_agent_id")).and_then(Value::as_str);
         let is_session_start = ingress.kind == "agent.session.started";
         let observed_at_ms = crate::journal_reducers::hook_observed_at_ms(&ingress.payload);
         let previous_fence = fences.get(&terminal_id).cloned();
+        // A tool hook moves a waiting hook agent back to work only when the agent it waits on
+        // runs it (its wait was answered, #22995). Decided again under the fences lock, which
+        // orders this terminal's hooks: the check above is a hint.
+        let state = match kind_state {
+            Some(state) => state,
+            None if waiting()
+                && previous_fence
+                    .as_ref()
+                    .is_none_or(|fence| fence.wait_answered_by(native_agent)) =>
+            {
+                AgentState::Working
+            }
+            None => return Ok(()),
+        };
         let JournalHookTransition::Apply(agent_session_id) = HookFence::journal_transition(
             previous_fence.as_ref(),
             terminal_id.as_str(),
@@ -124,7 +132,8 @@ impl Mux {
             sequence,
             state == AgentState::Done,
             observed_at_ms,
-        );
+        )
+        .noting_wait(state, native_agent);
         // Attention-worthy transitions become durable notifications before
         // the agent report commits. The notification key is derived from the
         // journal sequence, so a retry after a crash between the two commits

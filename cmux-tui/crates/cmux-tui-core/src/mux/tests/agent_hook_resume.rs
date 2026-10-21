@@ -3,14 +3,17 @@
 
 use super::*;
 
-/// The terminal's hook agent state, as the hook projector (`list_agents`, the app's rows)
-/// and the journal's roster fold (`list-agents` after restart, the TUI) both see it.
+/// The terminal's hook agent state, as the hook projector (its agent record, the
+/// published projection) and the journal's roster fold (`list_agents`, `list-agents` after a
+/// restart, the TUI) see it. Both must agree.
 fn states(mux: &Mux, surface: SurfaceId, terminal_id: &TerminalPublicId) -> (AgentState, String) {
     let listed = mux.list_agents(Some(surface), None);
     assert_eq!(listed.len(), 1, "one agent on the terminal: {listed:?}");
+    let projected = mux.agent_records.lock().unwrap()[terminal_id].state;
+    assert_eq!(listed[0].state, projected, "the roster and the projector agree");
     let roster =
         mux.agent_roster.lock().unwrap().roster.entries[terminal_id.as_str()].state.clone();
-    (listed[0].state, roster)
+    (projected, roster)
 }
 
 fn claude<'a>(mux: &'a Mux, terminal_id: &TerminalPublicId) -> impl Fn(&str, &str, Value) + 'a {
@@ -95,5 +98,46 @@ fn a_failed_tool_call_keeps_the_agent_working() {
     assert_eq!(
         states(&mux, surface.id, &terminal_id),
         (AgentState::Blocked, "blocked".to_string())
+    );
+}
+
+/// While the session's own agent waits on an approval, a parallel subagent's tool hooks (its
+/// `agent_id`) do not end the wait; the waiting agent's own next tool hook does.
+#[test]
+fn a_subagent_tool_call_does_not_end_the_main_agent_wait() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let append = claude(&mux, &terminal_id);
+    let blocked = (AgentState::Blocked, "blocked".to_string());
+
+    append("SessionStart", "s-1", serde_json::json!({}));
+    append("UserPromptSubmit", "s-2", serde_json::json!({"prompt": "fan out"}));
+    append("PermissionRequest", "s-3", serde_json::json!({"tool_name": "Bash"}));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked);
+
+    append("PreToolUse", "s-4", serde_json::json!({"tool_name": "Read", "agent_id": "sub-1"}));
+    append("PostToolUse", "s-5", serde_json::json!({"tool_name": "Read", "agent_id": "sub-1"}));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked, "the approval still waits");
+
+    append("PostToolUse", "s-6", serde_json::json!({"tool_name": "Bash"}));
+    assert_eq!(
+        states(&mux, surface.id, &terminal_id),
+        (AgentState::Working, "working".to_string()),
+        "the approved tool ran"
+    );
+
+    // A subagent's own wait ends with that subagent's next tool hook, not the main agent's.
+    append(
+        "PermissionRequest",
+        "s-7",
+        serde_json::json!({"tool_name": "Edit", "agent_id": "sub-1"}),
+    );
+    append("PreToolUse", "s-8", serde_json::json!({"tool_name": "Grep"}));
+    assert_eq!(states(&mux, surface.id, &terminal_id), blocked);
+    append("PostToolUse", "s-9", serde_json::json!({"tool_name": "Edit", "agent_id": "sub-1"}));
+    assert_eq!(
+        states(&mux, surface.id, &terminal_id),
+        (AgentState::Working, "working".to_string())
     );
 }
