@@ -50,6 +50,21 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // closed.reopen by a closed tab's id (its link), with the pane a tab
         // whose pane and workspace are gone opens in.
         (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
+        // column.update: the pinned (Home) dock and whether it takes tabs (pinned-dock-v1).
+        (
+            vec![
+                "screen",
+                "current",
+                "column",
+                "split_00000000000000000000000000000011",
+                "update",
+                "--pinned",
+                "true",
+                "--allow-tabs",
+                "false",
+            ],
+            "column.update",
+        ),
         // machine.list and machine.get: the reader opts in to owner metadata
         // and admitted remote records.
         (vec!["machine", "list", "--catalog"], "machine.list"),
