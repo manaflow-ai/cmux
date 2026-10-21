@@ -4,7 +4,7 @@
   scripts/cmux-next/browser-idle-cost-live.py --app PATH --tabs 5 [--out DIR] [--budget FILE]
 
 A local server serves the pages. The tagged app opens --tabs Chromium tabs of a static page and a
-static front tab that stays shown, then runs these phases, each one adding a hidden tab to the last:
+static front tab that stays shown (until the chatty phase), then runs these phases, each one adding a tab:
 
   static   only the static tabs;
   loading  one more tab whose load never ends (an image request the server keeps open);
@@ -46,6 +46,8 @@ opts = parser.parse_args()
 PHASES = opts.phases.split(",")
 if not set(PHASES) <= {"static", "loading", "chatty"}:
     parser.error(f"unknown phase in {opts.phases}")
+if any("=" not in item for item in opts.env):
+    parser.error("--env takes KEY=VALUE")
 os.makedirs(opts.out, exist_ok=True)
 
 APP = os.path.realpath(opts.app)
@@ -67,7 +69,7 @@ MARKER = f"cmux-idle-cost-{RUN}"
 failures = []
 stop_serving = threading.Event()
 loaded = set()
-ticks = [0]
+ticks = [0]  # the chatty page's console.log calls, in fours
 visibility = {}  # static page -> its latest document.visibilityState  # the chatty page's console.log calls, in fours
 
 PAGES = {
@@ -101,8 +103,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
         if self.path == "/tick":
             ticks[0] += 4
         elif self.path.startswith("/vis/"):
-            _, _, n, state = self.path.split("/", 3)
-            visibility[n] = state
+            parts = self.path.split("/", 3)
+            if len(parts) == 4:
+                visibility[parts[2]] = parts[3]
         loaded.add(self.path.removeprefix("/loaded/"))
         self.send_response(204)
         self.end_headers()
@@ -213,7 +216,8 @@ def measure(app_pid, phase):
         c["footprint_total"] = sum(c["footprint"])
         c["rss_total"] = sum(c["rss"])
     dropped = sorted(set(rows) - (set(before) & set(after)))
-    check("gpu" in classes and classes.get("renderer", {}).get("count", 0) >= 1,
+    check("gpu" in classes and classes.get("renderer", {}).get("count", 0) >= 1
+          and not any(rows[pid] in ("gpu", "renderer") for pid in dropped),
           f"{phase}: the GPU process and renderers are measured ({sorted(classes)}, unmeasured pids {dropped})")
     result = {"phase": phase, "seconds": round(seconds, 1), "classes": classes, "unmeasured_pids": dropped,
               "console_calls": ticks[0] - ticks_before,
@@ -242,7 +246,7 @@ def open_tab(url, key):
 def show(url):
     tabs = rpc("browser.page.tabs", {"all": True}).get("tabs") or []
     tab = next((t for t in tabs if (t.get("url") or "").startswith(url)), None)
-    check(tab is not None, f"front tab is listed ({len(tabs)} tabs)")
+    check(tab is not None, f"tab {url} is listed ({len(tabs)} tabs)")
     if tab:
         rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab['id']}", "focus": True})
 
@@ -284,7 +288,7 @@ try:
                 lines += sum(1 for line in f if MARKER in line)
     if "chatty" in PHASES:
         chatty = next(p for p in results["phases"] if p["phase"] == "chatty")
-        check(chatty["console_calls"] >= opts.idle_s, f"the chatty page logs while measured ({chatty['console_calls']} calls)")
+        check(chatty["console_calls"] >= 3 * opts.idle_s, f"the chatty page logs while measured ({chatty['console_calls']} calls)")
     results["console_marker_lines_on_disk"] = lines
     print(f"cef.log lines with the page's console marker: {lines}", flush=True)
     if opts.budget:
