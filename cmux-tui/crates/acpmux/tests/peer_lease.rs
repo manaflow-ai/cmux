@@ -137,7 +137,7 @@ fn lease(port: u16, peer_token: &str) -> Value {
 }
 
 #[tokio::test]
-async fn a_leased_peers_sessions_are_listed_and_served_as_a_peer() {
+async fn a_peer_lease_lists_the_peers_sessions_served_as_a_peer() {
     let (_b, port, peer_token) = serving_b("list").await;
     let a = hub(config());
     let mut ca = C::new(&a, Origin::Local);
@@ -216,7 +216,7 @@ async fn a_renewed_peer_lease_survives_the_first_connection() {
 }
 
 #[tokio::test]
-async fn a_lease_never_takes_a_saved_peers_name() {
+async fn a_peer_lease_never_takes_a_saved_peers_name() {
     let mut cfg = config();
     cfg.peers.insert(
         "cloud-vm".into(),
@@ -235,7 +235,7 @@ async fn a_lease_never_takes_a_saved_peers_name() {
 }
 
 #[tokio::test]
-async fn web_local_app_and_peer_callers_cannot_lease() {
+async fn a_peer_lease_is_refused_to_web_local_app_and_peer_callers() {
     let (_b, port, peer_token) = serving_b("guard").await;
     let a = hub(config());
     for origin in [Origin::Web, Origin::LocalApp, Origin::Peer] {
