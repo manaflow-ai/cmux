@@ -86,17 +86,21 @@ struct MacScreenThemed<Content: View>: View {
 /// (`ThemeScope` calls `viewDidChangeEffectiveAppearance` on every view of
 /// the scope), so Settings > Appearance changes show at once. Fonts are
 /// `Typography`, which follows the interface size live.
-final class MacScreenHostingView<Content: View>: NSHostingView<MacScreenThemed<Content>> {
+///
+/// Not generic: the Release optimizer (Swift 6.3.3, Xcode 26.6) crashed
+/// inlining the deinit of a generic `NSHostingView` subclass in this module
+/// (EarlyPerfInliner, `isCallerAndCalleeLayoutConstraintsCompatible`).
+final class MacScreenHostingView: NSHostingView<MacScreenThemed<AnyView>> {
     let themeAppearance: MacScreenAppearance
 
-    init(_ content: Content) {
+    init<Content: View>(_ content: Content) {
         let appearance = MacScreenAppearance()
         themeAppearance = appearance
-        super.init(rootView: MacScreenThemed(appearance: appearance, content: content))
+        super.init(rootView: MacScreenThemed(appearance: appearance, content: AnyView(content)))
     }
 
     @available(*, unavailable)
-    @MainActor required init(rootView: MacScreenThemed<Content>) { fatalError("init(rootView:) is not supported") }
+    @MainActor required init(rootView: MacScreenThemed<AnyView>) { fatalError("init(rootView:) is not supported") }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }

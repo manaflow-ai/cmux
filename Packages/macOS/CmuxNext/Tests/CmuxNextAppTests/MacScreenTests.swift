@@ -311,7 +311,7 @@ struct MacScreenThemeTests {
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         root.addSubview(tab)
-        let home = try #require(tab.subviews.first as? MacScreenHostingView<MacScreenHomeView>)
+        let home = try #require(tab.subviews.first as? MacScreenHostingView)
         let pane = devicePane("Theme Test")
         root.addSubview(pane.view)
         let hosts: [any MacScreenThemedHost] = [home, pane.view.chrome.toolbar, pane.view.chrome.card]

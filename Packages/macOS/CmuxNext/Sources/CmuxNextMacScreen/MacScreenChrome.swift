@@ -82,8 +82,8 @@ enum MacScreenCard: Equatable {
 @MainActor
 final class MacScreenChromeHost {
     let actions = MacScreenChromeActions()
-    let toolbar: MacScreenHostingView<MacScreenToolbar>
-    let card: MacScreenHostingView<MacScreenCardView>
+    let toolbar: MacScreenHostingView
+    let card: MacScreenHostingView
     private let model: MacScreenPaneModel
 
     init(model: MacScreenPaneModel) {
