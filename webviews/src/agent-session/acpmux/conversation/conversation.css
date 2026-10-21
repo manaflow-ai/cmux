@@ -177,20 +177,58 @@
   text-align: center;
 }
 
-/* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
+/* A Chief subagent's first message: the Chief's view as one collapsed line above the task, with its
+   Copy at the line's trailing end (App.tsx). The summary keeps the Copy's width free, so the label
+   never runs under it; a long label ends in an ellipsis on its one line (Lawrence 2026-10-20: the
+   Copy covered "lines)"). */
 .cv-user__context {
+  --cv-context-copy: 20px;
+  --cv-context-gap: 6px;
+  position: relative;
   box-sizing: border-box;
   max-width: 70%;
+  min-width: 0;
   margin-bottom: 4px;
   font-family: var(--cv-font);
   font-size: var(--text-detail);
   line-height: 18px;
   color: var(--cv-text-muted);
 }
-.cv-user__context > summary {
+.cv-user__context > details > summary {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  min-width: 0;
+  min-height: var(--cv-context-copy);
+  padding-inline-end: calc(var(--cv-context-copy) + var(--cv-context-gap));
+  list-style: none;
   cursor: pointer;
-  text-align: right;
-  list-style-position: inside;
+}
+.cv-user__context > details > summary::-webkit-details-marker {
+  display: none;
+}
+.cv-user__context-chevron {
+  flex: none;
+}
+.cv-user__context > details[open] .cv-user__context-chevron {
+  transform: rotate(90deg);
+}
+.cv-user__context-label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-user__context > details > summary:hover {
+  color: var(--cv-text);
+}
+.cv-iconbtn.cv-user__context-copy {
+  position: absolute;
+  top: 0;
+  right: 0;
+  width: var(--cv-context-copy);
+  height: var(--cv-context-copy);
 }
 .cv-user__context-text {
   margin: 4px 0 0;
@@ -1243,50 +1281,18 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse
-   in turn on a slow 2s cycle, centred on the 20px line. */
-.cv-working-mark {
+/* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
+.cv-worked__glyph {
   flex: none;
   display: inline-flex;
   align-items: center;
-  gap: 2px;
   height: 20px;
   margin-inline-end: 6px;
-}
-.cv-working-mark > span {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--agent-accent, currentColor);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-working-mark > span {
-    animation: cv-working-dot 2s ease-in-out infinite;
-  }
-  .cv-working-mark > span:nth-child(2) {
-    animation-delay: 0.25s;
-  }
-  .cv-working-mark > span:nth-child(3) {
-    animation-delay: 0.5s;
-  }
-}
-@keyframes cv-working-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.35;
-  }
-  30% {
-    opacity: 1;
-  }
-}
-/* "Thinking" stays still in the muted color; the working dots carry the motion. */
-.cv-thinking {
   color: var(--cv-text-muted);
 }
-/* Static status indicators (cx-sya4n), or Reduce Motion above: the dots hold at full strength. */
-:root[data-status-indicators="static"] .cv-working-mark > span {
-  animation: none;
+/* "Thinking" stays still in the muted color. No mark blinks before it or before "Working for". */
+.cv-thinking {
+  color: var(--cv-text-muted);
 }
 
 .cv-tools {
@@ -1316,11 +1322,52 @@ pre.cv-math-source {
 .cv-tool.is-strong {
   color: var(--cv-tool-strong);
 }
-/* The running rows' spinner (`Spinner`: compaction, tool groups, MCP calls, command and shell rows):
-   the shared `cmux-spin` turn (ui/spinnerClock.ts); it holds still under Reduce Motion and the static look. */
+/* The running rows' mark (`Spinner`: compaction, tool groups, MCP calls, command and shell rows).
+   WORKING-LOOK (Leo 2026-10-20: a spinner per row "reads as noise"): agent work draws the look the
+   app picks, `data-working-look` on the root (Debug Settings `status.working`):
+   - breathe (the default, also with no attribute): a dot in the theme accent that breathes once per
+     `--cmux-breath-period`;
+   - shimmer: the same dot held still, and a light band crosses the row's words;
+   - spinner: the turning ring.
+   A loading mark (no `data-working`) is always the ring. Every loop runs on the shared clock
+   (ui/spinnerClock.ts), so many rows move as one, and holds still under Reduce Motion and the
+   static look (the dot at full strength, the ring stopped). */
+.cv-spinner__dot {
+  display: none;
+  fill: var(--cmux-accent, currentColor);
+}
+:root:not([data-working-look="spinner"]) .cv-spinner[data-working] .cv-spinner__arc {
+  display: none;
+}
+:root:not([data-working-look="spinner"]) .cv-spinner[data-working] .cv-spinner__dot {
+  display: inline;
+}
 @media (prefers-reduced-motion: no-preference) {
-  :root:not([data-status-indicators="static"]) .cv-spinner {
+  :root:not([data-status-indicators="static"]) .cv-spinner:not([data-working]),
+  :root:not([data-status-indicators="static"])[data-working-look="spinner"] .cv-spinner {
     animation: cmux-spin var(--cmux-spinner-period, 900ms) linear infinite;
+  }
+  :root:not([data-status-indicators="static"]):not([data-working-look="spinner"]):not([data-working-look="shimmer"])
+    .cv-spinner[data-working]
+    .cv-spinner__dot {
+    animation: cmux-breathe var(--cmux-breath-period, 2.4s) ease-in-out infinite;
+  }
+  :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
+    .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
+    .cv-tool__text {
+    background: linear-gradient(100deg, var(--cv-text-dim) 30%, var(--cv-text) 50%, var(--cv-text-dim) 70%) 0 0 /
+      250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+  }
+  /* Marks with their own color (edit counts, a failed count) keep it inside the band. */
+  :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
+    .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
+    .cv-tool__text
+    :is(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
+    -webkit-text-fill-color: currentColor;
   }
 }
 .cv-tool__icon {
@@ -1541,6 +1588,22 @@ pre.cv-math-source {
 }
 .cv-command__ok {
   color: var(--acpmux-add);
+}
+/* "⌃B to run in background" on a running command (BackgroundHint.tsx), at the row's right edge.
+   It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
+   Reduce Motion too. */
+.cv-command__bg {
+  flex: none;
+  margin-left: auto;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+/* Quick commands end before the hint shows. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-command__bg {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) 1.5s both;
+  }
 }
 /* A message to another agent: sender to recipient over the message's first line (MessageCard.tsx). */
 .cv-message {
@@ -2838,7 +2901,7 @@ button.cv-received__name:focus-visible {
 }
 
 /* The running turn's activity line under its todo list (ActivityLine.tsx, agent.sessionStatus,
-   cx-ncc.102): three dots, what the agent is doing now and the turn's time. */
+   cx-ncc.102): what the agent is doing now and the turn's time. */
 .cv-activity {
   display: flex;
   align-items: center;
@@ -2858,42 +2921,6 @@ button.cv-received__name:focus-visible {
 .cv-activity__time {
   flex: none;
   font-variant-numeric: tabular-nums;
-}
-.cv-activity__dots {
-  flex: none;
-  display: inline-flex;
-  gap: 2px;
-}
-.cv-activity__dots > span {
-  width: 3px;
-  height: 3px;
-  border-radius: 50%;
-  background: var(--agent-accent, currentColor);
-}
-@media (prefers-reduced-motion: no-preference) {
-  .cv-activity__dots > span {
-    animation: cv-activity-dot 1.2s ease-in-out infinite;
-  }
-  .cv-activity__dots > span:nth-child(2) {
-    animation-delay: 0.15s;
-  }
-  .cv-activity__dots > span:nth-child(3) {
-    animation-delay: 0.3s;
-  }
-}
-/* Static status indicators (or Reduce Motion, above): the dots hold still. */
-:root[data-status-indicators="static"] .cv-activity__dots > span {
-  animation: none;
-}
-@keyframes cv-activity-dot {
-  0%,
-  60%,
-  100% {
-    opacity: 0.35;
-  }
-  30% {
-    opacity: 1;
-  }
 }
 
 /* ---------- A background shell's end (BackgroundTaskNote.tsx, cx-ncc.84) ---------- */

@@ -298,7 +298,11 @@ impl Peer {
         }
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
-        self.pending.lock().await.insert(Value::from(id).to_string(), tx);
+        let key = Value::from(id).to_string();
+        self.pending.lock().await.insert(key.clone(), tx);
+        // A request that times out, or whose caller stops waiting, takes its
+        // entry with it rather than leaving it until the connection drops.
+        let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
         if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
@@ -738,4 +742,27 @@ pub fn split_remote_read(out: &[u8]) -> (&[u8], Option<String>) {
     let token = std::str::from_utf8(&out[at + 1..]).ok().map(str::trim);
     let token = token.filter(|t| t.len() == 64 && t.bytes().all(|b| b.is_ascii_hexdigit()));
     (&out[..at], token.map(str::to_owned))
+}
+
+type PendingReplies = Arc<Mutex<HashMap<String, oneshot::Sender<Result<Value, RpcError>>>>>;
+
+/// Removes a request's pending entry when `Peer::request` returns or is
+/// dropped; the reader has already removed it when the reply came.
+struct ForgetPending {
+    pending: PendingReplies,
+    key: Option<String>,
+}
+
+impl Drop for ForgetPending {
+    fn drop(&mut self) {
+        let Some(key) = self.key.take() else { return };
+        if let Ok(mut map) = self.pending.try_lock() {
+            map.remove(&key);
+        } else if let Ok(rt) = tokio::runtime::Handle::try_current() {
+            let pending = self.pending.clone();
+            rt.spawn(async move {
+                pending.lock().await.remove(&key);
+            });
+        }
+    }
 }

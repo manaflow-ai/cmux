@@ -1,13 +1,16 @@
 // Adding a harness lives in the harness and model picker (Leo 2026-10-14): the New Tab page shows
 // no "No agent to ask" row and no Integrate a harness button. With no harness installed the
 // composer's chip itself says Add harness and opens the Harnesses page; with harnesses installed
-// the open picker ends on an Add harness… row, reachable from the keyboard like the model rows.
+// the full picker ends on an Add harness… row, reachable from the keyboard like the model rows. Since
+// Leo 2026-10-20 a click on the model button opens its compact menu, whose More models submenu ends on
+// Add harness… (model-menu-compact.test.tsx); the full picker here opens by its "Model" opener.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { openPicker } from "../src/agent-session/acpmux/pickerOpeners";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -151,31 +154,34 @@ test.serial("with no harness installed, the page has no No agent row and the chi
   expect(opened.count).toBe(1);
 });
 
-test.serial("with harnesses installed, the picker's last item is Add harness…, by click and by keyboard", async () => {
-  const opened = await page(noChat().catalog);
-  expect(named("Add harness", host.querySelector(".nt-composer")!)).toBeUndefined();
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
-  const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
-  expect(menu).not.toBeNull();
-  const actionable = buttons(menu).filter((button) => !button.disabled);
-  expect(actionable.at(-1)?.textContent?.trim()).toBe("Add harness…");
-  await act(async () => actionable.at(-1)!.click());
-  expect(opened.count).toBe(1);
+test.serial(
+  "with harnesses installed, the full picker's last item is Add harness…, by click and by keyboard",
+  async () => {
+    const opened = await page(noChat().catalog);
+    expect(named("Add harness", host.querySelector(".nt-composer")!)).toBeUndefined();
+    await act(async () => void openPicker("Model"));
+    const menu = host.querySelector<HTMLElement>(".acpmux-mp")!;
+    expect(menu).not.toBeNull();
+    const actionable = buttons(menu).filter((button) => !button.disabled);
+    expect(actionable.at(-1)?.textContent?.trim()).toBe("Add harness…");
+    await act(async () => actionable.at(-1)!.click());
+    expect(opened.count).toBe(1);
 
-  // From the search field, ArrowUp walks the rows back and wraps to Add harness…; Return opens it.
-  await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
-  const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
-  const activeText = () => {
-    const id = search.getAttribute("aria-activedescendant");
-    return id ? host.ownerDocument.getElementById(id)?.textContent?.trim() : undefined;
-  };
-  for (let press = 0; press < 12 && activeText() !== "Add harness…"; press++)
+    // From the search field, ArrowUp walks the rows back and wraps to Add harness…; Return opens it.
+    await act(async () => void openPicker("Model"));
+    const search = host.querySelector<HTMLInputElement>('.acpmux-mp input[role="combobox"]')!;
+    const activeText = () => {
+      const id = search.getAttribute("aria-activedescendant");
+      return id ? host.ownerDocument.getElementById(id)?.textContent?.trim() : undefined;
+    };
+    for (let press = 0; press < 12 && activeText() !== "Add harness…"; press++)
+      await act(async () => {
+        search.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowUp" }));
+      });
+    expect(activeText()).toBe("Add harness…");
     await act(async () => {
-      search.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "ArrowUp" }));
+      search.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }));
     });
-  expect(activeText()).toBe("Add harness…");
-  await act(async () => {
-    search.dispatchEvent(new window.KeyboardEvent("keydown", { bubbles: true, cancelable: true, key: "Enter" }));
-  });
-  expect(opened.count).toBe(2);
-});
+    expect(opened.count).toBe(2);
+  },
+);
