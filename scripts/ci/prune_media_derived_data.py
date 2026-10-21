@@ -2,7 +2,7 @@
 """Bound the cmux-next tour's DerivedData on an owned Mac.
 
     prune_media_derived_data.py --keep-tag TAG [--keep-tag TAG ...]
-        [--root DIR] [--keep-others N] [--min-idle-minutes M]
+        [--root DIR] [--slots K] [--keep-others N] [--min-idle-minutes M]
 
 Every tour (.github/workflows/cmux-next-media.yml) builds a base and a head app
 with reload.sh --tag, into DerivedData/cmux-ci-media-pr-<N>-{base,head} for a
@@ -10,10 +10,14 @@ pull request and cmux-ci-media-feat-cmux-next-{base,head} for merges. Each is
 about 9 GiB and nothing removed them: on 2026-10-14 one mini held 8 and a merge
 tour failed reload.sh's 40 GiB free-space floor (run 38614931315).
 
+A tour now builds in the slot it claims on the Mac (media_tag_lock.py claim,
+DerivedData/cmux-ci-media-slot<N>-{base,head}). Slots below --slots are the
+warm pairs the next tours reuse, so they are always kept.
+
 Before building, the tour runs this with its own two tags. It removes the
-least recently used cmux-ci-media-* dirs other than those, oldest first, until
-at most --keep-others remain. A later tour of a pruned pull request only pays
-a cold build. A dir is never removed when:
+least recently used other cmux-ci-media-* dirs (the old per-pull-request
+dirs, and overflow slots at or above K), oldest first, until at most
+--keep-others remain. A dir is never removed when:
 
   - a process has a file in it open (lsof); if lsof cannot list open files,
     nothing is removed,
@@ -42,6 +46,7 @@ from pathlib import Path
 
 PREFIX = "cmux-"
 MEDIA_NAME = re.compile(r"^cmux-ci-media-[A-Za-z0-9._-]+$")
+WARM_SLOT = re.compile(r"^cmux-ci-media-slot(0|[1-9][0-9]*)-(?:base|head)$")
 TAG = re.compile(r"^ci-media-[A-Za-z0-9._-]+$")
 
 # Paths a build writes every time (a new log in Logs/Build, products and
@@ -132,7 +137,7 @@ def allocated_gib(path: Path) -> float:
     return total / 2**30
 
 
-def media_dirs(root: Path, keep: set[str]) -> list[Path]:
+def media_dirs(root: Path, keep: set[str], slots: int) -> list[Path]:
     found = []
     try:
         entries = sorted(root.iterdir())
@@ -141,6 +146,9 @@ def media_dirs(root: Path, keep: set[str]) -> list[Path]:
         return []
     for entry in entries:
         if entry.name in keep or not MEDIA_NAME.match(entry.name):
+            continue
+        slot = WARM_SLOT.match(entry.name)
+        if slot and int(slot.group(1)) < slots:
             continue
         if entry.is_symlink() or not entry.is_dir():
             print(f"{entry.name}: not a plain directory; leaving it")
@@ -157,6 +165,8 @@ def main() -> int:
                         help="a reload.sh tag this run builds; its DerivedData is kept")
     parser.add_argument("--keep-others", type=int, default=2,
                         help="media dirs to keep besides this run's own (default 2, one pair)")
+    parser.add_argument("--slots", type=int, default=0,
+                        help="warm tour slots on this Mac; their dirs are always kept (default 0)")
     parser.add_argument("--lock-dir", type=Path, default=Path.home() / "Library/Caches/cmux-ci-media/locks",
                         help="media_tag_lock.py's lock dir: a dir whose tag a tour holds is kept")
     parser.add_argument("--min-idle-minutes", type=int, default=150,
@@ -165,12 +175,13 @@ def main() -> int:
     for tag in args.keep_tag:
         if not TAG.match(tag):
             parser.error(f"--keep-tag {tag!r} is not a ci-media-* tag")
-    if args.keep_others < 0 or args.min_idle_minutes < 0:
-        parser.error("--keep-others and --min-idle-minutes must not be negative")
+    if args.keep_others < 0 or args.min_idle_minutes < 0 or args.slots < 0:
+        parser.error("--slots, --keep-others and --min-idle-minutes must not be negative")
 
     keep = {PREFIX + tag for tag in args.keep_tag}
-    candidates = media_dirs(args.root, keep)
-    print(f"{len(candidates)} other media DerivedData dir(s) in {args.root}; keeping at most {args.keep_others}")
+    candidates = media_dirs(args.root, keep, args.slots)
+    print(f"{len(candidates)} media DerivedData dir(s) in {args.root} outside this tour's and the "
+          f"{args.slots} warm slots'; keeping at most {args.keep_others}")
     if len(candidates) <= args.keep_others:
         return 0
     opened = open_paths()

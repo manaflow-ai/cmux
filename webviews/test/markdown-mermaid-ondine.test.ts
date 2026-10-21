@@ -2,7 +2,7 @@
 // should we use this? I think we might need a better Mermaid parser."; evaluation in
 // plans/cmux-next/mermaid-ondine-EVAL.md). Ondine is the vendored Resources/markdown-viewer/ondine.min.js,
 // a Rust-to-WebAssembly Mermaid compiler with no imports: source in, SVG text out. Mermaid 11 stays as
-// the fallback for a source Ondine refuses, and as the renderer when the flag says "mermaid".
+// the automatic fallback for a source Ondine refuses; there is no flag or setting to pick Mermaid.
 //
 // Covered: every common diagram type draws through Ondine; script, handlers, javascript: links and
 // HTML in labels never reach the page from either renderer; a refusal falls back to Mermaid; Mermaid
@@ -170,14 +170,17 @@ describe("no script reaches the page", () => {
         '<image href="data:image/svg+xml,&lt;svg onload=alert(6)&gt;"/><g onclick="alert(7)"><text>ok</text></g></svg>',
     );
     const element = target();
-    await diagrams.renderMermaid(libraries(), "flowchart TD\n  A -- broken ->", element, "mermaid");
+    await diagrams.renderMermaid(libraries(), REFUSED, element);
     expect(hazards(element).filter((hazard) => hazard !== "<foreignobject>")).toEqual([]);
     expect(element.textContent).toContain("label");
     expect(element.textContent).toContain("ok");
   });
 });
 
-describe("fallback and flag", () => {
+/** A source Ondine refuses, so the (stubbed) Mermaid fallback draws it. */
+const REFUSED = "flowchart TD\n  A --> ";
+
+describe("fallback, no flag", () => {
   test("a source Ondine refuses falls back to Mermaid", async () => {
     const calls = stubMermaid('<svg xmlns="http://www.w3.org/2000/svg"><text>from mermaid</text></svg>');
     const element = target();
@@ -194,12 +197,27 @@ describe("fallback and flag", () => {
     );
   });
 
-  test('the "mermaid" flag uses Mermaid even for a source Ondine draws', async () => {
+  test("Ondine always draws a source it accepts: an old mermaidRenderer value changes nothing", async () => {
+    // The removed flag's values ("mermaid") may still reach the renderer from an old page config or a
+    // stale caller; they must not route around Ondine.
     const calls = stubMermaid('<svg xmlns="http://www.w3.org/2000/svg"><text>from mermaid</text></svg>');
     const element = target();
-    await diagrams.renderMermaid(libraries(), "flowchart LR\n  A --> B", element, "mermaid");
-    expect(calls.length).toBe(1);
-    expect(element.textContent).toContain("from mermaid");
+    const legacy = diagrams.renderMermaid as (...args: unknown[]) => Promise<void>;
+    await legacy(libraries(), "flowchart LR\n  A --> B", element, "mermaid");
+    expect(calls).toEqual([]);
+    expect(element.firstElementChild?.getAttribute("class") ?? "").toContain("ondine");
+  });
+
+  test("renderDiagram ignores an old renderer argument too", async () => {
+    const calls = stubMermaid('<svg xmlns="http://www.w3.org/2000/svg"><text>from mermaid</text></svg>');
+    const element = target();
+    const legacy = diagrams.renderDiagram as (...args: unknown[]) => void;
+    legacy(libraries(), "mermaid", "flowchart LR\n  A --> B", element, "failed:", "mermaid");
+    for (let tries = 0; tries < 50 && element.dataset.state === "rendering"; tries++) await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(calls).toEqual([]);
+    expect(element.dataset.state).toBe("rendered");
+    expect(element.firstElementChild?.getAttribute("class") ?? "").toContain("ondine");
   });
 
   test("Mermaid output with HTML labels draws whole, not as an XML error page", async () => {
@@ -210,7 +228,7 @@ describe("fallback and flag", () => {
         '<span>line one<br>line two</span></div></foreignObject><a xlink:href="https://example.com"><text>after</text></a></g></svg>',
     );
     const element = target();
-    await diagrams.renderMermaid(libraries(), "flowchart TD\n  A --> B", element, "mermaid");
+    await diagrams.renderMermaid(libraries(), REFUSED, element);
     expect(element.querySelector("parsererror")).toBeNull();
     expect(element.textContent).toContain("line two");
     expect(element.textContent).toContain("after");

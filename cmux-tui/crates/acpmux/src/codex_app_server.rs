@@ -14,9 +14,56 @@ use crate::rpc::Message;
 use cmux_codex_acp::{Options, Out};
 use serde_json::Value;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 
-pub use cmux_codex_acp::Translator;
+mod background;
+pub use background::TERMINATE;
+
+/// The cmux-codex-acp translator, with Codex's background terminals beside
+/// it (`background.rs`).
+pub struct Translator {
+    inner: cmux_codex_acp::Translator,
+    background: Mutex<background::Background>,
+}
+
+impl Translator {
+    fn background(&self) -> std::sync::MutexGuard<'_, background::Background> {
+        self.background.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The first lines for the app-server.
+    pub fn start(&self) -> Vec<Out> {
+        self.inner.start()
+    }
+
+    /// One message from the hub.
+    pub fn from_client(&self, msg: &Value) -> Vec<Out> {
+        if let Some(out) = self.background().request(msg) {
+            return out;
+        }
+        self.inner.from_client(msg)
+    }
+
+    /// One line from the app-server.
+    pub fn from_server(&self, raw: &Value) -> Vec<Out> {
+        let mut out = {
+            let mut background = self.background();
+            if let Some(out) = background.response(raw) {
+                return out;
+            }
+            background.observe(raw)
+        };
+        out.extend(self.inner.from_server(raw));
+        out
+    }
+
+    /// The app-server exited or its pipe closed.
+    pub fn server_closed(&self, why: &str) -> Vec<Out> {
+        let mut out = self.inner.server_closed(why);
+        out.extend(self.background().closed(why));
+        out
+    }
+}
 
 /// Whether `program args...` runs `codex app-server`: a program named `codex`,
 /// `codex-<x>` or `<x>-codex` (a renamed build such as `cmux-codex`; any
@@ -55,13 +102,16 @@ pub fn is_profile_launch(argv: &[String]) -> bool {
 /// advertises `promptCapabilities.audio` only to Codex 0.145.0 or later, so
 /// an older `codex` keeps `audio: false` and the pane falls back to dictation.
 pub fn translator() -> Arc<Translator> {
-    Arc::new(Translator::new(Options {
-        client_name: "acpmux".into(),
-        client_title: "cmux".into(),
-        client_version: env!("CARGO_PKG_VERSION").into(),
-        audio_input: true,
-        ..Options::default()
-    }))
+    Arc::new(Translator {
+        inner: cmux_codex_acp::Translator::new(Options {
+            client_name: "acpmux".into(),
+            client_title: "cmux".into(),
+            client_version: env!("CARGO_PKG_VERSION").into(),
+            audio_input: true,
+            ..Options::default()
+        }),
+        background: Mutex::default(),
+    })
 }
 
 /// What the translator produced: lines for the app-server's stdin and ACP

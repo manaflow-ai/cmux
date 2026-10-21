@@ -136,7 +136,8 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
         }
     }
 
-    public func event(within timeout: Duration) async -> Bool {
+    /// True at the exit; false when `timeout` passes first. A nil `timeout` waits for the exit only.
+    public func event(within timeout: Duration?) async -> Bool {
         let pid = self.pid
         return await withCheckedContinuation { continuation in
             let once = Once()
@@ -148,13 +149,15 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
                 once.deadline.withLock { $0?.cancel() }
                 continuation.resume(returning: exited)
             }
-            // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
-            let timer = Task {
-                // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
-                try? await Task.sleep(for: timeout)
-                if !Task.isCancelled { finish(false) }
+            if let timeout {
+                // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
+                let timer = Task {
+                    // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
+                    try? await Task.sleep(for: timeout)
+                    if !Task.isCancelled { finish(false) }
+                }
+                once.deadline.withLock { $0 = timer }
             }
-            once.deadline.withLock { $0 = timer }
             source.setEventHandler { finish(true) }
             source.resume()
             if kill(pid, 0) != 0 && errno == ESRCH { finish(true) }

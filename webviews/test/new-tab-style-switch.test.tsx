@@ -99,7 +99,7 @@ async function withClock(run: (tick: () => Promise<void>, wait: () => Promise<vo
 }
 
 for (const look of STYLE_SWITCHES) {
-  test(`${look}: the five styles are one radio group; a pick is saved, a click goes back to the field`, async () => {
+  test(`${look}: the six styles are one radio group; a pick is saved, a click goes back to the field`, async () => {
     const host = window.document.getElementById("root")!;
     const root = createRoot(host);
     const sent: [string, unknown][] = [];
@@ -109,8 +109,16 @@ for (const look of STYLE_SWITCHES) {
     expect(group.getAttribute("aria-label")).toBe("New Tab templates");
     expect(host.querySelector<HTMLElement>(".nt-style-options")!.dataset.look).toBe(look);
     const radios = () => [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-    expect(radios().map((radio) => radio.value)).toEqual(["default", "composer", "threads", "console", "classic"]);
+    expect(radios().map((radio) => radio.value)).toEqual([
+      "cards",
+      "default",
+      "composer",
+      "threads",
+      "console",
+      "classic",
+    ]);
     expect(radios().map((radio) => radio.getAttribute("aria-label"))).toEqual([
+      "Cards",
       "Default",
       "Composer",
       "Threads",
@@ -129,11 +137,11 @@ for (const look of STYLE_SWITCHES) {
     } else if (look === "round") {
       // Round names a dot over it while pointed at, so no tooltip and no name at rest.
       expect(host.textContent).toBe("");
-      expect(titles()).toEqual(["", "", "", "", ""]);
+      expect(titles()).toEqual(["", "", "", "", "", ""]);
     } else {
       // At rest the style names are tooltips (the page's instant `title` tooltips), not text.
       expect(host.textContent).toBe("");
-      expect(titles()).toEqual(["Default", "Composer", "Threads", "Console", "Classic"]);
+      expect(titles()).toEqual(["Cards", "Default", "Composer", "Threads", "Console", "Classic"]);
     }
 
     let fieldAsked = 0;
@@ -142,8 +150,8 @@ for (const look of STYLE_SWITCHES) {
     await withClock(async (tick, wait) => {
       // A pointer pick: saved, shown, and the field asked for once the picked page has mounted.
       await act(async () => {
-        radios()[2]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
-        radios()[2]!.click();
+        radios()[3]!.dispatchEvent(new window.Event("pointerdown", { bubbles: true }));
+        radios()[3]!.click();
       });
       expect(sent).toEqual([["newTab.setTemplate", { template: "threads" }]]);
       expect(radios().find((radio) => radio.checked)?.value).toBe("threads");
@@ -162,18 +170,18 @@ for (const look of STYLE_SWITCHES) {
 
       // A keyboard pick (an arrow key checks the next radio, with no pointer down): saved, and
       // focus stays on the switch to keep moving, even when the picked page focused its field.
-      radios()[3]!.focus();
-      await act(async () => radios()[3]!.click());
+      radios()[4]!.focus();
+      await act(async () => radios()[4]!.click());
       expect(sent.at(-1)).toEqual(["newTab.setTemplate", { template: "console" }]);
       window.document.getElementById("field")!.focus();
       await tick();
-      expect(window.document.activeElement).toBe(radios()[3]!);
+      expect(window.document.activeElement).toBe(radios()[4]!);
       expect(fieldAsked).toBe(1);
 
       // Return and Escape go back to the field.
       for (const key of ["Escape", "Enter"]) {
         await act(
-          async () => void radios()[3]!.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })),
+          async () => void radios()[4]!.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true })),
         );
       }
       expect(fieldAsked).toBe(3);
@@ -218,7 +226,7 @@ test("the style radios draw no native dot in any look: the page's own stylesheet
       root.render(createElement(StyleSwitch, { look, current: "default", onPick() {}, onCancel() {} }));
     });
     const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-    expect(radios).toHaveLength(5);
+    expect(radios).toHaveLength(6);
     for (const radio of radios) {
       const drawn = window.getComputedStyle(radio);
       expect([look, radio.value, drawn.position, drawn.width, drawn.height, drawn.opacity]).toEqual([

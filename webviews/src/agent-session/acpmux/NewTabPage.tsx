@@ -88,7 +88,7 @@ export type NewTabHost = {
   layout: "a" | "b";
   /// The saved template (`tabs.newTabTemplate`); unset follows `layout` (newtab/templates.ts).
   template?: NewTabTemplate;
-  /// The style switch's look (Settings > Labs `labs.newTabStyle`); unset is the default look.
+  /// The style switch's look (Debug Settings `newTab.styleSwitch`); unset is the default look.
   styleSwitch?: StyleSwitchLook;
   /// The agent last picked (decision Q3).
   lastAgent?: string;
@@ -100,6 +100,9 @@ export type NewTabHost = {
   history?: boolean;
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
+  /// The page lists only its own connection's chats, not the store every page shares (Debug
+  /// Settings `newTab.privateChatLists`, newtab/chatStore.ts).
+  privateChatLists?: boolean;
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -148,6 +151,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
+    ...(object.privateChatLists === true ? { privateChatLists: true } : {}),
   };
 }
 

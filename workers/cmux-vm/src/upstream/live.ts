@@ -7,11 +7,18 @@
  * composition root src/index.ts import this module.
  */
 import { Effect, Layer, Redacted, Schema } from "effect";
+import { makeUpstreamHttp } from "./live-http.ts";
+import { makeHttpsProxies } from "./live-https-proxies.ts";
+import { makeRetireVm } from "./live-retire.ts";
+import { makeStatFile } from "./live-file-stat.ts";
+import { vmInstanceIdentity } from "./live-identity.ts";
+import { makeDurableCreate, makeRecoverCreation, makeInspectCancellation, makeDeleteCancellation } from "./live-create.ts";
 import { UpstreamId } from "../lib/ids.ts";
 import type { Environment } from "../policy.ts";
 import { upstreamIdOf, type TenantOwnsResource } from "../proofs/tenant-owns-resource.ts";
 import {
   UpstreamClient,
+  resourceFloorsReached,
   UpstreamError,
   UpstreamVm,
   type FileRead,
@@ -19,10 +26,7 @@ import {
   type UpstreamClientService,
 } from "./client.ts";
 import { execResultStream } from "./exec-stream.ts";
-import { upstreamName } from "./naming.ts";
 
-const CreatedVm = Schema.Struct({ id: UpstreamId, ...UpstreamVm.fields });
-const CreatedSnapshot = Schema.Struct({ snapshotId: UpstreamId });
 const DirListing = Schema.Struct({
   entries: Schema.Array(Schema.Struct({ name: Schema.String, kind: Schema.String })),
 });
@@ -71,9 +75,7 @@ const SLOW_TIMEOUT_MS = 120_000;
 const TRANSFER_TIMEOUT_MS = 15 * 60_000;
 const DEFAULT_EXEC_TIMEOUT_MS = 30_000;
 /** Snapshots taken for a fork are deleted after a successful fork; this is the backstop for failed ones. */
-const FORK_SNAPSHOT_AUTO_DELETE_SECONDS = 24 * 60 * 60;
 /** Provider metadata values are at most 63 characters. */
-const METADATA_VALUE_MAX = 63;
 
 interface SendInit {
   readonly method: "GET" | "POST" | "PUT" | "DELETE";
@@ -194,41 +196,34 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
     );
   };
 
-  const discardVm = (id: UpstreamId) => deleteById("discardVm", vmPath(id)).pipe(Effect.ignore);
-  const discardSnapshot = (id: UpstreamId) => deleteById("discardSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`).pipe(Effect.ignore);
 
   return {
+    ...vmInstanceIdentity,
+    resizeVm: (_vm, { owns }, size) => Effect.flatMap(idOf(owns), (id) => Effect.gen(function* () {
+      const current = yield* getVmById("resizeVm", id);
+      if (size.diskMib !== undefined && size.diskMib > current.resources.storage && current.state !== "running") {
+        return yield* Effect.fail(new UpstreamError({ operation: "resizeVm", status: 409 }));
+      }
+      return yield* growVm(id, current, size).pipe(
+        Effect.flatMap((grown) => resourceFloorsReached(grown, size) ? Effect.succeed(grown) : Effect.fail(new UpstreamError({ operation: "resizeVm", status: null }))),
+        // An error can follow an applied or partially applied resize. Confirm before reporting failure.
+        Effect.catchAll((error) => getVmById("resizeVm", id).pipe(
+          Effect.catchAll(() => Effect.fail(error)),
+          Effect.flatMap((latest) => resourceFloorsReached(latest, size) ? Effect.succeed(latest) : Effect.fail(error)),
+        )),
+      );
+    })),
+    ...makeHttpsProxies(makeUpstreamHttp(config)),
+    ...makeRetireVm(makeUpstreamHttp(config)),
+    ...makeStatFile(makeUpstreamHttp(config)),
     getVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
     getVmForWrite: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => getVmById("getVm", id)),
 
-    createVm: (caller, spec, { source }) => {
-      const sourceIdOf: Effect.Effect<UpstreamId | null> = source === undefined ? Effect.succeed(null) : idOf(source.owns);
-      return Effect.flatMap(sourceIdOf, (sourceId) => {
-      const tenantId = caller.value.tenantId;
-      const metadata: Record<string, string> = { cmux_id: spec.cmuxId, cmux_env: spec.environment };
-      // Stack team ids fit; the display name carries the tenant id regardless.
-      if (tenantId.length <= METADATA_VALUE_MAX) metadata["cmux_tenant"] = tenantId;
-      const body = {
-        displayName: upstreamName(config.environment, tenantId, spec.cmuxId),
-        idleTimeoutSeconds: spec.idleTimeoutSeconds,
-        ...(spec.maxRunSeconds === undefined ? {} : { maxRunSeconds: spec.maxRunSeconds }),
-        ...(spec.autoDeleteSeconds === undefined ? {} : { autoDeleteSeconds: spec.autoDeleteSeconds }),
-        metadata,
-        // Nothing implicit: no inbound and no outbound rules until networking endpoints add them.
-        firewall: { rules: [] },
-        ...(sourceId !== null
-          ? { snapshotId: sourceId }
-          : baseImageFor(spec.size) === null
-            ? {}
-            : { snapshotId: baseImageFor(spec.size) }),
-      };
-      return send("createVm", "/v5/vms", { method: "POST", json: body, timeoutMs: SLOW_TIMEOUT_MS }).pipe(
-        Effect.flatMap(json("createVm", CreatedVm)),
-        Effect.map(({ id, ...vm }) => ({ upstreamId: id, vm, discard: discardVm(id), grow: (size: SizeRequest) => growVm(id, vm, size) })),
-      );
-      });
-    },
+    recoverCreation: makeRecoverCreation(config),
+    inspectCancellingCreation: makeInspectCancellation(config),
+    deleteCancellingCreation: makeDeleteCancellation(config),
+    createVm: makeDurableCreate(config, baseImageFor),
 
     startVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => vmAction("startVm", id, "start")),
 
@@ -249,16 +244,6 @@ export function makeUpstreamClient(config: UpstreamConfig): UpstreamClientServic
       )),
 
     deleteVm: (_vm, { owns }) => Effect.flatMap(idOf(owns), (id) => deleteById("deleteVm", vmPath(id))),
-
-    snapshotForFork: (caller, _vm, spec, { owns }) =>
-      Effect.flatMap(idOf(owns), (id) => send("snapshotVm", vmPath(id, "/snapshot"), {
-        method: "POST",
-        json: { displayName: upstreamName(config.environment, caller.value.tenantId, spec.cmuxId), autoDeleteSeconds: FORK_SNAPSHOT_AUTO_DELETE_SECONDS },
-        timeoutMs: SLOW_TIMEOUT_MS,
-      }).pipe(
-        Effect.flatMap(json("snapshotVm", CreatedSnapshot)),
-        Effect.map(({ snapshotId }) => ({ upstreamId: snapshotId, discard: discardSnapshot(snapshotId) })),
-      )),
 
     deleteSnapshot: (_snapshot, { owns }) =>
       Effect.flatMap(idOf(owns), (id) => deleteById("deleteSnapshot", `/v5/snapshots/${encodeURIComponent(id)}`)),

@@ -4,7 +4,10 @@
 // does not: the preview follows the pointer once it rests on a row for DWELL_MS, so sweeping down
 // the list no longer flashes every theme across the whole app (the "loud" hover, Lawrence
 // 2026-10-18) or reloads every terminal's config per row. A right-click pins a row's preview so it
-// stays while the pointer moves on. Return or a click picks; Escape reverts.
+// stays while the pointer moves on. Return or a click picks; Escape reverts. Every theme choice on
+// the page uses it: the terminal theme, the app theme, their light and dark sides, and a theme row
+// in search results (ThemeRowEditor). The button has one width, so a long name ellipsizes instead of
+// moving the row's controls.
 import { useEffect, useRef, useState } from "react";
 import { Combobox } from "../../../ui/Combobox";
 import { Popover } from "../../../ui/Popover";
@@ -12,8 +15,7 @@ import { ThemeBall } from "../../../ui/ThemeBall";
 import type { GhosttyTheme } from "../../../theme/ghosttyTheme";
 import { Icon } from "../icons";
 import { t } from "../strings";
-
-const CONFIG = "\u0000config";
+import { CONFIG_ROW as CONFIG, pickerRows } from "../themePickerModel";
 /** How long the pointer rests on a row before that row previews. */
 export const DWELL_MS = 450;
 
@@ -28,6 +30,7 @@ export function ThemePicker({
   onPick,
   onPreview,
   custom = () => false,
+  nullChoice = true,
 }: {
   /** The picked theme name; null shows `configLabel` (the Ghostty config, or Match Terminal Theme). */
   value: string | null;
@@ -44,6 +47,8 @@ export function ThemePicker({
   onPreview(name: string | null): void;
   /** Whether a theme has the user's color edits (appearance.themeEdits): it reads "<name> (custom)". */
   custom?(name: string): boolean;
+  /** Whether the list offers the null choice (`configLabel`); the button still shows it for a null value. */
+  nullChoice?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
@@ -79,11 +84,8 @@ export function ThemePicker({
     if (target === showing.current) return;
     dwell.current = setTimeout(() => preview(target), DWELL_MS);
   };
-  const typed = query.trim().toLowerCase();
   const label = (name: string) => (custom(name) ? t("settingsPage.theme.custom", name) : name);
-  const shown = [CONFIG, ...names.filter((name) => name.toLowerCase().includes(typed))].filter(
-    (name) => name !== CONFIG || typed === "",
-  );
+  const shown = pickerRows({ names, query, nullChoice });
   const dismiss = () => {
     setOpen(false);
     setQuery("");

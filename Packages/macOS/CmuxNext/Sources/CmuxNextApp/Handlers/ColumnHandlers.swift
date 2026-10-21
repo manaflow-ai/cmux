@@ -6,8 +6,8 @@ import CmuxNextLayout
 
 /// scrolling-column column actions: new column, focus and move left/right, center,
 /// width presets. Widths go through the layout model (one gesture transaction per
-/// change, settled by the daemon); moves are `swap-pane`, which the daemon
-/// offers only per pane, so a multi-pane column cannot move yet.
+/// change, settled by the daemon); moves are `move-column`, which moves the
+/// whole column (every pane in it) in one daemon commit.
 enum ColumnHandlers {
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         registry.bind("newColumn", invoke: { invocation in
@@ -94,17 +94,24 @@ enum ColumnHandlers {
         PaneHandlers.focus(pane, in: content)
     }
 
+    /// Moves the whole column one place: `move-column` (every pane in it, one
+    /// daemon commit). A daemon without `column-move-v1` still moves a
+    /// one-pane column through `swap-pane`.
     private static func move(_ invocation: ActionInvocation, direction: PaneDirection, _ ctx: AppActionContext) {
-        guard let (content, column) = column(invocation, ctx) else { return }
-        let panes = column.root.panes
-        guard panes.count == 1, let pane = panes.first else {
-            return ctx.refuse(RefusalStrings.moveColumnUnsupported(panes.count))
-        }
+        guard let (content, column) = column(invocation, ctx), let pane = column.root.panes.first else { return }
         guard let screen = content.layoutModel.screen(containing: pane),
               PaneResize.adjacentColumn(of: pane, forward: direction == .right, in: screen.layout) != nil else {
             return ctx.refuseQuietly(RefusalStrings.columnAtEdge)
         }
         guard let handle = content.handles.panes[pane] ?? ctx.refuse(RefusalStrings.paneHasNoDaemonHandle(pane.rawValue)) else { return }
+        let daemon = ctx.services.activeDaemon
+        if daemon.supports(DaemonCapabilities.shared.columnMove) {
+            let columnDirection: ColumnMoveDirection = direction == .right ? .right : .left
+            return ctx.send("move-column") { try await $0.moveColumn(of: handle, direction: columnDirection) }
+        }
+        guard column.root.panes.count == 1 else {
+            return ctx.refuse(daemon.missingCapabilityMessage(DaemonCapabilities.shared.columnMove))
+        }
         ctx.send("swap-pane") { try await $0.swapPane(handle, with: .direction(direction)) }
     }
 }

@@ -6,6 +6,11 @@ import { SettingsPage } from "./components/SettingsPage";
 import type { SettingsClient } from "./ops";
 import { SettingsStore } from "./store";
 import { setLocale, t } from "./strings";
+import { holdPaintUntil } from "../shared/paintGate";
+import { PARKED_NAME } from "../shared/pageClient";
+
+/** A pooled document the host has not claimed yet (pageClient.ts). */
+const parked = () => (globalThis as Record<string, unknown>)[PARKED_NAME] === true;
 
 /** Renders the page and starts its store; the returned function unmounts both. */
 export async function mountSettingsPage(root: HTMLElement, client: SettingsClient): Promise<() => void> {
@@ -17,7 +22,11 @@ export async function mountSettingsPage(root: HTMLElement, client: SettingsClien
   const store = new SettingsStore(client);
   const reactRoot = createRoot(root);
   reactRoot.render(<SettingsPage store={store} />);
-  await store.start();
+  const started = store.start();
+  // The host shows the page once its first screen is in: the user's values (no control drawn
+  // disabled with its default) and the host's lists (no card added after the first frame).
+  holdPaintUntil(() => started, parked());
+  await started;
   return () => {
     reactRoot.unmount();
     store.dispose();

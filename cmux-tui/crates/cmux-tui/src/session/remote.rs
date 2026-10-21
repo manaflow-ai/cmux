@@ -146,14 +146,40 @@ fn validate_remote_identity(ident: &Value) -> anyhow::Result<()> {
         anyhow::bail!("socket endpoint is not a cmux-tui session");
     }
     let protocol = ident.get("protocol").and_then(Value::as_u64).unwrap_or(0);
-    if protocol != SUPPORTED_PROTOCOL_VERSION {
-        anyhow::bail!(
-            "unsupported cmux-tui protocol {protocol}; this client requires protocol {SUPPORTED_PROTOCOL_VERSION}; restart the cmux-tui server"
-        );
+    let (ours, _) = cmux_tui_core::server::api_revision_range();
+    let theirs_min = ident.get("min_api_revision").and_then(Value::as_u64);
+    let client_too_old = protocol > SUPPORTED_PROTOCOL_VERSION
+        || theirs_min.is_some_and(|min| min > u64::from(ours));
+    if protocol != SUPPORTED_PROTOCOL_VERSION || client_too_old {
+        anyhow::bail!("{}", skew_refusal(ident, protocol, client_too_old));
     }
     parse_identity_capabilities(ident)
         .map_err(|reason| anyhow::anyhow!("invalid identity capabilities: {reason}"))?;
     Ok(())
+}
+
+/// The refusal for a version skew, naming the exact update command of the
+/// side that is too old (plans/cmux-next/tui-tester-rollout.md #4).
+fn skew_refusal(ident: &Value, protocol: u64, client_too_old: bool) -> String {
+    use cmux_tui_core::release::{DISTRIBUTION_VERSION, InstallChannel, update_hint_for};
+    let server = ident.get("version").and_then(Value::as_str).unwrap_or("unknown");
+    if client_too_old {
+        format!(
+            "this cmux ({DISTRIBUTION_VERSION}) is too old for the cmux-tui server ({server}, protocol {protocol}). To fix it, {}",
+            InstallChannel::current().update_hint()
+        )
+    } else {
+        // The server is older. A daemon from before `install` was reported
+        // gets every package command; restarting it also picks up an update
+        // that is already installed.
+        let hint = match ident.get("update_command").and_then(Value::as_str) {
+            Some(command) => format!("run `{command}` on the server's machine"),
+            None => update_hint_for(ident.get("install").and_then(Value::as_str)),
+        };
+        format!(
+            "the cmux-tui server ({server}, protocol {protocol}) is older than this cmux ({DISTRIBUTION_VERSION}, protocol {SUPPORTED_PROTOCOL_VERSION}). To fix it, {hint}, then restart the server"
+        )
+    }
 }
 
 fn remote_terminal_size(value: &Value) -> Option<(u16, u16)> {

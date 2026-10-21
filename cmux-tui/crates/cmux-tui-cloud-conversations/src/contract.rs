@@ -14,6 +14,11 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "conversation.create",
     "participants.add",
     "participants.remove",
+    "participants.set_role",
+    "participants.unban",
+    "ownership.transfer",
+    "grant.create",
+    "grant.revoke",
     "message.send",
     "message.edit",
     "message.retract",
@@ -21,6 +26,8 @@ pub const CLOUD_OP_KINDS: &[&str] = &[
     "reaction.remove",
     "read_cursor.set",
     "title.set",
+    // A group's "Chiefs Reply" setting (wake_policy), owner only (chief-group-chats-DESIGN.md).
+    "conversation.settings.set",
     "thread.update",
     "invite.create",
     // Message requests (home-messaging-invites DESIGN 2.3): the invited
@@ -212,9 +219,10 @@ pub(crate) fn op_body(request: &OpRequest) -> Result<Value, CloudError> {
 }
 
 /// Op kinds `cloud-inbox-op` forwards to the person's UserDO inbox (the
-/// person's own list state: home-core `inbox.pin`, `inbox.mark_unread`).
-/// Every other kind is refused before any network call (default deny).
-pub const CLOUD_INBOX_OP_KINDS: &[&str] = &["inbox.pin", "inbox.mark_unread"];
+/// person's own list state: home-core `inbox.pin`, `inbox.mark_unread`,
+/// `inbox.mute`). Every other kind is refused before any network call
+/// (default deny).
+pub const CLOUD_INBOX_OP_KINDS: &[&str] = &["inbox.pin", "inbox.mark_unread", "inbox.mute"];
 
 /// `cloud-inbox-op` params: one inbox op on one conversation's entry.
 #[derive(Debug, Clone, Deserialize)]
@@ -518,4 +526,25 @@ pub(crate) fn conversation_change(frame: &Value) -> Option<(u64, Value)> {
 pub(crate) fn inbox_entries(frame: &Value) -> Option<Vec<Value>> {
     let effects = frame.get("effects")?;
     Some(upserts(effects, TABLE_ENTRY).cloned().collect())
+}
+
+#[cfg(test)]
+mod chief_replies_tests {
+    use super::*;
+
+    /// A group's "Chiefs Reply" setting (plans/cmux-next/chief-group-chats-DESIGN.md) goes to the
+    /// owner as `conversation.settings.set {wake_policy}`: the daemon forwards it unchanged.
+    #[test]
+    fn conversation_settings_set_is_forwarded() {
+        let request = OpRequest {
+            conversation: Some("conv_0Y05MEWEFMQQB63VDHQB9MXAJT".into()),
+            idempotency_key: "k1".into(),
+            origin: Some("user".into()),
+            op: json!({"kind": "conversation.settings.set", "wake_policy": "all"}),
+        };
+        let body = op_body(&request).expect("forwarded");
+        assert_eq!(body["op"], "conversation.settings.set");
+        assert_eq!(body["params"]["wake_policy"], "all");
+        assert_eq!(body["params"]["conversation"], "conv_0Y05MEWEFMQQB63VDHQB9MXAJT");
+    }
 }

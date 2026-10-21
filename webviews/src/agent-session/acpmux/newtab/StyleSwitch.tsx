@@ -153,11 +153,18 @@ export function StyleSwitch({
 
 /// Each style's layout in 14px: the field as a rounded box, chats as lines.
 const SKETCHES: Record<PageStyle, ReactNode> = {
-  // The field, a few recent chats.
+  // The field, then three tall chat cards.
+  cards: (
+    <>
+      <rect x="2" y="1.5" width="10" height="3.5" rx="1.5" />
+      <path d="M3 7.5v5M7 7.5v5M11 7.5v5" />
+    </>
+  ),
+  // Cards and chats over the field at the foot (the stage layout).
   default: (
     <>
-      <rect x="2" y="2.5" width="10" height="4" rx="1.5" />
-      <path d="M3 9h8M3 11.5h5" />
+      <path d="M3 3h8M3 5.5h5" />
+      <rect x="2" y="8.5" width="10" height="4" rx="1.5" />
     </>
   ),
   // The field alone.
