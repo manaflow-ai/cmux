@@ -88,7 +88,7 @@ impl Hub {
         // never runs ahead of a prompt queued under the previous daemon.
         self.wait_logs().await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
-            return self.run_prompt(session, blocks, client, steer, opts).await;
+            return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
         let duplicate = |v: Value| json!({"sessionId": session.id, "promptId": prompt_id, "duplicate": true, "queued": false, "turnId": v.pointer("/_meta/acpmux/turnId")});
         let seen = {
@@ -145,7 +145,7 @@ impl Hub {
             let accepted = accepted.clone();
             opts.on_accepted = Some(Box::new(move |_| accepted.store(true, Ordering::SeqCst)));
         }
-        let result = self.run_prompt(session, blocks, client, steer, opts).await;
+        let result = self.prompt_unless_held(session, blocks, client, steer, opts).await;
         if !accepted.load(Ordering::SeqCst) {
             session.prompts.lock().unwrap().retain(|(id, _)| *id != prompt_id);
         }
@@ -932,10 +932,7 @@ impl Hub {
         let old = {
             let mut m = session.meta.lock().unwrap();
             // A chat renamed before it was titled asks no model for a title (`titles.rs`).
-            if matches!(m.title_source.as_deref(), None | Some("prompt")) {
-                m.title_source = Some(super::titles::NAMED.to_owned());
-                m.title_prompt = None;
-            }
+            super::titles::title_renamed(&mut m);
             std::mem::replace(&mut m.name, name.clone())
         };
         self.append(session, "mux", "renamed", json!({"from": old, "to": name}));

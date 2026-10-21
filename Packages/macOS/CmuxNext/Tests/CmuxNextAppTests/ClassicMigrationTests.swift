@@ -65,7 +65,7 @@ struct ClassicMigrationTests {
     }
 
     /// The first app launch on `mac`: restore and the launch's migration, then `after`.
-    private func launch(_ mac: Mac, state: String = "state",
+    private func launch(_ mac: Mac, state: String = "state", confirm: Bool = true,
                         after: @MainActor (AppServices) async throws -> Void = { _ in }) async throws -> Tree {
         let binary = try #require(SameTreeDaemonBinary.url)
         let launcher = DaemonLauncher(
@@ -80,6 +80,7 @@ struct ClassicMigrationTests {
         services.onboarding.classicMigrationDirectory = mac.migration
         services.onboarding.classicMigrationAtLaunch = true
         services.onboarding.classicRunning = { false }
+        services.onboarding.classicMigrationConfirmation = { _ in confirm }
         services.onboarding.classicChatPlan = { _, _ in nil }
         services.daemon.start {
             DaemonConnection(configuration: DaemonConnection.Configuration(terminalEnvironment: nil), endpointProvider: launcher.endpointProvider)
@@ -117,7 +118,7 @@ struct ClassicMigrationTests {
     /// A later launch's run, on the same tree.
     @discardableResult
     private static func relaunch(_ services: AppServices) async throws -> ClassicMigrationOutcome {
-        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic)
+        try await AppOnboardingServices(owner: services.onboarding).migrateClassic(.automatic) { _ in true }
     }
 
     private static func read(_ services: AppServices) -> Tree {
@@ -142,6 +143,14 @@ struct ClassicMigrationTests {
     }
 
     private static let classicNames = ["split api", "pinned one", "second window"]
+
+    @Test func launchMigrationRestoresNothingWhenThePreviewIsCancelled() async throws {
+        let mac = try Mac()
+        let tree = try await launch(mac, confirm: false)
+        #expect(tree.names.allSatisfy { !Self.classicNames.contains($0) }, "\(tree.names)")
+        #expect(!FileManager.default.fileExists(atPath: mac.ledger.path))
+        #expect(!FileManager.default.fileExists(atPath: mac.migration.appendingPathComponent("backups").path))
+    }
 
     /// First launch after the upgrade: every classic window comes back with its
     /// workspaces, groups, colors and pin; the Cloud VM workspace and the

@@ -85,13 +85,24 @@ pub const CUA_SCOPE_ENV: &str = "CMUX_CUA_ALLOWED_TARGET_BUNDLE_IDS";
 /// (`agent::command`).
 pub const MCP_TOOLS_ENV: &str = "CMUX_MCP_TOOLS";
 
+/// The env of the `cmux` server that carries the session's other agent
+/// tool servers (`AgentTools::folded`): a JSON array of `{name, command,
+/// args, env}`. `cmux mcp serve` runs them behind its code mode, so an
+/// agent sees two tools for everything cmux gives it.
+pub const UPSTREAMS_ENV: &str = "CMUX_MCP_UPSTREAMS";
+
+/// A spawn env key (`hub/spawn.rs`) with the comma-separated agent tool
+/// servers this chat turned off (`hub/tools.rs`): a folded server has no
+/// `mcp__<server>` tools for `--disallowedTools` to name, so it leaves the
+/// fold instead. `agent/command.rs` removes the key before the harness starts.
+pub const OFF_ENV: &str = "ACPMUX_AGENT_TOOLS_OFF";
+
 /// The cmux MCP tools of a Chief turn, for the built-in turn presets
 /// (`config::chief_builtins`). Keep equal to optchat-chief's
 /// `session_dir::CHIEF_CMUX_TOOLS`, which sets the same in its own presets.
 pub const CHIEF_TURN_TOOLS: &str = "agents_snapshot,agents_workspace_create,\
     agents_workspace_select,agents_terminal_split,agents_terminal_focus,agents_tab_select,\
-    agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render,app_show_pane,\
-    app_show_tab,app_tab_new_page,app_file_open";
+    agents_dialog_list,agents_dialog_answer,agents_events,agents_wait,render";
 /// The plugin name Claude Code shows before each skill (`cmux:cmux-browser`).
 pub const PLUGIN_NAME: &str = "cmux";
 
@@ -275,14 +286,55 @@ pub fn lists_all_tools(
     name: &str,
     profile: &crate::config::HarnessProfile,
     env: &BTreeMap<String, String>,
+    cwd: &Path,
 ) -> bool {
-    if !own_provider(env) || env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
+    // The profile's opt-in to code mode wins (`CODE_MODE_ENV`).
+    if env.get(CODE_MODE_ENV).is_some_and(|v| v.trim() == "1") {
         return false;
     }
     if is_claude_code(name, profile) {
-        return tool_search_on(env);
+        return claude_lists_all_tools(env, cwd);
     }
-    crate::config::derive_family(name, profile) == "codex"
+    own_provider(env) && crate::config::derive_family(name, profile) == "codex"
+}
+
+/// Claude Code in folder `cwd` with process env `env` lists every cmux tool:
+/// tool search on in the env and in every settings file Claude Code reads
+/// env from (`settings_turn_off`), and its own provider.
+pub fn claude_lists_all_tools(env: &BTreeMap<String, String>, cwd: &Path) -> bool {
+    tool_search_on(env) && own_provider(env) && !settings_turn_off(env, cwd)
+}
+
+/// Whether a settings file Claude Code reads `env` from sets
+/// [`TOOL_SEARCH_ENV`] to something other than on: the managed settings,
+/// the Claude home's `settings.json` (`CLAUDE_CONFIG_DIR`, else
+/// `~/.claude`), and the folder's `.claude/settings.json` and
+/// `.claude/settings.local.json`. Their env wins over the process env, so
+/// any one that turns it off means every schema in every turn.
+pub fn settings_turn_off(env: &BTreeMap<String, String>, cwd: &Path) -> bool {
+    // The same Claude home the harness config reader resolves: the spawn
+    // env, the daemon's, the imported login env, else ~/.claude.
+    let home = crate::harness_config::config_dir("CLAUDE_CONFIG_DIR", ".claude", &[env]);
+    let managed = if cfg!(target_os = "macos") {
+        "/Library/Application Support/ClaudeCode/managed-settings.json"
+    } else {
+        "/etc/claude-code/managed-settings.json"
+    };
+    let mut files = vec![PathBuf::from(managed)];
+    files.extend(home.map(|h| h.join("settings.json")));
+    files.push(cwd.join(".claude").join("settings.json"));
+    files.push(cwd.join(".claude").join("settings.local.json"));
+    files.iter().any(|file| {
+        let Ok(bytes) = std::fs::read(file) else { return false };
+        let Ok(json) = serde_json::from_slice::<Value>(&bytes) else { return false };
+        match &json["env"][TOOL_SEARCH_ENV] {
+            Value::Null => false,
+            Value::String(v) => !matches!(v.trim(), "true" | "1"),
+            Value::Bool(on) => !on,
+            Value::Number(n) => n.as_u64() != Some(1),
+            _ => true,
+        }
+    })
 }
 
 /// Whether the harness talks to the provider of the user's own setup (the
@@ -328,7 +380,7 @@ pub fn acp_servers_for(
     if left_out(remote_origin, env, &[]) {
         json!([])
     } else {
-        current().scoped(env).for_session(session_id).listing(all_tools).acp_servers()
+        current().scoped(env).for_session(session_id).listing(all_tools).folded().acp_servers()
     }
 }
 
@@ -339,6 +391,7 @@ pub fn claude_args_for(
     env: &BTreeMap<String, String>,
     args: &[String],
     session_id: &str,
+    cwd: &Path,
 ) -> Vec<String> {
     if left_out(remote_origin, env, args) {
         Vec::new()
@@ -346,13 +399,14 @@ pub fn claude_args_for(
         current()
             .scoped(env)
             .for_session(session_id)
-            // Claude Code has tool search unless its env turns it off or
-            // sends it to another provider.
+            // Claude Code has tool search unless its env or settings turn
+            // it off, send it to another provider, or opt in to code mode.
             .listing(
-                tool_search_on(env)
-                    && own_provider(env)
+                claude_lists_all_tools(env, cwd)
                     && env.get(CODE_MODE_ENV).is_none_or(|v| v.trim() != "1"),
             )
+            .without_off(env)
+            .folded()
             .claude_args(&mcp_config_path(&crate::config::home(), session_id))
     }
 }
@@ -630,6 +684,47 @@ impl AgentTools {
                 server.args.push("--all-tools".into());
             }
         }
+        self
+    }
+
+    /// Without the servers [`OFF_ENV`] names (the chat turned them off).
+    pub fn without_off(mut self, env: &BTreeMap<String, String>) -> Self {
+        if let Some(off) = env.get(OFF_ENV) {
+            let off: Vec<&str> = off.split(',').map(str::trim).collect();
+            self.servers.retain(|s| !off.contains(&s.name.as_str()));
+        }
+        self
+    }
+
+    /// Code mode for every agent tool: the other servers, as `scoped` and
+    /// `for_session` left them (the Chief's turns keep none), go into the
+    /// `cmux` server's [`UPSTREAMS_ENV`] and leave the list. Without a
+    /// `cmux` server (cmux.json turns MCP off) they stay as they are.
+    pub fn folded(mut self) -> Self {
+        let Some(at) = self.servers.iter().position(|s| s.name == "cmux") else {
+            return self;
+        };
+        let mut cmux = self.servers.remove(at);
+        cmux.env.retain(|(k, _)| k != UPSTREAMS_ENV);
+        // Always set, `[]` too: a value a harness passes on from its own env
+        // (a preset's) must never name the servers.
+        let upstreams: Vec<Value> = self
+            .servers
+            .iter()
+            .map(|s| {
+                let env: Map<String, Value> =
+                    s.env.iter().map(|(k, v)| (k.clone(), json!(v))).collect();
+                let mut spec =
+                    json!({"name": s.name, "command": s.command, "args": s.args, "env": env});
+                // The secret card waits for the person, not for a timer.
+                if s.name == crate::secret_mcp::SERVER_NAME {
+                    spec["callTimeoutSecs"] = json!(3600);
+                }
+                spec
+            })
+            .collect();
+        cmux.env.push((UPSTREAMS_ENV.to_owned(), Value::Array(upstreams).to_string()));
+        self.servers = vec![cmux];
         self
     }
 

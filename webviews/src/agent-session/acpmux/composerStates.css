@@ -90,10 +90,12 @@
 /* Composer chips: Plan, the mode, model and effort pickers, +, the mic and Steer. A press keeps the
    hover's pill, with no brighter or tinted tone, and no shrink or dip (Leo 2026-10-19: no mousedown
    and mouseup click feedback). The press shows at once (cg-composer click polish, as Codex's
-   chips): the hover's ease below never delays the button going down. */
+   chips): the hover's ease below never delays the button going down. The Plan toggle's rules name
+   the button: the transcript's todo list row is `.acpmux-plan` too (App.tsx's
+   `acpmux-row acpmux-${kind}`). */
 .acpmux-picker-button:active,
 .acpmux-picker-button[data-press-active],
-.acpmux-plan:active,
+:where(button).acpmux-plan:active,
 .acpmux-steer:active,
 .acpmux-mic:active,
 .acpmux-fast:active,
@@ -169,15 +171,11 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   cursor: default;
 }
 
-/* Dictation: the mic steps like the bar's other quiet controls; while listening its red deepens. The notice's buttons step too. */
-.acpmux-mic:hover {
+/* Dictation: the mic steps like the bar's other quiet controls; a lit mic's hover is dictation.css's.
+   The notice's buttons step too. */
+.acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover {
   background: var(--acpmux-composer-hover);
   color: var(--agent-text);
-}
-.acpmux-mic[data-state="listening"]:hover,
-.acpmux-mic[data-state="finalizing"]:hover {
-  background: color-mix(in srgb, var(--agent-danger) 24%, transparent);
-  color: var(--agent-danger);
 }
 .acpmux-dictation-settings:hover,
 .acpmux-dictation-dismiss:hover {
@@ -209,7 +207,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
 /* Hover and press colors ease, and the picker and slash menus fade in; with Reduce Motion they apply at once. */
 @media (prefers-reduced-motion: no-preference) {
   .acpmux-picker-button,
-  .acpmux-plan,
+  :where(button).acpmux-plan,
   .acpmux-steer {
     transition:
       background-color var(--agent-motion-hover) var(--agent-ease-out),
@@ -274,6 +272,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: transparent;
   resize: none;
   overflow-y: auto;
+  overscroll-behavior: contain;
   font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */

@@ -11,6 +11,8 @@ import Foundation
 struct ClassicMigrationOutcome: Equatable {
     var decision: ClassicMigrationPlanner.Decision
     var summary = ClassicImportSummary()
+    /// False when the person declined the exact plan before it wrote anything.
+    var confirmed = true
     /// The cmux-next workspaces it made, in order.
     var opened: [String] = []
     /// Why classic workspaces did not open, by classic key (the next manual run tries them again).
@@ -53,12 +55,14 @@ extension AppOnboardingServices {
     /// The launch's run: after restore, once per classic save. Never throws;
     /// a failure is logged and the ledger keeps what came over.
     ///
-    /// - Parameter firstWorkspace: the New Tab page workspace launch made for
-    ///   an empty tree; closed when the migration brought workspaces into its window.
+    /// - Parameter firstWorkspace: the workspace launch landed on for an empty
+    ///   tree: a New Tab page workspace, closed when the migration brought workspaces
+    ///   into its window, or Home, which stays.
     func migrateClassicAtLaunch(firstWorkspace: String?) async {
         guard classicMigrationRunsAtLaunch else { return }
         do {
-            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace)
+            let outcome = try await migrateClassic(.automatic, firstWorkspace: firstWorkspace,
+                                                   confirmation: confirmClassicImport)
             guard !outcome.opened.isEmpty, let notice = owner.classicImportNotice else { return }
             ClassicImportStrings.toast(notice, in: services.windows.active?.window)
         } catch {
@@ -67,17 +71,25 @@ extension AppOnboardingServices {
     }
 
     /// One migration run. Runs never overlap: a second one waits for the first.
-    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil) async throws -> ClassicMigrationOutcome {
+    func migrateClassic(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String? = nil,
+                        confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
         let previous = owner.classicMigrationRun
         let run = Task { @MainActor in
             _ = await previous?.result
-            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace)
+            return try await runClassicMigration(mode, firstWorkspace: firstWorkspace, confirmation: confirmation)
         }
         owner.classicMigrationRun = run
         return try await run.value
     }
 
-    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?) async throws -> ClassicMigrationOutcome {
+    /// The one confirmation path for launch and manual migration.
+    func confirmClassicImport(_ plan: ClassicImportPlan) async -> Bool {
+        if let confirmation = owner.classicMigrationConfirmation { return await confirmation(plan) }
+        return await ClassicImportConfirmation(plan: plan, services: services).ask()
+    }
+
+    private func runClassicMigration(_ mode: ClassicMigrationPlanner.Mode, firstWorkspace: String?,
+                                     confirmation: @escaping @MainActor (ClassicImportPlan) async -> Bool) async throws -> ClassicMigrationOutcome {
         let repository = ClassicMigrationRepository(directory: classicMigrationDirectory)
         let load = await repository.load()
         let planner = ClassicMigrationPlanner()
@@ -135,6 +147,12 @@ extension AppOnboardingServices {
             ledger.state = .completed
             ledger.source = read.source
             try await save(ledger, to: repository)
+            return outcome
+        }
+
+        let preview = ClassicImportPlan(source: read.source, migration: plan)
+        guard await confirmation(preview) else {
+            outcome.confirmed = false
             return outcome
         }
 
@@ -205,9 +223,10 @@ extension AppOnboardingServices {
         if mode == .automatic, !outcome.opened.isEmpty { owner.classicImportNotice = ClassicImportStrings.notice(outcome.summary) }
 
         if let reveal { _ = windows.reveal(workspaceID: reveal) }
-        // The New Tab page launch made for an empty tree gives way to classic's workspaces.
-        if openedInFirstWindow, let firstWorkspace, let key = store.workspace(id: firstWorkspace)?.key,
-           let connection = services.daemon.connection {
+        // The New Tab page launch made for an empty tree gives way to classic's workspaces. A first
+        // launch that landed on Home (FirstWorkspaceLaunch) made none: Home stays.
+        if openedInFirstWindow, let firstWorkspace, let made = store.workspace(id: firstWorkspace), made.kind != "home",
+           let key = made.key, let connection = services.daemon.connection {
             _ = try? await connection.closeWorkspace(key, endTerminals: true, ifEmpty: false)
         }
         return outcome

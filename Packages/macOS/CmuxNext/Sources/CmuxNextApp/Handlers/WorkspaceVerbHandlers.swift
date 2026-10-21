@@ -75,7 +75,7 @@ enum WorkspaceVerbHandlers {
             registry.bind(ActionID(rawValue: "workspace.sortBy" + suffix), run: { _ in try sort(by: key, context) })
             // The same sort, on the targeted group's members only.
             registry.bind(ActionID(rawValue: "workspaceGroup.sortBy" + suffix), run: { invocation in
-                try sort(by: key, only: GroupID(try context.group(invocation).id.rawValue), context)
+                try sort(by: key, only: context.sidebar().model.groupID(personal: context.group(invocation).id.rawValue), context)
             })
         }
         registry.bind("workspaceGroup.collapseAll", run: { _ in try setAllCollapsed(true, context) })
