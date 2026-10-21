@@ -3448,6 +3448,7 @@
     "unsupportedParams": "이 링크에는 cmux에서 거부할 지원되지 않는 매개변수가 포함되어 있습니다: {params}",
     "conflictingParams": "이 링크에는 함께 사용할 수 없는 매개변수가 포함되어 있습니다: {params}",
     "invalidParams": "이 링크에는 잘못된 매개변수 값이 포함되어 있습니다: {params}",
+    "ignoredParams": "cmux는 사용하지 않는 매개변수를 무시합니다: {params}. 세션은 그대로 열립니다.",
     "fixParams": "URL 매개변수를 수정한 후 이 페이지를 새로고침하세요.",
     "examplePrefix": "참조",
     "exampleLink": "예시 링크",

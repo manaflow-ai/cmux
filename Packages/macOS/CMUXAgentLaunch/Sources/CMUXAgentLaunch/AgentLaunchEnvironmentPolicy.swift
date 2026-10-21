@@ -28,6 +28,28 @@ public struct ClaudeConfigDirectoryPath: Sendable {
             ? candidate
             : standardized
     }
+
+    /// Returns the Claude config directory that holds a session transcript.
+    ///
+    /// Claude writes transcripts to `<config>/projects/<encoded-cwd>/<session>.jsonl`
+    /// (subagent transcripts nest further below the project directory), so the
+    /// config directory is the path before the last `projects` component.
+    /// Returns nil for a relative path or one that is not below a project directory.
+    public static func configDirectory(ofTranscriptPath transcriptPath: String?) -> String? {
+        guard let trimmed = transcriptPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return nil
+        }
+        let standardized = ((trimmed as NSString).expandingTildeInPath as NSString).standardizingPath
+        guard standardized.hasPrefix("/"), standardized.hasSuffix(".jsonl") else { return nil }
+        let components = standardized.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard let projectsIndex = components.lastIndex(of: "projects"),
+              projectsIndex > 0,
+              projectsIndex + 2 < components.count else {
+            return nil
+        }
+        return "/" + components[..<projectsIndex].joined(separator: "/")
+    }
 }
 
 /// Selects the non-secret launch environment values that are safe to replay when restoring agents.

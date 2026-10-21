@@ -3449,6 +3449,7 @@
     "unsupportedParams": "Bu bağlantı cmux'un reddedeceği desteklenmeyen parametreler içeriyor: {params}",
     "conflictingParams": "Bu bağlantı birlikte kullanılamayan parametreleri içerir: {params}",
     "invalidParams": "Bu bağlantı geçersiz parametre değerleri içeriyor: {params}",
+    "ignoredParams": "cmux kullanmadığı parametreleri yok sayar: {params}. Oturum yine de açılır.",
     "fixParams": "URL parametrelerini düzeltin ve ardından bu sayfayı yeniden yükleyin.",
     "examplePrefix": "Bir gör",
     "exampleLink": "örnek bağlantı",

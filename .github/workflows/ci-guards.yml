@@ -137,6 +137,14 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_merge_fast_gate.py
 
+      - name: Validate the gh-merge-green review receipt
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_review_receipt.py
+
+      - name: Validate the gh-merge-green check-path gate
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_merge_check_paths.py
+
       - name: Validate the bug-fix proof-section warning
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_pr_proof_section.py
@@ -715,6 +723,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_admission_placement.py
 
+      - name: Validate that roll-up gates never read an absent signal as green
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gate_absent_signal.py
+
       - name: Validate the Linux tests dispatch lane
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_linux_tests_lane.py
@@ -742,6 +754,12 @@ jobs:
       - name: Validate the persistent-pool rescue
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_owned_pool_rescue.py
+
+      # Reads the other branch's workflows too (origin/feat-cmux-next here, origin/main on
+      # feat-cmux-next); under Actions the test fetches it blob-less and fails if it cannot.
+      - name: Validate that the persistent-pool rescue watches every owned-pool workflow
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_owned_pool_sources.py
 
       - name: Validate the backend migrations plan
         if: ${{ matrix.group == 'ci' }}
@@ -860,6 +878,10 @@ jobs:
       - name: Validate the PR media pruner
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
+
+      - name: Validate the PR media privacy gate
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_pr_media_privacy.py
 
       - name: Validate nightly prune Python compatibility
         if: ${{ matrix.group == 'release-tooling' }}
@@ -1262,6 +1284,7 @@ jobs:
         run: |
           python3 tests/test_nightly_promotion_admission.py
           python3 tests/test_nightly_next_promotion_queue.py
+          python3 tests/test_nightly_next_feed_watch.py
           python3 tests/test_ci_nightly_push_throttle.py
           python3 tests/test_ci_nightly_off_blacksmith.py
           python3 tests/test_ci_helper_prebuild_lifecycle.py

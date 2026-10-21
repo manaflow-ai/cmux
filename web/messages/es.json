@@ -3450,6 +3450,7 @@
     "unsupportedParams": "Este enlace incluye parámetros no admitidos que cmux rechazará: {params}",
     "conflictingParams": "Este enlace incluye parámetros que no se pueden usar juntos: {params}",
     "invalidParams": "Este enlace incluye valores de parámetros no válidos: {params}",
+    "ignoredParams": "cmux ignora los parámetros que no utiliza: {params}. La sesión se abre igualmente.",
     "fixParams": "Corrija los parámetros de la URL y luego vuelva a cargar esta página.",
     "examplePrefix": "Ver un",
     "exampleLink": "enlace de ejemplo",

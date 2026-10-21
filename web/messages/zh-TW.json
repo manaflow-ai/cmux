@@ -3450,6 +3450,7 @@
     "unsupportedParams": "此連結包含 cmux 將拒絕的不受支援的參數：{params}",
     "conflictingParams": "此連結包含不能一起使用的參數：{params}",
     "invalidParams": "此連結包含無效參數值：{params}",
+    "ignoredParams": "cmux 會忽略它不使用的參數：{params}。工作階段仍會開啟。",
     "fixParams": "修復 URL 參數，然後重新載入此頁面。",
     "examplePrefix": "參見",
     "exampleLink": "範例連結",
