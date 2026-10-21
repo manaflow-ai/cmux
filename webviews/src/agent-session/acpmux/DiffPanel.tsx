@@ -448,14 +448,7 @@ export function DiffPanel({
   return (
     <section ref={panel} className="acpmux-diff-panel" aria-label={t("changes.panel")}>
       <header className="acpmux-diff-header">
-        <button
-          ref={back}
-          type="button"
-          className="acpmux-diff-back"
-          aria-label={t("changes.back")}
-          title={t("changes.back")}
-          onClick={onClose}
-        >
+        <button ref={back} type="button" className="acpmux-diff-back" aria-label={t("changes.back")} onClick={onClose}>
           <ChevronLeft />
         </button>
         <ScopeMenu
