@@ -893,8 +893,13 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
             mutationScheduler.stagePostUpdateActions(postUpdateActions)
         } else {
             if !contentChanges.isEmpty || !heightChanges.isEmpty {
+                // A content change re-notes only when its height moved or
+                // the table was served a different height. Noting every
+                // repainted row (a create or close repaints the whole list)
+                // made NSTableView recompute its row spans and resize,
+                // walking every loaded row view on the main actor.
                 var rowsToNote = heightChanges
-                rowsToNote.formUnion(contentChanges)
+                rowsToNote.formUnion(rowsWithServedHeightDivergence(in: contentChanges))
                 reconfigureAndNoteRowsWithoutAnimation(
                     contentChanges,
                     rowsToNote,
@@ -2211,18 +2216,28 @@ final class SidebarWorkspaceTableController: NSObject, NSTableViewDataSource, NS
     /// so a corrected row converges in the same pass.
     private func noteServedHeightDivergence(in table: NSTableView) {
         guard !servedRowHeights.isEmpty else { return }
-        var diverged = IndexSet()
-        for (index, row) in rows.enumerated() {
-            guard let served = servedRowHeights[row.id] else { continue }
-            if abs(served - authoritativeRowHeight(for: row)) >= 0.5 {
-                diverged.insert(index)
-            }
-        }
+        let diverged = rowsWithServedHeightDivergence(in: IndexSet(rows.indices))
         guard !diverged.isEmpty else { return }
 #if DEBUG
         cmuxDebugLog("sidebar.heightDrift.corrected rows=\(diverged.count)")
 #endif
         noteHeightOfRowsWithoutAnimation(table, diverged)
+    }
+
+    /// Rows in `indexes` whose authoritative height differs from the height
+    /// the table was last served. A row the table never asked about has no
+    /// stale answer to correct.
+    private func rowsWithServedHeightDivergence(in indexes: IndexSet) -> IndexSet {
+        guard !servedRowHeights.isEmpty else { return [] }
+        var diverged = IndexSet()
+        for index in indexes where rows.indices.contains(index) {
+            let row = rows[index]
+            guard let served = servedRowHeights[row.id] else { continue }
+            if abs(served - authoritativeRowHeight(for: row)) >= 0.5 {
+                diverged.insert(index)
+            }
+        }
+        return diverged
     }
 
     /// Legacy parity: rows re-wrap continuously while the divider or window
