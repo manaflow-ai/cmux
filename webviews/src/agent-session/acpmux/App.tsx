@@ -2899,8 +2899,12 @@ export function VirtualTranscript({
       if (olderLoadRequested.current === olderLoadKey) olderLoadRequested.current = undefined;
     });
   };
-  checkOlderNow.current = checkOlder;
-  useEffect(() => checkOlderNow.current(), [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
+  useLayoutEffect(() => {
+    checkOlderNow.current = checkOlder;
+  });
+  useEffect(() => {
+    checkOlderNow.current();
+  }, [canLoadOlder, height, onLoadOlder, olderLoadKey, renderScroll.top]);
   const pointAt = (target: EventTarget | null) => {
     const row = target instanceof Element ? target.closest<HTMLElement>(".acpmux-row") : null;
     const rowId = row?.dataset.rowId;

@@ -83,11 +83,16 @@ function writeSession(index: number, turns: number, title: string, opts: { logLi
         { jsonrpc: "2.0", method: "session/update", params: { sessionId: `agent-${id}`, update: step.update } },
         at,
       );
-    else if (step.mux === "user_message")
-      write("mux", "user_message", { ...step.msg, promptId: `p-${turn}` }, at);
-    else if (step.mux === "turn_started") write("mux", "turn_started", { turnId: `t-${turn}`, promptId: `p-${turn}` }, at);
+    else if (step.mux === "user_message") write("mux", "user_message", { ...step.msg, promptId: `p-${turn}` }, at);
+    else if (step.mux === "turn_started")
+      write("mux", "turn_started", { turnId: `t-${turn}`, promptId: `p-${turn}` }, at);
     else if (step.mux === "turn_result")
-      write("mux", "turn_result", { ...step.msg, stopReason: "end_turn", turnId: `t-${turn}`, promptId: `p-${turn}` }, at);
+      write(
+        "mux",
+        "turn_result",
+        { ...step.msg, stopReason: "end_turn", turnId: `t-${turn}`, promptId: `p-${turn}` },
+        at,
+      );
     else write("mux", step.mux, step.msg ?? {}, at);
   };
   // An agent lists its slash commands once, when it starts: the log's first record.

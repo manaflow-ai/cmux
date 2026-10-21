@@ -211,7 +211,11 @@ async function scrollToFirst(page, firstMarker, timeoutMs) {
         try {
           await window.cmuxAcpmuxActions["chat.history"]();
           const after = window.cmuxAcpmuxDebug.chatState();
-          manual = { sent: window.__chatLoad.sentEvents.length - sentBefore, rows: after.rows, historyFrom: after.historyFrom };
+          manual = {
+            sent: window.__chatLoad.sentEvents.length - sentBefore,
+            rows: after.rows,
+            historyFrom: after.historyFrom,
+          };
         } catch (error) {
           manual = String(error);
         }
@@ -325,7 +329,7 @@ if (fixture.sessions.length) {
   await context.close();
 }
 
-for (const [index, s] of fixture.sessions.entries()) {
+for (const s of fixture.sessions) {
   if (onlySessions && !onlySessions.has(s.turns)) continue;
   const runs = [];
   let scroll;
@@ -339,7 +343,14 @@ for (const [index, s] of fixture.sessions.entries()) {
       scroll = await scrollToFirst(page, "Turn 0: why does step 0", Number(arg("scroll-timeout", "600000")));
     await context.close();
   }
-  const entry = { turns: s.turns, records: s.records, log_mb: Math.round(s.bytes / 1e5) / 10, runs, median: summarize(runs), scroll };
+  const entry = {
+    turns: s.turns,
+    records: s.records,
+    log_mb: Math.round(s.bytes / 1e5) / 10,
+    runs,
+    median: summarize(runs),
+    scroll,
+  };
   results.sessions.push(entry);
   console.log(JSON.stringify({ turns: s.turns, median: entry.median, scroll }));
 }
@@ -353,7 +364,10 @@ if (has("switch") && fixture.sessions.length > 1) {
     const runs = [];
     for (let i = 0; i < repeat; i += 1) {
       const other = s === home ? fixture.sessions[1] : home;
-      const { page, context } = await coldOpen({ endpoint, token, sessionId: other.id, marker: other.lastMarker }, "home");
+      const { page, context } = await coldOpen(
+        { endpoint, token, sessionId: other.id, marker: other.lastMarker },
+        "home",
+      );
       const cdp = engine === "chromium" ? await context.newCDPSession(page) : undefined;
       if (cdp) await cdp.send("Performance.enable");
       const before = await metrics(page, cdp);
@@ -374,7 +388,10 @@ if (has("switch") && fixture.sessions.length > 1) {
       );
       const st = await settle(page, 120_000);
       const after = await metrics(page, cdp);
-      const probe = await page.evaluate(() => ({ bytesIn: window.__chatLoad.bytesIn, requests: window.__chatLoad.requests }));
+      const probe = await page.evaluate(() => ({
+        bytesIn: window.__chatLoad.bytesIn,
+        requests: window.__chatLoad.requests,
+      }));
       runs.push({
         first_paint_ms: st.firstPaint === undefined ? null : Math.round(st.firstPaint - t),
         interactive_ms: st.interactive === undefined ? null : Math.round(st.interactive - t),
@@ -395,7 +412,10 @@ if (has("switch") && fixture.sessions.length > 1) {
 if (has("mock")) {
   const runs = [];
   for (let i = 0; i < repeat; i += 1) {
-    const { row, context } = await coldOpen({ mock: true, marker: arg("mock-marker", "") || undefined }, "mock default");
+    const { row, context } = await coldOpen(
+      { mock: true, marker: arg("mock-marker", "") || undefined },
+      "mock default",
+    );
     runs.push(row);
     await context.close();
   }
