@@ -16,19 +16,23 @@ Arms (the profile and env differ, nothing else):
       a subagent.
   B2  Front desk may act: receipts on, spawn and tell, and the rule that work
       fitting a few quick tool calls is done inline, the rest handed off.
-  C   UniiChat (team_eval_unii.py): its tree memory and background agents.
   L   Lossy heads-down: no Chief. One plain Claude Code session (stream-json,
       as acpmux runs Claude Code) in the task repo, with its own
       auto-compaction; messages sent while it works wait for its next turn.
 
 usage:
-  team_eval.py run --task ID --arm A|B|B2|C|L --bins DIR --repo DIR --out DIR
+  team_eval.py run --task ID --arm A|B|B2|L --bins DIR --repo DIR --out DIR
       [--tasks FILE] [--env K=V ...] [--budget-usd 40] [--max-minutes 60] [--keep-repo DIR]
   --bins   optchat-chief, cmux-tui (also as cmux) and acpmux
   --repo   a cmux checkout that has the task's base and reference commits
 Writes OUT/run.json (timeline, cost, flags), OUT/conversation.json,
 OUT/traces/, OUT/diff.patch and OUT/stubs.jsonl. Scoring that needs a judge
 is team_eval_score.py; the numbers that need none are in run.json.
+
+Every arm runs claude-opus-5-5 at medium effort (PIN, the one setting the
+Chief is used with): the env pins it, and a run whose real responses or
+Chief turns show another model or effort fails (run.json `pin`, exit 3).
+The compactor keeps its production model and is recorded, not pinned.
 
 A run stops at --budget-usd of real spend: the live total of its Claude
 Code transcripts (LiveMeter, mid-turn too) or the trace's, the higher.
@@ -58,6 +62,9 @@ import tempfile
 import time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+PIN = {"model": "claude-opus-5-5", "effort": "medium"}
+PIN_ENV = {"OPTCHAT_CHIEF_MODEL": PIN["model"], "OPTCHAT_CHIEF_EFFORT": PIN["effort"],
+           "OPTCHAT_SUBAGENT_MODEL": PIN["model"], "OPTCHAT_SUBAGENT_EFFORT": PIN["effort"]}
 CHIEF = "agent_mux"
 DESK_PREFIX = "voice:desk:"
 
@@ -173,6 +180,7 @@ class LiveMeter:
         self.roots = [r for r in roots if r]
         self.offsets = {}
         self.by_id = {}
+        self.models = set()
 
     def usd(self):
         for root in self.roots:
@@ -202,6 +210,35 @@ class LiveMeter:
             if e.get("type") != "assistant" or not isinstance(msg, dict) or not msg.get("usage"):
                 continue
             self.by_id[msg.get("id") or f"{path}:{len(self.by_id)}"] = usage_usd(msg.get("model"), msg["usage"])
+            if msg.get("model") and msg["model"] != "<synthetic>":
+                self.models.add(msg["model"])
+
+
+def is_pinned_model(model):
+    """The pinned model, or a dated id of it (claude-opus-5-5-YYYYMMDD)."""
+    return model == PIN["model"] or (model or "").startswith(PIN["model"] + "-")
+
+
+def pin_check(env, models, events=()):
+    """Whether the run used only PIN: the env it was given, every model that
+    answered (transcripts; trace requests of turns and subagents) and every
+    Chief turn's model and effort. Compactor nodes are recorded apart."""
+    bad = [f"{k}={env.get(k)}" for k, v in PIN_ENV.items() if env.get(k) != v]
+    seen = set(models)
+    efforts = set()
+    for e in events:
+        if e.get("ev") == "request" and e.get("model"):
+            seen.add(e["model"])
+        elif e.get("ev") == "turn.end":
+            if e.get("model"):
+                seen.add(e["model"])
+            if e.get("effort"):
+                efforts.add(e["effort"])
+    bad += [f"model {m}" for m in sorted(seen) if not is_pinned_model(m)]
+    bad += [f"effort {x}" for x in sorted(efforts) if x != PIN["effort"]]
+    return {"want": PIN, "models": sorted(seen), "turn_efforts": sorted(efforts),
+            "compactor_models": sorted({e["model"] for e in events if e.get("ev") == "node" and e.get("model")}),
+            "ok": not bad and bool(seen), "bad": bad or ([] if seen else ["no model answered"])}
 
 
 def followup_skew(sent, task):
@@ -472,6 +509,11 @@ def run_lossy(opts):
             with lock:
                 snap = list(events)
             cost = max(lossy_cost(snap), meter.usd())
+            wrong = sorted(m for m in meter.models if not is_pinned_model(m))
+            if wrong:
+                end = "pin"
+                info["flags"].append(f"stopped: {wrong} answered, not {PIN['model']}")
+                break
             if cost > opts.budget_usd:
                 end = "budget"
                 info["flags"].append(f"stopped at ${cost:.2f}, over the ${opts.budget_usd:.0f} budget")
@@ -509,6 +551,7 @@ def run_lossy(opts):
             "cost_usd": {"turns": lossy_cost(snap), "subagents": 0, "compactor": 0, "all": lossy_cost(snap),
                          "live": round(meter.usd(), 4)},
             "followup_skew_s": followup_skew(sent, task),
+            "pin": dict(pin_check(extra, meter.models), effort_flag=extra.get("OPTCHAT_CHIEF_EFFORT")),
             "turns": sum(1 for _, e in snap if e.get("type") == "result"),
             "compactions": sum(1 for _, e in snap if e.get("type") == "system" and e.get("subtype") == "compact_boundary"),
             "spawns": 0, "receipts": 0,
@@ -538,7 +581,7 @@ def run_lossy(opts):
         shutil.rmtree(brain, ignore_errors=True)
 
 
-CAMPAIGN_ARMS = sorted(ARMS) + ["C", "L"]
+CAMPAIGN_ARMS = sorted(ARMS) + ["L"]
 MIN_RUN_BUDGET = 5
 
 
@@ -616,14 +659,17 @@ class Ledger:
                 return None
             key = f"{run}-a{len(mine) + 1}"
             data["attempts"][key] = {"run": run, "state": "running", "budget": budget, "reserved": budget + margin,
-                                     "spent": None, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+                                     "spent": None, "model": PIN["model"], "effort": PIN["effort"],
+                                     "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
             return key, budget
 
-    def settle(self, key, spent, step=None):
-        """A finished attempt: its spend, or (None) unknown, which keeps the whole reservation."""
+    def settle(self, key, spent, step=None, pin=None):
+        """A finished attempt: its spend, or (None) unknown, which keeps the
+        whole reservation; and what its pin check found."""
         with self._locked() as data:
             a = data["attempts"][key]
             a["step"] = step
+            a["pin"] = pin
             if spent is None:
                 a["state"] = "unknown"
             else:
@@ -656,7 +702,7 @@ def campaign(opts):
         key, budget = got
         cmd = ["cmux-ci", "run", "--class", "exclusive", "--script", "scripts/measure/team-eval.sh", "--ref", opts.ref,
                f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
-               f"--arg=model={opts.model}", f"--arg=effort={opts.effort}", f"--arg=minutes={opts.minutes}",
+               f"--arg=minutes={opts.minutes}",
                "--artifact", ".build/team-eval/out.tgz", "--timeout", str(int(opts.minutes) * 60 + 3600), "--key", key]
         r = subprocess.run(cmd, capture_output=True, text=True)
         step = next((m.group(1) for m in re.finditer(r"cmux-ci: step (\S+) ", r.stderr)), None)
@@ -675,7 +721,12 @@ def campaign(opts):
         if spent is None and os.path.exists(run_json):
             with open(run_json) as f:
                 spent = step_spend("TEAM-EVAL " + json.dumps(json.load(f)))
-        ledger.settle(key, spent, step)
+        pin = next((json.loads(line[len("TEAM-EVAL "):]).get("pin") for line in reversed(log.splitlines())
+                    if line.startswith("TEAM-EVAL {")), None)
+        if pin is None and os.path.exists(run_json):
+            with open(run_json) as f:
+                pin = json.load(f).get("pin")
+        ledger.settle(key, spent, step, pin)
         return key, f"rc {r.returncode}, spent {'unknown' if spent is None else f'${spent:.2f}'}"
 
     with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
@@ -699,8 +750,6 @@ def main():
     c.add_argument("--run-budget", type=float, default=25)
     c.add_argument("--margin", type=float, default=3, help="dollars a run may overshoot its budget by (one response)")
     c.add_argument("--parallel", type=int, default=3)
-    c.add_argument("--model", default="claude-opus-5-5")
-    c.add_argument("--effort", default="medium")
     c.add_argument("--minutes", type=int, default=60)
     c.add_argument("--out", required=True)
     r = sub.add_parser("run")
@@ -718,13 +767,16 @@ def main():
     opts = ap.parse_args()
     if opts.cmd == "campaign":
         campaign(opts)
-    elif opts.arm == "L":
+        return
+    if opts.arm == "L":
         run_lossy(opts)
-    elif opts.arm == "C":
-        import team_eval_unii
-        team_eval_unii.run_unii(opts)
     else:
         run(opts)
+    with open(os.path.join(opts.out, "run.json")) as f:
+        pin = json.load(f).get("pin") or {"ok": False, "bad": ["no pin check (the run ended early)"]}
+    if not pin["ok"]:
+        print(f"[team-eval] FAILED the pin {PIN}: {pin['bad']}", flush=True)
+        sys.exit(3)
 
 
 def run(opts):
@@ -905,6 +957,11 @@ def run(opts):
             # Real spend: the transcripts' live total plus the compactor
             # (no transcript), or the trace's when that is higher.
             cost = max(traced["all"], live + traced["compactor"])
+            wrong = sorted(m for m in meter.models if not is_pinned_model(m))
+            if wrong:
+                end = "pin"
+                info["flags"].append(f"stopped: {wrong} answered, not {PIN['model']}")
+                break
             if cost > opts.budget_usd:
                 end = "budget"
                 info["flags"].append(f"stopped at ${cost:.2f}, over the ${opts.budget_usd:.0f} budget")
@@ -936,6 +993,7 @@ def run(opts):
             "timeline": timeline(sent, msgs, arrivals),
             "cost_usd": dict(trace_cost(ev), live=round(meter.usd() + trace_cost(ev)["compactor"], 4)),
             "followup_skew_s": followup_skew(sent, task),
+            "pin": pin_check(dict(kv.split("=", 1) for kv in opts.env), meter.models, ev),
             "turns": sum(1 for e in ev if e.get("ev") == "turn.end"),
             "spawns": sum(1 for e in ev if e.get("ev") == "spawn"),
             "receipts": sum(1 for m in msgs if is_desk(m)),

@@ -3,14 +3,16 @@
 # knowledge/inspiration/coordinator-mode-eval.md): one task, one arm, a real
 # Chief through a credential-free Claude route, alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/team-eval.sh --ref SHA \
-#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=A|B|B2|C|L \
-#     [--arg=model=claude-opus-5-5] [--arg=effort=medium] [--arg=budget=40] \
+#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=A|B|B2|L \
+#     [--arg=budget=25] \
 #     [--arg=minutes=60] [--arg=claude=2.1.300] \
 #     --artifact .build/team-eval/out.tgz --timeout 7200
 # base_url= is a Claude route that signs requests itself (the team subrouter);
 # Claude Code gets only that base URL and a placeholder key, so no credential
-# reaches the worker. The Chief, its desk and its subagents all run `model`
-# at `effort`; the compactor keeps its production setting.
+# reaches the worker. The Chief, its desk and its subagents all run
+# claude-opus-5-5 at medium effort, the one setting the Chief is used with
+# (not an argument; team_eval.py fails a run that resolves to another); the
+# compactor keeps its production setting.
 # Builds acpmux and optchat-chief at this ref and takes cmux-tui from the
 # published tree (else builds it), as scripts/measure/chief-import.sh does,
 # installs Claude Code at the pinned version under the step, then runs
@@ -25,7 +27,7 @@ task=""
 arm=""
 model="claude-opus-5-5"
 effort="medium"
-budget=40
+budget=25
 minutes=60
 claude_version="2.1.300"
 for arg in "$@"; do
@@ -33,8 +35,6 @@ for arg in "$@"; do
     base_url=*) base_url="${arg#base_url=}" ;;
     task=*) task="${arg#task=}" ;;
     arm=*) arm="${arg#arm=}" ;;
-    model=*) model="${arg#model=}" ;;
-    effort=*) effort="${arg#effort=}" ;;
     budget=*) budget="${arg#budget=}" ;;
     minutes=*) minutes="${arg#minutes=}" ;;
     claude=*) claude_version="${arg#claude=}" ;;
@@ -43,9 +43,7 @@ for arg in "$@"; do
 done
 [[ "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "team-eval.sh: base_url=http://HOST[:PORT] is required" >&2; exit 2; }
 [[ "$task" =~ ^[a-z0-9-]{1,40}$ ]] || { echo "team-eval.sh: task=ID (see team_eval_tasks.json)" >&2; exit 2; }
-[[ "$arm" =~ ^(A|B|B2|C|L)$ ]] || { echo "team-eval.sh: arm=A|B|B2|C|L" >&2; exit 2; }
-[[ "$model" =~ ^[a-z0-9.-]{1,60}$ ]] || { echo "team-eval.sh: model=NAME" >&2; exit 2; }
-[[ "$effort" =~ ^(low|medium|high|xhigh|max)$ ]] || { echo "team-eval.sh: effort=low|medium|high|xhigh|max" >&2; exit 2; }
+[[ "$arm" =~ ^(A|B|B2|L)$ ]] || { echo "team-eval.sh: arm=A|B|B2|L" >&2; exit 2; }
 [[ "$budget" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "team-eval.sh: budget is whole dollars, at least 1" >&2; exit 2; }
 [[ "$minutes" =~ ^[1-9][0-9]{0,2}$ ]] || { echo "team-eval.sh: minutes is whole minutes, at least 1" >&2; exit 2; }
 [[ "$claude_version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "team-eval.sh: claude=X.Y.Z" >&2; exit 2; }
@@ -95,8 +93,8 @@ for sha in "$base" "$reference"; do
 done
 
 export CI=1
-# Arms C and L run no Chief: UniiChat, or only Claude Code.
-if [[ "$arm" != L && "$arm" != C ]]; then
+# Arm L runs no Chief: only Claude Code.
+if [[ "$arm" != L ]]; then
 git submodule update --init --depth 1 ghostty-next
 scripts/cmux-next/build-acpmux.sh --output "$work/bin/acpmux"
 scripts/cmux-next/build-optchat-chief.sh --output "$work/bin/optchat-chief"
@@ -112,15 +110,6 @@ fi
 # The CLI is the same binary under the name cmux (`cmux chief edit` sets the arm's profile).
 cp "$work/bin/cmux-tui" "$work/bin/cmux"
 chmod 755 "$work/bin/"*
-fi
-# Arm C self-hosts the real UniiChat at a pinned commit (team_eval_unii.py
-# patches its two API URLs, in a copy, to a proxy that records spend).
-unii_commit="0500bf6a8ea4bf0ce047488562022b1b6532cc30"
-if [[ "$arm" == C ]]; then
-  git clone -q https://github.com/VictorTaelin/UniiChat "$work/unii-src"
-  git -C "$work/unii-src" checkout -q "$unii_commit"
-  [[ "$(git -C "$work/unii-src" rev-parse HEAD)" == "$unii_commit" ]] || { echo "TEAM-EVAL UniiChat is not at $unii_commit" >&2; exit 1; }
-  echo "TEAM-EVAL-BIN uniichat $unii_commit bun $("$BUN" --version)"
 fi
 git rev-parse HEAD > "$work/bin/REV"
 
@@ -141,7 +130,7 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 trap 'exit 129' HUP
 status=0
-TEAM_EVAL_UNII_SRC="$work/unii-src" HOME="$home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
+HOME="$home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
   --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" \
   --budget-usd "$budget" --max-minutes "$minutes" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
@@ -200,7 +189,8 @@ import json, sys
 r = json.load(open(sys.argv[1]))
 r["checks"] = json.load(open(sys.argv[2]))
 keep = ("task", "arm", "end", "minutes", "cost_usd", "turns", "spawns", "receipts", "chief_messages",
-        "diff_lines", "stub_calls", "leaks", "flags", "timeline", "checks", "acpmux_left")
+        "diff_lines", "stub_calls", "leaks", "flags", "timeline", "checks", "acpmux_left", "pin",
+        "followup_skew_s")
 print("TEAM-EVAL " + json.dumps({k: r.get(k) for k in keep}))
 PY
 exit "$status"

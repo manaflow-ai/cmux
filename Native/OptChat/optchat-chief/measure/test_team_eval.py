@@ -165,5 +165,25 @@ class SpendTests(unittest.TestCase):
         self.assertEqual(team_eval.followup_skew({"brief": 1000, "status": 121500}, task), {"status": 0.5})
 
 
+class PinTests(unittest.TestCase):
+    ENV = dict(team_eval.PIN_ENV)
+
+    def test_opus_medium_everywhere_passes_and_the_compactor_is_recorded_apart(self):
+        ev = [{"ev": "request", "turn": "t1", "model": "claude-opus-5-5"},
+              {"ev": "turn.end", "model": "claude-opus-5-5", "effort": "medium"},
+              {"ev": "node", "model": "claude-haiku-5-5"}]
+        p = team_eval.pin_check(self.ENV, {"claude-opus-5-5-20261001"}, ev)
+        self.assertTrue(p["ok"], p)
+        self.assertEqual(p["compactor_models"], ["claude-haiku-5-5"])
+
+    def test_another_model_effort_or_env_fails(self):
+        self.assertFalse(team_eval.pin_check(self.ENV, {"claude-sonnet-5-5"})["ok"])
+        self.assertFalse(team_eval.pin_check(self.ENV, set(), [{"ev": "turn.end", "model": "claude-opus-5-5",
+                                                               "effort": "high"}])["ok"])
+        self.assertFalse(team_eval.pin_check(dict(self.ENV, OPTCHAT_SUBAGENT_EFFORT="low"), {"claude-opus-5-5"})["ok"])
+        self.assertFalse(team_eval.pin_check(self.ENV, set())["ok"])  # nothing answered: unproven
+        self.assertFalse(team_eval.is_pinned_model("claude-opus-5-55"))
+
+
 if __name__ == "__main__":
     unittest.main()
