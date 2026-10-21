@@ -196,6 +196,12 @@ pub trait AgentPort: Send + Sync {
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
     }
+    /// Ends every background process of `session` that still runs
+    /// (`_acpmux/process/list`, then `_acpmux/process/kill` of each): the
+    /// shells a harness started to outlive its turn. How many it ended.
+    fn kill_processes(&self, _session: &str) -> Result<usize, String> {
+        Err("ending background processes is not supported".into())
+    }
     /// Takes a prompt that still waits in `session`'s queue out of it
     /// (`_acpmux/queue_remove`): true when it was removed, false when it no
     /// longer waits (it ran or was removed).
@@ -441,12 +447,13 @@ impl Acpmux {
                 // setting source keeps it), then every isolation word.
                 if key == "args"
                     && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
-                    && let Some(kept) =
-                        without_tools_list(args).or_else(|| without_isolation_args(args))
+                    && let Some(kept) = project_sources_only(args)
+                        .or_else(|| without_tools_list(args))
+                        .or_else(|| without_isolation_args(args))
                 {
                     *args = kept;
                     log(&format!(
-                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
+                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (the local setting source, then a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
                         preset.name
                     ));
                     continue;
@@ -654,6 +661,17 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
         }
     }
     dropped.then_some(kept)
+}
+
+/// `args` with `--setting-sources project,local` read as `project` (an
+/// acpmux from before the local source refuses it); None when it has none.
+pub fn project_sources_only(args: &[Value]) -> Option<Vec<Value>> {
+    let at = args.windows(2).position(|w| {
+        w[0].as_str() == Some("--setting-sources") && w[1].as_str() == Some("project,local")
+    })?;
+    let mut kept = args.to_vec();
+    kept[at + 1] = Value::String("project".into());
+    Some(kept)
 }
 
 /// `args` without a `--tools <names>` list (`--tools ""` stays); None when
@@ -993,6 +1011,35 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        let client = self.client()?;
+        let list = client
+            .request("_acpmux/process/list", json!({"sessionId": session}))
+            .map_err(|e| format!("process list: {e}"))?;
+        let running: Vec<String> = list
+            .get("processes")
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter(|p| p.get("state").and_then(Value::as_str) == Some("running"))
+            .filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned))
+            .collect();
+        // One process that will not die does not keep the rest running.
+        let mut ended = 0;
+        let mut errors = Vec::new();
+        for id in &running {
+            match client.request("_acpmux/process/kill", json!({"processId": id})) {
+                Ok(_) => ended += 1,
+                Err(e) => errors.push(format!("process kill {id}: {e}")),
+            }
+        }
+        if errors.is_empty() {
+            Ok(ended)
+        } else {
+            Err(format!("ended {ended}; {}", errors.join("; ")))
+        }
     }
 
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {

@@ -57,7 +57,6 @@ public final class PaneToolbarView: NSView {
         moreButton.longPressOpensMenu = false
         moreButton.setAccessibilityLabel(Strings.paneMore)
         moreButton.setAccessibilityIdentifier("cmux.pane.more")
-        moreButton.themedToolTip = Strings.paneMore
         moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
         // "…" stays shown while its menu is up: the pointer leaves the corner for the menu.
         let present = moreButton.presentMenu
