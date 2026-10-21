@@ -1,5 +1,6 @@
 import CMUXAuthCore
 import CmuxCloud
+import CMUXMobileCore
 import CmuxAuthRuntime
 import Foundation
 import Testing
@@ -14,8 +15,11 @@ import Testing
 /// share the runtime coordinator's exclusion policy. The flow owns only the
 /// optimistic projection and preserves it when the coordinator refuses a
 /// request from another surface.
+///
+/// Serialized because the billing stub's response body and hold gate are
+/// static, so two plan requests in flight at once would share them.
 @MainActor
-@Suite("Host account flow team changes")
+@Suite("Host account flow team changes", .serialized)
 struct HostAccountFlowTeamChangeTests {
     @Test func successfulAuthCallbackRefreshesThePaidEntitlement() async throws {
         let planClient = BillingPlanClient(
@@ -71,6 +75,33 @@ struct HostAccountFlowTeamChangeTests {
 
         #expect(flow.confirmedTeamID == "team-b")
         #expect(flow.billingPlanState == .unknown)
+    }
+
+    @Test func previousTeamPlanDoesNotOfferAnUpgradeAfterTeamSwitch() async throws {
+        let planClient = BillingPlanClient(
+            session: BillingPlanCallbackURLProtocol.session(body: """
+            {"authenticated":true,"billingAvailable":true,"planId":"free",
+             "subscriptionPlanId":"free","isPro":false,"billingManagement":"none",
+             "teamPlanId":"free","teamBillingManagement":"none"}
+            """
+            )
+        )
+        let client = TeamChangeAuthClient()
+        let flow = try await HostAccountFlow.makeForTeamChangeTests(
+            client: client,
+            billingPlanClient: planClient
+        )
+        await flow.refreshBillingPlan()
+        #expect(flow.upgradeOffer == .pro)
+
+        // team-b may hold a Max plan. Until its own plan loads, the free
+        // answer for team-a must not offer Pro or report the team as Free.
+        try await flow.selectTeam(id: "team-b")
+
+        #expect(flow.confirmedTeamID == "team-b")
+        #expect(!flow.hasLoadedBillingPlan)
+        #expect(flow.planTier == nil)
+        #expect(flow.upgradeOffer == nil)
     }
 
     @Test func switchDuringPendingCreateIsRefusedAndTheCreateCompletes() async throws {
