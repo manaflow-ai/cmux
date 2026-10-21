@@ -158,6 +158,43 @@ import Testing
         #expect(await harness.tokenStore.getStoredRefreshToken() == "refresh-1")
     }
 
+    @Test func replacedAttemptsSafariCallbackSignsInWhileTheRetryIsStillOpen() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        let firstState = harness.callbackState(harness.factory.sessions[0])
+
+        // The retry's popup is still open when the first Safari tab finishes.
+        let retry = harness.flow.beginSignIn()
+        await harness.waitForSession(count: 2)
+
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: firstState)))
+        #expect(await retry.value)
+        #expect(harness.coordinator.isAuthenticated)
+        #expect(harness.coordinator.currentUser == user)
+        #expect(harness.flow.lastFailure == nil)
+        #expect(!harness.flow.isSigningIn)
+    }
+
+    @Test func successfulSignInRetiresOtherKeptCallbackStates() async {
+        let user = CMUXAuthUser(id: "u1", primaryEmail: "a@b.com", displayName: "A")
+        let harness = HostBrowserSignInFlowHarness(user: user)
+        harness.flow.beginSignIn()
+        await harness.waitForSession()
+        let firstState = harness.callbackState(harness.factory.sessions[0])
+
+        let retry = harness.flow.beginSignIn()
+        await harness.waitForSession(count: 2)
+        let secondSession = harness.factory.sessions[1]
+        secondSession.deliver(harness.callbackURL(state: harness.callbackState(secondSession)))
+        #expect(await retry.value)
+
+        // Finishing the older tab after signing in must not switch accounts
+        // without asking.
+        #expect(await harness.flow.handleCallbackURL(harness.callbackURL(state: firstState)) == false)
+    }
+
     @Test func handoffOpenFailureEndsAttemptAndAllowsRetry() async {
         // The default browser fails to launch on the handed-off attempt.
         let harness = HostBrowserSignInFlowHarness(openSucceeds: false)
