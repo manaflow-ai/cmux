@@ -5,7 +5,8 @@
   "queryParams": ["host", "name", "message", "machine"],
   "queryOrder": "queryParams is the order every emitter writes the query in, so the same chat is always the same link (DeepLink.url writes the hints, then machine).",
   "unknownParams": "ignored-by-name",
-  "ignoredOrder": "The names a reader reports as ignored: the optional parameters above, in the order `params` lists them, then every name no agent link reads, in the order the URL carries them; each name once.",
+  "ignoredOrder": "The names a reader reports as ignored: the optional parameters above, in the order `params` lists them, then every name no agent link reads, in the order the URL carries them; each name once. How they are shown is the reader's: the page prints an unknown name inside the charset a name may have and stops after eight, so no URL text is echoed, and the app's toast caps its text.",
+  "valuelessParams": "A parameter written with no `=` at all (`?machine`) names nothing. The page cannot tell it from `?machine=` and names it ignored; the app reads it as absent and says nothing. A parameter with an empty value (`?host=`) is named by both.",
   "params": {
     "harness": {
       "required": true,
