@@ -36,7 +36,9 @@ await requireBrowserLane("editor-find-narrow.test.tsx", async () => {
         matchCase={false}
         onMatchCaseChange={none}
         labels={{ placeholder: "Find", previous: "Previous", next: "Next", close: "Close", matchCase: "Match Case" }}
-        icon={(role) => <Icon name={{ search: "search", previous: "chevronUp", next: "chevronDown", close: "close" }[role]} />}
+        icon={(role) => (
+          <Icon name={{ search: "search", previous: "chevronUp", next: "chevronDown", close: "close" }[role]} />
+        )}
         replace={{
           open: true,
           value: "",
