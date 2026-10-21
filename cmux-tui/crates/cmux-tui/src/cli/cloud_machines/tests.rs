@@ -68,19 +68,43 @@ fn cloud_machines_join_the_daemon_rows_marked_kind_cloud() {
     assert_eq!(rows[2]["kind"], "cloud");
 }
 
+/// The connected brave-otter's daemon, as `machine list --catalog` lists it
+/// (`MachineRegistry.catalogRecords`: its `machine_<hex>` id, origin cloud).
+const OTTER_MACHINE: &str = "machine_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+
+fn otter_catalog_row() -> Value {
+    json!({"id": OTTER_MACHINE, "name": "brave-otter", "origin": "cloud", "status": "running",
+           "platform": null, "capabilities": []})
+}
+
 #[test]
 fn an_items_list_gets_the_rows_too_and_listed_ids_are_not_repeated() {
-    let listed = json!({"id": "vm-brave-otter", "name": "brave-otter", "origin": "cloud"});
-    let result = json!({"items": [local_row(), listed.clone()], "next_cursor": null});
+    let result = json!({"items": [local_row(), otter_catalog_row()], "next_cursor": null});
     let mut rows = app_rows();
+    rows[0]["machine_id"] = json!(OTTER_MACHINE);
     rows.push(json!({"title": "no id"}));
     let (merged, note) = merge_rows(result, Ok(rows));
     assert_eq!(note, None);
     let items = merged["items"].as_array().unwrap();
     assert_eq!(items.len(), 3, "{merged}");
-    assert_eq!(items[1], listed, "a row the daemon lists stays the daemon's");
+    assert_eq!(items[1], otter_catalog_row(), "a machine the catalog lists stays the daemon's row");
     assert_eq!(items[2]["id"], "vm-calm-heron");
     assert_eq!(merged["next_cursor"], Value::Null);
+}
+
+#[test]
+fn a_cloud_machine_the_daemon_does_not_list_is_added_with_its_machine_id() {
+    // The catalog lists another machine; brave-otter's daemon is not in it
+    // (not connected yet, or blocked), so its Cloud row is added.
+    let other = json!({"id": "machine_cccccccccccccccccccccccccccccccc", "origin": "ssh"});
+    let mut rows = app_rows();
+    rows[0]["machine_id"] = json!(OTTER_MACHINE);
+    let (merged, note) = merge_rows(json!([local_row(), other]), Ok(rows));
+    assert_eq!(note, None);
+    let ids: Vec<_> = merged.as_array().unwrap().iter().map(|row| row["id"].clone()).collect();
+    assert_eq!(ids[2..], [json!("vm-brave-otter"), json!("vm-calm-heron")], "{merged}");
+    assert_eq!(merged[2]["machine_id"], OTTER_MACHINE);
+    assert_eq!(merged[3].get("machine_id"), None, "a machine with no daemon id has none");
 }
 
 #[test]

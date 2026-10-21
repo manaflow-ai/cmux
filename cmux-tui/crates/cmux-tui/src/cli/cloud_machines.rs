@@ -6,19 +6,31 @@
 //! answers, the CLI asks the app's control socket for `cloud.machines` (a
 //! main-actor read of the store, no network) and appends one row per Cloud
 //! machine, marked `kind: "cloud"`. The daemon's rows stay as they were.
+//! A connected Cloud machine's daemon is also in `--catalog` under its
+//! `machine_<hex>` id; the app's row names that id (`machine_id`), so the
+//! machine is listed once, as the daemon's row.
 //!
-//! It fails open: with no app, an app that does not own this session, or a
-//! refusal (Cloud turned off), the daemon's list prints alone and a note on
-//! stderr says the Cloud machines are not in it.
+//! It fails open: with an app that is not running, does not own this
+//! session, or refuses (Cloud turned off), the daemon's list prints alone and
+//! a note on stderr says the Cloud machines are not in it. With no cmux app
+//! at all (a Linux or headless host), there are none to list and no note.
 
 use std::os::unix::net::UnixStream;
+use std::time::Duration;
 
 use serde_json::{Map, Value, json};
 
 use super::{GlobalArgs, OutputMode};
 
+/// How long the best-effort `cloud.machines` read may take: a short
+/// main-actor read, so a slow app costs `machine list` at most this.
+const CLOUD_READ_TIMEOUT: Duration = Duration::from_secs(1);
+
 /// The daemon's `machine.list` result with the app's Cloud machines added.
 pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
+    if global.app_socket.is_none() && !app_found() {
+        return result;
+    }
     let cloud = super::app::socket_path(global)
         .and_then(|socket| super::app::connect(&socket))
         .and_then(|mut stream| cloud_machines(&mut stream));
@@ -32,9 +44,17 @@ pub(super) fn merge(global: &GlobalArgs, result: Value) -> Value {
     merged
 }
 
+/// Whether this process belongs to a cmux app (an app terminal's
+/// environment, or the app bundle around the executable).
+fn app_found() -> bool {
+    let exe = std::env::current_exe().ok();
+    crate::app_identity::AppIdentity::detect(|key| std::env::var(key).ok(), exe.as_deref())
+        .is_some()
+}
+
 /// The app's `cloud.machines` rows, or why there are none to add.
 pub(super) fn cloud_machines(stream: &mut UnixStream) -> Result<Vec<Value>, String> {
-    match super::app::request(stream, "cloud.machines", json!({}), super::app::READ_TIMEOUT)? {
+    match super::app::request(stream, "cloud.machines", json!({}), CLOUD_READ_TIMEOUT)? {
         Ok(reply) => {
             Ok(reply.get("machines").and_then(Value::as_array).cloned().unwrap_or_default())
         }
@@ -48,7 +68,8 @@ pub(super) fn cloud_machines(stream: &mut UnixStream) -> Result<Vec<Value>, Stri
 }
 
 /// `result` (the daemon's rows: an array, or `{"items": [...]}`) with one
-/// row per Cloud machine appended, unless the daemon already lists its id;
+/// row per Cloud machine appended, unless the daemon already lists it (its
+/// Cloud `id`, or the `machine_id` its connected daemon has in `--catalog`);
 /// the note's reason when the Cloud machines could not be read.
 pub(super) fn merge_rows(
     mut result: Value,
@@ -68,7 +89,10 @@ pub(super) fn merge_rows(
     };
     for machine in &machines {
         let Some(row) = cloud_row(machine) else { continue };
-        if rows.iter().any(|listed| listed.get("id") == row.get("id")) {
+        let already = |key: &str| {
+            row.get(key).is_some_and(|id| rows.iter().any(|listed| listed.get("id") == Some(id)))
+        };
+        if already("id") || already("machine_id") {
             continue;
         }
         rows.push(row);
@@ -79,7 +103,8 @@ pub(super) fn merge_rows(
 /// One Cloud machine as a `machine list` row: the daemon rows' fields
 /// (`id`, `name`, `origin`, `status`, `connectable`, `deleted`,
 /// `recoverable`) plus `kind: "cloud"`, the `target` that names it to the
-/// Cloud verbs (`--target machine:<id>`) and its daemon link (`daemon`).
+/// Cloud verbs (`--target machine:<id>`), its daemon link (`daemon`) and,
+/// once its daemon has said, that daemon's machine id (`machine_id`).
 fn cloud_row(machine: &Value) -> Option<Value> {
     let id = machine.get("id").and_then(Value::as_str).filter(|id| !id.is_empty())?;
     let text = |key: &str| machine.get(key).and_then(Value::as_str);
@@ -96,6 +121,9 @@ fn cloud_row(machine: &Value) -> Option<Value> {
     row.insert("recoverable".into(), json!(false));
     row.insert("target".into(), json!(format!("machine:{id}")));
     row.insert("daemon".into(), json!(daemon));
+    if let Some(machine_id) = text("machine_id").filter(|machine_id| !machine_id.is_empty()) {
+        row.insert("machine_id".into(), json!(machine_id));
+    }
     Some(Value::Object(row))
 }
 

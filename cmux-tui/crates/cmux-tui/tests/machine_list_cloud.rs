@@ -92,28 +92,45 @@ fn serve(
     })
 }
 
-/// `cmux-tui --json --socket <daemon> --app-socket <app> machine list`, with
-/// a fake app when `with_app`; returns the output and the app's requests.
-fn machine_list(with_app: bool) -> (Output, Vec<Value>) {
+/// How a `machine list` run names the app.
+#[derive(Clone, Copy, PartialEq)]
+enum AppRoute {
+    /// `--app-socket` names a fake app that answers.
+    Named,
+    /// `--app-socket` names a socket nothing listens on.
+    NamedMissing,
+    /// Only `--socket`: the fake app listens where `CMUX_SOCKET_PATH` (an
+    /// app terminal's environment) says, but that app owns no such daemon.
+    EnvironmentOnly,
+    /// Only `--socket`, and nothing names any app (a Linux or headless host).
+    NoApp,
+}
+
+/// `cmux-tui <output> --socket <daemon> [--app-socket <app>] machine list`;
+/// returns the output and the requests the fake app got.
+fn machine_list(route: AppRoute, output_flag: &str) -> (Output, Vec<Value>) {
     let dir = temp_dir("mlcloud");
     let done = Arc::new(AtomicBool::new(false));
     let daemon_socket = dir.join("mux.sock");
     let app_socket = dir.join("app.sock");
     let daemon = fake_daemon(&daemon_socket, done.clone());
-    let app = with_app.then(|| fake_app(&app_socket, done.clone()));
-    let output = Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
-        .arg("--json")
-        .arg("--socket")
-        .arg(&daemon_socket)
-        .arg("--app-socket")
-        .arg(&app_socket)
-        .args(["machine", "list"])
-        .env_remove("CMUX_TUI_SOCKET")
-        .env_remove("CMUX_MUX_SOCKET")
-        .env_remove("CMUX_TUI_TERMINAL_ID")
-        .stdin(Stdio::null())
-        .output()
-        .unwrap();
+    let serves_app = matches!(route, AppRoute::Named | AppRoute::EnvironmentOnly);
+    let app = serves_app.then(|| fake_app(&app_socket, done.clone()));
+    let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
+    command.arg(output_flag).arg("--socket").arg(&daemon_socket);
+    if matches!(route, AppRoute::Named | AppRoute::NamedMissing) {
+        command.arg("--app-socket").arg(&app_socket);
+    }
+    for key in ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET", "CMUX_TUI_TERMINAL_ID", "CMUX_SOCKET_PATH"] {
+        command.env_remove(key);
+    }
+    for key in ["CMUX_BUNDLE_ID", "CMUX_TAG", "CMUX_AGENT_SESSION"] {
+        command.env_remove(key);
+    }
+    if route == AppRoute::EnvironmentOnly {
+        command.env("CMUX_SOCKET_PATH", &app_socket);
+    }
+    let output = command.args(["machine", "list"]).stdin(Stdio::null()).output().unwrap();
     done.store(true, Ordering::Relaxed);
     daemon.join().unwrap();
     let app_requests = app.map(|app| app.join().unwrap()).unwrap_or_default();
@@ -127,10 +144,14 @@ fn machine_list(with_app: bool) -> (Output, Vec<Value>) {
     (output, app_requests)
 }
 
+fn asked_cloud_machines(requests: &[Value]) -> bool {
+    requests.iter().any(|request| request["method"] == "cloud.machines")
+}
+
 #[test]
 fn machine_list_adds_the_apps_cloud_machines() {
-    let (output, app) = machine_list(true);
-    assert!(app.iter().any(|request| request["method"] == "cloud.machines"), "{app:?}");
+    let (output, app) = machine_list(AppRoute::Named, "--json");
+    assert!(asked_cloud_machines(&app), "{app:?}");
     let rows: Value = serde_json::from_slice(&output.stdout).expect("one JSON reply");
     let rows = rows.as_array().expect("machine list prints an array");
     assert_eq!(rows.len(), 2, "{rows:?}");
@@ -146,9 +167,33 @@ fn machine_list_adds_the_apps_cloud_machines() {
 
 #[test]
 fn machine_list_without_the_app_prints_the_daemons_rows_and_a_note() {
-    let (output, _) = machine_list(false);
+    let (output, _) = machine_list(AppRoute::NamedMissing, "--json");
     let rows: Value = serde_json::from_slice(&output.stdout).expect("one JSON reply");
     assert_eq!(rows, json!([local_row()]));
     let stderr = String::from_utf8_lossy(&output.stderr);
     assert!(stderr.contains("Cloud"), "no note about the Cloud machines: {stderr}");
+}
+
+#[test]
+fn quiet_hides_the_note() {
+    let (output, _) = machine_list(AppRoute::NamedMissing, "--quiet");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("Cloud"), "--quiet printed the note: {stderr}");
+}
+
+#[test]
+fn an_explicit_socket_does_not_ask_an_app_that_does_not_own_it() {
+    let (output, app) = machine_list(AppRoute::EnvironmentOnly, "--json");
+    assert!(!asked_cloud_machines(&app), "asked an app that does not own --socket: {app:?}");
+    let rows: Value = serde_json::from_slice(&output.stdout).expect("one JSON reply");
+    assert_eq!(rows, json!([local_row()]));
+}
+
+#[test]
+fn with_no_app_at_all_the_daemons_rows_print_with_no_note() {
+    let (output, _) = machine_list(AppRoute::NoApp, "--json");
+    let rows: Value = serde_json::from_slice(&output.stdout).expect("one JSON reply");
+    assert_eq!(rows, json!([local_row()]));
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(!stderr.contains("Cloud"), "a note with no app to ask: {stderr}");
 }
