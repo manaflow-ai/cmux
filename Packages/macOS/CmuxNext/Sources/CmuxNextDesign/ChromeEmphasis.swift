@@ -8,7 +8,8 @@ public nonisolated enum InactiveTabStyle: String, Sendable, CaseIterable, Codabl
     /// Every text tier steps down one tier; the selected pill takes the
     /// hover fill.
     case tonal
-    /// No pill fill; the selected tab is marked by its text tier only.
+    /// Text steps down a tier and the selected pill keeps only its
+    /// least-subtle fill share (``ThemeTokens/subtleSelectionFillShare``).
     case quiet
 
     public var tunableTitle: String {
@@ -40,6 +41,9 @@ extension ThemeTokens {
     public nonisolated static let subtlePrimaryFloor = 3.5
     public nonisolated static let subtleSecondaryFloor = 2.5
     public nonisolated static let subtleTertiaryFloor = 2.0
+    /// The least share of the selection fill's alpha a subtle pane's
+    /// active tab keeps: a pane's active tab always shows its pill.
+    public nonisolated static let subtleSelectionFillShare = 0.4
 
     /// These tokens with a pane's chrome emphasis applied: lower-contrast
     /// text and pill fills for a subtle pane, the same hues (no accent),
@@ -60,19 +64,19 @@ extension ThemeTokens {
             t.textPrimary = fade(textPrimary, s, floor: Self.subtlePrimaryFloor)
             t.textSecondary = fade(textSecondary, s, floor: Self.subtleSecondaryFloor)
             t.textTertiary = fade(textTertiary, s, floor: Self.subtleTertiaryFloor)
-            t.selectionFill = selectionFill.withAlpha(selectionFill.alpha * (1 - s))
+            t.selectionFill = selectionFill.withAlpha(selectionFill.alpha * max(1 - s, Self.subtleSelectionFillShare))
             // Hover fades half as much: hovering a tab is how a person picks that pane next.
             t.hoverFill = hoverFill.withAlpha(hoverFill.alpha * (1 - s * 0.5))
         case .tonal:
             t.textPrimary = textSecondary
             t.textSecondary = textTertiary
             t.textTertiary = fade(textTertiary, s * 0.5, floor: Self.subtleTertiaryFloor)
-            t.selectionFill = hoverFill.withAlpha(hoverFill.alpha * (1 - s * 0.5))
+            t.selectionFill = hoverFill.withAlpha(hoverFill.alpha * max(1 - s * 0.5, Self.subtleSelectionFillShare))
         case .quiet:
             t.textPrimary = textSecondary
             t.textSecondary = fade(textTertiary, s * 0.5, floor: Self.subtleSecondaryFloor)
             t.textTertiary = fade(textTertiary, s * 0.5, floor: Self.subtleTertiaryFloor)
-            t.selectionFill = selectionFill.withAlpha(0)
+            t.selectionFill = selectionFill.withAlpha(selectionFill.alpha * Self.subtleSelectionFillShare)
         }
         return t
     }

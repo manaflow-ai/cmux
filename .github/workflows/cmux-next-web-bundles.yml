@@ -103,6 +103,11 @@ jobs:
         run: bun run check
 
       # The browser-lane suites fail in CI without these engines (requireBrowserLane.ts).
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
+
       - name: Install headless engines
         working-directory: webviews
         run: ./node_modules/.bin/playwright install --with-deps --only-shell chromium webkit
@@ -140,6 +145,11 @@ jobs:
       - name: Install webviews dependencies
         working-directory: webviews
         run: bun install --frozen-lockfile
+
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium-webkit
 
       - name: Install headless engines
         working-directory: webviews

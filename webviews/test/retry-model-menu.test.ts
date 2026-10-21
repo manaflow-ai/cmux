@@ -1,15 +1,15 @@
 // cmux-web-test-timeout: 300
-// Retry's model menu (TurnRows.tsx) draws as the pane's other menus do, a native macOS menu's look
-// (Lawrence 2026-10-20: a raw list, no insets, the check against the name, a huge font): the
-// system menu font size, rows inset from the menu's edge, section titles, and the check in its own
-// column clear of every label, which all start at one x. Dark and light themes.
+// Retry's model menu (RetryModelMenu.tsx) draws as the composer's model menu does (Lawrence and Leo
+// 2026-10-20: a raw list, no insets, the check against the name, a huge font): the system menu font
+// size, rows inset from the menu's edge, a caption header, the check in its own column clear of
+// every label, which all start at one x, and More models last. Dark and light themes.
 // Real Chromium and WebKit (the app's engine) on the gallery stage. CI fails the file when it cannot
 // launch them (requireBrowserLane). Locally: CMUX_BROWSER_TESTS=1 bun test test/retry-model-menu.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("retry-model-menu.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -35,7 +35,7 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   const browsers = new Map<string, Browser>();
   const stageURL = (width: number, theme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.retry-model-menu&variant=closed&frame=component&width=${width}&theme=${encodeURIComponent(theme)}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.retry-model-menu", { variant: "closed", frame: "component", width, theme })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -44,29 +44,27 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
-    for (const [name, engine] of engines) {
-      const browser = await engine.launch({ headless: true });
-      browsers.set(name, browser);
-      // The first load can run Vite's dependency optimizer and reload mid-compile.
-      const warm = await browser.newPage({ viewport: { width: 760, height: 600 } });
-      await warm.goto(stageURL(760, "Catppuccin Mocha"));
-      for (;;) {
-        try {
-          await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-          break;
-        } catch (error) {
-          if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-        }
-      }
-      await warm.close();
-    }
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
+    await warmGalleryFrame(vite, "agent-pane.retry-model-menu", {
+      browser: [...browsers.values()][0],
+      params: { variant: "closed" },
+    });
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await vite?.close();
   });
 
+  /** Resolves once nothing on the page is easing: no transition or animation left to run (a
+   *  looping one never ends). */
+  const eased = (page: Page) =>
+    page.waitForFunction(() =>
+      document
+        .getAnimations()
+        .every(
+          (animation) => animation.playState !== "running" || animation.effect?.getTiming().iterations === Infinity,
+        ),
+    );
   const open = async (engine: string, width: number, theme: string): Promise<Page> => {
     const page = await browsers.get(engine)!.newPage({ viewport: { width, height: 600 } });
     await page.goto(stageURL(width, theme));
@@ -79,7 +77,8 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
     await page.mouse.down();
     await page.mouse.up();
     await page.locator('[role="menu"] [role="menuitemradio"][aria-checked="true"]').waitFor();
-    await page.waitForTimeout(300);
+    // The menu has finished opening.
+    await eased(page);
     return page;
   };
 
@@ -116,9 +115,13 @@ await requireBrowserLane("retry-model-menu.test.ts", async () => {
             };
           });
           const titles = [...menu.querySelectorAll(".ui-menu-group-label")].map((title) => title.textContent);
-          return { rows, titles };
+          const more = [...menu.querySelectorAll('[role="menuitem"]')].some((item) =>
+            item.textContent?.includes("More models"),
+          );
+          return { rows, titles, more };
         });
-        expect(geometry.titles).toEqual(["Models", "Aliases & modes"]);
+        expect(geometry.titles).toEqual(["Retry with another model"]);
+        expect(geometry.more, "older models fold under More models").toBe(true);
         for (const row of geometry.rows) {
           expect(row.fontSize, "the system menu font size").toBe(13);
           expect(row.height, "a menu row's height").toBeLessThanOrEqual(28);

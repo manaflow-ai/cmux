@@ -40,7 +40,8 @@ export type ListRow = {
 
 export type Diagnostic = { path: string | string[]; message: string; kind?: string };
 
-export type Domains = { themes: string[]; font_families: string[]; sounds: string[] };
+/** `recent_fonts`: font families written lately to any font setting, newest first (RecentFonts.swift). */
+export type Domains = { themes: string[]; font_families: string[]; sounds: string[]; recent_fonts: string[] };
 
 /** Published value domains; `null` for a domain the app never published. */
 export type PublishedDomains = { [K in keyof Domains]: string[] | null };
@@ -105,6 +106,8 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
+  /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
+  import_suggestions?: unknown;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -329,7 +332,7 @@ export type HarnessRow = {
   auth?: "signedIn" | "signedOut" | "unknown";
   /** How to update it; `elevated`: needs sudo, so the page shows `command` and never runs it. */
   update?: { command: string; elevated: boolean } | null;
-  /** The update owner runs this channel (npm or native); without it Update is not offered. */
+  /** The update owner runs this channel (npm, Bun or native); without it Update is not offered. */
   ownerUpdate?: boolean;
   /** acpmux runs its update on its own when a check finds it outdated (off by default). */
   autoUpdate?: boolean;
@@ -547,6 +550,36 @@ export type DevicesRun =
   | { action: "deleteRelay"; id: string };
 /** `error`: a localized failure to show near the control; `text`: a result line (Check Relay). */
 export type DevicesRunResult = { error?: string; text?: string; ok?: boolean };
+/** One coding agent's hooks as `cmux agent hook status` reports them (Settings > Agents >
+ * Agent integrations). `conflict`: a file cmux did not create is in the way (install refuses
+ * it); `unavailable`: the file could not be read. */
+export type IntegrationRow = {
+  id: string;
+  path: string;
+  state: "installed" | "partial" | "absent" | "conflict" | "unavailable";
+  /** For `conflict` / `unavailable`: what is in the way. */
+  reason: "symlink" | "not_a_file" | "not_a_directory" | "not_owned" | "unreadable" | null;
+  /** The CLI's own (English) text for a conflict. */
+  detail: string | null;
+  /** The CLI's refusal of this row's last gesture, in the CLI's own words. */
+  error: string | null;
+  /** When the CLI gave no words of its own: `noAnswer` (it did not answer) or `notFinished`
+   * (it failed without saying why); the page shows its localized text. Absent from older hosts. */
+  errorKind?: "noAnswer" | "notFinished" | null;
+};
+
+/** The Agent integrations part (`SettingsAgentIntegrations.state`). */
+export type IntegrationsState = {
+  loading: boolean;
+  /** `unavailable`: this build carries no cmux CLI; `failed`: status did not answer. */
+  problem: "unavailable" | "failed" | null;
+  /** The command to run by hand (`cmux agent hook install`); a row appends its id. */
+  command: string;
+  providers: IntegrationRow[];
+};
+
+/** One Agent integrations gesture; each runs only on a click. */
+export type IntegrationsRun = { action: "refresh" } | { action: "install" | "repair" | "remove"; id: string };
 
 /** The v2 mutation result: `revision` is a decimal string. */
 export type MutationResult = { value: { keys: string[] }; revision: string; replayed: boolean };
@@ -584,6 +617,10 @@ export type SettingsOps = {
   "cmux.settings.devices.state": [Record<string, never>, DevicesState];
   /** Native: one Devices gesture; a failure answers its localized text in `error`. */
   "cmux.settings.devices.run": [DevicesRun, DevicesRunResult];
+  /** Native: the coding-agent hooks `cmux agent hook status` reports (Settings > Agents). */
+  "cmux.settings.integrations.state": [Record<string, never>, IntegrationsState];
+  /** Native: one Agent integrations gesture (`agent hook install|uninstall <id>`, or a refresh). */
+  "cmux.settings.integrations.run": [IntegrationsRun, unknown];
   /** Native: set the theme of one level of the active window; `spec` null uses the Ghostty config. */
   "cmux.settings.theme.set": [{ level: string; spec: string | null }, unknown];
   /** Native: the colors of every published theme, for the theme preview and the picker's swatches. */
@@ -730,6 +767,8 @@ export const settingsPageActions = [
   "palette.computerUse.setup",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
+  "import.card",
+  "importFromBrowser",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];

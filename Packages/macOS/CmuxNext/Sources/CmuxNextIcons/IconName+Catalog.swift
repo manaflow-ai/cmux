@@ -65,6 +65,8 @@ extension IconName {
         .brandGithub,
         .browser,
         .browserExtensionsManage,
+        .browserExtensionsSidepanel,
+        .browserExtensionsWebstore,
         .browserFindNext,
         .browserFindPrevious,
         .browserIncognito,

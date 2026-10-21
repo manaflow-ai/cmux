@@ -16,7 +16,6 @@
    coarse device even while Playwright sends real mouse events. The production rail keeps the
    pointer-gated rule in composerLocation.css. */
 .acpmux-composer-gallery-shell .acpmux-model .acpmux-picker-button:hover,
-.acpmux-composer-gallery-shell .acpmux-effort .acpmux-picker-button:hover,
 .acpmux-composer-gallery-shell .acpmux-access .acpmux-picker-button:hover {
   background: var(--acpmux-pill-hover);
 }

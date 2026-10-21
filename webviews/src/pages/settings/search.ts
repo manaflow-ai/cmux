@@ -43,8 +43,7 @@ export type ListFilter = {
 
 /** Matching rows of every category, in navigation order; an empty query with changedOnly lists
  * every changed row. */
-// Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes, and the
-// page has no editor for any other string_map (browser.siteEngines, edited in cmux.json).
+// Rows the page never lists: appearance.themeEdits is the theme pickers' "(custom)" themes.
 const UNLISTED = new Set(["appearance.themeEdits"]);
 
 export function filterRows({
@@ -57,7 +56,6 @@ export function filterRows({
   const terms = queryTerms(query);
   const keep = (row: SchemaRow) =>
     !UNLISTED.has(row.key) &&
-    row.kind !== "string_map" &&
     (terms.length === 0 ? changedOnly : rowMatches(row, valueOf(row.key), terms)) &&
     (!changedOnly || (isChanged?.(row.key) ?? false));
   return shownCategories(devBuild)

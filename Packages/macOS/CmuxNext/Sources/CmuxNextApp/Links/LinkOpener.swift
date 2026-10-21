@@ -12,6 +12,8 @@ import CmuxNextWakeups
 /// here (``LinkRouter/openInCmux``, ``openFile(_:from:)``, ``openFolder(_:from:)``), so no surface picks its own pane.
 /// What a page opens (a chat and its pull request link, Home, New Tab, a Markdown page) is a tab in its pane, never an
 /// unasked split (Leo 2026-10-20); a terminal's or browser's Cmd-click (`cmdClick`) goes by `layout.linkPlacement`.
+/// An agent chat that is its screen's main pane (``MainPaneLayout``, `layout.mainPane`) never holds what it opens: that is a
+/// tab in the column on its right, or the lone chat docks left to make that column.
 ///
 /// A new tab for the pane on the right opens there, selected and focused. A new split or column is
 /// made by opening the tab unselected in the source pane and moving it there in one daemon move
@@ -29,6 +31,14 @@ final class LinkOpener {
 
     /// The app's services (they own this opener and outlive it).
     private weak var services: AppServices?
+    /// A pane a link's tab gives the focus back to when it closes (``returnPane(closing:in:)``).
+    private struct Return {
+        let pane: LayoutPaneID
+        weak var content: WorkspaceContentController?
+    }
+    /// Each focused tab a click opened outside the pane it was clicked in, by surface: where it was
+    /// clicked (a link here, the chat header's Changes, Preview or Files in AgentBesidePlacement).
+    private var returns: [SurfaceID: Return] = [:]
     /// The setting, read on every open (``LinkPlacement/fallback`` before settings load).
     var placement: () -> LinkPlacement
 
@@ -62,7 +72,14 @@ final class LinkOpener {
     /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
     /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
     /// frames, which miss a strip column that is scrolled or not laid out yet.
-    func target(from source: PaneController, cmdClick: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
+    func target(from source: PaneController, cmdClick: Bool = false, mainPane: Bool = true) -> LinkOpenPlacement<LayoutPaneID>.Target {
+        if mainPane, let services, let side = MainPaneLayout.side(from: source, services: services) {
+            switch side {
+            case .tab(let pane): return .pane(pane)
+            case .dockChat: return .dockChat(source.layoutPaneID)
+            case .here, .besideDock: break
+            }
+        }
         let takesTabs = source.stripModel.showsNewTabButton
         let right = source.workspace.flatMap { content -> LayoutPaneID? in
             let takes: (LayoutPaneID) -> Bool = { content.panes[$0]?.stripModel.showsNewTabButton == true }
@@ -79,11 +96,12 @@ final class LinkOpener {
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
-    /// False with no source pane (no window) or when `make` refused.
+    /// `mainPane` false: main pane layout does not apply (a chat, which belongs in the dock, not
+    /// the column on its right). False with no source pane (no window) or when `make` refused.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, mainPane: Bool = true, _ make: Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
-        switch target(from: source, cmdClick: cmdClick) {
+        switch target(from: source, cmdClick: cmdClick, mainPane: mainPane) {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
@@ -99,21 +117,63 @@ final class LinkOpener {
         case .besideDock:
             // The daemon makes a tab aimed at a lone pinned dock in a new column right of it.
             return make(source, nil)
+        case .dockChat:
+            return make(source) { [weak source] surface in
+                guard let source else { return }
+                MainPaneLayout.dockChat(of: source, keeping: surface, focus: !background, services: source.services)
+            }
         }
     }
 
-    /// A web link in a cmux browser tab (``LinkRouter/openInCmux``).
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) {
-        open(from: source, background: background, cmdClick: cmdClick) { $0.newBrowserTab(url: url, background: background || $1 != nil, then: $1) }
+    /// A web link in a cmux browser tab (``LinkRouter/openInCmux``), as Chrome opens a clicked
+    /// link (Leo 2026-10-21). In the source's own pane the clicked tab is its opener: the new tab
+    /// goes right after it and its close selects it again (``BrowserTabOpeners``). A focused tab
+    /// anywhere else gives the focus back to the source when it closes (``returnPane(closing:in:)``).
+    @discardableResult
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) -> Bool {
+        let from = source ?? services?.windows.active?.focusedPane
+        // The person's intent: an agent's open in flight (AgentBesidePlacement) yields to it.
+        if !background { _ = from?.workspace?.beginFocusIntent() }
+        return open(from: from, background: background, cmdClick: cmdClick) { [weak self, weak from] pane, placed in
+            let here = pane === from && placed == nil
+            let opener = here ? from?.selectedTab?.surface : nil
+            let back = background || here ? nil : from
+            var then = placed
+            if back != nil {
+                then = { @MainActor [weak self, weak back] surface in
+                    if let back, let content = back.workspace { self?.returnFocus(of: surface, to: back.layoutPaneID, in: content) }
+                    placed?(surface)
+                }
+            }
+            return pane.newBrowserTab(url: url, background: background || placed != nil, opener: opener, then: then)
+        }
+    }
+
+    /// Records that closing `surface`'s tab gives the focus back to pane `pane` of `content`.
+    func returnFocus(of surface: SurfaceID, to pane: LayoutPaneID, in content: WorkspaceContentController) {
+        returns = returns.filter { $0.value.content != nil }
+        returns[surface] = Return(pane: pane, content: content)
+    }
+
+    /// The pane tab `id` of `pane` gives the focus back to as it closes: the pane it was clicked
+    /// open from (``returnFocus(of:to:in:)``), when `pane` has the focus and that pane still shows
+    /// in the same workspace. Nil otherwise. The record is spent either way.
+    func returnPane(closing id: StripTabID, in pane: PaneController) -> PaneController? {
+        returns = returns.filter { $0.value.content != nil }
+        guard let surface = pane.tab(id)?.surface, let back = returns.removeValue(forKey: surface),
+              let content = pane.workspace, back.content === content, back.pane != pane.layoutPaneID,
+              content.focusedPane === pane else { return nil }
+        return content.panes[back.pane]
     }
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
-    /// refusal shows).
+    /// refusal shows). `position` (a Find result): the code editor opens with the cursor there.
     @discardableResult
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, cmdClick: Bool = false) -> Bool {
+    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, cmdClick: Bool = false,
+                  at position: FilePosition? = nil) -> Bool {
         open(from: source, cmdClick: cmdClick) { pane, placed in
-            pane.services.viewers.openFile(file, in: pane, markdown: markdown, placed: placed)
+            pane.services.viewers.openFile(file, in: pane, markdown: markdown, at: position, placed: placed)
         }
     }
 
@@ -126,6 +186,10 @@ final class LinkOpener {
             (source.workspace?.panes[id] ?? source).newTerminalTab(cwd: path)
         case .besideDock:
             source.workspace?.newColumn(after: source.layoutPaneID, options: SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key))
+        case .dockChat:
+            // The chat docks and leaves the folder's terminal in its pane, in one daemon commit.
+            let spawn = SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key)
+            ChatColumnPlacement.route(from: source, respawn: .terminal(spawn), services: source.services)?.newTerminalTab(cwd: path)
         case .splitRight, .newColumn:
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: source.paneKey),
                                               arguments: ["cwd": .string(path)], origin: .user)

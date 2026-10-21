@@ -103,6 +103,8 @@ async function render(snapshot: AcpmuxSnapshot, headerCwd?: string) {
 let sent = 0;
 const APP = "/Users/you/src/app";
 const shown = () => host.querySelector(".acpmux-md-placeholder")?.textContent;
+/** The empty composer's own placeholder (#22667, as Claude's): shown when nothing is suggested. */
+const IDLE = "Type / for commands";
 const key = () => host.querySelector(".acpmux-md-placeholder-key")?.textContent;
 const field = () => host.querySelector<HTMLElement>(".acpmux-md")!;
 const press = (name: string, init: KeyboardEventInit = {}) =>
@@ -160,7 +162,7 @@ test("nothing is suggested from another folder, another worktree, a merged PR, a
     [prChat({ archived: true })],
   ]) {
     await render(fresh(sessions));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     expect(key()).toBeUndefined();
   }
 });
@@ -171,7 +173,7 @@ test("a folder with a trailing slash is the same checkout", async () => {
   await render(
     fresh([prChat(), prChat({ sessionId: "busy", cwd: `${APP}/`, indicator: "working", pullRequest: undefined })]),
   );
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
 });
 
 test("a chat that knows its branch takes no PR from another branch", async () => {
@@ -182,7 +184,7 @@ test("a chat that knows its branch takes no PR from another branch", async () =>
       summary: { sessionId: "new", cwd: APP, branch: "main", turnCount: 0 } as never,
     });
   await render(started([prChat({ branch: "leo/retries" })]));
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
   await render(started([prChat({ branch: "main" })]));
   expect(shown()).toStartWith("Continue PR #123");
   // A chat working in this working tree on another branch it last recorded still collides.
@@ -192,7 +194,7 @@ test("a chat that knows its branch takes no PR from another branch", async () =>
       prChat({ sessionId: "busy", branch: "old", indicator: "working", pullRequest: undefined }),
     ]),
   );
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
 });
 
 test("a chat with turns gets no suggestion", async () => {
@@ -203,7 +205,7 @@ test("a chat with turns gets no suggestion", async () => {
       rows: [user("Hi", 1)],
     }),
   );
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
 });
 
 test("Tab writes the suggestion without sending; Shift-Tab does not take it; Esc puts it away", async () => {
@@ -219,7 +221,7 @@ test("Tab writes the suggestion without sending; Shift-Tab does not take it; Esc
   root = undefined;
   await render(fresh([prChat()]));
   await press("Escape");
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe(IDLE);
   await press("Tab");
   expect(field().textContent).toBe("");
 });
@@ -251,40 +253,48 @@ test("the chat folder's PR from the header's gh read is suggested when no sessio
   };
   try {
     await render(fresh([]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await header(live);
     expect(shown()).toStartWith("Fix the failing checks on PR #77");
     await header({ ...live, state: "draft", checks: { state: "pending", passed: 0, total: 1 } });
     expect(shown()).toStartWith("Finish draft PR #77: Stream tool output");
     await header({ ...live, state: "merged", checks: { state: "passing", passed: 3, total: 3 } });
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     // Greptile on #21882: the header reads the tab's folder. A fresh chat's folder pick moves the
     // composer, not the tab, until the chat starts: that PR is another folder's then.
     await header(live);
     await render(fresh([]), "/Users/you/src/other");
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await render(fresh([]), `${APP}/`);
     expect(shown()).toStartWith("Fix the failing checks on PR #77");
     // A chat already working on that PR keeps it.
     await header({ ...live, checks: { state: "passing", passed: 3, total: 3 } });
     await render(fresh([prChat({ sessionId: "busy", indicator: "working" }, { number: 77 })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     // Greptile on #21882: live summaries name no PR, so a chat working or waiting in this checkout
     // may be on the folder's PR: nothing is suggested. One in another folder, or one that is done,
     // leaves it.
     const noPr = (fields: Partial<AcpmuxSessionEntry>) => prChat({ pullRequest: undefined, ...fields });
     await render(fresh([noPr({ sessionId: "busy", indicator: "working" })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await render(fresh([noPr({ sessionId: "asking", indicator: "input" })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
     await render(fresh([noPr({ sessionId: "elsewhere", cwd: "/elsewhere", indicator: "working" })]));
     expect(shown()).toStartWith("Continue PR #77");
     await render(fresh([noPr({ sessionId: "finished", indicator: "done" })]));
     expect(shown()).toStartWith("Continue PR #77");
     // A chat working on the folder's PR from another folder (a clone) has it too.
     await render(fresh([prChat({ sessionId: "clone", cwd: "/elsewhere", indicator: "working" }, { number: 77 })]));
-    expect(shown()).toBe("Do anything");
+    expect(shown()).toBe(IDLE);
   } finally {
     await header(null);
   }
+});
+
+// The + shows only a glyph; its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21),
+// the same whether or not the composer can capture screenshots (this one cannot).
+test("the + button names what its menu adds in a tooltip", async () => {
+  await render(fresh([]));
+  const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
+  expect([plus.getAttribute("aria-label"), plus.title]).toEqual(["Add", "Add files and more"]);
 });
