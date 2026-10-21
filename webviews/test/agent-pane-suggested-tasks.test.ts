@@ -481,6 +481,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   // envelopes in a prompt (an adopted Claude session's history).
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
+    /// A line's text as it reads: the name and › are flex items, which innerText puts on lines of their own.
+    const lineText = (text: string) => text.replace(/\s+/g, " ");
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -519,16 +521,19 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       // One quiet line, "Received message from Grid fix ›"; the message waits behind ›.
-      expect(await card.innerText()).toContain("Received message from Grid fix");
+      expect(lineText(await card.innerText())).toContain("Received message from Grid fix");
       expect(await card.innerText()).not.toContain("The grid fix is on cmux/grid-fix; tests pass.");
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
-      // Opened, the line shows the sender's words and the prompt as the agent got it.
+      // Opened, the line shows the sender's words only; the prompt as the agent got it (cmux's
+      // envelope, message id and note) waits behind Details.
       await card.getByRole("button", { name: /Message from Grid fix/ }).click();
       await card
         .locator(".cv-received__body")
         .getByText("The grid fix is on cmux/grid-fix; tests pass.")
         .waitFor({ timeout: 5_000 });
-      expect(await card.locator(".cv-received__body").innerText()).not.toContain("[cmux agent message]");
+      expect(await card.innerText()).not.toContain("[cmux agent message]");
+      expect(await card.innerText()).not.toContain("Message id:");
+      await card.getByRole("button", { name: "Details" }).click();
       await card.locator("pre").getByText("[cmux agent message] from Grid fix").waitFor({ timeout: 5_000 });
       // The sender is a chat here: its name opens it by its session id, not its address.
       await card.getByRole("button", { name: "Open Grid fix" }).click();
@@ -583,14 +588,16 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(await card.innerText()).toContain("Received message from leoli-fb");
+      expect(lineText(await card.innerText())).toContain("Received message from leoli-fb");
       const body = await page.locator("body").innerText();
       expect(body).not.toContain("<cross-session-message");
       expect(body).not.toContain("This came from another Claude session");
       expect(await page.locator(".cv-user__bubble").count()).toBe(1);
-      // Opened, the line shows the message and the prompt as the agent got it.
+      // Opened, the line shows the message; Details shows the prompt as the agent got it.
       await card.getByRole("button", { name: /Message from leoli-fb/ }).click();
       expect(await card.locator(".cv-received__body").innerText()).toContain("Please review #123 & report back.");
+      expect(await card.innerText()).not.toContain("from-mode=");
+      await card.getByRole("button", { name: "Details" }).click();
       await card.locator("pre").getByText("from-mode=").first().waitFor({ timeout: 5_000 });
       await page.close();
     });
