@@ -46,7 +46,7 @@ extension AcpmuxStatusClient {
 
     /// ``putFile(socketPath:sessionId:name:data:deadline:)`` with `send`, which runs the request.
     static func putFile(sessionId: String, name: String, data: Data,
-                        send: (_ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
+                        send: @Sendable (_ params: [String: any Sendable]) async throws -> [String: Any]) async throws -> String {
         guard data.count <= AgentPaneUpload.maximumPeerFileBytes else { throw AgentPaneFilePutFailure.tooLarge }
         let result: [String: Any]
         do {
