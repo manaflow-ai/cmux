@@ -39,7 +39,7 @@ TIMEOUT = 15  # seconds per gh call; at most four calls fit the hook's 120 s
 SWIFT_SUFFIXES = (".swift", ".xcconfig", ".h", ".m", ".mm", ".c", ".modulemap")
 SWIFT_NAMES = ("Package.swift", "Package.resolved")
 
-SEPARATORS = frozenset((";", "&", "&&", "|", "||", "(", ")", "\n", ";;", "|&"))
+SEPARATORS = frozenset((";", "&", "&&", "|", "||", "(", ")", "\n", ";;", "|&", "`"))
 REDIRECT = re.compile(r"^[<>]+&?$|^&>+$")
 ASSIGNMENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 HEREDOC = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][\w-]*)\1[^\n]*\n.*?^[ \t]*\2[ \t]*$", re.S | re.M)
@@ -71,7 +71,9 @@ def checkout_repo(cwd: str | None) -> str | None:
 
 FD_REDIRECT = re.compile(r"(?<![^\s;&|()])\d+(?=[<>])")  # the fd of `2>&1`, touching its operator
 ANSI_C = re.compile(r"\$'(?:[^'\\]|\\.)*'")
-WRAPPERS = frozenset(("env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "xargs", "caffeinate"))
+WRAPPERS = frozenset(("env", "command", "builtin", "exec", "time", "nice", "nohup", "sudo", "xargs", "caffeinate",
+                      "timeout", "gtimeout"))
+KEYWORDS = frozenset(("if", "then", "else", "elif", "do", "while", "until", "{", "}", "!", "time"))
 SHELLS = frozenset(("bash", "sh", "zsh", "dash"))
 REMOTE = object()  # the cwd of a command run on another host: its checkout can't be read here
 
@@ -109,7 +111,7 @@ def commands(text: str) -> list[list[str]] | None:
     text = HEREDOC.sub("\n", text)
     text = ANSI_C.sub("''", text)
     text = FD_REDIRECT.sub("", strip_comments(text))
-    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n")
+    lexer = shlex.shlex(text, posix=True, punctuation_chars=";&|()<>\n`")
     lexer.whitespace = " \t\r"
     lexer.whitespace_split = True
     lexer.commenters = ""
@@ -140,14 +142,19 @@ def unwrap(words: list[str]) -> tuple[list[str], dict]:
     peeled off, and the assignments."""
     env = {}
     while words:
-        if ASSIGNMENT.match(words[0]):
+        if words[0] in KEYWORDS:
+            words = words[1:]
+        elif ASSIGNMENT.match(words[0]):
             name, _, value = words[0].partition("=")
             env[name] = value
             words = words[1:]
         elif os.path.basename(words[0]) in WRAPPERS:
+            timed = os.path.basename(words[0]) in ("timeout", "gtimeout")
             words = words[1:]
             while words and words[0].startswith("-"):
-                words = words[2:] if words[0] in ("-n", "-u", "-g", "-C") else words[1:]
+                words = words[2:] if words[0] in ("-n", "-u", "-g", "-C", "-s", "-k") else words[1:]
+            if timed and words:
+                words = words[1:]  # its duration
         else:
             break
     if words:
@@ -180,8 +187,10 @@ def merge_targets(command: str, cwd) -> list[tuple[str | None, str | None, objec
                     break
             continue
         if words[0] == "ssh":
-            for word in words[2:]:
-                targets += merge_targets(word, REMOTE)
+            rest = words[1:]
+            while rest and rest[0].startswith("-"):  # options, and the value of those that take one
+                rest = rest[2:] if len(rest[0]) == 2 and rest[0][1] in "bcDEeFIiJLlmOopQRSWw" else rest[1:]
+            targets += merge_targets(" ".join(rest[1:]), REMOTE)  # the remote shell joins the words
             continue
         if words[0] != "gh":
             continue

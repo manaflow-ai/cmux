@@ -111,6 +111,15 @@ class Targets(unittest.TestCase):
             "nice -n 10 gh pr merge 5": [(None, "5")],
             "gh pr merge 5 --squash; echo $'it\\'s'": [(None, "5")],
             'echo "unbalanced && gh pr merge 5': [(None, guard.UNKNOWN)],
+            # Control structures, timeouts and command substitution run the merge too.
+            "if gh pr checks 5 >/dev/null; then gh pr merge 5 --squash; fi": [(None, "5")],
+            "for p in 5; do gh pr merge 5 --squash; done": [(None, "5")],
+            "{ gh pr merge 5 --squash; }": [(None, "5")],
+            "! gh pr merge 5 --squash": [(None, "5")],
+            "timeout 60 gh pr merge 5 --squash": [(None, "5")],
+            "timeout -k 5 60 gh pr merge 5": [(None, "5")],
+            "echo `gh pr merge 5`": [(None, "5")],
+            "out=$(gh pr merge 5 --squash 2>&1)": [(None, "5")],
         }
         for command, want in cases.items():
             with self.subTest(command=command):
@@ -139,6 +148,9 @@ class Targets(unittest.TestCase):
                 self.assertEqual(guard.merge_targets(command, "/tmp")[0][2], guard.REMOTE)
                 self.assertIn("can't read", guard.refusal(command, "/tmp", lambda *a: self.fail("read")))
         self.assertEqual(guard.refusal('ssh host "gh pr merge 5 -R manaflow-ai/cmux"', "/tmp", lambda *a: ""), "")
+        # Unquoted, ssh joins the words into the remote command.
+        self.assertEqual(guard.merge_targets("ssh -p 22 cmux16 gh pr merge 5 -R manaflow-ai/cmux", "/tmp"),
+                         [("manaflow-ai/cmux", "5", guard.REMOTE)])
 
     def test_a_merge_it_cannot_name_is_refused(self):
         why = guard.refusal('gh pr merge "$PR" -R manaflow-ai/cmux', None, lambda *a: self.fail("read"))
