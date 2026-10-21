@@ -81,7 +81,8 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   const asked = new Set<string>();
   for (const watched of input.asks) {
     const session = byId.get(watched.sessionId);
-    if (session?.archived) continue;
+    // Another computer's chat is answered there: it is one `input` item below, with no answers.
+    if (session?.archived || session?.peer) continue;
     asked.add(watched.sessionId);
     items.push(askItem(watched, session, byId));
   }

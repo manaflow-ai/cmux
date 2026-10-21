@@ -13,10 +13,17 @@ public import Foundation
 /// chat lives on: this app's main daemon for a chat on this Mac, the Chief home's own daemon for a
 /// Chief chat (`ChiefHomeAcpmux`, its own `ACPMUX_HOME`). A pane never reads another daemon's
 /// chats, and a reread of a Chief chat sees its answers (PR #22646 review).
+///
+/// The read names the chat `local/<id>`, acpmux's qualified id for one of the daemon's own
+/// sessions (`session_identity.rs`, hub `resolve`). A chat on another computer (an SSH or Cloud
+/// peer's) is listed by the pane's daemon too, and a read naming it by its bare id would be
+/// forwarded to that computer's daemon (`server/peer_forward.rs`); `local/<id>` never resolves
+/// to it, so its asks are never read here (PR #22646 review). Only that computer answers them.
 @MainActor
 public final class AgentPanePendingAsks {
-    /// Reads `_acpmux/info` for `session` from the acpmux listening on `socket`: its result, or nil
-    /// when acpmux did not answer (no such session there, no daemon).
+    /// Reads `_acpmux/info` for `session` (a `local/<id>`, ``localSession(_:)``) from the acpmux
+    /// listening on `socket`: its result, or nil when acpmux did not answer (no such session of its
+    /// own there, no daemon).
     public typealias Read = @MainActor (_ socket: String, _ session: String) async -> [String: Any]?
 
     /// The keys of a pending entry the page gets.
@@ -25,6 +32,17 @@ public final class AgentPanePendingAsks {
     static let maximumEntries = 64
     /// Longest session id the op takes (acpmux ids are UUIDs).
     static let maximumSession = 256
+    /// acpmux's host name for the daemon's own sessions (`LOCAL_HOST_ID`).
+    static let localHost = "local/"
+
+    /// `session` as acpmux's qualified id for the daemon's own session (`local/<id>`): a bare id is
+    /// qualified, one already qualified as local is kept, and an id naming another host (or any
+    /// other `/`) is nil, so it is never sent.
+    static func localSession(_ session: String) -> String? {
+        let mux = session.hasPrefix(localHost) ? String(session.dropFirst(localHost.count)) : session
+        guard !mux.isEmpty, !mux.contains("/") else { return nil }
+        return localHost + mux
+    }
 
     private let readInfo: Read
 
@@ -57,7 +75,8 @@ public final class AgentPanePendingAsks {
 
     /// `session`'s open requests on the acpmux at `socket`, filtered to ``entryKeys``.
     func pending(of session: String, at socket: String) async -> JSONValue {
-        guard let info = await readInfo(socket, session), let pending = info["pending"] as? [[String: Any]] else { return .null }
+        guard let local = Self.localSession(session),
+              let info = await readInfo(socket, local), let pending = info["pending"] as? [[String: Any]] else { return .null }
         let entries = pending.prefix(Self.maximumEntries).map { entry in entry.filter { Self.entryKeys.contains($0.key) } }
         return JSONValue(foundation: ["pending": entries]) ?? .null
     }

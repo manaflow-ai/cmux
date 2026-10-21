@@ -7,11 +7,20 @@
 // and answers `chat.asks.pending` (CmuxNextAgentPane AgentPanePendingAsks). A chat whose count
 // changed in a way the page cannot account for is read again, so an ask answered anywhere (its
 // card, the Feed, the CLI, another pane) leaves; a count of zero clears the chat at once.
+//
+// A chat on another computer (an SSH or Cloud peer's) is in the watch too, with its `peer` (acpmux
+// hub/peers.rs `remote_summary`) and its count, but its asks are that computer's: it is never read
+// (acpmux forwards a read of a peer's chat to the peer daemon, server/peer_forward.rs) and no ask
+// of it is held, so it stays one `input` item (model.ts).
 import type { AcpmuxPermission } from "../model";
 import type { WatchedAsk } from "./model";
 
-/// A session as the watch reports it: its id, how many requests it holds open, when it last changed.
-export type WatchedSession = { sessionId: string; pendingPermissions?: unknown; updatedAt?: unknown };
+/// A session as the watch reports it: its id, how many requests it holds open, when it last
+/// changed, and the peer daemon it lives on when that is another computer.
+export type WatchedSession = { sessionId: string; pendingPermissions?: unknown; updatedAt?: unknown; peer?: unknown };
+
+/// The session lives on another computer: acpmux names its peer.
+export const onPeer = (session: { peer?: unknown }) => typeof session.peer === "string" && session.peer.length > 0;
 
 /// One pending entry of `_acpmux/info`: `{permissionId, request, turnId?, groupId?}` (the host
 /// hands the page only these).
@@ -66,6 +75,8 @@ export class AskTracker {
   /// changes (or on an answer), never on every summary change.
   private readonly reported = new Map<string, number>();
   private readonly updatedAt = new Map<string, number>();
+  /// Chats the watch lists on another computer: never read, and no ask of theirs is held.
+  private readonly remote = new Set<string>();
   private listed: WatchedAsk[] = [];
   private stale = false;
 
@@ -88,7 +99,7 @@ export class AskTracker {
   /// A `_acpmux/permission_pending` notification, on an attached chat or a watched one.
   pending(message: unknown): void {
     const sessionId = sessionOf(message);
-    if (!sessionId || grouped((message as { groupId?: unknown }).groupId)) return;
+    if (!sessionId || this.remote.has(sessionId) || grouped((message as { groupId?: unknown }).groupId)) return;
     const permission = this.parse(message, sessionId);
     if (!permission || this.asks.has(permission.permissionId)) return;
     // A read already on its way keeps counting: it may hold another chat's answer. It cannot drop
@@ -108,6 +119,13 @@ export class AskTracker {
   /// (`permission_decision`, `permission_resolved`) rereads the chat even when its count looks
   /// right, since another request may have taken the answered one's place.
   session(session: WatchedSession, kind?: string): void {
+    if (onPeer(session)) {
+      // Another computer's chat: whatever it holds stays there; a read still out for it is stale.
+      this.forget(session.sessionId);
+      this.remote.add(session.sessionId);
+      return;
+    }
+    this.remote.delete(session.sessionId);
     if (typeof session.updatedAt === "number") this.updatedAt.set(session.sessionId, session.updatedAt);
     const reported = count(session.pendingPermissions);
     const before = this.reported.get(session.sessionId);
@@ -143,6 +161,7 @@ export class AskTracker {
 
   /// A chat acpmux purged (or no longer listed): its asks go, and a read still out for it is stale.
   forget(sessionId: string): void {
+    this.remote.delete(sessionId);
     this.reads.set(sessionId, (this.reads.get(sessionId) ?? 0) + 1);
     this.updatedAt.delete(sessionId);
     let removed = false;

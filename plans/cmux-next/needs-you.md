@@ -42,8 +42,11 @@ The sources, all in `webviews/src/agent-session/acpmux/needsYou/`:
   - a change to a chat's `pendingPermissions`, or an answer (`permission_decision`,
     `permission_resolved`), rereads `_acpmux/info` `pending`. The pane's relay never sends
     `_acpmux/info`: the page asks the host (`chat.asks.pending {sessionId}`,
-    `AgentPanePendingAsks`), which reads it on its own person-proven connection, as the approval
-    banners do, and hands back only each entry's `permissionId`, `request`, `turnId` and `groupId`;
+    `AgentPanePendingAsks`), which reads it on one plain connection to the pane's own acpmux socket
+    (no person proof: acpmux answers `_acpmux/info` on any local connection, and the read answers
+    nothing), names the chat `local/<id>` so acpmux resolves it on its own sessions and never
+    forwards the read to a peer, and hands back only each entry's `permissionId`, `request`,
+    `turnId` and `groupId`;
   - a count of zero clears the chat at once;
   - a read that predates a newer ask or read is dropped;
   - after a lag (`_acpmux/lagged`) every chat with open requests is read again, and a chat acpmux
@@ -51,8 +54,10 @@ The sources, all in `webviews/src/agent-session/acpmux/needsYou/`:
 
   `acpmux pending` and the Feed bridge (`AcpmuxPermissionFeedBridge`) read the same source.
 - **Session indicators.** A chat whose `indicator` is `input`, or whose `pendingPermissions` is
-  above zero, but whose ask the page cannot read (a chat on another computer) still shows as one
-  `input` item.
+  above zero, but whose ask the page cannot read still shows as one `input` item. A chat on
+  another computer (its summary names its `peer`) is always one: the page never reads it and
+  holds no ask of it, and the host's `local/<id>` read could not reach it either, so its asks are
+  answered on that computer only.
 - **Agent-pair holds** in the open chat's rows (#21975), answered with Resume.
 
 The item shape (`model.ts`, `NeedsYouItem`) is the contract for every consumer:
