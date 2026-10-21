@@ -1734,17 +1734,19 @@ mod tests {
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
     }
 
-    /// The phone roams to a new TURN allocation, and the Mac replays what it
-    /// sent recently on the new route newest first. What went into the dead
-    /// route is the newest, and a replay can overflow a buffer on the path
-    /// this side does not size (the TURN server's relay socket; Linux caps
-    /// buffers at `rmem_max`, about 208 KB), which drops what arrives last.
-    /// Oldest first, that was the datagram TCP inside the tunnel was missing,
-    /// and it waited out its 1 s retransmission: the `stalled 1.0s` flake of
-    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`
-    /// (the new relay's socket dropped 8 to 18 datagrams in every round).
+    /// The phone roams to a new TURN allocation, and the Mac replays only
+    /// the newest of what it sent recently that fits [`REPLAY_BYTES`],
+    /// oldest first. What went into the dead route is the newest, and a
+    /// whole replay overflowed the TURN server's relay socket (8 to 18 of
+    /// its datagrams dropped in every round; Linux caps buffers at
+    /// `rmem_max`, about 208 KB), which drops what arrives last: the
+    /// datagram TCP inside the tunnel was missing, so it waited out its 1 s
+    /// retransmission (the `stalled 1.0s` flake of
+    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`).
+    /// Newest first instead would lose the newest in the TURN carrier's
+    /// queue, which drops from the front.
     #[tokio::test]
-    async fn a_roam_replays_the_newest_datagrams_first() {
+    async fn a_roam_replays_the_newest_datagrams_that_fit_oldest_first() {
         let old_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let new_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let (old, new) = (old_relay.local_addr().unwrap(), new_relay.local_addr().unwrap());
@@ -1768,9 +1770,12 @@ mod tests {
         underlay.socket.writable().await.unwrap();
         let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
         underlay.authenticated(udp_from(old));
-        // Recent WireGuard data, each datagram distinct (its fifth byte).
-        for n in 0..20u8 {
-            let mut datagram = vec![n; 208];
+        // Recent WireGuard data, each datagram distinct (its fifth byte),
+        // more than a replay sends.
+        const SIZE: usize = 1200;
+        const SENT: u8 = 100;
+        for n in 0..SENT {
+            let mut datagram = vec![n; SIZE];
             datagram[..4].copy_from_slice(&[4, 0, 0, 0]);
             underlay.send(&datagram);
         }
@@ -1793,12 +1798,19 @@ mod tests {
         while let Ok(Ok((len, _))) =
             tokio::time::timeout(Duration::from_millis(200), new_relay.recv_from(&mut buffer)).await
         {
-            if len == 208 {
+            if len == SIZE {
                 order.push(buffer[4]);
             }
         }
-        assert!(order.len() >= 20, "every recent datagram reaches the new route: {order:?}");
-        assert_eq!(order[..20], (0..20u8).rev().collect::<Vec<_>>()[..], "newest first: {order:?}");
+        // What a replay may send at once (`REPLAY_BYTES` with the fix).
+        const REPLAY_BYTES: usize = 64 * 1024;
+        // The first replay on the new route (the route change's).
+        let Some(&first) = order.first() else { panic!("nothing reached the new route") };
+        let replay: Vec<u8> =
+            order.iter().copied().take_while(|&n| n != SENT - 1).chain([SENT - 1]).collect();
+        assert_eq!(replay, (first..SENT).collect::<Vec<_>>(), "the newest, oldest first: {order:?}");
+        assert!(replay.len() * SIZE <= REPLAY_BYTES, "{} bytes replayed at once", replay.len() * SIZE);
+        assert!(replay.len() * SIZE + SIZE > REPLAY_BYTES, "as many as fit: {replay:?}");
     }
 
     /// The roam's new TURN allocation can get the old one's relayed address
