@@ -99,9 +99,14 @@ class SettingsOnlyArtifactLeavesTheActionFollowers(unittest.TestCase):
             stub.parent.mkdir(parents=True, exist_ok=True)
             stub.write_text(STUB_AUTOFIX)
             stub.chmod(0o755)
+        # The base job's Repair step runs the real base-autofix-repair.sh (#23315), which calls the stub beside it.
+        repair = work / "scripts/cmux-next/base-autofix-repair.sh"
+        repair.write_text((ROOT / "scripts/cmux-next/base-autofix-repair.sh").read_text())
+        repair.chmod(0o755)
         args_out = work / "args"
         base_env = {"RUNNER_TEMP": str(temp), "GITHUB_WORKSPACE": str(work), "GITHUB_STEP_SUMMARY": str(work / "summary"),
                     "GITHUB_SHA": "0" * 40, "AUTOFIX": str(temp / "autofix/scripts/cmux-next"), "ARGS_OUT": str(args_out),
+                    "EXPORTS_DIR": str(temp / "action-exports"),
                     "GRAPH": "false", "STRINGS": "false", "SDK": "false", "SHORTCUTS": "false", "APPHOST": "false",
                     "ACTIONS": "false", "EXPORTS_VERIFIED": "true", "SETTINGS": "true", "SETTINGS_VERIFIED": "true",
                     "RATCHETS": "false", "CLOUD": "false", "GHOSTTY": "false", "FMT": "false"}
