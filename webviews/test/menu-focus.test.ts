@@ -15,7 +15,7 @@ import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
 import { stopDevServer } from "./support/devServer";
-import { galleryFrame, RELOADED, warmGalleryFrame } from "./support/galleryFrame";
+import { galleryFrame, reloaded, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("menu-focus.test.ts", async () => {
@@ -127,7 +127,7 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
         throw new Error(`gallery ${entry}: ${await page.evaluate(() => document.body.textContent?.trim())}`);
       } catch (error) {
         // An optimizer reload destroys the page's context (or interrupts the navigation): wait again.
-        if (Date.now() >= deadline || !RELOADED.test(String(error).split("\n")[0]!)) throw error;
+        if (Date.now() >= deadline || !reloaded(error)) throw error;
       }
     }
   }

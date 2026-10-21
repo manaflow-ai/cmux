@@ -1,6 +1,9 @@
-// The browser-lane checker's gallery-frame rule (scripts/check-browser-test-lanes.ts).
+// The browser-lane checker's gallery-frame rule (scripts/check-browser-test-lanes.ts) and the
+// gallery warm-up's reload test (support/galleryFrame.ts).
 import { expect, test } from "bun:test";
+import path from "node:path";
 import { checkGalleryFrameSource } from "../scripts/check-browser-test-lanes";
+import { reloaded } from "./support/galleryFrame";
 
 const browserTest = (body: string) => `import { chromium } from "playwright";\n${body}\n`;
 
@@ -41,4 +44,25 @@ test("an opt-out needs a reason, and a test that opens no browser is not checked
   expect(checkGalleryFrameSource("a.test.ts", 'expect(isGalleryFrame("/gallery/frame.html")).toBe(false);')).toEqual(
     [],
   );
+});
+
+test("a pending test that opens no browser now is named, to leave the list", () => {
+  const pending = path.join(import.meta.dir, "suggestion-lists-float.test.ts");
+  expect(checkGalleryFrameSource(pending, 'expect(isGalleryFrame("/gallery/frame.html")).toBe(false);')).toEqual([
+    "test/suggestion-lists-float.test.ts: opens no browser now; remove it from EVERY_ENTRY_PENDING",
+  ]);
+});
+
+test("a warm-up retries an optimizer reload alone, whatever the URL spells", () => {
+  const url = "http://127.0.0.1:5173/gallery/frame.html?entry=cancelled&entryPath=src/ERR_ABORTED.gallery.ts";
+  expect(reloaded(new Error(`page.goto: net::ERR_ABORTED at ${url}\nCall log:\n  - navigating to "${url}"`))).toBe(
+    true,
+  );
+  expect(
+    reloaded(new Error("page.evaluate: Execution context was destroyed, most likely because of a navigation")),
+  ).toBe(true);
+  expect(
+    reloaded(new Error(`page.goto: net::ERR_CONNECTION_REFUSED at ${url}\nCall log:\n  - navigating to "${url}"`)),
+  ).toBe(false);
+  expect(reloaded(new Error('page.goto: Timeout 1000ms exceeded.\nCall log:\n  - navigating to "x"'))).toBe(false);
 });
