@@ -52,7 +52,10 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
   });
 
   async function open(scale: number): Promise<Page> {
-    const page = await browser!.newPage({ viewport: { width: 420, height: 640 }, deviceScaleFactor: scale });
+    const page = await browser!.newPage({
+      viewport: { width: 420, height: 640 },
+      deviceScaleFactor: scale,
+    });
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/test/browser/composer-rim.html`);
     await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
@@ -78,18 +81,23 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
       }
       entries.push(shadow.slice(start));
       return entries.map((entry) => {
-        const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map((match) =>
-          Number(match[1]),
+        const lengths = [...entry.replace(/\([^)]*\)/g, "").matchAll(/(-?[\d.]+)px/g)].map(
+          (match) => Number(match[1]),
         );
         const color = entry.match(/(?:rgba?|color)\([^)]*\)/)?.[0] ?? "";
         const alphaMatch = color.match(/\/\s*([\d.]+)\)|rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
         const alpha =
-          color === "" || color.includes("transparent") ? 0 : alphaMatch ? Number(alphaMatch[1] ?? alphaMatch[2]) : 1;
+          color === "" || color.includes("transparent")
+            ? 0
+            : alphaMatch
+              ? Number(alphaMatch[1] ?? alphaMatch[2])
+              : 1;
         return { inset: /\binset\b/.test(entry), spread: lengths[3] ?? 0, alpha };
       });
     }, id);
   }
-  const rims = async (page: Page, id: string) => (await shadows(page, id)).filter(({ inset }) => inset);
+  const rims = async (page: Page, id: string) =>
+    (await shadows(page, id)).filter(({ inset }) => inset);
   const outline = (page: Page, id: string) =>
     page.evaluate((id) => getComputedStyle(document.getElementById(id)!).outlineStyle, id);
 
@@ -110,7 +118,10 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         const focused = await shadows(page, box);
         // The same layers: no ring or glow added, the drop shadow unchanged.
         expect(focused.length, `${box} focused adds no shadow`).toBe(rest.length);
-        expect(focused.filter(({ inset }) => !inset), `${box} drop shadow`).toEqual(rest.filter(({ inset }) => !inset));
+        expect(
+          focused.filter(({ inset }) => !inset),
+          `${box} drop shadow`,
+        ).toEqual(rest.filter(({ inset }) => !inset));
         const rim = focused.filter(({ inset }) => inset);
         expect(rim.length, `${box} focused draws one rim`).toBe(1);
         expect(rim[0].spread, `${box} focused rim keeps its width`).toBe(restRims[0].spread);
@@ -165,7 +176,9 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
       expect(style.visible, `${id} has keyboard focus`).toBe(true);
       expect(style.outline, `${id} draws no outline`).toBe("none");
       // A pill: the chip's own hover wash, or the pane's pill laid over Send's fill.
-      const pill = style.image.includes("gradient") && !/gradient\((?:rgba\(0, 0, 0, 0\)(?:,\s*)?)+\)/.test(style.image);
+      const pill =
+        style.image.includes("gradient") &&
+        !/gradient\((?:rgba\(0, 0, 0, 0\)(?:,\s*)?)+\)/.test(style.image);
       expect(pill || style.color !== "rgba(0, 0, 0, 0)", `${id} shows the pill`).toBe(true);
     }
     // Increase Contrast keeps the shared ring.
@@ -188,12 +201,18 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     expect(await page.evaluate(() => document.activeElement?.id)).toBe("check");
     const ring = await page.evaluate(() => {
       const style = getComputedStyle(document.getElementById("check")!);
-      return { style: style.outlineStyle, width: parseFloat(style.outlineWidth), color: style.outlineColor };
+      return {
+        style: style.outlineStyle,
+        width: parseFloat(style.outlineWidth),
+        color: style.outlineColor,
+      };
     });
     expect(ring.style, "a ring still marks it").toBe("solid");
     expect(ring.width, "one hairline").toBeLessThanOrEqual(1);
     const channels = [...ring.color.matchAll(/[\d.]+/g)].map((match) => Number(match[0]));
-    const [r, g, b] = ring.color.startsWith("color(") ? channels.map((value) => value * 255) : channels;
+    const [r, g, b] = ring.color.startsWith("color(")
+      ? channels.map((value) => value * 255)
+      : channels;
     expect(Math.abs(r - b), `the text color, not the blue accent (${ring.color})`).toBeLessThan(8);
     expect(Math.abs(g - b), `the text color, not the blue accent (${ring.color})`).toBeLessThan(8);
     await page.close();
