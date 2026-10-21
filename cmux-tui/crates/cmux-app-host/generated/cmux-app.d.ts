@@ -1115,7 +1115,7 @@ interface CmuxGlobal {
   }
   pane: {
     /** `pane.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; correlation_key?: string; cwd?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; correlation_key?: string; cwd?: string; argv?: Array<string>; shell?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `pane.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
     /** `pane.focus_direction` (mutation, scope `workspace:write`) */
@@ -1273,7 +1273,7 @@ interface CmuxGlobal {
   }
   screen: {
     /** `screen.create` (mutation, scope `workspace:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create: CmuxOp<{ machine?: string; session?: string; workspace?: string; correlation_key?: string; name?: string; argv?: Array<string>; shell?: string; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `screen.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen: string; expected_revision?: string }, Cmux.MutationResult<Cmux.ScreenSnapshot>>
     /** `screen.get` (read, scope `workspace:read`) */
@@ -1477,7 +1477,7 @@ interface CmuxGlobal {
     /** `tab.create_browser` (mutation, scope `workspace:write`) */
     create_browser: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; url: string; name?: string; engine?: "webkit" | "cef"; width_px?: number; height_px?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedBrowserPath>>
     /** `tab.create_terminal` (mutation, scope `workspace:write`) */
-    create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; cwd?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    create_terminal: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; correlation_key?: string; cwd?: string; argv?: Array<string>; shell?: string; name?: string; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `tab.focus` (mutation, scope `workspace:write`) */
     focus: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane?: string; tab: string; expected_revision?: string }, Cmux.MutationResult<Cmux.TabSnapshot>>
     /** `tab.get` (read, scope `workspace:read`) */

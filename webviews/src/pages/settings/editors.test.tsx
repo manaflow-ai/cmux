@@ -323,6 +323,19 @@ describe("editors", () => {
     expect(theme.querySelector("input.text")).not.toBeNull();
   });
 
+  test("the font list opens on a click in the first moments after the page loads", async () => {
+    page = await renderPage({ path: "/settings/appearance" });
+    const now = performance.now;
+    performance.now = () => 50;
+    try {
+      const button = rowElement(page.container, "terminal.fontFamily").querySelector("button.domain-button")!;
+      await click(button);
+      expect(button.getAttribute("aria-expanded")).toBe("true");
+    } finally {
+      performance.now = now;
+    }
+  });
+
   test("a diagnostic shows an inline notice and a warning badge", async () => {
     page = await renderPage({
       mock: { diagnostics: [{ path: "terminal.fontSize", message: "fontSize must be a number" }] },

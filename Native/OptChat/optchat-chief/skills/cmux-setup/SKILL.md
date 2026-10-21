@@ -59,8 +59,17 @@ one.
   that answer was made for, and forgetting it there makes every worktree of
   the repository ask again (`written` says which folder changed). It never
   edits Claude Code's or Codex's own files.
-- Harness install and sign-in: `cmux harness doctor ID --json` names the
-  failing step and its fix; `cmux harness login ID` starts the sign-in.
+- Harness install and sign-in: `cmux setup harness [ID ...]` (default:
+  every configured or found harness) says per harness whether it is
+  installed, signed in and outdated. A signed-out one is `needs_user` with
+  `cmux harness login ID`: run it in a terminal beside your chat and the
+  user finishes the sign-in in the browser. A missing CLI is `needs_user`
+  with the install docs as `url`. An outdated one names its `update`
+  command; run it only when the user wants the update. Run
+  `cmux setup harness ID` again after the user acts. `signed_in: null`
+  means cmux cannot see the sign-in; it is still `ok`.
+  `cmux harness doctor ID --json` runs a real prompt turn when a harness
+  that looks ready still fails.
 - Add an ssh machine: `cmux setup machine SSH_TARGET [--name NAME]`. It is
   `ok` when the peer is already connected and current, updates a peer on an
   older build, and otherwise installs acpmux there and registers the peer;
