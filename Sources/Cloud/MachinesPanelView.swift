@@ -555,6 +555,8 @@ struct MachinesPanelView: View {
                 for: scope,
                 startedAt: readRevision
             )
+        } catch is CancellationError {
+            return
         } catch {
             let failure = CoderouterCLIFailure.classify(error)
             Self.coderouterLogger.error("CodeRouter account refresh failed (\(String(describing: failure), privacy: .public)): \(error.localizedDescription, privacy: .public)")
