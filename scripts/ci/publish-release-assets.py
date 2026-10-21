@@ -126,8 +126,6 @@ class GitHub:
                 raise RequestError(f"{method} curl exit {result.returncode}: {detail}")
             status = int(result.stdout)
             if not 200 <= status < 300:
-                # Name a quota 403 so gh-quota-retry.sh waits for the reset
-                # (nightly-next run 39536149802: "POST HTTP 403").
                 # Pass GitHub's own rate-limit message (primary or secondary)
                 # so gh-quota-retry.sh can see it (run 39536149802: "POST HTTP 403").
                 detail = ""

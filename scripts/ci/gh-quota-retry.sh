@@ -29,9 +29,10 @@ tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
 for ((attempt = 1; ; attempt++)); do
-  "$@" >"$tmp/out" 2> >(tee "$tmp/err" >&2)
+  # stdout to the file (fd 3); stderr through tee, in a pipe, so it has all
+  # been written before grep reads it (pipefail: the status is the command's).
+  { "$@" 2>&1 1>&3 3>&- | tee "$tmp/err" >&2; } 3>"$tmp/out"
   status=$?
-  wait # the tee of this attempt has written all of stderr
   if [[ $status -eq 0 ]] || ! grep -qiE 'rate limit' "$tmp/err" || (( attempt >= attempts )); then
     cat "$tmp/out"
     exit "$status"
