@@ -100,7 +100,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "agentPane.continueIn",
-                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue in…", bundle: .module),
+                title: String(localized: "action.agentPane.continueIn", defaultValue: "Continue In…", bundle: .module),
                 keywords: ["agent", "chat", "continue", "handoff", "claude", "codex", "acpmux"],
                 category: .agents, symbol: "arrow.turn.up.right", surfaces: [.palette],
                 requires: [.agentPaneFocused], targets: [.pane],
@@ -118,7 +118,7 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 category: .agents, symbol: "cpu", surfaces: [.palette, .keyboard],
                 requires: [.agentPaneFocused], targets: [.pane],
                 // A chooser for a person. Scripts set the model with `debug.agent_pane set_model`
-                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue in….
+                // or the acpmux CLI, so the CLI/MCP surface is exempt like Continue In….
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.guiOnly), contextMenuExemption: .guiOnly)
             ),
             ActionDescriptor(
@@ -347,12 +347,12 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
             // Chief Usage (chief-usage-analytics-DESIGN.md): tokens, cost, cache hit and turn
             // time of this Mac's Chiefs, as a page tab (Home's right column in Home). The
             // Chief's row menu in Home runs it too. `cmux chief usage` prints the same summary.
-            // Move Chief to… (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac, a
+            // Move Chief To… (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac, a
             // remote group or cmux Cloud; a dry run's report first, then the move and `move reach`.
             // `cmux action run chief.moveTo --arg target=…` reaches it by id.
             ActionDescriptor(
                 id: "chief.moveTo",
-                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief to…", bundle: .module),
+                title: String(localized: "action.chief.moveTo", defaultValue: "Move Chief To…", bundle: .module),
                 keywords: ["chief", "move", "migrate", "host", "remote", "mac mini", "linux", "vm", "cloud"],
                 category: .agents, symbol: "arrow.right.circle", surfaces: [.palette],
                 arguments: [ActionArgument(name: "target", title: String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module),

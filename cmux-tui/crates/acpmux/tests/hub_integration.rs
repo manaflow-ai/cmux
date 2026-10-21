@@ -17,6 +17,8 @@ use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::mpsc;
 
+#[path = "hub_integration/agent_digest.rs"]
+mod agent_digest;
 #[path = "hub_integration/agent_pairs.rs"]
 mod agent_pairs;
 #[path = "hub_integration/auto_resume.rs"]
@@ -59,6 +61,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/surfaces.rs"]
+mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
 #[path = "hub_integration/xai_requests.rs"]
