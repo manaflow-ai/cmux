@@ -27,9 +27,10 @@ extension Motion {
     }
 
     /// How far the steady ring's arrival pulse rises over its rest, and how long it takes:
-    /// one small, fast swell (motion.md), never a blink.
+    /// one small, fast swell (motion.md), never a blink. The swell is a one-off arrival, so it
+    /// takes the motion scale's ceiling (Leo 2026-10-20; it was 0.3 s).
     static let steadyPulseRise: Float = 0.2
-    static let steadyPulseDuration: TimeInterval = 0.3
+    static let steadyPulseDuration: TimeInterval = MotionScale.large
 }
 
 extension MotionGate {

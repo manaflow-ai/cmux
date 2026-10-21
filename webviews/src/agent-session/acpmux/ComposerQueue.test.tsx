@@ -206,7 +206,7 @@ test("editing a queued prompt removes one of its images and saves the rest", asy
   expect(edits).toEqual([["p-1", { op: "update", text: "why does this overlap?", images: [SHOT_B] }]]);
 });
 
-test("from the keyboard, Tab reaches an image's remove control without ending the edit", async () => {
+test("focus moving from the edit's field to an image's remove control keeps the edit open", async () => {
   const edits: [string, QueueEdit][] = [];
   const container = await renderPictured(async (id, edit) => {
     edits.push([id, edit]);
@@ -216,7 +216,8 @@ test("from the keyboard, Tab reaches an image's remove control without ending th
   await act(async () => edit.click());
   const field = container.querySelector<HTMLTextAreaElement>('[data-prompt-id="p-1"] textarea')!;
   const [remove] = container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove');
-  // Tab from the field to the first image's remove control: the edit stays open.
+  // Focus moves from the field to the first image's remove control (Tab, in a browser): the
+  // edit stays open.
   await act(async () => remove!.focus());
   expect(edits).toEqual([]);
   expect(field.isConnected).toBe(true);
@@ -262,11 +263,39 @@ test("focus moving from an image's remove control to its row saves the edit", as
   const [edit] = actions(container, "p-1");
   await act(async () => edit.click());
   const row = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
-  const [remove] = container.querySelectorAll<HTMLButtonElement>('[data-prompt-id="p-1"] .acpmux-queued-image-remove');
+  const [remove, second] = container.querySelectorAll<HTMLButtonElement>(
+    '[data-prompt-id="p-1"] .acpmux-queued-image-remove',
+  );
+  // The second image goes (a click, so the field keeps focus); then focus is on the first's control.
+  await act(async () => second!.click());
   await act(async () => remove!.focus());
+  expect(edits).toEqual([]);
   await act(async () => row.focus());
+  expect(edits).toEqual([["p-1", { op: "update", text: "why does this overlap?", images: [SHOT_A] }]]);
+  expect(container.querySelector('[data-prompt-id="p-1"] textarea')).toBeNull();
+});
+
+test("Esc on an image's remove control cancels the edit and keeps every image", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const container = await renderPictured(async (id, edit) => {
+    edits.push([id, edit]);
+    return true;
+  }, []);
+  const [edit] = actions(container, "p-1");
+  await act(async () => edit.click());
+  const [remove, second] = container.querySelectorAll<HTMLButtonElement>(
+    '[data-prompt-id="p-1"] .acpmux-queued-image-remove',
+  );
+  await act(async () => second!.click());
+  expect(thumbnails(container).length).toBe(1);
+  await act(async () => remove!.focus());
+  await act(async () => {
+    remove!.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+  });
   expect(edits).toEqual([]);
   expect(container.querySelector('[data-prompt-id="p-1"] textarea')).toBeNull();
+  expect(thumbnails(container).length).toBe(2);
+  expect(dom!.window.document.activeElement).toBe(container.querySelector('[data-prompt-id="p-1"]'));
 });
 
 test("editing only a queued prompt's text sends no image list, so it keeps them all", async () => {

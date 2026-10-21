@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextCompat
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
 import Foundation
@@ -8,7 +9,7 @@ import Testing
 /// `cmux pane open-files-as --path DIR` and `cmux pane open-find-as --path DIR`:
 /// the CLI (and MCP) run of Open Files / Find as Pane opens its tab on the
 /// folder the script names, not the focused terminal's.
-@MainActor @Suite(.serialized)
+@MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
 struct OpenAsPaneFolderTests {
     @Test func openFilesAsPaneOpensOnTheNamedFolder() async throws {
         try await Self.run("palette.openFilesPane", page: .filesPane) { services, key in
@@ -53,8 +54,9 @@ struct OpenAsPaneFolderTests {
             controller.window?.close()
             try? FileManager.default.removeItem(at: folder)
         }
-        // Bounded wait for the window to lay out the workspace's pane (as NewTabHoldFocusTests).
-        for _ in 0..<200 where controller.workspaceContent?.panes.isEmpty != false { try await Task.sleep(for: .milliseconds(10)) }
+        // The window mounts the workspace's pane in a later layout pass: wait for that signal
+        // (`PaneMounts` changes when a pane controller mounts), not for time to pass.
+        for await _ in ObservationStream({ services.paneMounts.generation }) where controller.workspaceContent?.panes.isEmpty == false { break }
         try #require(controller.workspaceContent?.panes.isEmpty == false, "the window never showed the workspace's pane")
         var invocation = ActionInvocation(origin: .cli)
         invocation.arguments["path"] = .string(folder.path)

@@ -229,6 +229,11 @@ export const PAGES = {
     out: "webviews/src/pages/chief-usage/generated/strings.json",
     catalogs: [{ file: "webviews/src/pages/chief-usage/Localizable.xcstrings" }],
   },
+  // The Chief view gallery (cmux-page://cmux.chief-views/); its table lives next to it.
+  "chief-views": {
+    out: "webviews/src/pages/chief-views/generated/strings.json",
+    catalogs: [{ file: "webviews/src/pages/chief-views/Localizable.xcstrings" }],
+  },
   // The CodeRouter page (cmux-page://cmux.coderouter/) has no Swift page; its table lives next to it.
   coderouter: {
     out: "webviews/src/pages/coderouter/generated/strings.json",

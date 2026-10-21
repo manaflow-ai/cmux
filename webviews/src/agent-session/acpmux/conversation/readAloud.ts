@@ -34,6 +34,13 @@ export function readAloud(id: string, text: string, lang?: string): void {
   synth.speak(utterance);
 }
 
+/// Stops whatever message is being read: the chat moved to another session or left the page.
+export function stopReadingAloud(): void {
+  if (speaking === undefined) return;
+  if (canReadAloud()) window.speechSynthesis.cancel();
+  set(undefined);
+}
+
 /// Whether message `id` is being read now.
 export function useReadingAloud(id: string): boolean {
   return useSyncExternalStore(

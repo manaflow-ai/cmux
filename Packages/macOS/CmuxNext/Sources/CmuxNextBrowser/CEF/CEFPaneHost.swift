@@ -287,8 +287,9 @@ final class CEFPaneHost {
         tab.isCreationPending = true
         add(tab)
         runtime.register(tab, browser: browser)
-        // Opened by a page: past a new tab's first paint (PageBackground).
-        tab.reachedFirstRealPage()
+        // Opened by a page: past a new tab's first paint (PageBackground), and
+        // Chromium, not us, drives its document, so its page area is its own.
+        tab.reachedFirstRealPage(settled: true)
         tab.inheritDelegates(from: opener)
         opener?.emit(.adoptTab(tab, disposition))
     }
