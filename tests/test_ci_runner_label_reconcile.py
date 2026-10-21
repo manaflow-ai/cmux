@@ -90,9 +90,30 @@ class Reconcile(unittest.TestCase):
         api.list = list(listed)
         api.runners = lambda: listed
         api.list = [item for item in listed if item["id"] != 1]  # re-registered after the listing
-        out = self.run_main(api, "--apply")
-        self.assertIn("cmux7-glaeda-3", out)
+        out = self.run_main(api, "--apply")  # exits 0: a vanished runner is not a failure
+        self.assertIn("cmux7-glaeda-3: gone since the listing; skipped", out)
+        self.assertNotIn("::warning", out)
+        self.assertIn("1 runner(s) relabelled", out)
         self.assertEqual([call[0] for call in api.calls], [4])
+        # The only runner to relabel vanished: still green.
+        only = FakeApi(self.fleet())
+        only.runners = lambda: self.fleet()
+        only.list = []
+        self.assertIn("0 runner(s) relabelled", self.run_main(only, "--apply"))
+
+    def test_a_failed_write_with_none_landed_is_red(self):
+        api = FakeApi(self.fleet())
+
+        def refuse(rid, labels):
+            raise reconcile.urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+        api.set_labels = refuse
+        with tempfile.TemporaryDirectory() as tmp:
+            rules = Path(tmp) / "rules.py"
+            rules.write_text(RULES)
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(reconcile.main(["--apply"], {"GLAEDA_LABELS": str(rules)}, api), 1)
+        self.assertIn("::warning", out.getvalue())
 
     def test_a_glaeda_without_the_rule_changes_nothing(self):
         api = FakeApi(self.fleet())

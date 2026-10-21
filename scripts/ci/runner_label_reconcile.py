@@ -96,7 +96,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ,
         return 0
     api = api or GitHub(env["GITHUB_TOKEN_RUNNERS"], args.org)
     todo = plan(api.runners(), widen)
-    failed = 0
+    failed = changed = 0
     for runner, current, wanted in todo:
         added = [label for label in wanted if label not in current]
         print(f"{runner.get('name')}: {'set' if args.apply else 'would add'} {' '.join(added)}")
@@ -110,16 +110,24 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ,
                 if set(wanted) == set(fresh):
                     continue
             api.set_labels(runner["id"], wanted)
+            changed += 1
+        except urllib.error.HTTPError as error:
+            if error.code == 404:
+                # Removed or re-registered since the listing: the next run sees its new registration.
+                print(f"{runner.get('name')}: gone since the listing; skipped")
+                continue
+            failed += 1
+            print(f"::warning title=runner labels::{runner.get('name')}: {error}; retried next run")
         except (urllib.error.URLError, OSError, ValueError) as error:
             failed += 1
             print(f"::warning title=runner labels::{runner.get('name')}: {error}; retried next run")
-    print(f"{len(todo)} runner(s) {'relabelled' if args.apply else 'to relabel'}; the rest match glaeda's rules")
+    done = f"{changed} runner(s) relabelled" if args.apply else f"{len(todo)} runner(s) to relabel"
+    print(f"{done}; the rest match glaeda's rules")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
-        Path(summary).write_text(f"### Runner labels\n\n{len(todo)} runner(s) "
-                                 f"{'relabelled' if args.apply else 'to relabel (dry run)'}.\n")
-    return 1 if failed and failed == len(todo) else 0
-
+        Path(summary).write_text(f"### Runner labels\n\n{done if args.apply else done + ' (dry run)'}.\n")
+    # Red only when writes failed and none landed, so a broken token or permission shows; one flaky runner does not.
+    return 1 if failed and not changed else 0
 
 if __name__ == "__main__":
     sys.exit(main())
