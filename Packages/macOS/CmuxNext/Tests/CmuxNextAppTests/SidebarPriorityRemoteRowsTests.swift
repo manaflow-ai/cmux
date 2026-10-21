@@ -175,8 +175,8 @@ struct SidebarPriorityRemoteRowsTests {
     @Test func openingARemoteRowRevealsTheTabOnTheMachineWhoseRowItIs() throws {
         let vm = Remote.tree([Remote.chatTab(1, session: "vm-only", host: "install:vm", title: "VM"),
                               Remote.chatTab(2, session: "both", host: "install:vm", title: "Both on VM")])
-        let box = Remote.tree([Remote.chatTab(1, session: "box-only", host: "install:box", title: "Box"),
-                               Remote.chatTab(2, session: "both", host: "install:box", title: "Both on box")])
+        let box = Remote.tree([Remote.chatTab(11, session: "box-only", host: "install:box", title: "Box"),
+                               Remote.chatTab(12, session: "both", host: "install:box", title: "Both on box")])
         let tab = { (store: DaemonStore, session: String) in
             store.workspaces.flatMap(\.screens).flatMap(\.panes).flatMap(\.tabs).first { $0.agentSession?.session == session }?.id
         }
@@ -184,8 +184,46 @@ struct SidebarPriorityRemoteRowsTests {
         #expect(chats.remoteTab(showing: "box-only") == tab(box, "box-only"))
         #expect(chats.remoteTab(showing: "vm-only") == tab(vm, "vm-only"))
         #expect(chats.entries().first { $0.id == "both" }?.machine == "gpu-box")
-        #expect(chats.remoteTab(showing: "both") == tab(vm, "both"), "the row's machine, the one its tag names")
+        let onVM = try #require(tab(vm, "both")), onBox = try #require(tab(box, "both"))
+        #expect(onVM != onBox, "each machine's tab is its own")
+        #expect(chats.remoteTab(showing: "both") == onVM, "the row's machine, the one its tag names")
+        let boxFirst = Self.chats { [SidebarPriorityMachine(name: "big-blue", store: box), SidebarPriorityMachine(name: "gpu-box", store: vm)] }
+        #expect(boxFirst.entries().first { $0.id == "both" }?.machine == "big-blue")
+        #expect(boxFirst.remoteTab(showing: "both") == onBox, "with the box listed first its row and its tab are the box's")
         #expect(chats.remoteTab(showing: "nowhere") == nil)
+    }
+
+    @Test func aMarkOnARemoteNoticeEndsWhenARestartedDaemonReusesItsIdForANewNotice() async throws {
+        let suite = "priority-remote-reuse-\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let posted = UInt64(Date().timeIntervalSince1970 * 1000) - 60_000
+        let ask = { (at: UInt64) in
+            var tab = Remote.chatTab(1, session: "vm-asks", host: "install:vm", title: "Fix", notice: (12, .warning, unread: true))
+            tab.notification?.createdAtMs = at
+            var done = Remote.chatTab(2, session: "vm-done", host: "install:vm", title: "Bump", notice: (13, .info, unread: true))
+            done.notification?.createdAtMs = at
+            return Self.tree([tab, done])
+        }
+        let store = DaemonStore()
+        store.apply(snapshot: ask(posted))
+        let machines = { @MainActor in [SidebarPriorityMachine(name: "gpu-box", store: store)] }
+        let chats = Self.chats(machines, marks: AgentPriorityMarks(defaults: defaults))
+        #expect(chats.snooze("vm-asks"))
+        #expect(chats.markRead("vm-done"))
+        let row = { (chats: AgentPriorityChats, id: String) in chats.entries().first { $0.id == id } }
+        #expect(row(chats, "vm-asks") == nil)
+        #expect(row(chats, "vm-done")?.state == .idle)
+
+        // The same notices after a reload: the marks still hold.
+        let reloaded = Self.chats(machines, marks: AgentPriorityMarks(defaults: defaults))
+        #expect(row(reloaded, "vm-asks") == nil, "the same notice at the same time stays snoozed after a reload")
+        #expect(row(reloaded, "vm-done")?.state == .idle, "and stays read")
+
+        // The daemon restarts and renumbers its notices: new ones reuse ids 12 and 13 at a new time.
+        store.apply(snapshot: ask(posted + 30_000))
+        #expect(row(reloaded, "vm-asks")?.state == .needsYou, "a new question that reuses a snoozed notice's id shows")
+        #expect(row(reloaded, "vm-done")?.state == .done, "a new result that reuses a read notice's id shows unread")
     }
 
     @Test func archivingARemoteRowDoesNothing() throws {
