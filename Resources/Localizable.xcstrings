@@ -671652,6 +671652,360 @@
           }
         }
       }
+    },
+    "search.fullTmuxHistory.alternateScreen.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This pane is showing a full-screen app, which has no tmux history"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض هذا الجزء تطبيقًا بملء الشاشة، وليس له سجل tmux"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "In diesem Bereich läuft eine Vollbild-App, die keinen tmux-Verlauf hat"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este panel muestra una app a pantalla completa, que no tiene historial de tmux"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce volet affiche une app en plein écran, qui n’a pas d’historique tmux"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインはフルスクリーンのアプリを表示しているため、tmux の履歴がありません"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 창에는 전체 화면 앱이 표시되어 있어 tmux 기록이 없습니다"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格正在显示全屏 App，它没有 tmux 历史记录"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此窗格正在顯示全螢幕 App，它沒有 tmux 歷史記錄"
+          }
+        }
+      }
+    },
+    "search.fullTmuxHistory.failed.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Couldn't load tmux history. Click to try again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تعذّر تحميل سجل tmux. انقر للمحاولة مرة أخرى."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Verlauf konnte nicht geladen werden. Klicken, um es erneut zu versuchen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No se pudo cargar el historial de tmux. Haz clic para volver a intentarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger l’historique tmux. Cliquez pour réessayer."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux の履歴を読み込めませんでした。クリックして再試行してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 기록을 불러올 수 없습니다. 다시 시도하려면 클릭하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "无法加载 tmux 历史记录。点按以重试。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "無法載入 tmux 歷史記錄。按一下以再試一次。"
+          }
+        }
+      }
+    },
+    "search.fullTmuxHistory.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search full tmux history (Option-Return)"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في سجل tmux بالكامل (Option-Return)"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gesamten tmux-Verlauf durchsuchen (Wahl-Return)"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar en todo el historial de tmux (Opción-Retorno)"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans tout l’historique tmux (Option-Retour)"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux の履歴全体を検索（Option-Return）"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 기록 전체 검색 (Option-Return)"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索完整的 tmux 历史记录（Option-Return）"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋完整的 tmux 歷史記錄（Option-Return）"
+          }
+        }
+      }
+    },
+    "search.fullTmuxHistory.loaded.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Searching this pane's full tmux history. Click to load it again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتم البحث في سجل tmux الكامل لهذا الجزء. انقر لإعادة تحميله."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Durchsucht den gesamten tmux-Verlauf dieses Bereichs. Klicken, um ihn erneut zu laden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscando en todo el historial de tmux de este panel. Haz clic para volver a cargarlo."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Recherche dans tout l’historique tmux de ce volet. Cliquez pour le recharger."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインの tmux 履歴全体を検索しています。クリックすると再読み込みします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 창의 tmux 기록 전체를 검색하고 있습니다. 다시 불러오려면 클릭하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在搜索此窗格的完整 tmux 历史记录。点按以重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在搜尋此窗格的完整 tmux 歷史記錄。按一下以重新載入。"
+          }
+        }
+      }
+    },
+    "search.fullTmuxHistory.loading.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loading tmux history…"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جارٍ تحميل سجل tmux…"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux-Verlauf wird geladen …"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cargando el historial de tmux…"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chargement de l’historique tmux…"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux の履歴を読み込み中…"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "tmux 기록을 불러오는 중…"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在加载 tmux 历史记录…"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "正在載入 tmux 歷史記錄…"
+          }
+        }
+      }
+    },
+    "search.fullTmuxHistory.truncated.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Loaded the newest part of this pane's tmux history. Click to load it again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تم تحميل أحدث جزء من سجل tmux لهذا الجزء. انقر لإعادة تحميله."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der neueste Teil des tmux-Verlaufs dieses Bereichs wurde geladen. Klicken, um ihn erneut zu laden."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se cargó la parte más reciente del historial de tmux de este panel. Haz clic para volver a cargarla."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La partie la plus récente de l’historique tmux de ce volet a été chargée. Cliquez pour la recharger."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このペインの tmux 履歴のうち新しい部分を読み込みました。クリックすると再読み込みします。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 창의 tmux 기록 중 최신 부분을 불러왔습니다. 다시 불러오려면 클릭하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已加载此窗格 tmux 历史记录中最新的部分。点按以重新加载。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "已載入此窗格 tmux 歷史記錄中最新的部分。按一下以重新載入。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
