@@ -1,4 +1,6 @@
+import CmuxNextAgentLanes
 import CmuxNextAgentPane
+import CmuxNextBridge
 @testable import CmuxNextApp
 import Foundation
 import Testing
@@ -55,7 +57,7 @@ import Testing
 
         #expect(AgentChatUploads.sweep(root, now: now) == 3)
         #expect(!manager.fileExists(atPath: old.path) && manager.fileExists(atPath: new.path))
-        #expect(!manager.fileExists(atPath: onlyOld.deletingLastPathComponent().path), "an emptied chat folder stays")
+        #expect(!manager.fileExists(atPath: onlyOld.deletingLastPathComponent().path), "an emptied chat folder goes")
         #expect(!manager.fileExists(atPath: newChatOld.path) && manager.fileExists(atPath: newChatNew.path))
         #expect(manager.fileExists(atPath: notes.path))
         #expect(manager.fileExists(atPath: outside.appending(path: "keep.txt").path))
@@ -77,5 +79,34 @@ import Testing
     @Test func aSessionIdIsOneFolderName() {
         for good in ["0190a000-0000-7000-8000-000000000001", "chat_1"] { #expect(AgentChatUploads.isSessionName(good), "\(good)") }
         for bad in ["", ".", "..", "a/b", "huge-blue/chat", "é"] { #expect(!AgentChatUploads.isSessionName(bad), "\(bad)") }
+    }
+}
+
+/// Only this Mac's acpmux deleting one of its own chats deletes the chat's uploads. The watch also
+/// relays a peer's or the Cloud VM's purge (a Cloud lease ending relays one per chat, under the
+/// chat's own id), and Bring Back purges the closed copy it replaces under the same id: those
+/// chats still exist, and their prompts name the files.
+@MainActor
+@Suite(.serialized)
+struct AgentChatUploadsPurgeTests {
+    @Test func onlyThisMacsOwnDeleteDeletesAChatsUploads() async throws {
+        let acpmux = try StandInAcpmux(sessions: [])
+        let feed = AgentTurnStateFeed(socketPath: acpmux.path, turns: AgentTurnStateStore())
+        var deleted: [String] = []
+        let previous = AgentTurnStateFeed.purged
+        AgentTurnStateFeed.purged = { deleted.append($0) }
+        defer { AgentTurnStateFeed.purged = previous }
+        feed.start(localHost: "install:chat-uploads")
+        func purged(_ id: String, _ extra: [String: Any] = [:]) -> [String: Any] {
+            let params: [String: Any] = ["sessionId": id, "session": ["sessionId": id], "kind": "purged", "recordKind": "purged", "seq": 1]
+            return params.merging(extra) { $1 }
+        }
+        acpmux.push(params: purged("on-cloud", ["peer": "cloud-vm"]))
+        acpmux.push(params: purged("brought-back", ["replaced": true]))
+        acpmux.push(params: purged("deleted"))
+        let deadline = ContinuousClock.now + .seconds(5)
+        while deleted.isEmpty, ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(20)) }
+        #expect(deleted == ["deleted"])
+        withExtendedLifetime((acpmux, feed)) {}
     }
 }
