@@ -96,7 +96,9 @@ CMUX_GALLERY_IN_VM=1 bun health.ts --manifest manifest.json --gallery-dir ../../
 ```
 
 Each state also has a ready-time budget: navigation start to the stage's first ready report
-(mount, play and settle; the runner records it as `readyMs`). `ready-budgets.json` holds a default
+(mount, play and settle, less the time the play waited for its step stills; the runner records it
+as `readyMs`). A state whose budget limit is past the runner's 20 s ready wait can only fail as
+never ready. `ready-budgets.json` holds a default
 and a row for each state slower than it. A state past its budget by half again plus 500 ms is
 rendered again, and fails only when its fastest run is still past it. A state that beats its row by
 a fifth is printed with the lower value. Rows only go down: download a run's `gallery-health-*`

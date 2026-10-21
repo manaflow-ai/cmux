@@ -215,13 +215,16 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     });
     // One still per settled play step (frame/playRunner.ts), for the per-PR diff's filmstrips.
     const stills: { index: number; step: string; screenshot: string }[] = [];
+    let stillsMs = 0;
     await page.exposeFunction("cmuxGalleryStep", async (step: { index: number; step: string }) => {
+      const started = Date.now();
       const name = `${safeFilePart(item.id)}-${engine}--step-${String(step.index + 1).padStart(2, "0")}.png`;
       await page.screenshot({ path: join(outputDir, name), fullPage: true });
       stills.push({ index: step.index, step: String(step.step).slice(0, 200), screenshot: name });
+      stillsMs += Date.now() - started;
     });
-    // When the stage first says it is ready, from navigation start (mount, play and settle; no
-    // screenshot): gallery health holds each state to a ready-time budget (health.ts). The script runs
+    // When the stage first says it is ready, from navigation start (mount, play and settle; the play
+    // waits for each step's still, and that time is taken out below): gallery health holds each state to a ready-time budget (health.ts). The script runs
     // before <html> exists, so it watches the document.
     await page.addInitScript(() => {
       const stamp = window as unknown as { cmuxGalleryReadyMs?: number };
@@ -240,7 +243,8 @@ async function renderCase(baseUrl: string, item: MatrixCase, engine: Engine, out
     // A gallery stage says when it has painted and gone still (frame/main.ts `data-gallery-ready`).
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady !== undefined || !document.querySelector("script[src*='gallery-frame']"), null, { timeout: 20_000 }).catch(() => undefined);
     const ready = await page.evaluate(() => document.documentElement.dataset.galleryReady ?? null);
-    const readyMs = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
+    const stamped = await page.evaluate(() => (window as unknown as { cmuxGalleryReadyMs?: number }).cmuxGalleryReadyMs ?? null);
+    const readyMs = stamped === null ? null : Math.max(0, stamped - stillsMs);
     const revision = await page.evaluate(() => {
       const root = document.documentElement;
       return {

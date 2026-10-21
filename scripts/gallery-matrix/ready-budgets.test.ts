@@ -5,12 +5,14 @@ import { type Budgets, fastest, formatBudgets, limit, lowerable, lowered, overBu
 const budgets: Budgets = { default: 1000, states: { "slow.entry#open": 4000, "slow.entry#closed": 3000 } };
 const result = (entry: string, variant: string, readyMs: number | null, ready = "1") => ({ params: { entry, variant }, ready, readyMs });
 
-test("a state's time is its slowest case in a run; unready cases have none", () => {
+test("a state's time is its slowest case in a run; a state with an unready case has none", () => {
   const times = readyTimes([
     result("ui.select", "open", 300),
     result("ui.select", "open", 450),
     result("ui.menu", "open", 900, "error"),
     result("ui.list", "empty", null),
+    result("ui.tabs", "wide", 200),
+    result("ui.tabs", "wide", null, "error"),
   ]);
   expect(times).toEqual(new Map([["ui.select#open", 450]]));
 });

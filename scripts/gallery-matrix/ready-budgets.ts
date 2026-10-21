@@ -29,14 +29,19 @@ export const budgetOf = (budgets: Budgets, state: string): number => budgets.sta
 const stateOf = (result: ReadyResult): string =>
   `${String(result.params?.entry ?? "")}#${String(result.params?.variant ?? "")}`;
 
-/** Each ready state's time in one run: the slowest of its cases (a state may render at several widths). */
+/**
+ * Each state's time in one run: the slowest of its cases (a state may render at several widths). A
+ * state with a case that never got ready has no time in that run, so a fast case cannot stand in for it.
+ */
 export function readyTimes(results: ReadyResult[]): Map<string, number> {
   const times = new Map<string, number>();
+  const unready = new Set<string>();
   for (const result of results) {
-    if (result.ready !== "1" || typeof result.readyMs !== "number") continue;
     const state = stateOf(result);
-    times.set(state, Math.max(times.get(state) ?? 0, result.readyMs));
+    if (result.ready !== "1" || typeof result.readyMs !== "number") unready.add(state);
+    else times.set(state, Math.max(times.get(state) ?? 0, result.readyMs));
   }
+  for (const state of unready) times.delete(state);
   return times;
 }
 
