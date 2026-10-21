@@ -17,9 +17,11 @@ mod bookmarks;
 mod cancel;
 mod catalog_reload;
 mod complete;
+pub mod composers;
 mod cursor_ext;
 mod fork;
 mod fork_at;
+pub mod forum;
 mod handoff;
 mod harness_view;
 mod harness_watch;
@@ -43,6 +45,7 @@ mod paging;
 mod personal_stats;
 mod pool;
 mod prompt_images;
+mod prompt_ledger;
 mod queue;
 mod queue_edit;
 pub use queue::QueuedPrompt;
@@ -227,9 +230,6 @@ pub struct PromptOptions {
 /// The outcome of one client prompt id, shared with a resend of it.
 pub(super) type PromptOutcome = Arc<tokio::sync::watch::Sender<Option<Result<Value, RpcError>>>>;
 
-/// Client prompt ids remembered per session for deduplication.
-pub(super) const PROMPT_LEDGER: usize = 64;
-
 /// What the agent's stream says about the current assistant message, used
 /// to record `message_superseded` and to attach streamed error text to
 /// `turn_result`.
@@ -253,6 +253,8 @@ pub struct Hub {
     pub config: RwLock<Config>,
     pub(super) store: Box<dyn Store>,
     pub(super) mailbox: Mailbox,
+    /// The forum log (`forum.rs`, `hub/forum.rs`).
+    pub(super) forum: std::sync::OnceLock<crate::forum::Forum>,
     pub(super) sessions: StdMutex<HashMap<String, Arc<Session>>>,
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
@@ -392,6 +394,7 @@ impl Hub {
             config: RwLock::new(config),
             store,
             mailbox,
+            forum: std::sync::OnceLock::new(),
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
@@ -553,6 +556,15 @@ impl Hub {
     /// daemon runs it after its ready line; prompts wait for it (`wait_logs`).
     pub fn load_logs(self: &Arc<Self>) {
         let started = std::time::Instant::now();
+        // The calls that wait for the load (`wait_logs`) answer even when it fails.
+        let _ready = LogsReady(&self.logs_ready);
+        // Debug builds only: a test makes the load fail as a corrupt log could
+        // (`durable_agents.rs`). Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ACPMUX_TEST_PANIC_IN_LOAD_LOGS").is_some() {
+            // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
+            panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
+        }
         let sessions = self.sessions();
         self.on_every_core(&sessions, |session| self.catch_up(session));
         let waiting = std::mem::take(&mut *self.waiting_at_load.lock().unwrap());
@@ -561,7 +573,6 @@ impl Hub {
         self.mark_lost_waits(&waiting, &hosted);
         self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
-        self.logs_ready.send_replace(true);
         tracing::info!(
             "loaded the chat logs of {} sessions in {} ms",
             sessions.len(),
@@ -572,10 +583,15 @@ impl Hub {
     /// `load_logs` off the executor.
     pub async fn load_logs_async(self: &Arc<Self>) {
         let hub = self.clone();
-        let _ = tokio::task::spawn_blocking(move || hub.load_logs()).await;
+        if let Err(e) = tokio::task::spawn_blocking(move || hub.load_logs()).await {
+            tracing::error!("reading the chat logs failed: {e}");
+            // A task that never ran dropped no guard.
+            self.logs_ready.send_replace(true);
+        }
     }
 
-    /// Wait until the chat logs are read (immediate outside a deferred daemon start).
+    /// Wait until the chat logs are read, or their load failed (immediate outside a deferred
+    /// daemon start).
     pub(crate) async fn wait_logs(&self) {
         let mut rx = self.logs_ready.subscribe();
         let _ = rx.wait_for(|ready| *ready).await;
@@ -651,6 +667,10 @@ impl Hub {
             asks_in_flight: std::sync::atomic::AtomicUsize::new(0),
             asks_landed: Notify::new(),
             rehydrate: AtomicBool::new(false),
+            forum_retell: AtomicBool::new(false),
+            forum_retold: std::sync::Mutex::default(),
+            forum_telling: std::sync::Mutex::default(),
+            launched_with_tools: std::sync::atomic::AtomicU8::new(0),
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
@@ -673,6 +693,7 @@ impl Hub {
             subagents: StdMutex::new(Default::default()),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
+            composers: StdMutex::new(Default::default()),
         })
     }
 
@@ -1120,5 +1141,23 @@ pub(crate) fn merge_mux_meta(v: &mut Value, fields: Value) {
         for (k, v) in src {
             dst.insert(k.clone(), v.clone());
         }
+    }
+}
+
+/// Ends the startup log load (`Hub::load_logs`) however it stops. A load that panicked
+/// leaves the daemon on the session list and whatever the load finished before the panic
+/// (the logs on disk are untouched; the next start reads them again), and says so in the
+/// daemon log: an answer from that state beats `attach` and prompts that never answer.
+struct LogsReady<'a>(&'a tokio::sync::watch::Sender<bool>);
+
+impl Drop for LogsReady<'_> {
+    fn drop(&mut self) {
+        if std::thread::panicking() {
+            tracing::error!(
+                "reading the chat logs panicked; chats answer from the session list without \
+                 the rest of the load (queues, cut-off turns, log tails)"
+            );
+        }
+        self.0.send_replace(true);
     }
 }

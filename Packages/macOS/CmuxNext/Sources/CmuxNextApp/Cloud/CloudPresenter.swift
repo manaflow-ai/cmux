@@ -49,31 +49,6 @@ enum CloudPresenter {
         present(spec, in: window) { answer in done(answer?.button == "confirm") }
     }
 
-    /// Asks for a line of text. Calls `done` with the text, or nil on cancel.
-    static func askText(_ title: String, initial: String, button: String, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        let spec = CmuxDialogSpec(title: title, fields: [.text("text", initial: initial)],
-                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "confirm", title: button, role: .default)],
-                                  identifier: "cmux.dialog.cloud.text")
-        present(spec, in: window) { answer in
-            done(answer?.button == "confirm" ? answer?.text("text") : nil)
-        }
-    }
-
-    /// Asks to pick one of `choices` (title, value).
-    static func choose(_ title: String, _ choices: [(String, String)], selected: String?, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        choose(title, options: choices.map { CmuxDialogOption(label: $0.0, value: $0.1) }, selected: selected, in: window, done: done)
-    }
-
-    /// Asks to pick one of `options`; a disabled option lists greyed out and cannot be picked.
-    static func choose(_ title: String, options: [CmuxDialogOption], selected: String?, in window: NSWindow?, done: @escaping (String?) -> Void) {
-        let spec = CmuxDialogSpec(title: title, fields: [.choice(id: "choice", label: nil, options: options, selected: selected)],
-                                  buttons: [.cancel(CloudStrings.cancel), CmuxDialogButton(id: "select", title: CloudStrings.select, role: .default)],
-                                  identifier: "cmux.dialog.cloud.choose")
-        present(spec, in: window) { answer in
-            done(answer?.button == "select" ? answer?.text("choice") : nil)
-        }
-    }
-
     static func copy(_ text: String) {
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString(text, forType: .string)
