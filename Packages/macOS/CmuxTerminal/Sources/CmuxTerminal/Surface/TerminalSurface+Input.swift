@@ -402,6 +402,14 @@ extension TerminalSurface {
             events.append(.terminalBytes(data))
         }
 
+        func appendRawBytes(length: Int, from start: Int) {
+            var sequence = ""
+            for offset in start..<(start + length) {
+                sequence.unicodeScalars.append(scalars[offset])
+            }
+            events.append(.rawBytes(Data(sequence.utf8)))
+        }
+
         var index = 0
         while index < scalars.count {
             let scalar = scalars[index]
@@ -437,6 +445,15 @@ extension TerminalSurface {
                 } else if let length = terminalControlSequenceLength(scalars, from: index) {
                     flushBufferedText()
                     appendTerminalBytes(length: length, from: index)
+                    index += length
+                } else if let length = encodedKeySequenceLength(scalars, from: index) {
+                    // Any other complete CSI or SS3 sequence was already
+                    // encoded for the program's keyboard mode (a viewing
+                    // Mac's Kitty `ESC[27u`, modified arrows, bracketed
+                    // paste). Splitting it into Escape plus its tail typed
+                    // the tail as text.
+                    flushBufferedText()
+                    appendRawBytes(length: length, from: index)
                     index += length
                 } else {
                     flushBufferedText()
@@ -498,6 +515,31 @@ extension TerminalSurface {
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: true)
         case 0x50, 0x58, 0x5E, 0x5F: // DCS / SOS / PM / APC: ESC P/X/^/_ ... ST
             return stringControlSequenceLength(scalars, from: start, terminatesWithBEL: false)
+        default:
+            return nil
+        }
+    }
+
+    /// Length of a complete 7-bit CSI (`ESC [ params intermediates final`) or
+    /// SS3 (`ESC O final`) sequence at `start`, or nil for a bare or partial
+    /// escape.
+    private static func encodedKeySequenceLength(
+        _ scalars: [Unicode.Scalar],
+        from start: Int
+    ) -> Int? {
+        guard start + 2 < scalars.count, scalars[start].value == 0x1B else { return nil }
+        switch scalars[start + 1].value {
+        case 0x4F: // SS3
+            return (0x40...0x7E).contains(scalars[start + 2].value) ? 3 : nil
+        case 0x5B: // CSI
+            var cursor = start + 2
+            while cursor < scalars.count {
+                let value = scalars[cursor].value
+                if (0x40...0x7E).contains(value) { return cursor - start + 1 }
+                guard (0x20...0x3F).contains(value) else { return nil }
+                cursor += 1
+            }
+            return nil
         default:
             return nil
         }
