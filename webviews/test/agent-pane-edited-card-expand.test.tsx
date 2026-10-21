@@ -148,7 +148,7 @@ const editInFolder = () =>
   ]);
 
 /// Claude Code's MultiEdit: named as its block starts with part of its input, then the whole input,
-/// which replaces what the first one gave.
+/// which replaces the diffs the first one gave.
 const CONFIG = `${FOLDER}/config.sh`;
 const multiEdit = () =>
   toolCall("multi-1", [
@@ -168,7 +168,8 @@ const multiEdit = () =>
         ],
       },
     },
-    { status: "completed", content: result("Applied 2 edits") },
+    // Ends with no content, so nothing but the input says what changed.
+    { status: "completed" },
   ]);
 
 /// An edit to a file outside any repository, with the ACP `diff` content Claude Code sends.
