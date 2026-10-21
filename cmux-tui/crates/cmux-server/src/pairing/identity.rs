@@ -1,6 +1,6 @@
 //! One private, locked enrollment record. Public status never serializes it.
 
-use std::fs::{File, OpenOptions, TryLockError};
+use std::fs::{OpenOptions, TryLockError};
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
@@ -8,6 +8,7 @@ use base64::Engine as _;
 use base64::engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD};
 use cmux_server_core::install_key::{InstallKey, SystemRandom};
 use cmux_server_core::pairing::enrollment::Paired;
+use cmux_server_core::pairing::native::{Grant, Registration};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use zeroize::{Zeroize, Zeroizing};
@@ -25,6 +26,15 @@ pub(super) struct Identity {
     protection: String,
     pub paired: Option<Paired>,
     pub attempt: Option<Attempt>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native: Option<NativeState>,
+}
+
+#[derive(Serialize, Deserialize)]
+#[serde(tag = "state", rename_all = "snake_case", deny_unknown_fields)]
+pub(super) enum NativeState {
+    Pending { response: String, received_at: u64 },
+    Registered { registration: Registration },
 }
 
 #[derive(Serialize, Deserialize)]
@@ -67,6 +77,7 @@ impl Identity {
             protected_keys: URL_SAFE_NO_PAD.encode(protected),
             paired: None,
             attempt: None,
+            native: None,
         })
     }
 
@@ -118,6 +129,26 @@ impl Identity {
         self.attempt.as_mut().ok_or_else(invalid)?.expires_at = response["expires_at"].as_u64();
         Ok(())
     }
+
+    pub fn save_native(&mut self, grant: &Grant, received_at: u64) -> Result<()> {
+        let private = grant.private_record().map_err(|_| invalid())?;
+        let bytes = Zeroizing::new(serde_json::to_vec(&private).map_err(|_| invalid())?);
+        let (protection, sealed) = super::protect::seal(&bytes)?;
+        if protection != self.protection {
+            return Err(invalid());
+        }
+        self.schema = 2;
+        self.native =
+            Some(NativeState::Pending { response: URL_SAFE_NO_PAD.encode(sealed), received_at });
+        Ok(())
+    }
+    pub fn native_grant(&self) -> Result<Option<Grant>> {
+        let Some(NativeState::Pending { response, .. }) = &self.native else { return Ok(None) };
+        let bytes = URL_SAFE_NO_PAD.decode(response).map_err(|_| invalid())?;
+        let plain = Zeroizing::new(super::protect::open(&self.protection, &bytes)?);
+        let value = serde_json::from_slice(&plain).map_err(|_| invalid())?;
+        Grant::parse(&value).map(Some).map_err(|_| invalid())
+    }
 }
 
 fn invalid() -> Error {
@@ -126,7 +157,7 @@ fn invalid() -> Error {
 
 pub(super) struct Store {
     path: PathBuf,
-    _lock: File,
+    _lock: fsx::FileLock,
 }
 
 fn check_private(meta: &std::fs::Metadata, directory: bool) -> Result<()> {
@@ -171,13 +202,17 @@ pub(super) fn read(path: &Path) -> Result<Option<Identity>> {
         return Err(invalid());
     }
     let identity: Identity = serde_json::from_slice(&bytes).map_err(|_| invalid())?;
-    if identity.schema != 1 {
+    if !matches!(identity.schema, 1 | 2)
+        || (identity.schema == 1 && identity.native.is_some())
+        || (identity.schema == 2 && identity.native.is_none())
+    {
         return Err(invalid());
     }
     if super::api_origin(&identity.api).map_err(|_| invalid())? != identity.api
         || !super::protect::supported(&identity.protection)
         || cmux_server_core::pairing::enrollment::jwk_thumbprint(&identity.public_jwk).is_err()
         || (identity.paired.is_some() && identity.attempt.is_some())
+        || (identity.native.is_some() && (identity.paired.is_none() || identity.attempt.is_some()))
         || identity.attempt.as_ref().is_some_and(|a| a.response.is_some() != a.expires_at.is_some())
     {
         return Err(invalid());
@@ -185,6 +220,7 @@ pub(super) fn read(path: &Path) -> Result<Option<Identity>> {
     if let Some(paired) = &identity.paired {
         paired.validate().map_err(|_| invalid())?;
     }
+    super::native::validate(&identity)?;
     Ok(Some(identity))
 }
 
@@ -208,8 +244,8 @@ impl Store {
         }
         let file = options.open(parent.join(".pair.lock")).map_err(|_| invalid())?;
         check_private(&file.metadata().map_err(|_| invalid())?, false)?;
-        match file.try_lock() {
-            Ok(()) => Ok(Self { path: path.into(), _lock: file }),
+        match fsx::FileLock::try_acquire(file) {
+            Ok(lock) => Ok(Self { path: path.into(), _lock: lock }),
             Err(TryLockError::WouldBlock) => Err(Error::unreachable("server.pair.busy")),
             Err(_) => Err(invalid()),
         }
@@ -223,3 +259,7 @@ impl Store {
         fsx::atomic_write(&self.path, &bytes, 0o600)
     }
 }
+
+#[cfg(all(test, unix))]
+#[path = "identity_tests.rs"]
+mod tests;
