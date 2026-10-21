@@ -451,12 +451,6 @@
   font-weight: 600;
 }
 
-/* Not in a virtualized list: its rows sit at fixed 28px steps, so a margin would push the first
-   folder 4px into the next. */
-.ve-picker-list:not(.ui-virtual) .ve-picker-row[data-location="true"] + .ve-picker-row:not([data-location]) {
-  margin-top: 4px;
-}
-
 .ve-picker-name,
 .ve-picker-location {
   overflow: hidden;
