@@ -184,6 +184,13 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         : [],
       // The queue's last row keeps room above what is under it: its descenders never touch it.
       queueRoom: queue && last ? Math.round(queue.getBoundingClientRect().bottom - last.bottom) : null,
+      // The "Queued" header is one 18px line under its 2px top, whatever the font: its height
+      // followed the font's metrics, taller on CI than on a laptop, and there the steering frame's
+      // rows passed the queue's cap and its last prompt was cut (queue room -26px).
+      header: (() => {
+        const header = queue?.querySelector(".acpmux-queue-header");
+        return header ? Math.round(header.getBoundingClientRect().height * 100) / 100 : null;
+      })(),
     };
   }
 
@@ -224,6 +231,8 @@ await requireBrowserLane("agent-pane-column-edges.test.ts", async () => {
         if (join.textStarts.some((x) => x > 36 || x !== join.textStarts[0]))
           offenders.push(`${label} queued text starts at ${join.textStarts.join("/")}px`);
         if (join.queueRoom !== null && join.queueRoom < 4) offenders.push(`${label} queue room ${join.queueRoom}px`);
+        if (join.header !== null && Math.abs(join.header - 20) > 0.5)
+          offenders.push(`${label} queue header ${join.header}px`);
       }
     }
     expect(offenders).toEqual([]);
