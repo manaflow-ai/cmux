@@ -18,7 +18,8 @@ final class BrowserReloadMenu: NSObject {
     }
 
     static func make(for tab: any BrowserTab, in scope: ThemeScope) -> NSMenu {
-        let hardReload: (@MainActor () -> Void)? = (tab as? WebKitTab).map { webKit in { webKit.webView.reloadFromOrigin() } }
+        var hardReload: (@MainActor () -> Void)?
+        if let webKit = tab as? WebKitTab { hardReload = { webKit.webView.reloadFromOrigin() } }
         return make(reload: { tab.reload() }, hardReload: hardReload, in: scope)
     }
 
