@@ -183,6 +183,8 @@ mod edit_diff_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]
+mod steer_now_tests;
+#[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]
 mod tests;
@@ -553,6 +555,30 @@ impl Translator {
                  {"value": "on", "name": "On", "description": "Faster output, increased usage"},
              ]},
         ])
+    }
+}
+
+/// A Claude Code `tool_use` as the fields of the ACP `tool_call` a turn sends for it (without
+/// its id and status): kind, title, input, and an edit's diffs and file. A live turn
+/// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
+pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    let mut call = json!({
+        "title": tool_title(name, input),
+        "kind": tool_kind(name),
+        "rawInput": input,
+        "_meta": {"claude": {"tool": name}}
+    });
+    with_edit(&mut call, name, input);
+    call
+}
+
+/// Adds a file edit's diff and location to its ACP tool call.
+fn with_edit(call: &mut Value, name: &str, input: &Value) {
+    if let Some(diffs) = edit_diffs(name, input) {
+        call["content"] = diffs;
+        if let Some(locations) = tool_locations(input) {
+            call["locations"] = locations;
+        }
     }
 }
 

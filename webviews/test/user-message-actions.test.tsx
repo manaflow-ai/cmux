@@ -83,6 +83,15 @@ test("a prompt still being sent reads Unread, and one that cannot fork offers no
   expect(labels()).toEqual(["now", "Unread", "Copy"]);
 });
 
+test("a steer this pane sent reads Unread while it waits for the agent, though acpmux recorded it", async () => {
+  const delivery = { state: "read", promptId: "p-1", sessionId: "s-1", sentAt: Date.now() } as const;
+  const steer: AcpmuxRow = { id: "user-7", version: 1, at: Date.now(), kind: "user", seq: 7, text: "Rebase first" };
+  await draw({ ...steer, steer: "waiting", delivery }, {});
+  expect(labels()).toEqual(["now", "Unread", "Copy"]);
+  await draw({ ...steer, steer: "landed", delivery }, {});
+  expect(labels()).toEqual(["now", "Read", "Copy"]);
+});
+
 test("the relative time words a prompt's age in the pane's language", async () => {
   const { relativeTime } = await import("../src/agent-session/acpmux/conversation/relativeTime");
   const now = Date.UTC(2026, 9, 20, 12);
