@@ -94,6 +94,8 @@ def evaluate(node, context):
             if isinstance(haystack, list):
                 return any(str(item).lower() == str(needle).lower() for item in haystack)
             return str(needle).lower() in str(haystack or "").lower()
+        if node[1] == "cancelled":
+            return False  # these runs are never cancelled
         if node[1] == "format":
             return re.sub(r"\{(\d+)\}", lambda m: str(args[1 + int(m.group(1))]), args[0])
     raise ValueError(f"unsupported expression {node!r}")
@@ -181,12 +183,26 @@ def main():
 
     # The route job decides; without a wanted tour no Mac is taken and nothing is posted.
     _check(jobs["tour"]["if"] == "${{ needs.route.outputs.runs_on != '' }}", "the tour needs a picked runner")
+    # A merge tour publishes from its own run; a pull request run only hands its
+    # tour to a run on feat-cmux-next (the pr-media environment admits no PR ref).
     for wanted, want in (("true", True), ("false", False)):
-        context = pr_event("synchronize", [])
-        context["needs"] = {"route": {"result": "success", "outputs": {"wanted": wanted}}}
+        needs = {"route": {"result": "success", "outputs": {"wanted": wanted}}}
         publish_if = jobs["publish"]["if"].replace("!cancelled() && ", "")  # a run that is not cancelled
-        _check(bool(expression(publish_if, context)) == want,
-               f"the publish job {'posts' if want else 'posts nothing'} when the route wanted={wanted}")
+        hand_off_if = jobs["hand-off"]["if"].replace(" && !cancelled()", "")
+        _check(bool(expression(publish_if, dict(push_event(), needs=needs))) == want,
+               f"the publish job {'posts' if want else 'posts nothing'} for a merge when the route wanted={wanted}")
+        _check(not expression(publish_if, dict(pr_event("synchronize", []), needs=needs)),
+               f"a pull request run never publishes itself (route wanted={wanted})")
+        _check(bool(expression(hand_off_if, dict(pr_event("synchronize", []), needs=needs))) == want,
+               f"the hand-off job {'starts the publisher' if want else 'starts nothing'} when the route wanted={wanted}")
+        _check(not expression(hand_off_if, dict(push_event(), needs=needs)), "a merge tour needs no hand-off")
+    handed = dispatch_event("")
+    handed["inputs"] = {"base_sha": "", "publish_run": "555"}
+    _check(bool(expression(jobs["publish"]["if"].replace("!cancelled() && ", ""), handed)),
+           "a hand-off dispatch publishes the pull request run's tour")
+    _check(not expression(jobs["route"]["if"], handed), "a hand-off dispatch tours nothing")
+    _check(jobs["publish"].get("environment") == "pr-media" and "environment" not in jobs["hand-off"],
+           "only the publisher runs in the pr-media environment")
     decide = next((s for s in jobs["route"]["steps"] if s.get("id") == "decide"), None)
     _check(decide is not None and "media_auto_tour.py" in decide.get("run", ""),
            "the route asks media_auto_tour.py whether a pull request gets a tour")
@@ -225,9 +241,11 @@ def main():
         with open(fake_gh, "w") as handle:
             handle.write('#!/bin/sh\necho "$*" >> "$GH_LOG"\nprintf \'77\\t%s\\n\' "' + "e" * 40 + '"\n')
         os.chmod(fake_gh, os.stat(fake_gh).st_mode | stat.S_IXUSR)
+        handed = dispatch_event("")
+        handed["inputs"] = {"base_sha": "", "publish_run": "555"}
         for name, context, want_pr, want_sha, want_calls in (
             ("merge", push_event(), "77", "e" * 40, 1),
-            ("pull request", pr_event("synchronize", [LABEL]), "42", "h" * 40, 0),
+            ("handed-off pull request", handed, "77", "e" * 40, 1),
         ):
             output, log = os.path.join(tmp, f"out-{name}"), os.path.join(tmp, f"log-{name}")
             open(output, "w").close()
@@ -277,7 +295,7 @@ def main():
             env = {key: str(expression(value, context) or "") for key, value in upload["env"].items()}
             env.update(PATH=os.environ["PATH"], RUNNER_TEMP=os.path.join(tmp, "temp"),
                        GITHUB_REPOSITORY=REPO)
-            result = subprocess.run(["bash", "-e", "-c", upload["run"]], cwd=tmp, env=env,
+            result = subprocess.run(["bash", "-e", "-c", upload["with"]["command"]], cwd=tmp, env=env,
                                     capture_output=True, text=True)
             args = json.load(open(argv_log)) if os.path.exists(argv_log) else []
             note = args[args.index("--note") + 1] if "--note" in args else None
