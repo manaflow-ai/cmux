@@ -394,6 +394,10 @@ export type AcpmuxSnapshot = {
   listedSessions?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
+  /// `turnTokens`); unset when the harness does not report each call or the client missed the
+  /// turn's start.
+  turnTokens?: number;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
@@ -406,6 +410,9 @@ export type AcpmuxSnapshot = {
   /// cannot steer): it stops the running turn and runs next, so it reads as a steer, not a queued
   /// prompt (acpmux `queue_order` with `next`).
   queue: QueuedPrompt[];
+  /// The latest prompts withdrawn from the queue (acpmux `queue_removed`), newest last: they left it
+  /// without running, so no row comes for them (VirtualTranscript keeps no room for one).
+  queueWithdrawn?: readonly string[];
   permission?: AcpmuxPermission;
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;

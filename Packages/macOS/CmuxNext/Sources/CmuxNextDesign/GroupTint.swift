@@ -60,6 +60,35 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         return tokens.chip(color, inks: .onColor)
     }
 
+    /// The group's color where it draws as a line or dot, in the active scope. `themed` takes the
+    /// theme's own color for the token (`GroupColor.themeRGB`, cx-7yywz); grey and a custom color
+    /// stay as they are.
+    @MainActor public func lineRGB(themed: Bool) -> ThemeRGB {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return switch self {
+        case let .palette(token): (themed ? token.themeRGB(tokens) : nil) ?? token.swatchRGB(tokens)
+        case let .custom(rgb): Self.readable(rgb)
+        }
+    }
+
+    /// `lineRGB(themed:)` as a color.
+    @MainActor public func lineColor(themed: Bool) -> NSColor { lineRGB(themed: themed).nsColor }
+
+    /// The solid header bar and its ink (`headerChip`); `themed` washes the theme's color into the
+    /// sidebar, as a custom color's chip does.
+    @MainActor public func headerChip(themed: Bool) -> (fill: ThemeRGB, ink: ThemeRGB) {
+        guard themed, case .palette = self else { return headerChip }
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        let wash = tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: true), tokens.isDark ? 0.34 : 0.26)
+        return tokens.chip(wash)
+    }
+
+    /// A faint wash of the group's color over the sidebar, behind a name in primary ink.
+    @MainActor public func headerWash(themed: Bool) -> ThemeRGB {
+        let tokens = ThemeContext.active ?? ThemeScope.app.tokens
+        return tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: themed), tokens.isDark ? 0.14 : 0.10)
+    }
+
     /// A tab group chip's fill in the active scope (`GroupColor.chipFill`); a custom color is
     /// washed into the sidebar so the name stays primary text.
     @MainActor public var chipFill: NSColor {

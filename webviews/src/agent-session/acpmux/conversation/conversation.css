@@ -709,18 +709,46 @@
 }
 
 /* The table may be wider than the column; it scrolls instead of widening the row. */
-.cv-table-wrap {
+/* A reply's table (TableBlock.tsx): as wide as the table, with Open and Copy just right of its
+   header row, shown on hover or keyboard focus like the message rows'. The block leaves their 48px
+   free at the column's edge (a wider table scrolls), so they never cover text and never depend on
+   the margin above the table. */
+.cv-table-block {
+  position: relative;
+  width: fit-content;
+  max-width: calc(100% - 48px);
   margin: var(--cv-table-before, 6.5px) 0 14px;
+}
+.cv-table-tools {
+  position: absolute;
+  z-index: var(--layer-raised);
+  top: 6px;
+  left: 100%;
+  display: flex;
+  gap: 2px;
+  padding-left: 6px;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-table-tools {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-table-block:hover .cv-table-tools,
+.cv-table-tools:focus-within {
+  opacity: 1;
+}
+.cv-table-wrap {
   overflow-x: auto;
 }
-/* Short columns are at least 128px and long-text columns 256px. */
+/* Columns fit their text (Leo, 2026-10-20: stretching the table to the column left a wide gap
+   between a label and its value); long-text columns are 256px at least (TableBlock.tsx). */
 .cv-table {
   border-collapse: collapse;
   font-size: var(--cv-table-size, 12.25px);
   letter-spacing: var(--cv-table-tracking, 0px);
   line-height: var(--cv-table-line-height, 23px);
   width: max-content;
-  min-width: 100%;
 }
 .cv-table th,
 .cv-table td {
@@ -737,6 +765,10 @@
 }
 .cv-table td {
   border-bottom: 1px solid var(--cv-faint-rule);
+}
+/* A table with an empty top-left corner labels its rows with its first column. */
+.cv-table--labeled td:first-child {
+  font-weight: 500;
 }
 .cv-table th:last-child,
 .cv-table td:last-child {
@@ -1682,14 +1714,32 @@ button.cv-received__name:focus-visible {
   user-select: text;
   -webkit-user-select: text;
 }
-/* Another agent's images and its raw prompt, under its line. */
+/* Details under an opened message: the prompt as the agent got it, closed until asked for. */
+.cv-received__details {
+  margin: 0 0 6px 13px;
+}
+.cv-received__more {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+.cv-received__more:hover,
+.cv-received__more:focus-visible {
+  color: var(--cv-text);
+}
+/* Another agent's images, under its line. */
 .cv-received > .cv-message__images {
   justify-content: flex-start;
   max-width: none;
   margin: 2px 0 6px;
 }
-.cv-received > .cv-tool-output {
-  margin: 0 0 8px 13px;
+.cv-received__details > .cv-tool-output {
+  margin: 2px 0 0;
 }
 .cv-rotor.is-flipped {
   transform: rotate(180deg);

@@ -283,13 +283,15 @@ export function mountMarkdownPage(root: HTMLElement, client: PageClient | null =
     // Cmd-S is the app key dispatcher's `save` page command; the page never reads the chord.
     void subscribePageStreams(client, {
       // Cmd-[ and Cmd-] are `back` and `forward` (the page's link history), Cmd-K is `link`,
-      // Cmd-= / Cmd-- / Cmd-0 the text size.
+      // Cmd-= / Cmd-- / Cmd-0 the text size; `goToTop` is the `markdownGoToTop` action (a user's
+      // `g g` in a read-only page).
       onCommand: ({ command, text }) => {
         if (isMarkdownZoomCommand(command)) zoom.run(command);
         else if (command === "save") void store.save();
         else if (command === "back") void router.go(-1);
         else if (command === "forward") void router.go(1);
         else if (command === "link") editor?.openLinkPopover();
+        else if (command === "goToTop") scroller()?.scrollTo({ top: 0 });
         else if (command === "resetTableWidths") editor?.resetTableWidths();
         else if (command === "resetContextTableWidths") editor?.resetTableWidthsAt(contextTarget);
         else if (command === "comments") editor?.setComments(parseComments(parseJSON(text)));
