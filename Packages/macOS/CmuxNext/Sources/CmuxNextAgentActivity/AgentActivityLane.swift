@@ -39,9 +39,18 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
     public let harness: String?
     /// What it is doing now, one line (hq#2509): the lane's `step`, which acpmux masks secrets in.
     public let step: String?
+    /// The session whose agent started this one (acpmux `spawnedBy`, one level): the sidebar's
+    /// session tree lists its workspace under that session's.
+    public let spawnedBy: String?
+    /// The session's folder: the sidebar's session tree reads its branch's pull request there.
+    public let cwd: String?
+    /// The pull requests its `gh pr create` calls opened (acpmux `pullRequests`, their URLs): the
+    /// sidebar's session tree counts them beside its folder's branch's.
+    public let pullRequests: [String]
 
     public init(id: String, name: String, title: String, peer: String?, parent: String?, state: State, since: Date?, error: String?,
-                workspaceID: String? = nil, harness: String? = nil, step: String? = nil) {
+                workspaceID: String? = nil, harness: String? = nil, step: String? = nil, spawnedBy: String? = nil, cwd: String? = nil,
+                pullRequests: [String] = []) {
         self.id = id
         self.name = name
         self.title = title
@@ -53,6 +62,9 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         self.error = error
         self.harness = harness
         self.step = step
+        self.spawnedBy = spawnedBy
+        self.cwd = cwd
+        self.pullRequests = pullRequests
     }
 
     /// A person should look: it waits on them, failed or was lost.
@@ -80,6 +92,10 @@ public nonisolated struct AgentActivityLane: Hashable, Sendable, Identifiable {
         let title = (lane["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
         return AgentActivityLane(id: id, name: name, title: title ?? name, peer: summary["peer"] as? String, parent: parent,
                                  state: state, since: since, error: error, workspaceID: workspaceID,
-                                 harness: harness, step: step)
+                                 harness: harness, step: step, spawnedBy: nonEmpty(summary["spawnedBy"]),
+                                 cwd: nonEmpty(summary["cwd"]),
+                                 pullRequests: (summary["pullRequests"] as? [Any] ?? []).compactMap { nonEmpty($0) })
     }
+
+    private static func nonEmpty(_ value: Any?) -> String? { (value as? String).flatMap { $0.isEmpty ? nil : $0 } }
 }
