@@ -340,6 +340,8 @@ on:
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
+      - scripts/cmux-next/check-cef-objc-contract.py
+      - scripts/cmux-next/chromium-objc-contract.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
@@ -3077,6 +3079,16 @@ jobs:
         env:
           CEF_DIR: ${{ steps.cef.outputs.dir }}
         run: scripts/cmux-next/build-cef-shim.sh "$CEF_DIR" "$(scripts/cmux-next/cef-cache-root.sh)/shim"
+
+      # The pinned engine's Objective-C selectors for NSApp and its delegate
+      # against the reviewed contract (scripts/cmux-next/chromium-objc-contract.json):
+      # an engine that can send cmux an unreviewed selector fails here, before
+      # it ships ("unrecognized selector", 2026-10-20).
+      - name: Chromium Objective-C contract against the pinned engine
+        if: steps.cef.outputs.dir != ''
+        env:
+          CEF_DIR: ${{ steps.cef.outputs.dir }}
+        run: python3 -I scripts/cmux-next/check-cef-objc-contract.py --framework "$CEF_DIR/Chromium Embedded Framework.framework"
 
   # Caches the Swift exports of a green feat-cmux-next push under their source
   # key (scripts/cmux-next/swift-exports-key.py), so a job that only reads them

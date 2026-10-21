@@ -2702,6 +2702,9 @@ export function VirtualTranscript({
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top > 0.5 || undefined}
         data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+        // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
+        // out of sight behind it instead of reading through its glass.
+        data-jump-shown={(jumpButton && behind) || undefined}
         // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
         // scroll a row into view above it.
         data-docked={dockSpace > 0 || undefined}
@@ -4127,6 +4130,8 @@ function AcpmuxPane() {
     () => (snapshot.isWorking ? runningBackgroundTasks(snapshot.rows) : []),
     [snapshot.isWorking, snapshot.rows],
   );
+  // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
+  const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
   const counted = useRef({ runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard });
   counted.current = { runningAgents, runningCommands, sourceRows, transcriptRows, summaryCard };
   const workingCounts = useMemo<WorkingCounts>(() => {
@@ -4151,6 +4156,7 @@ function AcpmuxPane() {
     return {
       agents: runningAgents.length,
       commands: runningCommands.length,
+      tokens: turnTokens,
       openAgents: () => {
         const { runningAgents: agents, summaryCard: card } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
@@ -4162,7 +4168,7 @@ function AcpmuxPane() {
         else card.show();
       },
     };
-  }, [runningAgents.length, runningCommands.length, showSubagent, openFold]);
+  }, [runningAgents.length, runningCommands.length, turnTokens, showSubagent, openFold]);
   // The Quick Composer cannot show the Harnesses page: it registers no opener, so its + hides.
   useEffect(() => (quick ? undefined : registerHarnessesPage(() => setHarnessesOpen(true))), [quick]);
   // `/btw` (cx-ef2m), behind its experiment; the Quick Composer never shows a side question.
