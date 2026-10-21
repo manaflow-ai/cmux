@@ -8,12 +8,14 @@
 // cadence and at Codex's, sampling every display frame. Each run prints its whole report.
 //
 // Both engines the app uses (WebKit draws the pane in cmux NEXT); one not installed skips. The
-// frame budget is the main thread's work per frame: React's render, and the style and layout of
-// what it changed. Frame intervals are reported, not held: they measure the host as much as the
+// frame budget is the main thread's work per frame: the script of every task between two frames
+// (browser/streaming-text.clock.ts: React's renders, commits and effects with the layout they force,
+// the reveal's frame callbacks, the row resize observers, timers), and the style and layout left
+// for the frame. Frame intervals are reported, not held: they measure the host as much as the
 // page, and CI runs the dev-server browser files side by side (one frame in twelve came 33 ms apart
-// there, job 119122855521). A frame that waited on Pierre highlighting a closed fence
-// (100 ms in Chromium, 1 s in WebKit on cmux16) is reported apart: this dev page has no highlight
-// worker, and the app's page highlights in one (highlightPool.ts).
+// there, job 119122855521). Pierre highlighting a closed fence (100 ms in Chromium, 1 s in WebKit
+// on cmux16) comes off a frame's work, and the frames it held are reported apart: this dev page has
+// no highlight worker, and the app's page highlights in one (highlightPool.ts).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
@@ -92,13 +94,19 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
     return report as StreamReport;
   }
 
-  /// What the report breaks of the budget, one line each.
-  function overBudget(report: StreamReport): string[] {
+  /// What the report breaks of the work budget, one line each.
+  function overWork(report: StreamReport): string[] {
     const over: string[] = [];
     const { totalMs, heaviest } = report.work;
     if (totalMs.max > BUDGET.maxWorkMs)
       over.push(`a frame's work took ${totalMs.max} ms (budget ${BUDGET.maxWorkMs}): ${JSON.stringify(heaviest)}`);
     if (totalMs.p95 > BUDGET.p95WorkMs) over.push(`p95 frame work ${totalMs.p95} ms (budget ${BUDGET.p95WorkMs})`);
+    return over;
+  }
+
+  /// What the report breaks of the layout budget, one line each.
+  function overLayout(report: StreamReport): string[] {
+    const over: string[] = [];
     if (report.layout.shifts > BUDGET.layoutShifts)
       over.push(
         `${report.layout.shifts} layout shifts above the tail: ${report.layout.shiftEvents
@@ -124,7 +132,16 @@ await requireBrowserLane("streaming-text-frames.test.ts", async () => {
       const [name, cadence] = label.split(" ") as [string, Cadence];
       const report = await stream(name, cadence);
       console.log(`streaming-text-frames ${label}: ${JSON.stringify(report, null, 2)}`);
-      expect(overBudget(report)).toEqual([]);
+      expect(overLayout(report)).toEqual([]);
+      // A frame's work is wall-clock time, so a host that starves the page can break it once (on
+      // cmux16 at load 25, one run's grammar load took 850 ms, 40 times its usual 20). The work
+      // budget fails when two runs in a row break it.
+      if (overWork(report).length === 0) return;
+      console.log(`streaming-text-frames ${label}: over the work budget once (${overWork(report).join("; ")}); again`);
+      const again = await stream(name, cadence);
+      console.log(`streaming-text-frames ${label} again: ${JSON.stringify(again, null, 2)}`);
+      expect(overLayout(again)).toEqual([]);
+      expect(overWork(again)).toEqual([]);
     },
   );
 });

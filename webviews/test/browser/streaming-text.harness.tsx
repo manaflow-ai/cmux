@@ -11,11 +11,13 @@
 // code card's chunk loads before the reply starts, as the app loads it once its first frame paints.
 //
 // `window.__streamingText.run({ cadence })` streams the reply once and samples every display frame
-// while it streams and for a second after: frame intervals, long tasks and each frame's work, how
+// while it streams and for a second after: frame intervals, long tasks and each frame's main-thread
+// work (streaming-text.clock.ts), how
 // much of the reply shows on each frame, where each drawn block of the reply sits, how far the view
 // rests from its end, and the room between the reply's last line and the bottom stack. It resolves
 // with a report (streaming-text-frames.test.ts reads it).
-import { Profiler, useState } from "react";
+import "./streaming-text.clock";
+import { useState } from "react";
 import { FileRenderer, File as PierreFile } from "@pierre/diffs";
 import { createRoot } from "react-dom/client";
 import { saveSnapshot, VirtualTranscript } from "../../src/agent-session/acpmux/App";
@@ -24,6 +26,7 @@ import { nextFrame } from "../../src/agent-session/acpmux/direct";
 import type { AcpmuxRow, AcpmuxSnapshot } from "../../src/agent-session/acpmux/model";
 import { percentile, round2 } from "../../src/agent-session/acpmux/perf";
 import { StreamReveal } from "../../src/agent-session/acpmux/streamReveal";
+import { spans, untimedFrame } from "./streaming-text.clock";
 import { turnView } from "../../src/agent-session/acpmux/conversation/turns";
 import {
   history,
@@ -77,31 +80,44 @@ StreamReveal.prototype.advance = function (this: StreamReveal, text: string, now
   return shown;
 };
 
-/// When Pierre drew a highlighted card or loaded its highlighter ([start, end]): the dev server
-/// serves no highlight worker, so Pierre does both on the main thread, which the app's page never
-/// does (highlightPool.ts). WebKit highlights inside `render`; Chromium loads the grammar after it.
-const highlights: [number, number][] = [];
-const render = PierreFile.prototype.render;
-PierreFile.prototype.render = function (this: PierreFile, ...args: Parameters<typeof render>) {
+/// Pierre's highlighting ([start, end]): the dev server serves no highlight worker, so Pierre
+/// highlights on the main thread, which the app's page never does (highlightPool.ts). `highlighting`
+/// holds the synchronous calls, drawing a card and tokenizing its code (WebKit does both inside
+/// `render`, Chromium tokenizes once its grammar loads); their time comes off a frame's work.
+/// `loading` holds each grammar load, from the call until its promise settles, which tags the frames
+/// it spans but takes nothing off their work: compiling the grammar runs in promise continuations,
+/// which streaming-text.clock.ts does not time.
+const highlighting: [number, number][] = [];
+const loading: [number, number][] = [];
+function timedHighlight<A extends unknown[], R>(body: (...args: A) => R, self: unknown, args: A): R {
   const start = performance.now();
   try {
-    return render.apply(this, args);
+    return body.apply(self, args);
   } finally {
-    highlights.push([start, performance.now()]);
+    highlighting.push([start, performance.now()]);
   }
+}
+const render = PierreFile.prototype.render;
+PierreFile.prototype.render = function (this: PierreFile, ...args: Parameters<typeof render>) {
+  return timedHighlight(render, this, args);
+};
+// Private in Pierre's types; FileRenderer.js calls it through `this` (asyncHighlight).
+const renderer = FileRenderer.prototype as unknown as { renderFileWithHighlighter: (...args: unknown[]) => unknown };
+const tokenize = renderer.renderFileWithHighlighter;
+renderer.renderFileWithHighlighter = function (this: FileRenderer, ...args: unknown[]) {
+  return timedHighlight(tokenize, this, args);
 };
 const initialize = FileRenderer.prototype.initializeHighlighter;
 FileRenderer.prototype.initializeHighlighter = function (this: FileRenderer) {
   const start = performance.now();
-  return initialize.call(this).finally(() => highlights.push([start, performance.now()]));
+  return initialize.call(this).finally(() => loading.push([start, performance.now()]));
 };
-let lastSample = 0;
+/// Time inside [from, to] that `windows` cover.
+const overlap = (windows: [number, number][], from: number, to: number) =>
+  windows.reduce((sum, [start, end]) => sum + Math.max(0, Math.min(end, to) - Math.max(start, from)), 0);
 
-/// React render time (Profiler actualDuration) since the last sampled frame.
-let renderMs = 0;
-const onRender = (_id: string, _phase: string, actualDuration: number) => {
-  renderMs += actualDuration;
-};
+/// The first task span no sample has counted.
+let nextSpan = 0;
 
 const PROMPT_ID = "live-user";
 const ANSWER_ID = "live-answer";
@@ -117,17 +133,15 @@ function Pane() {
       <div className="acpmux-main" data-dock="float">
         <div className="acpmux-stage">
           <header className="acpmux-header" />
-          <Profiler id="transcript" onRender={onRender}>
-            <VirtualTranscript
-              rows={turnView(state.rows, expanded, { working: state.working })}
-              sessionId="streaming-text"
-              working={state.working}
-              jumpButton
-              dock={dock}
-              onToggleActivity={() => {}}
-              expanded={expanded}
-            />
-          </Profiler>
+          <VirtualTranscript
+            rows={turnView(state.rows, expanded, { working: state.working })}
+            sessionId="streaming-text"
+            working={state.working}
+            jumpButton
+            dock={dock}
+            onToggleActivity={() => {}}
+            expanded={expanded}
+          />
         </div>
         <div ref={setDock} className="acpmux-dock">
           {/* The docked composer after the first send: the strip's held height over a one-line card. */}
@@ -165,13 +179,11 @@ type Frame = {
   fromEnd?: number;
   /// Room between the reply's last drawn line and the top of the bottom stack.
   runway?: number;
-  /// Main-thread work the reply cost since the last frame: React's render time, and the style and
-  /// layout of what it changed (forced here, before the sampler reads anything).
-  renderMs: number;
+  /// Main-thread work since the last sample: the script of every task that ended in between
+  /// (streaming-text.clock.ts), less its synchronous Pierre highlighting, and the style and layout
+  /// left to do (forced here, before the sampler reads anything).
+  scriptMs: number;
   layoutMs: number;
-  /// The frame waited on Pierre highlighting on the main thread (`highlights`), which only this dev
-  /// page does.
-  highlighting: boolean;
 };
 
 const layoutTop = (node: HTMLElement) => {
@@ -194,17 +206,18 @@ function lastLineBottom(root: HTMLElement): number | undefined {
 }
 
 function sampleFrame(t: number, live: boolean): Frame {
+  let scriptMs = 0;
+  for (; nextSpan < spans.length; nextSpan += 1) {
+    const [start, end] = spans[nextSpan]!;
+    scriptMs += end - start - overlap(highlighting, start, end);
+  }
   const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
   const layoutStart = performance.now();
   void scroller?.scrollHeight;
   const layoutMs = performance.now() - layoutStart;
-  const rendered = renderMs;
-  renderMs = 0;
   const row = document.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${ANSWER_ID}"]`);
   const markdown = row?.querySelector<HTMLElement>(".cv-md") ?? undefined;
   const dock = document.querySelector<HTMLElement>(".acpmux-dock");
-  const highlighting = highlights.some(([from, to]) => to > lastSample && from < t);
-  lastSample = t;
   const frame: Frame = {
     t,
     live,
@@ -212,9 +225,8 @@ function sampleFrame(t: number, live: boolean): Frame {
     shown: reveal.shown,
     backlog: reveal.received - reveal.shown,
     blocks: [],
-    renderMs: rendered,
+    scriptMs,
     layoutMs,
-    highlighting,
   };
   if (scroller && scroller.scrollHeight > scroller.clientHeight)
     frame.fromEnd = scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop;
@@ -260,20 +272,24 @@ function analyze(
   const at = (t: number) => round2(t - start);
   const live = frames.filter((frame) => frame.live);
   const intervals = live.slice(1).map((frame, index) => frame.t - live[index]!.t);
+  // The intervals Pierre's main-thread highlighting overlaps (only this dev page highlights there).
+  const held = live
+    .slice(1)
+    .map((frame, index) => [...highlighting, ...loading].some(([from, to]) => to > live[index]!.t && from < frame.t));
   const longFrames = live
     .slice(1)
     .flatMap((frame, index) =>
       intervals[index]! > 33
-        ? [{ t: at(frame.t), ms: round2(intervals[index]!), tail: tailOf(frame), highlighting: frame.highlighting }]
+        ? [{ t: at(frame.t), ms: round2(intervals[index]!), tail: tailOf(frame), highlighting: held[index]! }]
         : [],
     );
   // The intervals of frames that waited on no main-thread highlight (only this dev page has one).
-  const unhighlighted = intervals.filter((_, index) => !live[index + 1]!.highlighting);
+  const unhighlighted = intervals.filter((_, index) => !held[index]);
   // Work: what each frame cost the main thread.
   const working = live.slice(1);
-  const work = working.map((frame) => frame.renderMs + frame.layoutMs);
+  const work = working.map((frame) => frame.scriptMs + frame.layoutMs);
   const heaviest = working.reduce<Frame | undefined>(
-    (top, frame) => (top === undefined || frame.renderMs + frame.layoutMs > top.renderMs + top.layoutMs ? frame : top),
+    (top, frame) => (top === undefined || frame.scriptMs + frame.layoutMs > top.scriptMs + top.layoutMs ? frame : top),
     undefined,
   );
   // Reveal: what each frame added to the drawn reply, from its first character to the stream's end.
@@ -345,17 +361,24 @@ function analyze(
       over50ms: intervals.filter((ms) => ms > 50).length,
       intervalMs: stats(intervals),
       longFrames: longFrames.slice(0, 20),
-      highlighting: live.filter((frame) => frame.highlighting).length,
+      highlighting: held.filter(Boolean).length,
       unhighlightedIntervalMs: stats(unhighlighted),
+      // Pierre's main-thread highlighting while the reply streamed: draws and tokenizing, and loads.
+      highlights: [
+        ...highlighting.map(([from, to]) => ({ kind: "draw", from, to })),
+        ...loading.map(([from, to]) => ({ kind: "load", from, to })),
+      ]
+        .filter(({ to }) => to > start)
+        .map(({ kind, from, to }) => ({ kind, t: at(from), ms: round2(to - from) })),
     },
     work: {
       frames: work.length,
-      renderMs: stats(working.map((frame) => frame.renderMs)),
+      scriptMs: stats(working.map((frame) => frame.scriptMs)),
       layoutMs: stats(working.map((frame) => frame.layoutMs)),
       totalMs: stats(work),
       heaviest: heaviest && {
         t: at(heaviest.t),
-        renderMs: round2(heaviest.renderMs),
+        scriptMs: round2(heaviest.scriptMs),
         layoutMs: round2(heaviest.layoutMs),
         tail: tailOf(heaviest),
       },
@@ -474,9 +497,9 @@ async function run({
   const tick = (t: number) => {
     if (!sampling) return;
     frames.push(sampleFrame(t, live));
-    requestAnimationFrame(tick);
+    untimedFrame(tick);
   };
-  requestAnimationFrame(tick);
+  untimedFrame(tick);
   await frameTime();
 
   const start = performance.now();
