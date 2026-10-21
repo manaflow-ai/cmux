@@ -35,9 +35,10 @@ enum SidebarDocWiring {
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }
         let store = SidebarDocStore(remote: DaemonSidebarDocRemote(connection: { local.connection }, serves: serves))
         SidebarDocStore.current = store
-        // A new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md).
+        // Under `top` a new workspace lists at the daemon's slot for it until its item comes (sidebar-ordering-DESIGN.md);
+        // `afterCurrent` keeps its row at the window's slot (PendingWorkspaceRows), `bottom` lists it last.
         docSections.placesNewRowsFirst = { [weak services] in
-            (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) != .bottom
+            (services?.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback) == .top
         }
         store.onRefused = { [weak services] in services?.registry.refuse($0) }
         store.onUndoPending = { [weak services] title in PinUndoStep.filling != nil ? nil : services.flatMap { PinCommands(context: AppActionContext(services: $0)).registerUndo(title: title, nil) } }
