@@ -744,7 +744,7 @@ fn turns_and_the_compactor_load_no_user_settings_but_subagents_do() {
             turn.args,
             [
                 "--setting-sources",
-                "project",
+                "project,local",
                 "--disable-slash-commands",
                 "--tools",
                 "Bash,Read,Edit,Write,WebFetch,WebSearch,ToolSearch"

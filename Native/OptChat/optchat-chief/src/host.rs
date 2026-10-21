@@ -340,13 +340,19 @@ pub const TURN_TOOLS: [&str; 7] = [
     "ToolSearch",
 ];
 
+/// The settings a turn reads: the session folder's project and local
+/// files, never the user's. Claude Code takes an allow rule for an MCP tool
+/// only from the local file (2.1.305), and the Chief's own tools must never
+/// wait on an approval (`approval::turn_allowed_tools`).
+pub const TURN_SETTING_SOURCES: &str = "project,local";
+
 /// The Claude Code args of an isolated turn: no user or local setting
 /// source, no skills or slash commands, only `TURN_TOOLS` of the built-ins
 /// (acpmux's preset allowlist).
 pub fn turn_isolation_args() -> Vec<String> {
     vec![
         "--setting-sources".to_owned(),
-        "project".to_owned(),
+        TURN_SETTING_SOURCES.to_owned(),
         "--disable-slash-commands".to_owned(),
         "--tools".to_owned(),
         TURN_TOOLS.join(","),

@@ -441,12 +441,13 @@ impl Acpmux {
                 // setting source keeps it), then every isolation word.
                 if key == "args"
                     && let Some(args) = map.get_mut("args").and_then(Value::as_array_mut)
-                    && let Some(kept) =
-                        without_tools_list(args).or_else(|| without_isolation_args(args))
+                    && let Some(kept) = project_sources_only(args)
+                        .or_else(|| without_tools_list(args))
+                        .or_else(|| without_isolation_args(args))
                 {
                     *args = kept;
                     log(&format!(
-                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
+                        "acpmux refused the isolation args of preset {} ({text}); trying them without the newest (the local setting source, then a --tools list, then --setting-sources and --disable-slash-commands; the project settings' denied tools still apply)",
                         preset.name
                     ));
                     continue;
@@ -654,6 +655,17 @@ pub fn without_isolation_args(args: &[Value]) -> Option<Vec<Value>> {
         }
     }
     dropped.then_some(kept)
+}
+
+/// `args` with `--setting-sources project,local` read as `project` (an
+/// acpmux from before the local source refuses it); None when it has none.
+pub fn project_sources_only(args: &[Value]) -> Option<Vec<Value>> {
+    let at = args
+        .windows(2)
+        .position(|w| w[0].as_str() == Some("--setting-sources") && w[1].as_str() == Some("project,local"))?;
+    let mut kept = args.to_vec();
+    kept[at + 1] = Value::String("project".into());
+    Some(kept)
 }
 
 /// `args` without a `--tools <names>` list (`--tools ""` stays); None when
