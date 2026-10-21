@@ -22,11 +22,11 @@ struct CloudMachineCreateFlow {
     /// What the person confirms: the exact machine the create asks for.
     struct Machine: Equatable, Sendable {
         var name: String?
-        var cpu: Int
-        var memoryMB: Int
+        var cpu: Int, memoryMB: Int
         /// `sizeShown` is false for the legacy create, whose size the plan picks: the person sees no size.
-        /// `askedBy`: the agent chat (acpmux session) that asked; its card goes when that chat does.
-        var diskMB: Int, sizeShown = true, askedBy: String?
+        var diskMB: Int, sizeShown = true
+        /// The agent chat (acpmux session) that asked; its card goes when that chat does.
+        var askedBy: String?
     }
 
     enum Prompt: Equatable {
