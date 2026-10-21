@@ -309,10 +309,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 120, folder: .options), p(.workspaceRow, .view, 100, folder: .options)])
             ),
             ActionDescriptor(
-                id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"),
-                keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove", "add", "items", "wiggle", "home screen"],
-                category: .sidebar, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .contextMenu],
-                // Edit mode of this Mac's own sidebar view (Leo 2026-10-20, as an iPhone's home screen): nothing to script.
+                id: "sidebar.edit", title: t("action.sidebar.edit", "Edit Sidebar"), keywords: ["sidebar", "edit", "arrange", "reorder", "move", "remove",
+                    "add", "items", "wiggle", "home screen"], category: .sidebar, symbol: "square.and.pencil", surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 90), p(.sidebarItem, .view, 120)])
             ),
             ActionDescriptor(
