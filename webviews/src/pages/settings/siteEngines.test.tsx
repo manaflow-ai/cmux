@@ -5,7 +5,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { changeValue, click, fire, ops, renderPage, rowElement, settle } = await import("./testing");
+const { changeValue, click, ops, renderPage, rowElement, settle } = await import("./testing");
 
 const KEY = "browser.siteEngines";
 
@@ -55,9 +55,8 @@ test("site engines are listed, changed, removed and added", async () => {
 test("a site with a space is refused and nothing is written", async () => {
   const page = await renderPage({ path: "/settings/browser", mock: { values: { [KEY]: {} } } });
   const row = () => rowElement(page.container, KEY);
-  const field = row().querySelector<HTMLInputElement>("input[data-map-new-key]")!;
-  await changeValue(field, "not a site");
-  await fire(field, "keydown", { key: "Enter" });
+  await changeValue(row().querySelector<HTMLInputElement>("input[data-map-new-key]")!, "not a site");
+  await click(row().querySelector("button[data-map-add]")!);
   expect(ops(page.provider, "cmux.settings.set")).toEqual([]);
   expect(row().querySelector('[role="alert"]')).not.toBeNull();
   page.unmount();

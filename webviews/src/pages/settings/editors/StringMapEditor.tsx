@@ -77,7 +77,14 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
             </button>
           </span>
         ))}
-      <span className="string-map-item">
+      {/* A form, so Return in the site field adds as the Add button does. */}
+      <form
+        className="string-map-item"
+        onSubmit={(event) => {
+          event.preventDefault();
+          add();
+        }}
+      >
         <input
           className="field token-input"
           type="text"
@@ -92,17 +99,12 @@ export function StringMapEditor({ row, value, disabled, labelId }: EditorProps) 
             setDraftKey(event.currentTarget.value);
             if (invalid) setInvalid(false);
           }}
-          onKeyDown={(event) => {
-            if (event.key !== "Enter") return;
-            event.preventDefault();
-            add();
-          }}
         />
         <span data-map-new-value="">{valueControl(draftValue, setDraftValue)}</span>
-        <button type="button" className="button" data-map-add="" disabled={disabled} onClick={add}>
+        <button type="submit" className="button" data-map-add="" disabled={disabled}>
           {t("settingsPage.add")}
         </button>
-      </span>
+      </form>
       {invalid && (
         <span className="field-error" role="alert">
           {t("settingsPage.invalidSite")}
