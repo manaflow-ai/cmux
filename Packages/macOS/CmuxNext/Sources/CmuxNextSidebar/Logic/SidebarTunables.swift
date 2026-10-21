@@ -104,11 +104,11 @@ public nonisolated enum SidebarTunables {
         default: true, code: "SidebarTunables.doneFold")
 
     /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
-    /// "Show N more" row (`SidebarLayout+DoneFold`). 0 shows every row.
+    /// "Show N more" row (`SidebarLayout+DoneFold`). 0, the default for now, shows every row.
     public static let groupRowLimit = Tunable<Double>.number(
         "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
         help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
-        default: 10, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+        default: 0, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
     /// `groupRowLimit` as a row count.
     public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
 
