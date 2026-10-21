@@ -93,9 +93,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           </time>
           {/* Claude's single check: Read once the agent has the prompt, Unread while it is still
               being sent or waits as a steer. */}
-          {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file. */}
           <span
             className={`cv-user__read${unread ? " is-unread" : ""}`}
+            // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an icon with a spoken state, not an image file.
             role="img"
             aria-label={t(unread ? "message.unread" : "message.read")}
             title={t(unread ? "message.unread" : "message.read")}
@@ -219,7 +219,7 @@ function SentImage({ image }: { image: PromptImage }) {
   if (state === "missing") return null;
   if (state === "failed")
     return (
-      <span className="cv-user__image-failed" role="img" aria-label={t("image.failed")}>
+      <span className="cv-user__image-failed">
         <ImageIcon size={16} />
         <span>{t("image.failed")}</span>
       </span>
