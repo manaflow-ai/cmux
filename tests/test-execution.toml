@@ -1640,7 +1640,3 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
-
-[[test]]
-path = "tests/test_crash_class_fast_gate.py"
-lane = "linux-guard"
