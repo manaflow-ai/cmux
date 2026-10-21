@@ -24,7 +24,10 @@ enum FirstPartyPageSchemes {
     @MainActor static var agentPaneRoot: URL? { AgentPaneView.bundledPage?.deletingLastPathComponent() }
 
     /// The bundled root of each first-party page that ships one.
-    @MainActor static func bundledRoots() -> [String: URL] {
+    ///
+    /// - Parameter registered: The root another module registered for a page id (the viewer pages'
+    ///   shared `webviews-app` folder in the app's resources, `PageID.bundledRoot(for:)`).
+    @MainActor static func bundledRoots(registered: (String) -> URL? = PageID.bundledRoot(for:)) -> [String: URL] {
         var roots: [String: URL] = [:]
         roots[PageDescriptor.agent.id] = agentPaneRoot
         for page in descriptors where page != .agent { roots[page.id] = page.pagesBundleRoot }
