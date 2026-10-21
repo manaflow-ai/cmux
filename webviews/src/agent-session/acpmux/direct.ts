@@ -20,7 +20,7 @@ import type {
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
-import { peerKindsFromStatus } from "./environments";
+import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -869,6 +869,7 @@ export class AcpmuxDirectClient {
   private peers: string[] = [];
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
+  private peerConnected: Record<string, boolean> = {};
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -1047,13 +1048,7 @@ export class AcpmuxDirectClient {
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
-      const status = await this.request("_acpmux/status", {}).catch(() => undefined);
-      this.peers = Array.isArray(status?.peers)
-        ? status.peers
-            .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
-            .filter((peer: string | undefined): peer is string => Boolean(peer))
-        : [];
-      this.peerKinds = peerKindsFromStatus(status);
+      this.readPeers(await this.request("_acpmux/status", {}).catch(() => undefined));
       const first = await this.sessionPages.first();
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
@@ -2561,6 +2556,7 @@ export class AcpmuxDirectClient {
       }),
       peers: this.peers,
       peerKinds: this.peerKinds,
+      peerConnected: this.peerConnected,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -3807,6 +3803,25 @@ export class AcpmuxDirectClient {
         models: models.get(profile.id) ?? profile.models,
       })),
     ];
+  }
+  /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
+  /// machine that connected or dropped since shows as it is now. acpmux sends no peer events.
+  async refreshPeers(): Promise<void> {
+    const status = await this.request("_acpmux/status", {}).catch(() => undefined);
+    if (status === undefined) return;
+    this.readPeers(status);
+    // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
+    // emitting now would record "connected" on the hold before setup says so.
+    if (!this.snapshotHold) this.emit();
+  }
+  private readPeers(status: any): void {
+    this.peers = Array.isArray(status?.peers)
+      ? status.peers
+          .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
+          .filter((peer: string | undefined): peer is string => Boolean(peer))
+      : [];
+    this.peerKinds = peerKindsFromStatus(status);
+    this.peerConnected = peerConnectedFromStatus(status);
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
   /// the lists it has and asks each harness before it answers (the picker's Refresh models).

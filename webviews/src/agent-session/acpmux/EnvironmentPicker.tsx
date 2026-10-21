@@ -32,6 +32,7 @@ export function EnvironmentPicker({
   current,
   onPick,
   onConnect,
+  onOpen,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -44,6 +45,8 @@ export function EnvironmentPicker({
   current: string;
   onPick(id: string): void;
   onConnect?(kind: "ssh" | "cloud"): void;
+  /// The list opened: the host reads the machines again, so each one's status is current.
+  onOpen?(): void;
 }) {
   const [query, setQuery] = useState("");
   const trigger = useRef<HTMLButtonElement>(null);
@@ -97,8 +100,11 @@ export function EnvironmentPicker({
   const suggestions = [...shown.map((environment) => environment.id), ...actions.map((action) => action.value)];
   const cloudShown = shown.some((environment) => environment.kind === "cloud");
 
-  const latest = useRef({ ordered, current, onPick });
-  latest.current = { ordered, current, onPick };
+  const latest = useRef({ ordered, current, onPick, onOpen });
+  latest.current = { ordered, current, onPick, onOpen };
+  useEffect(() => {
+    if (open) latest.current.onOpen?.();
+  }, [open]);
   const close = () => {
     setOpen(false);
     reset();
@@ -185,6 +191,14 @@ export function EnvironmentPicker({
         <span className="acpmux-menu-text acpmux-location-name">
           <span className="acpmux-menu-label">{environment.label}</span>
         </span>
+        {/* Only an SSH or Cloud machine acpmux lists has a status; this Mac never shows one. */}
+        {environment.kind !== "local" && environment.connected !== undefined && (
+          <span className="acpmux-env-status" data-connected={String(environment.connected)}>
+            <span className="acpmux-env-status-text">
+              {t(environment.connected ? "composer.envConnected" : "composer.envNotConnected")}
+            </span>
+          </span>
+        )}
         {number !== undefined && <kbd className="acpmux-env-key">⌥⌘{number}</kbd>}
         <span className="acpmux-location-check" aria-hidden="true">
           {environment.id === current && <CheckIcon />}
