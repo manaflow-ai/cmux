@@ -50,6 +50,26 @@ test("while a call runs, the status line names it beside the turn's time", () =>
   expect(status.doing).toBe("bun test");
   const html = drawn(status);
   expect(text(html)).toBe("bun test 26s");
+  // A command leads with the terminal glyph, still; nothing blinks.
+  expect(html).toContain("cv-worked__glyph");
+  expect(html).not.toMatch(/cv-working-mark|cv-activity__dots/);
+});
+
+// Lawrence (2026-10-20): a running command's line read as a cropped terminal thumbnail. It leads
+// with the terminal glyph the tool rows use, as Claude desktop's line does; other calls lead with
+// their label alone.
+test("a command in flight leads with the terminal glyph", () => {
+  const status = statusLine([call("cd ~/Projects/cmux && git log", "in_progress")]);
+  expect(status.doingCommand).toBe(true);
+  expect(drawn(status)).toContain("cv-worked__glyph");
+});
+
+test("any other call in flight leads with its label alone", () => {
+  const read = { kind: "tool", text: "", tool: { id: "r", title: "Read app.ts", kind: "read", status: "in_progress" } };
+  const status = statusLine([read]);
+  expect(status.doingCommand).toBeUndefined();
+  const html = drawn(status);
+  expect(html).not.toContain("cv-worked__glyph");
   expect(stillMarkup(html)).toBe(true);
 });
 

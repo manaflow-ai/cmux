@@ -794,7 +794,8 @@ const WorkingRow = memo(
     a.row.version === b.row.version &&
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&
-    a.row.doing === b.row.doing,
+    a.row.doing === b.row.doing &&
+    a.row.doingCommand === b.row.doingCommand,
 );
 /// The running turn's activity line under its todo list (agent.sessionStatus, cx-ncc.102).
 const ActivityLineRow = memo(
