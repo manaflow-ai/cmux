@@ -289,7 +289,9 @@ async fn a_web_chat_never_starts_in_full_access_and_an_unauthenticated_one_gets_
     let daemon = hub(&dir);
     let mut web = Client::new(&daemon, Origin::Web, ConnAuth::ListenerToken);
     let (_, mode) = web.chat(&dir, "codex").await;
-    assert_eq!(mode, "agent", "a Web chat keeps the harness's own mode");
+    // A phone starts Codex in its asking mode, never in the bridge's own
+    // default `agent` (61bdd4de942, `web_modes::BRIDGE_ASKING_MODES`).
+    assert_eq!(mode, "ask", "a Web chat starts Codex in its asking mode");
     let mut none = Client::new(&daemon, Origin::Web, ConnAuth::None);
     let r = none.new_chat(&dir, "codex").await;
     assert_eq!(r["error"]["code"], json!(acpmux::server::conn_auth::UNAUTHENTICATED), "{r}");
