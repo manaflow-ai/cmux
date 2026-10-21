@@ -220,10 +220,10 @@ fn child(client: &RpcClient, name: &str) -> Result<SessionSummary, String> {
 /// The prompt's own answer, forwarded into the notification stream.
 const ANSWER: &str = "\u{0}answer";
 
-/// A message to a child: queued behind its running turn, not steered (a steer cancelled the
-/// receiver's tool calls, 2026-10-20).
+/// A message to a child: steered into its running turn when its agent steers (acpmux queues it
+/// otherwise), so the child reads it at its next tool boundary instead of when that turn ends.
 fn tell_params(session: &str, text: &str, prompt_id: &str) -> Value {
-    json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id}}})
+    json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": {"promptId": prompt_id, "steer": true}}})
 }
 
 /// Sends a prompt and returns once acpmux accepted it (ran, steered or queued it), not when its
@@ -453,9 +453,9 @@ mod tests {
     use super::tell_params;
 
     #[test]
-    fn a_message_to_a_child_queues_behind_its_running_turn() {
+    fn a_message_to_a_child_steers_its_running_turn() {
         let params = tell_params("s-1", "look at this", "chief-cli-1");
-        assert!(params["_meta"]["acpmux"].get("steer").is_none(), "{params}");
+        assert_eq!(params["_meta"]["acpmux"]["steer"], true, "{params}");
         assert_eq!(
             params["_meta"]["acpmux"]["promptId"], "chief-cli-1",
             "{params}"
