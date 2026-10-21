@@ -139,12 +139,13 @@ def verified_payload(path, keys, channel=None):
         data = os.path.join(tmp, "payload")
         open(data, "wb").write(payload)
         for signature in signatures if isinstance(signatures, list) else []:
-            raw = keys.get(signature.get("key_id")) if isinstance(signature, dict) else None
+            key_id = signature.get("key_id") if isinstance(signature, dict) else None
+            raw = keys.get(key_id) if isinstance(key_id, str) else None
             if raw is None:
                 continue
             try:
                 sig_bytes = base64.b64decode(signature.get("sig", ""), validate=True)
-            except ValueError:
+            except (ValueError, TypeError):
                 # A malformed signature covers nothing (binascii.Error is a ValueError).
                 continue
             pub = os.path.join(tmp, "pub.der")
