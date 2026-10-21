@@ -1,14 +1,11 @@
 import AppKit
+import CmuxNextAgentPane
 
 /// The agent panes' last pages, saved at quit and drawn under each pane at
 /// launch until its live page paints, so a relaunch never shows an empty
 /// agent pane (sweep 4a). One image per tab, named with its point scale; a
 /// save replaces the whole set. Each image is handed out once per launch.
-///
-/// An opaque page is a JPEG. A transparent page (the New Tab page, or a page over a background
-/// image or a see-through window; `PageImageBackground`) is a PNG with its clear pixels kept, so
-/// the window's backdrop shows through the first frame as it does through the live page. A JPEG
-/// has no alpha: it painted those pixels a solid color over the art until the live page drew.
+/// A JPEG or a PNG, as `CGImage.pageImageData` encodes it.
 @MainActor
 final class AgentPaneLaunchImages {
     static let directoryName = "agent-pane-images"
@@ -41,17 +38,16 @@ final class AgentPaneLaunchImages {
             return image
         }
         guard let directory, Self.isFileSafe(key), taken.insert(key).inserted else { return nil }
-        for scale in [2, 1, 3] {
-            for name in Self.fileNames(key, scale: scale) {
-                let url = directory.appending(path: name)
-                guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
-                      // concurrency-allow: one capped read of a small local image before the agent pane's first frame
-                      let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
-                let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
-                rep.size = image.size
-                image.addRepresentation(rep)
-                return image
-            }
+        // Either kind a save may have written (one at a time: a save replaces the set).
+        for (scale, ext) in [2, 1, 3].flatMap({ scale in ["png", "jpg"].map { (scale, $0) } }) {
+            let url = directory.appending(path: Self.fileName(key, scale: scale, ext: ext))
+            guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
+                  // concurrency-allow: one capped read of a small local image before the agent pane's first frame
+                  let data = try? Data(contentsOf: url), let rep = NSBitmapImageRep(data: data) else { continue }
+            let image = NSImage(size: NSSize(width: CGFloat(rep.pixelsWide) / CGFloat(scale), height: CGFloat(rep.pixelsHigh) / CGFloat(scale)))
+            rep.size = image.size
+            image.addRepresentation(rep)
+            return image
         }
         return nil
     }
@@ -59,7 +55,7 @@ final class AgentPaneLaunchImages {
     /// Holds `image` as tab `key`'s frame until ``take(_:)`` or ``drop(_:)``.
     func hold(_ key: String, _ frame: CGImage, size: NSSize, appearance: NSAppearance.Name?) async {
         guard size.width > 0 else { return }
-        let data = await Task.detached { Self.encode(["frame": frame])["frame"] }.value
+        let data = await Task.detached { frame.pageImageData() }.value
         held[key] = data.map { ($0, size, appearance) }
     }
 
@@ -76,25 +72,9 @@ final class AgentPaneLaunchImages {
         for (key, image) in images where Self.isFileSafe(key) {
             guard let cgImage = image.cgImage(forProposedRect: nil, context: nil, hints: nil), image.size.width > 0 else { continue }
             let scale = max(1, min(3, Int((CGFloat(cgImage.width) / image.size.width).rounded())))
-            frames[Self.fileName(key, scale: scale, clear: Self.hasAlpha(cgImage))] = cgImage
+            frames[Self.fileName(key, scale: scale, ext: cgImage.pageImageExtension)] = cgImage
         }
-        await Task.detached { Self.write(Self.encode(frames), to: directory) }.value
-    }
-
-    /// A JPEG for an opaque frame; a PNG, clear pixels kept, for one with alpha.
-    private nonisolated static func encode(_ frames: [String: CGImage]) -> [String: Data] {
-        frames.compactMapValues { frame in
-            hasAlpha(frame) ? NSBitmapImageRep(cgImage: frame).representation(using: .png, properties: [:])
-                : NSBitmapImageRep(cgImage: frame).representation(using: .jpeg, properties: [.compressionFactor: 0.8])
-        }
-    }
-
-    /// Whether `frame` has clear pixels to keep: a flattened page (`PageImageBackground`) has none.
-    private nonisolated static func hasAlpha(_ frame: CGImage) -> Bool {
-        switch frame.alphaInfo {
-        case .none, .noneSkipLast, .noneSkipFirst: false
-        default: true
-        }
+        await Task.detached { Self.write(frames.compactMapValues { $0.pageImageData() }, to: directory) }.value
     }
 
     private nonisolated static func write(_ files: [String: Data], to directory: URL) {
@@ -110,12 +90,7 @@ final class AgentPaneLaunchImages {
         }
     }
 
-    private nonisolated static func fileName(_ key: String, scale: Int, clear: Bool) -> String { "\(key)@\(scale)x.\(clear ? "png" : "jpg")" }
-
-    /// Both kinds a save may have written for `key` at `scale` (one at a time: a save replaces the set).
-    private nonisolated static func fileNames(_ key: String, scale: Int) -> [String] {
-        [fileName(key, scale: scale, clear: true), fileName(key, scale: scale, clear: false)]
-    }
+    private nonisolated static func fileName(_ key: String, scale: Int, ext: String) -> String { "\(key)@\(scale)x.\(ext)" }
 
     /// Tab keys are `tab_<hex>`; anything else never becomes a path.
     private nonisolated static func isFileSafe(_ key: String) -> Bool {
