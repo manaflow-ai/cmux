@@ -45,6 +45,8 @@ enum AgentPaneTheme {
             // Debug Settings agentPane.debug.turnActionsPlacement, pushed with the theme so open
             // transcript footers follow the setting without reloading the page.
             "turnActionsPlacement": AgentPaneTunables.turnActionsPlacement.value.rawValue,
+            // Debug Settings agentPane.debug.subagentTray (AgentPaneTunables+SubagentTray.swift).
+            "subagentTray": AgentPaneTunables.subagentTray.value,
             "text": css(tokens.textPrimary),
             "mutedText": css(tokens.textSecondary),
             "softText": css(tokens.textTertiary),

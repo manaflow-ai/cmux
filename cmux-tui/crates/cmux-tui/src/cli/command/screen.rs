@@ -25,6 +25,7 @@ pub(super) fn parse_screen_strings(
         ["create"] => {
             let mut params = Map::new();
             insert_optional_string(&mut params, flags, "name", "name");
+            insert_creation_command(&mut params, argv, flags)?;
             request(ResourceOperation::ScreenCreate, selectors, flags, params)
         }
         [selector, "show"] => {

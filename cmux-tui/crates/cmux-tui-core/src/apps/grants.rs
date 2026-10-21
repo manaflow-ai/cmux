@@ -98,9 +98,16 @@ impl ScopeTable {
         if external && grant.sandboxed {
             return Decision::ScopeMissing("the app runs sandboxed: no network");
         }
-        // A workspace created with a command runs it, as `workspace.run` does.
-        let launches = op == "workspace.create"
-            && (params.get("argv").is_some() || params.get("shell").is_some());
+        // A workspace, screen, pane or terminal tab created with a command
+        // runs it, as `workspace.run` does.
+        let launches = matches!(
+            op,
+            "workspace.create"
+                | "screen.create"
+                | "pane.create"
+                | "pane.split"
+                | "tab.create_terminal"
+        ) && (params.get("argv").is_some() || params.get("shell").is_some());
         let scope = if launches { "workspace:execute" } else { scope.as_str() };
         let granted = match scope {
             "net:<host>" => grant.scopes.iter().any(|s| s.starts_with("net:")),
@@ -388,6 +395,24 @@ mod tests {
                 table.check("workspace.create", &command, &execute),
                 Decision::Allow(_)
             ));
+        }
+    }
+
+    #[test]
+    fn a_terminal_created_with_a_command_needs_the_execute_scope() {
+        let table = ScopeTable::get();
+        let write = grant(&["workspace:write"]);
+        let execute = grant(&["workspace:write", "workspace:execute"]);
+        for op in ["tab.create_terminal", "pane.create", "screen.create", "pane.split"] {
+            let plain = json!({ "pane": "current", "direction": "right" });
+            assert!(matches!(table.check(op, &plain, &write), Decision::Allow(_)), "{op}");
+            for command in [json!({ "argv": ["sh"] }), json!({ "shell": "true" })] {
+                assert!(
+                    matches!(table.check(op, &command, &write), Decision::ScopeMissing(_)),
+                    "{op} ran a command without workspace:execute"
+                );
+                assert!(matches!(table.check(op, &command, &execute), Decision::Allow(_)), "{op}");
+            }
         }
     }
 

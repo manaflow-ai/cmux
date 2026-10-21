@@ -12,7 +12,9 @@
 // edited file (Edit with old and new strings, and MultiEdit). Each opens inline and through View
 // changes. A Write over an existing file has no old text, so it lists its path without counts rather
 // than reading as a new file; and a chat folder that is not a repository opens the turn's own diff,
-// since the folder's git diff beside the chat has nothing to show.
+// since the folder's git diff beside the chat has nothing to show. So does a Write acpmux sends as a
+// fragment with no old text (its result never said it created the file): it lists without counts,
+// chevron or Undo, until a confirmed create makes it a new file.
 import { afterAll, afterEach, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act, type ReactNode } from "react";
@@ -135,6 +137,28 @@ const writeOverFile = () =>
     { status: "completed", content: result(`The file ${NOTES} has been updated. Here's the result:`) },
   ]);
 
+/// Claude Code's Write as the acpmux translator sends it (claude_stdio `edit_diffs`): the whole new
+/// text with no old text, marked a fragment until the result says what the Write did. `settled`: the
+/// result confirmed a create, so the mark is gone (`settle_write`); else the result said the file was
+/// updated and held no old text, so the mark stays and the old contents are unknown.
+const translatorWrite = (id: string, path: string, settled: boolean) => {
+  const fragment = { type: "diff", path, oldText: null, newText: setupText, _meta: { acpmux: { fragment: true } } };
+  return toolCall(id, [
+    {
+      title: `Write ${path.split("/").pop()}`,
+      kind: "edit",
+      status: "pending",
+      rawInput: { file_path: path, content: setupText },
+      content: [fragment],
+      locations: [{ path }],
+    },
+    {
+      status: "completed",
+      content: [settled ? { type: "diff", path, oldText: null, newText: setupText } : fragment],
+    },
+  ]);
+};
+
 /// Claude Code's Edit inside the chat folder, with only `old_string` and `new_string` in its input.
 const editInFolder = () =>
   toolCall("edit-1", [
@@ -207,7 +231,7 @@ async function renderCard(row: AcpmuxRow, load?: TurnCheckpointLoad) {
   await act(async () =>
     root!.render(
       load ? (
-        <TurnCountsContext.Provider value={(_rowId, files) => turnCounts(files, load)}>
+        <TurnCountsContext.Provider value={(_rowId, files, pathsOnly) => turnCounts(files, load, pathsOnly)}>
           {card}
         </TurnCountsContext.Provider>
       ) : (
@@ -236,10 +260,10 @@ const click = (element: Element | null) =>
 
 /// The files the turn's own diff (the in-place View changes) shows for `rows`, with the checkpoint.
 async function viewedFiles(rows: AcpmuxRow[], load: TurnCheckpointLoad) {
-  const { turnFiles } = await import("../src/agent-session/acpmux/diff");
+  const { turnFiles, turnPathsOnly } = await import("../src/agent-session/acpmux/diff");
   const { turnDisplay } = await import("../src/agent-session/acpmux/changes/turnCheckpoint");
   const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
-  return turnDisplay(translatorFor("en"), turnFiles(rows), load, false).files.map((file) => ({
+  return turnDisplay(translatorFor("en"), turnFiles(rows), load, false, turnPathsOnly(rows)).files.map((file) => ({
     path: file.path,
     created: file.created,
     additions: file.additions,
@@ -304,6 +328,119 @@ test("a Write over an existing file lists its path without counts, not as a new 
   expect(host.querySelector(".acpmux-review-changes")).toBeNull();
   expect(host.querySelector(".acpmux-edited-toggle")).toBeNull();
   expect(await viewedFiles([row], { state: "unsupported" })).toEqual([]);
+});
+
+test("a Write whose old contents never came lists its path without counts, chevron or Undo", async () => {
+  const row = activity("turn-8", [await translatorWrite("write-3", NOTES, false)]);
+  await renderCard(row);
+  // Not "+9 -0": the file was there, and what it held is unknown.
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(NOTES);
+  expect(host.querySelector(".acpmux-edited-toggle")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
+  expect(host.querySelector(".acpmux-review-changes")).toBeNull();
+  // The turn's own diff has nothing to show for it.
+  expect(await viewedFiles([row], { state: "unsupported" })).toEqual([]);
+});
+
+test("beside a Write of unknown old contents, a fragment Edit keeps its counts", async () => {
+  const row = activity("turn-9", [
+    await translatorWrite("write-4", NOTES, false),
+    await toolCall("edit-4", [
+      {
+        title: "Edit Cargo.toml",
+        kind: "edit",
+        status: "completed",
+        content: [
+          {
+            type: "diff",
+            path: `${FOLDER}/Cargo.toml`,
+            oldText: 'version = "1.2.0"\n',
+            newText: 'version = "1.3.0"\n',
+            _meta: { acpmux: { fragment: true } },
+          },
+        ],
+      },
+    ]),
+  ]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 2 files");
+  expect(text(".acpmux-edited-sub")).toBe("+1-1");
+  const rows = [...host.querySelectorAll(".acpmux-edited-file")].map((entry) => [
+    entry.querySelector(".acpmux-edited-path")?.getAttribute("data-path"),
+    entry.querySelector(".acpmux-diff-counts")?.textContent,
+  ]);
+  expect(rows).toEqual([
+    [`${FOLDER}/Cargo.toml`, "+1-1"],
+    [NOTES, undefined],
+  ]);
+  expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
+});
+
+test("an Edit to a file a Write rewrote with unknown old contents lists without counts too", async () => {
+  // The Write replaced the whole file: what the turn changed in it is unknown, whatever the Edit says.
+  const row = activity("turn-12", [
+    await translatorWrite("write-7", NOTES, false),
+    await toolCall("edit-5", [
+      {
+        title: "Edit notes.txt",
+        kind: "edit",
+        status: "completed",
+        content: [{ type: "diff", path: NOTES, oldText: "step 1\n", newText: "step one\n" }],
+      },
+    ]),
+  ]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(NOTES);
+  expect(host.querySelector(".acpmux-edited-undo")).toBeNull();
+});
+
+test("a Write of unknown old contents in the repository takes the checkpoint's counts once it loads", async () => {
+  const row = activity("turn-13", [await translatorWrite("write-8", NOTES, false)]);
+  const checkpoint: TurnCheckpointLoad = {
+    state: "loaded",
+    checkpointId: "checkpoint-3",
+    changeSet: {
+      scope: "lastTurn",
+      root: FOLDER,
+      files: [
+        { path: "notes.txt", status: "modified", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-old\n+new\n" },
+      ],
+    },
+  };
+  await renderCard(row, checkpoint);
+  // The checkpoint read the file before and after: its counts, listed once, and the Write's change
+  // (not one made outside the tool calls).
+  expect(text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
+  expect(text(".acpmux-edited-sub")).toBe("+1-1");
+  expect(host.querySelectorAll(".acpmux-edited-file")).toHaveLength(0);
+  expect((await viewedFiles([row], checkpoint)).map((file) => [file.path, file.additions])).toEqual([[NOTES, 1]]);
+});
+
+test("a Write of unknown old contents outside the repository still lists once the checkpoint loads", async () => {
+  const row = activity("turn-10", [await translatorWrite("write-5", SETUP, false)]);
+  await renderCard(row, emptyCheckpoint);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited 1 file");
+  expect(host.querySelector(".acpmux-edited .acpmux-diff-add")).toBeNull();
+  expect(host.querySelector(".acpmux-edited-path")?.getAttribute("data-path")).toBe(SETUP);
+  expect(await viewedFiles([row], emptyCheckpoint)).toEqual([]);
+});
+
+test("the same Write once its result confirmed a create is a new file, all lines added", async () => {
+  const row = activity("turn-11", [await translatorWrite("write-6", SETUP, true)]);
+  await renderCard(row);
+  expect(text(".acpmux-edited-title > div")).toBe("Edited l-setup.txt");
+  expect(text(".acpmux-edited-sub")).toBe("+9-0");
+  // Undo may move the new file to the Trash.
+  expect(host.querySelector(".acpmux-edited-undo")).not.toBeNull();
+  await click(host.querySelector(".acpmux-edited-toggle"));
+  expect(inlineDiff()).toEqual({ name: "l-setup.txt", added: "+9", removed: "-0" });
+  expect(await viewedFiles([row], { state: "unsupported" })).toEqual([
+    { path: SETUP, created: true, additions: 9, deletions: 0, lines: Array(9).fill("add") },
+  ]);
 });
 
 test("a file outside the repository keeps its counts and opens inline once the checkpoint loads", async () => {

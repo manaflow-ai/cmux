@@ -40,9 +40,24 @@ def tabs_trace(widths: list[float], *, spare: bool, looping: list[str] | None = 
     return {"refresh_ms": REFRESH, "samples": samples, "opening": {"spare": spare}, "looping": looping or []}
 
 
-def sidebar_trace(widths: list[float], looping: list[str] | None = None) -> dict:
-    samples = [{"t": i * REFRESH, "sidebar": [w, w]} for i, w in enumerate(widths)]
-    return {"refresh_ms": REFRESH, "samples": samples, "looping": looping or []}
+def sidebar_trace(widths: list[float], looping: list[str] | None = None, *,
+                  panes: list[float] | None = None, grid_reports: int | None = None) -> dict:
+    """The sidebar's width per frame, optionally with a pane's content width per frame
+    (`panes`, as `ScreenContentView+MotionSample` samples it) and the terminal grid reports
+    the toggle cost (`debug.layout_counters`), which `sidebar_content.py` reports."""
+    samples = []
+    for index, width in enumerate(widths):
+        sample: dict = {"t": index * REFRESH, "sidebar": [width, width]}
+        if panes is not None:
+            content = panes[index]
+            sample["panes"] = [["p1", 0, 0, content + 20, 600, 1, 0,
+                                0, 0, content + 20, 600, content, 600, 0, 0, 0, content, 600]]
+        samples.append(sample)
+    trace: dict = {"refresh_ms": REFRESH, "samples": samples, "looping": looping or []}
+    if grid_reports is not None:
+        trace["counters"] = {"before": {"terminal_grid_reports": 7},
+                             "after": {"terminal_grid_reports": 7 + grid_reports}}
+    return trace
 
 
 def reduced(trace: dict, on: bool) -> dict:
@@ -216,6 +231,60 @@ def test_a_missing_scenario_fails_as_not_measured() -> None:
         result = judge(out)
         assert result.returncode == 1
         assert verdicts(out)["transcript_follow"]["problems"][0].startswith("not measured")
+
+
+def test_a_sidebar_slide_reports_what_it_cost_the_panes() -> None:
+    """Leo, 2026-10-20: side panes lag when the sidebar opens and closes. The row says how
+    many frames re-laid the panes out and how many grid reports (PTY resizes and shell
+    redraws) the slide cost: one per terminal at the landing, not one per frame."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        widths = eased(260, 0, 28)
+        # The content follows the edge every frame; the PTY hears the grid once, at the landing.
+        content = [1200 - width for width in widths]
+        (out / "sidebar_collapse.json").write_text(json.dumps(
+            sidebar_trace(widths, panes=content, grid_reports=1)))
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)["sidebar_collapse"]["content"]
+        assert found["panes"] == 1, found
+        assert found["relayouts"] == 28, found  # the eased frames; the 12 at rest move nothing
+        assert found["stalled"] == 0, found
+        assert found["grid_reports"] == 1, found
+        assert "1 terminal grid report(s)" in result.stdout
+        assert "no pane following it" not in result.stdout
+
+
+def test_a_pane_that_stops_following_the_sidebar_edge_is_reported() -> None:
+    """A pane whose content freezes while the edge keeps moving (the lag Leo saw) shows up
+    as stalled frames, not as a perfect follow. Reported only: the run still passes."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        widths = eased(260, 0, 28)
+        (out / "sidebar_collapse.json").write_text(json.dumps(
+            sidebar_trace(widths, panes=[940.0] * len(widths), grid_reports=28)))
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)["sidebar_collapse"]["content"]
+        assert found["relayouts"] == 0, found
+        assert found["stalled"] == 28, found
+        assert found["grid_reports"] == 28, found
+        assert "no pane following it on 28 frame(s)" in result.stdout
+
+
+def test_a_sidebar_trace_without_pane_samples_still_passes() -> None:
+    """An older trace, or a run whose screen samples no pane, reports no pane numbers rather
+    than failing: the pane cost is context, never a gate."""
+    with tempfile.TemporaryDirectory() as temp:
+        out = Path(temp)
+        write_run(out)
+        result = judge(out)
+        assert result.returncode == 0, result.stdout + result.stderr
+        found = verdicts(out)["sidebar_collapse"]["content"]
+        assert found == {"frames": 0}, found
+        assert "no pane samples" in result.stdout
 
 
 def test_browser_resize_is_reported_only() -> None:
