@@ -277,6 +277,18 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       }
     });
 
+  /// Resolves once the turn whose reply holds `marker` has ended: its footer is the chat's last row,
+  /// after the reply (when the reply has scrolled out of the drawn range, after it all the same).
+  const ended = (page: Page, marker: string) =>
+    page.waitForFunction((marker) => {
+      const at = (row: Element) => Number(row.getAttribute("aria-posinset"));
+      const footer = document.querySelector(".acpmux-row--last-footer");
+      const reply = [...document.querySelectorAll(".acpmux-scroll .acpmux-row")].find((row) =>
+        row.textContent?.includes(marker),
+      );
+      return !!footer && (!reply || at(footer) > at(reply));
+    }, marker);
+
   /// One frame: where the row holding `marker` is drawn (transforms included).
   type Frame = { t: number; marker?: number };
   /// Samples every painted frame until `stop`.
@@ -398,7 +410,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         if (index === 120) unqueue("queue_removed", `q-${turn}`);
       });
       endTurn();
-      await page.waitForTimeout(800);
+      await ended(page, marker);
+      await rest(page);
       const frames = await stop(page);
       expect({ drops: drops(frames), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
       await page.close();
@@ -441,7 +454,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       unqueue("dequeued", `q-${turn}`);
       await stream(`q-${turn}`, "then write the changelog line for it", `Next marker ${turn}`, 30);
       endTurn();
-      await page.waitForTimeout(800);
+      await ended(page, `Next marker ${turn}`);
+      await rest(page);
       const frames = await stop(page);
       expect({ drops: drops(frames), atEnd: (await fromEnd(page)) <= 4 }).toEqual({ drops: [], atEnd: true });
       await page.close();
@@ -464,7 +478,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       });
       const left = await wheeled!;
       endTurn();
-      await page.waitForTimeout(600);
+      await ended(page, `Wheel marker ${turn}`);
+      await rest(page);
       expect({ kept: Math.abs((await scrollTop(page)) - left) <= 1, behind: (await fromEnd(page)) > 200 }).toEqual({
         kept: true,
         behind: true,
@@ -480,7 +495,6 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
   test.each(engines.map(([name]) => name))(
     "%s: a queued prompt sent while the composer is grown moves the view up only",
     async (name) => {
-      // fixed-wait: open() rests 500ms for rows to place by drawn height, as every test in this file does.
       const page = await open(name);
       const turn = events.length;
       const marker = `Grown marker ${turn}`;
@@ -542,6 +556,50 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       );
     });
 
+  /// From the first painted frame without the queue card: how long, in ms, until the last row rests
+  /// `resting` px over the stack's top again with nothing in the transcript moving. Started before
+  /// the card goes; `closed` reads it (Infinity if it never comes back within 600 frames).
+  const watchGap = (page: Page, resting: number) =>
+    page.evaluate((resting) => {
+      const w = window as unknown as { __closed: Promise<number> };
+      const scroller = document.querySelector(".acpmux-scroll")!;
+      w.__closed = new Promise<number>((resolve) => {
+        let left: number | undefined;
+        let frames = 0;
+        window.cmuxAfterPaint((now) => {
+          if (++frames > 600) {
+            resolve(Infinity);
+            return false;
+          }
+          if (left === undefined) {
+            if (document.querySelector(".acpmux-queued")) return;
+            left = now;
+          }
+          const moving = document
+            .getAnimations()
+            .some(
+              (animation) =>
+                animation.playState === "running" &&
+                Number.isFinite(animation.effect?.getComputedTiming().endTime) &&
+                animation.effect instanceof KeyframeEffect &&
+                animation.effect.target instanceof Node &&
+                scroller.contains(animation.effect.target),
+            );
+          const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+          const last = rows.reduce((a, b) =>
+            Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+          );
+          const gap =
+            document.querySelector(".acpmux-dock")!.getBoundingClientRect().top - last.getBoundingClientRect().bottom;
+          if (moving || Math.abs(Math.round(gap) - resting) > 4) return;
+          resolve(now - left);
+          return false;
+        });
+      });
+    }, resting);
+  const closed = (page: Page) =>
+    page.evaluate(async () => Math.round(await (window as unknown as { __closed: Promise<number> }).__closed));
+
   test.each(engines.map(([name]) => name))(
     "%s: a queued prompt deleted while the turn runs a tool leaves no gap for long",
     async (name) => {
@@ -552,19 +610,17 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       });
       // The turn runs a tool: nothing streams while the prompt is deleted.
       toolCall(`t-${turn}`);
-      await page.waitForTimeout(400);
+      await page.getByText("ls -la").first().waitFor();
+      await rest(page);
       const resting = await gapAbove(page);
+      await watchGap(page, resting);
       unqueue("queue_removed", `q-${turn}`);
-      await page.locator(".acpmux-queued").waitFor({ state: "detached" });
-      await page.waitForTimeout(600);
-      const gap = await gapAbove(page);
+      const after = await closed(page);
       toolDone(`t-${turn}`);
       endTurn();
-      // The last row rests on the stack's top again, a card's height lower, well before a second.
-      expect({ gap: Math.abs(gap - resting) <= 4, atEnd: (await fromEnd(page)) <= 4 }).toEqual({
-        gap: true,
-        atEnd: true,
-      });
+      // The last row rests on the stack's top again, a card's height lower, well before a second:
+      // the room held for the withdrawn prompt (250ms) goes within 600ms and its glide (180ms) ends.
+      expect({ after: after <= 600 + 180, atEnd: (await fromEnd(page)) <= 4 }).toEqual({ after: true, atEnd: true });
       await page.close();
     },
   );
@@ -577,11 +633,13 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const turn = events.length;
       await stream(`p-${turn}`, `Delete turn ${turn}`, `Delete marker ${turn}`, 30);
       endTurn();
-      await page.waitForTimeout(400);
+      await ended(page, `Delete marker ${turn}`);
+      await rest(page);
       const resting = await gapAbove(page);
       enqueue(`q-${turn}`, "never mind this one");
       await page.locator(".acpmux-queued").waitFor();
-      await page.waitForTimeout(300);
+      await rest(page);
+      await watchGap(page, resting);
       if (order === "queue") {
         // acpmux's queue update can come before its `queue_removed` record.
         queue = [];
@@ -590,12 +648,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         await page.locator(".acpmux-queued").waitFor({ state: "detached" });
         emit("mux", "queue_removed", { promptId: `q-${turn}` });
       } else unqueue("queue_removed", `q-${turn}`);
-      await page.locator(".acpmux-queued").waitFor({ state: "detached" });
-      await page.waitForTimeout(300);
-      expect({ gap: Math.abs((await gapAbove(page)) - resting) <= 4, atEnd: (await fromEnd(page)) <= 4 }).toEqual({
-        gap: true,
-        atEnd: true,
-      });
+      const after = await closed(page);
+      expect({ after: after <= 300, atEnd: (await fromEnd(page)) <= 4 }).toEqual({ after: true, atEnd: true });
       await page.close();
     },
   );
