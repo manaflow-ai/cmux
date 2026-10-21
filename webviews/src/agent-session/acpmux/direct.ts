@@ -152,6 +152,10 @@ const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
+/// Claude Code reports each model call's usage as it lands (acpmux claude_stdio/inbound.rs:
+/// the call's input, cache and output tokens), so a turn's calls add up to its tokens. Other
+/// harnesses report the context they hold, which does not add up.
+const usagePerCall = (summary: any) => summary?.harness === "claude" || summary?.family === "claude";
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
 const SESSION_INFO_KIND = "session_info_update";
@@ -722,6 +726,10 @@ export class AcpmuxDirectClient {
   private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
+  /// The running turn's tokens: its model calls' usage added up from its `turn_started`, the
+  /// running line's count (conversation/WorkingFor.tsx). Unset outside a turn, and for a turn
+  /// whose start this client did not see (it missed calls before it attached).
+  private turnTokens: number | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
   private commandsApplied = false;
   private optimisticPromptRows = new Map<string, string>();
@@ -1081,6 +1089,7 @@ export class AcpmuxDirectClient {
     this.summary = undefined;
     this.configSeq = 0;
     this.usage = undefined;
+    this.turnTokens = undefined;
     this.queue = [];
     this.turnOpen = false;
     this.streamingAssistant = undefined;
@@ -1746,6 +1755,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.turnTokens = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
@@ -1967,6 +1977,8 @@ export class AcpmuxDirectClient {
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
+      // Counted before the window: Claude Code reports a size of 0 until its first result.
+      if (this.turnTokens !== undefined && Number.isFinite(used) && used > 0) this.turnTokens += used;
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
       return;
     }
@@ -2108,6 +2120,7 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.turnTokens = 0;
         this.subagents.startTurn();
         this.settleCompactions(event.seq);
         // A Stop before this turn never judges it.
@@ -2124,6 +2137,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.turnTokens = undefined;
         this.settleCompactions(event.seq);
         this.landSteer();
         // Stop was answered: its grace must not judge the next turn.
@@ -2479,6 +2493,9 @@ export class AcpmuxDirectClient {
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
         this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
+      ...(this.replayThrough === undefined && this.turnTokens && usagePerCall(summary)
+        ? { turnTokens: this.turnTokens }
+        : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
@@ -3561,6 +3578,7 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      turnTokens: this.turnTokens,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
       streamingActivity: this.streamingActivity,
@@ -3585,6 +3603,7 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.turnTokens = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;

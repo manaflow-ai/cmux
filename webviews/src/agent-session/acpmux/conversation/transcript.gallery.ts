@@ -785,6 +785,26 @@ export default agentPaneEntry({
         { isWorking: true },
       ),
     },
+    "working-tokens": {
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: the working dots, then Working for 5m 54s · 2.1M tokens. A harness that does not report each call shows the time alone.",
+      snapshot: chat(
+        [
+          user(prompt, 5.9),
+          activity(
+            [
+              thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+              tool("Search for parseError", "search", "completed"),
+            ],
+            5.85,
+          ),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+        ],
+        { isWorking: true, turnTokens: 2_140_000 },
+      ),
+    },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
       snapshot: chat(
