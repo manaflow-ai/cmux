@@ -14,8 +14,7 @@ extension AppActions {
         registry.bind("newTab", invoke: { newWorkspace(services, $0) })
         registry.bind("closeWorkspace", run: { try closeWorkspace(services, $0) })
         // "Close N Workspaces" on a row of a multi-row selection (SidebarModel.closeTitle).
-        ActionTargetTitles.set("closeWorkspace", in: registry) { $0.target.flatMap { target in services.windows.registry.value.owner(of: target.id)
-            .flatMap(services.windows.controller(for:))?.sidebar.model.closeTitle(for: SidebarWorkspaceID(target.id)) } }
+        ActionTargetTitles.set("closeWorkspace", in: registry) { $0.target.flatMap { target in services.windows.registry.value.owner(of: target.id).flatMap(services.windows.controller(for:))?.sidebar.model.closeTitle(for: SidebarWorkspaceID(target.id)) } }
         registry.bind("renameWorkspace", invoke: { invocation in
             guard let workspace = scope(services, invocation).workspace, let key = workspace.key else { return }
             if let name = invocation["name"]?.stringValue, !name.isEmpty {

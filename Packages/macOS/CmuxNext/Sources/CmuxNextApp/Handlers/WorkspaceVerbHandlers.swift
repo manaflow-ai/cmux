@@ -190,13 +190,7 @@ enum WorkspaceVerbHandlers {
 
     /// The sidebar group listing `workspace` in its window, if any.
     static func group(of workspace: WorkspaceModel, _ context: AppActionContext) throws -> SidebarGroup? {
-        let sections = try sidebar(showing: workspace, context).model.sections
-        for section in sections {
-            for case let .group(group) in section.nodes where group.workspaces.contains(where: { $0.id.rawValue == workspace.id }) {
-                return group
-            }
-        }
-        return nil
+        try sidebar(showing: workspace, context).model.group(containing: CmuxNextSidebar.WorkspaceID(workspace.id))
     }
 
     /// The directory of the workspace's focused terminal, else its first one.

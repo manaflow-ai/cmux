@@ -44,9 +44,8 @@ enum WorkspaceBulkClose {
             closing = try otherGroups(invocation, context).1.flatMap(\.workspaces).map(\.id.rawValue)
         case "closeWorkspace":
             // A person's Close Workspace on one of several selected rows closes the selection (`SidebarModel.closeTargets`).
-            let target = try context.workspace(invocation).model
-            let sidebar = invocation.origin == .user && !invocation.closesRowOnly ? (try? WorkspaceVerbHandlers.sidebar(showing: target, context)) : nil
-            closing = sidebar?.model.closeTargets(for: CmuxNextSidebar.WorkspaceID(target.id)).map(\.rawValue) ?? [target.id]
+            let target = try context.workspace(invocation).model, user = invocation.origin == .user && !invocation.closesRowOnly
+            closing = (user ? (try? WorkspaceVerbHandlers.sidebar(showing: target, context)) : nil)?.model.closeTargets(for: CmuxNextSidebar.WorkspaceID(target.id)).map(\.rawValue) ?? [target.id]
         case "workspace.closeOthersInGroup":
             let workspace = try context.workspace(invocation).model
             guard let group = try WorkspaceVerbHandlers.group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
@@ -94,11 +93,9 @@ enum WorkspaceBulkClose {
         } else if id == "closeWorkspace", members.count > 1, let first = members.first {
             // A selection: each group it empties closes as Close Group does (an unpinned group goes, cx-rcby), the
             // other rows as their own close does (InstantClose), asked once (`prompt`) and undone together.
-            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first.0, context)
-            let plan = sidebar.model.closePlan(members.map { CmuxNextSidebar.WorkspaceID($0.0.id) })
+            let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first.0, context), plan = sidebar.model.closePlan(members.map { CmuxNextSidebar.WorkspaceID($0.0.id) })
             let name = { (id: CmuxNextSidebar.WorkspaceID) in services.machines.workspace(id: id.rawValue)?.0.name }
-            groups = plan.groups.map { group -> (String?, [String]) in (group.id.rawValue, group.workspaces.compactMap { name($0.id) }) }
-                + [(nil, plan.rows.compactMap(name))]
+            groups = plan.groups.map { group -> (String?, [String]) in (group.id.rawValue, group.workspaces.compactMap { name($0.id) }) } + [(nil, plan.rows.compactMap(name))]
             for group in plan.groups { sidebar.handle(.closeGroup(group.id)) }
             for row in plan.rows { services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: row.rawValue).confirmed()) }
         } else {
