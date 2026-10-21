@@ -219,9 +219,9 @@ async fn a_provenance_from_any_origin_but_the_unix_socket_is_refused() {
 }
 
 /// The app pane's reply in place (IncomingMessageCard.tsx): chat `from` answers message `msg-0`
-/// of thread `thread-1`, which chat `to` sent it.
+/// of thread `thread-1`, which chat `to` sent it, under its own id as its name.
 fn app_reply(from: &str, to: &str) -> Value {
-    json!({"kind": "agent_message", "from": from, "fromName": "Grid fix", "to": to,
+    json!({"kind": "agent_message", "from": from, "fromName": from, "to": to,
            "msgId": "m-reply", "threadId": "thread-1", "replyTo": "msg-0"})
 }
 
@@ -238,6 +238,9 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
         .call("session/prompt", prompt(&replier, "msg-0", "Rebase on main.", Some(&message)))
         .await;
     let mut app = Client::open_as(&hub, Origin::LocalApp);
+    // The pane shows the chat the message came to; it holds the sender's chat unseen to reply.
+    let shown = app.call("_acpmux/attach", json!({"sessionId": replier, "limit": 0})).await;
+    app.call("_acpmux/attach", json!({"sessionId": sender, "limit": 0, "visible": false})).await;
 
     // A reply from the chat the message came to, to the chat that sent it: recorded as is.
     let reply = app_reply(&replier, &sender);
@@ -270,6 +273,54 @@ async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
     }
     let ran = local.records(&sender, "user_message").await;
     assert_eq!(ran.len(), 1, "a refused reply ran: {ran:?}");
+
+    // Default deny for what the pane signs (cx-kybz1 review): a `from` chat this pane does not
+    // show (not attached, or only held unseen), a thread that is not the message's, or a name
+    // that is not the replying chat's.
+    let message_to = |to: &str| {
+        json!({"kind": "agent_message", "from": sender, "fromName": "builder", "to": to,
+               "msgId": "msg-0", "threadId": "thread-1"})
+    };
+    let unattached = local.new_session(json!({"harness": "fake"})).await;
+    let unseen = local.new_session(json!({"harness": "fake"})).await;
+    for chat in [&unattached, &unseen] {
+        let got = message_to(chat);
+        local.call("session/prompt", prompt(chat, "msg-0", "Rebase on main.", Some(&got))).await;
+    }
+    app.call("_acpmux/attach", json!({"sessionId": unseen, "limit": 0, "visible": false})).await;
+    let mut wrong_thread = app_reply(&replier, &sender);
+    wrong_thread["threadId"] = json!("thread-other");
+    let mut posing = app_reply(&replier, &sender);
+    posing["fromName"] = json!("Chief");
+    let unscoped =
+        [app_reply(&unattached, &sender), app_reply(&unseen, &sender), wrong_thread, posing];
+    for bad in unscoped {
+        let value = app.reply("session/prompt", prompt(&sender, "p-bad", "hi", Some(&bad))).await;
+        assert_eq!(
+            value.pointer("/error/data/reason"),
+            Some(&json!("provenance.origin_refused")),
+            "{bad}: {value}"
+        );
+    }
+    let ran = local.records(&sender, "user_message").await;
+    assert_eq!(ran.len(), 1, "a refused reply ran: {ran:?}");
+
+    // The chat's own name passes, as the pane names it (its title, else its name), and so does
+    // a reply that names no sender at all.
+    let session = &shown["session"];
+    let name = [&session["title"], &session["name"]]
+        .into_iter()
+        .filter_map(Value::as_str)
+        .find(|n| !n.trim().is_empty())
+        .map(str::to_owned);
+    if let Some(name) = name {
+        let mut named = app_reply(&replier, &sender);
+        named["fromName"] = json!(name);
+        app.call("session/prompt", prompt(&sender, "p-named", "Named.", Some(&named))).await;
+    }
+    let mut nameless = app_reply(&replier, &sender);
+    nameless.as_object_mut().unwrap().remove("fromName");
+    app.call("session/prompt", prompt(&sender, "p-nameless", "No name.", Some(&nameless))).await;
 
     // A remote browser may not send even a reply.
     let mut web = Client::open_as(&hub, Origin::Web);
