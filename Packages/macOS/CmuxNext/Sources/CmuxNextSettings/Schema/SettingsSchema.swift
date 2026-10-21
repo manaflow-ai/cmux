@@ -195,6 +195,7 @@ public nonisolated enum SettingsSchema {
                 keywords: ["dock", "icon", "menu bar", "background", "app switcher", "command tab", "accessory", "windows"]
             ),
             TabSettingsSchema.newTabTemplate(group: tabs),
+            TabSettingsSchema.terminalFirst(group: tabs),
             TabSettingsSchema.newTabPosition(group: tabs),
             TabSettingsSchema.plusButton(group: tabs),
         ] + TabBarSettingsSchema.descriptors(group: tabs) + TabWidthSettingsSchema.descriptors(group: tabs) + [

@@ -6,7 +6,7 @@ import Testing
 
 /// A working row shows how long the agent has worked ("4m", Leo 2026-10-20) beside its dot when
 /// the name keeps its full width; a narrow row stays as it was.
-@MainActor
+@MainActor @Suite(.serialized)
 struct WorkspaceRowElapsedTests {
     private func working(_ title: String, since: Date?) -> SidebarWorkspace {
         // An agent's last update gives the row an age, which the running time replaces.
@@ -25,6 +25,8 @@ struct WorkspaceRowElapsedTests {
         let view = WorkspaceRowView(key: row.key)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: width, height: 28), styleMask: .borderless,
                               backing: .buffered, defer: true)
+        // `close()` would release a window the test still holds (a segfault on the fleet).
+        window.isReleasedWhenClosed = false
         window.contentView?.addSubview(view)
         view.frame = NSRect(x: 0, y: 0, width: width, height: 28)
         view.configure(ws, row: row, badgeStyle: .corner)
