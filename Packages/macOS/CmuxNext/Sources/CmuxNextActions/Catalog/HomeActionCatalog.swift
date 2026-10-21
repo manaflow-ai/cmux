@@ -32,7 +32,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 mainMenu: .file
             ),
             // The Chief's conversation in the Home workspace's chat pane: the sidebar's Chief item
-            // (`SidebarChiefItem`, off by default) runs it, and so can the palette and `cmux home open-chief`.
+            // (`ChiefSidebar`, off by default) runs it, and so can the palette and `cmux home open-chief`.
             ActionDescriptor(
                 id: "home.openChief", title: t("action.home.openChief", "Open Chief"),
                 keywords: ["chief", "home", "chat", "conversation", "talk", "mux", "orchestrator", "subagents"],

@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextActions
+import CmuxNextAgentLanes
 import CmuxNextDaemon
 import CmuxNextSidebar
 
@@ -11,7 +12,10 @@ import CmuxNextSidebar
 enum SidebarSectionHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let layout = context.services.sidebarLayout
-        SidebarChiefItem.bind(into: registry, services: context.services)
+        let services = context.services
+        ChiefSidebar.shared.bind(into: registry, host: .init(conversation: { TopHomePageView.chief(services.home) }, chiefHost: { services.agentTabs.chiefHost },
+            tab: { services.agentTabs.tab(showing: $0, host: $1) }, reveal: { services.revealTab($0) },
+            openWorkspace: { try AgentSessionWorkspace.open(session: $0, name: nil, cwd: nil, host: $1, services: services) }))
         // Item adds and removes are undo steps (P4) through the one pin path,
         // named as the menu showed them.
         func bind(_ id: ActionID, undoable: Bool = false, unavailable: @escaping @MainActor () -> String? = { nil },

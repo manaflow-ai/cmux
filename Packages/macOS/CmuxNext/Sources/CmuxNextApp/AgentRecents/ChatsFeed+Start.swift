@@ -26,7 +26,7 @@ extension ChatsFeed {
         guard chiefTurnStates == nil else { return }
         let home = ChiefHome.resolve(tag: tag)
         guard let environment = ChiefHomeAcpmux.environment(home: home) else { return }
-        let feed = AgentTurnStateFeed(socketPath: environment.socketPath, lanes: chiefLanes,
+        let feed = AgentTurnStateFeed(socketPath: environment.socketPath, lanes: ChiefSidebar.lanes,
                                       mirroring: ChiefHomeAcpmux.host(muxHome: home.muxHome))
         chiefTurnStates = feed
         feed.start(localHost: nil)
@@ -34,6 +34,4 @@ extension ChatsFeed {
 
     /// The Chief home's watch, once started.
     static var chiefTurnStates: AgentTurnStateFeed?
-    /// The Chief home's lanes (its turns and subagents), which the sidebar's Chief entry reads.
-    static let chiefLanes = AgentLaneStore()
 }

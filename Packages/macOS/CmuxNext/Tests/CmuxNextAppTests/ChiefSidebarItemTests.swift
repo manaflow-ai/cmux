@@ -1,5 +1,5 @@
 import CmuxNextAgentActivity
-import CmuxNextAgentLanes
+@testable import CmuxNextAgentLanes
 import CmuxNextDesign
 @testable import CmuxNextApp
 @testable import CmuxNextSidebar
@@ -61,15 +61,17 @@ struct ChiefSidebarItemTests {
 
     @Test func theChiefItemCarriesItsStatusAndIsOffByDefault() {
         let layout = SidebarLayoutDocument(sections: [LayoutSection(id: LayoutSectionID("sec_top"), region: .top, items: [Self.chiefItem])])
-        var status = SidebarBridge.ChiefItemStatus()
-        status.activity = .waiting
-        status.badge = 2
-        let info = SidebarBridge.itemInfo(for: layout, registered: { _ in true }, chief: status)[Self.chiefItem.id]
+        let shown = ChiefSidebar.shared.status
+        defer { ChiefSidebar.shared.status = shown }
+        ChiefSidebar.shared.status = ChiefSidebar.Status(activity: .waiting, badge: 2)
+        let info = SidebarBridge.itemInfo(for: layout, registered: { _ in true })[Self.chiefItem.id]
         #expect(info?.activity == .waiting)
         #expect(info?.badge == 2)
         #expect(info?.title == SidebarBuiltIn.chief.title)
         #expect(SidebarBridge.builtInActions[.chief] == "home.openChief")
         #expect(SidebarLayoutDocument.defaults.firstItem(with: .builtIn(.chief)) == nil)
+        #expect(ChiefSidebar.menuRemovals(isApp: false, isChief: true) == ["sidebar.item.hideApp"])
+        #expect(ChiefSidebar.menuRemovals(isApp: true, isChief: false) == [ChiefSidebar.toggleIdleAction])
     }
 
     @Test func foldedHidesOnlyIdleSubagentsInNumberOrder() {

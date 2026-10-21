@@ -29,7 +29,7 @@ extension SidebarBridge {
         .newAgentChat: "palette.newAgentChat",
         .customize: "appearance.customize",
         .searchChats: "agentPane.searchChats",
-        .chief: SidebarChiefItem.openAction,
+        .chief: ChiefSidebar.openAction,
     ]
 
     /// Runs item `id` as a click does: a top-section item that stands for a
@@ -89,19 +89,18 @@ extension SidebarBridge {
         sectionsObservation = Task { [weak self] in
             // Also observed: the apps client (installs, hides), the unread count, the built-ins' shortcuts (tooltips) and
             // the workspaces tiles and top rows name. The selected item comes from the one selection.
-            for await (layout, unread, shortcuts, workspaces, chief) in ObservationStream({
-                () -> (SidebarLayoutDocument, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo], ChiefItemStatus) in
-                _ = apps.apps
+            for await (layout, unread, shortcuts, workspaces) in ObservationStream({
+                () -> (SidebarLayoutDocument, Int, [ActionID: String], [LayoutItemRef: SidebarItemInfo]) in
+                _ = (apps.apps, ChiefSidebar.shared.status)
                 return (service.document, NotificationCenterService.unreadCount(store), Self.builtInShortcuts(registry),
-                        SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs),
-                        SidebarChiefItem.shared.status)
+                        SidebarWorkspaceItems.workspaceInfos(service.document, refs: refs))
             }) {
                 // The window closed: the bridge is gone, stop observing.
                 guard self != nil else { return }
                 // `model.layout` is written with the rows it projects (SidebarBridge.show).
                 let visibleLayout = layout.withoutChats
                 let infos = Self.itemInfo(for: visibleLayout, registered: { registry.action(for: $0) != nil },
-                                          unread: unread, chief: chief,
+                                          unread: unread,
                                           app: { SidebarAppItemInfo.info($0, client: apps) }, shortcut: { shortcuts[$0] },
                                           workspace: { workspaces[$0] })
                 if model.itemInfo != infos { model.itemInfo = infos }
@@ -109,16 +108,6 @@ extension SidebarBridge {
                 if model.suppressedApps != suppressed { model.suppressedApps = suppressed }
             }
         }
-    }
-
-    /// The Chief item's indicator and badge (`SidebarTransientItem.chiefStatus`, kept by
-    /// `SidebarChiefItem.status`).
-    struct ChiefItemStatus: Equatable, Sendable {
-        var activity: StatusIndicatorState = .idle
-        var badge: Int?
-
-        init() {}
-        init(_ status: (activity: StatusIndicatorState, badge: Int?)) { (activity, badge) = status }
     }
 
     /// The shortcut of each built-in's action, as menus show it.
@@ -131,11 +120,11 @@ extension SidebarBridge {
     }
 
     /// Presentation of every built-in, app and workspace item in `layout` (a closed workspace dimmed); `registered` says
-    /// whether an action exists. Notifications carries `unread`, the Chief its status (`chief`), and each
+    /// whether an action exists. Notifications carries `unread`, the Chief its status (`ChiefSidebar`), and each
     /// built-in carries its action's `shortcut` for its tooltip. The update
     /// notice is the footer's pill, never an item control (SIDEBAR-FOOTER-MINIMAL).
     static func itemInfo(for layout: SidebarLayoutDocument, registered: (ActionID) -> Bool,
-                         unread: Int = 0, chief: ChiefItemStatus = ChiefItemStatus(),
+                         unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
                          workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
@@ -151,8 +140,7 @@ extension SidebarBridge {
                 var info = builtIn.defaultInfo
                 info.isMissing = !(builtInActions[builtIn].map(registered) ?? false)
                 info.shortcut = builtInActions[builtIn].flatMap(shortcut)
-                if builtIn == .notifications { info.badge = unread > 0 ? unread : nil }
-                if builtIn == .chief { (info.activity, info.badge) = (chief.activity, chief.badge) }
+                if builtIn == .notifications { info.badge = unread > 0 ? unread : nil } else if builtIn == .chief { ChiefSidebar.shared.decorate(&info) }
                 infos[item.id] = info
             }
         }
@@ -174,10 +162,7 @@ extension SidebarBridge {
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
         let item = model.layout.item(id) ?? model.listedItem(id)
         let menus = ContextMenuCatalog.shared
-        var hidden: Set<ActionID> = item?.owningAppID != nil ? [] : ["sidebar.item.hideApp"]
-        // Only the Chief item folds its subagent rows.
-        if item?.ref != .builtIn(.chief) { hidden.insert(SidebarChiefItem.toggleIdleAction) }
-        let entries = menus.entries(for: .sidebarItem, removing: hidden)
+        let entries = menus.entries(for: .sidebarItem, removing: ChiefSidebar.menuRemovals(isApp: item?.owningAppID != nil, isChief: item?.ref == .builtIn(.chief)))
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),
                                                  entries: entries)
     }

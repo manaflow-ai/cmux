@@ -23,8 +23,8 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 // The Home row's own menu offers Remove from Sidebar.
                 surfacePlan: plan(exemption: .familyMember)
             ),
-            // The Chief entry's subagent rows (`SidebarChiefItem`): folded, only the working, waiting, failed
-            // or lost ones show; checked, the idle ones too. Only the Chief entry's right-click menu shows it.
+            // The Chief item's subagent rows (`ChiefSidebar`): folded, only the working, waiting, failed
+            // or lost ones show; checked, the idle ones too. Only the Chief item's right-click menu shows it.
             ActionDescriptor(
                 id: "sidebar.chief.toggleIdleSubagents",
                 title: t("action.sidebar.chief.toggleIdleSubagents", "Show Idle Chief Subagents"),
