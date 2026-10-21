@@ -134,13 +134,14 @@ const trailingSpaces = (view: EditorView) => /[ \t]+$/.exec(view.state.doc.lastC
 const htmlHasDataImage = (html: string) => /<img\b[^<>]*\ssrc\s*=\s*["']?\s*data:/i.test(html);
 
 /** Text copied as Milkdown's markdown (before this field copied plain text) wrote a blank line as
- * a `<br />` paragraph: that is a blank line, and any other `<br>` a line break, never a tag. */
-const withoutBreakTags = (text: string) =>
+ * a `<br />` line between blank lines: that placeholder is a blank line. Every other character,
+ * a `<br>` in pasted source included, stays as copied. */
+const withoutBreakPlaceholders = (text: string) =>
   text
     .replace(/\r\n?/g, "\n")
-    .replace(/(^|\n\n)<br\s*\/?>(?=\n\n|\n?$)\n?/gi, "$1")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/\n{3,}/g, "\n\n");
+    .replace(/\n\n<br \/>(?=\n\n)/g, "")
+    .replace(/^<br \/>\n\n/, "\n")
+    .replace(/\n\n<br \/>\n?$/, "\n");
 
 const BLOCK_TAG = /^(P|DIV|LI|PRE|BLOCKQUOTE|H[1-6]|UL|OL|TABLE|TR|SECTION|ARTICLE|HEADER|FOOTER)$/;
 
@@ -456,7 +457,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               const data = event.clipboardData;
               if (data && !data.getData("vscode-editor-data")) {
                 const html = data.getData("text/html");
-                const plain = withoutBreakTags(data.getData("text/plain") || (html ? htmlText(html) : ""));
+                const text = data.getData("text/plain");
+                const plain = text ? withoutBreakPlaceholders(text) : html ? htmlText(html) : "";
                 if (plain) {
                   if (beforeInput(editorView, plain, true)) return true;
                   insertPlain(editorView, plain);
