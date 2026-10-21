@@ -113,8 +113,8 @@ fn machine_steps(
     for step in [Step::Reach, Step::Install, Step::Daemon, Step::Harness] {
         let result = gate(step, &done).unwrap_or_else(|| match step {
             Step::Reach => reach(r),
-            Step::Install => install(r, &plan.remote_binary, fix),
-            Step::Daemon => daemon(r, plan.port, fix),
+            Step::Install => install(r, &plan.name, &plan.remote_binary, fix),
+            Step::Daemon => daemon(r, &plan.name, plan.port, fix),
             _ => harness(r, &plan.harnesses, local, fix),
         });
         emit(&result);
@@ -262,6 +262,109 @@ fn build_of(line: &str) -> Option<&str> {
     rest.trim_end().strip_suffix(')').map(str::trim).filter(|b| !b.is_empty())
 }
 
+/// Lists each acpmux the host has, in the order it would use them (its
+/// PATH, the standalone install, the cmux apps), with its version line and
+/// what `daemon status` (which never starts a daemon) says through it; then
+/// a NUL and the daemon config. An app name may hold spaces: the glob's
+/// words stay whole and a pattern that matched nothing fails `-f`.
+const PROBE: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; printf 'bin\t%s\t%s\n' "$b" "$("$b" --version 2>/dev/null | head -n 1)"; printf 'status\t%s\t%s\n' "$b" "$("$b" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; cat ~/.acpmux/config.json 2>/dev/null"#;
+
+/// What [`PROBE`] found.
+#[derive(Debug, Default, PartialEq, Eq)]
+struct Probe {
+    /// Each acpmux on the host and its build, in [`PROBE`] order.
+    bins: Vec<(String, Option<String>)>,
+    /// The first daemon that answered.
+    running: Option<Running>,
+    /// The running daemon's executable, when the host names it.
+    exe: Option<String>,
+    config: String,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+struct Running {
+    /// The binary whose `daemon status` it answered.
+    via: String,
+    pid: u64,
+    build: Option<String>,
+    /// It holds a person key: the cmux app started it (`hub/person.rs`).
+    person_key: bool,
+}
+
+/// The acpmux the host uses: the running daemon's, else the first binary.
+#[derive(Debug, PartialEq, Eq)]
+struct InUse {
+    path: String,
+    build: Option<String>,
+    /// Inside a cmux app bundle: the app owns it and its daemon.
+    app: bool,
+    pid: Option<u64>,
+}
+
+fn parse_probe(stdout: &str) -> Probe {
+    let (list, config) = stdout.split_once('\0').unwrap_or((stdout, ""));
+    let mut probe = Probe { config: config.to_owned(), ..Probe::default() };
+    for line in list.lines() {
+        let mut parts = line.splitn(3, '\t');
+        let (Some(kind), Some(path), rest) = (parts.next(), parts.next(), parts.next()) else {
+            continue;
+        };
+        let rest = rest.unwrap_or("");
+        match kind {
+            "bin" => probe.bins.push((path.to_owned(), build_of(rest).map(str::to_owned))),
+            "status" if probe.running.is_none() => {
+                let v: Value = serde_json::from_str(rest.trim()).unwrap_or(Value::Null);
+                if let Some(pid) = v.get("pid").and_then(Value::as_u64) {
+                    probe.running = Some(Running {
+                        via: path.to_owned(),
+                        pid,
+                        build: v.get("build").and_then(Value::as_str).map(str::to_owned),
+                        person_key: v.get("personKey").and_then(Value::as_bool) == Some(true),
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    probe
+}
+
+/// A path inside a macOS app bundle.
+fn app_owned(path: &str) -> bool {
+    path.contains(".app/Contents/")
+}
+
+impl Probe {
+    fn in_use(&self) -> Option<InUse> {
+        if let Some(run) = &self.running {
+            // When the host does not name the daemon's executable, a daemon
+            // on a host with a cmux app counts as the app's: never restart
+            // what may be the app's daemon.
+            let app = run.person_key
+                || match &self.exe {
+                    Some(exe) => app_owned(exe),
+                    None => self.bins.iter().any(|(path, _)| app_owned(path)),
+                };
+            let path = self.exe.clone().unwrap_or_else(|| run.via.clone());
+            return Some(InUse { path, build: run.build.clone(), app, pid: Some(run.pid) });
+        }
+        let (path, build) = self.bins.first()?;
+        Some(InUse { path: path.clone(), build: build.clone(), app: app_owned(path), pid: None })
+    }
+}
+
+/// Run [`PROBE`], then name the running daemon's executable (Linux
+/// `/proc`, else `ps`). Reads only.
+fn probe(r: &dyn Remote) -> Result<Probe> {
+    let mut probe = parse_probe(&r.exec(PROBE, None)?.stdout);
+    if let Some(pid) = probe.running.as_ref().map(|run| run.pid) {
+        let script = format!("readlink /proc/{pid}/exe 2>/dev/null || ps -o comm= -p {pid}");
+        let exe = r.exec(&script, None)?.stdout.trim().to_owned();
+        probe.exe = exe.starts_with('/').then_some(exe);
+    }
+    Ok(probe)
+}
+
 /// The remote builds of `bin` and, when it is another file, of the
 /// [`DAEMON_BIN`] the daemon runs; None for a binary that is not there.
 fn installed(r: &dyn Remote, bin: &str) -> Result<(Option<String>, Option<String>)> {
@@ -301,10 +404,33 @@ fn same_platform(uname: &str, os: &str, arch: &str) -> bool {
     kernel == os && machine == arch
 }
 
-fn install(r: &dyn Remote, bin: &str, fix: bool) -> StepResult {
+/// The step for a host whose acpmux is cmux's own: its build is the app's
+/// business, so another build only warns, and nothing is pushed.
+fn app_build(step: Step, host: &str, used: &InUse, ok: &str) -> StepResult {
+    let want = crate::hub::BUILD;
+    match used.build.as_deref() {
+        Some(b) if b == want => StepResult::new(step, StepState::Ok, ok),
+        b => StepResult::new(
+            step,
+            StepState::Warn,
+            format!("{host} runs cmux's own acpmux (build {}, this is {want})", b.unwrap_or("?")),
+        )
+        .with_fix(format!("Update cmux on {host}.")),
+    }
+}
+
+fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     let host = r.host();
     let want = crate::hub::BUILD;
     let from_app = INSTALL_FROM_APP.replace("{host}", host);
+    let used = match probe(r) {
+        Ok(p) => p.in_use(),
+        Err(e) => return fail(Step::Install, format!("{e:#}"), "Check again."),
+    };
+    if let Some(used) = used.filter(|u| u.app) {
+        let ok = format!("{host} runs cmux's own acpmux at {} (build {want})", used.path);
+        return app_build(Step::Install, host, &used, &ok);
+    }
     if !hosts::plain_path(bin) {
         return fail(
             Step::Install,
@@ -330,6 +456,12 @@ fn install(r: &dyn Remote, bin: &str, fix: bool) -> StepResult {
     }
     let why = describe(&found);
     if !fix {
+        // Another build still serves the peer link (`host ls` says it
+        // differs); a missing one does not.
+        if found.0.is_some() && found.1.is_some() {
+            return StepResult::new(Step::Install, StepState::Warn, why)
+                .with_fix(format!("Run `acpmux host update {name}`."));
+        }
         return fail(
             Step::Install,
             why,
@@ -382,48 +514,91 @@ fn install(r: &dyn Remote, bin: &str, fix: bool) -> StepResult {
     }
 }
 
-/// Whether the remote daemon answers as this build with a WebSocket
-/// listener on `port`: what it reports, or why not.
-fn judge_daemon(config: &str, status: &str, port: u16, want: &str) -> Result<String, String> {
+/// Why the config gives the peer link no WebSocket listener on `port`.
+fn listener_problem(config: &str, port: u16) -> Option<String> {
     let cfg: Value = serde_json::from_str(config).unwrap_or(Value::Null);
     let listen = cfg.pointer("/websocket/listen").and_then(Value::as_str);
     let has_token =
         cfg.pointer("/websocket/token").and_then(Value::as_str).is_some_and(|t| !t.is_empty());
     match listen {
-        None => return Err("no WebSocket listener is configured".into()),
-        Some(_) if !has_token => return Err("the WebSocket listener has no token".into()),
+        None => Some("no WebSocket listener is configured".into()),
+        Some(_) if !has_token => Some("the WebSocket listener has no token".into()),
         Some(l) if !l.ends_with(&format!(":{port}")) => {
-            return Err(format!("the daemon listens on {l}, the peer uses port {port}"));
+            Some(format!("the daemon listens on {l}, the peer uses port {port}"))
         }
-        Some(_) => {}
+        Some(_) => None,
     }
-    let status: Value = serde_json::from_str(status.trim()).unwrap_or(Value::Null);
-    if status.get("pid").is_none() {
-        return Err("the daemon is not running".into());
+}
+
+/// The daemon of the acpmux the host uses, judged.
+#[derive(Debug)]
+enum Verdict {
+    /// Nothing to repair from here: ours and current, or cmux's own.
+    Done(StepResult),
+    /// Ours, of another build: it serves the peer link, a restart updates it.
+    OtherBuild(StepResult),
+    /// Ours and not usable: why.
+    Repair(String),
+}
+
+fn judge_daemon(host: &str, name: &str, probe: &Probe, port: u16) -> Verdict {
+    let want = crate::hub::BUILD;
+    let used = probe.in_use();
+    if let Some(used) = used.as_ref().filter(|u| u.app) {
+        // cmux owns this daemon: never start, configure or restart it here.
+        let Some(pid) = used.pid else {
+            return Verdict::Done(fail(
+                Step::Daemon,
+                format!("cmux is installed on {host} but its acpmux daemon is not running"),
+                format!("Open cmux on {host}, then check again."),
+            ));
+        };
+        if let Some(why) = listener_problem(&probe.config, port) {
+            return Verdict::Done(fail(
+                Step::Daemon,
+                format!("cmux's own daemon runs on {host}, but {why}"),
+                format!(
+                    "Give the daemon a WebSocket listener on 127.0.0.1:{port} with a token in ~/.acpmux/config.json on {host}, then restart cmux there."
+                ),
+            ));
+        }
+        let ok = format!("cmux's own daemon runs, pid {pid}, build {want}");
+        return Verdict::Done(app_build(Step::Daemon, host, used, &ok));
     }
-    match status.get("build").and_then(Value::as_str) {
-        Some(b) if b != want => Err(format!("the daemon runs build {b}, this is {want}")),
-        _ => Ok(format!(
-            "running, pid {}, build {want}",
-            status.get("pid").and_then(Value::as_u64).unwrap_or(0)
+    if let Some(why) = listener_problem(&probe.config, port) {
+        return Verdict::Repair(why);
+    }
+    let Some(pid) = used.as_ref().and_then(|u| u.pid) else {
+        return Verdict::Repair("the daemon is not running".into());
+    };
+    match used.and_then(|u| u.build) {
+        Some(b) if b != want => Verdict::OtherBuild(
+            StepResult::new(
+                Step::Daemon,
+                StepState::Warn,
+                format!("the daemon runs build {b}, this is {want}"),
+            )
+            .with_fix(format!("Run `acpmux host update {name}`.")),
+        ),
+        _ => Verdict::Done(StepResult::new(
+            Step::Daemon,
+            StepState::Ok,
+            format!("running, pid {pid}, build {want}"),
         )),
     }
 }
 
-fn daemon_state(r: &dyn Remote, port: u16) -> Result<String, String> {
-    let script = format!(
-        "cat ~/.acpmux/config.json 2>/dev/null; printf '\\0'; {DAEMON_BIN} --json daemon status 2>/dev/null"
-    );
-    let out = r.exec(&script, None).map_err(|e| format!("{e:#}"))?;
-    let (config, status) = out.stdout.split_once('\0').unwrap_or((&out.stdout, ""));
-    judge_daemon(config, status, port, crate::hub::BUILD)
-}
-
-fn daemon(r: &dyn Remote, port: u16, fix: bool) -> StepResult {
+fn daemon(r: &dyn Remote, name: &str, port: u16, fix: bool) -> StepResult {
     let host = r.host();
-    let why = match daemon_state(r, port) {
-        Ok(detail) => return StepResult::new(Step::Daemon, StepState::Ok, detail),
-        Err(why) => why,
+    let judge = |r: &dyn Remote| match probe(r) {
+        Ok(p) => judge_daemon(host, name, &p, port),
+        Err(e) => Verdict::Repair(format!("{e:#}")),
+    };
+    let why = match judge(r) {
+        Verdict::Done(result) => return result,
+        Verdict::OtherBuild(result) if !fix => return result,
+        Verdict::OtherBuild(result) => result.detail,
+        Verdict::Repair(why) => why,
     };
     let look = format!("Run `{DAEMON_BIN} daemon start` on {host} to see why it does not start.");
     if !fix {
@@ -436,11 +611,16 @@ fn daemon(r: &dyn Remote, port: u16, fix: bool) -> StepResult {
     if let Err(e) = hosts::install_daemon(r, port, true) {
         return fail(Step::Daemon, format!("{why}; starting it failed: {e:#}"), look);
     }
-    match daemon_state(r, port) {
-        Ok(detail) => {
-            StepResult::new(Step::Daemon, StepState::Fixed, format!("{why}; now {detail}"))
+    match judge(r) {
+        Verdict::Done(after) if after.state == StepState::Ok => {
+            StepResult::new(Step::Daemon, StepState::Fixed, format!("{why}; now {}", after.detail))
         }
-        Err(after) => fail(Step::Daemon, format!("{why}; after a restart, {after}"), look),
+        Verdict::Done(after) | Verdict::OtherBuild(after) => {
+            fail(Step::Daemon, format!("{why}; after a restart, {}", after.detail), look)
+        }
+        Verdict::Repair(after) => {
+            fail(Step::Daemon, format!("{why}; after a restart, {after}"), look)
+        }
     }
 }
 

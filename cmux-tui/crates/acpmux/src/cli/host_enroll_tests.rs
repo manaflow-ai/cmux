@@ -44,10 +44,6 @@ fn version(build: &str) -> String {
 
 const CONFIG: &str = r#"{"websocket":{"listen":"127.0.0.1:47811","token":"t"}}"#;
 
-fn status(build: &str) -> String {
-    format!("{CONFIG}\0{{\"pid\": 7, \"build\": \"{build}\"}}")
-}
-
 fn plan(harnesses: &[&str]) -> Plan {
     Plan {
         name: "box".into(),
@@ -204,44 +200,227 @@ fn json_lines_have_the_contract_shape() {
     assert!(v["report"]["steps"][0].get("fix").is_some());
 }
 
+const LOCAL_BIN: &str = "/home/leo/.local/bin/acpmux";
+const APP_BIN: &str = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
+const APP_EXE: &str = "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux";
+
+/// What [`PROBE`] prints for these binaries (path, build), with a daemon of
+/// `daemon` (build, person key) answering through the first of them.
+fn probe_out(bins: &[(&str, &str)], daemon: Option<(&str, bool)>) -> String {
+    let mut out = String::new();
+    for (i, (path, build)) in bins.iter().enumerate() {
+        out.push_str(&format!("bin\t{path}\tacpmux 0.1.0 ({build})\n"));
+        let status = match daemon.filter(|_| i == 0) {
+            Some((b, key)) => {
+                format!("{{  \"pid\": 7,  \"build\": \"{b}\",  \"personKey\": {key}}}")
+            }
+            None => String::new(),
+        };
+        out.push_str(&format!("status\t{path}\t{status}\n"));
+    }
+    format!("{out}\0{CONFIG}")
+}
+
+/// A host with these binaries and daemon (its executable `exe`), whose
+/// harness folder holds `profile`; any write panics.
+fn host_with<'a>(
+    bins: &'a [(&'a str, &'a str)],
+    daemon: Option<(&'a str, bool)>,
+    exe: &'a str,
+    profile: &'a str,
+) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut + 'a> {
+    Fake::new(move |script, stdin| {
+        assert!(stdin.is_none(), "a write: {script}");
+        if script == "true" {
+            out("")
+        } else if script == PROBE {
+            out(probe_out(bins, daemon))
+        } else if script.starts_with("readlink /proc/7/exe") {
+            out(exe)
+        } else if script.starts_with("printf 'bin=") {
+            let local = bins.iter().find(|(p, _)| *p == LOCAL_BIN);
+            out(local.map(|(_, b)| version(b)).unwrap_or_else(|| "bin=\n".into()))
+        } else if script.starts_with("printf %s") {
+            out("/home/leo")
+        } else if script.contains("id -u") {
+            out(format!("1000\n-rw------- 1 1000 1000 9 Oct 20 12:00 f\n\0{profile}"))
+        } else {
+            panic!("unexpected script: {script}")
+        }
+    })
+}
+
+/// No push, no stdin and no command that writes.
+fn assert_read_only<F: Fn(&str, Option<&[u8]>) -> RemoteOut>(fake: &Fake<F>) {
+    assert!(fake.pushes.borrow().is_empty());
+    for (script, stdin) in fake.calls.borrow().iter() {
+        assert!(!stdin, "{script}");
+        if script == PROBE {
+            continue;
+        }
+        for writes in
+            ["mv ", "cat >", "ln -s", "launchctl", "daemon start", "chmod", "mkdir", "rm "]
+        {
+            assert!(!script.contains(writes), "{script}");
+        }
+    }
+}
+
+#[test]
+fn the_probe_reads_only_and_parses_what_it_found() {
+    for writes in ["mv ", "cat >", "ln ", "launchctl", "daemon start", "chmod", "mkdir", "rm "] {
+        assert!(!PROBE.contains(writes), "{writes}");
+    }
+    let p = parse_probe(&probe_out(&[(APP_BIN, "a"), (LOCAL_BIN, "b")], Some(("a", true))));
+    assert_eq!(
+        p.bins,
+        [(APP_BIN.to_owned(), Some("a".into())), (LOCAL_BIN.to_owned(), Some("b".into()))]
+    );
+    let run = p.running.as_ref().unwrap();
+    assert_eq!(
+        (run.via.as_str(), run.pid, run.build.as_deref(), run.person_key),
+        (APP_BIN, 7, Some("a"), true)
+    );
+    assert_eq!(p.config, CONFIG);
+    assert_eq!(parse_probe("\0"), Probe::default());
+}
+
+#[test]
+#[cfg(unix)]
+fn the_probe_finds_an_app_with_a_space_in_its_name() {
+    let home = std::env::temp_dir().join(format!("acpmux-enroll-probe-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    let bin = home.join(".local/bin/acpmux");
+    std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+    std::fs::write(&bin, "#!/bin/sh\ncase \"$*\" in --version) echo 'acpmux 0.1.0 (b1)';; esac\n")
+        .unwrap();
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+    // The /Applications glob of the real script, pointed at a temp folder.
+    let apps = home.join("Applications");
+    let app_bin = apps.join("cmux NIGHTLY.app/Contents/Resources/bin");
+    std::fs::create_dir_all(&app_bin).unwrap();
+    std::fs::copy(&bin, app_bin.join("acpmux")).unwrap();
+    let script = PROBE.replace("/Applications/", &format!("{}/", apps.display()));
+    let out = std::process::Command::new("sh")
+        .args(["-c", &script])
+        .env("HOME", &home)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    let p = parse_probe(&String::from_utf8_lossy(&out.stdout));
+    let paths: Vec<&str> = p.bins.iter().map(|(path, _)| path.as_str()).collect();
+    let app = app_bin.join("acpmux");
+    assert_eq!(paths, [bin.to_str().unwrap(), app.to_str().unwrap()]);
+    assert!(p.bins.iter().all(|(_, b)| b.as_deref() == Some("b1")));
+    assert_eq!(p.running, None);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+fn cmux_own_acpmux_is_never_replaced_or_started_beside() {
+    let build = crate::hub::BUILD;
+    let both: &[(&str, &str)] = &[(LOCAL_BIN, "old"), (APP_BIN, build)];
+    for fix in [false, true] {
+        // The app's daemon runs, this build: ok, though ~/.local/bin is old.
+        let fake = host_with(both, Some((build, true)), APP_EXE, "");
+        let results = machine_steps(
+            &fake,
+            &plan(&[]),
+            &Local { harness_dir: None, home: None },
+            fix,
+            &mut |_| {},
+        );
+        assert_eq!(
+            states(&results)[1..3],
+            [(Step::Install, StepState::Ok), (Step::Daemon, StepState::Ok)]
+        );
+        assert!(results[1].detail.contains("cmux's own acpmux"), "{results:?}");
+        assert_read_only(&fake);
+
+        // The app's daemon runs an older build: warn, update cmux.
+        let app: &[(&str, &str)] = &[(APP_BIN, "old")];
+        let fake = host_with(app, Some(("old", false)), APP_EXE, "");
+        let results = machine_steps(
+            &fake,
+            &plan(&[]),
+            &Local { harness_dir: None, home: None },
+            fix,
+            &mut |_| {},
+        );
+        assert_eq!(
+            states(&results)[1..3],
+            [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
+        );
+        assert_eq!(
+            results[1].detail,
+            format!("leo@box.tail runs cmux's own acpmux (build old, this is {build})")
+        );
+        assert_eq!(results[1].fix.as_deref(), Some("Update cmux on leo@box.tail."));
+        assert_eq!(results[3].state, StepState::Skip, "no harness asked for");
+        assert_read_only(&fake);
+
+        // The app is installed, its daemon is not running: open cmux.
+        let app_only = [(APP_BIN, build)];
+        let fake = host_with(&app_only, None, "", "");
+        let results = machine_steps(
+            &fake,
+            &plan(&[]),
+            &Local { harness_dir: None, home: None },
+            fix,
+            &mut |_| {},
+        );
+        assert_eq!(
+            states(&results)[1..3],
+            [(Step::Install, StepState::Ok), (Step::Daemon, StepState::Fail)]
+        );
+        assert_eq!(results[2].fix.as_deref(), Some("Open cmux on leo@box.tail, then check again."));
+        assert_read_only(&fake);
+    }
+    // A daemon whose executable the host does not name, on a host with the
+    // app: the app's, even when it answered through ~/.local/bin.
+    let fake = host_with(both, Some(("old", false)), "", "");
+    let results = machine_steps(
+        &fake,
+        &plan(&[]),
+        &Local { harness_dir: None, home: None },
+        true,
+        &mut |_| {},
+    );
+    assert_eq!(results[2].state, StepState::Warn);
+    assert_read_only(&fake);
+}
+
 #[test]
 fn doctor_without_fix_changes_nothing() {
     let build = crate::hub::BUILD;
     let local = local_with("nofix", "pi", "command = \"/Users/leo/bin/pi\"\n");
-    // Old build on the host; a stopped daemon; a stale profile.
-    let scenarios: [(&str, &str, &str); 3] =
-        [("old", build, build), (build, "old", build), (build, build, "stale")];
-    for (bin, daemon, profile) in scenarios {
-        let fake = Fake::new(|script, _| {
-            if script == "true" {
-                out("")
-            } else if script.starts_with("printf 'bin=") {
-                out(version(bin))
-            } else if script.starts_with("cat ~/.acpmux/config.json 2>/dev/null;") {
-                out(status(daemon))
-            } else if script.starts_with("printf %s") {
-                out("/home/leo")
-            } else if script.contains("id -u") {
-                out(format!("1000\n-rw------- 1 1000 1000 9 Oct 20 12:00 f\n\0{profile}"))
-            } else {
-                panic!("unexpected script: {script}")
-            }
-        });
+    // An old standalone build (warn); a stopped daemon; a stale profile;
+    // nothing installed at all.
+    let old: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
+    let current: &[(&str, &str)] = &[(LOCAL_BIN, build)];
+    let scenarios: [(&[(&str, &str)], Option<(&str, bool)>, &str, StepState); 4] = [
+        (old, Some(("old", false)), build, StepState::Warn),
+        (current, None, build, StepState::Fail),
+        (current, Some((build, false)), "stale", StepState::Fail),
+        (&[], None, build, StepState::Fail),
+    ];
+    for (bins, daemon, profile, worst) in scenarios {
+        let fake = host_with(bins, daemon, LOCAL_BIN, profile);
         let mut lines = Vec::new();
         let results =
             machine_steps(&fake, &plan(&["pi"]), &local, false, &mut |r| lines.push(step_line(r)));
         assert_eq!(lines.len(), 4);
-        assert!(results.iter().any(|r| r.state == StepState::Fail), "{results:?}");
-        assert!(fake.pushes.borrow().is_empty());
-        for (script, stdin) in fake.calls.borrow().iter() {
-            assert!(!stdin, "{script}");
-            for writes in
-                ["mv ", "cat >", "ln -s", "launchctl", "daemon start", "chmod", "mkdir", "rm "]
-            {
-                assert!(!script.contains(writes), "{script}");
-            }
-        }
+        assert!(results.iter().any(|r| r.state == worst), "{results:?}");
+        assert_read_only(&fake);
     }
+    let fake = host_with(old, Some(("old", false)), LOCAL_BIN, build);
+    let results = machine_steps(&fake, &plan(&[]), &local, false, &mut |_| {});
+    assert_eq!(
+        states(&results)[1..3],
+        [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
+    );
+    assert_eq!(results[2].fix.as_deref(), Some("Run `acpmux host update box`."));
 }
 
 #[test]
@@ -249,6 +428,7 @@ fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
     let build = crate::hub::BUILD;
     let local = local_with("fix", "pi", "command = \"/Users/leo/bin/pi\"\n");
     let written: RefCell<Option<String>> = RefCell::default();
+    let bins: &[(&str, &str)] = &[(LOCAL_BIN, build)];
     let fake = Fake::new(|script, stdin| {
         if let Some(bytes) = stdin {
             *written.borrow_mut() = Some(String::from_utf8(bytes.to_vec()).unwrap());
@@ -256,10 +436,12 @@ fn enroll_copies_a_stale_profile_rewritten_and_owner_only() {
         }
         if script == "true" {
             out("")
+        } else if script == PROBE {
+            out(probe_out(bins, Some((build, false))))
+        } else if script.starts_with("readlink /proc/7/exe") {
+            out(LOCAL_BIN)
         } else if script.starts_with("printf 'bin=") {
             out(version(build))
-        } else if script.starts_with("cat ~/.acpmux/config.json 2>/dev/null;") {
-            out(status(build))
         } else if script.starts_with("printf %s") {
             out("/home/leo")
         } else if script.contains("id -u") {
@@ -296,6 +478,8 @@ fn install_refuses_another_platform_and_reach_failure_skips_the_rest() {
     let fake = Fake::new(|script, _| {
         if script == "true" {
             out("")
+        } else if script == PROBE {
+            out("\0")
         } else if script.starts_with("printf 'bin=") {
             out("bin=\n")
         } else if script == "uname -sm" {
