@@ -153,8 +153,9 @@
 }
 
 /* A login keeps a readable username: in a narrow pane its badges, last-used and actions wrap under
-   it instead of squeezing it to one letter. */
-.pw-row {
+   it instead of squeezing it to one letter. Passkey and exception rows stay one line: their site
+   name ellipsizes. */
+.pw-site .pw-row {
   flex-wrap: wrap;
   row-gap: 2px;
 }

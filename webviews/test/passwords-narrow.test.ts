@@ -2,8 +2,8 @@
 // The Passwords page in a narrow pane (a standalone 360 px pane, the gallery's narrow width): the
 // header's title and its actions all stay on screen (the actions wrap under the title rather than
 // pushing "Import from Browser" off the edge and the title to nothing), saved logins keep a readable
-// username (the badges, last-used and actions wrap under it), and the controls in a header row
-// share one height. At the normal width nothing wraps.
+// username (the badges, last-used and actions wrap under it) while passkey and exception rows stay
+// one line, and the controls in a header row share one height. At the normal width nothing wraps.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -71,7 +71,22 @@ await requireBrowserLane("passwords-narrow.test.ts", async () => {
     test("at 360 px the header and the saved logins fit the pane", async () => {
       const page = await open(360);
       const m = await measure(page);
+      // Passkey and exception rows stay one line with a long site name: badge, name and actions.
+      const oneLine = await page.evaluate(() =>
+        [...document.querySelectorAll(".pw-section .pw-row")]
+          .filter((row) => !row.closest(".pw-site"))
+          .map((row) => {
+            row.querySelector(".pw-site-name")!.textContent = "accounts.login.very-long-subdomain.example-bank.co.uk";
+            const middle = (selector: string) => {
+              const box = row.querySelector(selector)!.getBoundingClientRect();
+              return Math.round(box.top + box.height / 2);
+            };
+            return new Set([middle(".pw-site-badge"), middle(".pw-site-name"), middle(".pw-actions")]).size;
+          }),
+      );
       await page.close();
+      expect(oneLine.length).toBeGreaterThan(0);
+      for (const lines of oneLine) expect(lines).toBe(1);
       expect(m.title.shown).toBeGreaterThanOrEqual(m.title.wants);
       expect(m.titleRow.right).toBeLessThanOrEqual(360);
       for (const row of m.rows) expect(row.name).toBeGreaterThanOrEqual(Math.min(row.wants, 96));
