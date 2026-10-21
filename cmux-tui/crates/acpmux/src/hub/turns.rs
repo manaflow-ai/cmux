@@ -268,6 +268,12 @@ impl Hub {
             Ok(slot) => slot,
             Err(done) => return done,
         };
+        // Debug builds only: a test stops the daemon between a queued prompt's `dequeued` and
+        // its turn (`durable_agents.rs`). Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if waiting && std::env::var_os("ACPMUX_TEST_EXIT_AFTER_DEQUEUE").is_some() {
+            std::process::exit(0);
+        }
         // A prompt that took the turn lock first (a person's) supersedes the continuation.
         if let Err(e) = super::auto_resume::check_cut(session, after_turn.as_deref(), waiting) {
             drop(guard);
