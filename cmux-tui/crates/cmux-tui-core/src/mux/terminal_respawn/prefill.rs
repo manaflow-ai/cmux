@@ -218,11 +218,12 @@ fn turns_approvals_off(harness: &str, flags: &[String]) -> bool {
         })
     };
     let has_value = |names: &[&str], values: &[&str]| {
-        flags.windows(2).any(|pair| names.contains(&pair[0].as_str()) && values.contains(&pair[1].as_str()))
+        flags
+            .windows(2)
+            .any(|pair| names.contains(&pair[0].as_str()) && values.contains(&pair[1].as_str()))
             || flags.iter().any(|flag| {
-                flag.split_once('=').is_some_and(|(name, value)| {
-                    names.contains(&name) && values.contains(&value)
-                })
+                flag.split_once('=')
+                    .is_some_and(|(name, value)| names.contains(&name) && values.contains(&value))
             })
     };
     match harness {
