@@ -1037,6 +1037,12 @@ impl Hub {
         if purge {
             session.purged.store(true, Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
+            // Its temporary folder goes with it (`agent/session_tmp.rs`).
+            #[cfg(unix)]
+            {
+                let id = session.id.clone();
+                tokio::task::spawn_blocking(move || crate::agent::session_tmp::remove_session(&id));
+            }
             self.git_branch_forget(&session.id);
             // Tell watchers (peers, TUIs) the session is gone.
             let _ = self.events.send(HubEvent {
