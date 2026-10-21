@@ -345,7 +345,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                         // The selected workspace, and one selected here before, stay visible members of a collapsed
                         // group: orientation without reopening it, and a click elsewhere removes no row.
                         let kept = members.indices.compactMap { i -> (Int, SidebarWorkspace)? in
-                            guard case let .workspace(member) = members[i], o.shownInCollapsedGroups.contains(member.id) else { return nil }
+                            guard case let .workspace(member) = members[i], o.shown(inCollapsed: group.id).contains(member.id) else { return nil }
                             return entry.children.first(where: { $0.id == member.id }).map { (i, $0) }
                         }
                         for (n, (childIndex, ws)) in kept.enumerated() {

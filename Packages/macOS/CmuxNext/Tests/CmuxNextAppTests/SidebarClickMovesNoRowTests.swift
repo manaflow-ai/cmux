@@ -78,17 +78,28 @@ struct SidebarClickMovesNoRowTests {
         model.selectedItem = .workspace(WorkspaceID("a"))
         sidebar.renderNow()
         #expect(Self.tops(sidebar.list) == before, "a second click moved rows")
+
+        // A later full layout (any structural set) draws the same rows: the group keeps the member it showed.
+        sidebar.list.reload(animated: false, fromModel: true)
+        #expect(Self.tops(sidebar.list) == before, "the next layout dropped the member the group showed")
+
+        // Folding the group again forgets it: only the active row (none here) stays.
+        model.setGroupCollapsed(GroupID("g"), false)
+        model.setGroupCollapsed(GroupID("g"), true)
+        sidebar.list.reload(animated: false, fromModel: true)
+        #expect(sidebar.list.displayed.row(for: .workspace(WorkspaceID("b1"))) == nil, "a refolded group still shows the member left behind")
     }
 
     /// A change nobody asked for that lands in the same turn as a click (an agent's reorder) waits while the
     /// pointer is over the rows, as it does without the click: the click draws its selection only.
-    @Test func aClickDoesNotShowAWaitingReorder() {
+    @Test func aClickDoesNotShowAWaitingReorder() throws {
         let start = Self.sections([1, 2, 3, 4])
         let model = SidebarModel(sections: start)
         let (sidebar, window) = Self.sidebar(model)
         defer { window.close() }
         let list = sidebar.list
-        list.pointerIsOverList = { _ in true }
+        var pointerOver = true
+        list.pointerIsOverList = { _ in pointerOver }
         let before = Self.drawnOrder(list)
         let tops = Self.tops(list)
 
@@ -99,6 +110,14 @@ struct SidebarClickMovesNoRowTests {
         #expect(Self.drawnOrder(list) == before, "the click showed a reorder nobody asked for")
         #expect(Self.tops(list) == tops, "a row moved on the click")
         #expect(list.selectedRowKey == .workspace(clicked), "the click did not draw its selection")
+
+        // The pointer leaves: the held reorder shows, in one step.
+        pointerOver = false
+        let exit = try #require(NSEvent.enterExitEvent(with: .mouseExited, location: .zero, modifierFlags: [], timestamp: 0,
+                                                       windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                                       trackingNumber: 0, userData: nil))
+        list.mouseExited(with: exit)
+        #expect(Self.drawnOrder(list) == model.sections[0].workspaces.map(\.id), "the held reorder did not show when the pointer left")
     }
 
     /// A move shows once, at its final order: the pending edit masks the daemon's partial echo (one step of a
