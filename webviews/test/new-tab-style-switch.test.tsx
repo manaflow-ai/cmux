@@ -127,7 +127,7 @@ test("the style radios draw no native dot: the page's own stylesheet hides them"
     root.render(createElement(StyleSwitch, { current: "default", onPick() {}, onCancel() {} }));
   });
   const radios = [...host.querySelectorAll<HTMLInputElement>("input[type=radio]")];
-  expect(radios).toHaveLength(6);
+  expect(radios).toHaveLength(7);
   for (const radio of radios) {
     const drawn = window.getComputedStyle(radio);
     expect([radio.value, drawn.position, drawn.width, drawn.height, drawn.opacity]).toEqual([

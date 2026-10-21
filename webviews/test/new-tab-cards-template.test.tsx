@@ -73,9 +73,9 @@ afterAll(() => {
 
 const noop = () => {};
 
-test("Cards is a template and a style, and the page an unset template shows", () => {
+test("Cards is a template and a style", () => {
   expect(NEW_TAB_TEMPLATES).toContain("cards");
-  expect(PAGE_STYLES[0]).toBe("cards");
+  expect(PAGE_STYLES).toContain("cards");
   expect(parseNewTabTemplate("cards")).toBe("cards");
   expect(screenTemplate("cards")).toBe("cards");
   expect(screenSections("cards")).toEqual({

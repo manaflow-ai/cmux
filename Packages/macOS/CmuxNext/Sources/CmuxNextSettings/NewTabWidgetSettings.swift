@@ -47,7 +47,7 @@ public nonisolated struct NewTabWidgetSettings: Sendable, Equatable {
     }
 }
 
-extension CmuxConfigSnapshot {
+nonisolated extension CmuxConfigSnapshot {
     /// `tabs.newTabWidgets.*`: the New Tab page's widgets (bad values keep their defaults).
     public var newTabWidgets: NewTabWidgetSettings {
         var ignored: [SettingsDiagnostic] = []
