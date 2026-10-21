@@ -1687,10 +1687,10 @@ pre.cv-math-source {
   justify-content: flex-end;
   padding-inline: 0 2px;
 }
-/* The footer's buttons fit its compact line, as a prompt's do. */
+/* The footer's buttons fit its compact line, with a prompt's compact radius (.cv-iconbtn--compact). */
 .cv-turn-actions .cv-iconbtn {
   height: var(--cv-meta-row);
-  border-radius: 6px;
+  border-radius: 5px;
 }
 .cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
   width: var(--cv-meta-row);
@@ -2897,6 +2897,10 @@ pre.cv-math-source {
 .acpmux-row.acpmux-turnSummary {
   min-height: 0;
   padding-bottom: var(--cv-turn-gap);
+}
+/* The chat's last footer: the message gap, so no band sits over the composer. */
+.acpmux-row.acpmux-turnSummary.acpmux-row--last-footer {
+  padding-bottom: var(--cv-message-gap);
 }
 
 /* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */

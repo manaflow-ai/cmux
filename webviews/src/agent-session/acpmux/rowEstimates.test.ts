@@ -5,7 +5,8 @@
 //   - a reply right over its turn's footer (`.acpmux-row--before-footer`): its text and the 4px meta
 //     gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
-//   - a turn's footer: its 24px line and the 24px turn gap.
+//   - a turn's footer: its 24px line and the 24px turn gap, or the 8px message gap for the chat's
+//     last one (`.acpmux-row--last-footer`), so no band sits over the composer.
 //
 // Before: a reply over a footer was estimated as any reply (8px below it, at least 34px), and a
 // task's result kept the old 16px below it.
@@ -14,16 +15,18 @@ import { layoutConversation } from "./model";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 const footer = (id: string) => ({ id, version: 1, at: 0, kind: "turnSummary", status: "completed" });
+const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
 test("a reply over its footer is its text and the 4px meta gap, with no 34px floor", () => {
   const long = "A longer answer that wraps. ".repeat(40);
   const [alone] = heightsOf([reply("a", long)]);
-  const [over, summary] = heightsOf([reply("a", long), footer("f")]);
+  const [over, summary] = heightsOf([reply("a", long), footer("f"), prompt("p")]);
   // The same text: 8px below it alone, 4px over its footer.
   expect(alone! - over!).toBeCloseTo(4, 5);
-  // The footer: a 24px line and the 24px turn gap.
+  // The footer: a 24px line and the 24px turn gap; the chat's last one, the 8px message gap.
   expect(summary).toBe(48);
+  expect(heightsOf([reply("a", long), footer("f")])[1]).toBe(32);
   // A one-line reply over its footer is shorter than a row's 34px floor.
   const [short] = heightsOf([reply("b", "Done."), footer("g")]);
   expect(short!).toBeLessThan(34);
@@ -41,6 +44,17 @@ test("a reply estimated alone, then with its footer after it, is estimated again
   });
   expect(second.heights[0]).toBeLessThan(34);
   expect(second.tops[1]).toBe(second.heights[0]);
+});
+
+test("the chat's last footer is placed again when a prompt follows it", () => {
+  const rows = [reply("a", "Done."), footer("f")];
+  const first = layoutConversation(rows as never, 720);
+  expect(first.heights[1]).toBe(32);
+  const second = layoutConversation([...rows, prompt("p")] as never, 720, undefined, undefined, undefined, {
+    rows,
+    layout: first,
+  });
+  expect(second.heights[1]).toBe(48);
 });
 
 test("a task's result is its 26px line and the 8px message gap", () => {
