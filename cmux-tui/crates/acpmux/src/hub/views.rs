@@ -371,6 +371,9 @@ impl Hub {
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
         summary["sessionReceipt"] = receipt.to_value();
+        // The branch its folder has checked out now (`git_watch.rs`); null on
+        // a detached HEAD or outside a repository.
+        summary["gitBranch"] = json!(self.git_branch_now(&m));
         decide(&mut summary);
         summary
     }
@@ -386,8 +389,8 @@ impl Hub {
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        // The folder's branch and HEAD when the session started (`git_state.rs`).
-        v["gitBranch"] = json!(m.git_branch);
+        // The folder's HEAD when the session started (`git_state.rs`); its
+        // `gitBranch` is the summary's, the branch checked out now.
         v["gitHead"] = json!(m.git_head);
         // What the session's turns cost together (`turn_usage.rs`).
         v["totals"] = json!(m.totals);

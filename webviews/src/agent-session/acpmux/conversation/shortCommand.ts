@@ -4,11 +4,12 @@
 // 2026-10-20: "a short human label, not the raw command").
 import { isPlainCd } from "./commandFolder";
 
-/// A step that only sets the shell up: an export, a bare assignment, a source, a set. A cd counts
-/// only into a plain path (isPlainCd, the rule a Ran row uses), and no step that could run code
-/// (`$(…)`, backticks) is setup, so the note never reads as a harmless command the setup ran past.
-const SETUP = /^(?:export|pushd|source|\.|set|unset|ulimit|umask)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
-const RUNS_CODE = /\$\(|`/;
+/// A step that only sets the shell up: an export, a bare assignment, a set. A cd counts only into a
+/// plain path (isPlainCd, the rule a Ran row uses). A `source` or `.` runs a script, and a step with
+/// a substitution (`$(…)`, backticks, `<(…)`), a pipe or a `&` runs code, so none is setup: the
+/// label never reads as a harmless command the setup ran past (commandFolder.ts, #20456).
+const SETUP = /^(?:export|pushd|set|unset|ulimit|umask)(?:\s|$)|^[A-Za-z_][A-Za-z0-9_]*=\S*$/;
+const RUNS_CODE = /\$\(|`|[<>]\(|[|&]/;
 
 function isSetup(step: string): boolean {
   return isPlainCd(step) || (SETUP.test(step) && !RUNS_CODE.test(step));

@@ -31,13 +31,15 @@ pub(crate) struct PromptId {
     /// The id came from `--prompt-id`: the daemon also looks for it in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// `--from`: the prompt is this agent's message (`_meta.acpmux.fromAgent`, `hub/digest.rs`).
+    pub from_agent: Option<String>,
 }
 
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => Self { id, resend: true },
-            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false },
+            Some(id) => Self { id, resend: true, from_agent: None },
+            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false, from_agent: None },
         }
     }
 
@@ -53,6 +55,9 @@ impl PromptId {
         let mut mux = json!({"steer": steer, "promptId": self.id, "resend": self.resend});
         if let Some(p) = provenance {
             mux["provenance"] = p.clone();
+        }
+        if let Some(name) = &self.from_agent {
+            mux["fromAgent"] = json!(name);
         }
         json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
@@ -820,7 +825,8 @@ mod prompt_tests {
         let session = hub.resolve(&id).unwrap();
         assert!(session.turn().is_some(), "the turn should still be running");
         // The same id again is answered by the first run, not a second turn.
-        let again = PromptId { id: prompt.id.clone(), resend: true };
+        let again =
+            PromptId { id: prompt.id.clone(), resend: true, from_agent: prompt.from_agent.clone() };
         let dup = queue_prompt(client.clone(), &id, "slow", false, None, &again).await.unwrap();
         assert_eq!(dup["duplicate"], true);
         let user_messages =
