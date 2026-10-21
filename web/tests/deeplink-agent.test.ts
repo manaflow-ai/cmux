@@ -20,6 +20,7 @@ type Vector = {
   ignored?: string[];
   missing?: string[];
   invalid?: string[];
+  duplicates?: string[];
 };
 
 type Schema = {
@@ -70,11 +71,16 @@ describe("agent deeplink schema", () => {
     }
   });
 
-  test.each(
-    schema.vectors
-      .filter((vector) => vector.web !== undefined)
-      .map((vector) => [vector.name, vector] as [string, Vector]),
-  )(
+  const webVectors = schema.vectors.filter((vector) => vector.web !== undefined);
+
+  // A renamed or dropped key in the schema would otherwise leave `test.each` with no cases, which
+  // bun reports as a green file.
+  test("the schema carries the page's own vectors", () => {
+    expect(webVectors.length).toBeGreaterThanOrEqual(9);
+    expect(webVectors.filter((vector) => vector.fields === null).length).toBeGreaterThanOrEqual(3);
+  });
+
+  test.each(webVectors.map((vector) => [vector.name, vector] as [string, Vector]))(
     "web vector: %s",
     (_name: string, vector: Vector) => {
       const result = agentLink(searchParams(vector.web ?? ""));
@@ -83,10 +89,12 @@ describe("agent deeplink schema", () => {
         expect(vector.link).toBeNull();
         expect(result.missing).toEqual(vector.missing ?? []);
         expect(result.invalid).toEqual(vector.invalid ?? []);
+        expect(result.duplicates).toEqual(vector.duplicates ?? []);
       } else {
         expect(result.model).toEqual({ ...vector.fields, href: vector.link });
         expect(result.missing).toEqual([]);
         expect(result.invalid).toEqual([]);
+        expect(result.duplicates).toEqual([]);
       }
       expect(result.ignored).toEqual(vector.ignored ?? []);
     },
@@ -94,7 +102,7 @@ describe("agent deeplink schema", () => {
 });
 
 describe("agent deeplink fallback", () => {
-  test("builds the path-form native URL cmux NEXT parses", () => {
+  test("builds the path-form native URL cmux NEXT parses, in the app's own order", () => {
     expect(
       agentNativeHref({
         harness: "claude",
@@ -102,9 +110,11 @@ describe("agent deeplink fallback", () => {
         host: "big-red",
         name: "Rivetmoss",
         message: "msg-1",
+        machine: "machine_0123456789abcdef0123456789abcdef",
       }),
     ).toBe(
-      "cmux://agent/claude/abc-123?host=big-red&name=Rivetmoss&message=msg-1",
+      "cmux://agent/claude/abc-123?host=big-red&name=Rivetmoss&message=msg-1" +
+        "&machine=machine_0123456789abcdef0123456789abcdef",
     );
   });
 
@@ -124,10 +134,46 @@ describe("agent deeplink fallback", () => {
       host: "h".repeat(64),
       name: "N.a_m-e",
       message: "m".repeat(200),
+      machine: "machine_0123456789abcdef0123456789abcdef",
     });
     expect(result.ignored).toEqual([]);
     expect(result.invalid).toEqual([]);
+    expect(result.duplicates).toEqual([]);
     expect(result.model).not.toBeNull();
+  });
+
+  test("a required parameter the link carries twice is a repeat, not a bad value", () => {
+    for (const params of [
+      { harness: "claude", session: ["s1", "s2"] },
+      { harness: ["claude", "codex"], session: "s1" },
+    ] satisfies SearchParams[]) {
+      const result = agentLink(params);
+      expect(result.model).toBeNull();
+      expect(result.invalid).toEqual([]);
+      expect(result.duplicates.length).toBe(1);
+      expect(agentNativeHref(params)).toBeNull();
+    }
+  });
+
+  test("a required parameter with nothing in it is missing, not invalid", () => {
+    const result = agentLink({ harness: "claude", session: "" });
+    expect(result.missing).toEqual(["session"]);
+    expect(result.invalid).toEqual([]);
+    expect(result.model).toBeNull();
+  });
+
+  test("names the parameters the schema knows before the ones it does not", () => {
+    const result = agentLink({
+      cwd: "/home/leo",
+      harness: "claude",
+      session: "s1",
+      machine: "nope",
+      host: "two words",
+      message: "m 1",
+      account: "someone@example.com",
+    });
+    expect(result.ignored).toEqual(["machine", "host", "message", "cwd", "account"]);
+    expect(result.model?.href).toBe("cmux://agent/claude/s1");
   });
 
   test.each<[string, Record<string, string>]>([
@@ -153,6 +199,9 @@ describe("agent deeplink fallback", () => {
     ["name", { harness: "claude", session: "s", name: "n".repeat(65) }],
     ["message", { harness: "claude", session: "s", message: "m".repeat(201) }],
     ["message", { harness: "claude", session: "s", message: "m 1" }],
+    ["machine", { harness: "claude", session: "s", machine: "nope" }],
+    ["machine", { harness: "claude", session: "s", machine: "machine_0123456789ABCDEF0123456789abcdef" }],
+    ["machine", { harness: "claude", session: "s", machine: "machine_0123456789abcdef" }],
   ])("ignores a bad %s and still opens the session", (param, params) => {
     const result = agentLink(params);
     expect(result.ignored).toContain(param);

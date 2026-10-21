@@ -1,9 +1,11 @@
 {
-  "comment": "One schema for agent session links, so an emitter and a parser cannot drift. The web fallback page (https://cmux.com/deeplink/agent?harness=&session=&host=&name=&message=) and the native link cmux NEXT opens (cmux://agent/<harness>/<session>?host=&name=&message=) carry the same parameters. harness and session address the session; host names the machine it runs on; name is its callsign; message names one message to scroll to and highlight. A link is an address, not a credential. Consumers: web/app/[locale]/(landing)/deeplink/[kind]/deeplink-agent.ts (web/tests/deeplink-agent.test.ts) and the app's parser, Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink (Tests/CmuxNextActionsTests/AgentLinkSchemaTests.swift). Both run the vectors below, so neither can drift from this file.",
+  "comment": "One schema for agent session links, so an emitter and a parser cannot drift. The web fallback page (https://cmux.com/deeplink/agent?harness=&session=&host=&name=&message=) and the native link cmux NEXT opens (cmux://agent/<harness>/<session>?host=&name=&message=) carry the same parameters. harness and session address the session; host names the machine it runs on; name is its callsign; message names one message to scroll to and highlight; machine is the hint every kind of cmux link takes. A link is an address, not a credential. Consumers: web/app/[locale]/(landing)/deeplink/[kind]/deeplink-agent.ts (web/tests/deeplink-agent.test.ts) and the app's parser, Packages/macOS/CmuxNext/Sources/CmuxNextActions/DeepLink (Tests/CmuxNextActionsTests/AgentLinkSchemaTests.swift). Both run the vectors below, so neither can drift from this file.",
   "nativeHost": "agent",
   "pathParams": ["harness", "session"],
-  "queryParams": ["host", "name", "message"],
+  "queryParams": ["host", "name", "message", "machine"],
+  "queryOrder": "queryParams is the order every emitter writes the query in, so the same chat is always the same link (DeepLink.url writes the hints, then machine).",
   "unknownParams": "ignored-by-name",
+  "ignoredOrder": "The names a reader reports as ignored: the optional parameters above, in the order `params` lists them, then every name no agent link reads, in the order the URL carries them; each name once.",
   "params": {
     "harness": {
       "required": true,
@@ -14,6 +16,11 @@
       "required": true,
       "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,200}$",
       "comment": "The harness's own session id."
+    },
+    "machine": {
+      "required": false,
+      "pattern": "^machine_[0-9a-f]{32}$",
+      "comment": "The machine the target lives on, which every kind of cmux link takes (DeepLink.machine). A hint: ids are globally unique."
     },
     "host": {
       "required": false,
@@ -28,7 +35,7 @@
     "message": {
       "required": false,
       "pattern": "^(?!\\.+$)[A-Za-z0-9._-]{1,200}$",
-      "comment": "One message in the session's transcript, scrolled to and highlighted after it opens."
+      "comment": "One assistant message of the session's transcript, as the harness itself ids it: the ACP `agent_message_chunk.messageId` the page keys its rows by (Claude Code writes `msg_...`). The chat scrolls to that message and marks it. A link naming anything else -- a prompt, a tool call, a Cloud row id, an id this machine's transcript never saw -- opens the chat and leaves the view where it is."
     }
   },
   "vectors": [
@@ -86,6 +93,28 @@
       "ignored": ["host"]
     },
     {
+      "name": "a machine hint rides along",
+      "web": "harness=claude&session=s1&machine=machine_0123456789abcdef0123456789abcdef",
+      "link": "cmux://agent/claude/s1?machine=machine_0123456789abcdef0123456789abcdef",
+      "fields": { "harness": "claude", "session": "s1", "machine": "machine_0123456789abcdef0123456789abcdef" },
+      "ignored": []
+    },
+    {
+      "name": "an unusable machine is ignored, the session still opens",
+      "web": "harness=claude&session=s1&machine=nope&host=big-red",
+      "link": "cmux://agent/claude/s1?host=big-red",
+      "fields": { "harness": "claude", "session": "s1", "host": "big-red" },
+      "ignored": ["machine"]
+    },
+    {
+      "name": "a repeated required parameter is a repeat, not a session",
+      "web": "harness=claude&session=s1&session=s2",
+      "link": null,
+      "fields": null,
+      "duplicates": ["session"],
+      "ignored": []
+    },
+    {
       "name": "no session",
       "web": "harness=claude&message=5cf944c9",
       "link": null,
@@ -120,6 +149,12 @@
       "link": "cmux://agent/codex/s1?name=two%20words&host=big-red",
       "fields": { "harness": "codex", "session": "s1", "host": "big-red" },
       "ignored": ["name"]
+    },
+    {
+      "name": "two ignored parameters are named in the schema's order, then the URL's",
+      "link": "cmux://agent/codex/s1?cwd=x&message=m%201",
+      "fields": { "harness": "codex", "session": "s1" },
+      "ignored": ["message", "cwd"]
     },
     {
       "name": "a native link with no session",

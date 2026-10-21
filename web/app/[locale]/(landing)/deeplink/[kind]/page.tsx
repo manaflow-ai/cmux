@@ -370,7 +370,7 @@ export default async function DeeplinkPage({
   const issues: LinkIssues = agent
     ? {
         unsupported: [],
-        duplicates: [],
+        duplicates: agent.duplicates,
         conflicts: [],
         invalid: agent.invalid,
         missing: agent.missing,
@@ -383,6 +383,8 @@ export default async function DeeplinkPage({
   const canOpen = agent
     ? agent.model !== null
     : Object.values(issues).every((names) => names.length === 0);
+  // Only when the link opens: the sentence says the session still opens, and a
+  // link that cannot open shows the one problem the reader has to fix instead.
   const ignoredMessage =
     canOpen && agent && agent.ignored.length > 0
       ? t("ignoredParams", { params: agent.ignored.join(", ") })
