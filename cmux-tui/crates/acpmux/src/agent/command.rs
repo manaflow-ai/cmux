@@ -154,7 +154,7 @@ pub(crate) fn harness_command(
             .env(crate::agent_tools::AGENT_SESSION_ENV, id);
         // Its own temporary folder; a profile's TMPDIR (applied below) still wins.
         if !remote_environment {
-            let xdg_runtime = env.contains_key("XDG_RUNTIME_DIR")
+            let xdg_runtime = env.get("XDG_RUNTIME_DIR").is_some_and(|v| !v.is_empty())
                 || command_env(&cmd).iter().any(|(k, v)| k == "XDG_RUNTIME_DIR" && !v.is_empty());
             if let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) {
                 cmd.envs(session_tmp_env(std::path::Path::new(&home), id, xdg_runtime));
@@ -202,10 +202,10 @@ pub(crate) fn harness_command(
     Ok(cmd)
 }
 
-/// Where a session's own temporary files go: `~/.cache/lanes/<session id>/tmp`.
+/// Where a session's own temporary files go: `~/.cache/acpmux/sessions/<session id>/tmp`.
 pub(crate) const SESSION_TMPDIR_ENV: &str = "ACPMUX_SESSION_TMPDIR";
 
-/// A session's own temporary folder, `<home>/.cache/lanes/<session id>/tmp`,
+/// A session's own temporary folder, `<home>/.cache/acpmux/sessions/<session id>/tmp`,
 /// made 0700. Two sessions never share one, so one agent's cleanup cannot
 /// take another's files (huge-blue, 2026-10-21: two lanes picked the same
 /// `~/.cache` folder by name and one's `rm -rf` took the other's live
@@ -225,7 +225,7 @@ pub(crate) fn session_tmp_env(
     if !one_component {
         return Vec::new();
     }
-    let dir = home.join(".cache/lanes").join(session_id).join("tmp");
+    let dir = home.join(".cache/acpmux/sessions").join(session_id).join("tmp");
     let mut builder = std::fs::DirBuilder::new();
     builder.recursive(true);
     #[cfg(unix)]
@@ -407,7 +407,10 @@ mod tests {
         let (dir_a, dir_b) = (dir(&a, "TMPDIR").unwrap(), dir(&b, "TMPDIR").unwrap());
         assert_ne!(dir_a, dir_b);
         assert_eq!(dir(&a, SESSION_TMPDIR_ENV), Some(dir_a.clone()));
-        assert_eq!(dir_a, home.join(".cache/lanes/01a15d7d-b692-76b3-b8de-a9a71809de2a/tmp"));
+        assert_eq!(
+            dir_a,
+            home.join(".cache/acpmux/sessions/01a15d7d-b692-76b3-b8de-a9a71809de2a/tmp")
+        );
         assert!(dir_a.is_dir() && dir_b.is_dir());
         #[cfg(unix)]
         {
