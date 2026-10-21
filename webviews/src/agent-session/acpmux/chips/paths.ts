@@ -66,10 +66,10 @@ export type TextLink = {
 // Groups: a file URL; a path (a file with an extension and an optional line suffix, or a folder
 // with its trailing slash that is not followed by more of a name); a web URL; a path relative to
 // the session's folder written as a compiler does (`src/app.ts:12`), which needs its line suffix
-// so `and/or.txt` stays prose. Its first folder has no dot inside, so `example.com/a.js:1` is not one,
-// and it never starts after a `+`: a long base64 run would retry it at every `+` (quadratic).
+// so `and/or.txt` stays prose. Its first folder has no dot inside, so `example.com/a.js:1` is not one.
+// No link starts after a `+`: a long base64 run would retry a path at every `+/` (quadratic).
 const TEXT_LINK =
-  /(?<![\w/.:~@-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|((?:~|\.{1,2})?\/(?:[\w.@+-]+\/)+(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+)?)?(?![\w/])|(?![\w@+-]|\.\w)))|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|(?<![+])(\.?[\w@+-]+\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}:\d+(?::\d+)?(?![\w/])))/g;
+  /(?<![\w/.:~@+-])(?:(file:\/\/(?:localhost)?\/[^\s<>()"'`]+)|((?:~|\.{1,2})?\/(?:[\w.@+-]+\/)+(?:[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}(?::\d+(?::\d+)?)?(?![\w/])|(?![\w@+-]|\.\w)))|(https?:\/\/[A-Za-z0-9][^\s<>()"'`]*)|(\.?[\w@+-]+\/(?:[\w.@+-]+\/)*[\w@+-][\w.@+-]*\.[A-Za-z0-9]{1,12}:\d+(?::\d+)?(?![\w/])))/g;
 
 export function textLinks(text: string): TextLink[] {
   if (!text.includes("/")) return [];

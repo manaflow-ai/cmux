@@ -378,7 +378,7 @@ function linkedGithubText(text: string, key: string, repository?: string, enable
   if (!enabled) return linkedText(text, key);
   // A pull request address, so the chip opens the pull request card (an issue redirects there);
   // a commit (`abc1234`, `owner/repo@abc1234`) opens its GitHub page. In reading order; a commit
-  // inside a reference, a URL or a path (`app.js?v=3a7bd3e2`) is part of that and never splits it.
+  // inside a reference, a URL or a path (`https://x.test/app.js?v=3a7bd3e2`) is part of it.
   const issues = githubReferences(text, repository, "pull", true);
   const commits = commitReferences(text, repository);
   const spans = commits.length ? textLinks(text) : [];

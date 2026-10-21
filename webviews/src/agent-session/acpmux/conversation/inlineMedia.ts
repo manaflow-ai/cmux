@@ -17,7 +17,7 @@ export type ThumbItem = { src: string; alt: string; label?: string };
 // an image. A label is words only, so a sentence ending in `:` ("I saved it here: /tmp/a.png") is
 // prose and keeps its text.
 const IMAGE_TOKEN =
-  /\s*(?:((?:\*\*|__)?[A-Za-z0-9][\w'’-]*(?: [\w'’-]+){0,2}:(?:\*\*|__)?)\s+)?(?:!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|(\S+))\s*/y;
+  /\s*(?:((?:\*\*|__)?[A-Za-z0-9][A-Za-z0-9'’-]*(?: [A-Za-z0-9'’-]+){0,2}:(?:\*\*|__)?)\s+)?(?:!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|(\S+))\s*/y;
 
 /// The source a bare token draws as an image: an absolute, home or `./` path or `file://` URL of a
 /// raster image, or an https image address. Anything else (a word, a deny-listed path) is undefined.

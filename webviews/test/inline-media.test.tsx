@@ -58,6 +58,7 @@ describe("image-only paragraphs", () => {
     ],
     ["a sentence before a Markdown image is prose", "Here is what it looks like now: ![](/tmp/a.png)", undefined],
     ["a two-word label", "Dark mode: /tmp/a.png", [["/tmp/a.png", "Dark mode"]]],
+    ["an underscored label", "__Before__: /tmp/a.png", [["/tmp/a.png", "Before"]]],
     ["a non-image path", "/tmp/build.log", undefined],
     ["a deny-listed image", "~/.ssh/key.png", undefined],
     ["a plain http image", "http://example.com/a.png", undefined],
@@ -94,11 +95,13 @@ describe("image paths in a sentence", () => {
 
 describe("long untrusted text stays fast", () => {
   test("base64 and `a+b/` runs scan in linear time", () => {
-    const base64 = "iVBORw0KGgoAAAANSUhEUgAA+/".repeat(10_000);
+    const base64 = `${"iVBORw0KGgoAAAANSUhEUgAA+/".repeat(10_000)}x`;
     const plus = "lib+1/x".repeat(5_000);
+    const slashes = `${"+/a".repeat(20_000)}x`;
     const started = performance.now();
     textLinks(base64);
     textLinks(plus);
+    textLinks(slashes);
     proseImages(`see ${base64}`);
     expect(performance.now() - started).toBeLessThan(500);
   });
