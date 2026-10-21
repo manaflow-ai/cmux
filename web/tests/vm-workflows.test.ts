@@ -1162,10 +1162,20 @@ describe("VM Effect workflows", () => {
     const source = testCloudVmRow({
       userId: "user-fork-team", billingTeamId: "team-fork", billingPlanId: "pro",
       providerVmId: "source-fork-team", status: "running",
-      providerMetadata: { cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 } },
+      providerMetadata: {
+        cmuxResourceReservation: { vcpus: 2, memoryMb: 4096, diskMb: 32768 },
+        cmuxRemoteAuth: "client-grant",
+      },
     });
-    const pending = testCloudVmRow({ ...source, id: "00000000-0000-4000-8000-000000000162", providerVmId: null, status: "provisioning" });
+    const pending = testCloudVmRow({
+      ...source,
+      id: "00000000-0000-4000-8000-000000000162",
+      providerVmId: null,
+      status: "provisioning",
+      providerMetadata: {},
+    });
     let createdNetwork: unknown;
+    let createdProviderMetadata: Record<string, unknown> | undefined;
     const repo: VmRepositoryShape = {
       ...testWorkflowRepo({ vm: source }),
       beginSnapshotRequest: () => Effect.succeed({ kind: "started" }),
@@ -1180,6 +1190,7 @@ describe("VM Effect workflows", () => {
       snapshot: () => Effect.succeed({ id: "snapshot-fork-team", createdAt: Date.now() }),
       create: (_provider, options) => {
         createdNetwork = options.network;
+        createdProviderMetadata = options.providerMetadata;
         return Effect.succeed(testVmHandle({ providerVmId: "new-fork-team" }));
       },
       exec: () => Effect.succeed({ exitCode: 0, stdout: "", stderr: "" }),
@@ -1191,6 +1202,7 @@ describe("VM Effect workflows", () => {
       teamDirectory: { listMemberIds: async () => [source.userId, "teammate"] },
     }).pipe(Effect.provide(workflowLayer(repo, provider))));
     expect(createdNetwork).toEqual({ id: "vpc-team", memberIngress: true });
+    expect(createdProviderMetadata).toMatchObject({ cmuxRemoteAuth: "client-grant" });
   });
 
   test("restores a captured small snapshot at the provider's effective target", async () => {
