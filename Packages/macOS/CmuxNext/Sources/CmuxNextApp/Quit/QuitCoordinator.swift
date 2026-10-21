@@ -48,7 +48,7 @@ final class QuitCoordinator {
     /// completing ignores a repeat.
     func requestQuit(_ origin: QuitOrigin) {
         guard !isQuitting else {
-            if origin == .interactive, Self.answersDefault(isKeyRepeat: NSApp.currentEvent?.isARepeat ?? false) { sheet?.answerDefault() }
+            if origin == .interactive, Self.answersDefault(isKeyRepeat: Self.currentEventIsKeyRepeat) { sheet?.answerDefault() }
             return
         }
         origins.record(origin)
@@ -75,7 +75,7 @@ final class QuitCoordinator {
     func shouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         guard !isQuitting else {
             // A second Quit that reached AppKit directly (Dock, menu).
-            if Self.answersDefault(isKeyRepeat: NSApp.currentEvent?.isARepeat ?? false) { sheet?.answerDefault() }
+            if Self.answersDefault(isKeyRepeat: Self.currentEventIsKeyRepeat) { sheet?.answerDefault() }
             return .terminateLater
         }
         isQuitting = true
@@ -117,6 +117,8 @@ final class QuitCoordinator {
     /// A second quit while the dialog shows answers its default, except a
     /// key repeat: a held Cmd-Q would otherwise answer the dialog it opened.
     nonisolated static func answersDefault(isKeyRepeat: Bool) -> Bool { !isKeyRepeat }
+    /// `isARepeat` raises on anything but a key event; a menu click or a Dock quit is a mouse or system event.
+    private static var currentEventIsKeyRepeat: Bool { NSApp.currentEvent.map { $0.type == .keyDown && $0.isARepeat } ?? false }
 
     /// A quit from the Dock or the app switcher while cmux is inactive is the
     /// user's: cmux comes forward so the dialog is seen. Never in a
