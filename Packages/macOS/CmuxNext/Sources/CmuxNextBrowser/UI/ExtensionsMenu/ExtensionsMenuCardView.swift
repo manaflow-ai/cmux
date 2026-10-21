@@ -10,6 +10,10 @@ final class ExtensionsMenuCardView: NSView {
     init(content: ExtensionsMenuView, style: ExtensionsMenuStyle = .standard) {
         self.content = content
         glass = Glass.makeOverlayPanel(content: content, cornerRadius: style.cornerRadius)
+        // The content sizes itself (``ExtensionsMenuView/update(_:site:)``) and the panel follows
+        // it; resizing it with the card as well applied each change twice, so a bubble whose rows
+        // changed while the card was another size opened shifted and clipped.
+        content.autoresizingMask = []
         super.init(frame: content.frame)
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]

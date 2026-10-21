@@ -145,7 +145,8 @@ final class ExtensionsMenuController {
         panelWarm = true
         let alpha = panel.alphaValue
         panel.alphaValue = 0
-        panel.setFrame(NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size), display: false)
+        let card = NSRect(origin: NSPoint(x: -10_000, y: -10_000), size: content.frame.size)
+        panel.setFrame(PopupStyle.standard.windowFrame(forCard: card), display: false)
         panel.orderFront(nil)
         panel.displayIfNeeded()
         panel.orderOut(nil)
