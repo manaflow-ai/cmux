@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import { postNative } from "../native";
 import { RunApiHttpError, type RunAttachTicket } from "./runApi";
 
@@ -25,28 +26,24 @@ export function runAttachCommand(ticket: RunAttachTicket, now = Date.now()): str
   const endpoint = endpointOf(ticket);
   const expiry = typeof endpoint.expiresAtUnix === "number" ? endpoint.expiresAtUnix : ticket.expiresAtUnix;
   if (typeof expiry === "number" && Number.isFinite(expiry) && expiry * 1_000 <= now) {
-    throw new RunApiHttpError(
-      410,
-      "This worker terminal endpoint has expired. Request a fresh attach ticket.",
-      "run_attach_expired",
-    );
+    throw new RunApiHttpError(410, translate("runBoard.error.attachExpired"), "run_attach_expired");
   }
   if (endpoint.transport !== "cmux-remote" || typeof endpoint.route !== "string" || !endpoint.route) {
     throw new RunApiHttpError(
       409,
-      "This worker does not expose a cmux terminal endpoint.",
+      translate("runBoard.error.attachTransportUnsupported"),
       "run_attach_transport_unsupported",
     );
   }
   if (endpoint.trustedCarrier !== true) {
     throw new RunApiHttpError(
       409,
-      "This worker requires device enrollment before terminal attach.",
+      translate("runBoard.error.attachEnrollmentRequired"),
       "run_attach_enrollment_required",
     );
   }
   if (typeof endpoint.session !== "string" || !endpoint.session) {
-    throw new RunApiHttpError(502, "Run attach returned no worker session.", "run_attach_invalid");
+    throw new RunApiHttpError(502, translate("runBoard.error.attachNoSession"), "run_attach_invalid");
   }
   return [
     "cmux",
