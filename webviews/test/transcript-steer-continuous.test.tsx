@@ -28,7 +28,7 @@ import {
   WORKING,
   workedLabel,
 } from "../src/agent-session/acpmux/conversation/turns";
-import { turnRows } from "../src/agent-session/acpmux/diff";
+import { endsTurn, turnRows } from "../src/agent-session/acpmux/diff";
 import { readTurnFromRows } from "../src/agent-session/acpmux/changes/turnCheckpointSource";
 import { runningGroups } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
@@ -486,15 +486,26 @@ for (const replay of [false, true]) {
     );
   });
 
-  test(`a Send now refused at dispatch leaves the turn stopped once the chat is idle (${how})`, async () => {
-    // acpmux took it from the queue, then refused it (`prompt_refused`, not streamed to the pane).
-    readsStopped(
-      await after(
-        [...sentNow, cancelAt(55), ["mux", "dequeued", { promptId: "p-2" }, 55]],
-        "idle",
-        replay ? [] : [["mux", "status", { status: "idle" }, 56]],
-      ),
+  test(`between dequeued and the Send now's record, the idle chat still reads one turn (${how})`, async () => {
+    // acpmux ends the turn and reads ready, then takes the prompt from the queue (`dequeued`), then
+    // checks it and records it: a snapshot drawn in that gap must not end the turn.
+    const rows = await after(
+      [
+        ...sentNow,
+        cancelAt(55),
+        ["mux", "status", { status: "ready" }, 55],
+        ["mux", "dequeued", { promptId: "p-2" }, 55],
+      ],
+      "idle",
     );
+    const summary = rows.find((row) => row.kind === "turnSummary")!;
+    expect(summary.continued).toBe(true);
+    // Its checkpoint is asked for only once the turn ends.
+    expect(endsTurn(summary)).toBe(false);
+    for (const working of [false, true]) {
+      const view = turnView(rows, new Set(), { working });
+      expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
+    }
   });
 
   test(`a Send now refused with its record leaves the turn stopped (${how})`, async () => {
@@ -526,4 +537,16 @@ test("Stop, then Send now before the cancel lands: the turn reads stopped", asyn
       .map((event, index) => ({ ...event, seq: head.length + 1 + index })),
   );
   readsStopped(rows());
+});
+
+test("a Send now that fails with a turn error leaves the turn ended", async () => {
+  const rows = await rowsOf(
+    record([
+      ...sentNow,
+      cancelAt(55),
+      ["mux", "dequeued", { promptId: "p-2" }, 55],
+      ["mux", "turn_error", { promptId: "p-2", turnId: "turn-2", error: "the agent exited" }, 55],
+    ]),
+  );
+  readsStopped(rows);
 });
