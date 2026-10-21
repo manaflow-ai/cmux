@@ -45,7 +45,8 @@ test("a GIF moves when the app says always, and is never shown moving when it sa
   always.unmount();
   document.documentElement.setAttribute("data-picture-motion", "never");
   const never = render(GIF);
-  await act(async () => new Promise((resolve) => setTimeout(resolve, 20)));
+  // Let the effect that draws the still run; whatever it settles on, the GIF itself never shows.
+  await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   expect(never.host.querySelector("img")?.getAttribute("src")).not.toBe(GIF);
   never.unmount();
   // A still picture is never held back.
