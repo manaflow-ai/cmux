@@ -363,7 +363,11 @@ impl Hub {
         // started or initialized a second time.
         if Self::host_record_live(&session.id) {
             match self.readopt(session).await {
-                Some(child) if child.is_alive().await => return Ok(child),
+                Some(child) if child.is_alive().await => {
+                    // Reached again, not started: no start below decides its Ctrl-B.
+                    self.note_host_kind(session, &child, Some(profile.kind)).await;
+                    return Ok(child);
+                }
                 // The host ended meanwhile: start a fresh agent below.
                 _ if !Self::host_record_live(&session.id) => {}
                 // Live but unreachable even after a reconnect: end it (nonce
