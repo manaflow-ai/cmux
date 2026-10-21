@@ -106,6 +106,20 @@ function shownTrust(trust: FolderTrust, cwd: string, family: string | undefined,
   };
 }
 
+/// The open question acpmux's `trust.pending` refusal (`refused`, for the chat `sessionId`) shows
+/// when the folder's read shows none: for the folder acpmux named, which the answer goes to. The
+/// read's repository comes along only when it read that very folder.
+function refusedAsk(
+  refused: { sessionId?: string; cwd: string } | undefined,
+  sessionId: string | undefined,
+  trust: FolderTrust | undefined,
+  canAnswer: boolean,
+): FolderTrustAsk | undefined {
+  if (!refused || refused.sessionId !== sessionId) return undefined;
+  const repo = trust?.cwd === refused.cwd ? trust.repo : undefined;
+  return { cwd: refused.cwd, ...(repo ? { repo } : {}), state: canAnswer ? "ask" : "remote" };
+}
+
 function sameAsk(left: FolderTrustAsk | undefined, right: FolderTrustAsk | undefined): boolean {
   return (
     left === right ||
@@ -149,6 +163,12 @@ export function useFolderTrustAsk(
   const resend = useRef<(() => void) | undefined>(undefined);
   const { sessionId, family, prompts } = chat;
   const cwd = chat.cwd ?? (refusal && refusal.sessionId === sessionId ? refusal.cwd : undefined);
+  /// acpmux refused this chat's prompt with `trust.pending` and nobody answered since: its gate is
+  /// the authority, so the question shows even when the read disagrees (an auto-trust rule, another
+  /// spelling of the folder) or fails (a busy daemon past the read's timeout). Leo 2026-10-21: the
+  /// pane said only "Not sent: trust.pending", with no Trust button to clear it.
+  const pendingRefusal = useRef<{ sessionId?: string; cwd: string } | undefined>(undefined);
+  if (pendingRefusal.current && pendingRefusal.current.sessionId !== sessionId) pendingRefusal.current = undefined;
   // The chat a reply belongs to; a late reply for another one is dropped.
   const current = useRef({ sessionId, cwd });
   current.current = { sessionId, cwd };
@@ -213,11 +233,24 @@ export function useFolderTrustAsk(
       // An answer saved since this read began is newer than it: the answer stands.
       if ((answers.current.get(cwd) ?? 0) !== answered) return;
       // A folder the pane can't read is not asked about (a known answer stays); acpmux still
-      // refuses its prompts.
-      if (!trust) return;
+      // refuses its prompts. One acpmux just refused for want of an answer is asked about anyway.
+      if (!trust) {
+        const forced = refusedAsk(pendingRefusal.current, current.current.sessionId, undefined, canAnswer);
+        if (forced) {
+          setAsk((was) => (sameAsk(was, forced) ? was : forced));
+          setTrusted(false);
+        }
+        return;
+      }
       if (remembers) rememberTrust(cwd, trust);
       lastRead.current = { cwd, trust };
-      const shown = shownTrust(trust, cwd, familyNow.current, canAnswer);
+      const read = shownTrust(trust, cwd, familyNow.current, canAnswer);
+      // A read that shows no question (trusted) while acpmux's gate still refuses: the question.
+      const forced = read.ask
+        ? undefined
+        : refusedAsk(pendingRefusal.current, current.current.sessionId, trust, canAnswer);
+      const shown = forced ? { ...read, ask: forced, trusted: false } : read;
+      if (forced) lastRead.current = undefined;
       setAsk((was) => (sameAsk(was, shown.ask) ? was : shown.ask));
       setTrusted(shown.trusted);
       setScope(shown.scope);
@@ -244,10 +277,15 @@ export function useFolderTrustAsk(
     async (level: TrustLevel, folder?: string) => {
       if ((!ask && !cwd) || saving.current) return;
       saving.current = true;
+      // An answer settles the refusal's question; acpmux refuses again if it still holds.
+      pendingRefusal.current = undefined;
       const asked = { sessionId, cwd: ask?.cwd ?? cwd! };
+      // The chat the answer was made in: the asked folder can be another spelling of its folder
+      // (the one acpmux named in a refusal).
+      const chatCwd = current.current.cwd;
       const repo = ask?.repo ?? (scope?.cwd === asked.cwd ? scope.repo : undefined);
       const recorded = folder ?? asked.cwd;
-      const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === asked.cwd;
+      const stillHere = () => current.current.sessionId === asked.sessionId && current.current.cwd === chatCwd;
       try {
         await source.set(recorded, level);
         for (const key of new Set([asked.cwd, recorded])) answers.current.set(key, (answers.current.get(key) ?? 0) + 1);
@@ -323,6 +361,9 @@ export function useFolderTrustAsk(
         if (!isTrustRefusal(error)) return false;
         const named = (error as { cwd?: unknown }).cwd;
         if (typeof named === "string" && named) setRefusal({ sessionId, cwd: named });
+        const refusedIn = typeof named === "string" && named ? named : cwd;
+        if ((error as { reason?: unknown }).reason === "trust.pending" && refusedIn)
+          pendingRefusal.current = { sessionId, cwd: refusedIn };
         // acpmux says the folder is not trusted now: its record is stale, and Send waits for the read.
         for (const folder of [named, cwd]) if (typeof folder === "string" && folder) rememberTrust(folder, undefined);
         lastRead.current = undefined;
