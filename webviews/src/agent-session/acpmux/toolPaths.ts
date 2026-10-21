@@ -8,6 +8,7 @@
 //   Gemini       write_file/replace {file_path | absolute_path}
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
+import { mcpCall, mcpPlainName } from "./conversation/mcpCalls";
 import type { AcpmuxActivity } from "./model";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
@@ -53,6 +54,12 @@ export function toolLabel(
   const paths = editedPaths(tool);
   const command = tool.command?.trim();
   if (tool.kind === "execute" && command) return commandLabel(command);
+  // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.
+  const call = mcpCall(tool);
+  if (call) return mcpPlainName(call);
+  // An edit of several files keeps a title that says more than its verb ("Edit 2 files"): naming
+  // the first file alone would read as an edit of that one file.
+  if (paths.length > 1 && /\s/.test(title)) return title;
   if (paths.length) {
     const action = firstWord(title || fallbackName);
     return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;

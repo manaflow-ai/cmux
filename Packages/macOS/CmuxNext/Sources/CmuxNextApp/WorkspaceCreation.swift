@@ -36,10 +36,12 @@ enum WorkspaceCreation {
 
     /// Closes a workspace whose first terminal failed; when the close fails
     /// too, `repair` releases it (it stays, empty, with the terminal error).
+    /// Only while it is empty: a first tab the daemon made after its reply's
+    /// deadline is the person's workspace, never closed with it.
     @MainActor
     private static func closeHalfCreated(_ key: WorkspaceKey, on connection: DaemonConnection, repair: EmptyWorkspaceRepair) async throws {
         do {
-            try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd)
+            try await WorkspaceClose.close(key, terminals: [], on: connection, reason: .sessionEnd, ifEmpty: true)
         } catch {
             repair.closeFailed(key)
             throw error
@@ -60,7 +62,7 @@ enum WorkspaceCreation {
     ) async throws -> T {
         try await repair.populating(key) {
             try await withTerminal(
-                key, createWorkspace: { _ = try await connection.createWorkspace(name: name, key: key) },
+                key, createWorkspace: { _ = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
                 createTerminal: terminal,
                 closeWorkspace: { try await closeHalfCreated($0, on: connection, repair: repair) }
             )
@@ -82,7 +84,7 @@ enum WorkspaceCreation {
         try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspace(name: name, key: key) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)
