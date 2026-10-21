@@ -2998,6 +2998,11 @@ export class AcpmuxDirectClient {
   sessionEvents(): EventRecord[] {
     return this.events.slice();
   }
+  /** The rows message `messageId` streamed into, oldest first; empty when this session has none.
+   *  A `message=<id>` link scrolls to the first one that is on screen (links.ts). */
+  rowsOfMessage(messageId: string): readonly string[] {
+    return this.messageRows.get(messageId) ?? [];
+  }
   /** A new chat starting (`create`): a Send meanwhile waits for it and goes to the new chat, not to
    *  the session still on screen (a harness pick), and a Send with no session joins it. */
   private creating?: Promise<string | undefined>;
@@ -4543,7 +4548,11 @@ export class AcpmuxDirectClient {
       }
     // A fork older than every held event is only in this page.
     const forkedAtSeq = live.forkedAtSeq ?? this.forkedAtSeq;
-    Object.assign(this, live, { forkedAtSeq });
+    // The folded page's rows answer for their own messages: a `?message=<id>` link to a message
+    // from before this page keeps finding its row (links.ts). The held events' entries win, since
+    // they are the live turn's.
+    const messageRows = new Map([...this.messageRows, ...live.messageRows]);
+    Object.assign(this, live, { forkedAtSeq, messageRows });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
     // A held page can start at a prompt sent now whose cancel only this page holds: its row,

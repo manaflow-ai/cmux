@@ -38,6 +38,17 @@ struct AgentPaneThoughtTunablesTests {
             == ["turn-preview-cards": "on"])
     }
 
+    /// A streaming reply grows by whole words (webviews conversation/RevealedMarkdown.tsx) by
+    /// default, which sets no attribute; off, `data-stream-words="off"`.
+    @Test func streamWordsIsOnByDefaultAndOffSetsItsAttribute() {
+        #expect(AgentPaneTunables.streamWords.descriptor.key == "agentPane.debug.streamWords")
+        #expect(AgentPaneTunables.streamWords.defaultValue == true)
+        #expect(AgentPaneTunables.all.contains { $0.key == "agentPane.debug.streamWords" })
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default, streamWords: true).isEmpty)
+        #expect(AgentPaneTunables.attributes(foldLongThoughts: false, topStripStyle: .default, streamWords: false)
+            == ["stream-words": "off"])
+    }
+
     @Test func foldIsOnByDefault() {
         #expect(AgentPaneTunables.foldLongThoughts.descriptor.key == "agentPane.debug.foldLongThoughts")
         #expect(AgentPaneTunables.foldLongThoughts.defaultValue == true)
