@@ -386,7 +386,10 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const lead = marks.plusGlyph?.left ?? prompt.left;
       const trail = marks.trailGlyph?.right ?? prompt.right;
       expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
-      expect(Math.abs(branchChevron.right - 4 - trail)).toBeLessThanOrEqual(2);
+      expect(
+        Math.abs(branchChevron.right - 4 - trail),
+        `the branch chevron ends at ${branchChevron.right.toFixed(1)}, the last action's glyph at ${trail.toFixed(1)}`,
+      ).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
       expect(marks.computerLabelShown).toBe(width > 460);
