@@ -38,6 +38,10 @@ export const KEPT_EVENTS = 400;
 /// record alone is larger hands over nothing, rather than make the bound a chat's paste wide; it
 /// opens cold in the next tab, as it did before.
 const HOST_TAIL_BYTES = 256 * 1024;
+/// The longest an open waits on the host for a tail. The host answers in process and in memory, so
+/// this is only there so a host that does not answer at all cannot hold a chat up — the same
+/// reason `SCROLL_ANCHOR_READ_MS` exists for the reading place (App.tsx).
+const HOST_TAIL_READ_MS = 250;
 
 const keptTails = new Map<string, KeptTail>();
 /// One host read per chat at a time, so a prefetch and the read that awaits it are one round trip.
@@ -67,7 +71,20 @@ export function forgetTail(sessionId: string): void {
 /// Asks the app host for this chat's tail and keeps what it answers, so a cold page can draw the
 /// chat another tab read. Answers the tail, or undefined when there is none (and when the page
 /// runs outside the app, where there is no host to ask).
+///
+/// A cache is never allowed to hold up an open, so the read is raced against HOST_TAIL_READ_MS:
+/// a host that does not answer costs the chat nothing and the attach goes on without a tail, as
+/// `chat.scrollAnchor.get` does for the reading place. A late answer is still kept, for the next
+/// chat that asks.
 export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
+  const read = startHostRead(sessionId);
+  return Promise.race([
+    read,
+    new Promise<undefined>((resolve) => setTimeout(() => resolve(undefined), HOST_TAIL_READ_MS)),
+  ]);
+}
+
+function startHostRead(sessionId: string): Promise<KeptTail | undefined> {
   const already = reading.get(sessionId);
   if (already) return already;
   const read = callHost<unknown>("chat.tail.get", { sessionId })
@@ -95,6 +112,7 @@ export function readHostTail(sessionId: string): Promise<KeptTail | undefined> {
 function callHost<T>(method: string, params: Record<string, unknown>): Promise<T> {
   // The client also runs with no page around it (its own tests, tools): no window is no host, and
   // every caller here takes a refusal as "no tail kept".
+  // l10n-allow: nobody reads it — every caller here catches and goes on without a tail.
   if (typeof window === "undefined") return Promise.reject(new Error("the agent pane has no page"));
   const direct = window.cmuxAcpmuxActions?.[method];
   if (direct) return direct(params) as Promise<T>;
@@ -105,7 +123,12 @@ function callHost<T>(method: string, params: Record<string, unknown>): Promise<T
 /// open must not wait on it, and a host that refuses it only means the next tab opens cold.
 function writeHostTail(sessionId: string, tail: KeptTail): void {
   const events = newestWithin(tail.events, HOST_TAIL_BYTES);
-  if (events.length === 0) return;
+  // Not one record of this chat fits the host's bound (a single huge paste): the host forgets what
+  // it had rather than keeping an older tail under a chat this page has since read on.
+  if (events.length === 0) {
+    void callHost("chat.tail", { sessionId }).catch(() => undefined);
+    return;
+  }
   void callHost("chat.tail", {
     sessionId,
     tail: {
@@ -136,13 +159,17 @@ function newestWithin(events: EventRecord[], maxBytes: number): EventRecord[] {
 function tailFromHost(value: unknown): KeptTail | undefined {
   const tail = (value ?? undefined) as Partial<KeptTail> | undefined;
   if (!tail || typeof tail !== "object") return undefined;
-  const events = Array.isArray(tail.events) ? tail.events.filter(isEventRecord) : [];
+  const listed = Array.isArray(tail.events) ? tail.events : [];
+  const events = listed.filter(isEventRecord);
   if (events.length === 0) return undefined;
   return {
     events: events.slice(-KEPT_EVENTS),
     summary: typeof tail.summary === "object" && tail.summary !== null ? tail.summary : undefined,
     turnOpener: isEventRecord(tail.turnOpener) ? tail.turnOpener : undefined,
-    historyExhausted: tail.historyExhausted === true && events.length <= KEPT_EVENTS,
+    // Only a whole tail can call the chat's history read through: a record dropped here (or by the
+    // cap) leaves a hole or a cut, and a cut that claimed otherwise would hide the chat's older
+    // turns, which is #23064's bug.
+    historyExhausted: tail.historyExhausted === true && events.length === listed.length && events.length <= KEPT_EVENTS,
     queue: Array.isArray(tail.queue) ? (tail.queue as QueuedPrompt[]) : [],
     configSeq: typeof tail.configSeq === "number" ? tail.configSeq : 0,
     usageFromSeq: typeof tail.usageFromSeq === "number" ? tail.usageFromSeq : 0,

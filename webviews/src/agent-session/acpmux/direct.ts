@@ -1125,7 +1125,11 @@ export class AcpmuxDirectClient {
         let keptThrough = 0;
         if (resumeAfter === 0 && this.events.length === 0) {
           await readHostTail(sessionId).catch(() => undefined);
-          keptThrough = this.drawKeptTail(sessionId);
+          // A switch that landed while the host answered chose another chat: its own select draws
+          // that one, and these rows belong to the chat this open was for.
+          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId) {
+            keptThrough = this.drawKeptTail(sessionId);
+          }
           if (keptThrough > 0) {
             this.emit("selected");
             this.releaseSnapshots(hold);

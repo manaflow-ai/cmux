@@ -1,0 +1,151 @@
+import CmuxNextPages
+import CmuxNextSettings
+import Foundation
+import Testing
+@testable import CmuxNextAgentPane
+
+/// The host's chat tails at the ops the page calls (`chat.tail`, `chat.tail.get`): a chat another
+/// tab read opens drawn instead of blank, on either host, and the bounds that keep this from
+/// becoming somewhere a transcript lives.
+///
+/// `agent.pageHost` is off by default, so the pane's own host is the path production takes; both
+/// are held here, because one store serves both.
+@Suite(.serialized)
+@MainActor
+struct ChatTailCacheTests {
+    static let context = PageCallContext(page: PageDescriptor.agent.id)
+
+    /// A page tail of `count` records, as the page's own shape.
+    static func tail(_ count: Int, exhausted: Bool = false, mark: String = "a") -> [String: Any] {
+        [
+            "events": (1...max(1, count)).map { ["seq": $0, "kind": "user_message", "msg": ["text": "\(mark)\($0)"]] },
+            "historyExhausted": exhausted,
+            "queue": [],
+            "configSeq": 0,
+            "usageFromSeq": 0,
+        ]
+    }
+
+    static func bridge(_ method: String, _ params: [String: Any]) -> [String: Any] {
+        AgentPaneTailCache.reply(to: method, params: params)
+    }
+
+    static func value(_ reply: [String: Any]) -> Any? {
+        #expect(reply["ok"] as? Bool == true, "the host refused the request: \(reply)")
+        return reply["value"]
+    }
+
+    /// The records of a tail the host answered, by their `seq`.
+    static func seqs(_ answered: Any?) -> [Int] {
+        guard let object = answered as? [String: Any], let events = object["events"] as? [[String: Any]] else { return [] }
+        return events.compactMap { $0["seq"] as? Int }
+    }
+
+    @Test func aChatAnotherTabReadIsHandedBackToANewPage() throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        AgentPaneTailCache.shared.clear()
+
+        // Nothing read yet: a new tab is told there is no tail and opens from acpmux.
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"])) is NSNull)
+
+        // One tab reads the chat and hands its tail over; another asks for it before it attaches.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(3)]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2, 3])
+        // Another chat's tail is not this chat's.
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-2"])) is NSNull)
+
+        // The page read on, so what it hands over now replaces what it handed over before.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(5, mark: "b")]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"]))) == [1, 2, 3, 4, 5])
+
+        // A page that no longer stands behind the transcript (its attach failed, the chat was
+        // purged) says so, and the next tab opens cold rather than on rows nothing backs.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1"]))
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"])) is NSNull)
+    }
+
+    /// The bound that keeps #23064 from coming back on this side: a tail over the cap is refused
+    /// WHOLE. Cutting one and keeping its `historyExhausted` would tell the next page the chat has
+    /// no older turns, and the reader could not scroll up to them.
+    @Test func aTailOverTheCapIsRefusedWholeAndNeverCut() throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        AgentPaneTailCache.shared.clear()
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(10, exhausted: true)]))
+
+        let over = Self.tail(AgentPaneTailCache.events + 1, exhausted: true, mark: "c")
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": over]))
+        // Not cut to the cap, and not the older tail either: nothing is kept for that chat.
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"])) is NSNull)
+
+        // Exactly the cap is kept, whole.
+        let full = Self.tail(AgentPaneTailCache.events, mark: "d")
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-2", "tail": full]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-2"]))).count == AgentPaneTailCache.events)
+
+        // A tail with no records is not a tail.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-3", "tail": ["events": [], "historyExhausted": false]]))
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-3"])) is NSNull)
+    }
+
+    /// What is held is bounded, so this cannot become a place every chat of a long day lives.
+    @Test func onlyTheMostRecentChatsAreKept() throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        AgentPaneTailCache.shared.clear()
+        for chat in 1...(AgentPaneTailCache.chats + 4) {
+            _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-\(chat)", "tail": Self.tail(2)]))
+        }
+        // The four oldest are gone; the cap's worth of newest are there.
+        for chat in 1...4 {
+            #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-\(chat)"])) is NSNull)
+        }
+        for chat in 5...(AgentPaneTailCache.chats + 4) {
+            #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-\(chat)"]))) == [1, 2])
+        }
+        // Reading a chat again makes it the most recent, so it outlives chats remembered after it.
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-5", "tail": Self.tail(2)]))
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-99", "tail": Self.tail(2)]))
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-5"]))) == [1, 2])
+    }
+
+    /// Signing out drops them with the rest of the session's state (CloudService.signOut), which
+    /// is the whole of forgetting them, because none of it is on disk.
+    @Test func signingOutForgetsEveryTail() throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        AgentPaneTailCache.shared.clear()
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(3)]))
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-2", "tail": Self.tail(3)]))
+        AgentPaneTailCache.shared.clear()
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-1"])) is NSNull)
+        #expect(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-2"])) is NSNull)
+    }
+
+    /// Both hosts read and write the one store, so a pane with `agent.pageHost` on and one without
+    /// hand each other the same chats.
+    @Test func thePageHostAndThePanesOwnHostShareTheOneStore() async throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        AgentPaneTailCache.shared.clear()
+        let provider = AgentPageProvider { _ in nil }
+
+        _ = Self.value(Self.bridge("chat.tail", ["sessionId": "s-1", "tail": Self.tail(3)]))
+        let onPageHost = try await provider.call(
+            AgentPageOps.namespace + "chat.tail.get", params: .object(["sessionId": .string("s-1")]), context: Self.context)
+        guard case .object(let fields) = onPageHost, case .array(let events)? = fields["events"] else {
+            Issue.record("the page host answered no tail for a chat the pane's own host kept: \(onPageHost)")
+            return
+        }
+        #expect(events.count == 3)
+
+        _ = try await provider.call(
+            AgentPageOps.namespace + "chat.tail",
+            params: .object(["sessionId": .string("s-2"), "tail": JSONValue(foundation: Self.tail(4))!]),
+            context: Self.context)
+        #expect(Self.seqs(Self.value(Self.bridge("chat.tail.get", ["sessionId": "s-2"]))).count == 4)
+    }
+
+    @Test func aRequestWithoutAChatIsRefused() throws {
+        defer { AgentPaneTailCache.shared.clear() }
+        #expect(Self.bridge("chat.tail.get", [:])["ok"] as? Bool == false)
+        #expect(Self.bridge("chat.tail", ["sessionId": ""])["ok"] as? Bool == false)
+        #expect(Self.bridge("chat.tail.forget", ["sessionId": "s-1"])["ok"] as? Bool == false)
+    }
+}
