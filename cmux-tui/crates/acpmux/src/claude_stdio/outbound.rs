@@ -107,6 +107,12 @@ impl Translator {
                             // Claude Code reads it at its next tool boundary
                             // and echoes it; the echo answers this request.
                             self.steers.lock().await.push_back((uuid, id.to_string()));
+                            // Sent now (`_meta.steerNow`): the current step stops, so it
+                            // reads the line at once; the turn runs on.
+                            let now = p.pointer("/_meta/steerNow").and_then(Value::as_bool);
+                            if now == Some(true) {
+                                return Outbound::Lines(vec![line, self.step_interrupt(None)]);
+                            }
                             return Outbound::Lines(vec![line]);
                         }
                         self.in_turn.store(true, Ordering::SeqCst);
@@ -256,6 +262,19 @@ impl Translator {
                         ])
                     }
                     method::MUX_SUBAGENT_STOP => self.subagent_stop(id, &p).await,
+                    // Send now on a steer Claude Code has not read: its step stops, so it
+                    // reads the steer; with none waiting nothing stops.
+                    method::MUX_STEP_NOW => {
+                        if !self.in_turn.load(Ordering::SeqCst)
+                            || self.steers.lock().await.is_empty()
+                        {
+                            return Outbound::Reply(Message::ok(
+                                id.clone(),
+                                json!({"interrupted": false}),
+                            ));
+                        }
+                        Outbound::Lines(vec![self.step_interrupt(Some(id))])
+                    }
                     method::SESSION_FORK => {
                         // Forking needs a new process (--fork-session); the hub does that.
                         Outbound::Reply(Message::err(
@@ -333,6 +352,17 @@ impl Translator {
                 ])
             }
         }
+    }
+
+    /// The interrupt that stops Claude Code's current step for a steer sent now: unlike a Stop
+    /// it leaves `cancelled` unset, so the steer Claude Code reads after the step runs on in the
+    /// same turn. Its ack answers `answer` (`MUX_STEP_NOW`), when one waits for it.
+    fn step_interrupt(&self, answer: Option<&Id>) -> Value {
+        let request_id = match answer {
+            Some(id) => format!("now-{id}"),
+            None => format!("int-{}", self.next_control.fetch_add(1, Ordering::SeqCst)),
+        };
+        json!({"type": "control_request", "request_id": request_id, "request": {"subtype": "interrupt"}})
     }
 }
 
