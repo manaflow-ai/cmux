@@ -788,6 +788,37 @@ pub enum PeerCmd {
         #[arg(long)]
         all: bool,
     },
+    /// Add a machine in one go: check ssh, install this build, start the
+    /// daemon, copy harness profiles and peer both ways. One line per step.
+    Enroll {
+        /// ssh target, e.g. huge-blue or user@host
+        host: String,
+        /// Peer name (default: the host's first label).
+        #[arg(long)]
+        name: Option<String>,
+        /// A harness profile to copy (repeatable).
+        #[arg(long = "harness", value_name = "ID")]
+        harnesses: Vec<String>,
+        /// The remote binary to install; another than ~/.local/bin/acpmux
+        /// (the app's ~/.local/bin/cmux-tui) gets that path linked to it.
+        #[arg(long, default_value = "~/.local/bin/acpmux")]
+        remote_binary: String,
+        /// Do not register this machine on the host.
+        #[arg(long)]
+        no_reverse: bool,
+    },
+    /// Check a machine (a peer name or an ssh host) step by step; --fix
+    /// repairs what fails. Without --fix nothing changes.
+    Doctor {
+        target: String,
+        #[arg(long)]
+        fix: bool,
+        /// A harness profile to check (repeatable).
+        #[arg(long = "harness", value_name = "ID")]
+        harnesses: Vec<String>,
+        #[arg(long, default_value = "~/.local/bin/acpmux")]
+        remote_binary: String,
+    },
 }
 
 #[derive(Args)]
