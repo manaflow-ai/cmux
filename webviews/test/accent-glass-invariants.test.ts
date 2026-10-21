@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 900
 // Two standing rules as an invariant over every web gallery stage: the accent is never orange
 // (nothing reads the macOS system accent, which is orange when the person picks orange, and no
 // accent-bearing color has an orange hue) and glass is never opaque (no `backdrop-filter` surface
@@ -17,14 +18,14 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { loadEntrySources } from "../scripts/gallery/entries";
 import { findingKey, scanStage, type Finding } from "./support/accentGlassScan";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
-  setDefaultTimeout(1_800_000);
+  setDefaultTimeout(840_000);
   const webviews = path.resolve(import.meta.dir, "..");
   const baselineFile = path.join(import.meta.dir, "accent-glass-baseline.txt");
   const baseline = new Set(
@@ -44,8 +45,11 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
   const stages = (await loadEntrySources())
     .filter(({ entry }) => entry.host !== "native")
     .flatMap(({ entry, path: source }) =>
-      Object.keys(entry.variants).flatMap((variant) =>
-        themes.map((theme) => ({ entry: entry.id, variant, source, theme })),
+      Object.keys(entry.variants).flatMap((variant, index) =>
+        // Case (b) only changes the orange rule, so each entry's first variant is enough there.
+        themes
+          .filter((theme) => theme === undefined || index === 0)
+          .map((theme) => ({ entry: entry.id, variant, source, theme })),
       ),
     );
 
@@ -69,7 +73,7 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
 
   type Scanned = { stage: string; findings: Finding[] } | { stage: string; error: string };
 
-  const scan = async (stage: (typeof stages)[number]): Promise<Scanned> => {
+  const scan = async (page: Page, stage: (typeof stages)[number]): Promise<Scanned> => {
     const name = `${stage.entry}/${stage.variant}${stage.theme ? `@${stage.theme}` : ""}`;
     const orangeAllowed = stage.theme !== undefined && orangeThemes.has(stage.theme);
     const port = (vite!.httpServer!.address() as { port: number }).port;
@@ -80,11 +84,10 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
       frame: "component",
       ...(stage.theme ? { theme: stage.theme } : {}),
     });
-    const page = await browser!.newPage({ viewport: { width: 760, height: 900 } });
     try {
       await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?${query}`);
       await page.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, {
-        timeout: 60_000,
+        timeout: 20_000,
       });
       if ((await page.evaluate(() => document.documentElement.dataset.galleryReady)) !== "1")
         return { stage: name, error: "the stage did not render" };
@@ -96,8 +99,6 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
       return { stage: name, findings };
     } catch (error) {
       return { stage: name, error: String(error).split("\n")[0]! };
-    } finally {
-      await page.close();
     }
   };
 
@@ -105,8 +106,24 @@ await requireBrowserLane("accent-glass-invariants.test.ts", async () => {
     const results: Scanned[] = [];
     const queue = [...stages];
     await Promise.all(
-      Array.from({ length: 6 }, async () => {
-        for (let stage = queue.shift(); stage; stage = queue.shift()) results.push(await scan(stage));
+      // One page per worker, reused from stage to stage: a fresh page per stage cost more than the scan.
+      Array.from({ length: 8 }, async () => {
+        const open = () => browser!.newPage({ viewport: { width: 760, height: 900 } });
+        let page = await open();
+        for (let stage = queue.shift(); stage; stage = queue.shift()) {
+          const result = await scan(page, stage);
+          results.push(result);
+          // A stage that failed may leave its page stuck or crashed: the next stage gets a new one.
+          if ("error" in result) {
+            await page.close().catch(() => {});
+            page = await open();
+          }
+          if (results.length % 50 === 0)
+            console.log(
+              `accent-glass: ${results.length}/${stages.length} stages, ${Math.round(performance.now() / 1000)}s`,
+            );
+        }
+        await page.close();
       }),
     );
 
