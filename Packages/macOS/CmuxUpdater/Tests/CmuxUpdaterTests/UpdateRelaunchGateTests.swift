@@ -181,8 +181,6 @@ private final class CallCounter: @unchecked Sendable {
         #expect(driver.relaunchGate.isWaiting)
     }
 
-    /// The idle policy never waits past its cap: busy agents, a running command and recent
-    /// input all give way, and the relaunch keeps every session (Leo: updates just install).
     /// The host runs a click's checks (preflight, What's New record, rollback copy) before an
     /// automatic install; a failed preflight keeps the update staged and opens nothing.
     @Test func anAutomaticInstallAsksTheHostFirstAndStaysStagedWhenItDeclines() {
@@ -213,6 +211,8 @@ private final class CallCounter: @unchecked Sendable {
         #expect(driver.relaunchIsAutomatic)
     }
 
+    /// The idle policy never waits past its cap: busy agents, a running command and recent
+    /// input all give way, and the relaunch keeps every session (Leo: updates just install).
     @Test func anAutomaticInstallRelaunchesAtTheWaitCapWhateverIsRunning() async {
         let driver = makeDriver()
         driver.relaunchGate.automaticWaitCap = .seconds(4)
