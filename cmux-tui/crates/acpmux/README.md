@@ -119,7 +119,7 @@ Five everyday commands, three groups for the rest:
 | `ls` | Sessions on every host, as `host/name` for remote ones. |
 | `attach [NAME] [--plain]` | TUI on one session, or a plain text stream. |
 | `web [--no-open] [--rotate-token]` | Print the dashboard URL and open it; `--rotate-token` replaces the token first. |
-| `host setup HOST` / `host update [--all]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
+| `host setup HOST` / `host update [--all] [--if-idle] [--binary-dir DIR]` / `host add NAME URL` / `host ls` / `host rm NAME` | Remote daemons. `setup` installs over ssh; URL is `ssh://host`, `ws://…`, or `wss://…`. |
 | `session info\|cancel\|stop\|rename\|fork\|set\|allow\|deny\|export\|import\|tail NAME …` | Everything about one session. |
 | `daemon run\|status\|shutdown\|config\|harnesses\|reload\|models\|schema` | The daemon itself. |
 | `daemon shutdown [--end-agents]` | Stop the daemon; the user sessions' hosted agents keep running for the next daemon (a restart or an update), as with SIGTERM. `--end-agents` also ends every agent host it owns, exits 0 only when none is left, and names any host that survives SIGKILL. `--keep-agents` is accepted and changes nothing (a plain stop of builds before 2026-10-15 ended the agents). |
@@ -762,6 +762,7 @@ The simplest peer is an SSH host, and `host setup` does the whole install from t
 acpmux host setup HOST                 # scp the binary, write config + launchd plist, start it, add the peer
 acpmux host ls                         # connected/offline, remote build, and "outdated" when it lags yours
 acpmux host update --all               # push the current binary to every ssh peer and restart it
+acpmux host update HOST --if-idle --binary-dir DIR  # push DIR/acpmux-<target>, unless a session there is mid-turn
 acpmux ls                              # HOST/session-name next to local sessions
 acpmux new -m claude --host HOST "…"   # start a session there; `ensure NAME --host HOST` too
 acpmux attach HOST/session-name        # or plain `acpmux attach` for the full sidebar
@@ -770,7 +771,12 @@ acpmux session export HOST/name        # the bundle is fetched to ~/.acpmux/bund
 
 `acpmux --version` prints the build id (`git hash+dirty date`), and peers compare it in the
 initialize handshake, so a "Method not found" from a peer names the build gap instead of a
-missing feature. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
+missing feature. `host update` skips a peer that already runs the same commit, keeps the
+binary it replaces as `~/.local/bin/acpmux.prev`, and puts it back when the restarted daemon does
+not answer with the new build. A daemon that runs under a hand-written `acpmux*.service` unit is
+moved to the standard `acpmux.service` (its home, socket and drop-ins carried over, agents kept).
+`--json` reports each peer's `outcome`: `updated`, `current`, `busy`, `needsBinary`,
+`rolledBack` or `failed`. `host setup` needs ssh + scp access and a Mac or Linux box with `launchctl`
 (Linux hosts run `acpmux daemon` under whatever supervisor you use). Hosts added by hand still
 work: `acpmux host add HOST ssh://HOST` (`ssh://user@host:port` is fine) reads the remote token
 over the same ssh access.

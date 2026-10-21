@@ -283,7 +283,7 @@ impl Hub {
                 return Ok(());
             }
         };
-        self.adopt_caller_token(&session.id, caller_token);
+        let proven = self.adopt_caller_token(&session.id, caller_token);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
@@ -317,6 +317,7 @@ impl Hub {
         // previous daemon's to answer.
         work.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= resume_after));
         self.recover_work(session, &child, work).await;
+        self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
     }
