@@ -24,15 +24,17 @@ root="$(pwd)"
 (cd cmux-tui && cargo build --locked --release -p cmux-tui -p acpmux --bin cmux-tui --bin acpmux)
 target="$(cd cmux-tui && cargo metadata --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
 echo "PERF100-RBX target=$target"
-out="$(mktemp -d /tmp/p100out.XXXXXX)"
-scratch="$(mktemp -d /tmp/p100.XXXXXX)"
+out="$(mktemp -d "${TMPDIR:-/tmp}/p100out.XXXXXX")"
+scratch="$(mktemp -d "${TMPDIR:-/tmp}/p100.XXXXXX")"
 trap 'rm -rf "$scratch" "$out"' EXIT
 common=(--seed "$seed" --out "$out" --tag "rbx-release" --sha "$sha" --host-class "rbx" --root-dir "$scratch" $quick)
 status=0
-python3 scripts/perf100/perf100.py tui --tui "$target/release/cmux-tui" --flood-timeout 1800 "${common[@]}" > "$out/tui.log" 2>&1 || status=$?
-tail -n 3 "$out/tui.log"
-python3 scripts/perf100/perf100.py acpmux --acpmux "$target/release/acpmux" "${common[@]}" > "$out/acpmux.log" 2>&1 || status=$?
-tail -n 3 "$out/acpmux.log"
+set +e +o pipefail
+python3 scripts/perf100/perf100.py tui --tui "$target/release/cmux-tui" --flood-timeout 1800 "${common[@]}" 2>&1 | tee "$out/tui.log" | grep --line-buffered -E '^perf100:|Traceback|Error'
+rc=("${PIPESTATUS[@]}"); [ "${rc[0]}" = 0 ] || status=1
+python3 scripts/perf100/perf100.py acpmux --acpmux "$target/release/acpmux" "${common[@]}" 2>&1 | tee "$out/acpmux.log" | grep --line-buffered -E '^perf100:|Traceback|Error'
+rc=("${PIPESTATUS[@]}"); [ "${rc[0]}" = 0 ] || status=1
+set -e
 for f in "$out"/S*.json; do
   [ -e "$f" ] || continue
   printf 'PERF100-JSON %s %s\n' "$(basename "$f")" "$(tr -d '\n' < "$f")"

@@ -235,6 +235,7 @@ def run_tui(args, build: dict, out_dir: str) -> list[str]:
             run.metric("disk.state_mb", run.data["on_disk"]["state"]["allocated_mb"])
             paths.append(run.write(out_dir))
             shutil.rmtree(root, ignore_errors=True)
+            print(f"perf100: {scenario} headless-tui done ({run.data.get('error') or 'ok'})", flush=True)
     return paths
 
 
@@ -605,6 +606,7 @@ def run_acpmux(args, build: dict, out_dir: str) -> list[str]:
             run.metric("disk.acpmux_home_mb", run.data["on_disk"]["acpmux_home"]["allocated_mb"])
             paths.append(run.write(out_dir))
             shutil.rmtree(root, ignore_errors=True)
+            print(f"perf100: S2 headless-acpmux {count} done ({run.data.get('error') or 'ok'})", flush=True)
     return paths
 
 

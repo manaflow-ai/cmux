@@ -194,7 +194,8 @@ class App:
         tab_id = tab_id or (self.topology().get("focus") or {}).get("tab")
         tab = next((t for t in topo_tabs if t.get("id") == tab_id), None)
         if tab is None or tab.get("kind") != "terminal" or tab.get("surface") is None:
-            return f"tab {tab_id} is not a terminal in the focused workspace"
+            kinds = ", ".join(f"{t.get('id')}:{t.get('kind')}" for t in topo_tabs[:8])
+            return f"tab {tab_id} is not a terminal in the focused workspace (tabs: {kinds})"
         path = self.daemon_socket()
         if not path:
             return "no cmux-tui daemon of this app"

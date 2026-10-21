@@ -76,7 +76,8 @@ def stream(rid, sid: str, opts: dict):
             text = entry["text"]
             if every and i % every == 0 and k < marks:
                 mark = f"[pm:{tag}:{k}]"
-                text = f" {mark} " + text
+                # Its own paragraph: a page reader finds it whole (app_scenarios._watch_page_for_marks).
+                text = f"\n\n{mark}\n\n" + text.lstrip()
                 if log:
                     log.write(json.dumps({"mark": mark, "t": time.time()}) + "\n")
                 k += 1

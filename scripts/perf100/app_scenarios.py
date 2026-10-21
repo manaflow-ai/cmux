@@ -178,8 +178,8 @@ def s1(args, run, rng):
             app.new_workspace()
         fifos, gos = [], []
         for i in range(count):
-            if i:
-                app.act("newSurface", focus=True)
+            # A new terminal tab each (the launch tab need not be a terminal).
+            app.act("newSurface", focus=True)
             fifo = os.path.join(fifo_dir, f"{phase}-{i}")
             go = os.path.join(fifo_dir, f"{phase}-{i}.go")
             os.mkfifo(fifo)
@@ -299,7 +299,9 @@ def _watch_page_for_marks(app, marks: int, timeout: float) -> dict[str, float]:
     rpc = appdriver.Rpc(app.socket)
     try:
         while time.monotonic() < deadline and len(seen) < marks:
-            state = rpc.result("debug.page", {"page": "cmux.agent", "action": "state"})
+            # Each marker is its own paragraph (replay_agent.py), so a `p` query (120 characters
+            # per element) shows it whole.
+            state = rpc.result("debug.page", {"page": "cmux.agent", "action": "query", "selector": "p"})
             now = time.time()
             text = json.dumps(state)
             start = 0
