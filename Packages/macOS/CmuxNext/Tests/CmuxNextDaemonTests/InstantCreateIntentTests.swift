@@ -162,4 +162,25 @@ struct InstantCreateIntentTests {
         #expect(screen.panes.map(\.handle) == [Self.pane, provisional.handle])
         #expect(screen.layout.paneIDs.contains(provisional.handle))
     }
+
+    /// A conversation tab's split (`conversation-tab-split-v1`): the daemon's `pane-added`, carrying
+    /// the split's transaction, names the split's tab before the `layout-changed` that places the
+    /// pane. In between the screen stays split, the daemon's pane where the provisional one was
+    /// (cx-ry0y); it showed unsplit for a turn, and the window built the new pane again.
+    @Test func conversationSplitStaysSplitFromItsPaneUntilItsLayout() throws {
+        let store = Self.store()
+        let provisional = ProvisionalPane(holding: Self.page())
+        let transaction = ClientTransactionID.generate()
+        store.intend(.splitPane(pane: Self.pane, direction: .right, ratio: 0.5, provisional: provisional), transaction: transaction)
+        let daemon = PaneID(rawValue: 9)
+        let entity = PaneSnapshot(id: daemon, resourceID: ResourceID(rawValue: provisional.paneID),
+                                  tabs: [TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .conversation)])
+        _ = store.apply(batch: [DaemonEventEnvelope(sequence: 1, event: .paneAdded(PaneDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: daemon, index: 1,
+            entity: entity, clientTransactionID: transaction)))])
+        let screen = try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first)
+        #expect(screen.panes.map(\.handle) == [Self.pane, daemon])
+        #expect(screen.layout.paneIDs.contains(daemon), "the screen showed unsplit before the daemon's layout placed the pane")
+        #expect(store.mirrorViolations.isEmpty)
+    }
 }

@@ -110,7 +110,12 @@ import Foundation
     static func restore(_ pending: PendingIntent, to store: DaemonStore) -> IntentUndo? {
         if pending.closeWhenCreated { return CancelledCreation.hide(pending, in: store) }
         if let created = pending.createdSurface, store.tabsBySurface[created] != nil {
-            guard !pending.createdConfirmed else { return nil }
+            guard !pending.createdConfirmed else {
+                // A split's tab is confirmed with its pane, before the layout that places the
+                // pane: the split still places the daemon's pane until then (cx-ry0y).
+                guard case .splitPane = pending.kind else { return nil }
+                return apply(pending.kind, to: store)
+            }
             // A guess: the daemon's tab stays out of sight and the stand-in keeps its place, so
             // a wrong guess never shows a tab under another create (tab-spam-race).
             guard let hidden = CancelledCreation.hideTab(created, in: store) else { return nil }
