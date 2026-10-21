@@ -3,11 +3,38 @@ import Foundation
 public struct CmuxGlaedaExecutionLocalization {
     public init() {}
 
+    private static let resourceBundle: Bundle = {
+        let bundleName = "CmuxFoundation_CmuxFoundation.bundle"
+        var roots: [URL] = [
+            Bundle.main.resourceURL,
+            Bundle(for: BundleToken.self).resourceURL,
+            Bundle.main.bundleURL,
+        ].compactMap { $0 }
+
+        // The cmux CLI is shipped inside Contents/Resources/bin. In that
+        // layout Bundle.main points at the executable directory, while the
+        // SwiftPM resource bundle lives in the containing app's Resources
+        // directory. Walk a few parents so CLI help cannot trap when the
+        // generated Bundle.module accessor cannot see the app bundle.
+        var parent = Bundle.main.bundleURL
+        for _ in 0..<4 {
+            parent = parent.deletingLastPathComponent()
+            roots.append(parent.appendingPathComponent("Contents/Resources", isDirectory: true))
+        }
+
+        for root in roots {
+            if let bundle = Bundle(url: root.appendingPathComponent(bundleName)) {
+                return bundle
+            }
+        }
+        return Bundle.main
+    }()
+
     public func string(_ key: StaticString, defaultValue: String) -> String {
         String(
             localized: key,
             defaultValue: String.LocalizationValue(stringLiteral: defaultValue),
-            bundle: .module
+            bundle: Self.resourceBundle
         )
     }
 
@@ -78,3 +105,5 @@ public struct CmuxGlaedaExecutionLocalization {
         }
     }
 }
+
+private final class BundleToken {}

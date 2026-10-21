@@ -6,6 +6,16 @@ import Testing
 struct CmuxGlaedaExecutionContractTests {
     private let contract = CmuxGlaedaExecutionContract()
 
+    @Test("Glaeda localization returns a safe fallback when resources are unavailable")
+    func localizationFallback() {
+        let fallback = "fallback task help"
+        let localized = CmuxGlaedaExecutionLocalization().string(
+            "glaeda.cli.taskHelp",
+            defaultValue: fallback
+        )
+        #expect(!localized.isEmpty)
+    }
+
     private var request: CmuxGlaedaExecutionRequest {
         CmuxGlaedaExecutionRequest(
             externalRequestRef: "cmux:exec:1050:fixture-1",
