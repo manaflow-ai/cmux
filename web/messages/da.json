@@ -25,6 +25,16 @@
       "message": "Cloud VM-snapshots kræver en idempotensnøgle.",
       "action": "Prøv igen med en fast Idempotency-Key på højst 128 tegn."
     },
+    "snapshotInProgress": {
+      "title": "Snapshot er stadig i gang",
+      "message": "Et snapshot med denne idempotensnøgle kører stadig for denne Cloud VM.",
+      "action": "Vent på, at det første snapshot bliver færdigt, og prøv derefter igen med samme idempotensnøgle."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot-nøglen er allerede brugt",
+      "message": "Denne idempotensnøgle er allerede brugt til en anden snapshot-anmodning på denne Cloud VM.",
+      "action": "Brug en ny idempotensnøgle til et snapshot med et andet navn."
+    },
     "snapshotQuota": {
       "title": "Snapshot-grænsen er nået",
       "message": "Denne Cloud VM har nået sin snapshot-grænse.",
