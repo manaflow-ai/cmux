@@ -20,6 +20,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -226,6 +227,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     const page = await browser!.newPage({
       viewport: { width: 900, height: 760 },
     });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -265,16 +267,14 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
     test("a prompt sent behind the turn never draws as a transcript bubble before its queue row", async () => {
       const page = await openChat();
-      // Every bubble the transcript draws with the prompt's text, frame by frame.
+      // Every bubble the transcript draws with the prompt's text, painted frame by painted frame.
       await page.evaluate(() => {
         const seen: string[] = [];
         (window as unknown as { bubbles: string[] }).bubbles = seen;
-        const look = () => {
+        window.cmuxAfterPaint(() => {
           for (const row of document.querySelectorAll<HTMLElement>("[data-row-id]"))
             if (row.innerText.includes("queued a beat late")) seen.push(row.dataset.rowId ?? "");
-          requestAnimationFrame(look);
-        };
-        look();
+        });
       });
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("queued a beat late");

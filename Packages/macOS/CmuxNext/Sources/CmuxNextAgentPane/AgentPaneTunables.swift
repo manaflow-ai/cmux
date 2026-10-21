@@ -397,6 +397,7 @@ public nonisolated struct AgentPaneTunables {
             pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
+            openOutsideChatsViewOnly.descriptor,
             pageHost.descriptor,
             reasoningSlider.descriptor,
             reasoningSliderStyle.descriptor,

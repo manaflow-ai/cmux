@@ -93,7 +93,7 @@ enum WorkspaceBulkClose {
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
-            // Each group closes as Close All Workspaces in Group does (an unpinned group goes);
+            // Each group closes as Close Workspaces in Group does (an unpinned group goes);
             // Undo reopens each group's workspaces, then its record.
             let (sidebar, others) = try otherGroups(invocation, context)
             groups = others.map { group in

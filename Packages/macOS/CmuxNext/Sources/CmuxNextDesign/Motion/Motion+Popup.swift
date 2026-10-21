@@ -62,6 +62,7 @@ public extension NSWindow {
             setPopupLayer(layer, opacity: nil, transform: CATransform3DIdentity)
         }
         // The card's first frame (opacity 0) reaches the screen before the window turns opaque.
+        // perf-gate-ok: one commit per popup open (no flash of the full card); a theme change never opens one.
         CATransaction.flush()
         alphaValue = 1
     }
