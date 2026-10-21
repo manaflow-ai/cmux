@@ -8,6 +8,42 @@ public nonisolated struct AgentCLIJobCarrier: Sendable {
     /// The canonical session of that transport, preserved across this carrier's lifetime.
     public let session: ResourceID
     let transport: LineTransport
+    let identity: DaemonIdentity
+
+    /// Resolves the original key without preparing or starting an update.
+    public func resolveUpdate(cli: AgentCLIFamily, idempotencyKey: String) async throws -> AgentCLIJobResolution {
+        try Resolve.requireServed(by: identity)
+        guard cli != .unknown, !idempotencyKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, idempotencyKey.utf8.count <= 128,
+              !idempotencyKey.unicodeScalars.contains(where: { $0.properties.generalCategory == .control }) else {
+            throw DaemonError.malformedResponse("A known CLI and original intent key are required")
+        }
+        let result = try await DaemonRequestExecutor(transport: transport).perform(
+            Resolve(expectedMachineID: machine, expectedSessionID: session, cli: cli.rawValue, idempotencyKey: idempotencyKey),
+            timeout: .seconds(10))
+        if case .created(let receipt) = result {
+            guard receipt.machine == machine, receipt.session == session, receipt.cli == cli else {
+                throw DaemonError.malformedResponse("Resolved receipt did not match the original owner and CLI")
+            }
+        }
+        return result
+    }
+
+    private struct Resolve: DaemonRequest {
+        typealias Response = AgentCLIJobResolution
+        static let command = "agent-cli-update-job-resolve"
+        static let requiredCapability: String? = "agent-cli-update-job-resolve-v1"
+        let expectedMachineID: ResourceID
+        let expectedSessionID: ResourceID
+        let cli: String
+        let idempotencyKey: String
+    }
+
+    /// Reads family evidence on this captured transport before an explicit update.
+    public func inventory() async throws -> AcpmuxHarnessInventory {
+        try MachineAgentInventoryRequest.requireServed(by: identity)
+        return try await DaemonRequestExecutor(transport: transport).perform(
+            MachineAgentInventoryRequest(expectedMachineID: machine), timeout: .seconds(15))
+    }
 
     /// Starts or replays one explicit intent using its original key.
     /// A lost reply does not establish refusal; retain the same intent for recovery.

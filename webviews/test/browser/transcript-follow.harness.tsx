@@ -35,12 +35,23 @@ document.body.style.margin = "0";
 Object.assign(root.style, { height: "100%", display: "flex", flexDirection: "column" });
 
 const view = createRoot(root);
-(window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) =>
+// "Worked for" lines open and close as the pane's do: a click toggles the turn in `expanded`.
+let shown: AcpmuxRow[] = [];
+let expanded = new Set<string>();
+const draw = () =>
   view.render(
     <VirtualTranscript
-      rows={turnView(rows, new Set())}
+      rows={turnView(shown, expanded)}
       sessionId="session-1"
-      onToggleActivity={() => {}}
-      expanded={new Set()}
+      onToggleActivity={(id) => {
+        expanded = new Set(expanded);
+        if (!expanded.delete(id)) expanded.add(id);
+        draw();
+      }}
+      expanded={expanded}
     />,
   );
+(window as unknown as { __showRows: (rows: AcpmuxRow[]) => void }).__showRows = (rows) => {
+  shown = rows;
+  draw();
+};

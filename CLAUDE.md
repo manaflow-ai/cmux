@@ -165,7 +165,14 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
   `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
+  For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a
+  tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
+  by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
+- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+  `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
+  real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
+  the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
 - Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,
@@ -180,16 +187,20 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Before opening a PR and before merging, check it against [REVIEW.md](REVIEW.md) (draft),
   the mistakes our review history keeps catching.
 - Before merging, use a [review subagent](skills/cmux-review/SKILL.md), correctness
-  first; a second model is not a review gate. Into `main`, wait for checks relevant to the
-  change; into `feat-cmux-next`, pending checks don't hold it (below). Disclose skipped verification on the PR. `main` is nightly: fix forward,
-  do not revert.
-- Into `main`, app/runtime/UI merges require the user’s explicit approval after dogfood **or a direct merge directive**
-  (`merge`, `merge it`, `auto-merge`; not `finish`, `lgtm` or `ship it`). Into `feat-cmux-next`, the
-  `ready-to-land` label after your review is the hand-off (below). Follow
+  first; a second model is not a review gate. Disclose skipped verification on the PR.
+  `main` is nightly: fix forward, do not revert.
+- On either branch, a PR merges when an independent review subagent passes it and it causes no
+  red of its own; base reds, flakes and pending checks don't hold it. Don't wait for a person.
+  Ship risky user-visible behavior behind a setting or Debug toggle and fix a bad default in the
+  next nightly. Only the `risk:high` tier, the take-back hold (above) and merge freezes hold a
+  reviewed PR. On `main`, `gh-merge-green` still waits for the checks it requires; never get around it
+  with `--override` or the API merge path. Into `feat-cmux-next`, the `ready-to-land`
+  label after your review is the hand-off (below). Follow
   [dogfood, re-dogfood and merge receipts](skills/cmux-review/SKILL.md#dogfood-and-merge).
   Notify with `cmux notify` when a socket is available.
-- A red on every PR is a base red: fix it first in its own PR, which lands at once. Two fixes that
-  are each red on the other's red get combined into one PR. A base lint red also skips the tests
+- A red base (it doesn't compile, or CI is red on every PR) is priority zero: fix it directly in
+  its own PR, which lands at once; don't note it and leave it for an owner. Two fixes that are
+  each red on the other's red get combined into one PR. A base lint red also skips the tests
   after it in the same job (#22197), which is why it goes first.
 - Classify each non-green check on the current head before changing source: a changed-file
   defect (fix it), a base finding (the same check red at the base tip or on several unrelated PRs

@@ -51,8 +51,14 @@ final class OnboardingService {
     /// Classic's state folder, where its launch sentinel says it runs; nil is this Mac's
     /// (`~/.local/state/cmux`); tests use a scratch folder.
     var classicStateRoot: URL?
+    /// Answers the migration preview; nil presents the native cmux dialog.
+    /// Tests inject an answer without creating UI.
+    var classicMigrationConfirmation: (@MainActor (ClassicImportPlan) async -> Bool)?
     /// The migration run in flight or last finished: a new run waits for it.
     var classicMigrationRun: Task<ClassicMigrationOutcome, any Error>?
+
+    /// Keep in Sync's watches; `start` also seeds each profile's omnibar with its imported pages.
+    private(set) lazy var historySync = BrowserFolderAccess().historySync(store: importStore, deliver: SavingImportDestination.omnibar(services.cache))
 
     /// Computer Use Setup: the helper's grants for the palette action, Settings and the tool window.
     private(set) lazy var computerUseSetup = ComputerUseSetup.app(services: services)
@@ -114,43 +120,19 @@ final class OnboardingService {
             }
         }
     }
-
-    /// Imported history and bookmarks go into each browser profile's
-    /// omnibar history at launch (after `BrowserProfileService` moved
-    /// pre-profile imports into their own profiles).
-    static func seedHistory(profiles: [String], store: ImportedDataStore, cache: TabContentCache) {
-        // task-owner: one-shot launch load of the import store
-        Task {
-            for id in profiles {
-                guard let profile = BrowserProfileRecord.engineProfile(for: id) else { continue }
-                let batches = await store.batches(profile: id)
-                if !batches.isEmpty { cache.history(for: profile).merge(batches.flatMap(Self.historyEntries)) }
-            }
-        }
-    }
-
-    /// A batch's pages as omnibar history. Bookmarks reach the omnibar as
-    /// bookmark rows (`BookmarkSuggestionFeed`), not as visits.
-    nonisolated static func historyEntries(_ batch: ImportBatch) -> [BrowserHistoryEntry] {
-        batch.history.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
-    }
 }
 
-/// Saves each imported profile and adds it to the live omnibar history.
-struct AppImportDestination: ImportDestination {
-    let store: ImportedDataStore
-    /// The bookmarks model (`AppServices.importedBookmarkSink`), when present.
-    var bookmarks: (any ImportedBookmarkSink)?
-    /// The omnibar history of a browser profile id.
-    let history: @MainActor @Sendable (String) -> InMemoryBrowserHistory
+extension SavingImportDestination {
+    /// Into this app: each batch's pages join its browser profile's omnibar history.
+    @MainActor static func app(_ services: AppServices, bookmarks: (any ImportedBookmarkSink)? = nil) -> SavingImportDestination {
+        SavingImportDestination(sync: services.onboarding.historySync, bookmarks: bookmarks)
+    }
 
-    func commit(_ batch: ImportBatch) async throws {
-        try await store.save(batch)
-        if let bookmarks, batch.kinds.contains(.bookmarks) {
-            try await bookmarks.replaceImportedBookmarks(batch.bookmarks, source: batch.source)
+    /// Imported pages join (or leave) their browser profile's omnibar history (bookmarks reach it as bookmark rows).
+    static func omnibar(_ cache: TabContentCache) -> ImportHistorySync.Deliver {
+        { id, pages, gone in
+            let entries = pages.map { BrowserHistoryEntry(url: $0.url, title: $0.title, visitCount: $0.visitCount, lastVisit: $0.lastVisit) }
+            await MainActor.run { cache.history(for: BrowserProfileRecord.engineProfile(for: id) ?? .default).apply(merging: entries, forgetting: gone) }
         }
-        let entries = OnboardingService.historyEntries(batch)
-        let target = batch.source.targetProfileID
-        await MainActor.run { history(target).merge(entries) }
     }
 }

@@ -95,7 +95,7 @@ test("Retry sends the same prompt again, and a sent one leaves no failed bubble"
     await pane.client.send("ship it").catch(() => undefined);
     const failed = pane.rows().find((row) => row.kind === "user" && row.failed);
     expect(failed).toBeDefined();
-    // The bubble's Retry button (FailedPrompt.tsx) runs `chat.retryPrompt` with its row id.
+    // The bubble's Retry button (conversation/PromptDelivery.tsx) runs `chat.retryPrompt` with its row id.
     await pane.client.retryPrompt(failed!.id);
     expect(pane.prompts).toEqual(["ship it", "ship it"]);
     // The mock chat's own seeded prompts stay; this prompt has one bubble.

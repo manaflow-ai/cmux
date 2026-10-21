@@ -61,10 +61,12 @@ public nonisolated enum MotionTunables {
         .hover: (0.08, "Hover and pressed fills easing in, hover-revealed buttons, divider hover."),
         .hoverReveal: (0.12, "A group header's + and more fading in and out with the pointer (opacity only)."),
         .hoverOut: (0, "Hover and pressed fills clearing: 0 is instant (as in Edge); about 0.12 leaves a short trail on a sweep."),
-        .focus: (0.1, "Pane focus ring and inactive dim."),
+        .focus: (0.1, "Pane focus ring."),
+        .paneDim: (0.15, "The dim over an unfocused pane easing in and out when focus moves."),
         .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),
         .fadeOut: (0.08, "Palette close, find bar, notices, hover card hide."),
         .crossfade: (0.1, "Hover card thumbnail swap; also the Reduce Motion ceiling."),
+        .scrim: (0.18, "Whole-window wash easing in and out (the dim under the palette, an inactive window)."),
         .lift: (0.12, "Sidebar drag lift shadow."),
         .theme: (0.16, "Room, workspace or terminal theme switch."),
         .highlight: (1.2, "Settings row highlight after a search jump or deep link fades out."),
@@ -87,6 +89,7 @@ public nonisolated enum MotionTunables {
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
+        .breath: (2.4, "One breath of the agent-working dot (working look Breathing Dot). Web pages breathe on their own --cmux-breath-period."),
     ]
 
     static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in

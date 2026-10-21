@@ -17,7 +17,10 @@
 //!   workspace named after the stash (`new_workspace`). Restored members
 //!   leave the stash in the commit that stores the result.
 //! - `stash.delete {stash, members?}` drops members or the whole stash.
-//! - Only http(s) web pages are stashed, never app tabs.
+//! - Only http(s) web pages are stashed, never app tabs, except by
+//!   `stash.create {workspaces}` (`stash-workspaces-v1`,
+//!   [`super::stash_workspaces`]): whole workspaces, terminals included,
+//!   one `kind: "workspace"` member each, reopened as their own workspaces.
 //! - `stash.import {source, groups, engine?}` stores OneTab groups; only
 //!   http(s) pages are kept. Pages without an engine reopen as
 //!   daemon-rendered browsers, so the app passes its engine.
@@ -62,6 +65,11 @@ impl RestoreTarget {
 pub(crate) enum StashSource {
     Tabs(Vec<String>),
     Workspace(String),
+    /// Whole workspaces (`stash-workspaces-v1`), and the stash's name.
+    Workspaces {
+        workspaces: Vec<String>,
+        name: Option<String>,
+    },
 }
 
 /// One OneTab group of `stash.import`.
@@ -95,6 +103,9 @@ impl Mux {
             StashSource::Workspace(workspace) => {
                 json!({"operation": OPERATION, "workspace": workspace})
             }
+            StashSource::Workspaces { workspaces, name } => {
+                return self.state_stash_workspaces(mutation, workspaces, name.as_deref());
+            }
         };
         if let Some(replay) = self
             .workspace_registry
@@ -107,6 +118,9 @@ impl Mux {
         let (tabs, skipped, name) = self.read_registry_state(|connection| {
             let (candidates, workspace) = match source {
                 StashSource::Tabs(tabs) => (tabs.clone(), None),
+                StashSource::Workspaces { .. } => {
+                    anyhow::bail!("bad request: whole workspaces stash on their own path")
+                }
                 StashSource::Workspace(workspace) => {
                     let live = connection
                         .query_row(
@@ -247,25 +261,36 @@ impl Mux {
         // every surface this call created closes again and every member
         // stays. Surfaces are recorded as they are created, so one a later
         // step of its reopen failed on closes too.
+        // Whole workspaces (`stash-workspaces-v1`) reopen as their own
+        // workspaces for either target; the pages follow the target.
+        let pages = restore
+            .iter()
+            .filter(|member| !super::stash_workspaces::is_workspace(member))
+            .cloned()
+            .collect::<Vec<_>>();
         let (committed, created) = recording_created(|| {
-            match target {
-                RestoreTarget::Here => restore.iter().try_for_each(|member| {
-                    self.restore_member_here(&mutation.actor, member, pane, &mut reopened)
-                }),
-                RestoreTarget::NewWorkspace => {
-                    self.restore_in_new_workspace(mutation, &record, &restore, &mut reopened)
-                }
-            }
-            .and_then(|()| {
-                self.commit_restore(
-                    mutation,
-                    OPERATION,
-                    &fingerprint,
-                    stash_id,
-                    &restored_ids,
-                    reopened,
-                )
-            })
+            self.restore_stashed_workspaces(&mutation.actor, &record, &restore, &mut reopened)
+                .and_then(|()| match target {
+                    RestoreTarget::Here => pages.iter().try_for_each(|member| {
+                        self.restore_member_here(&mutation.actor, member, pane, &mut reopened)
+                    }),
+                    RestoreTarget::NewWorkspace if pages.is_empty() && !restore.is_empty() => {
+                        Ok(())
+                    }
+                    RestoreTarget::NewWorkspace => {
+                        self.restore_in_new_workspace(mutation, &record, &pages, &mut reopened)
+                    }
+                })
+                .and_then(|()| {
+                    self.commit_restore(
+                        mutation,
+                        OPERATION,
+                        &fingerprint,
+                        stash_id,
+                        &restored_ids,
+                        reopened,
+                    )
+                })
         });
         if committed.is_err() {
             self.roll_back_restore(mutation, &created);
@@ -273,7 +298,9 @@ impl Mux {
         committed
     }
 
-    /// The commit of a restore: `restored_ids` leave the stash.
+    /// The commit of a restore: `restored_ids` leave the stash, and each
+    /// reopened whole workspace takes its stashed row (group, sidebar place,
+    /// theme) and its agent-home folder.
     fn commit_restore(
         &self,
         mutation: &WorkspaceMutation,
@@ -283,7 +310,8 @@ impl Mux {
         restored_ids: &[Value],
         reopened: Reopened,
     ) -> anyhow::Result<StateCommit> {
-        self.commit_state(
+        let placements = reopened.placements.clone();
+        let commit = self.commit_state(
             mutation,
             operation,
             fingerprint,
@@ -301,6 +329,14 @@ impl Mux {
                     .collect::<Vec<_>>();
                 let (change, remaining) =
                     store::keep_stash_members(transaction, stash_id, record, keep)?;
+                let mut changes = vec![change];
+                for (stashed_key, reopened_key) in &placements {
+                    changes.extend(super::closed_history::restore_placement(
+                        transaction,
+                        stashed_key,
+                        reopened_key,
+                    )?);
+                }
                 Ok(StateChanges::new(
                     json!({
                         "stash_id": stash_id,
@@ -310,10 +346,14 @@ impl Mux {
                         "tab_ids": reopened.tabs,
                         "remaining": remaining,
                     }),
-                    vec![change],
+                    changes,
                 ))
             },
-        )
+        )?;
+        if !commit.replayed {
+            super::agent_home_moves::follow_reopen(&placements);
+        }
+        Ok(commit)
     }
 
     /// Close what a failed restore created (`created`, the ones still open)
@@ -458,7 +498,10 @@ impl Mux {
         // its commit.
         let _serial = REOPEN.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let fingerprint = json!({"operation": OPERATION, "stash": stash_id, "members": members});
-        self.commit_state(
+        // Workspace keys of the deleted whole workspaces: their agent-home
+        // folders go, as a deleted closed workspace's do.
+        let keys = std::sync::Mutex::new(Vec::new());
+        let commit = self.commit_state(
             mutation,
             OPERATION,
             &fingerprint,
@@ -468,7 +511,9 @@ impl Mux {
                 let record = store::stash_record(transaction, stash_id)?
                     .ok_or_else(|| state_not_found("stash", stash_id))?;
                 let all = record["members"].as_array().cloned().unwrap_or_default();
-                let (_, keep) = store::choose_members(all, members)?;
+                let (removed, keep) = store::choose_members(all, members)?;
+                *keys.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
+                    super::agent_home_moves::member_keys(&removed);
                 let (change, remaining) =
                     store::keep_stash_members(transaction, stash_id, record, keep)?;
                 Ok(StateChanges::new(
@@ -476,7 +521,17 @@ impl Mux {
                     vec![change],
                 ))
             },
-        )
+        )?;
+        let keys = keys.into_inner().unwrap_or_else(std::sync::PoisonError::into_inner);
+        if !commit.replayed && !keys.is_empty() {
+            let live = |key: &str| {
+                self.with_state(|state| {
+                    state.workspaces.iter().any(|workspace| workspace.key == key)
+                })
+            };
+            super::agent_home_moves::retire(&keys, &live);
+        }
+        Ok(commit)
     }
 
     pub(crate) fn state_stash_import(

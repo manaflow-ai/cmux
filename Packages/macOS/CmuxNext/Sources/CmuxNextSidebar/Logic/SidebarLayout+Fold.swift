@@ -68,12 +68,12 @@ nonisolated extension SidebarLayout {
             y += h + m.rowSpacing
         }
         if collapsed {
-            // The selected workspace stays as the one visible member (`make`).
-            if let activeID = o.activeWorkspaceID,
-               let childIndex = members.firstIndex(where: { if case let .workspace(ws) = $0 { ws.id == activeID } else { false } }),
-               let ws = shown.first(where: { $0.id == activeID }) {
-                workspaceRow(ws, at: childIndex, last: true)
+            // The selected workspace, and one selected here before, stay visible members (`make`).
+            let kept = members.indices.compactMap { i -> (Int, SidebarWorkspace)? in
+                guard case let .workspace(member) = members[i], o.shown(inCollapsed: group.id).contains(member.id) else { return nil }
+                return shown.first(where: { $0.id == member.id }).map { (i, $0) }
             }
+            for (n, (childIndex, ws)) in kept.enumerated() { workspaceRow(ws, at: childIndex, last: n == kept.count - 1) }
         } else {
             for (childIndex, member) in members.enumerated() {
                 switch member {

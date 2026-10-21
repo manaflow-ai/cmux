@@ -42,6 +42,8 @@ extension HoverCardPanel {
         switch restingPlacement {
         case .above: CGPoint(x: isLeading ? 1 : 0, y: 0)
         case .below, .beside: CGPoint(x: isLeading ? 1 : 0, y: 1)
+        // Its edge on the row's middle: the top below the escape slot, the bottom when flipped above it.
+        case .besideRow: CGPoint(x: isLeading ? 1 : 0, y: escapeGeometry.map { $0.card.minY >= $0.anchor.minY } == true ? 0 : 1)
         }
     }
 
@@ -84,7 +86,7 @@ extension HoverCardPanel {
         let generation = Self.morphGeneration
         let mask = CALayer()
         mask.backgroundColor = NSColor.black.cgColor
-        mask.cornerRadius = PopupStyle.standard.cornerRadius
+        mask.cornerRadius = Self.cornerRadius
         mask.cornerCurve = .continuous
         mask.anchorPoint = corner
         CATransaction.begin()

@@ -907,6 +907,11 @@ public abstract class GeneratedCmuxClient {
         return PaneNeighborResult.fromWire(result);
     }
 
+    public final Object parkTabs(ParkTabsRequest request) throws CmuxException {
+        Object result = execute(Commands.PARK_TABS, request.toWire());
+        return Wire.immutableJson(result);
+    }
+
     public final PasteImageResult pasteImage(PasteImageRequest request) throws CmuxException {
         Object result = execute(Commands.PASTE_IMAGE, request.toWire());
         return PasteImageResult.fromWire(result);

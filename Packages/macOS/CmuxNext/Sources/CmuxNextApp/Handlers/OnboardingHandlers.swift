@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
 import CmuxNextOnboarding
@@ -13,6 +14,13 @@ enum OnboardingHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
         registry.bind("importFromBrowser", run: { _ in services.onboarding.show(step: .importData) })
+        registry.bind("browserProfile.removeImportedData", run: { invocation in
+            let record = try context.browserProfile(invocation), sync = services.onboarding.historySync
+            Task {  // task-owner: one removal the person asked for; the toast reports it, or that it failed
+                let counts = try? await sync.removeImported(profile: record.id, bookmarks: services.importedBookmarkSink)
+                BrowserFileImport.toast(services, id: "browser-import-removed", counts.removalText(profile: record.name))
+            }
+        })
         // No path argument: only the person's own pick in the open panel brings passwords in.
         registry.bind("password.importCSV", run: { invocation in
             try PasswordCSVFiles(services: services).chooseImport(profile: BookmarkResolver(services: services).profile(invocation))
@@ -45,12 +53,14 @@ enum OnboardingHandlers {
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
-        // A toast, never a sheet: the person can keep working while it runs.
+        // Every entrypoint previews the exact snapshot and waits for the
+        // person's answer before any browser, SSH host or agent is restored.
         registry.bind("workspace.importClassic", run: { _ in
             let window = NSApp.keyWindow ?? NSApp.mainWindow
             registry.track(Task { @MainActor in
                 do {
-                    let summary = try await AppOnboardingServices(owner: services.onboarding).importClassicSessions()
+                    let importer = AppOnboardingServices(owner: services.onboarding)
+                    guard let summary = try await importer.importClassicSessions() else { return nil }
                     let notice = ClassicImportStrings.notice(summary)
                     services.onboarding.classicImportNotice = notice
                     ClassicImportStrings.toast(notice, in: window)
@@ -89,6 +99,34 @@ enum OnboardingHandlers {
 }
 
 enum ClassicImportStrings {
+    static var previewTitle: String {
+        String(localized: "classicImport.preview.title", defaultValue: "Import these classic workspaces?", bundle: .module)
+    }
+    static var previewButton: String {
+        String(localized: "classicImport.preview.button", defaultValue: "Import", bundle: .module)
+    }
+    static func previewLines(_ plan: ClassicImportPlan) -> [String] {
+        let format = String(
+            localized: "classicImport.preview.summary",
+            defaultValue: "Source: %1$@\nWorkspaces: %2$@\nBrowser tabs: %3$@\nLocal file pages: %4$@\nSSH workspaces: %5$@\nAgent chats: %6$@\nCloud VM workspaces skipped: %7$@\nImporting loads saved browser pages, connects to saved SSH hosts, and resumes saved agent chats.",
+            bundle: .module
+        )
+        // The localized text uses fixed field labels; only the values vary.
+        // Format those numbers for the person's locale before substitution.
+        let text = String(
+            format: format, plan.source.fileName, plan.workspaces.count.formatted(.number),
+            plan.browserTabs.formatted(.number), plan.localFilePages.formatted(.number),
+            plan.sshWorkspaces.formatted(.number), plan.agentChats.formatted(.number),
+            plan.skippedCloudVMs.formatted(.number)
+        )
+        let cleanupFormat = String(
+            localized: "classicImport.preview.cleanup",
+            defaultValue: "Interrupted workspaces to replace (their terminals will end): %1$@",
+            bundle: .module
+        )
+        let cleanup = String(format: cleanupFormat, plan.cleanupWorkspaces.formatted(.number))
+        return text.components(separatedBy: "\n") + [cleanup]
+    }
     static var imported: String {
         String(localized: "classicImport.toast.imported", defaultValue: "Workspaces from classic cmux are open.", bundle: .module)
     }
