@@ -111,6 +111,15 @@ fi
 cp "$work/bin/cmux-tui" "$work/bin/cmux"
 chmod 755 "$work/bin/"*
 fi
+# Arm C self-hosts the real UniiChat at a pinned commit (team_eval_unii.py
+# patches its two API URLs, in a copy, to a proxy that records spend).
+unii_commit="0500bf6a8ea4bf0ce047488562022b1b6532cc30"
+if [[ "$arm" == C ]]; then
+  git clone -q https://github.com/VictorTaelin/UniiChat "$work/unii-src"
+  git -C "$work/unii-src" checkout -q "$unii_commit"
+  [[ "$(git -C "$work/unii-src" rev-parse HEAD)" == "$unii_commit" ]] || { echo "TEAM-EVAL UniiChat is not at $unii_commit" >&2; exit 1; }
+  echo "TEAM-EVAL-BIN uniichat $unii_commit bun $("$BUN" --version)"
+fi
 git rev-parse HEAD > "$work/bin/REV"
 
 npm install --prefix "$work/cc" --no-fund --no-audit "@anthropic-ai/claude-code@$claude_version" >/dev/null
@@ -130,7 +139,7 @@ trap 'exit 143' TERM
 trap 'exit 130' INT
 trap 'exit 129' HUP
 status=0
-HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
+TEAM_EVAL_UNII_SRC="$work/unii-src" HOME="$work/home" python3 Native/OptChat/optchat-chief/measure/team_eval.py run --task "$task" --arm "$arm" \
   --bins "$work/bin" --repo "$root" --out "$work/out" --keep-repo "$repo" \
   --budget-usd "$budget" --max-minutes "$minutes" \
   --env "ANTHROPIC_BASE_URL=$base_url" --env "ANTHROPIC_API_KEY=sk-ant-placeholder-the-route-signs" \
