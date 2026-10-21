@@ -28,6 +28,7 @@ use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::{Mutex, OwnedSemaphorePermit, Semaphore, mpsc, watch};
 use tokio::task::JoinSet;
 
+use crate::crypto::ServiceAuthority;
 use crate::daemon::ServerConnection;
 use crate::service::{
     EndpointRole, IncomingStream, ServiceError, ServiceMultiplexer, ServiceStream, StreamBudget,
@@ -348,6 +349,7 @@ impl DaemonServices {
         let scope = ClientScope::new(client.device_id.clone(), client.session_id);
         let mut cleanup =
             ClientCleanupGuard::new(client.clone(), self.workspace.clone(), scope.clone());
+        let service_authority = client.service_authority().clone();
         let multiplexer = ServiceMultiplexer::new(client, EndpointRole::Daemon);
         let stream_slots = Arc::new(Semaphore::new(MAX_ACTIVE_SERVICE_STREAMS));
         let request_slots = RequestAdmission::new();
@@ -359,6 +361,10 @@ impl DaemonServices {
                         Ok(Some(incoming)) => incoming,
                         Ok(None) => break Ok(()),
                         Err(error) => break Err(error.into()),
+                    };
+                    let Some(incoming) = Self::authorize_service(&service_authority, incoming).await?
+                    else {
+                        continue;
                     };
                     let permit = match stream_slots.clone().try_acquire_owned() {
                         Ok(permit) => permit,
@@ -416,6 +422,24 @@ impl DaemonServices {
         self.workspace.finish_client_close(&scope);
         cleanup.disarm();
         outcome
+    }
+
+    async fn authorize_service(
+        authority: &ServiceAuthority,
+        incoming: IncomingStream,
+    ) -> Result<Option<IncomingStream>, ServicesError> {
+        if authority.allows(incoming.service) {
+            return Ok(Some(incoming));
+        }
+        let service = serde_json::to_string(&incoming.service)?;
+        incoming
+            .stream
+            .reject(
+                "permission-denied".into(),
+                format!("the client grant does not allow {}", service.trim_matches('"')),
+            )
+            .await?;
+        Ok(None)
     }
 
     async fn serve_stream(
@@ -1692,6 +1716,24 @@ mod tests {
                 generation: right_generation,
             }),
         )
+    }
+
+    #[test]
+    fn service_authority_defaults_to_deny_and_legacy_access_is_explicit() {
+        let denied = ServiceAuthority::default();
+        let legacy = ServiceAuthority::legacy_full();
+
+        for service in [
+            Service::MuxControl,
+            Service::WorkspaceRpc,
+            Service::ProcessStream,
+            Service::TerminalBytes,
+            Service::TcpTunnel,
+            Service::ComputerUse,
+        ] {
+            assert!(!denied.allows(service), "default authority allowed {service:?}");
+            assert!(legacy.allows(service), "legacy authority denied {service:?}");
+        }
     }
 
     #[tokio::test]
