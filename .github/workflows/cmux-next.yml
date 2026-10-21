@@ -1108,8 +1108,11 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           FULL_CI: ${{ github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') }}
-        # A pull request that does not grow the App passes even over the cap
-        # (its merge commit's first parent is the base).
+          BEFORE: ${{ github.event.before }}
+        # A pull request or push that does not grow the App's source passes even
+        # over the cap: a pull request compares with its merge commit's first
+        # parent, a push with the commit before it (fetched: checkout is depth 2).
+        # A push with no before commit (a new branch) keeps the plain cap.
         run: |
           if [[ "$FULL_CI" != true ]]; then
             echo "Size cap is a batch cadence check; ordinary PRs receive the fast tier only."
@@ -1117,6 +1120,11 @@ jobs:
           fi
           base=()
           [[ "$EVENT_NAME" == pull_request ]] && base=(--base HEAD^1)
+          if [[ "$EVENT_NAME" == push && -n "$BEFORE" && "$BEFORE" != 0000000000000000000000000000000000000000 ]]; then
+            git cat-file -e "$BEFORE^{commit}" 2>/dev/null \
+              || git fetch --no-tags --quiet --depth=1 origin "$BEFORE" || true
+            base=(--base "$BEFORE")
+          fi
           scripts/cmux-next/check-app-size.sh ${base[@]+"${base[@]}"} "$GITHUB_WORKSPACE"
 
       - name: No Swift CLI (the cmux CLI is Rust, plans/cmux-next/cli.md)
