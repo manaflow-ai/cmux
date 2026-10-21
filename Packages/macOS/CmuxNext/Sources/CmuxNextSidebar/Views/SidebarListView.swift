@@ -182,7 +182,7 @@ final class SidebarListView: NSView {
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
-            for observer in settleObservers { NotificationCenter.default.removeObserver(observer) }
+            for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
         }
     }
     // MARK: - Window occlusion
@@ -190,6 +190,7 @@ final class SidebarListView: NSView {
     private var occlusionObserver: (any NSObjectProtocol)?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
+    private var focusObservers: [any NSObjectProtocol] = []
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
@@ -205,6 +206,14 @@ final class SidebarListView: NSView {
         let center = NotificationCenter.default
         if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
+        // A gesture ends when its window or the app loses focus (`pointerFocusLost`). Off screen no card can land:
+        // a drag ends in place (`abandonDrag`, its rows shown again).
+        for observer in focusObservers { center.removeObserver(observer) }
+        focusObservers = window == nil ? [] : observeFocusLoss(of: window)
+        if window == nil {
+            if let drag { abandonDrag(drag) }
+            press = nil
+        }
         // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
         occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main

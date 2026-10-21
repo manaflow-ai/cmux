@@ -84,9 +84,20 @@ nonisolated enum AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                                SettingChoice(BackdropSelectionSetting.dailyID,
-                                             SettingsText.keyed("settings.choice.shuffleDaily", "Shuffle Daily"))] + backgroundChoices),
+                                             SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings"))] + backgroundChoices),
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
-                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
+                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré", "shuffle", "folder"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.rotationPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture."),
+                summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
+                kind: .choice([SettingChoice("15m", SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
+                               SettingChoice("hourly", SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
+                               SettingChoice("daily", SettingsText.keyed("settings.choice.everyDay", "Every Day"))]),
+                default: .string(BackdropRotation.defaultRotation.rawValue),
+                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
             PaneBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
