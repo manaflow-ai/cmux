@@ -262,6 +262,7 @@ impl Hub {
             QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
         };
         let m = session.meta();
+        let waiting = super::subsession_send::waiting_on(session);
         let turn = session.turn();
         let summary = SessionSummary {
             session_id: m.id.clone(),
@@ -308,6 +309,8 @@ impl Hub {
                 turn_id: t.turn_id,
                 prompt_id: t.prompt_id,
                 turn_seq: t.turn_seq,
+                activity: t.activity,
+                plan_step: t.plan_step,
             }),
             queue: session
                 .queue()
@@ -331,6 +334,8 @@ impl Hub {
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
+            waiting_on: waiting.as_ref().map(|w| w.0.to_owned()),
+            waiting_prompt: waiting.and_then(|w| w.1),
             // Since when it waits on the person (`lane`); null while it does not.
             input_since: match session.input_since.load(Ordering::SeqCst) {
                 0 => None,

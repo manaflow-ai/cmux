@@ -50,6 +50,57 @@ export default agentPaneEntry({
         summary(3.5, { status: "completed" }),
       ]),
     },
+    subsession: {
+      note: "A sub-session's chat: its first prompt and a later message from the chat that started it read Parent · coordinator, and a report from its own sub-session reads Sub-session · fixture; each name opens that chat beside this one.",
+      snapshot: chat(
+        [
+          user("Run the net tests and report which fail.", 9, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "claude-sr2/coordinator",
+                sessionId: "parent-1",
+                relation: "parent",
+                text: "Run the net tests and report which fail.",
+                raw: "Run the net tests and report which fail.",
+              },
+            },
+            untyped: true,
+          }),
+          assistant("Running them now; a sub-session is rebuilding the fixtures.", 8.5),
+          summary(8.5, { status: "completed" }),
+          user("Also check the retry tests.", 6, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "claude-sr2/coordinator",
+                sessionId: "parent-1",
+                relation: "parent",
+                text: "Also check the retry tests.",
+                raw: "Also check the retry tests.",
+              },
+            },
+            untyped: true,
+          }),
+          user("Fixtures rebuilt; 3 changed.", 4, {
+            incoming: {
+              kind: "message",
+              message: {
+                name: "fixture",
+                sessionId: "grandchild-1",
+                relation: "subsession",
+                text: "Fixtures rebuilt; 3 changed.",
+                raw: "Fixtures rebuilt; 3 changed.",
+              },
+            },
+            untyped: true,
+          }),
+          assistant("All 41 net tests pass with the new fixtures.", 3.5),
+          summary(3.5, { status: "completed" }),
+        ],
+        { title: "tests" },
+      ),
+    },
     opened: {
       note: "› opens the message under its line, set off by a hairline.",
       snapshot: chat([
