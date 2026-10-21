@@ -59,9 +59,11 @@ path, a second run, a name with `/`) the launcher already checks:
 
 ```bash
 #!/bin/sh
-# lane.sh NAME BRIEF: one lane from the team's base, reporting to the coordinator.
+# lane.sh NAME BRIEF [REPORT_TO]: one lane from the team's base, reporting to
+# REPORT_TO (default: the session running this, when an agent runs it).
 exec acpmux new -n "$1" -m claude --policy approve-all -d \
-  --worktree ~/Projects/cmux@origin/feat-cmux-next --prompt-file "$2" --report-to coordinator
+  --worktree ~/Projects/cmux@origin/feat-cmux-next --prompt-file "$2" \
+  --report-to "${3:-$ACPMUX_SESSION_NAME}"
 ```
 
 On another machine, run it there (`ssh HOST lane.sh NAME BRIEF`, with the
