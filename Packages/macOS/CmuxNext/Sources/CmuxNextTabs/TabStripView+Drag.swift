@@ -188,13 +188,15 @@ extension TabStripView {
         let screenFrame = window.convertToScreen(frameInWindow)
         let pointer = window.convertPoint(toScreen: event.locationInWindow)
         let grabbed = CGPoint(x: cell.frame.minX + drag.grabOffset, y: drag.grabY)
+        let image = snapshot(of: [cell.layer], frame: cell.frame)
         let start = TabDragStart(
             tabID: drag.id,
             stripID: model.stripID,
             screenFrame: screenFrame,
             grabOffset: DragGrabPoint.screenOffset(of: grabbed, in: cell.frame, flipped: tabsClip.isFlipped),
             screenPoint: pointer,
-            snapshot: snapshot(of: [cell.layer], frame: cell.frame)
+            snapshot: image.image,
+            snapshotOnGlass: image.onGlass
         )
         self.drag = nil
         escapeMonitor.remove()
@@ -207,10 +209,14 @@ extension TabStripView {
         model.send(.dragBegan(start))
     }
 
-    /// The drag image of `layers` (`TabSnapshotRenderer`), on a window-colored rounded card.
-    func snapshot(of layers: [CALayer], frame: CGRect) -> TabImage? {
-        let background = performWithTheme { Palette.windowBackground.cgColor }
-        return TabSnapshotRenderer(metrics: metrics, scale: window?.backingScaleFactor ?? 2, background: background).image(of: layers, frame: frame)
+    /// The drag image of `layers` (`TabSnapshotRenderer`), on a window-colored card only in an
+    /// opaque window, and whether it was drawn for glass (no card): decided in this strip's scope,
+    /// which the drag ghost must follow.
+    func snapshot(of layers: [CALayer], frame: CGRect) -> (image: TabImage?, onGlass: Bool) {
+        let backdrop = WindowBackdrop.dragPreview(themeScope)
+        let background = performWithTheme { backdrop.dragCardFill(Palette.windowBackground)?.cgColor }
+        let image = TabSnapshotRenderer(metrics: metrics, scale: window?.backingScaleFactor ?? 2, background: background).image(of: layers, frame: frame)
+        return (image, backdrop.dragsOnGlass)
     }
 
     /// The tabs the strip shows, in order (tab conservation check DP1: once
