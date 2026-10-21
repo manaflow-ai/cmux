@@ -45,3 +45,15 @@ pub fn event_value(session_id: &str, rec: &EventRecord) -> Value {
         "msg": rec.msg,
     })
 }
+
+/// [`event_value`] that takes the record, so its message moves instead of being copied.
+pub fn into_event_value(session_id: &str, rec: EventRecord) -> Value {
+    json!({
+        "sessionId": session_id,
+        "seq": rec.seq,
+        "at": rec.at,
+        "dir": rec.dir,
+        "kind": rec.kind,
+        "msg": rec.msg,
+    })
+}
