@@ -608,6 +608,8 @@ const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
 const TURN_GAP = 24;
+/// The gap over the running turn's live line, inside its row (`--cv-live-gap`).
+const LIVE_GAP = 10;
 /// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and the line under a steer the agent
 /// has not read yet (PendingSteer.tsx, `.cv-user__pending`); a read steer draws nothing more.
 /// A Chief's prompt (ChiefPromptBubble.tsx) draws no action row.
@@ -751,9 +753,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   // The child view's 28px "Subagent of" pill with 8px above and below it.
   if (row.kind === SUBAGENT_OF) return 44;
   // The 27px disclosure line, and the live status lines in its place.
-  // The running turn's line as its last row is the footer's height (META_ROW, conversation.css
-  // `.cv-worked.is-below`) and its row's gap, the footer's too.
-  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return META_ROW + MESSAGE_GAP;
+  // The running turn's line as its last row: the footer's line with its gap over it (LIVE_GAP,
+  // conversation.css `.cv-worked.is-below`) and its row's gap, the footer's too.
+  if ((row.kind === WORKING || row.kind === THINKING) && row.below) return LIVE_GAP + META_ROW + MESSAGE_GAP;
   if (row.kind === WORKED || row.kind === WORKING || row.kind === THINKING) return 35;
   // The activity line: one 24px line with 4px above and 8px below (conversation/ActivityLine.tsx).
   if (row.kind === ACTIVITY_LINE) return 36;

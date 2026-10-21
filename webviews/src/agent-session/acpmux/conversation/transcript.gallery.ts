@@ -460,6 +460,32 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
+/// The live line at the bottom of a running turn stands clear of the row over it, never flush
+/// under it (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE"); its words shimmer, and
+/// its "⌃B to run in background" waits for the pointer.
+const liveLineClear = async (ctx: PlayContext) => {
+  const doc = ctx.document;
+  await ctx.waitFor(() => doc.querySelector(".cv-worked.is-below .cv-thinking"));
+  const words = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-thinking")!.getBoundingClientRect();
+  const over = [...doc.querySelectorAll(".cv-tool, .cv-md")]
+    .map((node) => node.getBoundingClientRect().bottom)
+    .filter((bottom) => bottom <= words.top + 1);
+  const gap = words.top - Math.max(...over);
+  if (!(gap >= 14)) throw new Error(`the live line sits ${gap.toFixed(1)}px under the row over it, not 14px or more`);
+  const hint = doc.querySelector<HTMLElement>(".cv-worked.is-below .cv-command__bg");
+  if (hint && getComputedStyle(hint).opacity !== "0")
+    throw new Error("the ⌃B hint shows before the pointer is on the line");
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    const shimmer = doc
+      .querySelector(".cv-worked.is-below .cv-thinking")!
+      .getAnimations()
+      .some((animation) => (animation as CSSAnimation).animationName === "cmux-shimmer");
+    if (!shimmer) throw new Error("the live line's words do not shimmer");
+  }
+  await ctx.hover({ selector: ".cv-worked.is-below" });
+  if (hint) await ctx.waitFor(() => getComputedStyle(hint).opacity === "1");
+};
+
 /// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
 /// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
 /// The running line starts with its words, with no mark before them. Only the word Thinking may
@@ -1213,7 +1239,7 @@ export default agentPaneEntry({
       ),
     },
     "codex-turn-raw-commands": {
-      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots.",
+      note: "Leo's turn-toolcalls-now.png: commands that all start with export PATH=… and send no description. Each reads as its meaningful command (acpmux ls, gh pr view 22363); the two runs and the short note between them are one folded line; the call in flight is the one live line at the bottom (Running acpmux send 13s), shimmering, no dots, 16px clear of the run over it; ⌃B to run in background shows on hover. Play: hover the line.",
       snapshot: chat(
         [
           user("What did the lanes decide? Relay it and answer.", 2),
@@ -1249,6 +1275,7 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+      play: liveLineClear,
     },
     "codex-turn-run-open": {
       note: "The same turn ended: opened, Worked for shows the commentary between the runs' summary lines; a click opens Ran 3 commands to its calls. Play: open the turn, then the second run.",

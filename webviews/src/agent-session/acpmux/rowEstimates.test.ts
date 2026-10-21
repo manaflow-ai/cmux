@@ -46,12 +46,13 @@ test("a reply over its footer is its text and the 4px meta gap, with no 34px flo
 
 test("a reply over its running turn's line is estimated as over the footer that takes its place", () => {
   const long = "A longer answer that wraps. ".repeat(40);
-  // The running turn's line as its last row (conversation/turns.ts `below`): the footer's height.
+  // The running turn's line as its last row (conversation/turns.ts `below`): the footer's line
+  // with the 10px gap over it (`--cv-live-gap`), so it never sits flush under the reply.
   const line = { id: "live", version: 1, at: 0, kind: "thinking", below: true };
   const [running, lineHeight] = heightsOf([reply("a", long), line]);
   const [ended, footerHeight] = heightsOf([reply("a", long), footer("f")]);
+  expect(lineHeight).toBe(footerHeight! + 10);
   // The turn's end swaps the line for the footer and moves nothing above it.
-  expect(lineHeight).toBe(footerHeight);
   expect(running).toBe(ended);
 });
 
