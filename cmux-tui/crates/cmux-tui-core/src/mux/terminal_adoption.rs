@@ -687,8 +687,8 @@ impl Mux {
         );
     }
 
-    /// Adopts a surviving host on its own thread, first after `first_delay`, then
-    /// retrying with backoff. At most ``ADOPTION_SLOTS`` hosts replay at once, so a
+    /// Adopts a surviving host on its own thread, first after `first_delay` (zero:
+    /// at a start, once the owner says ready), then retrying with backoff. At most ``ADOPTION_SLOTS`` hosts replay at once, so a
     /// start with hundreds of hosts does not hold every replay in memory together.
     pub(super) fn schedule_terminal_adoption_after(
         self: &Arc<Self>,
@@ -706,6 +706,19 @@ impl Mux {
         let spawn_result = std::thread::Builder::new()
             .name(format!("terminal-adopt-{terminal_id}"))
             .spawn(move || {
+                if first_delay.is_zero() {
+                    // A start's adoptions wait for the owner to say ready: their
+                    // registry and state locks held the rest of its start back
+                    // (230 ms for 60 hosts). A mux that never says ready (a bare
+                    // test mux) adopts after STARTUP_READY_WAIT.
+                    let deadline = Instant::now() + STARTUP_READY_WAIT;
+                    while !mux.server_lifecycle_ready()
+                        && !mux.shutting_down.load(Ordering::Acquire)
+                        && Instant::now() < deadline
+                    {
+                        std::thread::sleep(Duration::from_millis(5));
+                    }
+                }
                 let mut delay = first_delay;
                 let mut refusals = pending_terminals::RefusalStreak::default();
                 loop {
@@ -926,6 +939,9 @@ impl Mux {
 
 /// Hosts that may replay into this owner at once (`schedule_terminal_adoption_after`).
 const ADOPTION_SLOTS: usize = 8;
+
+/// The longest a start's adoption waits for its owner to say ready.
+const STARTUP_READY_WAIT: Duration = Duration::from_secs(2);
 
 /// One of the ``ADOPTION_SLOTS``, held while a host's handshake and replay run.
 struct AdoptionSlot;
