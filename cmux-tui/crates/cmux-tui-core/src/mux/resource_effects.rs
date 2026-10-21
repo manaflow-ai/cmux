@@ -113,13 +113,16 @@ impl Mux {
         intent: &Value,
         expected_revision: Option<u64>,
     ) -> anyhow::Result<(ResourceEffectPreparation, bool)> {
-        self.workspace_registry.lock().unwrap().prepare_resource_effect_executing_for(
-            mutation,
-            operation,
-            fingerprint,
-            intent,
-            expected_revision,
-        )
+        self.workspace_registry
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner)
+            .prepare_resource_effect_executing_for(
+                mutation,
+                operation,
+                fingerprint,
+                intent,
+                expected_revision,
+            )
     }
 
     pub(crate) fn mark_resource_effect_executing(
