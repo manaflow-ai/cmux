@@ -756,11 +756,26 @@ async fn agents_rules_past_one_blocks_share_wait_for_later_prompts() {
     .await;
     let notes = |got: &str| (0..4).filter(|i| got.contains(&format!("note-{i} "))).count();
     let first = app.prompt(&c, "one").await;
-    assert!(first.contains("Builds run on the fleet."), "a person's rule is always carried");
+    assert!(
+        first.contains("Builds run on the fleet."),
+        "a person's rule is always carried: {first}"
+    );
     assert_eq!(notes(&first), 2, "{first}");
     assert!(first.contains("2 more posts from agent sessions come with later prompts."));
     let second = app.prompt(&c, "two").await;
     assert_eq!(notes(&second), 2, "{second}");
     assert!(!second.contains("more posts from agent sessions"), "{second}");
     assert_eq!(notes(&app.prompt(&c, "three").await), 0);
+
+    // After /clear the retell takes two prompts too, each telling what the last did not.
+    app.prompt(&c, "/clear").await;
+    let first = app.prompt(&c, "four").await;
+    assert!(first.contains("Builds run on the fleet."), "{first}");
+    assert_eq!(notes(&first), 2, "{first}");
+    let second = app.prompt(&c, "five").await;
+    assert_eq!(notes(&second), 2, "{second}");
+    assert!(!second.contains("Builds run on the fleet."), "{second}");
+    let third = app.prompt(&c, "six").await;
+    assert_eq!(notes(&third), 0, "{third}");
+    assert!(!third.contains("cmux-rules-context"), "{third}");
 }

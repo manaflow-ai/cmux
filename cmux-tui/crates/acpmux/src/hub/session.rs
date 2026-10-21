@@ -57,6 +57,10 @@ pub struct Session {
     /// The agent's context was emptied (`/clear`, `/compact`): its next
     /// prompt is told every forum rule again (`hub/forum.rs`).
     pub(super) forum_retell: AtomicBool,
+    /// The posts already told again since the context was emptied, while a
+    /// retell takes more than one prompt (agents' posts past one block's
+    /// share, `hub/forum.rs`).
+    pub(super) forum_retold: std::sync::Mutex<std::collections::HashSet<String>>,
     /// The forum posts the running turn's prompt tells, until it ends: an
     /// urgent retirement of their key reaches this session too.
     pub(super) forum_telling: std::sync::Mutex<Vec<String>>,

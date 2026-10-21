@@ -38,10 +38,11 @@ pub const PROVENANCE_KIND: &str = "announcement";
 const CONTEXT_TAG: &str = "cmux-rules-context";
 /// Prefix of a pushed rule's prompt id.
 const PUSH_PREFIX: &str = "forum-";
-/// Most bytes of agents' posts one rules block carries. Any agent session
-/// may post on as many keys as it likes; past this, its posts wait for the
-/// session's later prompts, so a runaway agent cannot fill every prompt on
-/// the Mac. A person's rules are always carried.
+/// Most bytes of agents' posts one rules block carries (and always the
+/// first, which may be longer). Any agent session may post on as many keys
+/// as it likes; past this, its posts wait for the session's later prompts,
+/// so a runaway agent cannot fill every prompt on the Mac. A person's rules
+/// are always carried.
 const MAX_AGENT_CONTEXT_BYTES: usize = 16 * 1024;
 /// Longest an announce waits for one session to take its urgent prompt.
 const PUSH_WAIT: std::time::Duration = std::time::Duration::from_secs(5);
@@ -138,6 +139,9 @@ pub(super) struct ForumTurn {
     posts: Vec<String>,
     /// It retold every rule after the agent's context was emptied.
     retold: bool,
+    /// Agents' posts it left for later prompts (one block's share,
+    /// [`MAX_AGENT_CONTEXT_BYTES`]).
+    waiting: usize,
 }
 
 /// Whether `/name` is a slash command rather than a path (`/src/main.rs`).
@@ -331,7 +335,7 @@ impl Hub {
         if let Some(block) = blocks.first_mut() {
             *block = json!({"type": "text", "text": push_text(&current)});
         }
-        if let Some(p) = provenance.as_mut().filter(|p| p["kind"] == PROVENANCE_KIND) {
+        if let Some(p) = provenance.as_mut() {
             p["postId"] = json!(current.id);
             p["author"] = json!(current.author);
         }
@@ -369,23 +373,35 @@ impl Hub {
             if is_command_name(name) {
                 if matches!(name, "clear" | "compact" | "new" | "reset") {
                     session.forum_retell.store(true, Ordering::SeqCst);
+                    session
+                        .forum_retold
+                        .lock()
+                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                        .clear();
                 }
-                return ForumTurn { posts: told, retold: false };
+                return ForumTurn { posts: told, retold: false, waiting: 0 };
             }
         }
-        // Kept until the agent answers a prompt that retold the rules.
-        let retold = session.forum_retell.load(Ordering::SeqCst);
         // A new agent session that got the restored transcript lost the rules with it.
-        let restored = first.is_some_and(|t| t.starts_with("<restored_transcript")) || retold;
+        let transcript = first.is_some_and(|t| t.starts_with("<restored_transcript"));
+        if transcript {
+            session.forum_retold.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clear();
+        }
+        // Kept until the agent answers a prompt that retold the last of the rules.
+        let retold = transcript || session.forum_retell.load(Ordering::SeqCst);
+        // A retell that takes more than one prompt goes on where the last one stopped.
+        let already =
+            session.forum_retold.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clone();
         let posts: Vec<Post> = self
             .forum()
-            .undelivered(&session.id, restored)
+            .undelivered(&session.id, retold)
             .into_iter()
             // Told by this prompt itself (a pushed rule).
             .filter(|p| !told.contains(&p.id))
+            .filter(|p| !retold || !already.contains(&p.id))
             .collect();
         if posts.is_empty() || !self.forum_reaches(session).await {
-            return ForumTurn { posts: told, retold };
+            return ForumTurn { posts: told, retold, waiting: 0 };
         }
         // This prompt runs first: it tells the urgent rules still waiting
         // behind it. Their own prompts are taken back once the agent answers
@@ -416,7 +432,7 @@ impl Hub {
                 lines.join("\n\n")
             ),
         }));
-        ForumTurn { posts: told, retold }
+        ForumTurn { posts: told, retold, waiting }
     }
 
     /// [`Self::forum_context`] again for a prompt that now opens with a
@@ -445,7 +461,16 @@ impl Hub {
             return;
         }
         if turn.retold {
-            session.forum_retell.store(false, Ordering::SeqCst);
+            let mut retold =
+                session.forum_retold.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            if turn.waiting == 0 {
+                session.forum_retell.store(false, Ordering::SeqCst);
+                retold.clear();
+            } else {
+                // The next prompts tell the rest, not again what this one did.
+                session.forum_retell.store(true, Ordering::SeqCst);
+                retold.extend(turn.posts.iter().cloned());
+            }
         }
         self.forum_told(session, &turn.posts);
         for id in &turn.posts {
