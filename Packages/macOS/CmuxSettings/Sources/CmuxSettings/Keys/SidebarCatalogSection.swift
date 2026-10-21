@@ -207,6 +207,14 @@ public struct SidebarCatalogSection: SettingCatalogSection {
         userDefaultsKey: "sidebarShowStatusPills"
     )
 
+    /// Status keys (for example `claude_code`) whose pills the sidebar leaves out.
+    /// Display only: the entries, hooks and agent lifecycle behind them are unchanged.
+    public let hiddenStatusKeys = DefaultsKey<[String]>(
+        id: "sidebar.hiddenStatusKeys",
+        defaultValue: [],
+        userDefaultsKey: "sidebarHiddenStatusKeys"
+    )
+
     public let rightMaxWidth = DefaultsKey<Double>(
         id: "sidebar.rightMaxWidth",
         defaultValue: RightSidebarWidthSettings.noOverrideValue,
