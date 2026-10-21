@@ -36,6 +36,27 @@ public nonisolated enum MenuFolder: String, CaseIterable, Sendable, Hashable {
         }
     }
 
+    /// The folder row's icon (an SF Symbol), beside its rows' own icons.
+    public var symbol: String {
+        switch self {
+        case .new: "plus.square"
+        case .split: "rectangle.split.2x1"
+        case .agent: "sparkles"
+        case .openIn: "arrow.up.forward.app"
+        case .appearance: "paintpalette"
+        case .options: "slider.horizontal.3"
+        case .group: "square.stack.3d.up"
+        case .move: "arrow.up.and.down.square"
+        case .sort: "arrow.up.arrow.down"
+        case .layout: "rectangle.3.group"
+        case .connection: "network"
+        case .copy: "doc.on.doc"
+        case .tools: "wrench.and.screwdriver"
+        case .close: "xmark.square"
+        case .more: "ellipsis.circle"
+        }
+    }
+
     /// Localized submenu title.
     public var title: String {
         switch self {

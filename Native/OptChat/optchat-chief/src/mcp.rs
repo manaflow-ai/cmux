@@ -69,7 +69,7 @@ pub fn tools_granted(subagent: bool, grant: &crate::chief_profile::Grant) -> Val
             "action": {"type": "string", "enum": crate::tools::CONTROL_ACTIONS},
             "id": {"type": "string", "minLength": 1, "description": "The subagent (a<N>); status without it shows all."},
             "message": {"type": "string", "minLength": 1, "description": "interrupt/restart/resume: the prompt sent once it has stopped."},
-            "option": {"type": "string", "minLength": 1, "description": "answer: the option id of its pending prompt, or deny."},
+            "option": {"type": "string", "minLength": 1, "description": "answer: deny (only the user can allow, in the app)."},
             "n": {"type": "integer", "minimum": 0, "description": "cap: subagents at work at once; 0 is no cap."},
             "peer": {"type": "string", "minLength": 1, "description": "cloud: the acpmux peers (acpmux host ls, comma-separated) new subagents run on by default, each on the least busy, or off; without it, shows the setting."}},
           "required": ["action"], "additionalProperties": false}}));

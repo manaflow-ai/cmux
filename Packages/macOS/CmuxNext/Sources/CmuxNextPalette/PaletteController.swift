@@ -104,14 +104,15 @@ public final class PaletteController {
     // MARK: Registry wiring
 
     /// Binds the palette's own catalog actions: Command Palette (toggle),
-    /// Go to Workspace (Cmd-P, which opens Search) and Search Keyboard Shortcuts. Go to Tab is Search
-    /// Tabs, which the App binds (`tab.search`).
+    /// Go to Workspace (Cmd-P, what is open now), Search (Cmd-Shift-A, everything) and Search
+    /// Keyboard Shortcuts. Go to Tab is Search Tabs, which the App binds (`tab.search`).
     public func bindRegistryActions() {
         registry.bind("commandPalette") { [weak self] in self?.toggle(.commands) }
         registry.bind("palette.searchShortcuts") { [weak self] in self?.show(.keyboardShortcuts) }
-        // Cmd-Shift-A: Search with the Chats & agents chip (search-everything-DESIGN.md section 10.1).
+        // Cmd-Shift-A: Search, which adds history and agent chats to the open items
+        // (search-everything-DESIGN.md section 10.1). The id predates the change; user key files name it.
         registry.bind("search.chats", invoke: { [weak self] invocation in
-            self?.showChats(query: invocation["query"]?.stringValue ?? "")
+            self?.show(scope: PaletteScopeID.search, query: invocation["query"]?.stringValue ?? "")
         })
         if sources.workspaces != nil {
             // With a workspace (a palette row's typed ref, `palette.run`,
@@ -119,9 +120,8 @@ public final class PaletteController {
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
                     self?.sources.workspaces?.selectWorkspace(id: workspace)
-                } else if self?.show(scope: PaletteScopeID.search) != true {
-                    // Cmd-P opens the merged Search window (search-everything-DESIGN.md section 10);
-                    // its empty query lists the workspaces, as Go to Workspace did.
+                } else if self?.show(scope: PaletteScopeID.workspaces) != true {
+                    // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
                     self?.show(.workspaces)
                 }
             })

@@ -105,7 +105,7 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
         }
         let available = UpdateState.UpdateAvailable(appcastItem: appcastItem) { choice in reply(choice) }
         available.reply.onConsumed = { [weak self] reply, choice, source in
-            self?.handlePromptReply(reply, choice: choice, source: source)
+            self?.handlePromptReply(reply, choice: choice, source: source, item: appcastItem)
         }
         if installsInBackground && downloadsInBackground { return acceptInBackground(available) }
         setState(.updateAvailable(available))
@@ -283,8 +283,13 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
 
     func handlePromptReply(_ reply: UpdatePromptReply,
                            choice: SPUUserUpdateChoice,
-                           source: UpdatePromptReplySource) {
+                           source: UpdatePromptReplySource,
+                           item: SUAppcastItem? = nil) {
         log.append("update prompt reply consumed (choice=\(choice.rawValue), source=\(source.rawValue))")
+        // Whoever answered Install (a background accept, an Install Update click that
+        // confirmed a fresh check, the user), the download that follows stages this
+        // item, so ``stagedItem`` always names the build this driver downloaded.
+        if choice == .install, let item { backgroundItem = item }
         guard source == .user, choice == .dismiss || choice == .skip else { return }
 
         guard case .updateAvailable(let available) = model.state,

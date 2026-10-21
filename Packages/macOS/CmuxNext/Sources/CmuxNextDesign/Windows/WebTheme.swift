@@ -31,6 +31,9 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     /// page's stylesheets stop their status loops. Static under Reduce Motion or
     /// `appearance.statusIndicator.animation: "static"` (`StatusIndicatorConfig.isStatic`).
     public let statusIndicators: String
+    /// `breathe`, `shimmer` or `spinner` (``StatusWorkingLook``): `data-working-look` on `<html>`,
+    /// how a page draws agent work.
+    public let workingLook: String
     /// `off`, `reduced` or `full` (``motionValue(_:)``): `data-cmux-motion` on `<html>`. Under
     /// `off` the bootstrap stylesheet makes every CSS transition and animation instant
     /// (`ui.animations.web` or the master switch `ui.animations.enabled` off).
@@ -130,6 +133,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         self.scrollers = scrollers ?? SystemScrollers.pageValue
         terminal = Terminal(tokens, fontFamily: DesignSettings.shared.effectiveTerminalFontFamily)
         statusIndicators = !Motion.indicators.animatesLoops || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated"
+        workingLook = StatusWorkingLook.tunable.value.rawValue
         motion = Self.motionValue(Motion.web.policy)
         self.glass = (glass ?? .current).rawValue
     }
@@ -142,7 +146,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
         return policy.reduceMotion ? "reduced" : "full"
     }
 
-    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, motion, glass}`
+    /// The payload `window.cmuxTheme.apply` takes: `{variables, colorScheme, scrollers, terminal, statusIndicators, workingLook, motion, glass}`
     /// (`terminal.fontFamily` is null when the terminal has no named face).
     /// How the page's color variables move to new values (`appearance.colorTransition`, the same
     /// duration, curve and blend space as native): `{duration, easing, space}`.
@@ -151,7 +155,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
     public var payloadJSON: String {
         let object: [String: Any] = ["variables": variables, "colorScheme": colorScheme, "scrollers": scrollers,
                                      "terminal": terminal.json, "transition": transition, "statusIndicators": statusIndicators,
-                                     "motion": motion, "glass": glass]
+                                     "workingLook": workingLook, "motion": motion, "glass": glass]
         guard let data = try? JSONSerialization.data(withJSONObject: object, options: [.sortedKeys]),
               let json = String(data: data, encoding: .utf8) else { return "{}" }
         return json
@@ -263,6 +267,7 @@ public nonisolated struct WebTheme: Equatable, Sendable {
           root.style.colorScheme = payload.colorScheme;
           if (payload.scrollers) root.setAttribute('data-scrollers', payload.scrollers);
           if (payload.statusIndicators) root.setAttribute('data-status-indicators', payload.statusIndicators);
+          if (payload.workingLook) root.setAttribute('data-working-look', payload.workingLook);
           if (payload.motion) root.setAttribute('data-cmux-motion', payload.motion);
           if (payload.glass) root.setAttribute('data-glass', payload.glass);
           window.cmuxTheme.current = payload;

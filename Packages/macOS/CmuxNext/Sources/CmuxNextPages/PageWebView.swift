@@ -280,7 +280,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         installDocumentStartTheme()
         guard load else { return }
         if engineDecision.engine == .cef, let hosting = chromium {
-            startChromium(url: descriptor.url(route: route), hosting: hosting)
+            startChromium(hosting: hosting)
         } else {
             webView.load(URLRequest(url: descriptor.url(route: route)))
         }
