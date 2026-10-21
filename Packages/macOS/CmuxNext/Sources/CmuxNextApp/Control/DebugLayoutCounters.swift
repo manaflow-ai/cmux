@@ -18,8 +18,8 @@ import CmuxNextTerminal
 /// - `pane_count_changes`: each workspace view's shown pane count, appended when an apply changes
 ///   it (the last 64). A split shows 1, 2; a split undone before its daemon pane lands shows
 ///   1, 2, 1, 2 (cx-ry0y, scripts/cmux-next/split-no-flicker-e2e.py).
-/// - `backdrop_catalog_builds`: wallpaper folder listings for the Settings page; a store change
-///   with Settings open lists nothing (perf-gate `idle`). Not reset.
+/// - `backdrop_catalog_builds`: wallpaper folder listings for the Settings page (`BackdropCatalogSource`);
+///   a store change with Settings open lists nothing (perf-gate `idle`). Not reset.
 /// - `settings_host_list_runs`: runs of the Settings page's host lists (each store change they
 ///   read re-runs them). Not reset.
 @MainActor
@@ -51,7 +51,7 @@ enum DebugLayoutCounters {
             "layout_root_layouts": JSONValue(Int(truncatingIfNeeded: LayoutRootView.layoutPasses)),
             "terminal_window_updates": JSONValue(Int(truncatingIfNeeded: TerminalSurfaceView.windowStateUpdates)),
             "pane_count_changes": .array(paneCountChanges.map { JSONValue($0) }),
-            "backdrop_catalog_builds": JSONValue(SettingsWindowService.backdropCatalogBuilds),
+            "backdrop_catalog_builds": JSONValue(BackdropCatalogSource.shared.builds),
             "settings_host_list_runs": JSONValue(SettingsWindowService.hostListRuns),
             "sources": .object(sources.mapValues { JSONValue($0) }),
         ]
