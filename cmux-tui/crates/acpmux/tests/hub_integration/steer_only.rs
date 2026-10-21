@@ -4,7 +4,7 @@
 //! (the fake agent advertises no steering).
 //!
 //! Also the queue's steering ops (`hub/queue_edit.rs`): `_acpmux/queue_edit`
-//! moves, edits and sends a queued prompt now, and a steer with
+//! moves, edits, sends a queued prompt now or stops the turn for it, and a steer with
 //! `_meta.acpmux.interrupt` stops a turn its agent cannot steer and runs next.
 
 use super::*;
@@ -228,6 +228,28 @@ async fn queue_ops_send_now_steers_into_a_turn_its_agent_can_steer() {
     assert_eq!(answer["_meta"]["acpmux"]["promptId"], "p-a", "{answer}");
     assert_eq!(answer["_meta"]["acpmux"]["steer"], true, "{answer}");
     assert_ne!(answer["_meta"]["acpmux"]["withdrawn"], true, "{answer}");
+}
+
+/// Stop & send (`interrupt`): the queued prompt goes next and the running turn stops, even when
+/// its agent could take it as a steer; send now would have steered it in.
+#[tokio::test]
+async fn queue_ops_interrupt_stops_a_turn_its_agent_can_steer() {
+    let env = BTreeMap::from([("FAKE_CLAUDE_STEER".to_owned(), "1".to_owned())]);
+    let (_hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let id = busy_with_queue(&mut c, &[("p-a", "a"), ("p-b", "b")]).await;
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert_eq!(attached["session"]["steering"], true, "{attached}");
+    let sent = c
+        .request(
+            "_acpmux/queue_edit",
+            json!({"sessionId": id, "promptId": "p-b", "op": "interrupt"}),
+        )
+        .await
+        .unwrap();
+    assert_eq!(sent["ok"], true, "{sent}");
+    assert_eq!(sent["sent"], "interrupt", "{sent}");
+    assert_eq!(echoes_until(&mut c, "echo: a").await, ["echo: b", "echo: a"]);
 }
 
 /// A turn that fails stops its queue: the prompts behind it were written for a turn that went
