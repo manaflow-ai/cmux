@@ -16,15 +16,9 @@ import Testing
 @MainActor @Suite(.serialized, .timeLimit(.minutes(3)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct CmdNRowSlotTests {
     @Test func cmdNDrawsTheNewRowOnlyAtItsSlot() async throws {
-        let launched = try await RapidWorkspaceCreateTests.launch()
-        let services = launched.services
         // The slot named explicitly, so the base's default (`top`) does not decide the result: only the jump does.
-        let url = launched.root.appendingPathComponent("cmux.json")
-        try Data(#"{"workspaces":{"newPlacement":"afterCurrent"}}"#.utf8).write(to: url)
-        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
-                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
-        await settings.reload()
-        services.settings = settings
+        let launched = try await RapidWorkspaceCreateTests.launch(placement: .afterCurrent)
+        let services = launched.services
         try #require(services.settings?.snapshot.newWorkspacePlacement == .afterCurrent)
         let window = try #require(services.windows.active?.state.id)
         let controller = try #require(services.windows.controller(for: window))
