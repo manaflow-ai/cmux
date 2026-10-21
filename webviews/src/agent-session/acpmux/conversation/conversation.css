@@ -104,7 +104,7 @@
   background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
 }
 
-/* The images a prompt sent, above its bubble: thumbnails on a checker, so a dark screenshot reads. */
+/* The images a prompt sent, above its bubble. */
 .cv-user__images {
   display: flex;
   flex-wrap: wrap;
@@ -116,39 +116,51 @@
 .cv-user__images button {
   padding: 0;
   border: 0;
-  border-radius: 10px;
+  border-radius: 12px;
   background: none;
   cursor: zoom-in;
 }
+/* Each a rounded thumbnail of one fixed height, cropped to fill (UserBubble.tsx sets its width from
+   the image's shape, within bounds), as Claude and ChatGPT show a sent image. A neutral backing
+   under it, so a transparent image still shows its content. */
 .cv-user__images img {
   display: block;
-  width: auto;
-  height: 72px;
-  max-width: 160px;
+  width: 120px;
+  height: 120px;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 12px;
   outline: 1px solid color-mix(in srgb, var(--agent-text) 45%, transparent);
   outline-offset: -1px;
-  background: repeating-conic-gradient(
-      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
-      transparent 0 50%
-    )
-    0 0 / 12px 12px;
+  background: color-mix(in srgb, var(--agent-text) 8%, transparent);
 }
+/* The slot a thumbnail holds while acpmux reads it: its height, square until the image's shape is known. */
 .cv-user__image-placeholder {
   display: block;
-  flex: 0 0 72px;
-  width: 72px;
-  height: 72px;
-  border-radius: 10px;
-  outline: 1px solid color-mix(in srgb, var(--agent-text) 24%, transparent);
+  flex: 0 0 120px;
+  width: 120px;
+  height: 120px;
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--agent-text) 6%, transparent);
+}
+/* An image that cannot be drawn: the same slot, a picture glyph over a short note. */
+.cv-user__image-failed {
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 120px;
+  height: 120px;
+  padding: 0 10px;
+  border-radius: 12px;
+  outline: 1px dashed color-mix(in srgb, var(--agent-text) 24%, transparent);
   outline-offset: -1px;
-  background: repeating-conic-gradient(
-      color-mix(in srgb, var(--agent-text) 10%, transparent) 0 25%,
-      transparent 0 50%
-    )
-    0 0 / 12px 12px;
-  opacity: 0.55;
+  background: color-mix(in srgb, var(--agent-text) 5%, transparent);
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 1.25;
+  text-align: center;
 }
 
 /* A Chief subagent's first message: the Chief's view as one collapsed line above the task. */
