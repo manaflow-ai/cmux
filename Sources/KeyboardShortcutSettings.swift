@@ -912,7 +912,8 @@ enum KeyboardShortcutSettings {
         guard !shortcut.hasChord else {
             return .rejected(.reservedBySystem)
         }
-        guard shortcut.hasPrimaryModifier else {
+        // lawmux: Shift alone is enough for the global hotkey (Shift+Space).
+        guard shortcut.hasPrimaryModifier || shortcut.firstStroke.shift else {
             return .rejected(.systemWideHotkeyRequiresModifier)
         }
         guard shortcut.carbonHotKeyRegistration != nil,

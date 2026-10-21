@@ -47,10 +47,12 @@ extension ShortcutAction {
         }
 
         let first = shortcut.first
+        // lawmux: Shift alone is enough for the global hotkey (Shift+Space).
         if self == .showHideAllWindows,
            !first.command,
            !first.option,
-           !first.control {
+           !first.control,
+           !first.shift {
             return .primaryModifierRequired
         }
         let supportsLegacyBareSpace = first.key.lowercased() == "space"
