@@ -655,6 +655,7 @@ case "$*" in
   *ls-remote*) [[ -z "$REMOTE_SHA" ]] && exit 1; printf '%s\\trefs/heads/feat-cmux-next\\n' "$REMOTE_SHA" ;;
   *fetch*) touch "$REMOTE_FETCH_MARKER" ;;
   *diff*) exit 0 ;;
+  *cat-file*) exit 0 ;;
   *rev-parse*) printf '%040d\\n' 1 ;;
   *mktree*) cat >/dev/null; if [[ -e "$REMOTE_FETCH_MARKER" ]]; then printf '%s\\n' "$REMOTE_TREE_KEY"; else printf '%040d\\n' 2; fi ;;
   *) exit 1 ;;
