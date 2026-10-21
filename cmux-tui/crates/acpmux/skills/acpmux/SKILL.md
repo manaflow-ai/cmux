@@ -30,6 +30,12 @@ session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when
 the turn ends, with tools that work again; your sub-sessions keep running.
 
+To put a session's chat in front of the user without moving their focus, run
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`start_session` child also shows in your chat's Subagents summary. Post progress on a workspace's
+sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
+attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
+
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
 One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,
