@@ -14,6 +14,7 @@ extension NSObject {
     /// The runtime's own test before it forms a weak reference (`-[NSObject allowsWeakReference]`,
     /// which ARC headers mark unavailable), called through its implementation.
     public var isBeingDeallocated: Bool {
+        // crash-allow: ARC marks allowsWeakReference unavailable, so #selector cannot name it; NSObject always implements it.
         let selector = NSSelectorFromString("allowsWeakReference")
         guard let method = method(for: selector) else { return false }
         typealias AllowsWeakReference = @convention(c) (NSObject, Selector) -> Bool
