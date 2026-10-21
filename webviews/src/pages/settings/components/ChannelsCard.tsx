@@ -1,10 +1,10 @@
 // Settings > Updates' Channels card: every release channel's recent builds from the host's
 // `cmux.settings.channels.state` (the feed's notes index, canary verdicts and pulls), read once
-// when the card shows. Each build says how it fared, whether this Mac runs or kept it, and links
+// when the card shows and again when the followed channel changes. Each build says how it fared, whether this Mac runs or kept it, and links
 // to its commit, its PRs and the changes since the installed build; every text is the host's.
 // Read-only: installing a build is a later gesture on the same update path.
 import { useEffect, useState } from "react";
-import { useStore } from "../context";
+import { useSettingsState, useStore } from "../context";
 import type { ChannelBuild, ChannelTrack, ChannelsState } from "../ops";
 
 function BuildRow({ build, labels }: { build: ChannelBuild; labels: ChannelsState["labels"] }) {
@@ -84,6 +84,7 @@ function Track({ track, labels }: { track: ChannelTrack; labels: ChannelsState["
 
 export function ChannelsCard() {
   const store = useStore();
+  const followed = useSettingsState().rows.get("updates.channel")?.value;
   const [state, setState] = useState<ChannelsState | null>(null);
   useEffect(() => {
     let alive = true;
@@ -91,7 +92,7 @@ export function ChannelsCard() {
     return () => {
       alive = false;
     };
-  }, [store]);
+  }, [store, followed]);
   if (!state) return null;
   return (
     <section className="group" data-card="channels">

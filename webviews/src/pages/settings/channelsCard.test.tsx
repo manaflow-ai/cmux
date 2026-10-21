@@ -6,7 +6,7 @@ import { installDom } from "./testDom";
 
 const restore = installDom();
 afterAll(() => restore());
-const { renderPage, settle } = await import("./testing");
+const { renderPage, run, settle } = await import("./testing");
 
 const card = (container: HTMLElement) => container.querySelector<HTMLElement>('[data-card="channels"]');
 
@@ -37,6 +37,15 @@ test("one track per channel, the followed one marked, the installed build saying
   );
   expect(here.map((row) => row.dataset.channelBuild)).toEqual(["3419"]);
   expect(element.querySelector('[data-channel="stable"]')?.textContent).toContain("No builds on this channel yet.");
+  page.unmount();
+});
+
+test("choosing another channel in the row above moves Following to it at once", async () => {
+  const page = await renderPage({ path: "/settings/updates" });
+  await settle();
+  await run(() => page.store.set("updates.channel", "canary"));
+  const followed = [...card(page.container)!.querySelectorAll("[data-channel-followed]")];
+  expect(followed.map((node) => node.closest<HTMLElement>("[data-channel]")?.dataset.channel)).toEqual(["canary"]);
   page.unmount();
 });
 

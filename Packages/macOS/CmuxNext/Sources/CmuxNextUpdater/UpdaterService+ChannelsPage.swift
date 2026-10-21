@@ -47,7 +47,7 @@ extension UpdaterService {
                             "health": build.health.rawValue, "health_title": healthTitle(build.health),
                             "pulled_reason": build.pulledReason ?? NSNull(),
                             "installed": build.isInstalled, "kept": build.isKept,
-                            "prs": (prs[build.build] ?? []).map { ["number": $0, "url": "\(ChannelBuild.repository)/pull/\($0)"] },
+                            "prs": (prs[build.build] ?? []).map { ["number": $0, "url": "\(ChannelBuild.repository)/pull/\($0)"] as [String: Any] },
                         ]
                     },
                 ]
@@ -74,7 +74,7 @@ extension UpdaterService {
     }
 }
 
-extension UpdaterStrings {
+nonisolated extension UpdaterStrings {
     static var channelsTitle: String { text("updater.channels.title", "Channels") }
     static func channelsInstalled(_ version: String) -> String { format("updater.channels.installed", "This Mac runs %@.", version) }
     static var channelsYouAreHere: String { text("updater.channels.youAreHere", "You Are Here") }
