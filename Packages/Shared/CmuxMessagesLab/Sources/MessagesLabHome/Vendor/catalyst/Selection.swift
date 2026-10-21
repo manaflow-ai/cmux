@@ -202,7 +202,7 @@ struct LongTextGeometry: RowTextGeometry {
     var length: Int { layout.selectionLength }
     private var lh: CGFloat { Fixture.lineHeight }
     /// Folded: text line of a text-local display y, and the display shift of the tail.
-    private var tailFirst: Int { max(LongTextFold.headLines, layout.totalLines - LongTextFold.tailLines) }
+    private var tailFirst: Int { LongTextFold.tailFirst(layout.totalLines) } // cmux: never above totalLines
     private var tailShift: CGFloat { CGFloat(LongTextFold.headLines - tailFirst) * lh + LongTextFold.bandHeight }
     private func textY(display y: CGFloat) -> CGFloat {
         guard folded else { return y }
