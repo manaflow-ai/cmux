@@ -60,13 +60,14 @@ fn renaming_and_moving_a_workspace_reach_subscribers() {
     assert_eq!(moved["workspace_revision"], before + 2, "{moved}");
 }
 
-/// `cmux workspace list` in the cmux app's context (the daemon it addresses
-/// is the app's own daemon) lists workspaces in the order the app's sidebar
-/// shows. The NEXT sidebar shows the personal order: a new workspace goes on
-/// top (`workspaces.newPlacement`), and Move Up/Down or a row drag moves only
-/// the personal row. Elsewhere (a headless daemon, the TUI, whose sidebar
-/// draws the session order) the list keeps the session order, and `--order`
-/// always wins.
+/// `cmux workspace list` lists workspaces in the order the app's sidebar
+/// shows for every caller once the session has the sidebar document
+/// (a5ab7628228: one order with the sidebar), in the cmux app's context (the
+/// daemon it addresses is the app's own daemon) and outside it. The NEXT
+/// sidebar shows the personal order: a new workspace goes on top
+/// (`workspaces.newPlacement`), and Move Up/Down or a row drag moves only
+/// the personal row. `--order session` gives the session order, and
+/// `--order` always wins.
 mod sidebar_order {
     use super::*;
 
@@ -123,7 +124,7 @@ mod sidebar_order {
     }
 
     #[test]
-    fn workspace_list_in_the_app_answers_the_sidebar_order() {
+    fn workspace_list_answers_the_sidebar_order_to_every_caller() {
         // The default placement (new workspaces on top), whatever the
         // developer's own settings file says.
         let dir = unique_temp_dir("ws-list-order-config");
@@ -148,30 +149,34 @@ mod sidebar_order {
                 && position(&sidebar, &second) < position(&sidebar, &first),
             "the sidebar order is not newest first: {sidebar:?}"
         );
-        let session = ids(&server, false, &["workspace", "list"]);
+        let session = ids(&server, false, &["workspace", "list", "--order", "session"]);
         assert!(
             position(&session, &first) < position(&session, &second)
                 && position(&session, &second) < position(&session, &third),
-            "outside the app the list is not the session order: {session:?}"
+            "--order session is not the session order: {session:?}"
         );
-        assert_eq!(
-            ids(&server, true, &["workspace", "list"]),
-            sidebar,
-            "workspace list in the app is not the sidebar order"
-        );
+        for in_app in [false, true] {
+            assert_eq!(
+                ids(&server, in_app, &["workspace", "list"]),
+                sidebar,
+                "workspace list (in the app: {in_app}) is not the sidebar order"
+            );
+        }
 
         // A reorder in the sidebar (Move Workspace Up/Down, a row drag).
         v2(&server, "workspace.place", json!({"workspace": first, "index": 0}), "order-place-1");
         let sidebar = ids(&server, false, &["workspace", "list", "--order", "personal"]);
         assert_eq!(sidebar.first(), Some(&first), "the reorder did not apply: {sidebar:?}");
-        assert_eq!(
-            ids(&server, true, &["workspace", "list"]),
-            sidebar,
-            "workspace list in the app is not the sidebar order after a reorder"
-        );
-        // --order wins in the app too, and the list outside it is unchanged.
-        assert_eq!(ids(&server, true, &["workspace", "list", "--order", "session"]), session);
-        assert_eq!(ids(&server, false, &["workspace", "list"]), session);
+        for in_app in [false, true] {
+            assert_eq!(
+                ids(&server, in_app, &["workspace", "list"]),
+                sidebar,
+                "workspace list (in the app: {in_app}) is not the sidebar order after a reorder"
+            );
+            // --order wins for every caller, and the reorder moved only the
+            // sidebar row.
+            assert_eq!(ids(&server, in_app, &["workspace", "list", "--order", "session"]), session);
+        }
         let _ = fs::remove_dir_all(&dir);
     }
 }

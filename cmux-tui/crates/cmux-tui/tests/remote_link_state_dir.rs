@@ -69,7 +69,17 @@ impl Fixture {
 
 impl Drop for Fixture {
     fn drop(&mut self) {
+        // The owner binds its socket before it restores (d674e3164cc,
+        // cx-n3bs) and answers `server stop` only after the restore; on a
+        // loaded box that is later than the stop's 10 s identify deadline,
+        // so one stop can miss it. Repeat the stops, bounded, until no
+        // daemon of this fixture runs.
+        let deadline = Instant::now() + Duration::from_secs(30);
         self.stop_daemons();
+        while Instant::now() < deadline && !processes_under(&self.dir).is_empty() {
+            std::thread::sleep(Duration::from_millis(200));
+            self.stop_daemons();
+        }
         let _ = self
             .command()
             .args(["server", "stop", "--json", "--session", &self.session])

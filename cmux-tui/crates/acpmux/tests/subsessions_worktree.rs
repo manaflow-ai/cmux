@@ -124,6 +124,11 @@ async fn a_worktree_start_runs_nothing_the_agent_wrote_in_its_repository() {
         std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
 
+    // The person trusts the scratch folder: a child may start in a folder
+    // outside its parent's own only where the person trusts it.
+    let trust = acpmux::trust::Paths::current().unwrap();
+    acpmux::trust::set(&trust, &root.to_string_lossy(), "trusted").unwrap();
+
     let hub = hub();
     let mut app = Client::new(&hub);
     let new = json!({"cwd": repo, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
