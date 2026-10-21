@@ -167,10 +167,10 @@ final class HomeService {
         // task-owner: lives as long as the service; event-driven (Observation)
         homeObservation = Task { [weak self] in
             // A sign-in or account change re-reads the placed chief (G6), so the Chief tab follows it; so does a
-            // change of Debug Settings' Default Chief (HomeService+ChiefDefault).
-            for await (connection, _, _) in ObservationStream({
+            // change of Settings > Chief's Engine (`home.chiefEngine`, HomeService+ChiefDefault).
+            for await (connection, _, _) in ObservationStream({ [weak self] in
                 (local.supports(DaemonCapabilities.shared.workspaceKind) ? local.connection : nil, auth.isSignedIn ? auth.user?.id : nil,
-                 HomeTunables.chiefDefault.value)
+                 self?.services.settings?.snapshot.homeChiefEngine)
             }) {
                 guard let self, let connection else { continue }
                 ensureHomeWorkspace(connection)

@@ -171,6 +171,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.chiefChat"),
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
+                // Which Chief Home opens; the Chiefs card draws it as its Engine row.
+                group("settings.group.chiefEngine"),
             ],
             lead: [.chiefs, .chiefPet]),
         // A core cmux feature: banners, sounds, the attention ring and the

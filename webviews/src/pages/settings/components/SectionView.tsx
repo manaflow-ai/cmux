@@ -6,7 +6,7 @@ import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
-import { ChiefsCard } from "./ChiefsCard";
+import { CHIEFS_ROWS, ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
 import { GroupList } from "./GroupList";
@@ -68,6 +68,8 @@ export function SectionView({
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.
   const pet = category.lead.includes("chiefPet");
+  // The Chiefs card draws its Engine row (home.chiefEngine).
+  const chiefsCard = [...category.lead, ...category.trail].includes("chiefs");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
   // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
@@ -80,6 +82,7 @@ export function SectionView({
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(pet && CHIEF_PET_ROWS.has(row.key)) &&
+          !(chiefsCard && CHIEFS_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
       ),
     }))

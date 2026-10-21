@@ -3,12 +3,12 @@ import CmuxNextHomeEngine
 import CmuxNextHostedChief
 
 /// The default Chief (#64, 2026-10-21): this Mac's Chief while this Mac's optchat-chief runs,
-/// else the Hosted (cloud) Chief. Debug Settings' "Default Chief" (``HomeTunables/chiefDefault``)
-/// forces either one. The Chief tab, the page's first conversation and the list's Main all follow it.
+/// else the Hosted (cloud) Chief. Settings > Chief's Engine row (`home.chiefEngine`) forces either
+/// one. The Chief tab, the page's first conversation and the list's Main all follow it.
 extension HomeService {
     /// The default Chief is this Mac's (``HomeChiefDefault/prefersLocal(localRunning:)``).
     var prefersLocalChief: Bool {
-        HomeTunables.chiefDefault.value.prefersLocal(localRunning: localChiefRunning)
+        HomeChiefDefault(setting: services.settings?.snapshot.homeChiefEngine).prefersLocal(localRunning: localChiefRunning)
     }
 
     /// The Chief's conversation the Chief tab and Home's page show first: the default Chief's
