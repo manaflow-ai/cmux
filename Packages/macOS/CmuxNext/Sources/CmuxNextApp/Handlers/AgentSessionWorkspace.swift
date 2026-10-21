@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -18,10 +19,11 @@ import Foundation
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux),
-/// `group` (the name of the sidebar group it goes in, made when no group has
-/// that name; `acpmux new --group` sends it). A `key` that names a listed
-/// workspace opens nothing: a launcher run again finds its row.
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux; another machine's name, as
+/// the sidebar or `acpmux ls` shows it: the session runs there), `group` (the name of the sidebar
+/// group it goes in, made when no group has that name; `acpmux new --group` sends it; another
+/// machine's chat joins that machine's group of the name). A `key` that names a listed workspace
+/// opens nothing: a launcher run again finds its row.
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -38,9 +40,59 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
+        // A host that names another machine (`cmux agent open NAME --host huge-blue`): its chat opens there.
+        let remote = host.flatMap(context.services.machines.remoteDaemon(named:)), group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let task = try remote.map { try adopt(session: session, name: name, key: key, cwd: cwd, group: group, on: $0, services: context.services) }
+            ?? open(session: session, name: name, key: key, cwd: cwd, host: host, group: group, services: context.services)
         context.services.registry.track(task)
+    }
+
+    /// Another machine's running chat in a new workspace on that machine's daemon: its agent tab is
+    /// bound to `session` there (`agent-session-adopt`; a chat never leaves its machine, cx-k21v), and
+    /// a chat that acts without asking shows the bypass warning on its row. A refused adopt closes
+    /// the workspace. Nothing takes focus.
+    private static func adopt(session: String, name: String?, key: WorkspaceKey, cwd: String?, group: String?, on daemon: DaemonService,
+                              services: AppServices) throws -> ActionWork {
+        guard let connection = daemon.connection, let endpoint = daemon.remoteEndpoint, let host = AgentTabStore.registryHost(of: daemon) else {
+            throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
+        }
+        let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
+        let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
+        // A caller's key that names a listed workspace already shows the session: nothing opens twice.
+        if services.machines.workspace(id: key.rawValue) != nil { return Task { nil } }
+        // `group`: that machine's group of the name (made when missing), once the row is listed.
+        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        if let group { join = { id, sidebar in joinGroup(id, named: group, sidebar: sidebar) } }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
+        return Task { @MainActor in
+            do {
+                let (tab, adopted) = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
+                    try await connection.createTerminal(in: result.key, cwd: cwd)
+                    let tab = try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: result.workspace,
+                                                                                     origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue))
+                    return (tab, try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint))
+                }
+                AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
+                if let pane = await daemon.store.firstPane(mirroring: key) {
+                    for window in services.windows.controllers { window.state.selection.select(tab.tabResourceID?.rawValue ?? "surface:\(tab.surface.rawValue)", in: pane.id) }
+                }
+                return nil
+            } catch let error as AgentSessionAttachError {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(AgentSessionAdoptRefusal.message(code: error.code, machine: machine) ?? AgentRemoteStartRefusal(code: error.code, machine: machine, detail: error.message).userMessage)")
+            } catch {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+            }
+        }
+    }
+
+    /// Moves workspace `id` into its machine's group named `name`, or a new group of that name.
+    private static func joinGroup(_ id: String, named name: String, sidebar: SidebarBridge) {
+        let ids = [SidebarWorkspaceID(id)]
+        if let target = SidebarEdits.group(named: name, accepting: ids, in: sidebar.model.sections) {
+            sidebar.handle(.move(ids, toGroup: target))
+        } else {
+            sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
+        }
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
@@ -54,6 +106,11 @@ enum AgentSessionWorkspace {
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
+        }
+        // A host that names no machine here is refused before anything is made (no empty workspace).
+        let agentTabs = services.agentTabs
+        if let refusal = AgentTabStore.hostRefusal(host, localHost: agentTabs.localHost, chiefHost: agentTabs.chiefHost, daemonIsLocal: daemon.isLocal) {
+            throw ActionFailure(message: refusal)
         }
         let logger = daemon.logger
         // A caller's key that names a listed workspace already shows the
