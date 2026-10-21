@@ -100,8 +100,11 @@ fn codex_slash_commands_reach_the_person_through_the_bridge() {
     assert_eq!(usage, "Command \"/review-branch\" requires branch name.");
     let review = send(&dir, "/review-branch main");
     assert_eq!(review, "Review: no issues found.ok");
-    let renamed = send(&dir, "/rename Release prep");
-    assert!(renamed.is_empty() || !renamed.contains("/rename"), "{renamed}");
+    send(&dir, "/rename Release prep");
+    // The bridge answers /rename with Codex's reply; Codex's thread/name/updated
+    // comes right after it on the same stream, so one more prompt's reply comes
+    // after the title reached the hub (no wait on a clock).
+    send(&dir, "/mcp");
 
     let calls = fs::read_to_string(&log).unwrap_or_default();
     for call in [

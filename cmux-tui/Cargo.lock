@@ -1037,7 +1037,7 @@ dependencies = [
 [[package]]
 name = "cmux-codex-acp"
 version = "0.1.0"
-source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=c57bbdd7137fbc9b10589e7942c8d4bd115365b2#c57bbdd7137fbc9b10589e7942c8d4bd115365b2"
+source = "git+https://github.com/manaflow-ai/cmux-codex-acp?rev=b8d1c776f041fbd13c40a3e52a2d46ce3565c16b#b8d1c776f041fbd13c40a3e52a2d46ce3565c16b"
 dependencies = [
  "serde_json",
 ]
