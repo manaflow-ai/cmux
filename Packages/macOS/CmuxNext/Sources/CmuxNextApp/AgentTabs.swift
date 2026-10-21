@@ -33,6 +33,12 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
+    /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
+    /// `open`, focused with `focus`) in the column on the chat's right, then `created` and
+    /// `finished` as ``openBeside`` calls them. Nil when the chat is not its screen's main pane:
+    /// the caller places the tab itself.
+    var openInMainPane: @MainActor (_ chat: String, _ focus: Bool, _ open: (PaneID, DaemonService) throws -> AgentTabPending,
+                                    _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -416,6 +422,7 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onWatchChat = { [weak self] key in self?.pageChats.watch?(key) }
         model.onChatsPage = { [weak self] query in
             let answer = await self?.pageChats.page?(query)
             // A New Tab page on screen gives the frame of the list it draws now.

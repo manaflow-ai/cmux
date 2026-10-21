@@ -81,6 +81,12 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     crate::acp::configure_home();
     let peers = peers()?;
     let found = find(&peers.list, &request);
+    if !request.named
+        && found.is_none()
+        && let Some(peer) = named(&peers.list, &request.name)
+    {
+        return Ok(taken(&request, peer, peers.daemon));
+    }
     // A peer found at this host under another name keeps that name.
     let name = found
         .and_then(|peer| peer.get("name").and_then(Value::as_str))
@@ -171,6 +177,44 @@ pub(super) fn run(args: &[String]) -> Result<Outcome, Refusal> {
     }
 }
 
+/// Without `--name`, the default name already names a peer at another
+/// place. Moving it would drop that peer (and a `ws://` peer's token, which
+/// no undo can put back), so nothing runs and the person picks a name.
+fn taken(request: &Request, peer: &Value, daemon: bool) -> Outcome {
+    let (target, name) = (&request.target, &request.name);
+    let text = format!(
+        "The peer name {name} already names {url}. Run `cmux setup machine \
+         {target} --name NAME` with a new name to add {target} beside it, or with --name {name} \
+         to point {name} at {target} instead.",
+        url = peer.get("url").and_then(Value::as_str).unwrap_or("another peer"),
+    );
+    let report = json!({
+        "schema_version": 1,
+        "task": TASK,
+        "state": "needs_user",
+        "dry_run": request.dry_run,
+        "target": target,
+        "name": name,
+        "daemon": if daemon { "running" } else { "not_running" },
+        "before": summary(peer),
+        "ssh": Value::Null,
+        "plan": [],
+        "after": summary(peer),
+        "remote_version": Value::Null,
+        "reverse": {"supported": false, "why": REVERSE_UNSUPPORTED},
+        "error": Value::Null,
+        "undo": Value::Null,
+        "undo_note": Value::Null,
+        "user_action": {
+            "kind": "name",
+            "text": text,
+            "command": format!("cmux setup machine {} --name NAME", quote(target)),
+            "url": Value::Null,
+        },
+    });
+    Outcome { report, failed: false }
+}
+
 /// The machine check `cmux setup status` reports: every peer, read-only.
 /// A peer that is not connected or runs another build names the
 /// `cmux setup machine` command that fixes it (ssh peers only).
@@ -209,9 +253,10 @@ fn parse(args: &[String]) -> Result<Request, Refusal> {
         match arg.as_str() {
             "--dry-run" => dry_run = true,
             "--name" => {
-                let value = args.next().ok_or_else(|| {
-                    Refusal::Usage("cmux: setup machine: --name needs a peer name".into())
-                })?;
+                let value =
+                    args.next().filter(|value| !value.starts_with('-')).ok_or_else(|| {
+                        Refusal::Usage("cmux: setup machine: --name needs a peer name".into())
+                    })?;
                 name = Some(value.to_owned());
             }
             flag if flag.starts_with('-') => {
@@ -319,16 +364,18 @@ fn configured_peers() -> Result<Vec<Value>, Refusal> {
         .collect())
 }
 
-/// The peer `request` names: by name, else (without `--name`) the one whose
-/// ssh host is the target.
+/// The peer `request` names: with `--name`, the peer of that name; without
+/// it, the one whose ssh host is the target. A default name never picks a
+/// peer at another host (`taken` reports that one).
 fn find<'a>(peers: &'a [Value], request: &Request) -> Option<&'a Value> {
-    let by_name = peers
-        .iter()
-        .find(|peer| peer.get("name").and_then(Value::as_str) == Some(request.name.as_str()));
-    if by_name.is_some() || request.named {
-        return by_name;
+    if request.named {
+        return named(peers, &request.name);
     }
     peers.iter().find(|peer| destination(peer).as_deref() == Some(request.target.as_str()))
+}
+
+fn named<'a>(peers: &'a [Value], name: &str) -> Option<&'a Value> {
+    peers.iter().find(|peer| peer.get("name").and_then(Value::as_str) == Some(name))
 }
 
 /// The ssh destination of an `ssh://` peer; None for any other peer.

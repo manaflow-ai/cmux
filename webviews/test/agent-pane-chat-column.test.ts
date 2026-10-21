@@ -22,6 +22,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -181,6 +182,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     attributes: Record<string, string> = {},
   ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
+    await installPaintedFrames(page);
     // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on <html>.
     const set = { ...(foldThoughts && { "data-fold-long-thoughts": "on" }), ...attributes };
     if (Object.keys(set).length)
@@ -255,15 +257,16 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       // resize before that callback, and no task runs between it and the paint. A resize that
       // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
       // not yet placed), so that read is not a frame.
-      const tick = () => {
-        if ((window as any).__frames !== frames) return;
-        const painted = `${innerWidth}x${innerHeight}`;
-        setTimeout(() => {
+      let painted = "";
+      window.cmuxAfterPaint(
+        () => {
+          if ((window as any).__frames !== frames) return false;
           if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
-        }, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+        },
+        () => {
+          painted = `${innerWidth}x${innerHeight}`;
+        },
+      );
     }, text);
   const stop = async (page: Page): Promise<Frame[]> => {
     await page.waitForTimeout(250);
@@ -318,8 +321,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     return page.evaluate(
       () =>
         new Promise<number>((done) =>
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
+          window.cmuxPaintFrame().then(() =>
+            window.cmuxPaintFrame().then(() => {
               const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
               const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
               const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
