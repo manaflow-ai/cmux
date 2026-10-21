@@ -83,6 +83,14 @@ public nonisolated enum SidebarTunables {
         help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
         default: false, code: "SidebarTunables.presenceDots")
 
+    /// A workspace nobody named whose name says nothing ("workspace-11", "~") reads in the
+    /// secondary ink while idle, read and not selected (Leo 2026-10-20: such rows clutter the
+    /// sidebar). On by default; off draws every name in the full ink.
+    public static let quietUnnamedRows = Tunable<Bool>.toggle(
+        "sidebar.quietUnnamedRows", .sidebar, "Quiet unnamed workspaces",
+        help: "An idle workspace nobody named (workspace-11, ~) shows its name dimmed until it has activity, something unread or the selection.",
+        default: true, code: "SidebarTunables.quietUnnamedRows")
+
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
         "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
@@ -116,6 +124,7 @@ public nonisolated enum SidebarTunables {
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
+            quietUnnamedRows.descriptor,
             rowBadgePreview.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,
