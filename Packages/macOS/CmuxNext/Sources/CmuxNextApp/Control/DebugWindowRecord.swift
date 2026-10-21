@@ -50,9 +50,9 @@ enum DebugWindowRecord {
         private var client: FrameClient?
         private var start0: CFTimeInterval?
         private var times: [Double] = []
-        private var luminances: [Double] = []
-        private var peaks: [Double] = []
         private let encoder = DispatchQueue(label: "debug.window_record", qos: .userInitiated)
+        /// Per-frame brightness, touched only on `encoder`.
+        private let brightness = Brightness()
 
         init(window: NSWindow, dir: URL, seconds: Double, done: @escaping () -> Void) {
             self.window = window
@@ -78,15 +78,15 @@ enum DebugWindowRecord {
             guard let image = window.compositedSnapshot(adding: overlayPanels()) else { return true }
             let index = times.count
             times.append(now - t0)
-            // Measured here, beside the snapshot, so `frames.json` needs no
-            // image decoder on the other side. It costs an 8x8 resample a
-            // frame, small next to `compositedSnapshot`, and a recording is
-            // for color and before/after proof, never for frame pacing.
-            let brightness = Self.brightness(of: image)
-            luminances.append(brightness.mean)
-            peaks.append(brightness.peak)
             let url = dir.appendingPathComponent(String(format: "frame-%05d.jpg", index))
+            let brightness = brightness
             encoder.async {
+                // Off the main thread, beside the encode: this is a frame of a
+                // recording other scenarios read for motion proof, so the
+                // display-link tick must not grow by a resample per frame. The
+                // queue is serial, so the two arrays stay in frame order and
+                // `finish`, queued last, sees all of them.
+                brightness.measure(image)
                 guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { return }
                 CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.85] as CFDictionary)
                 CGImageDestinationFinalize(dest)
@@ -107,11 +107,27 @@ enum DebugWindowRecord {
         /// The client goes idle when `tick` returns false.
         private func finish() {
             let index = dir.appendingPathComponent("frames.json")
-            let frames: [String: [Double]] = ["times": times, "luminance": luminances, "peak": peaks]
+            let times = self.times
+            let brightness = brightness
             encoder.async {
+                let frames: [String: [Double]] = ["times": times, "luminance": brightness.means, "peak": brightness.peaks]
                 if let data = try? JSONSerialization.data(withJSONObject: frames) { try? data.write(to: index) }
             }
             done()
+        }
+    }
+
+    /// Each frame's brightness, in frame order. Only the recorder's `encoder`
+    /// queue touches it, which is serial, so it needs no lock of its own.
+    // concurrency-allow: confined to one serial queue; no other thread reads or writes it
+    private final class Brightness: @unchecked Sendable {
+        private(set) var means: [Double] = []
+        private(set) var peaks: [Double] = []
+
+        func measure(_ image: CGImage) {
+            let reading = Self.brightness(of: image)
+            means.append(reading.mean)
+            peaks.append(reading.peak)
         }
 
         /// How bright `image` is: `mean`, its mean Rec. 709 luminance, and

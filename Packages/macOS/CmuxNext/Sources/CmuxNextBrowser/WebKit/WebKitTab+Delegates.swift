@@ -133,13 +133,23 @@ extension WebKitTab: WKNavigationDelegate {
     public func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation?, withError error: any Error) {
         restored.navigationCommitted(url: nil)  // a saved entry that failed to load is no longer loading
         formResubmissionFailed()
+        let failure = BrowserLoadError(error)
+        // Nothing is going to commit, so whatever is on screen keeps the page
+        // area; without this a document that committed but never finished
+        // keeps no background for good (`WebKitTab+LoadingBackground`). A
+        // benign interruption is a newer navigation taking this one's place,
+        // and that one's commit decides, as in `didFail`.
+        if !failure.isBenignInterruption { pageDidFinish() }
         guard let id = navigationID(for: navigation, creating: false) else { return }
         forgetNavigation(navigation)
-        apply(.failed(id, BrowserLoadError(error)))
+        apply(.failed(id, failure))
     }
 
     /// WebKit gives no reason; the sad tab says the page crashed.
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        // No commit or finish is coming, so the page area goes back to
+        // WebKit's own background rather than keeping none for good.
+        pageDidFinish()
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 

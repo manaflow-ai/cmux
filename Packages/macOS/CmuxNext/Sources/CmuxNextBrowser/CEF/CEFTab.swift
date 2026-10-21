@@ -81,7 +81,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var reloadWhenShown = false
     /// The tab showed a real page (or a page opened it): its page
     /// background is Chromium's white from now on (`PageBackground`).
-    @ObservationIgnored private(set) var pastFirstRealPage = false
+    /// Settable inside the module, not only this file: `reachedFirstRealPage`
+    /// is in `CEFTab+LoadingBackground` with the rest of the page background.
+    @ObservationIgnored var pastFirstRealPage = false
     /// The document's own background, 0xAARRGGBB, once read (nil: Chromium's
     /// white); counts for resize gaps (`CEFTab+ResizeBackdrop`).
     @ObservationIgnored var pageBackdropARGB: UInt32?
@@ -245,56 +247,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         refreshExtensionActions()
     }
 
-    /// A real page committed, or a page opened this tab (a popup,
-    /// target=_blank): Chromium's white default from now on, kept across tab
-    /// moves and popups (fork API 12).
-    ///
-    /// - Parameter settled: the tab already holds a document that paints the
-    ///   page area, so no load event of ours will settle it. A tab adopted
-    ///   after Chromium created and loaded it (a popup, a `target=_blank`
-    ///   window) has no `OnLoadStart`/`OnLoadEnd` of its own, so without this
-    ///   the base would stand in for its document for the tab's whole life
-    ///   (`CEFTab+LoadingBackground`).
-    func reachedFirstRealPage(settled: Bool = false) {
-        guard !pastFirstRealPage else { return }
-        pastFirstRealPage = true
-        if settled { documentSettled = true }
-        applyPageBackground()
-        applyOcclusion()
-    }
-
-    /// The tab's view moved or its theme scope changed: a page still on
-    /// the theme color takes the new scope's color, and a page that follows
-    /// the app hears the new appearance.
-    func pageThemeDidChange() {
-        if colorScheme == .system { reapplyColorScheme() }
-        guard !pastFirstRealPage || pageThemeSurface != nil || !documentSettled else { return }
-        applyPageBackground()
-    }
-
-    /// Every attached tab owns its background (theme color of its own
-    /// scope until the first real page, then white), so a theme change of
-    /// another room or workspace never repaints it.
-    /// After the first real page, the theme color again while the committed
-    /// document loads (`CEFTab+LoadingBackground`), then the document's own
-    /// background once read (`CEFTab+ResizeBackdrop`): it shows only where the
-    /// page draws nothing, as in the gap of a resize.
-    func applyPageBackground() {
-        applyHostBackdrop()
-        guard let browser = browserID, let shim = runtime.shim else { return }
-        if let pageThemeSurface {
-            _ = shim.browserSetBackgroundColor(browser, PageBackground.themeARGB(in: container, surface: pageThemeSurface))
-            return
-        }
-        _ = shim.browserSetBackgroundColor(browser, pageBaseARGB)
-    }
-
-    /// The shared host view under the page window takes this tab's page
-    /// color while it shows this tab.
-    func applyHostBackdrop() {
-        guard host.visibleTab === self else { return }
-        host.hostView.pageBackdrop = pageBackdropColor
-    }
+    // What the page area shows, and when the document takes it over, are in
+    // `CEFTab+LoadingBackground`.
 
     func creationFailed() {
         isCreationPending = false
@@ -340,6 +294,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // `.loadStart` sends the color scheme again rather than trusting a memo
         // no live page ever heard.
         sentColorScheme = nil
+        // No first paint or load end is coming for the document that was
+        // loading, so the page area stops standing in for it rather than
+        // keeping the theme base for good (`CEFTab+LoadingBackground`).
+        documentDidSettle()
         machine.apply(.processExited(exit))
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()

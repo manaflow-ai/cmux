@@ -38,8 +38,20 @@ enum CEFColorScheme {
         tab.sentColorScheme = wanted
         let runtime = tab.runtime
         let media = tab.devToolsModes.emulatedMedia
-        Task {
-            _ = try? await runtime.devTools(browserID, method: media.method, params: media.params)
+        Task { [weak tab] in
+            do {
+                _ = try await runtime.devTools(browserID, method: media.method, params: media.params)
+            } catch {
+                // A send that threw or timed out must not stay remembered as
+                // sent: the guard above would short-circuit every later
+                // `reapplyColorScheme()` and the page would keep the wrong
+                // appearance -- light in a dark theme -- for the tab's whole
+                // life, since only a renderer exit clears the memo. Forget it
+                // unless a newer value has since been sent.
+                guard let tab, tab.sentColorScheme == wanted else { return }
+                tab.sentColorScheme = nil
+                runtime.logger.info("color scheme: \(media.method, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+            }
         }
     }
 

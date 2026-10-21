@@ -37,6 +37,9 @@ TOLERANCE = {"luminance": 0.04, "peak": 0.15}
 DARK_THEME_LUMINANCE = 0.35
 # A dark Ghostty theme every build ships.
 THEME = "Nord"
+# How long to wait for a recording's `frames.json` after its last frame, while the encoder
+# queue drains.
+WRITE_TIMEOUT = 20.0
 
 PAGE = """<!doctype html><meta charset="utf-8"><title>%(title)s</title>
 <style>html,body{margin:0;height:100%%;background:%(background)s;color:#8a8a99;font:600 16px -apple-system,sans-serif}
@@ -53,6 +56,26 @@ STALL = """<script>
 const end = Date.now() + 1400;
 while (Date.now() < end) { /* hold the parser */ }
 </script>"""
+
+# A page with no background of its own, which paints at once and then keeps loading. This
+# is the class the theme base can get wrong in the other direction: the base is the canvas
+# under the document for as long as cmux holds it, not only until the first frame, so a
+# build that waits for the *load* to end leaves the theme color under painted UA text
+# (black on dark) and only turns white seconds later. A build that hands over at first
+# contentful paint turns white right after the text appears.
+#
+# Reported, not judged: white here is correct (the page has no background of its own), so
+# what matters is *when* the window brightens, and no run has measured that yet. The
+# numbers go in the artifact until one has.
+#
+# The iframe is what separates the two moments: the main document's text paints as soon as
+# it is parsed, but the main frame's load event waits for the subframe, which holds its own
+# parser for over a second. First contentful paint and load end are therefore about 1.4 s
+# apart, with the page's own content on screen for all of it.
+UNSTYLED = """<!doctype html><meta charset="utf-8"><title>Unstyled page</title>
+<p>Unstyled page, no background of its own.</p>
+<iframe src="%(stall)s" width="80" height="40" style="border:0"></iframe>
+"""
 
 
 def luminance(hex_color: str) -> float:
@@ -84,8 +107,19 @@ def _record(driver, folder: Path, seconds: float, act=None) -> dict:
         return {"error": f"window_record: {started['error']}"}
     time.sleep(0.2)
     acted = act() if act else None
-    time.sleep(seconds + 0.5)
-    frames = _frames(folder)
+    time.sleep(seconds)
+    # Poll rather than sleep a fixed margin: `finish()` queues the JSON write behind every
+    # frame's encode, and a 2.6 s pass at 120 Hz leaves a few hundred of those in the
+    # queue. A margin that ran out would read no `frames.json`, which reports "not
+    # measured" and silently turns the check off.
+    deadline = time.monotonic() + WRITE_TIMEOUT
+    while time.monotonic() < deadline:
+        frames = _frames(folder)
+        if "error" not in frames:
+            break
+        time.sleep(0.25)
+    else:
+        frames = _frames(folder)
     if acted is not None:
         frames["acted"] = acted
     return frames
@@ -109,6 +143,8 @@ def drive(driver, out: Path) -> None:
     first.write_text(PAGE % {"title": "First page", "head": "", "background": background})
     slow = pages / "slow.html"
     slow.write_text(PAGE % {"title": "Slow page", "head": STALL, "background": background})
+    unstyled = pages / "unstyled.html"
+    unstyled.write_text(UNSTYLED % {"stall": slow.name})
 
     opened = driver.call("action.run", {"action": "openBrowser.chromium", "args": {"url": first.as_uri()}, "focus": True},
                          timeout=90)
@@ -134,11 +170,38 @@ def drive(driver, out: Path) -> None:
     rest = _record(driver, pages / "rest", 0.6)
     navigate = _record(driver, pages / "navigate", 2.6,
                        lambda: evaluate(f"location.href = {json.dumps(slow.as_uri())}, true"))
+    # Reported only (`UNSTYLED`): how long the theme color stays under a page that has
+    # already painted its own content.
+    unstyled_frames = _record(driver, pages / "unstyled", 2.6,
+                              lambda: evaluate(f"location.href = {json.dumps(unstyled.as_uri())}, true"))
     driver.save("dark_load_flash", {
         "theme": theme, "theme_background": content, "theme_luminance": round(theme_luminance, 4),
         "theme_is_dark": window.get("is_dark"), "page_background": background,
-        "opened": opened, "rest": rest, "navigate": navigate,
+        "opened": opened, "rest": rest, "navigate": navigate, "unstyled": unstyled_frames,
     })
+
+
+def _unstyled_handover(rest: dict, unstyled: dict) -> dict:
+    """When the window brightened on the unstyled page, as a share of the recording.
+
+    Reported, never judged. The page has no background of its own, so a correct build does
+    turn the page area white -- the question is whether it does so when the page *paints*
+    or only when its load *ends*, and those are about 1.4 s apart here. A small share means
+    the hand-over followed the paint; a share near 1 means the theme color stayed under
+    text that was already on screen.
+    """
+    if "error" in unstyled:
+        return {"note": f"not measured: {unstyled['error']}"}
+    at_rest = [float(value) for value in rest.get("luminance") or []]
+    during = [float(value) for value in unstyled.get("luminance") or []]
+    if len(at_rest) < 10 or len(during) < 60:
+        return {"note": f"not measured: {len(at_rest)} frames at rest, {len(during)} on the unstyled page"}
+    threshold = max(at_rest) + TOLERANCE["luminance"]
+    risen = next((index for index, value in enumerate(during) if value > threshold), None)
+    if risen is None:
+        return {"frames": len(during), "note": "the page area never brightened"}
+    return {"frames": len(during), "rise_frame": risen, "rise_share": round(risen / len(during), 3),
+            "threshold": round(threshold, 4)}
 
 
 def judge(data: dict, refresh: float) -> dict:
@@ -177,6 +240,7 @@ def judge(data: dict, refresh: float) -> dict:
                 problems.append(f"the page flashed: {key} rose from {base:.3f} at rest to {worst:.3f} "
                                 f"(over {tolerance:.2f}) while the page loaded")
     verdict["frames"] = {"rest": len(rest.get("peak") or []), "navigate": len(navigate.get("peak") or [])}
+    verdict["unstyled"] = _unstyled_handover(rest, data.get("unstyled") or {})
     verdict["problems"] = problems
     verdict["measured"] = not unmeasured
     verdict["ok"] = not problems
