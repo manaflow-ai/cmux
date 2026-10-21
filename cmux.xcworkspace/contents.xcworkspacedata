@@ -90,6 +90,9 @@
          location = "container:ios/CmuxiOS">
       </FileRef>
       <FileRef
+         location = "group:CmuxConversation">
+      </FileRef>
+      <FileRef
          location = "group:CmuxMobilePairedMac">
       </FileRef>
       <FileRef
@@ -106,6 +109,9 @@
       </FileRef>
       <FileRef
          location = "group:CmuxMobileTunnel">
+      </FileRef>
+      <FileRef
+         location = "group:CmuxTabsKit">
       </FileRef>
    </Group>
    <Group

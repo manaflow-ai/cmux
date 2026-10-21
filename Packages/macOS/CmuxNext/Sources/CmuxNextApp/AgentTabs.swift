@@ -33,6 +33,12 @@ final class AgentTabStore {
     var lookup: @MainActor (String) -> (record: AgentSessionRef, store: DaemonStore)? = { _ in nil }
     /// The pane holding tab `key` and its daemon (New side chat opens its fork there first).
     var locate: @MainActor (String) -> (pane: PaneID, daemon: DaemonService)? = { _ in nil }
+    /// Main pane layout (``MainPaneLayout``): opens what chat tab `chat` opens beside it (through
+    /// `open`, focused with `focus`) in the column on the chat's right, then `created` and
+    /// `finished` as ``openBeside`` calls them. Nil when the chat is not its screen's main pane:
+    /// the caller places the tab itself.
+    var openInMainPane: @MainActor (_ chat: String, _ focus: Bool, _ open: (PaneID, DaemonService) throws -> AgentTabPending,
+                                    _ created: (@MainActor (String) -> Void)?, _ finished: (@MainActor (Bool) -> Void)?) -> Bool? = { _, _, _, _, _ in nil }
     /// Every agent tab the trees list, with its record.
     var listTabs: @MainActor () -> [(key: String, record: AgentSessionRef)] = { [] }
     /// Creates the store tab with idempotency key `key` (AppServices: `new-conversation-tab` on
@@ -47,6 +53,9 @@ final class AgentTabStore {
     /// The pane host for agent tab `key` when its session runs on another machine whose session
     /// daemon serves `agent-session-attach-v1` (AppServices); nil keeps the "runs on" notice.
     var remoteHost: @MainActor (String) -> (any AgentPaneHostProviding)? = { _ in nil }
+    /// The acpmux turn states and sub-session links (`startedBy`) the app's watches mirror: a chat's
+    /// page opens only sessions of its own family (``AgentPaneHeaderHooks/isFamily``).
+    var turns: AgentTurnStateStore = .shared
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapabilities.shared.agentSessionTabs) }
@@ -263,6 +272,12 @@ final class AgentTabStore {
     /// the provisional alias (cx-k21v: a remote New Tab page's send failed with unknown_tab).
     func resolveRemote(_ key: String) -> String { aliases[key] ?? remoteAliases[key] ?? key }
 
+    /// The ``revealTurn(_:in:)`` value that scrolls to and marks message `id`, the harness message
+    /// id an `agent/<harness>/<session>?message=<id>` link carries (the page's `MESSAGE_REVEAL`,
+    /// webviews/src/agent-session/acpmux/links.ts). A message this machine's transcript does not
+    /// have leaves the view where it is.
+    static func messageReveal(_ id: String) -> String { "message:" + id }
+
     /// Scrolls tab `key`'s transcript to `turn` (a `#turn-<turnId>` link):
     /// through its page, or with the handshake of a page not made yet.
     func revealTurn(_ turn: String, in key: String) {
@@ -416,6 +431,7 @@ final class AgentTabStore {
             if isNewTabPage(page), let openHere = pageChats.openHere { openHere(key, page) } else { pageChats.open?(key) }
         }
         model.onOpenChatInTerminal = { [weak self] key in self?.pageChats.openInTerminal?(key) }
+        model.onWatchChat = { [weak self] key in self?.pageChats.watch?(key) }
         model.onChatsPage = { [weak self] query in
             let answer = await self?.pageChats.page?(query)
             // A New Tab page on screen gives the frame of the list it draws now.

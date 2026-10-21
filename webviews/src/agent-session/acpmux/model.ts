@@ -1,6 +1,7 @@
 import { editedPaths } from "./toolPaths";
 import type { PermissionClientState } from "./permissions/protocol";
 import type { AgentQuestion } from "./question/model";
+import type { WatchedAsk } from "./needsYou/model";
 import type { PermissionDecision } from "./permissions/record";
 import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
@@ -10,10 +11,10 @@ import type { IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
-import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
+import { SUBAGENT_DONE, SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { BACKGROUND_WORK } from "./conversation/backgroundWork";
+import { PASTE_CHIP_HEIGHT, type PasteRange, collapsedPromptHeight, promptParts } from "./conversation/promptCollapse";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -24,6 +25,10 @@ export type AcpmuxBackgroundTask = {
   command: string;
   state: "completed" | "failed" | "stopped";
   reason?: string;
+  /// Claude Code's own words on how it ended (its task notification's summary).
+  summary?: string;
+  /// The exit code, when the harness reports one (Codex does; Claude Code does not).
+  exitCode?: number;
 };
 
 /// A shell call's life in the background, on the call that started it (direct.ts
@@ -114,9 +119,22 @@ export type PromptDelivery = {
   connection?: string;
 };
 
-export type QueuedPrompt = { id: string; prompt: string; next?: boolean; sending?: boolean };
+/// A prompt waiting for the running turn, with the images it sends, in its order (Leo,
+/// 2026-10-21: a queued row showed only its text).
+export type QueuedPrompt = {
+  id: string;
+  prompt: string;
+  next?: boolean;
+  sending?: boolean;
+  images?: QueuedPromptImage[];
+};
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
+/// A queued prompt's image: `src` is its data URL when the pane has its bytes (it sent them, or
+/// the `queued` record carries them), else the row reads it by `id`. acpmux names an image by the
+/// SHA-256 of its bytes; one the pane only sent so far has the composer's id (`local`) until
+/// acpmux names it, so an edit cannot keep or drop it by id yet.
+export type QueuedPromptImage = PromptImage & { src?: string; local?: boolean };
 
 export type AcpmuxRow = {
   id: string;
@@ -166,6 +184,9 @@ export type AcpmuxRow = {
   checkpoint?: SummaryCheckpoint;
   /// A sent prompt's images, as acpmux names them in its user_message (hub/prompt_images.rs).
   images?: PromptImage[];
+  /// A sent prompt's pasted blocks (`user_message.pasted`, UTF-16 ranges into `text`), each drawn
+  /// as a chip that opens in place (conversation/promptCollapse.ts).
+  pasted?: PasteRange[];
   /// Who sent a prompt that the reader did not type here: `chief` for the Chief's task, tell,
   /// steer or restart message to a subagent (its `user_message` promptId `optchat-<kind>:…`).
   from?: "chief";
@@ -295,6 +316,15 @@ export type AcpmuxFileDiff = {
   fromInput?: true;
 };
 
+/// A Write whose old contents are unknown: its whole new text with no old text, still a fragment
+/// because its result neither confirmed a create nor carried the old text (acpmux claude_stdio
+/// `settle_write`: an overwrite without `originalFile`, an oversized one, no result yet, a cut-off
+/// adopted Write). Its lines are not added lines, so the turn's files leave its file out (diff.ts
+/// `turnFiles`) and the edited-files card lists its path without counts (`plainEditLabels`). A Write
+/// read from its input is known: direct.ts `inputDiffs` builds one only when the result said created.
+export const contentsUnknown = (diff: AcpmuxFileDiff) =>
+  diff.oldText == null && diff.fragment === true && diff.fromInput !== true;
+
 /// An agent's ask for a secret (cx-ncc.42, acpmux `hub/secrets.rs`): the `secret_request` record
 /// holds only the name and reason, never a value. The card answers with `_acpmux/secret_submit`.
 export type AcpmuxSecretAsk = { secretId: string; name: string; reason: string };
@@ -370,7 +400,8 @@ export type AcpmuxCatalogModel = {
 /// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
 /// stop the running turn and run it next.
 export type QueueEdit =
-  | { op: "update"; text: string }
+  /** New text; the prompt keeps its images, or with `images` (acpmux ids) only those. */
+  | { op: "update"; text: string; images?: string[] }
   | { op: "move"; index: number }
   | { op: "send_now" }
   | { op: "interrupt" }
@@ -426,6 +457,9 @@ export type AcpmuxSnapshot = {
     /// acpmux runs the chat restricted (`hub/restricted.rs`): no project settings, hooks or MCP
     /// servers, and every tool asks.
     restricted?: boolean;
+    /// The family (`claude`, `codex`) of a conversation another app runs that this chat only shows
+    /// (acpmux `watching`): no prompt goes until the user takes it over.
+    watching?: string;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];
@@ -455,12 +489,20 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
+  /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
+  /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
+  /// in one frame (AgentPaneView+Loading.swift).
+  drewKeptTail?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
   /// `turnTokens`); unset when the harness does not report each call or the client missed the
   /// turn's start.
   turnTokens?: number;
+  /// The running turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
+  /// (direct.ts `silentTurn`): the turn's line says the model has not answered.
+  silentTurn?: true;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;
@@ -480,6 +522,9 @@ export type AcpmuxSnapshot = {
   /// How many more asks wait behind `permission`, answered one at a time; absent when none do.
   permissionsWaiting?: number;
   secret?: AcpmuxSecretAsk;
+  /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts); the same
+  /// array until one comes or goes.
+  asks?: WatchedAsk[];
   /** `unavailable`: why acpmux will not run that model (its backend refused it), or that harness
    * (its launcher check or its model probe failed). */
   catalog: {
@@ -524,6 +569,9 @@ export type AcpmuxSnapshot = {
    * `adopt.live`): the pane offers Open Anyway, and Fork It when the harness can fork. `command`
    * is the process that holds it, when acpmux found one. Unset once a choice is sent. */
   liveChat?: { canFork: boolean; command?: string };
+  /** Take Over of a watched chat was refused because the other app still runs it (`adopt.live`):
+   * the pane offers Open Anyway, and Fork It when the harness can fork. */
+  liveTakeOver?: { canFork: boolean; command?: string };
 };
 
 export type PreparedRow = {
@@ -550,6 +598,10 @@ export type ConversationLayout = {
 /// text font, its line and the code sizes follow the user's chat look (chatDisplay.ts), 14px
 /// system-ui on 22.75px lines and 12px code on 20px lines by default.
 const metrics = () => currentChatMetrics();
+/// Room kept under the last row, over the bottom stack's: a streaming reply's newest line sits a
+/// line and a half above the composer instead of on its edge, as in ChatGPT and Claude desktop.
+/// It is always there, streaming or not, so a reply that starts or ends moves nothing.
+export const TRANSCRIPT_RUNWAY = 24;
 /// Vertical padding of a user bubble (`.cv-user__bubble`).
 const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
@@ -627,20 +679,27 @@ export function editedCardHeight(files: number, plain = 0): number {
 }
 
 /// What edits without a diff list as in the edited-files card: each path they name, once
-/// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file").
-/// Never the tool input itself.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
-  const out: { key: string; path?: string }[] = [];
-  const seen = new Set<string>();
+/// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
+/// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
+/// `failed`: only calls that failed named it, so it lists as failed. Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string; failed?: true }[] {
+  const out: { key: string; path?: string; failed?: true }[] = [];
+  const at = new Map<string, number>();
   items.forEach((item, index) => {
-    if (!item.tool || item.tool.diffs?.length) return;
-    const paths = editedPaths(item.tool);
-    if (!paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
-    for (const path of paths)
-      if (!seen.has(path)) {
-        seen.add(path);
-        out.push({ key: `path-${path}`, path });
-      }
+    // An edit still waiting for its permission has changed nothing yet.
+    if (!item.tool || item.tool.status === "pending") return;
+    const diffs = item.tool.diffs ?? [];
+    const failed = item.tool.status === "failed";
+    const mark = failed ? { failed: true as const } : {};
+    const paths = diffs.length ? diffs.filter(contentsUnknown).map((diff) => diff.path) : editedPaths(item.tool);
+    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}`, ...mark });
+    for (const path of paths) {
+      const listed = at.get(path);
+      if (listed === undefined) {
+        at.set(path, out.length);
+        out.push({ key: `path-${path}`, path, ...mark });
+      } else if (!failed) out[listed] = { key: `path-${path}`, path };
+    }
   });
   return out;
 }
@@ -651,9 +710,13 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
 /// The space under a message row: the meta gap over its turn's footer (`.acpmux-row--before-footer`,
 /// which also drops the row's 34px floor), else the message gap.
 const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSAGE_GAP);
-/// A reply right over its turn's footer: App.tsx marks the same rows `acpmux-row--before-footer`.
-const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "assistant" && next?.kind === "turnSummary";
+/// A reply right over its turn's footer, or over the running turn's line drawn as its last row
+/// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
+/// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
+/// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
+export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
@@ -663,10 +726,7 @@ export function nextDrawnRow(rows: readonly AcpmuxRow[], index: number): AcpmuxR
 }
 /// The chat's last footer ends at the message gap, not the turn gap: no band over the composer
 /// (App.tsx marks it `acpmux-row--last-footer`). `next` is the next row that draws.
-/// The "Running in background" row after it (summary/backgroundWork.ts) leaves it the last: the
-/// row comes and goes under the footer without moving it.
-export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "turnSummary" && (!next || next.kind === BACKGROUND_WORK);
+export const isLastFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) => row.kind === "turnSummary" && !next;
 /// What the row after a row changes about its height (`beforeFooter`, `lastFooter`), as one key.
 const rowEdge = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
   isBeforeFooter(row, next) ? "footer" : isLastFooter(row, next) ? "last" : undefined;
@@ -679,8 +739,11 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     // (`.cv-tools`: 2px above 26px rows), which is also how a copy inside an open "Worked for" draws.
     const edits = row.items?.filter((item) => item.tool?.kind === "edit" || item.tool?.kind === "fileChange") ?? [];
     if (edits.length && !isFoldedCopy(row)) {
-      const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
-      return 14 + editedCardHeight(files, plainEditLabels(edits).length);
+      const files = new Set(
+        edits.flatMap((item) => item.tool?.diffs?.flatMap((diff) => (contentsUnknown(diff) ? [] : [diff.path])) ?? []),
+      );
+      const plain = plainEditLabels(edits).filter((entry) => !entry.path || !files.has(entry.path));
+      return 14 + editedCardHeight(files.size, plain.length);
     }
     // A folded run (Debug toggle) draws one summary line until opened.
     if (row.foldRun && row.items && isFoldedRun(row.items)) return 36;
@@ -733,7 +796,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
   if (
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
-    row.kind === BACKGROUND_WORK ||
+    row.kind === SUBAGENT_DONE ||
     row.kind === "compaction" ||
     row.kind === "failover" ||
     row.kind === "plan" ||
@@ -884,15 +947,33 @@ function measuredRowHeight(
     entry = { text: "", blocks: [], closedBlocks: [], closedEnd: 0, lexedLength: 0, prepared: new Map() };
     cache.set(row.id, entry);
   }
-  if (entry.text !== row.text || entry.lexedLength === 0) {
+  const pasted = row.kind === "user" && Boolean(row.pasted?.length);
+  if (!pasted && (entry.text !== row.text || entry.lexedLength === 0)) {
     lexIncrementally(entry, row.text);
     // A streaming row prepares a new last block on every version; keep the cache bounded.
     if (entry.prepared.size > 64) entry.prepared.clear();
   }
-  if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
-  let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
-  for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  let contentHeight: number;
+  if (pasted) {
+    // A prompt with pasted blocks: its typed parts, each a line or more, and a chip per paste
+    // however long it is (conversation/UserBubble.tsx).
+    const { lineHeight } = metrics();
+    contentHeight = 0;
+    for (const part of promptParts(row.text, row.pasted!))
+      contentHeight +=
+        part.kind === "paste"
+          ? PASTE_CHIP_HEIGHT
+          : Math.max(lineHeight, textHeight(part.text, contentWidth, entry.prepared));
+  } else {
+    if (entry.blocks.length === 0) return fallbackRowHeight(row, width, beforeFooter, lastFooter);
+    contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
+    for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
+  }
+  // A long prompt opens collapsed to its first lines over Show more (conversation/UserBubble.tsx); a
+  // Chief's draws its own bubble (ChiefPromptBubble.tsx).
+  if (row.kind === "user" && row.from !== "chief" && !chiefEnvelope(row.text))
+    contentHeight = collapsedPromptHeight(contentHeight, metrics().lineHeight);
   const height = messageBelow(beforeFooter) + chromeHeight(row) + contentHeight;
   return beforeFooter ? height : Math.max(34, height);
 }

@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextActions
 import Foundation
 
 /// The app side of the chat header (`pane.action`, `pane.tabState`): runs a
@@ -39,6 +41,13 @@ public struct AgentPaneHeaderHooks {
     /// Asks for the chat folder's pull request again (`pane.tabState {refresh: true}` at a turn's
     /// end, cx-ncc.77.1); the answer is pushed with the header state.
     public var refreshPullRequest: (@MainActor () -> Void)?
+    /// Shows and focuses the tab that shows acpmux session `id` already, so a chat never streams in
+    /// two tabs (``AgentPaneOfferOpen``); false when no tab shows it.
+    public var showSession: @MainActor (String) -> Bool
+    /// Whether acpmux session `session` is of chat `chat`'s family: a sub-session it started at any
+    /// depth, or the session that started it (acpmux `startedBy`, mirrored by the app's turn-state
+    /// watch). ``AgentPaneOfferOpen`` opens only those, or the pane's own sessions; none by default.
+    public var isFamily: @MainActor (_ session: String, _ chat: String) -> Bool
 
     public init(run: @escaping @MainActor (String, String?) -> Void,
                 toggle: (@MainActor (String, String?) -> Void)? = nil,
@@ -52,7 +61,9 @@ public struct AgentPaneHeaderHooks {
                 preview: @escaping @MainActor (String?, Bool) -> Void = { _, _ in },
                 saveQuickActions: (@MainActor ([AgentPaneQuickAction]) async -> Bool)? = nil,
                 moveToFloatingChat: (@MainActor (String) -> Bool)? = nil,
-                refreshPullRequest: (@MainActor () -> Void)? = nil) {
+                refreshPullRequest: (@MainActor () -> Void)? = nil,
+                showSession: @escaping @MainActor (String) -> Bool = { _ in false },
+                isFamily: @escaping @MainActor (_ session: String, _ chat: String) -> Bool = { _, _ in false }) {
         self.run = run
         self.toggle = toggle ?? run
         self.tabState = tabState
@@ -66,6 +77,8 @@ public struct AgentPaneHeaderHooks {
         self.saveQuickActions = saveQuickActions ?? { _ in false }
         self.moveToFloatingChat = moveToFloatingChat
         self.refreshPullRequest = refreshPullRequest
+        self.showSession = showSession
+        self.isFamily = isFamily
     }
 
     /// The header's state (`pane.tabState`); `refresh` first asks for the pull request again.
@@ -139,7 +152,9 @@ extension AgentPaneModel {
             guard let header else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: pane.tabState")
             }
-            return AgentPaneReply.success(header.state(refresh: refresh).reply)
+            var state = header.state(refresh: refresh).reply
+            state["moves"] = offeredMoves()
+            return AgentPaneReply.success(state)
         case .sideChat(let fork):
             return await AgentPaneSideChat.open(fork, in: self)
         case .subagentPane(let agent, let focus):
@@ -160,6 +175,8 @@ extension AgentPaneModel {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.openTab")
             }
             return AgentPaneReply.success()
+        case .offerOpen(let session):
+            return AgentPaneOfferOpen.respond(session, in: self)
         case .newChatHere(let cwd):
             guard sessionId != nil, newTab == nil, let header, header.newChat(cwd) else {
                 return AgentPaneReply.failure(code: "unsupported", message: "Unsupported agent pane request: chat.newHere")
@@ -190,5 +207,20 @@ enum AgentPaneSideChat {
         }
         header.openSide(sessionId, fork)
         return AgentPaneReply.success()
+    }
+}
+
+extension AgentPaneModel {
+    /// The Cloud moves (`cloudMove`, `cloudBringBack`) the chat's right-click menu offers now, so the
+    /// composer's picker offers the same: the App decides which apply (it hides Bring Back Local on a
+    /// chat no move from this Mac put on its machine, and Move to Cloud on a chat of another machine).
+    func offeredMoves() -> [String] {
+        func ids(_ items: [NSMenuItem]) -> [String] {
+            items.flatMap { item in
+                (ActionRegistry.menuRun(of: item).map { [$0.id.rawValue] } ?? []) + ids(item.submenu?.items ?? [])
+            }
+        }
+        let moves: Set<String> = ["cloudMove", "cloudBringBack"]
+        return ids(chatMenuItems?() ?? []).filter(moves.contains)
     }
 }

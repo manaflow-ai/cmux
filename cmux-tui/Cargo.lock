@@ -13,6 +13,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-git",
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
