@@ -65,9 +65,9 @@ export function keptTail(sessionId: string): KeptTail | undefined {
 /// chat opens cold. Each of those is a colder draw of the same chat, which is the trade. It matters
 /// where there is no host to read back from — a page outside the app, the gallery, a test — and
 /// where `writeHostTail` cut the tail to nothing: there the map would be the only copy, and a later
-/// client would draw a chat it never attached to as though it had. Session ids are not reused, so the rows would be that chat's; they would simply be rows
-/// this client never read and cannot stand behind, which is the same thing `forgetTail` exists to
-/// prevent after a failed attach.
+/// client would draw a chat it never attached to as though it had. Session ids are not reused, so
+/// the rows would be that chat's; they would simply be rows this client never read and cannot stand
+/// behind, which is the same thing `forgetTail` exists to prevent after a failed attach.
 export function rememberTail(sessionId: string, tail: KeptTail, forThisPage = true): void {
   if (forThisPage) {
     keptTails.delete(sessionId);
