@@ -84,10 +84,11 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resize", body: ["cpu": cpu, "memoryMb": memoryMb], timeout: .seconds(120), as: Ignored.self)
     }
 
-    public func snapshot(_ id: String, name: String?) async throws -> CloudSnapshot {
+    public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
         var body: [String: any Sendable] = [:]
         if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, timeout: .seconds(300), as: CloudSnapshot.self)
+        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, idempotencyKey: idempotencyKey,
+                              timeout: .seconds(300), as: CloudSnapshot.self)
     }
 
     public func snapshots(_ id: String) async throws -> [CloudSnapshot] {
