@@ -899,6 +899,8 @@ fn todo_plan(input: &Value) -> Option<Value> {
 
 /// A `compaction` update: a compaction of the chat's context `state`
 /// (`running`, `completed`, `failed`), with what Claude's line says about it.
+/// Claude Code repeats `running` every 30 seconds while it compacts; clients
+/// keep one compaction on one row.
 /// `reason` is set by a wrapper that compacted for its own purpose (the
 /// subrouter relay compacts before moving the chat to another account).
 fn compaction_update(state: &str, line: &Value) -> Value {
@@ -914,6 +916,13 @@ fn compaction_update(state: &str, line: &Value) -> Value {
         if let Some(v) = field(from) {
             update[to] = v;
         }
+    }
+    // Why it failed, in Claude Code's words (2.1.305 `compact_error`).
+    if state == "failed"
+        && let Some(error) = line.get("compact_error").and_then(Value::as_str)
+        && !error.trim().is_empty()
+    {
+        update["error"] = json!(error.trim());
     }
     update
 }

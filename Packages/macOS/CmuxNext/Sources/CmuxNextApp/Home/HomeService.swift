@@ -52,7 +52,7 @@ final class HomeService {
     var homeWorkspaceID: ResourceID?
     /// An `ensure_home` is in flight. A tree snapshot taken meanwhile can
     /// show the new home workspace before its kind row, so launch waits for
-    /// the answer before it decides on a first workspace (`FirstWorkspace`).
+    /// the answer before it decides on a first workspace (`needsFirstWorkspace`).
     var homeEnsureInFlight = false
     /// The latest `ensure_home`; only it clears `homeEnsureInFlight`.
     @ObservationIgnored var homeEnsureGeneration = 0

@@ -25,6 +25,16 @@
       "message": "Cloud VM 快照需要幂等键。",
       "action": "请使用不超过 128 个字符的固定 Idempotency-Key 重试。"
     },
+    "snapshotInProgress": {
+      "title": "快照仍在进行中",
+      "message": "此 Cloud VM 上使用该幂等键的快照仍在运行。",
+      "action": "请等待第一个快照完成，然后使用相同的幂等键重试。"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "快照重试键已被使用",
+      "message": "该幂等键已用于此 Cloud VM 上的另一个快照请求。",
+      "action": "为使用其他名称的快照使用新的幂等键。"
+    },
     "snapshotQuota": {
       "title": "已达到快照上限",
       "message": "此 Cloud VM 已达到快照上限。",

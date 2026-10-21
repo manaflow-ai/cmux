@@ -11,11 +11,21 @@ import { callChipHost } from "../chips/host";
 
 export type Browser = { id: string; name: string; icon?: string };
 
-/// `onOpenInPane` opens the URL in cmux's browser pane (the card's existing path).
-export function OpenInMenu({ url, onOpenInPane }: { url: string; onOpenInPane: (url: string) => void }) {
+/// `onOpenInPane` opens the URL in cmux's browser pane (the card's existing path). `onOpenChange`
+/// hears the menu open and close (a link's hover card stays up while its menu is open).
+export function OpenInMenu({
+  url,
+  onOpenInPane,
+  onOpenChange: heard,
+}: {
+  url: string;
+  onOpenInPane: (url: string) => void;
+  onOpenChange?: (open: boolean) => void;
+}) {
   const t = useT();
   const [browsers, setBrowsers] = useState<Browser[] | undefined>();
   const onOpenChange = (open: boolean) => {
+    heard?.(open);
     // The list is asked for on every open: the host's ids from an older list stop working.
     if (open)
       void callChipHost("browser.list", {}).then((reply) => {
