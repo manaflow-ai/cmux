@@ -18,6 +18,7 @@ mod cancel;
 mod catalog_reload;
 mod complete;
 mod cursor_ext;
+mod digest;
 mod fork;
 mod fork_at;
 pub mod forum;
@@ -47,6 +48,7 @@ mod prompt_images;
 mod prompt_ledger;
 mod queue;
 mod queue_edit;
+pub use digest::declared_sender;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
@@ -221,6 +223,9 @@ pub struct PromptOptions {
     pub interrupt: bool,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Another agent's name when it sent the prompt with no provenance: the session a
+    /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
+    pub agent: Option<String>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,

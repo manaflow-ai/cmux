@@ -510,6 +510,10 @@ async fn dispatch_request(
             // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
             let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
             let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
+            // Another agent's message with no provenance (`hub/digest.rs`): one that names its
+            // sender, or one from a connection that proved it runs in an acpmux session.
+            let agent = crate::hub::declared_sender(&params)?
+                .or_else(|| conn.caller().map(|id| hub.session_name(id)));
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
@@ -530,6 +534,7 @@ async fn dispatch_request(
                 steer_only: flag("steerOnly") == Some(true),
                 interrupt: steer && flag("interrupt") == Some(true),
                 provenance,
+                agent,
                 after_turn: None,
             };
             let agent_message = opts.provenance.is_some();
