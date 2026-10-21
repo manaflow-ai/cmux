@@ -411,7 +411,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
             let behind =
                 json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
-            let steers_now = steer && running && pending == 0 && steering(&info);
+            // As the hub decides: a running turn of an agent that steers, pending permission or not.
+            let steers_now = steer && running && steering(&info);
             if (running || pending > 0) && !steers_now {
                 let mut parts = Vec::new();
                 if pending > 0 {
