@@ -363,25 +363,39 @@ test("a queued image acpmux has no bytes for reads as missing, one being read as
   expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "missing" }]);
 });
 
-test("a paused queue names its error and says nothing sends after this turn", async () => {
+async function renderPaused(pausedError: string) {
   const container = installDom();
   const said = (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key);
   await act(async () => {
     root = createRoot(container);
     root.render(
-      <ComposerQueue
-        queue={queue}
-        chat="c"
-        paused
-        pausedError="agent process closed"
-        t={said}
-        onChange={async () => true}
-      />,
+      <ComposerQueue queue={queue} chat="c" paused pausedError={pausedError} t={said} onChange={async () => true} />,
     );
   });
+  return container;
+}
+
+test("a paused queue names its error and says nothing sends after this turn", async () => {
+  const container = await renderPaused("agent process closed");
   const note = container.querySelector(".acpmux-queue-paused")!;
   expect(note.textContent).toContain("agent process closed");
+  // Visible text gets no tooltip: the error is in the note itself.
+  expect(note.querySelector("[title]")).toBeNull();
   expect(container.textContent).not.toContain("composer.queueAfterTurn");
   // Resume stays: it runs the held prompts again.
   expect(note.querySelector(".acpmux-queue-resume")).not.toBeNull();
+});
+
+test("a long error shows its start, and Show more shows the whole error in the note", async () => {
+  const error = `upstream relay refused the stream: ${"x".repeat(300)} end-of-error`;
+  const container = await renderPaused(error);
+  const note = container.querySelector(".acpmux-queue-paused")!;
+  expect(note.textContent).not.toContain("end-of-error");
+  expect(note.querySelector("[title]")).toBeNull();
+  const more = [...note.querySelectorAll("button")].find((button) => button.textContent === "message.more")!;
+  expect(more.getAttribute("aria-expanded")).toBe("false");
+  await act(async () => more.click());
+  expect(note.textContent).toContain("end-of-error");
+  const less = [...note.querySelectorAll("button")].find((button) => button.textContent === "message.less")!;
+  expect(less.getAttribute("aria-expanded")).toBe("true");
 });
