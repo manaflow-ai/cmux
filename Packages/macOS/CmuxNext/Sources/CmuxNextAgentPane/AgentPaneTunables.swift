@@ -126,6 +126,15 @@ public nonisolated struct AgentPaneTunables {
         "agent.pageHost", PageTunables.section, "Agent pane on the page host",
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
+    /// The agent chat engine spike (Leo 2026-10-20: should cmux's own pages use the Chromium we ship
+    /// for browser tabs?): new agent tabs go on the page host and its page leaves the
+    /// ``PageWebKitReason/agentChat`` hold, so it shows in Chromium when `browser.defaultEngine` is
+    /// Chromium. Measuring only: a Chromium page is an opaque child window, so window glass does not
+    /// show through it. The warmed spare stays WebKit.
+    public static let chromium = Tunable<Bool>.toggle(
+        "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
+        help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
+        default: false, code: "AgentPaneTunables.chromium")
     /// The session side rail beside the chat (cx-ncc.101): Environment, Context and Outputs, with a
     /// header button that shows and hides it. Off until it is promoted to a real setting. Listed in
     /// TunableCatalog on its own line, outside `all`, so it does not churn with that list.
@@ -365,6 +374,7 @@ public nonisolated struct AgentPaneTunables {
             agentPairCap.descriptor,
             agentPairWindow.descriptor,
             chatWidth.descriptor,
+            chromium.descriptor,
             codexToolRuns.descriptor,
             composerPlainFooter.descriptor,
             escapeStopDoublePress.descriptor,
@@ -372,7 +382,7 @@ public nonisolated struct AgentPaneTunables {
             harnessSwitchInStartedChat.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
-            newTabPicksFollowLinks.descriptor,
+            pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabWidgets.descriptor,
             pageHost.descriptor,
@@ -389,6 +399,7 @@ public nonisolated struct AgentPaneTunables {
             topStripStyle.descriptor,
             turnPreviewCards.descriptor,
             turnActionsPlacement.descriptor,
+            agentLinks.descriptor,
         ]
     }
 }

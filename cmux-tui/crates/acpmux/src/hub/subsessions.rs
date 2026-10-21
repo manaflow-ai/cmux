@@ -304,6 +304,10 @@ struct KeptWorktree {
     folder: PathBuf,
     made: crate::subsession_worktree::Worktree,
     kept: bool,
+    /// A decision trusts `folder` (a person's, an agent's own, or cmux's for a folder it made),
+    /// not an auto-trust rule alone (`ensure_folder_trusted`): the worktree is recorded as
+    /// trusted too.
+    source_decided: bool,
 }
 
 impl KeptWorktree {
@@ -541,6 +545,13 @@ impl Hub {
             ));
         }
         if let Some(kept) = worktree {
+            // The folder it was made from is trusted by a decision, so its worktree is too. A
+            // folder only an auto-trust rule trusts gets no record: a Web client reads a record
+            // as a person's answer, and the rule still answers the pane for the worktree's own
+            // folder when it covers it.
+            if kept.source_decided {
+                self.trust_made_worktree(&kept.made.cwd).await;
+            }
             kept.keep();
         }
         let link = child.meta().subsession.clone();
@@ -575,8 +586,12 @@ impl Hub {
             )));
         }
         let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
+        // A folder nobody answered the trust question for waits on a card in the parent's chat
+        // instead of failing (`trust_wait.rs`).
+        let decided = self.ensure_folder_trusted(parent, &cwd, &harness, &short).await?;
         let worktree = if req.worktree {
-            let kept = self.subsession_worktree(pm, &cwd, &short).await?;
+            let mut kept = self.subsession_worktree(pm, &cwd, &short).await?;
+            kept.source_decided = decided;
             cwd = kept.made.cwd.clone();
             Some(kept)
         } else {
@@ -623,9 +638,14 @@ impl Hub {
         self.save_meta(&probe);
         let cm = probe.meta();
         let same_family = crate::web_modes::family_of(&cm) == crate::web_modes::family_of(pm);
-        let mode = if same_family {
+        // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
+        // starts as a cross-family child would, at the person's start level, which is not full access.
+        let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
+            && !super::start_mode::full_access_allowed();
+        let inherit = same_family && !capped;
+        let mode = if inherit {
             parent_mode.clone()
-        } else if parent_full {
+        } else if parent_full || capped {
             self.start_mode(&probe).await
         } else {
             None
@@ -634,7 +654,7 @@ impl Hub {
             let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
             // The inherit rule (or the person's default under a full-access
             // parent) grants it; a refusal ends the new session.
-            if same_family {
+            if inherit {
                 self.start_in_mode(false, Some(&parent.id), &params, &probe, false).await?;
             } else if let Err(e) = self.set_mode(&probe, &mode).await {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
@@ -693,6 +713,7 @@ impl Hub {
                 folder: folder2,
                 made,
                 kept: false,
+                source_decided: false,
             })
         })
         .await

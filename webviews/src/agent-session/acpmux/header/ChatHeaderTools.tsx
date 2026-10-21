@@ -99,6 +99,7 @@ export function ChatHeaderTools({
   onMenuOpen,
   expand,
   onExpanded,
+  pullRequestChip,
   onMergePullRequest,
   folder,
   readStatus,
@@ -140,6 +141,8 @@ export function ChatHeaderTools({
   /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
+  /// The pull request chip (default on); a subagent's own pane draws none: the pull request is the chat's.
+  pullRequestChip?: boolean;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
   /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
@@ -173,6 +176,7 @@ export function ChatHeaderTools({
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
   // The quick actions without a button, at the top of "...": each while it would show as a button.
+  // Changes is listed there with its button too.
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
   const live = useRef({
@@ -216,7 +220,8 @@ export function ChatHeaderTools({
     const { lit } = headerState();
     const shownIds = new Set(actions.map((action) => action.id));
     const folded: ChatMenuItem[] = [];
-    if (onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+    // Changes stays in "..." beside its button, as in the Codex and Claude apps' chat menus (hq#2569 item 4).
+    if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       folded.push({
         key: "quick-changes",
         label: t("header.changes"),
@@ -393,7 +398,9 @@ export function ChatHeaderTools({
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
+      {pullRequest && pullRequestChip !== false && (
+        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+      )}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -577,7 +584,7 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label} title={label} disabled={disabled}>
+      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
         <Icon name="action.more" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">

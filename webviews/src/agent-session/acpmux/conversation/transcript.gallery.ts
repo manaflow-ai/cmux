@@ -139,6 +139,21 @@ const openGroupedShells = async (ctx: PlayContext) => {
   await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__exit")));
 };
 
+/// Clicks the disclosure line `selector` finds and fails when the line moved once its fold settled:
+/// opening or closing never moves the reader's view (foldAnchor.ts, Leo 2026-10-20).
+const clickHoldsLine = async (ctx: PlayContext, selector: string, expanded: boolean) => {
+  const top = () => ctx.find({ selector }).getBoundingClientRect().top;
+  const before = top();
+  await ctx.click({ selector });
+  await ctx.waitFor(
+    () =>
+      ctx.find({ selector }).getAttribute("aria-expanded") === String(expanded) &&
+      [...ctx.document.querySelectorAll(".cv-fold")].every((fold) => fold.getAnimations().length === 0),
+  );
+  const moved = top() - before;
+  if (Math.abs(moved) > 1) throw new Error(`the clicked line moved ${moved.toFixed(1)}px`);
+};
+
 const shellDisclosureChecks = {
   layoutShiftMax: {
     value: 0.25,
@@ -368,6 +383,20 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
+/// The running line ("Thinking", "Working for") holds still: no mark blinks before its words and
+/// nothing on it loops (Leo, 2026-10-20, "the blinking ascii").
+const runningLineStill = (label: RegExp) => async (ctx: PlayContext) => {
+  await ctx.waitFor(() => label.test(ctx.document.querySelector(".cv-worked")?.textContent ?? ""));
+  const line = ctx.document.querySelector<HTMLElement>(".cv-worked")!;
+  if (line.querySelector(".cv-working-mark, .cv-activity__dots")) throw new Error("a working mark draws on the line");
+  const first = line.firstElementChild?.textContent?.trim() ?? "";
+  if (!label.test(first)) throw new Error(`the line starts with ${JSON.stringify(first)}, not its words`);
+  const loops = line
+    .getAnimations({ subtree: true })
+    .filter((animation) => animation.effect?.getTiming().iterations === Infinity);
+  if (loops.length > 0) throw new Error(`${loops.length} animations loop on the running line`);
+};
+
 /// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
 const DENSE_COMMANDS = [
   "cd ~/Projects/cmux && git log --oneline -5 -- Sources/Sidebar",
@@ -440,7 +469,6 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ChatFindScope.tsx#ChatFindScope",
     "agent-session/acpmux/conversation/MessageCard.tsx",
     "agent-session/acpmux/conversation/ThoughtRow.tsx#ThoughtRow",
-    "agent-session/acpmux/conversation/WorkingMark.tsx#WorkingMark",
     "agent-session/acpmux/conversation/Markdown.tsx",
     "agent-session/acpmux/conversation/RevealedMarkdown.tsx",
     "agent-session/acpmux/conversation/CodeBlock.tsx",
@@ -467,7 +495,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/WorkingFor.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
-    "agent-session/acpmux/FailedPrompt.tsx",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
@@ -505,8 +535,9 @@ export default agentPaneEntry({
       snapshot: chat([user("Review the release checklist", 4), assistant(TASKS_REPLY, 3)]),
     },
     thinking: {
-      note: "A turn that started and has no output yet.",
+      note: "A turn that started and has no output yet: Thinking alone, with no blinking dots before it. Play: the line holds still.",
       snapshot: chat([user(prompt, 0.2)], { isWorking: true }),
+      play: runningLineStill(/^Thinking/),
     },
     streaming: {
       note: "A reply still streaming (its last block still open).",
@@ -786,6 +817,55 @@ export default agentPaneEntry({
         ],
         { isWorking: true },
       ),
+    },
+    "steer-continuous": {
+      note: "A message sent now while the turn ran, to an agent that cannot steer: acpmux stopped that turn and ran the message next, yet it reads as one turn. The message draws inline with no mark of its own, the line counts from the first prompt, and nothing says the turn was stopped.",
+      snapshot: chat(
+        [
+          user("Fix the flaky login test", 1.5),
+          activity(
+            [
+              thought("The login test fails one run in five; check how the retry waits for the session."),
+              tool("bun test src/auth/login", "execute", "completed", { command: "bun test src/auth/login" }),
+            ],
+            1.3,
+          ),
+          assistant("The retry races the session refresh: it reads the old token before the refresh lands.", 0.9),
+          summary(0.58, { status: "cancelled", durationMs: 55_000, continued: true }),
+          user("Also check the logout path, it uses the same retry", 0.58, { continues: true }),
+          activity(
+            [
+              tool("bun test src/auth/logout", "execute", "in_progress", {
+                command: "bun test src/auth/logout",
+                startedAt: minutesAgo(0.3),
+              }),
+            ],
+            0.3,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "working-tokens": {
+      note: "A live Claude turn says its tokens so far after its time, as Claude desktop does: Working for 5m 54s · 2.1M tokens, with no blinking dots before it. A harness that does not report each call shows the time alone. Play: the line holds still.",
+      snapshot: chat(
+        [
+          user(prompt, 5.9),
+          activity(
+            [
+              thought("The helper lives in src/net/client.ts; check how errors are parsed first."),
+              tool("Read client.ts", "read", "completed", {
+                locations: [{ path: "/Users/you/src/atlas-web/src/net/client.ts" }],
+              }),
+              tool("Search for parseError", "search", "completed"),
+            ],
+            5.85,
+          ),
+          assistant("The parser drops the status code; I'll keep it and retry only on 5xx.", 5.5),
+        ],
+        { isWorking: true, turnTokens: 2_140_000 },
+      ),
+      play: runningLineStill(/^Working for/),
     },
     "working-counts": {
       note: "A live turn with background work: the line counts the two agents still running and the dev server still up, not the agent that finished. A count opens what it counts.",
@@ -1091,6 +1171,49 @@ export default agentPaneEntry({
         user("Now also add a circuit breaker", 0.5, {
           failed: true,
           error: "This chat is read only on this connection.",
+        }),
+      ]),
+    },
+    rhythm: {
+      note: "The transcript's vertical rhythm: two prompts in one turn, each meta row right under its bubble, a reply's footer right under the reply, turns a fixed gap apart, and a Worked for turn.",
+      snapshot: chat([
+        user("Is the hosted test run done?", 20),
+        assistant("Checking the hosted run now.", 19.8),
+        user("Also check the PR checks.", 19.7),
+        assistant("Not yet: the hosted test run is still queued, and the PR checks wait on it.", 19.5),
+        summary(19.5, { status: "completed", durationMs: 17_000 }),
+        ...workedTurnRows(minutesAgo(15)),
+        summary(14, { status: "completed", toolCount: 3 }),
+      ]),
+    },
+    "prompt-delivery": {
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      snapshot: chat([
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("And a test for it", 3, {
+          delivery: { state: "delivered", promptId: "p2", sessionId: "s", sentAt: 0, acceptedAt: 60 },
+        }),
+        user("Then open a PR", 2, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+        user("Ship it", 1, {
+          failed: true,
+          error: "Not sent: no answer from acpmux.",
+          delivery: {
+            state: "failed",
+            promptId: "p4",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 60000,
+            hop: "acpmux",
+            code: "timeout",
+            error: "Not sent: no answer from acpmux.",
+          },
         }),
       ]),
     },
@@ -1465,6 +1588,18 @@ export default agentPaneEntry({
       checks: shellDisclosureChecks,
       snapshot: chat(groupedShellRows),
       play: openGroupedShells,
+    },
+    "fold-holds-clicked-line": {
+      note: "Play: at the latest row, open Worked for, then a command, then close it; each line stays where it was clicked while its fold plays (height and opacity, the chevron turning).",
+      checks: shellDisclosureChecks,
+      snapshot: chat([...longChatRows.slice(-12), ...groupedShellRows]),
+      play: async (ctx) => {
+        await clickHoldsLine(ctx, ".cv-worked", true);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
+        await clickHoldsLine(ctx, ".cv-command", true);
+        await ctx.waitFor(() => Boolean(ctx.document.querySelector(".cv-shell__command")));
+        await clickHoldsLine(ctx, ".cv-command", false);
+      },
     },
   },
 });

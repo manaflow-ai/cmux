@@ -34,6 +34,19 @@ pub const CHIEF_TOOLS: [&str; 9] = [
     "mcp__optchat__profile",
 ];
 
+/// The tools a turn session runs without a permission request (its
+/// project settings' `permissions.allow`): acpmux takes an allow only from
+/// the person's app, so a request the host answered itself would wait
+/// forever. In a turn another person started, `Brain::internal_allowed`
+/// checks each call's input when the tool runs (`Orchestrator::turn_gate`).
+pub fn turn_allowed_tools() -> Vec<&'static str> {
+    MEMORY_TOOLS
+        .iter()
+        .chain(CHIEF_TOOLS.iter())
+        .copied()
+        .collect()
+}
+
 /// One permission request the host answers.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Pending {
@@ -190,13 +203,22 @@ fn code_span(text: &str) -> String {
 /// A request's identity within one turn: the tool and its input. A
 /// repeat of a refused request counts toward stopping the turn.
 pub fn signature(pending: &Pending) -> String {
-    let input = pending
-        .request
-        .pointer("/toolCall/rawInput")
-        .map(Value::to_string)
-        .unwrap_or_default();
-    format!("{}\u{0}{input}", pending.tool)
+    signature_of(&pending.tool, pending.request.pointer("/toolCall/rawInput"))
 }
+
+/// [`signature`] of a call of `tool` with `input` (a permission request's
+/// `rawInput`, or the arguments a Chief tool runs with).
+pub fn signature_of(tool: &str, input: Option<&Value>) -> String {
+    let input = input.map(Value::to_string).unwrap_or_default();
+    format!("{tool}\u{0}{input}")
+}
+
+/// The longest a permission request of the Chief's turn session or of one
+/// of its children may wait with no answer before the host denies it
+/// (`Brain::deny_overdue_permissions_at`): a request nobody sees never holds
+/// a turn forever. A subagent's prompt that the person's app shows with an
+/// approval button waits for the person instead.
+pub const PERMISSION_WAIT: std::time::Duration = std::time::Duration::from_secs(120);
 
 /// Appends one `approval` event to the trace in `dir`
 /// (`traces/YYYY-MM-DD.jsonl`, the monitoring trace's layout:
