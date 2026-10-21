@@ -128,7 +128,7 @@ mod tests {
             stored.push(e.msg);
             true
         });
-        assert_eq!(stored, [rec.msg.clone()]);
+        assert_eq!(stored, std::slice::from_ref(&rec.msg));
 
         // A settled update (no input), and a copy that already names one (a
         // fork's), keep theirs; other records are left as they are.

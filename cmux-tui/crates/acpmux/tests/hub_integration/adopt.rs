@@ -462,9 +462,10 @@ async fn adopt_replays_a_failed_codex_patch_without_its_edits() {
     let applied = call("patch-2", "tool_call_update");
     assert_eq!(applied["status"], "completed");
     assert_eq!(
-        applied["content"],
+        as_written(&applied["content"]),
         json!([{"type": "diff", "path": cargo, "oldText": "version = \"1.2.0\"\n", "newText": "version = \"1.3.0\"\n", "_meta": {"acpmux": {"fragment": true}}}])
     );
+    assert_eq!(applied["content"][0]["_meta"]["acpmux"]["canonicalPath"], canonical_in(&cargo));
     assert_eq!(
         call("patch-2", "tool_call")["rawInput"]["changes"],
         json!([{"path": cargo, "type": "update", "additions": 1, "deletions": 1}])
