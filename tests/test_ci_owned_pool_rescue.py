@@ -1523,6 +1523,21 @@ class SideLanes(unittest.TestCase):
                                 log=lines.append)
         return api, outcome, "\n".join(lines)
 
+    def test_a_refusals_only_run_reruns_a_job_no_runner_acquired(self):
+        # #23528 with this: GitHub cancelled the queued scheme compile (no runner acquired it) and the
+        # run failed. That counts as a refusal, so the failed jobs are re-run once, as for any refusal;
+        # owned_rerun() still ends the bot's re-runs on the minis at attempt 3.
+        run = dict(side_event(path=".github/workflows/cmux-next.yml", status="in_progress")["workflow_run"])
+        target = dataclasses.replace(rescue.sweep_target(run, "manaflow-ai/cmux", late=False), refusals_only=True)
+        clock = Clock()
+        api = FakeAPI(clock, lambda seconds: [unacquired_job("cmux app scheme compile (Debug)", labels=(SIDE,))],
+                      finished=lambda seconds: True, conclusion="failure", rerun_jobs=lambda seconds: [])
+        lines: list[str] = []
+        rescue.follow(api, target, seconds=90, queue_rounds="0", now=clock.now, sleep=clock.sleep,
+                      log=lines.append)
+        self.assertEqual(api.calls.count("rerun-failed"), 1, "\n".join(lines))
+        self.assertNotIn("cancel", api.calls)
+
     def test_a_refusals_only_attempt_one_waits_out_its_queue(self):
         # Run 39615562861: the scheme compile queued on the side label with no free overflow.
         api, outcome, log = self.follow_refusals_only(
