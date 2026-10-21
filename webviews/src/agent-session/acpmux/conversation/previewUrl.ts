@@ -72,6 +72,14 @@ export function turnPreviewUrl(user: AcpmuxRow, turn: readonly AcpmuxRow[]): str
   ]);
 }
 
+/// The Debug toggle `agentPane.debug.turnPreviewCards` (off by default; the app sets
+/// `data-turn-preview-cards="on"` on `<html>`): a turn that started or mentioned a local page gets
+/// its preview card. Off, the address is only the reply's link (Leo 2026-10-20: a mentioned dev
+/// server is not worth a card nobody asked for).
+export function turnPreviewCardsOn(): boolean {
+  return typeof document !== "undefined" && document.documentElement.dataset.turnPreviewCards === "on";
+}
+
 /// What the card's frame loads after the click: the address the card shows (host, port, path and
 /// query as found; the fragment is the page's own and is not shown).
 export function previewFrameUrl(url: string): string {

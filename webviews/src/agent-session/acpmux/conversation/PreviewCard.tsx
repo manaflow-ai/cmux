@@ -1,4 +1,5 @@
-// The card under a turn that started or mentioned a local web page (previewUrl.ts): one compact
+// The card under a turn that started or mentioned a local web page (previewUrl.ts), behind the Debug
+// toggle agentPane.debug.turnPreviewCards: one compact
 // row with the page's address, "Load preview", "Open in tab" and "Open in"; after the reader clicks
 // "Load preview", the card grows to show that address, live, at a quarter of its size. Until then
 // there is no thumbnail box, so an address a turn merely mentioned costs one line. The address
@@ -14,12 +15,14 @@ import { Globe } from "./icons";
 import { isGalleryFrame, previewFrameUrl } from "./previewUrl";
 import { useSiteInfo } from "../chips/linkStore";
 import { OpenInMenu } from "../previewCard/OpenInMenu";
+import { redactUrlText } from "../chips/linkDisplay";
 
 /// `onOpen` asks the host for a browser tab on `url` (`browser.open`).
 export function PreviewCard({ url, onOpen }: { url: string; onOpen: (url: string) => void }) {
   const t = useT();
   const parsed = new URL(url);
-  const address = `${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}`;
+  // A secret-looking query value (`?token=…`) reads as ••• (linkDisplay.ts); the link and frame keep it.
+  const address = redactUrlText(`${parsed.host}${parsed.pathname === "/" ? "" : parsed.pathname}${parsed.search}`);
   // The thumbnail shows the address the head shows, and opens what it shows.
   const frame = previewFrameUrl(url);
   // A dev-server pane is itself on loopback; a frame of the pane's own origin would be the pane.

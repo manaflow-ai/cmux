@@ -1097,7 +1097,7 @@ export default agentPaneEntry({
       snapshot: chat([...workedTurnRows(minutesAgo(15)), summary(14, { status: "completed", toolCount: 3 })]),
     },
     "preview-card": {
-      note: "A turn that started a local server: the preview card.",
+      note: "A turn that started a local server. Its address stays a link in the reply; the preview card under the answer shows only with the Debug toggle agentPane.debug.turnPreviewCards (data-turn-preview-cards on <html>).",
       snapshot: chat([
         user("Start the dev server", 9),
         activity(
@@ -1112,6 +1112,17 @@ export default agentPaneEntry({
         ),
         assistant("The dev server runs at http://localhost:5173/.", 8.8),
         summary(8.8, { status: "completed", toolCount: 1 }),
+      ]),
+    },
+    "token-link": {
+      note: "An agent's bare local address with a token (Leo 2026-10-20): plain link text with the token as •••, no card under the answer; hovering it offers Open and Open in.",
+      snapshot: chat([
+        user("Open the dashboard", 6),
+        assistant(
+          "The dashboard is up at http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b and reloads on save.",
+          5.9,
+        ),
+        summary(5.9, { status: "completed" }),
       ]),
     },
     "chips-and-previews": {

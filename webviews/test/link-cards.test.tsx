@@ -61,7 +61,9 @@ const webviews = path.join(import.meta.dir, "..");
 test("secret-looking query values read as •••; other parameters and the rest stay as written", async () => {
   const { redactUrlText, isSecretParam } = await import("../src/agent-session/acpmux/chips/linkDisplay");
   expect(redactUrlText(TOKEN_URL)).toBe("http://127.0.0.1:47811?token=•••");
-  expect(redactUrlText("https://example.test/cb?code=abc123&state=xyz")).toBe("https://example.test/cb?code=•••&state=xyz");
+  expect(redactUrlText("https://example.test/cb?code=abc123&state=xyz")).toBe(
+    "https://example.test/cb?code=•••&state=xyz",
+  );
   expect(redactUrlText("https://s3.example.test/a.png?X-Amz-Signature=deadbeef&X-Amz-Date=1")).toBe(
     "https://s3.example.test/a.png?X-Amz-Signature=•••&X-Amz-Date=1",
   );
@@ -69,7 +71,9 @@ test("secret-looking query values read as •••; other parameters and the re
     "https://api.example.test/v1?api_key=•••&page=2#access_token=•••",
   );
   expect(redactUrlText("https://user:hunter2@example.test/x")).toBe("https://user:•••@example.test/x");
-  expect(redactUrlText("https://example.test/search?q=token&sort=new")).toBe("https://example.test/search?q=token&sort=new");
+  expect(redactUrlText("https://example.test/search?q=token&sort=new")).toBe(
+    "https://example.test/search?q=token&sort=new",
+  );
   expect(redactUrlText("https://example.test/docs")).toBe("https://example.test/docs");
   for (const name of ["token", "auth", "sig", "password", "secret", "client_secret", "apiKey", "key", "code"])
     expect(isSecretParam(name)).toBe(true);
@@ -96,7 +100,11 @@ test("local and private addresses are recognized", async () => {
     expect(isPrivateUrl(url)).toBe(false);
 });
 
-async function renderChip(href: string, children: string, sites: Record<string, { title?: string; icon?: string }> = {}) {
+async function renderChip(
+  href: string,
+  children: string,
+  sites: Record<string, { title?: string; icon?: string }> = {},
+) {
   const { act } = await import("react");
   const { createRoot } = await import("react-dom/client");
   const { UiProvider } = await import("../src/ui/UiProvider");
