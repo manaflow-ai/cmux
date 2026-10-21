@@ -778,8 +778,11 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party(const char* id, const
 // (percent-decoded) is one of dynamic_prefixes (newline-separated, e.g.
 // "__patch\nasset"); the folder never serves such a path. A request from a
 // page in a browser emits CMUX_SHIM_PAGE_RESOURCE; any other is a 404.
+// entry is the file "/" serves (NULL or empty = index.html; a plain file
+// name, as diff-page.html for pages that share one build folder).
 CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* id, const char* resource_root,
-                                                                   const char* csp, const char* dynamic_prefixes);
+                                                                   const char* csp, const char* dynamic_prefixes,
+                                                                   const char* entry);
 // The page host's answer to CMUX_SHIM_PAGE_RESOURCE `token`: status (200,
 // 404), mime (NULL = application/octet-stream) and length bytes of body,
 // copied. The page's CSP and the other page headers are added. Any thread.
