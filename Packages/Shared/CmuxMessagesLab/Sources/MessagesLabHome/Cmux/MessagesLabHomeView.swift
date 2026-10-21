@@ -99,6 +99,13 @@ public final class MessagesLabHomeView: NSView {
         set { projection.isSendEnabled = newValue }
     }
 
+    /// How the Chief's running indicator reads (``HomeTurnProgressStyle``), asked at each of its ticks:
+    /// the host passes its Debug Settings value so a change shows within a second.
+    public var turnProgressStyle: () -> HomeTurnProgressStyle {
+        get { projection.liveLine.style }
+        set { projection.liveLine.style = newValue }
+    }
+
     /// The Chief works: the compose bar offers Stop (the button, Esc, Cmd-.).
     public var isWorking: Bool {
         get { controller.isWorking }
