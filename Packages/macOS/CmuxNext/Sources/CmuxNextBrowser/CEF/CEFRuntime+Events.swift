@@ -344,10 +344,12 @@ extension CEFRuntime {
         logger.notice("CEF shutdown complete")
     }
 
-    /// Called after every close/destroy event during shutdown.
+    /// Called after every close/destroy event during shutdown. A pane's browser still being made
+    /// (`pendingWindows`) holds it too, while its Chromium window may not exist yet: its browser is
+    /// closed when Chromium makes it (`browserCreated`), and `shutdown`'s timeout bounds the wait.
     func shutdownProgressed() {
         guard shutdownSequence != nil else { return }
-        if let shim, shim.windowCount() == 0, tabsByBrowser.isEmpty {
+        if let shim, shim.windowCount() == 0, tabsByBrowser.isEmpty, pendingWindows.isEmpty {
             shutdownSequence?.windowDestroyed(remaining: 0)
         }
         if shutdownSequence?.phase == .readyToShutdown { resumeShutdownWaiter() }
