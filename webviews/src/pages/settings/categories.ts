@@ -26,6 +26,7 @@ export const CATEGORY_CARDS = [
   "chiefPet",
   "density",
   "importSuggestions",
+  "channels",
   "notices",
 ] as const;
 

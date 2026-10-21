@@ -6,6 +6,7 @@ import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
 import { AgentIntegrations } from "./AgentIntegrations";
 import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
+import { ChannelsCard } from "./ChannelsCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { GhosttyDiagnostics } from "./GhosttyDiagnostics";
@@ -48,6 +49,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
   importSuggestions: () => <ImportSuggestionsCard />,
+  channels: () => <ChannelsCard />,
   notices: () => <NoticesCard />,
 };
 
