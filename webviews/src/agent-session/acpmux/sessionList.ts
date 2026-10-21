@@ -89,14 +89,6 @@ export const text = (value: unknown) => (typeof value === "string" && value ? va
 /** "local" or "cloud", else undefined. */
 export const hostKind = (value: unknown) => (value === "local" || value === "cloud" ? value : undefined);
 
-export type SessionGroup = {
-  key: string;
-  label: string;
-  cwd?: string;
-  host?: string;
-  sessions: AcpmuxSessionEntry[];
-};
-
 /** The tag that pins a session to the top of the list. */
 export const PINNED_TAG = "pinned";
 /** The tag the chat menu's Archive sets. */
@@ -145,9 +137,6 @@ const INDICATORS: readonly string[] = ["input", "working", "failed", "lost", "do
 
 /** What a row draws at its right edge, most urgent first. */
 export type SessionMark = "input" | "running" | "error" | "unread" | undefined;
-
-/** A long group shows this many rows and a "Show more" (the TUI's GROUP_ROWS). */
-export const GROUP_ROWS = 6;
 
 /** Cuts acpmux's session summary down to the fields the pane uses. */
 export function sessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
@@ -345,70 +334,9 @@ function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
   return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
-/** A stable newest-first view for ungrouped sidebar sections. */
-export function sortByRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return byRecency(sessions);
-}
-
-// Session entries are immutable snapshots. Reuse the assembled, case-folded search text while a
-// user types so each sidebar keystroke does not rebuild every title/path/branch string. A weak map
-// releases entries when the session snapshot is replaced.
-const sessionSearchTextCache = new WeakMap<AcpmuxSessionEntry, string>();
-
-function sessionSearchText(session: AcpmuxSessionEntry): string {
-  const cached = sessionSearchTextCache.get(session);
-  if (cached !== undefined) return cached;
-  const text = [
-    session.displayTitle,
-    session.title,
-    session.name,
-    session.cwd && projectLabel(session.cwd),
-    session.branch,
-    session.worktree && projectLabel(session.worktree),
-    cloudHost(session),
-  ]
-    .filter(Boolean)
-    .join("\n")
-    .toLowerCase();
-  sessionSearchTextCache.set(session, text);
-  return text;
-}
-
-/** Sessions under one header per folder (a cloud-only folder per machine). Groups follow their most recent session; sessions stay newest first. */
-export function groupByProject(
-  sessions: AcpmuxSessionEntry[],
-  // Every session, pinned ones too, so pinning a local session doesn't regroup its cloud siblings.
-  all: AcpmuxSessionEntry[] = sessions,
-): SessionGroup[] {
-  const folder = (session: AcpmuxSessionEntry) => (session.cwd ?? "").replace(/\/+$/, "");
-  // A cloud session joins the local project at the same path; otherwise its folder is only
-  // known on its machine, so `/workspace` on two machines stays two projects.
-  const local = new Set(all.filter((session) => !cloudHost(session)).map(folder));
-  const groups = new Map<string, SessionGroup>();
-  for (const session of byRecency(sessions)) {
-    const cwd = folder(session);
-    const host = cloudHost(session);
-    const key = host && !local.has(cwd) ? `${host}:${cwd}` : cwd;
-    let group = groups.get(key);
-    if (!group) {
-      group = { key, label: projectLabel(cwd), cwd: cwd || undefined, sessions: [] };
-      groups.set(key, group);
-    }
-    group.sessions.push(session);
-  }
-  for (const group of groups.values()) group.host = sharedCloudHost(group.sessions);
-  return [...groups.values()];
-}
-
 /** The remote machine a session runs on. A host not marked local counts as remote; this Mac is never named. */
 export const cloudHost = (session: AcpmuxSessionEntry) =>
   session.hostKind === "local" ? undefined : (session.peer ?? session.host);
-
-/** The one cloud machine every session in a group runs on, else undefined. */
-function sharedCloudHost(sessions: AcpmuxSessionEntry[]) {
-  const host = cloudHost(sessions[0]!);
-  return host && sessions.every((session) => cloudHost(session) === host) ? host : undefined;
-}
 
 /** Where a row says it runs, beyond its project: a cloud machine, then a worktree, then a branch. */
 export type SessionPlace =
@@ -427,55 +355,6 @@ export function sessionPlace(session: AcpmuxSessionEntry, groupHost?: string): S
   return undefined;
 }
 
-/** Sessions whose title, name, folder, branch, worktree or cloud machine contains every word of the query, ignoring case. */
-export function filterSessions(sessions: AcpmuxSessionEntry[], query: string): AcpmuxSessionEntry[] {
-  const terms = query.toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return sessions;
-  return sessions.filter((session) => terms.every((term) => sessionSearchText(session).includes(term)));
-}
-
-/** The list's two sections: pinned sessions, newest first, then every other session grouped by project. A query narrows both. Archived sessions and side chats are in neither. */
-export function sidebarSections(
-  all: AcpmuxSessionEntry[],
-  query = "",
-  groupProjects = true,
-): {
-  pinned: AcpmuxSessionEntry[];
-  groups: SessionGroup[];
-  active: AcpmuxSessionEntry[];
-} {
-  const sessions = withoutChildren(all.filter(listed));
-  const pinned = byRecency(
-    filterSessions(
-      sessions.filter((session) => session.pinned),
-      query,
-    ),
-  );
-  const groups = groupProjects
-    ? groupByProject(
-        sessions.filter((session) => !session.pinned),
-        sessions,
-      )
-    : [];
-  const active = groupProjects
-    ? []
-    : byRecency(
-        filterSessions(
-          sessions.filter((session) => !session.pinned),
-          query,
-        ),
-      );
-  if (!query.trim()) return { pinned, groups, active };
-  // Projects and their headers come from every session, so a search only hides rows.
-  return {
-    pinned,
-    active,
-    groups: groups
-      .map((group) => ({ ...group, sessions: filterSessions(group.sessions, query) }))
-      .filter((group) => group.sessions.length > 0),
-  };
-}
-
 /** The row's mark, from acpmux's `indicator`: a done chat is marked only until the user opens it. */
 export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): SessionMark {
   switch (session.indicator) {
@@ -491,31 +370,6 @@ export function sessionMark(session: AcpmuxSessionEntry, selected: boolean): Ses
     default:
       return undefined;
   }
-}
-
-/** The rows a group shows: all of a short group, else its first GROUP_ROWS unless expanded or holding the selection. */
-export function visibleSessions(
-  group: SessionGroup,
-  expanded: boolean,
-  selectedId?: string,
-): { rows: AcpmuxSessionEntry[]; hidden: number } {
-  const open =
-    expanded ||
-    group.sessions.length <= GROUP_ROWS + 1 ||
-    group.sessions.slice(GROUP_ROWS).some((session) => session.sessionId === selectedId);
-  if (open) return { rows: group.sessions, hidden: 0 };
-  return { rows: group.sessions.slice(0, GROUP_ROWS), hidden: group.sessions.length - GROUP_ROWS };
-}
-
-/** A project header's mark: the most urgent of its sessions' needs-input and lost marks. */
-export function groupMark(group: SessionGroup, selectedId?: string): "input" | "error" | undefined {
-  let mark: "input" | "error" | undefined;
-  for (const session of group.sessions) {
-    const own = sessionMark(session, session.sessionId === selectedId);
-    if (own === "input") return "input";
-    if (own === "error") mark = "error";
-  }
-  return mark;
 }
 
 /** A compact age for the history list: `now`, `5m`, `3h`, `2d`, `6w`. */

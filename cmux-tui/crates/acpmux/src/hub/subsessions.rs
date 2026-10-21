@@ -1,14 +1,12 @@
 //! Sub-sessions: an agent session starts, messages, watches and stops its own
 //! child sessions (Lawrence 2026-10-18, after the Claude app's `ccd_session`).
 //!
-//! A sub-session is a normal session (it resumes, forks, moves and lists like
-//! any other) with one more field, [`SubsessionLink`]: the parent session's
-//! id (`startedBy`), its short name among the parent's children, and its
-//! depth (1 under a root). Agents get the tools from the `cmux-subsessions`
-//! MCP server (`subsession_mcp.rs`, every local session by default,
-//! `agent_tools.rs`); the server reaches these methods over the unix socket
-//! with the session's caller token, so the daemon, not a request field, says
-//! which session acts (`hub/person.rs` (a)).
+//! A sub-session is a normal session (it resumes, forks, moves and lists like any other) with one
+//! more field, [`SubsessionLink`]: the parent session's id (`startedBy`), its short name among the
+//! parent's children, and its depth (1 under a root). Agents get the tools from the
+//! `cmux-subsessions` MCP server (`subsession_mcp.rs`, every local session by default,
+//! `agent_tools.rs`); the server reaches these methods over the unix socket with the session's
+//! caller token, so the daemon, not a request field, says which session acts (`hub/person.rs` (a)).
 //!
 //! Limits, decided here and nowhere else:
 //! - Width: a session has at most `maxChildren` open children (not closed).
@@ -27,24 +25,20 @@
 //!   the index lock before the session is created, so concurrent starts
 //!   never pass the limit.
 //!
-//! What a child may do is never wider than its parent: it runs the parent's
-//! permission policy; on the same harness family it starts in the parent's
-//! current mode (the start gate's inherit rule), on another family in the
-//! person's default start mode only when the parent runs with full access,
-//! else in that harness's own (asking) mode. What the tools read back of a
-//! child (its title, last reply, error and running prompt) is masked
-//! (`secret_scan`).
+//! What a child may do is never wider than its parent: it runs the parent's permission policy; on
+//! the same harness family it starts in the parent's current mode (the start gate's inherit rule),
+//! on another family in the person's default start mode only when the parent runs with full access,
+//! else in that harness's own (asking) mode. What the tools read back of a child (its title, last
+//! reply, error and running prompt) is masked (`secret_scan`).
 //!
-//! A chat the person starts from a suggested task (`offers.rs`) becomes the
-//! offering chat's sub-session too ([`Hub::offer_link`]), so the agent that
-//! suggested it reads and waits on it with the same tools; only the person
-//! prompts, stops or closes it (`subsession_write_target`).
+//! A chat the person starts from a suggested task (`offers.rs`) becomes the offering chat's
+//! sub-session too ([`Hub::offer_link`]), so the agent that suggested it reads and waits on it with
+//! the same tools; only the person prompts, stops or closes it (`subsession_write_target`).
 //!
-//! With `worktree: true` a child works in a new git worktree of its folder's
-//! repository (`subsession_worktree.rs`, laid out as the app's
-//! `git.worktree.create`), made in the daemon without running anything from
-//! that repository: its files are checked out without the repository's
-//! config. A start that fails after it is made removes it again.
+//! With `worktree: true` a child works in a new git worktree of its folder's repository
+//! (`subsession_worktree.rs`, laid out as the app's `git.worktree.create`), made in the daemon
+//! without running anything from that repository: its files are checked out without the
+//! repository's config. A start that fails after it is made removes it again.
 //!
 //! The index of open children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
@@ -57,6 +51,7 @@ use std::collections::BTreeSet;
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
 pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
+pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
 const CATALOG_SOURCE: &str =
@@ -72,6 +67,7 @@ pub struct NumberSetting {
 /// The catalog rows the daemon reads.
 pub struct Catalog {
     pub enabled: bool,
+    pub answer_questions: bool,
     pub max_children: NumberSetting,
     pub max_depth: NumberSetting,
 }
@@ -85,7 +81,7 @@ pub fn catalog() -> &'static Catalog {
     })
 }
 
-/// The three agents.subsessions rows of a settings source file, or None when one is missing.
+/// The agents.subsessions rows of a settings source file, or None when one is missing.
 fn parse_catalog(source: &str) -> Option<Catalog> {
     let doc: Value = serde_json::from_str(source).ok()?;
     let row = |key: &str| -> Option<Value> {
@@ -104,6 +100,7 @@ fn parse_catalog(source: &str) -> Option<Catalog> {
     };
     Some(Catalog {
         enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
+        answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
         max_children: number(SETTING_MAX_CHILDREN)?,
         max_depth: number(SETTING_MAX_DEPTH)?,
     })
@@ -327,7 +324,7 @@ impl Drop for KeptWorktree {
     }
 }
 
-fn refused(reason: &str, message: String, data: Value) -> RpcError {
+pub(super) fn refused(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
     data["reason"] = json!(reason);
     RpcError::invalid_params(message).with_data(data)
@@ -788,6 +785,7 @@ impl Hub {
             "queued": pick("queued"),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
+            "questions": self.subsession_questions(s), // ancestors may answer them
         });
         if with_reply {
             row["lastReply"] = json!(self.last_reply(s));
