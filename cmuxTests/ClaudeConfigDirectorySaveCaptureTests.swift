@@ -11,8 +11,9 @@ import Testing
 /// A Claude session is saved with the `CLAUDE_CONFIG_DIR` its own process ran
 /// with, not the app's. The hook record usually carries it, but a capture the
 /// sanitizer rejected (or a record from an older build) has no environment.
-/// The save then reads it from the live process, or from the config root that
-/// holds the session's transcript, and restore reopens the session there.
+/// The save then reads it from the config directory that holds the session's
+/// transcript, or from the live process when the record names no transcript,
+/// and restore reopens the session there. The default `~/.claude` stays unset.
 @MainActor
 @Suite(.serialized)
 struct ClaudeConfigDirectorySaveCaptureTests {
@@ -72,12 +73,12 @@ struct ClaudeConfigDirectorySaveCaptureTests {
         )
     }
 
-    /// Opens a workspace whose Claude session lives under `configName`. Its hook
+    /// Opens a workspace whose Claude session lives under `configPath`. Its hook
     /// record and binding carry a launch capture with no environment, the shape
     /// a sanitizer-rejected capture leaves.
     private func makeSession(
         _ fixture: Fixture,
-        configName: String,
+        configPath: String,
         processID: Int
     ) throws -> Session {
         let workspace = Workspace(
@@ -87,7 +88,7 @@ struct ClaudeConfigDirectorySaveCaptureTests {
         )
         let panelID = try #require(workspace.focusedPanelId)
         let sessionID = UUID().uuidString.lowercased()
-        let configDirectory = fixture.root.appendingPathComponent(configName, isDirectory: true)
+        let configDirectory = fixture.root.appendingPathComponent(configPath, isDirectory: true)
         let transcript = fixture.transcriptURL(configDirectory: configDirectory, sessionID: sessionID)
         try FileManager.default.createDirectory(
             at: transcript.deletingLastPathComponent(),
@@ -134,14 +135,18 @@ struct ClaudeConfigDirectorySaveCaptureTests {
         )
     }
 
-    private func writeHookRecords(_ fixture: Fixture, _ sessions: [Session]) throws {
+    private func writeHookRecords(
+        _ fixture: Fixture,
+        _ sessions: [Session],
+        includeTranscriptPath: Bool = true
+    ) throws {
         let storeURL = RestorableAgentKind.claude.hookStoreFileURL(
             homeDirectory: fixture.root.path,
             environment: fixture.environment
         )
         var records: [String: Any] = [:]
         for session in sessions {
-            records[session.sessionID] = [
+            var record: [String: Any] = [
                 "sessionId": session.sessionID,
                 "workspaceId": session.workspace.id.uuidString,
                 "surfaceId": session.panelID.uuidString,
@@ -149,10 +154,6 @@ struct ClaudeConfigDirectorySaveCaptureTests {
                 "pidStartSeconds": session.processIdentity.startSeconds,
                 "pidStartMicroseconds": session.processIdentity.startMicroseconds,
                 "cwd": fixture.workingDirectory.path,
-                "transcriptPath": fixture.transcriptURL(
-                    configDirectory: session.configDirectory,
-                    sessionID: session.sessionID
-                ).path,
                 "updatedAt": 1_800_300_000,
                 "launchCommand": [
                     "launcher": "claude",
@@ -163,6 +164,13 @@ struct ClaudeConfigDirectorySaveCaptureTests {
                     "source": "test",
                 ],
             ]
+            if includeTranscriptPath {
+                record["transcriptPath"] = fixture.transcriptURL(
+                    configDirectory: session.configDirectory,
+                    sessionID: session.sessionID
+                ).path
+            }
+            records[session.sessionID] = record
         }
         let data = try JSONSerialization.data(
             withJSONObject: ["version": 1, "sessions": records],
@@ -248,13 +256,15 @@ struct ClaudeConfigDirectorySaveCaptureTests {
     func liveSessionsRestoreUnderTheirOwnConfigDirectory() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let personal = try makeSession(fixture, configName: "claude-personal", processID: 910_001)
-        let work = try makeSession(fixture, configName: "claude-work", processID: 910_002)
+        // Account roots the index finds the transcripts in, while the records
+        // name no transcript path: only each live process says which is its own.
+        let personal = try makeSession(fixture, configPath: ".codex-accounts/claude/personal", processID: 910_001)
+        let work = try makeSession(fixture, configPath: ".codex-accounts/claude/work", processID: 910_002)
         defer {
             personal.workspace.teardownAllPanels()
             work.workspace.teardownAllPanels()
         }
-        try writeHookRecords(fixture, [personal, work])
+        try writeHookRecords(fixture, [personal, work], includeTranscriptPath: false)
         let index = loadIndex(fixture, [personal, work], processesAlive: true)
 
         for session in [personal, work] {
@@ -276,8 +286,8 @@ struct ClaudeConfigDirectorySaveCaptureTests {
     func exitedSessionRestoresUnderItsTranscriptConfigDirectory() throws {
         let fixture = try makeFixture()
         defer { fixture.cleanup() }
-        let personal = try makeSession(fixture, configName: "claude-personal", processID: 910_011)
-        let work = try makeSession(fixture, configName: "claude-work", processID: 910_012)
+        let personal = try makeSession(fixture, configPath: "claude-personal", processID: 910_011)
+        let work = try makeSession(fixture, configPath: "claude-work", processID: 910_012)
         defer {
             personal.workspace.teardownAllPanels()
             work.workspace.teardownAllPanels()
@@ -292,5 +302,22 @@ struct ClaudeConfigDirectorySaveCaptureTests {
             #expect(result.record.environment["CLAUDE_CONFIG_DIR"] == expected)
             #expect(result.record.launchCommand?.environment?["CLAUDE_CONFIG_DIR"] == expected)
         }
+    }
+
+    @Test("A default-account Claude session is saved without naming ~/.claude")
+    func defaultAccountSessionKeepsConfigDirectoryUnset() throws {
+        let fixture = try makeFixture()
+        defer { fixture.cleanup() }
+        // The fixture root is the home directory, so this is the default root.
+        let session = try makeSession(fixture, configPath: ".claude", processID: 910_021)
+        defer { session.workspace.teardownAllPanels() }
+        try writeHookRecords(fixture, [session])
+        let index = loadIndex(fixture, [session], processesAlive: false)
+
+        let result = try saveAndRestore(fixture, session, index: index)
+        #expect(result.saved.agent?.sessionId == session.sessionID)
+        #expect(result.saved.agent?.launchCommand?.environment?["CLAUDE_CONFIG_DIR"] == nil)
+        #expect(result.saved.resumeBinding?.environment?["CLAUDE_CONFIG_DIR"] == nil)
+        #expect(result.record.environment["CLAUDE_CONFIG_DIR"] == nil)
     }
 }
