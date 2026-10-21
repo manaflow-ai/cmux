@@ -54,6 +54,7 @@ pub mod native;
 pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
+pub mod pairing;
 pub mod peer;
 pub mod peer_link;
 #[cfg(not(unix))]
