@@ -54,6 +54,14 @@ export function foldMs(node: HTMLElement | null): number {
 
 const always = () => true;
 
+/// Holds `node` shut (height and opacity 0, its body clipped), or with `undefined`, lets it take its
+/// own size again.
+function pin(node: HTMLElement, value: 0 | undefined): void {
+  node.style.height = value === undefined ? "" : "0px";
+  node.style.opacity = value === undefined ? "" : "0";
+  node.style.overflow = value === undefined ? "" : "hidden";
+}
+
 export type Fold = {
   /// Draw the body: while open, and while it closes.
   present: boolean;
@@ -81,15 +89,18 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     if (played.current === open) return;
     played.current = open;
     const node = ref.current;
+    // A box a close left pinned shut (below) opens from its own size again.
+    if (node) pin(node, undefined);
     const ms = animates() ? foldMs(node) : 0;
     if (!node || ms <= 0) {
       running.current?.cancel();
       running.current = undefined;
-      if (node) node.style.overflow = "";
       setClosing(false);
       return;
     }
-    // From where the box is drawn now: midway through the other fold, else closed or open.
+    // From where the box is drawn now: midway through the other fold, else closed or open. An open
+    // ends at the height measured here and then lets go of it (no fill), so the body takes its own
+    // height again, content that loaded meanwhile included.
     const turning = running.current !== undefined;
     const fromHeight = turning || !open ? node.getBoundingClientRect().height : 0;
     const fromOpacity = turning ? Number(styleOf(node)?.opacity ?? 0) || 0 : open ? 0 : 1;
@@ -107,8 +118,14 @@ export function useFold(open: boolean, animates: () => boolean = always): Fold {
     animation.onfinish = () => {
       if (running.current !== animation) return;
       running.current = undefined;
-      node.style.overflow = "";
-      if (!open) setClosing(false);
+      if (open) {
+        node.style.overflow = "";
+        return;
+      }
+      // The animation lets go of the box as it ends, and React removes the body only on its next
+      // commit, after that frame paints: pinned shut until then, the body never flashes open.
+      pin(node, 0);
+      setClosing(false);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- only a change of `open` plays the fold
   }, [open]);

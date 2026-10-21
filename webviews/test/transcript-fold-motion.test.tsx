@@ -27,7 +27,9 @@ const motion = { ...foldMotion };
 /// The fold token as the page resolves it, and Reduce Motion.
 let token = 190;
 let reduce = false;
-type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void };
+/// `ends` runs the animation's onfinish as the browser does, outside React: React commits what it
+/// sets only after the caller's `act` (the frame the animation let go of the box paints first).
+type Animated = { keyframes: Keyframe[]; options: KeyframeAnimationOptions; finish: () => void; ends: () => void };
 let animations: Animated[] = [];
 
 beforeEach(() => {
@@ -59,7 +61,12 @@ beforeEach(() => {
     options: KeyframeAnimationOptions,
   ) {
     const animation = { onfinish: null as null | (() => void), cancel() {} };
-    animations.push({ keyframes, options, finish: () => act(() => animation.onfinish?.()) });
+    animations.push({
+      keyframes,
+      options,
+      finish: () => act(() => animation.onfinish?.()),
+      ends: () => animation.onfinish?.(),
+    });
     return animation;
   };
   token = 190;
@@ -205,6 +212,49 @@ test("a fold turned back midway starts from where it is drawn", () => {
   expect(animations.length).toBe(2);
   expect(animations[1]!.keyframes[0]!.height).toBe("42px");
   expect(animations[1]!.keyframes.at(-1)).toEqual({ height: "0px", opacity: 0 });
+});
+
+test("a close holds its box shut until React removes the body, so it never flashes open", () => {
+  render(<ToolRow item={tool("pop")} />);
+  click();
+  const box = container.querySelector<HTMLElement>(".cv-fold")!;
+  animations[0]!.finish();
+  // An open lets go of the height it measured: the body takes its own, content that loaded since too.
+  expect(box.style.height).toBe("");
+  expect(box.style.opacity).toBe("");
+  expect(box.style.overflow).toBe("");
+  click();
+  act(() => {
+    animations[1]!.ends();
+    // The animation has let go and React has not committed yet: the box is still drawn, pinned shut.
+    expect(box.isConnected).toBe(true);
+    expect(box.style.height).toBe("0px");
+    expect(box.style.opacity).toBe("0");
+    expect(box.style.overflow).toBe("hidden");
+  });
+  expect(container.querySelector(".cv-fold")).toBeNull();
+});
+
+test("a fold reopened as its close ends opens from its own size, not the pinned one", () => {
+  render(<ToolRow item={tool("reopen")} />);
+  click();
+  animations[0]!.finish();
+  click();
+  const box = container.querySelector<HTMLElement>(".cv-fold")!;
+  // The reader opens it again in the same frame the close ends: React keeps the same box.
+  act(() => {
+    animations[1]!.ends();
+    toggle().click();
+  });
+  expect(container.querySelector(".cv-fold")).toBe(box);
+  expect(animations.length).toBe(3);
+  expect(animations[2]!.keyframes[0]).toEqual({ height: "0px", opacity: 0 });
+  expect(box.style.height).toBe("");
+  expect(box.style.opacity).toBe("");
+  animations[2]!.finish();
+  expect(box.style.height).toBe("");
+  expect(box.style.opacity).toBe("");
+  expect(box.style.overflow).toBe("");
 });
 
 test("the fold token is the host's move duration, and the chevron turns on it", () => {
