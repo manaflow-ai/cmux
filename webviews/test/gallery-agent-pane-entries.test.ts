@@ -144,6 +144,9 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       viewport: { width: 760, height: 640 },
       shows: has(".acpmux-artifact .acpmux-artifact-versions"),
     },
+    // The transcript opens at its end, so the first reply image, the one these plays click, is
+    // above the fold.
+    ...["open", "dismiss-and-restore"].map((variant): Case => ({ entry: "image-viewer", variant, play: "steps" })),
   ];
 
   setDefaultTimeout(240_000);
