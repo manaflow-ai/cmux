@@ -10,13 +10,18 @@ public nonisolated struct AcpmuxChatOpenPlan: Sendable, Equatable {
     }
 
     public let action: Action
+    /// The chat's acpmux family (`claude`, `codex`, `opencode`) when the daemon says; the adopt's
+    /// harness is a profile, named freely.
+    public var family: String?
 
     public init?(result: [String: Any]) {
         if let needsFolder = result["needsFolder"] as? [String: Any], let reason = needsFolder["reason"] as? String {
             action = .needsFolder(reason: reason)
+            family = result["family"] as? String
             return
         }
         let cwd = result["cwd"] as? String
+        family = result["family"] as? String
         switch result["kind"] as? String {
         case "adopt":
             guard let adoptValue = result["adopt"] as? [String: Any],
