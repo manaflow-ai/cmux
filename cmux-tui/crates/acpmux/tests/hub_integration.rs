@@ -386,6 +386,40 @@ async fn an_agents_bare_fork_error_names_the_harness() {
     assert_eq!(list["sessions"].as_array().map(Vec::len), Some(2), "no chat is made: {list}");
 }
 
+/// An agent that fails a fork while the chat's turn runs (OMP answers a bare "Internal
+/// error"): the reason says the chat is working and to fork when the turn ends.
+#[tokio::test]
+async fn an_agents_fork_error_while_the_chat_works_says_to_fork_when_the_turn_ends() {
+    let env = BTreeMap::from([("FAKE_FORK_ERROR".to_owned(), "1".to_owned())]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "busy"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    c.send(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "until-cancel"}]}),
+    )
+    .await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["content"]["text"] == "running").await;
+    let err = c
+        .request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()}))
+        .await
+        .expect_err("the agent fails the fork");
+    assert!(err.contains("fake could not fork this chat") && err.contains("turn ends"), "{err}");
+    hub.shutdown_all().await;
+}
+
 /// A fork keeps the chat's model and effort. Codex answers `session/fork` with its
 /// defaults; the fork matrix found a chat on gpt-5.6-luna forking into one on the
 /// account's default model, which the account cannot run, so the fork's first
