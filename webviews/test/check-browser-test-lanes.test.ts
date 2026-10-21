@@ -2,7 +2,7 @@
 // gallery warm-up's reload test (support/galleryFrame.ts).
 import { expect, test } from "bun:test";
 import path from "node:path";
-import { checkGalleryFrameSource } from "../scripts/check-browser-test-lanes";
+import { checkGalleryFrameSource, EVERY_ENTRY_PENDING } from "../scripts/check-browser-test-lanes";
 import { reloaded } from "./support/galleryFrame";
 
 const browserTest = (body: string) => `import { chromium } from "playwright";\n${body}\n`;
@@ -46,10 +46,13 @@ test("an opt-out needs a reason, and a test that opens no browser is not checked
   );
 });
 
-test("a pending test that opens no browser now is named, to leave the list", () => {
-  const pending = path.join(import.meta.dir, "suggestion-lists-float.test.ts");
-  expect(checkGalleryFrameSource(pending, 'expect(isGalleryFrame("/gallery/frame.html")).toBe(false);')).toEqual([
-    "test/suggestion-lists-float.test.ts: opens no browser now; remove it from EVERY_ENTRY_PENDING",
+// Any pending file; once the list is empty there is nothing to name.
+const pending = [...EVERY_ENTRY_PENDING.keys()][0];
+
+test.skipIf(!pending)("a pending test that opens no browser now is named, to leave the list", () => {
+  const file = path.join(import.meta.dir, "..", pending!);
+  expect(checkGalleryFrameSource(file, 'expect(isGalleryFrame("/gallery/frame.html")).toBe(false);')).toEqual([
+    `${pending}: opens no browser now; remove it from EVERY_ENTRY_PENDING`,
   ]);
 });
 

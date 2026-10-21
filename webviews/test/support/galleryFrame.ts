@@ -94,7 +94,8 @@ export async function warmGalleryFrame(
             ]);
             break;
           } catch (error) {
-            if (Date.now() >= deadline || !reloaded(error)) throw error;
+            if (Date.now() >= deadline || !reloaded(error))
+              throw new Error(`warmGalleryFrame: ${entry}: ${String(error)}`, { cause: error });
           }
         }
         if (ready === "error") throw new Error(`warmGalleryFrame: ${entry}: ${message}`);
