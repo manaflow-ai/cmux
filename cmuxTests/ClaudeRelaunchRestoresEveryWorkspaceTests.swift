@@ -31,10 +31,6 @@ struct ClaudeRelaunchRestoresEveryWorkspaceTests {
                 .appendingPathComponent("cmux-claude-relaunch-\(UUID().uuidString)", isDirectory: true)
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             defer { try? FileManager.default.removeItem(at: root) }
-            let defaultsName = "cmux-claude-relaunch-\(UUID().uuidString)"
-            let defaults = try #require(UserDefaults(suiteName: defaultsName))
-            defaults.set(true, forKey: AgentSessionAutoResumeSettings.autoResumeAgentSessionsKey)
-            defer { defaults.removePersistentDomain(forName: defaultsName) }
 
             // Three workspaces each running Claude; the second runs under another
             // account's config directory, as a second Claude login does.
@@ -50,7 +46,7 @@ struct ClaudeRelaunchRestoresEveryWorkspaceTests {
                     configDirectory: index == 1 ? otherConfig : defaultConfig
                 )
                 saved.append(entry)
-                workspaces.append(try runningClaudeWorkspace(entry, directory: directory.path, defaults: defaults))
+                workspaces.append(try runningClaudeWorkspace(entry, directory: directory.path))
             }
             let persisted = try JSONEncoder().encode(
                 SessionTabManagerSnapshot(selectedWorkspaceIndex: 0, workspaces: workspaces)
@@ -82,6 +78,8 @@ struct ClaudeRelaunchRestoresEveryWorkspaceTests {
                 AppDelegate.shared = previousApp
             }
 
+            // Workspaces the TabManager restores read auto-resume from the app's own
+            // defaults, as at launch; it is on unless the person turned it off.
             let restoredIDs = manager.restoreSessionSnapshot(snapshot)
             #expect(manager.tabs.count == 3)
             #expect(manager.selectedWorkspace === manager.tabs.first)
@@ -129,14 +127,9 @@ struct ClaudeRelaunchRestoresEveryWorkspaceTests {
     /// A saved workspace whose one terminal was running Claude when the app quit.
     private func runningClaudeWorkspace(
         _ entry: Saved,
-        directory: String,
-        defaults: UserDefaults
+        directory: String
     ) throws -> SessionWorkspaceSnapshot {
-        let source = Workspace(
-            workingDirectory: directory,
-            agentSessionAutoResumeDefaults: defaults,
-            restorableAgentIndexProvider: { .empty }
-        )
+        let source = Workspace(workingDirectory: directory, restorableAgentIndexProvider: { .empty })
         defer { source.teardownAllPanels() }
         let panelID = try #require(source.focusedPanelId)
         var snapshot = source.sessionSnapshot(includeScrollback: false)
