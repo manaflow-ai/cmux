@@ -49,8 +49,10 @@ export type AcpmuxCompaction = {
   postTokens?: number;
 };
 
-/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record).
-export type AcpmuxFailover = { from: string; to: string };
+/// acpmux moved the chat onto its fallback harness after a usage limit (a `failover` record), or
+/// kept a restricted chat on its harness because the fallback cannot run restricted (a
+/// `failover_refused` record, `refused: "restricted"`).
+export type AcpmuxFailover = { from: string; to: string; refused?: "restricted" };
 
 /// A message to this chat that acpmux holds while its pair is paused (`agent_pair_held`).
 export type AcpmuxHeldMessage = { promptId: string; text: string };
@@ -421,6 +423,9 @@ export type AcpmuxSnapshot = {
     backgroundsWork?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
+    /// acpmux runs the chat restricted (`hub/restricted.rs`): no project settings, hooks or MCP
+    /// servers, and every tool asks.
+    restricted?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
     /// system/init); unset when it reports none (every ACP harness).
     mcpServers?: { name: string; status: "connected" | "failed" | "pending" }[];

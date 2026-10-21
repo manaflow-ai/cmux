@@ -64,6 +64,10 @@ pub struct SessionSummary {
     pub moving: bool,
     /// The agent takes a prompt mid-turn.
     pub steering: bool,
+    /// A restricted chat: no folder settings, hooks or MCP servers, and every tool asks.
+    /// Absent for any other chat.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restricted: Option<bool>,
     /// `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
     /// harness is Claude Code (claude-stdio), whatever the harness's name.
     /// Clients offer Ctrl-B from this, not from `harness`.

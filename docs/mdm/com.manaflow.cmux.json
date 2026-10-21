@@ -220,6 +220,12 @@
       "title" : "Trusted Project Roots",
       "type" : "array"
     },
+    "agents.trust.restrictedChats" : {
+      "default" : false,
+      "description" : "After Not now, Claude Code still runs in the folder without its project settings, hooks or MCP servers, and asks before every tool. Off: the chat waits until you trust the folder.",
+      "title" : "Restricted Chats in Untrusted Folders",
+      "type" : "boolean"
+    },
     "AllowedSignInMethods" : {
       "description" : "Sign-in methods the app offers.",
       "items" : {

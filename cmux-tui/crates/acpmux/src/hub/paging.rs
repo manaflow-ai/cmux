@@ -36,6 +36,8 @@ pub const TRANSCRIPT_MUX_KINDS: &[&str] = &[
     "permission_chat_allowance",
     "message_superseded",
     "failover",
+    // A restricted chat that stayed on its harness: the pane notes it where a failover would be.
+    "failover_refused",
     "forked",
     "imported",
     "session_offer",
