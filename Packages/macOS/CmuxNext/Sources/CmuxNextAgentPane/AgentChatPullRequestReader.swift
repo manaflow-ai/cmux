@@ -102,12 +102,21 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
         // Every field ``AgentPanePullRequest/fields`` reads, so a pull request from here is the
         // same pull request a `gh pr view` of it would be: a card drawn from a batched read must
         // not be missing its branches, labels or files.
+        // A rollup's contexts carry the run they came from, because a cancelled run a newer run of
+        // the same workflow replaced still sits in this list and reads as a failure
+        // (``AgentPanePullRequest/latestRuns(_:)``).
+        let contexts = """
+            contexts(first: 100) { nodes { __typename \
+            ... on CheckRun { name status conclusion detailsUrl \
+            checkSuite { workflowRun { databaseId workflow { databaseId name } } } } \
+            ... on StatusContext { context state targetUrl } } }
+            """
         let fields = """
             url number title state isDraft reviewDecision mergeable createdAt updatedAt mergedAt additions deletions \
             changedFiles baseRefName headRefName author { login } labels(first: \(AgentPanePullRequest.maximumLabels)) \
             { nodes { name } } files(first: 100) { nodes { path additions deletions } } \
-            commits(last: 1) { nodes { commit { statusCheckRollup { contexts(first: 100) { nodes { __typename \
-            ... on CheckRun { name status conclusion detailsUrl } ... on StatusContext { context state targetUrl } } } } } } }
+            commits(last: 1) { nodes { commit { statusCheckRollup { \(contexts) } } } } \
+            baseRef { target { ... on Commit { statusCheckRollup { \(contexts) } } } }
             """
         let aliases = targets.enumerated().map { index, target in
             "p\(index): repository(owner: \"\(target.owner)\", name: \"\(target.name)\") { pullRequest(number: \(target.number)) { ...f } }"
@@ -138,6 +147,13 @@ public nonisolated struct AgentChatPullRequestReader: Sendable {
             let contexts = (commit?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
             view["statusCheckRollup"] = contexts?["nodes"] as? [[String: Any]] ?? []
             view["commits"] = nil
+            // The base branch's tip, under the name `AgentPanePullRequest` reads it by. The tip is
+            // what "also red on base" means: the merge rules measure a base red there, not at this
+            // pull request's merge base.
+            let baseTarget = (view["baseRef"] as? [String: Any])?["target"] as? [String: Any]
+            let baseContexts = (baseTarget?["statusCheckRollup"] as? [String: Any])?["contexts"] as? [String: Any]
+            view["baseStatusCheckRollup"] = baseContexts?["nodes"] as? [[String: Any]] ?? []
+            view["baseRef"] = nil
             // GraphQL wraps a connection's rows in `nodes`; gh prints them as a plain array.
             for key in ["labels", "files"] {
                 view[key] = (view[key] as? [String: Any])?["nodes"] as? [[String: Any]] ?? []

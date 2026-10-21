@@ -467,6 +467,8 @@ button.acpmux-edited-file:hover{background:color-mix(in srgb,var(--agent-text) 4
 .acpmux-pr-card__checks[data-state=passing]::before{background:var(--agent-success,var(--acpmux-add,#3fb950))}
 .acpmux-pr-card__checks[data-state=pending]::before{background:var(--agent-warning,#d29922)}
 .acpmux-pr-card__checks[data-state=failing]::before{background:var(--agent-danger)}
+/* Every failing check fails the same way on the base branch's tip, so the card's dot drops from danger to warning: there is nothing here for this pull request to fix. */
+.acpmux-pr-card__checks[data-state=failing][data-on-base=all]::before{background:var(--agent-warning,#d29922)}
 /* The rest of the pull request card (Leo 2026-10-20): the author with a monogram and when GitHub last saw the pull request change, base <- head, the review decision and labels, and the files with +/- whose hover breaks the lines down by kind (src/fileKinds.ts, the classifier the diff viewer groups by). */
 .acpmux-pr-card__state[data-state=draft]{color:var(--agent-muted)}
 .acpmux-pr-card__state[data-state=conflicts]{color:var(--agent-warning,#d29922)}

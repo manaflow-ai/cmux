@@ -229,3 +229,60 @@ test("no answer yet: the card says it is reading and keeps asking the app, not G
   expect(body.textContent).toContain("manaflow-ai/cmux#22777");
   expect(calls.every((method) => method === "pr.inspect")).toBe(true);
 });
+
+// A red the base branch's tip has too is not this pull request's: the merge rules say so, and the
+// card says which of its reds those are, so nobody opens a log that was already red before the
+// branch existed. The host decides (AgentPanePullRequest `failingOnBase`, which compares only each
+// workflow's newest run so a cancelled, superseded run can never excuse a red); the card reads it.
+test("the card says how many of the failing checks are also red on the base", async () => {
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 98, total: 100, failingOnBase: 1 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed" },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  const checks = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.textContent).toBe("98 of 100 checks passed, 2 failing, 1 also red on base");
+  // One red is still this pull request's, so the dot stays danger.
+  expect(checks.dataset.onBase).toBeUndefined();
+});
+
+test("every red being the base's turns the card's dot from danger to warning", async () => {
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 98, total: 100, failingOnBase: 2 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed", onBase: true },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  const checks = body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.textContent).toBe("98 of 100 checks passed, 2 failing, 2 also red on base");
+  expect(checks.dataset.onBase).toBe("all");
+});
+
+test("a host that claims nothing about the base draws the card it always did", async () => {
+  // The single-link path reads one `gh pr view`, which cannot see the base branch's checks at all.
+  // Saying nothing there is the only safe reading: "not marked" must never render as "not yours".
+  const quiet = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
+  const checks = quiet.body.querySelector<HTMLElement>(".acpmux-pr-card__checks")!;
+  expect(checks.textContent).toBe("89 of 100 checks passed, 1 failing");
+  expect(checks.dataset.onBase).toBeUndefined();
+  await teardown?.();
+  teardown = undefined;
+  // And a count that outruns the reds it claims to explain is clamped to them, rather than drawing
+  // "1 failing, 7 also red on base".
+  const loud = await card({
+    pullRequest: pullRequest({ checks: { state: "failing", passed: 99, total: 100, failingOnBase: 7 } }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(loud.body.querySelector(".acpmux-pr-card__checks")?.textContent).toBe(
+    "99 of 100 checks passed, 1 failing, 1 also red on base",
+  );
+});
