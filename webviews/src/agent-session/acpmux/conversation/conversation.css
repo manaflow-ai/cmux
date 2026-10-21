@@ -3072,13 +3072,10 @@ button.cv-received__name:focus-visible {
   padding-bottom: var(--cv-message-gap);
 }
 
-/* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */
+/* A steer under its bubble (SteerMark.tsx): "Steered" once the agent read it, nothing before. */
 .cv-user__steer-label {
   color: var(--cv-text);
   font-weight: 500;
-}
-.cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
-  color: var(--agent-accent);
 }
 /* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
 .cv-user__pending {

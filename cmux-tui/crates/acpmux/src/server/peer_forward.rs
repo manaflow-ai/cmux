@@ -145,6 +145,15 @@ async fn forward_inner(
         }
         return Ok(Some(result));
     }
+    // `PEER/name` for a peer that is down and lists no such session: say
+    // the peer is unreachable, not that the session does not exist.
+    if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && let Ok(key) = session_key(params)
+        && hub.resolve(key).is_err()
+        && let Some(e) = hub.peer_down_for(key)
+    {
+        return Err(e);
+    }
     Ok(None)
 }
 

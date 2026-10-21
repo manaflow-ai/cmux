@@ -38,6 +38,8 @@ const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let dom: JSDOM;
 let root: Root | undefined;
 let host: HTMLElement;
+/// How often the picker asked the host to read the machines again (`onRefreshMachines`).
+let refreshes = 0;
 
 beforeAll(() => {
   dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true, url: "https://cmux.test/" });
@@ -96,16 +98,17 @@ const status = {
 // peer's name and the scheme of its URL reach the page.
 const relayedStatus = {
   peers: [
-    { name: "gpu-box", transport: "ssh" },
-    { name: "cloud-1", transport: "wss" },
+    { name: "gpu-box", transport: "ssh", connected: true },
+    { name: "cloud-1", transport: "wss", connected: false },
   ],
 };
 
 async function mount(environments: boolean, extra: Record<string, unknown> = {}) {
   const { createRoot } = await import("react-dom/client");
   const { ComposerContext } = await import("../src/agent-session/acpmux/ComposerContext");
-  const { peerKindsFromStatus } = await import("../src/agent-session/acpmux/environments");
+  const { peerKindsFromStatus, peerConnectedFromStatus } = await import("../src/agent-session/acpmux/environments");
   const calls: unknown[][] = [];
+  refreshes = 0;
   const props = {
     environments,
     summary: { sessionId: "", harness: "claude", host: "This Mac", hostKind: "local" },
@@ -115,6 +118,8 @@ async function mount(environments: boolean, extra: Record<string, unknown> = {})
     ],
     peers: status.peers.map((peer) => peer.name),
     peerKinds: peerKindsFromStatus(relayedStatus),
+    peerConnected: peerConnectedFromStatus(relayedStatus),
+    onRefreshMachines: () => refreshes++,
     localName: "cosmic-gray",
     projectChoices: [{ cwd: "/Users/you/src/cmux", label: "cmux" }],
     onProject: (cwd: string, peer?: string) => calls.push(["project", cwd, peer]),
@@ -192,6 +197,35 @@ test("a peer's transport reads the same from the relayed reply and the daemon's 
   expect(peerKindsFromStatus({ peers: [{ name: "bare" }] })).toEqual({ bare: "cloud" });
 });
 
+test("a peer's connected flag reads the same from the relayed reply and the daemon's own", async () => {
+  const { peerConnectedFromStatus } = await import("../src/agent-session/acpmux/environments");
+  const connected = { "gpu-box": true, "cloud-1": false };
+  expect(peerConnectedFromStatus(relayedStatus)).toEqual(connected);
+  expect(
+    peerConnectedFromStatus({ peers: [...status.peers.slice(0, 1), { ...status.peers[1], connected: false }] }),
+  ).toEqual(connected);
+  // An older acpmux or relay that sends no flag (or not a boolean) says nothing about the machine.
+  expect(peerConnectedFromStatus({ peers: [{ name: "bare" }, { name: "odd", connected: 1 }] })).toEqual({});
+});
+
+test("each remote machine shows whether it is connected, read again as the list opens; this Mac shows none", async () => {
+  await mount(true);
+  expect(refreshes).toBe(0);
+  await openPicker();
+  expect(refreshes).toBe(1);
+  const states = machineRows().map((row) => {
+    const mark = row.querySelector(".acpmux-env-status");
+    return mark ? [mark.getAttribute("data-connected"), mark.textContent] : null;
+  });
+  expect(states).toEqual([
+    null,
+    ["true", t("composer.envConnected")],
+    ["false", t("composer.envNotConnected")],
+    // A Cloud chat's host acpmux does not list: nothing is known, so nothing is claimed.
+    null,
+  ]);
+});
+
 test("previews off: the row keeps its plain Computer menu", async () => {
   await mount(false);
   expect(computerButton()?.getAttribute("aria-label")).toBe(`${t("composer.computer")}: cosmic-gray`);
@@ -255,7 +289,7 @@ test("the search field filters by name and section, keeping each machine's short
   await openPicker();
   await type("cloud");
   const shown = machineRows();
-  expect(shown.map((row) => rowText(row))).toEqual(["cloud-1⌥⌘3", "build-cloud⌥⌘4"]);
+  expect(shown.map((row) => rowText(row))).toEqual([`cloud-1${t("composer.envNotConnected")}⌥⌘3`, "build-cloud⌥⌘4"]);
   expect(newRows()).toHaveLength(2);
 });
 

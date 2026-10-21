@@ -20,7 +20,7 @@ import type {
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
-import { peerKindsFromStatus } from "./environments";
+import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
@@ -152,6 +152,8 @@ export const PREWARM_METHOD = "_acpmux/prewarm";
 /// as working before acpmux's forced end and its note.
 const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
+/// How many withdrawn queue prompts a snapshot names (`queueWithdrawn`).
+const QUEUE_WITHDRAWN_KEPT = 16;
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
 /// A `usage_update` acpmux marked as one model call's own (claude_stdio/inbound.rs, Claude Code's
@@ -730,6 +732,8 @@ export class AcpmuxDirectClient {
   /// history and never takes the current options back (a chat moved from Low to High).
   private configSeq = 0;
   private queue: QueuedPrompt[] = [];
+  /// Prompts that left the queue without running (snapshot `queueWithdrawn`), the last QUEUE_WITHDRAWN_KEPT.
+  private queueWithdrawn: readonly string[] = [];
   private pendingPermission?: AcpmuxPermission;
   /// Asks that came while `pendingPermission` waits, oldest first, by permission id: acpmux keeps
   /// every pending ask (a question beside a command, two subagents asking), and the card answers
@@ -867,6 +871,7 @@ export class AcpmuxDirectClient {
   private peers: string[] = [];
   /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
   private peerKinds: Record<string, "ssh" | "cloud"> = {};
+  private peerConnected: Record<string, boolean> = {};
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -1045,13 +1050,7 @@ export class AcpmuxDirectClient {
       const groupedPermissionsSupported = supportsPermissionGroups(initialized);
       if (!groupedPermissionsSupported) this.groupedPermissions.clear();
       this.permissions.configure(groupedPermissionsSupported);
-      const status = await this.request("_acpmux/status", {}).catch(() => undefined);
-      this.peers = Array.isArray(status?.peers)
-        ? status.peers
-            .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
-            .filter((peer: string | undefined): peer is string => Boolean(peer))
-        : [];
-      this.peerKinds = peerKindsFromStatus(status);
+      this.readPeers(await this.request("_acpmux/status", {}).catch(() => undefined));
       const first = await this.sessionPages.first();
       let laterPages = first?.next ? first : undefined;
       const linkedLater =
@@ -1146,6 +1145,7 @@ export class AcpmuxDirectClient {
     this.turnTokens = undefined;
     this.usageFromSeq = Infinity;
     this.queue = [];
+    this.queueWithdrawn = [];
     this.turnOpen = false;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
@@ -1906,9 +1906,12 @@ export class AcpmuxDirectClient {
         this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
-    } else if (event.kind === "queue_removed" || event.kind === "dequeued")
-      this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
-    else if (event.kind === "permission_request") {
+    } else if (event.kind === "queue_removed" || event.kind === "dequeued") {
+      const id = String(msg.promptId ?? "");
+      this.queue = this.queue.filter((entry) => entry.id !== id);
+      if (event.kind === "queue_removed" && id)
+        this.queueWithdrawn = [...this.queueWithdrawn.filter((each) => each !== id), id].slice(-QUEUE_WITHDRAWN_KEPT);
+    } else if (event.kind === "permission_request") {
       const asked = msg.permissionId
         ? questionFromPermission({
             permissionId: String(msg.permissionId),
@@ -2555,6 +2558,7 @@ export class AcpmuxDirectClient {
       }),
       peers: this.peers,
       peerKinds: this.peerKinds,
+      peerConnected: this.peerConnected,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -2604,6 +2608,7 @@ export class AcpmuxDirectClient {
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
       queue: this.shownQueue(),
+      ...(this.queueWithdrawn.length ? { queueWithdrawn: this.queueWithdrawn } : {}),
       permission: this.pendingPermission,
       ...(this.pendingPermission && this.waitingPermissions.size > 0
         ? { permissionsWaiting: this.waitingPermissions.size }
@@ -3841,6 +3846,25 @@ export class AcpmuxDirectClient {
         models: models.get(profile.id) ?? profile.models,
       })),
     ];
+  }
+  /// Reads acpmux's peers again (`_acpmux/status`): the environment picker asks as it opens, so a
+  /// machine that connected or dropped since shows as it is now. acpmux sends no peer events.
+  async refreshPeers(): Promise<void> {
+    const status = await this.request("_acpmux/status", {}).catch(() => undefined);
+    if (status === undefined) return;
+    this.readPeers(status);
+    // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
+    // emitting now would record "connected" on the hold before setup says so.
+    if (!this.snapshotHold) this.emit();
+  }
+  private readPeers(status: any): void {
+    this.peers = Array.isArray(status?.peers)
+      ? status.peers
+          .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
+          .filter((peer: string | undefined): peer is string => Boolean(peer))
+      : [];
+    this.peerKinds = peerKindsFromStatus(status);
+    this.peerConnected = peerConnectedFromStatus(status);
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
   /// the lists it has and asks each harness before it answers (the picker's Refresh models).
