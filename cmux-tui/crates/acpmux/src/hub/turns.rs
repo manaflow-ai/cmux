@@ -291,7 +291,7 @@ impl Hub {
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
-            clear_sent_draft(&mut m, &text);
+            drafts::clear_sent_draft(&mut m, &text);
             super::titles::set_fallback_title(&mut m, &text);
             m.preview = Some(String::new());
             m.turn_count += 1;
@@ -605,8 +605,6 @@ impl Hub {
                 self.write_turn_result(session, msg, git);
             }
         }
-        // A turn's end may have made a worktree idle (`worktree_care.rs`).
-        self.care_nudge("turn_end");
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {

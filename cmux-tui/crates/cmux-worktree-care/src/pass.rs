@@ -1,8 +1,10 @@
 //! One pass over a machine's worktrees: inventory, a verdict for each, and
-//! (with `apply`) the actions. A pass reads the processes once up front and
-//! refuses to act without them; every action checks them again.
+//! (with `apply`) the actions. A pass reads what works where (`uses`: the
+//! registries of programs outside acpmux) once up front and refuses to act
+//! without it; every action reads it again.
 
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use serde::Serialize;
 
@@ -10,19 +12,21 @@ use crate::archive;
 use crate::disk::{self, Usage};
 use crate::inventory::{self, now_ms};
 use crate::policy::{self, Action, Pressure, Session, Settings, Verdict};
-use crate::procs;
+use crate::procs::Uses;
 use crate::store::Store;
 
 /// How long measuring one worktree may take.
 const MEASURE: std::time::Duration = std::time::Duration::from_secs(10);
 
 /// What a pass looks at and may do.
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct Options {
     /// Folders whose repositories (the folder and its children) are read.
     pub roots: Vec<PathBuf>,
     /// The agent sessions on this machine.
     pub sessions: Vec<Session>,
+    /// What else works where (`procs::claude_sessions`, ...).
+    pub uses: Arc<Uses>,
     pub settings: Settings,
     /// Act; otherwise only report.
     pub apply: bool,
@@ -91,7 +95,7 @@ impl Report {
 /// Runs one pass.
 pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     // No process list, no action: a worktree some program uses could go.
-    let processes = procs::working_folders()?;
+    let processes = (options.uses)()?;
     let session_dirs: Vec<PathBuf> = options.sessions.iter().map(|s| s.cwd.clone()).collect();
     let repositories = inventory::repositories(&options.roots, &session_dirs);
     let disk = options.roots.first().and_then(|root| disk::usage(root));
@@ -175,7 +179,7 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
     Ok(report)
 }
 
-/// Acts on a verdict with the worktree's facts and the processes read
+/// Acts on a verdict with the worktree's facts and what works where read
 /// again now, and the verdict decided again from them: the scan may be
 /// minutes old, and a worktree whose verdict changed meanwhile stays.
 fn act(
@@ -186,7 +190,7 @@ fn act(
     pressure: Pressure,
     store: &Store,
 ) -> Result<(u64, Option<String>), String> {
-    let processes = procs::working_folders()?;
+    let processes = (options.uses)()?;
     let fresh = inventory::rescan(repo, path)?;
     let verdict = policy::decide(
         &fresh,
@@ -203,11 +207,17 @@ fn act(
     let facts = fresh.facts.as_ref().map_err(Clone::clone)?;
     match verdict.action {
         Action::Keep => Ok((0, None)),
-        Action::Trim => archive::trim(&fresh, facts).map(|freed| (freed, None)),
-        Action::Reclaim | Action::Archive => {
-            archive::reclaim(repo, &fresh, facts, verdict.action, &verdict.reason, store)
-                .map(|manifest| (manifest.freed, Some(manifest.id)))
-        }
+        Action::Trim => archive::trim(&fresh, facts, &*options.uses).map(|freed| (freed, None)),
+        Action::Reclaim | Action::Archive => archive::reclaim(
+            repo,
+            &fresh,
+            facts,
+            verdict.action,
+            &verdict.reason,
+            store,
+            &*options.uses,
+        )
+        .map(|manifest| (manifest.freed, Some(manifest.id))),
     }
 }
 

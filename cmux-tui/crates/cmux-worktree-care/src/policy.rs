@@ -1,4 +1,5 @@
-//! A verdict per worktree. Pure: the facts, the sessions, the processes and
+//! A verdict per worktree. Pure: the facts, the sessions, the registered
+//! programs and
 //! the disk go in, a verdict comes out, so every rule has a test.
 //!
 //! The order of the rules is the order of the guarantees:
@@ -166,7 +167,7 @@ pub fn decide(
         Some(main)
             if sessions.iter().any(|s| {
                 s.open && inside(&s.cwd, main) && now_ms.saturating_sub(s.updated_ms) < DAY_MS
-            }) =>
+            }) || procs::inside(processes, main).is_some() =>
         {
             Pressure::Normal
         }

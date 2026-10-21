@@ -19,18 +19,18 @@ use cmux_git::write_run::{Bound, WriteGit};
 use crate::git::{self, HASH, MAX_ARGUMENT_BYTES};
 use crate::inventory::{Facts, Repo, Worktree, now_ms};
 use crate::policy::Action;
-use crate::procs;
+use crate::procs::{self, Uses};
 use crate::store::{Manifest, Store, new_id};
 
 /// How long removing a folder (many files) may take before git is waited on
 /// anyway: removal is a write and is never killed midway.
 const BUNDLE: Duration = Duration::from_secs(600);
 
-/// Removes a kept worktree's build output, each folder only while no
-/// process works in it. Returns the bytes the disk gained.
-pub fn trim(worktree: &Worktree, facts: &Facts) -> Result<u64, String> {
+/// Removes a kept worktree's build output, each folder only while nothing
+/// `uses` lists works in it. Returns the bytes the disk gained.
+pub fn trim(worktree: &Worktree, facts: &Facts, uses: &Uses) -> Result<u64, String> {
     let before = available(&worktree.path);
-    let processes = procs::working_folders()?;
+    let processes = uses()?;
     for entry in &facts.build_output {
         let path = worktree.path.join(entry.trim_end_matches('/'));
         if !path.starts_with(&worktree.path) || procs::inside(&processes, &path).is_some() {
@@ -51,7 +51,8 @@ pub fn trim(worktree: &Worktree, facts: &Facts) -> Result<u64, String> {
 /// has) and removes a worktree, writing its manifest first. `facts` must be
 /// fresh (`inventory::rescan`). Right before the folder goes, the worktree
 /// is read once more: its status, its ignored entries and the tree of its
-/// files must be what was archived, and no process may work in it; else it
+/// files must be what was archived, and nothing `uses` lists may work in
+/// it; else it
 /// stays and the archive is dropped. Returns the manifest, with the bytes
 /// freed.
 pub fn reclaim(
@@ -61,6 +62,7 @@ pub fn reclaim(
     action: Action,
     reason: &str,
     store: &Store,
+    uses: &Uses,
 ) -> Result<Manifest, String> {
     if let Some(why) = &facts.unarchivable {
         return Err(format!("cannot archive: {why}"));
@@ -134,7 +136,7 @@ pub fn reclaim(
         return Err(error);
     }
     if let Err(why) =
-        unchanged(repo, worktree, facts, &fingerprint, files.as_deref(), &wt, store, &id)
+        unchanged(repo, worktree, facts, &fingerprint, files.as_deref(), &wt, store, &id, uses)
     {
         discard(&wt, store, &manifest);
         return Err(format!("{why}; it stays"));
@@ -163,6 +165,7 @@ fn unchanged(
     wt: &WriteGit<'_>,
     store: &Store,
     id: &str,
+    uses: &Uses,
 ) -> Result<(), String> {
     if fingerprint != self::fingerprint(repo, worktree)?.as_slice() {
         return Err("its status changed while it was archived".to_string());
@@ -183,7 +186,7 @@ fn unchanged(
             return Err("its files changed while it was archived".to_string());
         }
     }
-    if let Some(process) = procs::inside(&procs::working_folders()?, &worktree.path) {
+    if let Some(process) = procs::inside(&uses()?, &worktree.path) {
         return Err(format!("process {} started working in it", process.pid));
     }
     Ok(())

@@ -7,8 +7,14 @@ use std::process::Command;
 use cmux_worktree_care::inventory::{self, Facts, Repo};
 use cmux_worktree_care::pass::{self, Options};
 use cmux_worktree_care::policy::{Action, Pressure, Settings};
+use cmux_worktree_care::procs::Uses;
 use cmux_worktree_care::restore::restore;
 use cmux_worktree_care::{Store, archive};
+
+/// Nothing registered as working anywhere.
+fn nothing() -> std::sync::Arc<Uses> {
+    std::sync::Arc::new(|| Ok(Vec::new()))
+}
 
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!(
@@ -99,7 +105,8 @@ fn care_unpushed_and_uncommitted_work_survives_reclaim_and_restore() {
 
     let store = Store::open(base.join("store")).unwrap();
     let manifest =
-        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store, &*nothing())
+            .unwrap();
     assert!(!wt.exists(), "the folder is gone");
     let reference = manifest.archive_ref.clone().unwrap();
     assert_eq!(git(&main, &["rev-parse", &reference]), manifest.archive_commit.clone().unwrap());
@@ -127,7 +134,8 @@ fn care_a_restore_takes_the_archive_from_its_bundle_when_the_ref_is_gone() {
     let (worktree, facts) = facts_of(&repo, &wt);
     let store = Store::open(base.join("store")).unwrap();
     let manifest =
-        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store, &*nothing())
+            .unwrap();
     let reference = manifest.archive_ref.clone().unwrap();
     git(&main, &["update-ref", "-d", &reference]);
     git(&main, &["reflog", "expire", "--expire=now", "--all"]);
@@ -151,7 +159,8 @@ fn care_a_pushed_clean_worktree_goes_without_an_archive() {
     assert!(facts.is_clean_and_pushed());
     let store = Store::open(base.join("store")).unwrap();
     let manifest =
-        archive::reclaim(&repo, worktree, facts, Action::Reclaim, "test", &store).unwrap();
+        archive::reclaim(&repo, worktree, facts, Action::Reclaim, "test", &store, &*nothing())
+            .unwrap();
     assert!(manifest.archive_ref.is_none() && !wt.exists());
     restore(&store, &manifest, None).unwrap();
     assert_eq!(std::fs::read_to_string(wt.join("src/lib.txt")).unwrap(), "pushed\n");
@@ -211,7 +220,8 @@ fn care_a_sparse_worktree_comes_back_sparse() {
     assert!(facts.sparse.as_ref().is_some_and(|s| s.cone));
     let store = Store::open(base.join("store")).unwrap();
     let manifest =
-        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store, &*nothing())
+            .unwrap();
     restore(&store, &manifest, None).unwrap();
     assert_eq!(git(&wt, &["sparse-checkout", "list"]), "src");
     assert_eq!(git(&wt, &["status", "--porcelain"]), "?? src/new.txt");
@@ -241,6 +251,7 @@ fn care_a_pass_reclaims_idle_work_and_keeps_an_open_session_s() {
             trim_hours: zero,
             ..Settings::default()
         },
+        uses: nothing(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
@@ -267,7 +278,8 @@ fn care_a_restore_over_a_branch_that_moved_on_detaches_at_the_archive() {
     let (worktree, facts) = facts_of(&repo, &wt);
     let store = Store::open(base.join("store")).unwrap();
     let manifest =
-        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store, &*nothing())
+            .unwrap();
     // Someone commits on the branch while the worktree is archived.
     git(&main, &["branch", "-f", "feat/g", "main"]);
     git(&main, &["switch", "-q", "feat/g"]);
@@ -295,7 +307,8 @@ fn care_a_restore_that_cannot_find_its_archive_adds_nothing() {
     let (worktree, facts) = facts_of(&repo, &wt);
     let store = Store::open(base.join("store")).unwrap();
     let manifest =
-        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store, &*nothing())
+            .unwrap();
     git(&main, &["update-ref", "-d", manifest.archive_ref.as_deref().unwrap()]);
     git(&main, &["reflog", "expire", "--expire=now", "--all"]);
     git(&main, &["gc", "-q", "--prune=now"]);
@@ -329,7 +342,8 @@ fn care_an_archive_goes_after_its_keep_time() {
     let (worktree, facts) = facts_of(&repo, &wt);
     let store = Store::open(base.join("store")).unwrap();
     let manifest =
-        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store).unwrap();
+        archive::reclaim(&repo, worktree, facts, Action::Archive, "test", &store, &*nothing())
+            .unwrap();
     let day = 24 * 60 * 60 * 1000;
     assert!(archive::expire(&store, manifest.created_ms + day, 14 * day).unwrap().is_empty());
     let dropped = archive::expire(&store, manifest.created_ms + 15 * day, 14 * day).unwrap();
@@ -354,6 +368,7 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
         roots: vec![base.clone()],
         sessions: Vec::new(),
         settings: Settings::default(),
+        uses: nothing(),
         apply: true,
         pressure: Some(Pressure::Critical),
         only: Vec::new(),
@@ -363,4 +378,55 @@ fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
     pass::run(&options, &store).unwrap();
     std::fs::rename(&moved, &wt).unwrap();
     assert!(git(&wt, &["log", "-1", "--format=%s"]).contains("detached, local only"));
+}
+
+#[test]
+fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
+    let (base, main) = repository("claude");
+    let wt = base.join("wt-l");
+    git(&main, &["worktree", "add", "-q", "-b", "feat/l", wt.to_str().unwrap()]);
+    write(&wt.join("wip.txt"), "wip\n");
+    // Claude Code's own registry, as a terminal agent outside acpmux leaves it.
+    let claude = base.join("claude-home");
+    std::fs::create_dir_all(claude.join("sessions")).unwrap();
+    let cwd = wt.join("src");
+    std::fs::write(
+        claude.join("sessions/1.json"),
+        format!(r#"{{"pid":{},"cwd":{:?}}}"#, std::process::id(), cwd.to_str().unwrap()),
+    )
+    .unwrap();
+    let zero = [0, 0, 0];
+    let registry = claude.clone();
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        uses: std::sync::Arc::new(move || {
+            // This test process stands in for the session's: `inside` skips
+            // its own pid, so the record names its parent.
+            cmux_worktree_care::procs::claude_sessions(std::slice::from_ref(&registry)).map(
+                |found| {
+                    found
+                        .into_iter()
+                        .map(|p| cmux_worktree_care::procs::Process { pid: p.pid + 1_000_000, ..p })
+                        .collect()
+                },
+            )
+        }),
+        settings: Settings {
+            recent_hours: zero,
+            idle_pushed_hours: zero,
+            idle_unpushed_hours: zero,
+            trim_hours: zero,
+            ..Settings::default()
+        },
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: Vec::new(),
+        measure: false,
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    let report = pass::run(&options, &store).unwrap();
+    let item = report.items.iter().find(|i| i.path == wt).unwrap();
+    assert_eq!(item.verdict.action, Action::Keep, "{}", item.verdict.reason);
+    assert!(wt.exists());
 }

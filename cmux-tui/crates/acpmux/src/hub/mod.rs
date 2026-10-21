@@ -89,6 +89,7 @@ pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
+mod drafts;
 pub mod rules;
 mod transcript;
 mod transfer;
@@ -319,8 +320,6 @@ pub struct Hub {
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
-    /// Worktree cleanup passes (`worktree_care.rs`).
-    pub(super) care: worktree_care::CareState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -406,7 +405,6 @@ impl Hub {
             chats_waiters: StdMutex::new(Vec::new()),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
-            care: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
@@ -1037,6 +1035,7 @@ impl Hub {
             session.mark_waiting(status == SessionStatus::Waiting);
             self.append(session, "mux", "status", json!({"status": status.to_string()}));
             self.save_meta(session);
+            self.care_status(status);
         }
     }
 
@@ -1046,14 +1045,6 @@ impl Hub {
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
-    }
-}
-
-/// The unsent draft went out as `text`, from whichever client sent it: it is no longer the
-/// chat's draft. Any other prompt leaves the draft as it is.
-fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
-    if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
-        meta.composer_draft = None;
     }
 }
 

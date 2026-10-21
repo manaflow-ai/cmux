@@ -573,13 +573,11 @@ async fn dispatch_request(
         method::SESSION_CLOSE => {
             let s = hub.resolve(session_key(&params)?)?;
             hub.kill(&s, false).await?;
-            hub.care_nudge("session_close");
             Ok(json!({}))
         }
         method::SESSION_DELETE => {
             let s = hub.resolve(session_key(&params)?)?;
             hub.kill(&s, true).await?;
-            hub.care_nudge("session_close");
             Ok(json!({}))
         }
         // ------------------------------------------------ acpmux extensions
@@ -951,7 +949,6 @@ async fn dispatch_request(
             let s = hub.resolve(session_key(&params)?)?;
             let purge = params.get("purge").and_then(Value::as_bool).unwrap_or(false);
             hub.kill(&s, purge).await?;
-            hub.care_nudge("session_close");
             Ok(json!({"sessionId": s.id, "purged": purge}))
         }
         method::MUX_QUEUE_EDIT => {

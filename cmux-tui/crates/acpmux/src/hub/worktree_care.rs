@@ -3,8 +3,9 @@
 //! and removes those nothing uses any more, and trims the build output of
 //! idle ones it keeps.
 //!
-//! A pass runs when something may have freed a worktree (a turn ended, a
-//! session closed, the daemon started) and the disk says one is due: at
+//! A pass runs when something may have freed a worktree (a session went
+//! idle at a turn's end or closed, the daemon started: `set_status` and
+//! `startup` wake one worker) and the disk says one is due: at
 //! most every 6 hours under 80% used, every hour from 80%, every 10 minutes
 //! from 90%. Nothing runs on a timer. One pass at a time, off the runtime:
 //! the settings, the disk and the session files are read on a blocking
@@ -20,6 +21,7 @@
 use super::*;
 
 use std::path::PathBuf;
+use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
 use std::time::Duration;
 
@@ -45,11 +47,17 @@ fn spacing(pressure: Pressure) -> u64 {
     }
 }
 
-/// The hub's cleanup state: one pass at a time, when the last one started,
-/// its report, and one restore at a time (two sessions in one reclaimed
-/// worktree start together).
+/// This process's cleanup state: one pass at a time, when the last one
+/// started, its report, and one restore at a time (two sessions in one
+/// reclaimed worktree start together). Per process, not per hub: a pass acts
+/// on the machine's worktrees.
+static CARE: LazyLock<CareState> = LazyLock::new(CareState::default);
+
 #[derive(Default)]
-pub(crate) struct CareState {
+struct CareState {
+    /// Wakes the worker; `why` names the last trigger.
+    wake: Notify,
+    why: StdMutex<&'static str>,
     running: AtomicBool,
     last_started_ms: AtomicU64,
     last_report: StdMutex<Option<Value>>,
@@ -93,40 +101,65 @@ fn archive_store() -> Result<ArchiveStore, RpcError> {
 }
 
 impl Hub {
-    /// Something that may have freed a worktree happened: runs a pass in the
-    /// background when one is due (`spacing`) and none runs.
-    pub(crate) fn care_nudge(self: &Arc<Self>, why: &'static str) {
-        let last = self.care.last_started_ms.load(Ordering::Relaxed);
-        if self.care.running.load(Ordering::SeqCst) {
-            return;
-        }
-        let hub = self.clone();
+    /// A session's status changed: idle (a turn ended) or closed may have
+    /// freed a worktree. Only wakes the worker (`care_worker`): no lock is
+    /// taken, so any status write may call it.
+    pub(super) fn care_status(&self, status: SessionStatus) {
+        let why = match status {
+            SessionStatus::Idle => "turn_end",
+            SessionStatus::Closed => "session_close",
+            _ => return,
+        };
+        *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = why;
+        CARE.wake.notify_one();
+    }
+
+    /// Starts the daemon's one cleanup worker: on each wake (a status
+    /// change, and once now for the start) it runs a pass when one is due
+    /// (`spacing`) and none runs. It holds the hub weakly and ends with it.
+    pub(crate) fn care_worker(self: &Arc<Self>) {
+        let hub = Arc::downgrade(self);
+        *CARE.why.lock().unwrap_or_else(|e| e.into_inner()) = "startup";
+        CARE.wake.notify_one();
         tokio::spawn(async move {
-            let due = tokio::task::spawn_blocking(move || {
-                if !auto_cleanup_enabled() {
-                    return false;
-                }
-                let Some(home) = dirs::home_dir() else { return false };
-                let used = disk::usage(&home).map_or(0.0, |usage| usage.used_fraction());
-                let pressure = CareSettings::default().pressure(used);
-                now_ms().saturating_sub(last) >= spacing(pressure)
-            })
-            .await
-            .unwrap_or(false);
-            if !due {
-                return;
-            }
-            let Some(_running) = Running::claim(&hub.care.running) else { return };
-            hub.care.last_started_ms.store(now_ms(), Ordering::Relaxed);
-            match hub.care_run(true, Vec::new()).await {
-                Ok(report) => tracing::info!(
-                    why,
-                    freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
-                    "worktree cleanup pass"
-                ),
-                Err(e) => tracing::warn!(why, "worktree cleanup pass failed: {}", e.message),
+            loop {
+                CARE.wake.notified().await;
+                let Some(hub) = hub.upgrade() else { return };
+                let why = *CARE.why.lock().unwrap_or_else(|e| e.into_inner());
+                hub.care_if_due(why).await;
             }
         });
+    }
+
+    async fn care_if_due(&self, why: &'static str) {
+        let last = CARE.last_started_ms.load(Ordering::Relaxed);
+        if CARE.running.load(Ordering::SeqCst) {
+            return;
+        }
+        let due = tokio::task::spawn_blocking(move || {
+            if !auto_cleanup_enabled() {
+                return false;
+            }
+            let Some(home) = dirs::home_dir() else { return false };
+            let used = disk::usage(&home).map_or(0.0, |usage| usage.used_fraction());
+            let pressure = CareSettings::default().pressure(used);
+            now_ms().saturating_sub(last) >= spacing(pressure)
+        })
+        .await
+        .unwrap_or(false);
+        if !due {
+            return;
+        }
+        let Some(_running) = Running::claim(&CARE.running) else { return };
+        CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
+        match self.care_run(true, Vec::new()).await {
+            Ok(report) => tracing::info!(
+                why,
+                freed = report.get("freed").and_then(|v| v.as_u64()).unwrap_or(0),
+                "worktree cleanup pass"
+            ),
+            Err(e) => tracing::warn!(why, "worktree cleanup pass failed: {}", e.message),
+        }
     }
 
     /// `_acpmux/worktree/report` and `_acpmux/worktree/clean`: a pass now,
@@ -136,11 +169,11 @@ impl Hub {
         apply: bool,
         only: Vec<PathBuf>,
     ) -> Result<Value, RpcError> {
-        let Some(_running) = Running::claim(&self.care.running) else {
+        let Some(_running) = Running::claim(&CARE.running) else {
             return Err(RpcError::internal("a worktree cleanup pass is already running"));
         };
         if apply {
-            self.care.last_started_ms.store(now_ms(), Ordering::Relaxed);
+            CARE.last_started_ms.store(now_ms(), Ordering::Relaxed);
         }
         self.care_run(apply, only).await
     }
@@ -153,9 +186,13 @@ impl Hub {
         let report = tokio::task::spawn_blocking(move || {
             let mut sessions = live;
             sessions.extend(crate::worktree_sessions::on_disk(&home, Some(&daemon_home)));
+            let configs = crate::worktree_sessions::state_configs(&home);
             let options = Options {
                 roots: crate::worktree_sessions::default_roots(&home),
                 sessions,
+                uses: crate::worktree_sessions::uses(crate::worktree_sessions::claude_homes(
+                    &home, &configs,
+                )),
                 settings: CareSettings::default(),
                 apply,
                 pressure: None,
@@ -174,7 +211,7 @@ impl Hub {
             object.insert("autoCleanup".into(), json!(auto));
             object.insert("at".into(), json!(now_ms()));
         }
-        *self.care.last_report.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.clone());
+        *CARE.last_report.lock().unwrap_or_else(|e| e.into_inner()) = Some(value.clone());
         Ok(value)
     }
 
@@ -185,7 +222,7 @@ impl Hub {
         key: String,
         path: Option<PathBuf>,
     ) -> Result<Value, RpcError> {
-        let _one = self.care.restoring.lock().await;
+        let _one = CARE.restoring.lock().await;
         tokio::task::spawn_blocking(move || {
             let store = archive_store()?;
             let manifest = store.find(&key).ok_or_else(|| {
@@ -201,7 +238,7 @@ impl Hub {
 
     /// The last pass's report, if one ran since the daemon started.
     pub(crate) fn care_last_report(&self) -> Option<Value> {
-        self.care.last_report.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        CARE.last_report.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// This daemon's sessions, as cleanup sees them.
@@ -225,12 +262,21 @@ impl Hub {
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
     /// `worktree_restore_failed` (the start goes on and reports the
     /// missing folder as before).
-    pub(super) async fn care_restore_for(&self, session: &Arc<Session>) {
+    pub(super) async fn ready_to_start(&self, session: &Arc<Session>) {
+        self.care_restore_for(session).await;
+        // A stopped session reopens on demand. Only a purge is final.
+        if session.status() == SessionStatus::Closed {
+            self.append(session, "mux", "reopened", json!({}));
+            self.set_status(session, SessionStatus::Idle);
+        }
+    }
+
+    async fn care_restore_for(&self, session: &Arc<Session>) {
         let cwd = session.meta().cwd.clone();
         if tokio::fs::try_exists(&cwd).await.unwrap_or(true) {
             return;
         }
-        let _one = self.care.restoring.lock().await;
+        let _one = CARE.restoring.lock().await;
         let restored = tokio::task::spawn_blocking(move || {
             // Another session's start may have brought it back meanwhile.
             if cwd.exists() {

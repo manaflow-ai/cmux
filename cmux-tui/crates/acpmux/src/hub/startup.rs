@@ -54,7 +54,7 @@ impl Hub {
         self.catalog_ready.send_replace(true);
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
-        self.care_nudge("startup");
+        self.care_worker();
         tracing::info!("startup complete; agents may spawn");
         // Probes and one-shots of earlier runs left files behind: remove them.
         let _ = tokio::task::spawn_blocking(crate::probe_cleanup::at_daemon_start).await;

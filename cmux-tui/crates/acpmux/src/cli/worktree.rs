@@ -132,6 +132,10 @@ fn sweep(scope: &Scope, apply: bool, store: &Store, json_out: bool) -> Result<()
     let options = Options {
         roots,
         sessions: crate::worktree_sessions::on_disk(&home, None),
+        uses: crate::worktree_sessions::uses(crate::worktree_sessions::claude_homes(
+            &home,
+            &crate::worktree_sessions::state_configs(&home),
+        )),
         settings: Settings::default(),
         apply,
         pressure: scope.pressure.map(|p| match p {

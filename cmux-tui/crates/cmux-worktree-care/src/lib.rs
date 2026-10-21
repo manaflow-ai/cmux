@@ -8,7 +8,7 @@
 //!   given folders, and its facts (branch, HEAD, changes, unpushed commits,
 //!   last activity, bytes, ignored build output).
 //! - [`policy`]: a verdict per worktree from those facts, the sessions that
-//!   use it, the processes inside it and how full its disk is: kept (in use,
+//!   use it, the programs registered as working in it and how full its disk is: kept (in use,
 //!   recent, or unsafe to archive) or reclaimed (finished, idle and pushed,
 //!   idle with work to archive).
 //! - [`archive`]: the worktree's work kept inside git before it goes: one
