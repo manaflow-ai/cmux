@@ -467,7 +467,9 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/WorkingFor.tsx",
     "agent-session/acpmux/conversation/TurnRows.tsx",
     "agent-session/acpmux/conversation/DateLine.tsx",
-    "agent-session/acpmux/FailedPrompt.tsx",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryFailure",
+    "agent-session/acpmux/conversation/PromptDelivery.tsx#DeliveryMark",
+    "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/PermissionCard.tsx",
   ],
   variants: {
@@ -1091,6 +1093,37 @@ export default agentPaneEntry({
         user("Now also add a circuit breaker", 0.5, {
           failed: true,
           error: "This chat is read only on this connection.",
+        }),
+      ]),
+    },
+    "prompt-delivery": {
+      note: "Each sent prompt's way to the agent: the read check once it started, unread once acpmux took it, a clock and Still sending while it waits, and one that failed with Retry, Edit, Remove and Details.",
+      snapshot: chat([
+        user("Add retries to the client", 6, {
+          delivery: { state: "read", promptId: "p1", sessionId: "s", sentAt: 0, acceptedAt: 40, readAt: 90 },
+        }),
+        assistant("Added.", 5.5),
+        summary(5.5, { status: "completed" }),
+        user("And a test for it", 3, {
+          delivery: { state: "delivered", promptId: "p2", sessionId: "s", sentAt: 0, acceptedAt: 60 },
+        }),
+        user("Then open a PR", 2, {
+          pending: true,
+          delivery: { state: "sending", promptId: "p3", sessionId: "s", sentAt: 0, slow: true },
+        }),
+        user("Ship it", 1, {
+          failed: true,
+          error: "Not sent: no answer from acpmux.",
+          delivery: {
+            state: "failed",
+            promptId: "p4",
+            sessionId: "s",
+            sentAt: 0,
+            failedAt: 60000,
+            hop: "acpmux",
+            code: "timeout",
+            error: "Not sent: no answer from acpmux.",
+          },
         }),
       ]),
     },
