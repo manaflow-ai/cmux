@@ -10,7 +10,7 @@
 //! - The person's own prompt into a chat resumes that chat's pairs too ([`person_prompt`]).
 
 use super::{Conn, Origin, session_key, str_param};
-use crate::hub::{Hub, PromptOptions, Session};
+use crate::hub::{Hub, Session};
 use crate::rpc::{RpcError, method};
 use serde_json::Value;
 use std::sync::Arc;
@@ -40,14 +40,18 @@ pub(super) async fn handle(
         return Err(Hub::agent_pair_resume_refused());
     }
     let s = hub.resolve(session_key(params)?)?;
+    // The pairs come back with the logs (`restore_queue`): resume what they restored.
+    hub.wait_logs().await;
     Ok(hub.agent_pair_resume(&s.id, str_param(params, "peerSessionId")))
 }
 
 /// Before the person's own `session/prompt` into `s` (no provenance: not an agent's message, from
 /// a connection that proved the person key on this machine): every agent pair `s` is in starts
 /// over, and a paused one is resumed.
-pub(super) fn person_prompt(hub: &Arc<Hub>, conn: &Conn, s: &Session, opts: &PromptOptions) {
-    if opts.provenance.is_none() && local_person(conn) {
+pub(super) async fn person_prompt(hub: &Arc<Hub>, conn: &Conn, s: &Session, agent_message: bool) {
+    if !agent_message && local_person(conn) {
+        // After the logs load, which restore the pairs this resumes.
+        hub.wait_logs().await;
         hub.agent_pair_person_prompt(s);
     }
 }

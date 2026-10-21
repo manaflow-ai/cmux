@@ -514,7 +514,8 @@ async fn dispatch_request(
                 provenance,
                 after_turn: None,
             };
-            super::agent_messages::person_prompt(hub, conn, &s, &opts);
+            let agent_message = opts.provenance.is_some();
+            super::agent_messages::person_prompt(hub, conn, &s, agent_message).await;
             hub.prompt_with(&s, blocks, &conn.label(), steer, opts).await
         }
         // ACP defines cancel as a notification; a client that sends it as a
