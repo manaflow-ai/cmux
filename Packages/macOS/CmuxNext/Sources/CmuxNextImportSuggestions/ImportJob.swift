@@ -130,6 +130,8 @@ public nonisolated struct ImportJob: Codable, Sendable, Equatable, Identifiable 
         phase = .running
         pause = nil
         failure = nil
+        // The step starts over, so its progress does too (not the cut-off run's fraction).
+        stepFraction = 0
         updatedAt = now
     }
 
