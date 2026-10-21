@@ -29,7 +29,7 @@ import Testing
             let name = "ChiefPetFeedTests.\(UUID().uuidString)"
             defaults = UserDefaults(suiteName: name)!
             defaults.removePersistentDomain(forName: name)
-            let tabs = [1, 2].map { TabSnapshot(surface: SurfaceID(rawValue: $0), terminalResourceID: ResourceID(rawValue: "term_\($0)")) }
+            let tabs = [1, 2].map { TabSnapshot(surface: SurfaceID(rawValue: $0), terminalResourceID: ResourceID(rawValue: "term_\($0)"), title: "New chat") }
             store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "api-server", screens: [
                 ScreenSnapshot(id: 1, layout: .leaf(1), panes: [PaneSnapshot(id: 1, tabs: tabs)]),
             ])]))
@@ -47,9 +47,9 @@ import Testing
             controller.sync(true)
         }
 
-        func deliver(_ id: UInt64, surface: UInt64, title: String, level: String = "info", alerts: Bool = true,
+        func deliver(_ id: UInt64, surface: UInt64, title: String, body: String = "", level: String = "info", alerts: Bool = true,
                      source: String = "agent", reply: Bool = false) throws {
-            let wire = #"{"notification":\#(id),"title":"\#(title)","body":"","level":"\#(level)","surface":\#(surface),"source":"\#(source)","reply":\#(reply)}"#
+            let wire = #"{"notification":\#(id),"title":"\#(title)","body":"\#(body)","level":"\#(level)","surface":\#(surface),"source":"\#(source)","reply":\#(reply)}"#
             let notification = try JSONDecoder().decode(DaemonNotification.self, from: Data(wire.utf8))
             store.apply(.notification(notification))
             let located = try #require(service.locate(surface: SurfaceID(rawValue: surface), in: store))
@@ -110,6 +110,22 @@ import Testing
     /// Only an agent's notice, or one whose poster asked for a reply (`notify --reply`), takes typed
     /// text (like a `--reply` banner): an OSC 9/777 line from a remote shell or a log must not open a box that
     /// types into whatever runs there.
+    /// A notice whose poster gave no title says which chat and what happened, never a bare tab
+    /// name over a bare step (Leo 2026-10-20: "New chat" / "Ran command" said neither).
+    @Test func untitledNoticeSaysWhichChatAndWhatHappened() throws {
+        let harness = Harness()
+        defer { harness.controller.sync(false) }
+        try harness.deliver(5, surface: 1, title: "", body: "Ran command")
+        let finished = try #require(harness.controller.feed.front)
+        #expect(finished.title == ChiefPetNotice.title("New chat", kind: .done), "\"New chat finished\" in English")
+        #expect(finished.detail == "api-server · Ran command", "the workspace, then its line")
+        try harness.deliver(6, surface: 2, title: "", body: "Allow rm -rf build?", level: "warning")
+        #expect(harness.controller.feed.front?.title == ChiefPetNotice.title("New chat", kind: .needsYou))
+        try harness.deliver(7, surface: 1, title: "", level: "error")
+        #expect(harness.controller.feed.front?.title == ChiefPetNotice.title("New chat", kind: .failed))
+        #expect(harness.controller.feed.front?.detail == "api-server")
+    }
+
     @Test func onlyAgentsAndAskedForRepliesTakeTypedText() throws {
         let harness = Harness()
         defer { harness.controller.sync(false) }
