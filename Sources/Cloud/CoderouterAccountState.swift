@@ -15,10 +15,18 @@ struct CoderouterAccountScope: Hashable {
     }
 }
 
-/// The organization and command mode established by the last successful read.
+/// The organization established by the last successful read.
 struct CoderouterAccountDestination: Equatable {
     let organizationID: String
-    let teamScope: CoderouterTeamScope
+}
+
+/// What New Account can do for the selected scope right now.
+enum CoderouterAddAvailability: Equatable {
+    case ready(CoderouterAccountDestination)
+    /// The first read for this scope has not finished.
+    case loading
+    /// The last read failed; the failure names what to fix.
+    case failed(CoderouterCLIFailure)
 }
 
 private struct CoderouterAccountRemovalKey: Hashable {
@@ -37,6 +45,9 @@ struct CoderouterAccountState: Equatable {
     private(set) var accounts: [CloudTreeNode.CoderouterAccount] = []
     private(set) var destination: CoderouterAccountDestination?
     private(set) var isLoadingScope = false
+    /// Why the last read for this scope failed, until a read succeeds or the
+    /// scope changes. Lets the sidebar say what is wrong instead of "loading".
+    private(set) var failure: CoderouterCLIFailure?
     private(set) var pendingRemovalIDs: Set<String> = []
     /// Removals whose CLI write succeeded but whose next account read has not
     /// confirmed that the row is gone yet. These IDs remain filtered so a
@@ -53,6 +64,7 @@ struct CoderouterAccountState: Equatable {
         scope = newScope
         accounts = []
         destination = nil
+        failure = nil
         pendingRemovalIDs = pendingIDs(for: newScope)
         isLoadingScope = newScope != nil
     }
@@ -66,6 +78,7 @@ struct CoderouterAccountState: Equatable {
         scope = nil
         accounts = []
         destination = nil
+        failure = nil
         pendingRemovalIDs = []
         isLoadingScope = false
     }
@@ -87,7 +100,6 @@ struct CoderouterAccountState: Equatable {
     mutating func apply(
         accounts newAccounts: [CloudTreeNode.CoderouterAccount],
         organizationID: String,
-        teamScope: CoderouterTeamScope,
         for readScope: CoderouterAccountScope,
         startedAt readRevision: UInt64? = nil
     ) -> Bool {
@@ -106,21 +118,36 @@ struct CoderouterAccountState: Equatable {
         }
         pendingRemovalIDs = pendingIDs(for: readScope)
         accounts = newAccounts.filter { !pendingRemovalIDs.contains($0.id) }
-        destination = CoderouterAccountDestination(organizationID: organizationID, teamScope: teamScope)
+        destination = CoderouterAccountDestination(organizationID: organizationID)
+        failure = nil
         isLoadingScope = false
         return true
     }
 
-    mutating func fail(for readScope: CoderouterAccountScope, startedAt readRevision: UInt64? = nil) {
+    mutating func fail(
+        _ readFailure: CoderouterCLIFailure,
+        for readScope: CoderouterAccountScope,
+        startedAt readRevision: UInt64? = nil
+    ) {
         guard readScope == scope,
               readRevision == nil || readRevision == revision else { return }
         destination = nil
+        failure = readFailure
         isLoadingScope = false
     }
 
     func destination(for requestScope: CoderouterAccountScope?) -> CoderouterAccountDestination? {
         guard let requestScope, requestScope == scope else { return nil }
         return destination
+    }
+
+    /// A failure is reported only for the scope it was read for; a scope that
+    /// has not finished its first read is loading, never failed.
+    func addAvailability(for requestScope: CoderouterAccountScope?) -> CoderouterAddAvailability {
+        guard let requestScope, requestScope == scope else { return .loading }
+        if let destination { return .ready(destination) }
+        if let failure { return .failed(failure) }
+        return .loading
     }
 
     func removalScope(selected: CoderouterAccountScope?) -> CoderouterAccountScope? {
@@ -174,12 +201,11 @@ struct CoderouterAccountState: Equatable {
     }
 }
 
-/// Serializes reads and removals because older CodeRouter CLIs store their
-/// active organization in a shared config file.
+/// Serializes reads and removals so a removal never interleaves with another
+/// team's read and the post-removal read sees the write.
 @MainActor
 final class CoderouterCLIOperationLane {
-    /// CodeRouter's legacy CLI stores its active organization in one shared
-    /// configuration file, so serialization must cover every window.
+    /// Shared by every window so their sidebars observe one order of writes.
     static let shared = CoderouterCLIOperationLane()
 
     private var tail: Task<Void, Never>?
