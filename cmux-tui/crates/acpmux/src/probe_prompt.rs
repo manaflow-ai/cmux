@@ -32,13 +32,20 @@ pub fn is_probe(text: &str) -> bool {
     }
     let lower = text.to_lowercase();
     let bare = lower.trim_end_matches(|c: char| c.is_ascii_punctuation() || c.is_whitespace());
-    WORDS.contains(&bare) || OPENERS.iter().any(|opener| starts_with_words(bare, opener))
+    WORDS.contains(&bare) || OPENERS.iter().any(|opener| asks_fixed_reply(bare, opener))
 }
 
-/// `text` starts with `words`, ending at a word boundary.
-fn starts_with_words(text: &str, words: &str) -> bool {
-    text.strip_prefix(words)
-        .is_some_and(|rest| rest.chars().next().is_none_or(|c| !c.is_alphanumeric()))
+/// `text` opens with `opener` and asks for a fixed reply: "only", "exactly" or "just" what
+/// follows, or a few words at most ("Reply with OK"), never a task ("Reply with a summary of
+/// the failing tests").
+fn asks_fixed_reply(text: &str, opener: &str) -> bool {
+    let Some(rest) = text.strip_prefix(opener) else { return false };
+    if rest.chars().next().is_some_and(char::is_alphanumeric) {
+        return false;
+    }
+    let words: Vec<&str> =
+        rest.split(|c: char| !c.is_alphanumeric()).filter(|word| !word.is_empty()).collect();
+    matches!(words.first(), Some(&("only" | "exactly" | "just"))) || words.len() <= 4
 }
 
 #[cfg(test)]
