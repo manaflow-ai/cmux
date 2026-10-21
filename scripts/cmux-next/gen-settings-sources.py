@@ -152,6 +152,13 @@ SECTIONS = [
         "enums": {},
     },
     {
+        "source": "schemas/settings/source/new-tab-widgets.json",
+        "swift": SCHEMA_DIR + "/SettingsSchema+NewTabWidgets.generated.swift",
+        "type": "NewTabWidgetSettingsSchema",
+        "lists": {"newTabWidgets": ("descriptors", "NewTabWidgetSettings")},
+        "enums": {},
+    },
+    {
         "source": "schemas/settings/source/color-transition.json",
         "swift": SCHEMA_DIR + "/SettingsSchema+ColorTransition.generated.swift",
         "type": "ColorTransitionSettingsSchema",
