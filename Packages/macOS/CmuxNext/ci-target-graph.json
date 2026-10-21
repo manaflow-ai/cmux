@@ -90,27 +90,6 @@
       ],
       "packages": []
     },
-    "CmuxNextAgentIntegrations": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentIntegrations",
-      "targets": [
-        "CmuxNextDaemon",
-        "CmuxNextPages",
-        "CmuxNextSettings"
-      ],
-      "packages": []
-    },
-    "CmuxNextAgentIntegrationsTests": {
-      "kind": "test",
-      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextAgentIntegrationsTests",
-      "targets": [
-        "CmuxNextAgentIntegrations",
-        "CmuxNextPages",
-        "CmuxNextSettings"
-      ],
-      "packages": [],
-      "reads": []
-    },
     "CmuxNextAgentLanes": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes",
@@ -223,7 +202,6 @@
         "CmuxNextAgentActivity",
         "CmuxNextAgentCursor",
         "CmuxNextAgentCursorVisibility",
-        "CmuxNextAgentIntegrations",
         "CmuxNextAgentLanes",
         "CmuxNextAgentPane",
         "CmuxNextAgentPermissions",
@@ -344,6 +322,7 @@
         "CmuxNextDaemon",
         "CmuxNextDaemonRecovery",
         "CmuxNextDaemonService",
+        "CmuxNextDesign",
         "CmuxNextDiff",
         "CmuxNextFeed",
         "CmuxNextFileGrid",
@@ -779,7 +758,9 @@
     "CmuxNextErrorJournal": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextErrorJournal",
-      "targets": [],
+      "targets": [
+        "CmuxNextWakeups"
+      ],
       "packages": []
     },
     "CmuxNextErrorJournalTests": {
@@ -912,6 +893,18 @@
         "CmuxAgentQuestion",
         "CmuxHomeCore"
       ]
+    },
+    "CmuxNextHomeEngineTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextHomeEngineTests",
+      "targets": [
+        "CmuxNextDaemon",
+        "CmuxNextHomeEngine"
+      ],
+      "packages": [
+        "CmuxHomeCore"
+      ],
+      "reads": []
     },
     "CmuxNextHostedChief": {
       "kind": "regular",
@@ -1465,6 +1458,8 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextWorkspaceNamingTests",
       "targets": [
+        "CmuxNextBridge",
+        "CmuxNextDaemon",
         "CmuxNextWorkspaceNaming"
       ],
       "packages": [],
