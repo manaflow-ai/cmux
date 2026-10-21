@@ -5311,6 +5311,9 @@ mod host_scrollback;
 #[path = "terminal_host_recovery/output_coalescing.rs"]
 mod output_coalescing;
 
+#[path = "terminal_host_recovery/parallel_handoff.rs"]
+mod parallel_handoff;
+
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]
 mod slim_host;

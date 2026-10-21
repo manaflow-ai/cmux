@@ -271,6 +271,14 @@ impl Mux {
             // enough for healthy hosts; live or indeterminate failures
             // continue on the asynchronous adoption loop instead of retrying
             // serially ahead of every later terminal.
+            // Test seam: a slow host handshake (debug builds only).
+            #[cfg(debug_assertions)]
+            if let Some(delay) = std::env::var("CMUX_TUI_TEST_ADOPT_HANDSHAKE_DELAY_MS")
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+            {
+                std::thread::sleep(Duration::from_millis(delay.min(5_000)));
+            }
             let adopted = self
                 .adopt_restored_terminal(restored_binding, &options, &record, &record_path)
                 .ok();
