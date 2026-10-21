@@ -45,7 +45,7 @@ public struct LinkMenu {
     /// Overrides Copy Link and Copy Path (tests); nil: the router's.
     public var copy: ((String) -> Void)?
     /// The most apps a submenu lists.
-    static let appLimit = 24
+    nonisolated static let appLimit = 24
 
     public init(router: LinkRouter = .shared, openInNewTab: ((URL) -> Void)? = nil) {
         self.router = router
@@ -132,7 +132,11 @@ public struct LinkMenu {
     }
 
     /// The link rows with this Mac's browsers.
-    public func linkRows(for url: URL) -> [LinkMenuRow] { linkRows(for: url, browsers: browsers(for: url)) }
+    public func linkRows(for url: URL) -> [LinkMenuRow] {
+        // Rows exist only for http(s): ask LaunchServices for nothing else.
+        guard let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https" else { return [] }
+        return linkRows(for: url, browsers: browsers(for: url))
+    }
 
     /// The path rows with this Mac's apps and the text editor setting.
     public func pathRows(for file: URL, isDirectory: Bool) -> [LinkMenuRow] {

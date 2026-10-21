@@ -29,7 +29,7 @@ public nonisolated struct MainThreadHangEvent: Sendable {
         mechanism.handled = true
         hang.mechanism = mechanism
         let images = Self.images(for: addresses + otherThreads.flatMap(\.addresses))
-        hang.stacktrace = Self.stacktrace(addresses, images: images)
+        hang.stacktrace = Self.stacktrace(addresses, images: images, packages: true)
         event.exceptions = [hang]
         if !otherThreads.isEmpty {
             let main = SentryThread(threadId: NSNumber(value: 0))
@@ -39,13 +39,22 @@ public nonisolated struct MainThreadHangEvent: Sendable {
             main.crashed = NSNumber(value: true)
             main.stacktrace = hang.stacktrace
             hang.threadId = NSNumber(value: 0)
-            event.threads = [main] + otherThreads.enumerated().map { index, sample in
+            // Other threads' frames carry no package path (debug_meta maps every image) and stop
+            // at `otherFrameLimit` in all: Sentry refuses an event over 1 MiB, and that would
+            // lose the main stack too.
+            var budget = Self.otherFrameLimit
+            let kept = otherThreads.prefix { sample in
+                guard budget > 0 else { return false }
+                budget -= sample.addresses.count
+                return true
+            }
+            event.threads = [main] + kept.enumerated().map { index, sample in
                 let thread = SentryThread(threadId: NSNumber(value: index + 1))
                 thread.name = sample.name.isEmpty ? nil : sample.name
                 thread.isMain = NSNumber(value: false)
                 thread.current = NSNumber(value: false)
                 thread.crashed = NSNumber(value: false)
-                thread.stacktrace = Self.stacktrace(sample.addresses, images: images)
+                thread.stacktrace = Self.stacktrace(sample.addresses, images: images, packages: false)
                 return thread
             }
         }
@@ -63,14 +72,17 @@ public nonisolated struct MainThreadHangEvent: Sendable {
         return event
     }
 
+    /// The most frames the other threads add to one event (about 100 bytes each without a package).
+    static let otherFrameLimit = 2_000
+
     /// Sentry frames run outermost first; a sample lists innermost first.
-    private static func stacktrace(_ addresses: [UInt], images: [Image]) -> SentryStacktrace {
+    private static func stacktrace(_ addresses: [UInt], images: [Image], packages: Bool) -> SentryStacktrace {
         let frames: [Frame] = addresses.reversed().map { address in
             let frame = Frame()
             frame.instructionAddress = hex(UInt64(address))
             if let image = images.first(where: { $0.contains(address) }) {
                 frame.imageAddress = hex(image.base)
-                frame.package = image.path
+                if packages { frame.package = image.path }
             }
             return frame
         }

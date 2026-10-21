@@ -32,11 +32,15 @@ enum LaunchWarmup {
             // first use: 60-90 ms on the main thread while the first window
             // was placed (`WindowPlacementFallback.displayID`).
             prewarmDisplayUUIDs()
-            ResourceBundleWarmup.run()
         }
         thread.name = "cmux-next launch warm-up"
         thread.qualityOfService = .userInitiated
         thread.start()
+        // Its own thread: the connecting screen's strings can be read before the work above ends.
+        let bundles = Thread { ResourceBundleWarmup.run() }
+        bundles.name = "cmux-next resource bundle warm-up"
+        bundles.qualityOfService = .userInitiated
+        bundles.start()
     }
 }
 

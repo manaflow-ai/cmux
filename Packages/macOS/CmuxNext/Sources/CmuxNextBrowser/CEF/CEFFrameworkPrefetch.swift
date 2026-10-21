@@ -67,12 +67,13 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
     static func readBinary(_ layout: CEFRuntimeLayout) {
         let clock = ContinuousClock()
         let started = clock.now
-        let bytes = read([layout.frameworkBinary]).bytes
+        let binary = read([layout.frameworkBinary])
         let duration = clock.now - started
         lastReport.withLock { report in
             if report == nil { report = Report() }
             report?.binary = duration
-            report?.bytes = bytes
+            report?.bytes = binary.bytes
+            report?.files = binary.files
         }
     }
 
@@ -108,7 +109,7 @@ nonisolated struct CEFFrameworkPrefetch: Sendable {
         lastReport.withLock { stored in
             var report = stored ?? Report()
             report.bytes += resources.bytes
-            report.files = resources.files + 1
+            report.files += resources.files
             report.duration = report.binary + duration
             stored = report
         }
