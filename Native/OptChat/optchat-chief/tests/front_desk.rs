@@ -93,3 +93,38 @@ fn without_a_grace_the_desk_stays_quiet() {
     pass(&mut h, Duration::from_millis(50));
     assert!(receipts(&h).is_empty());
 }
+
+#[test]
+fn the_receipt_leaves_the_chiefs_reply_at_the_top_level() {
+    let mut h = Harness::new(default_script());
+    h.agents.inner.lock().unwrap().steering = true;
+    h.brain.set_desk_grace(Some(Duration::from_millis(20)));
+    running(&mut h, "fix the sidebar");
+    h.say("user_local", "hello?");
+    while h.agents.inner.lock().unwrap().steers.is_empty() {
+        h.step();
+    }
+    pass(&mut h, Duration::from_millis(200));
+    assert_eq!(receipts(&h).len(), 1);
+
+    // The reply answers "hello?" right under it: the receipt in between is
+    // an aside, not a newer message that moves the reply into a thread.
+    h.agents.hold(false);
+    h.agents.release();
+    h.settle_posts();
+    let owner = h.owner.lock().unwrap();
+    let reply = owner
+        .ops
+        .iter()
+        .filter_map(|(key, op)| match op {
+            Op::MessageSend {
+                thread_root,
+                reply_to,
+                ..
+            } if voice::of(key).is_none() => Some((key, thread_root, reply_to)),
+            _ => None,
+        })
+        .last()
+        .expect("the turn's reply");
+    assert_eq!((reply.1, reply.2), (&None, &None), "{reply:?}");
+}

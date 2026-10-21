@@ -27,7 +27,7 @@ const TITLE_CHARS: usize = 40;
 pub(super) struct DeskPending {
     at: Instant,
     /// The running turn's key: the receipt is for that turn only.
-    turn: String,
+    pub(super) turn: String,
     /// The seq of the first message it answers (the receipt's key).
     seq: u64,
 }
