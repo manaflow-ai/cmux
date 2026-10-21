@@ -331,6 +331,76 @@ mod tests {
         assert!(recovery.force_idr);
     }
 
+    /// A tab takes the lane back right after it lost it: the host's newest
+    /// frame went to the phone on the channel (the bridge now answers for
+    /// the main stream, so the phone's ack of it never reaches the host),
+    /// and the IDR the loss asked for is under the host's minimum forced-IDR
+    /// interval old, so the new bridge's first recovery is refused. The
+    /// bridge keeps asking until a keyframe is on the track (on a loaded
+    /// runner `the_shown_tab_takes_the_lane_back_over_webrtc` once waited
+    /// out its 10 s with no frame at all).
+    #[test]
+    fn a_lane_taken_back_right_after_it_was_lost_still_gets_a_keyframe() {
+        let mut engine = MediaEngine::new(EngineConfig::default(), 0);
+        let encode = |engine: &mut MediaEngine, req: &cmux_rd_engine::EncodeRequest, now: u64| {
+            let au = vec![0, 0, 0, 1, if req.force_idr { 0x65 } else { 0x41 }, 1, 2, 3];
+            let encoded = Encoded { access_unit: au, idr: req.force_idr, t_capture_us: now };
+            engine.encoded(req, Some(encoded), now).unwrap()
+        };
+        let phone_feedback = |acked_frame: u32, need_recovery: bool| {
+            let mut datagram = Vec::new();
+            DatagramHeader {
+                flags: 0,
+                kind: DatagramKind::Feedback,
+                stream: MAIN_STREAM,
+                frame: 0,
+                index: 0,
+                count: 0,
+                fec_count: 0,
+                transport_seq: 0,
+            }
+            .encode_into(&mut datagram);
+            datagram
+                .extend_from_slice(&Feedback { acked_frame, need_recovery, ..Feedback::default() }.encode());
+            datagram
+        };
+        let full = Rect { x: 0, y: 0, width: 1920, height: 1080 };
+        // Frame 1 goes to the phone on the channel; the phone acks it and,
+        // as the lane moves away, asks for an IDR: frame 2, also on the
+        // channel, whose ack the phone sends after the lane came back.
+        let mut now = 0;
+        let first = engine.start(now).unwrap();
+        let _ = encode(&mut engine, &first, now);
+        now += 50_000;
+        let second = engine.on_datagram(&phone_feedback(1, true), true, now).encode.expect("the forced IDR");
+        assert!(second.force_idr);
+        let _ = encode(&mut engine, &second, now);
+        // The tab takes the lane back 20 ms later.
+        now += 20_000;
+        let mut bridge = TrackBridge::new();
+        let mut keyframe_at = None;
+        while now < 1_000_000 && keyframe_at.is_none() {
+            let mut deframer = cmux_rd_proto::StreamDeframer::default();
+            deframer.extend(&bridge.feedback(false, now));
+            let mut request = None;
+            while let Ok(Some((_, d))) = deframer.next_frame() {
+                request = request.or(engine.on_datagram(&d, true, now).encode);
+            }
+            request = request.or(engine.damage(0, full, now)).or(engine.poll(now));
+            if let Some(req) = request {
+                for d in &encode(&mut engine, &req, now).datagrams {
+                    let (header, payload) = DatagramHeader::decode(d).unwrap();
+                    let frames = bridge.on_datagram(&header, payload, d.len(), 2_000_000, now);
+                    if frames.iter().any(|f| f.flags & cmux_rd_proto::flags::KEYFRAME != 0) {
+                        keyframe_at = Some(now);
+                    }
+                }
+            }
+            now += 10_000;
+        }
+        assert!(keyframe_at.is_some(), "no keyframe reached the track in a second");
+    }
+
     #[test]
     fn only_the_main_streams_media_is_the_bridges() {
         let header = |kind, stream| DatagramHeader {
