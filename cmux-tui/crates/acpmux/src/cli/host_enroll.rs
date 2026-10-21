@@ -350,8 +350,8 @@ struct InUse {
     /// cmux's own: the app owns it and its daemon (an app bundle, a cmux
     /// session daemon, or a daemon too old to say who it is beside a cmux).
     app: bool,
-    /// An app bundle runs it (a person key or an `.app` executable): only
-    /// the app on the host changes its build.
+    /// An app bundle runs it (an `.app` executable): only the app on the
+    /// host changes its build. A person key alone does not say so.
     bundle: bool,
     pid: Option<u64>,
 }
@@ -414,13 +414,13 @@ impl Probe {
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
             let app_bin = self.bins.iter().any(|(path, _)| app_owned(path));
-            // The app's own bundle runs it: it holds a person key, or its
-            // executable (else, when it names none, a binary) is in an app.
-            let bundle = run.person_key
-                || match &self.exe {
-                    Some(exe) => app_owned(exe),
-                    None => app_bin && !is_cmux_tui(&run.via),
-                };
+            // The app's own bundle runs it: its executable (else, when it
+            // names none, a binary) is in an app. Never from the person key:
+            // the app hands one to an SSH host's cmux-tui daemon too.
+            let bundle = match &self.exe {
+                Some(exe) => app_owned(exe),
+                None => app_bin && !is_cmux_tui(&run.via),
+            };
             // When the host does not name the daemon's executable, a daemon
             // on a host with a cmux app counts as the app's: never restart
             // what may be the app's daemon. One a cmux session daemon started
@@ -428,7 +428,8 @@ impl Probe {
             // second one beside it. A daemon too old to say who it is counts
             // as cmux's whenever a cmux-tui or a cmux app is there: it warns,
             // and nothing is installed or restarted beside it.
-            let app = bundle
+            let app = run.person_key
+                || bundle
                 || self.run_by_cmux_tui
                 || (run.cmux_tui_acp.is_none()
                     && (app_bin

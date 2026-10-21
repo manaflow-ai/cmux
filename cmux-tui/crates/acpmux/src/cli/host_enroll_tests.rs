@@ -266,6 +266,9 @@ fn host_reporting<'a>(
             out("")
         } else if script == probe_script().as_str() {
             out(probe_out_with(bins, daemon, exe, acp))
+        } else if script == format!("readlink -f {DAEMON_BIN} 2>/dev/null") {
+            // No ~/.local/bin/acpmux link.
+            out("")
         } else if script.starts_with("printf 'bin=") {
             let local = bins.iter().find(|(p, _)| *p == LOCAL_BIN);
             out(local.map(|(_, b)| version(b)).unwrap_or_else(|| "bin=\n".into()))
@@ -871,4 +874,30 @@ fn a_daemon_too_old_to_say_who_it_is_counts_as_cmux_own_beside_a_cmux() {
     let alone: &[(&str, &str)] = &[(LOCAL_BIN, "old")];
     let p = parse_probe(&probe_out_with(alone, Some(("old", false)), "", None));
     assert!(!p.in_use().unwrap().app);
+}
+
+#[test]
+fn a_keyed_cmux_tui_daemon_on_an_ssh_host_names_remote_install() {
+    // The app starts an SSH host's `cmux-tui acp daemon start --person-key-fd 0`
+    // (SSHService+PersonKey.swift): cmux's own, but no app bundle runs it.
+    let tui: &[(&str, &str)] = &[(TUI_BIN, "old")];
+    let fake = host_reporting(tui, Some(("old", true)), TUI_BIN, Some(true), "");
+    let results = machine_steps(
+        &fake,
+        &plan(&[]),
+        &Local { harness_dir: None, home: None },
+        true,
+        &mut |_| {},
+    );
+    assert_eq!(
+        states(&results)[1..3],
+        [(Step::Install, StepState::Warn), (Step::Daemon, StepState::Warn)]
+    );
+    assert_eq!(
+        results[1].fix.as_deref(),
+        Some(
+            "Enroll leo@box.tail from a cmux of build old, or run `cmux remote install` for leo@box.tail."
+        )
+    );
+    assert_read_only(&fake);
 }
