@@ -147,6 +147,37 @@ describe("Hexclave webhook inbox", () => {
       .map((entry) => entry.svixId).sort()).toEqual(["msg_readd", "msg_remove"]);
   });
 
+  test("a stale lease cannot renew, complete, fail, or defer reclaimed work", async () => {
+    const inbox = new MemoryInbox();
+    const target = { kind: "user" as const, id: userId(10), revokeCandidateTeamIds: [] };
+    for (const svixId of ["msg_complete", "msg_fail", "msg_defer"]) {
+      await inbox.enqueue({ svixId, eventType: "user.updated", target });
+    }
+    const firstAt = new Date(1_800_000_000_000);
+    const firstUntil = new Date(firstAt.getTime() + 60_000);
+    const first = await inbox.claimDue(firstAt, 1, firstUntil);
+    expect(first).toHaveLength(3);
+    const renewedUntil = new Date(firstUntil.getTime() + 60_000);
+    expect(await inbox.renewClaims(first.map((entry) => entry.svixId), firstUntil, renewedUntil)).toBe(true);
+    expect(await inbox.claimDue(new Date(firstUntil.getTime() + 1), 1, renewedUntil)).toEqual([]);
+
+    const secondAt = new Date(renewedUntil.getTime() + 1);
+    const secondUntil = new Date(secondAt.getTime() + 60_000);
+    const second = await inbox.claimDue(secondAt, 1, secondUntil);
+    expect(second).toHaveLength(3);
+    expect(await inbox.renewClaims(["msg_complete"], renewedUntil, new Date(secondUntil.getTime() + 60_000))).toBe(false);
+    expect(await inbox.complete(["msg_complete"], renewedUntil)).toBe(false);
+    expect(await inbox.recordFailure(["msg_fail"], renewedUntil, {
+      now: secondAt,
+      nextAttemptAt: secondAt,
+      error: "stale worker",
+      maxAttempts: 3,
+    })).toBe(false);
+    expect(await inbox.defer(["msg_defer"], renewedUntil, secondAt)).toBe(false);
+    expect([...inbox.rows.values()].map((row) => [row.svixId, row.attempts, row.claimedUntil]).sort())
+      .toEqual(second.map((entry) => [entry.svixId, 0, secondUntil]).sort());
+  });
+
   test("a drain that crashed holding claims leaves them to be reclaimed and applied once", async () => {
     const harness = inboxHarness();
     harness.hexclave.users.set(userId(1), serverUser({ id: userId(1) }));
