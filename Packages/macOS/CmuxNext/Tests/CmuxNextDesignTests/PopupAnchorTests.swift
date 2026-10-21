@@ -3,7 +3,8 @@ import CmuxNextDesign
 import Testing
 
 /// The one placement every popup opened from a control uses (u2250): under the control, on
-/// its edge, above it with no room below, back on screen at the sides.
+/// its edge, above it with no room below, on its other edge or slid back at the sides, inside
+/// the window it opens over.
 @MainActor @Suite struct PopupAnchorTests {
     let screen = CGRect(x: 0, y: 0, width: 1000, height: 800)
     let size = CGSize(width: 240, height: 300)
@@ -26,12 +27,41 @@ import Testing
         #expect(card.minY == 122)
     }
 
-    @Test func aCardThatWouldLeaveTheScreenSlidesBack() {
+    @Test func aCardThatWouldLeaveTheScreenFlipsOrSlidesBack() {
         let nearLeft = CGRect(x: 10, y: 500, width: 20, height: 20)
         let card = PopupAnchor(rect: nearLeft, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: screen)
-        #expect(card.minX == 4)
+        #expect(card.minX == 10)
         let nearRight = CGRect(x: 980, y: 500, width: 20, height: 20)
         #expect(PopupAnchor(rect: nearRight, edge: .leading, gap: 2, margin: 4).cardFrame(size: size, visible: screen).maxX == 996)
+    }
+
+    /// A card opened in a window stays inside it: a trailing card with no room toward the
+    /// leading side opens on the control's leading edge instead.
+    @Test func aCardInAWindowFlipsToStayInsideIt() {
+        let window = CGRect(x: 200, y: 100, width: 700, height: 600)
+        let button = CGRect(x: 360, y: 500, width: 20, height: 20)
+        let card = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: screen, window: window)
+        #expect(card == CGRect(x: 360, y: 198, width: 240, height: 300))
+        let nearRight = CGRect(x: 860, y: 500, width: 20, height: 20)
+        #expect(PopupAnchor(rect: nearRight, edge: .leading, gap: 2, margin: 4).cardFrame(size: size, visible: screen, window: window).maxX == 880)
+    }
+
+    /// A card with no room under or over the control in its window slides up or down to stay
+    /// inside it.
+    @Test func aCardWithNoRoomAboveOrBelowStaysInsideTheWindow() {
+        let window = CGRect(x: 200, y: 100, width: 700, height: 400)
+        let button = CGRect(x: 600, y: 380, width: 20, height: 20)
+        let card = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: screen, window: window)
+        #expect(card.minY == 104, "card \(card) in window \(window)")
+        #expect(window.contains(card), "card \(card) in window \(window)")
+    }
+
+    /// A window too small for the card keeps the card on the screen instead.
+    @Test func aCardWiderThanItsWindowKeepsToTheScreen() {
+        let window = CGRect(x: 200, y: 100, width: 200, height: 600)
+        let button = CGRect(x: 360, y: 500, width: 20, height: 20)
+        let card = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: screen, window: window)
+        #expect(card.maxX == 380)
     }
 
     @Test func aMenuOriginSitsUnderTheControlInFlippedAndUnflippedViews() {

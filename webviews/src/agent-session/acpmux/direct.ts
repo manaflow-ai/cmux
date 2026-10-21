@@ -837,6 +837,8 @@ export class AcpmuxDirectClient {
   private replyAccepts = new Map<string, () => void>();
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[]; promptId?: string }>();
+  /// The promptIds a Retry is sending: a refusal of one says "Still not sent".
+  private retriedPrompts = new Set<string>();
   /// Where each prompt this pane sent is on its way, by prompt id, and the row that shows it.
   private deliveries = new Map<
     string,
@@ -947,7 +949,7 @@ export class AcpmuxDirectClient {
   /// profile written, live model lists refreshed); the catalog re-reads (catalog.ts
   /// followHarnessChanges).
   onHarnessesChanged?: () => void;
-  /// `_acpmux/process_update` listeners (summary/sessionProcesses.ts).
+  /// `_acpmux/process_update` listeners (inspector/processes.ts).
   private readonly processListeners = new Set<(process: unknown) => void>();
   /// A prompt carrying the workspace context is on its way (send).
   private contextInFlight = false;
@@ -2826,7 +2828,8 @@ export class AcpmuxDirectClient {
             host: text(summary.host),
             peer: text(summary.peer),
             hostKind: hostKind(summary.hostKind),
-            branch: text(summary.branch),
+            // acpmux's session detail names the folder's branch `gitBranch` (when the session started).
+            branch: text(summary.branch) ?? text(summary.gitBranch),
             worktree: text(summary.worktree),
             title: summary.title,
             name: summary.name,
@@ -2841,6 +2844,7 @@ export class AcpmuxDirectClient {
               audio: takesAudio(summary.agentCapabilities.promptCapabilities, summary.configOptions),
             },
             steering: summary.steering === true,
+            backgroundsWork: summary.backgroundsWork === true,
             queuePaused: summary.queuePaused === true,
             ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
@@ -3168,15 +3172,18 @@ export class AcpmuxDirectClient {
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
-        // bubble says why it got no reply; a refusal for want of a gesture asks for Retry.
+        // bubble says why it got no reply, in the words of whoever refused it. A refusal for want
+        // of a gesture names that (the generic refusal's text is about a pick): posted input (a
+        // script, a computer-use agent) is never the person's (cx-ocdz), and the Retry click is
+        // (hq#2569 item 5). A Retry refused again says "Still", so the click visibly did something.
+        const reason = code === "transport.gesture_required" ? translate("prompt.gestureReason") : errorMessage(error);
         this.rows.set(rowId, {
           ...row,
           pending: false,
           failed: true,
-          error:
-            code === "transport.gesture_required"
-              ? translate("prompt.notSentGesture")
-              : translate("prompt.notSent", { reason: errorMessage(error) }),
+          error: translate(this.retriedPrompts.has(promptId) ? "prompt.stillNotSent" : "prompt.notSent", {
+            reason: reason || translate("transport.refused"),
+          }),
           version: row.version + 1,
         });
         this.failedPrompts.set(rowId, { input, attachments, promptId });
@@ -3266,15 +3273,22 @@ export class AcpmuxDirectClient {
       this.rows.delete(rowId);
       this.emit();
     }
-    return this.send(
-      failed.input,
-      failed.attachments,
-      failed.promptId,
-      undefined,
-      ticket,
-      false,
-      failed.promptId !== undefined,
-    );
+    // A Retry refused again says "Still not sent", so the click visibly did something (hq#2569 item 5).
+    const promptId = failed.promptId ?? crypto.randomUUID();
+    this.retriedPrompts.add(promptId);
+    try {
+      return await this.send(
+        failed.input,
+        failed.attachments,
+        promptId,
+        undefined,
+        ticket,
+        false,
+        failed.promptId !== undefined,
+      );
+    } finally {
+      this.retriedPrompts.delete(promptId);
+    }
   }
   /// Edit on a prompt that was not sent: its row goes and what it held comes back, for the composer.
   takeFailedPrompt(rowId: string): { input: string; attachments: ComposerAttachment[] } | undefined {
@@ -4080,15 +4094,16 @@ export class AcpmuxDirectClient {
       this.forking = false;
     }
   }
-  /// Asks a side question about the open session (`/btw`). acpmux answers it in a throwaway copy
-  /// of the chat (`_acpmux/ask`), so the chat never holds it. Resolves to the answer's text.
-  async ask(question: string): Promise<string> {
-    if (!this.actingSessionId) return "";
-    const result = await this.request("_acpmux/ask", {
-      sessionId: this.actingSessionId,
-      text: question,
-    });
-    return typeof result?.text === "string" ? result.text : "";
+  /// `/btw <question>`: acpmux starts a read-only side session about the open chat, on a fast model,
+  /// asks it `question` and answers with its id at once (`_acpmux/btw`). The chat is not touched,
+  /// so this works while its turn runs. Rejects with acpmux's message when it refuses.
+  async btw(question: string): Promise<string> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) throw new Error(translate("error.notOpen"));
+    const result = await this.request("_acpmux/btw", { sessionId, question });
+    // No id: the caller says the side session did not start, without a reason it does not have.
+    if (typeof result?.sessionId !== "string" || !result.sessionId) throw new Error("");
+    return result.sessionId;
   }
   async setModel(modelId: string): Promise<void> {
     if (this.actingSessionId) await this.request("session/set_model", { sessionId: this.actingSessionId, modelId });

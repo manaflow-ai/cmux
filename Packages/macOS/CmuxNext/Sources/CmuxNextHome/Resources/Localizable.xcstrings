@@ -2899,133 +2899,133 @@
       }
     },
     "home.send.attachmentsUnsupported": {
-      "comment": "Home composer notice: a send with attachments was not delivered because this conversation's owner stores no attachments.",
+      "comment": "Home composer notice: a send with attachments was not delivered because this conversation's owner stores no files.",
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "This conversation can’t receive attachments yet."
+            "value": "This conversation doesn’t store files. Remove the attachments and send again."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لا يمكن لهذه المحادثة تلقي مرفقات بعد."
+            "value": "هذه المحادثة لا تخزّن الملفات. أزل المرفقات وأرسل مرة أخرى."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ovaj razgovor još ne može primati priloge."
+            "value": "Ovaj razgovor ne čuva datoteke. Uklonite priloge i pošaljite ponovo."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne samtale kan ikke modtage vedhæftninger endnu."
+            "value": "Denne samtale gemmer ikke filer. Fjern vedhæftningerne, og send igen."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Diese Unterhaltung kann noch keine Anhänge empfangen."
+            "value": "Diese Unterhaltung speichert keine Dateien. Entferne die Anhänge und sende erneut."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta conversación aún no puede recibir archivos adjuntos."
+            "value": "Esta conversación no guarda archivos. Quita los adjuntos y vuelve a enviar."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cette conversation ne peut pas encore recevoir de pièces jointes."
+            "value": "Cette conversation ne stocke pas de fichiers. Retirez les pièces jointes et renvoyez."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Questa conversazione non può ancora ricevere allegati."
+            "value": "Questa conversazione non archivia file. Rimuovi gli allegati e invia di nuovo."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "この会話ではまだ添付ファイルを受け取れません。"
+            "state": "translated",
+            "value": "この会話はファイルを保存しません。添付を外してもう一度送信してください。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ការសន្ទនានេះមិនទាន់អាចទទួលឯកសារភ្ជាប់បានទេ។"
+            "value": "ការសន្ទនានេះមិនរក្សាទុកឯកសារទេ។ ដកឯកសារភ្ជាប់ចេញ ហើយផ្ញើម្តងទៀត។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "이 대화는 아직 첨부 파일을 받을 수 없습니다."
+            "value": "이 대화는 파일을 저장하지 않습니다. 첨부 파일을 제거하고 다시 보내세요."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Denne samtalen kan ikke motta vedlegg ennå."
+            "value": "Denne samtalen lagrer ikke filer. Fjern vedleggene og send på nytt."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ta rozmowa nie może jeszcze odbierać załączników."
+            "value": "Ta rozmowa nie przechowuje plików. Usuń załączniki i wyślij ponownie."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Esta conversa ainda não pode receber anexos."
+            "value": "Esta conversa não guarda arquivos. Remova os anexos e envie novamente."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Этот разговор пока не может принимать вложения."
+            "value": "Этот разговор не хранит файлы. Удалите вложения и отправьте снова."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "การสนทนานี้ยังรับไฟล์แนบไม่ได้"
+            "value": "การสนทนานี้ไม่เก็บไฟล์ เอาไฟล์แนบออกแล้วส่งอีกครั้ง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Bu sohbet henüz ek alamıyor."
+            "value": "Bu konuşma dosya saklamaz. Ekleri kaldırıp yeniden gönderin."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ця розмова поки не може отримувати вкладення."
+            "value": "Ця розмова не зберігає файли. Видаліть вкладення й надішліть знову."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cuộc trò chuyện này chưa thể nhận tệp đính kèm."
+            "value": "Cuộc trò chuyện này không lưu tệp. Hãy bỏ tệp đính kèm và gửi lại."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此对话暂时无法接收附件。"
+            "value": "此对话不存储文件。请移除附件后重新发送。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "此對話暫時無法接收附件。"
+            "value": "此對話不儲存檔案。請移除附件後重新傳送。"
           }
         }
       }
@@ -22298,6 +22298,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "「%@」是檔案夾。請附加其中的檔案，或該檔案夾的 ZIP 壓縮檔。"
+          }
+        }
+      }
+    },
+    "home.send.attachmentsCloud": {
+      "comment": "Home composer notice: a send with attachments was not delivered because cmux Cloud conversations keep text only.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud conversations keep text only, so files can’t be sent here. Remove the attachments and send again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تحتفظ محادثات cmux Cloud بالنص فقط، لذا لا يمكن إرسال الملفات هنا. أزل المرفقات وأرسل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud razgovori čuvaju samo tekst, pa se datoteke ovdje ne mogu poslati. Uklonite priloge i pošaljite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud-samtaler gemmer kun tekst, så filer kan ikke sendes her. Fjern vedhæftningerne, og send igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud-Unterhaltungen speichern nur Text, daher können hier keine Dateien gesendet werden. Entferne die Anhänge und sende erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Las conversaciones de cmux Cloud solo guardan texto, así que aquí no se pueden enviar archivos. Quita los adjuntos y vuelve a enviar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les conversations cmux Cloud ne conservent que du texte : impossible d’y envoyer des fichiers. Retirez les pièces jointes et renvoyez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le conversazioni cmux Cloud conservano solo testo, quindi qui non si possono inviare file. Rimuovi gli allegati e invia di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud の会話はテキストだけを保存するため、ここではファイルを送信できません。添付を外してもう一度送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការសន្ទនា cmux Cloud រក្សាទុកតែអត្ថបទ ដូច្នេះមិនអាចផ្ញើឯកសារនៅទីនេះបានទេ។ ដកឯកសារភ្ជាប់ចេញ ហើយផ្ញើម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 대화는 텍스트만 보관하므로 여기서는 파일을 보낼 수 없습니다. 첨부 파일을 제거하고 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud-samtaler lagrer bare tekst, så filer kan ikke sendes her. Fjern vedleggene og send på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Rozmowy cmux Cloud przechowują tylko tekst, więc nie można tu wysyłać plików. Usuń załączniki i wyślij ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "As conversas do cmux Cloud guardam apenas texto, então não é possível enviar arquivos aqui. Remova os anexos e envie novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Разговоры cmux Cloud хранят только текст, поэтому файлы сюда отправить нельзя. Удалите вложения и отправьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การสนทนา cmux Cloud เก็บเฉพาะข้อความ จึงส่งไฟล์ที่นี่ไม่ได้ เอาไฟล์แนบออกแล้วส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud konuşmaları yalnızca metin saklar, bu yüzden buraya dosya gönderilemez. Ekleri kaldırıp yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Розмови cmux Cloud зберігають лише текст, тому файли сюди надіслати не можна. Видаліть вкладення й надішліть знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cuộc trò chuyện cmux Cloud chỉ lưu văn bản nên không thể gửi tệp ở đây. Hãy bỏ tệp đính kèm và gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 对话只保存文本，因此无法在此发送文件。请移除附件后重新发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud 對話只保存文字，因此無法在此傳送檔案。請移除附件後重新傳送。"
+          }
+        }
+      }
+    },
+    "home.send.attachmentsNeedNewerCmux": {
+      "comment": "Home composer notice: a send with attachments was not delivered because the cmux that owns the conversation is too old to store files.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The cmux that owns this conversation is too old to store files. Update cmux there, or remove the attachments and send again."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "إصدار cmux الذي يملك هذه المحادثة قديم جدًا لتخزين الملفات. حدّث cmux هناك، أو أزل المرفقات وأرسل مرة أخرى."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux koji posjeduje ovaj razgovor je prestar za čuvanje datoteka. Ažurirajte cmux tamo ili uklonite priloge i pošaljite ponovo."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Den cmux, der ejer denne samtale, er for gammel til at gemme filer. Opdater cmux der, eller fjern vedhæftningerne, og send igen."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Das cmux, dem diese Unterhaltung gehört, ist zu alt, um Dateien zu speichern. Aktualisiere cmux dort oder entferne die Anhänge und sende erneut."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "El cmux que aloja esta conversación es demasiado antiguo para guardar archivos. Actualiza cmux allí o quita los adjuntos y vuelve a enviar."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Le cmux qui héberge cette conversation est trop ancien pour stocker des fichiers. Mettez cmux à jour là-bas, ou retirez les pièces jointes et renvoyez."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Il cmux che gestisce questa conversazione è troppo vecchio per archiviare file. Aggiorna cmux lì oppure rimuovi gli allegati e invia di nuovo."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この会話を管理している cmux が古いため、ファイルを保存できません。そちらの cmux を更新するか、添付を外してもう一度送信してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ដែលគ្រប់គ្រងការសន្ទនានេះចាស់ពេក មិនអាចរក្សាទុកឯកសារបានទេ។ ធ្វើបច្ចុប្បន្នភាព cmux នៅទីនោះ ឬដកឯកសារភ្ជាប់ចេញ ហើយផ្ញើម្តងទៀត។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 대화를 소유한 cmux가 오래되어 파일을 저장할 수 없습니다. 그곳의 cmux를 업데이트하거나 첨부 파일을 제거하고 다시 보내세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux-en som eier denne samtalen, er for gammel til å lagre filer. Oppdater cmux der, eller fjern vedleggene og send på nytt."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, do którego należy ta rozmowa, jest zbyt stary, by przechowywać pliki. Zaktualizuj tam cmux albo usuń załączniki i wyślij ponownie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "O cmux que hospeda esta conversa é antigo demais para guardar arquivos. Atualize o cmux lá ou remova os anexos e envie novamente."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, которому принадлежит этот разговор, слишком старый для хранения файлов. Обновите там cmux или удалите вложения и отправьте снова."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux ที่เป็นเจ้าของการสนทนานี้เก่าเกินกว่าจะเก็บไฟล์ได้ อัปเดต cmux ที่นั่น หรือเอาไฟล์แนบออกแล้วส่งอีกครั้ง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bu konuşmanın sahibi olan cmux dosya saklamak için çok eski. Oradaki cmux'u güncelleyin ya da ekleri kaldırıp yeniden gönderin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux, якому належить ця розмова, застарий для зберігання файлів. Оновіть там cmux або видаліть вкладення й надішліть знову."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux sở hữu cuộc trò chuyện này quá cũ để lưu tệp. Hãy cập nhật cmux ở đó, hoặc bỏ tệp đính kèm và gửi lại."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "拥有此对话的 cmux 版本太旧，无法存储文件。请在那台机器上更新 cmux，或移除附件后重新发送。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "擁有此對話的 cmux 版本太舊，無法儲存檔案。請在那台機器上更新 cmux，或移除附件後重新傳送。"
           }
         }
       }
