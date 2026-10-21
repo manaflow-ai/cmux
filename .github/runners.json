@@ -198,7 +198,6 @@
     },
     "coderouter-release.yml#build": "apple-signing-release",
     "dogfood-artifact-publish.yml#capture": "apple-gui",
-    "fleet-compile-check.yml#compile-check": "apple-app-build",
     "ios-app-store.yml#upload-and-validate": "apple-ios",
     "ios-appstore-upload.yml#upload": "apple-ios",
     "ios-e2e.yml#mac-ios-e2e": "apple-ios",
