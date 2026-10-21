@@ -234,6 +234,31 @@ async fn a_worktree_cmux_made_starts_and_prompts_with_no_question() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// A chat whose agent already runs is never held up by an open trust question: a lane a
+/// coordinator started over the unix socket in a folder nobody answered for takes the person's
+/// prompts from the app's pane. Only an explicit Don't trust refuses them.
+#[tokio::test]
+async fn a_running_chat_is_not_held_by_an_open_trust_question() {
+    let d = dir("running");
+    let hub = hub(&d);
+    let folder = d.join("work").join("other");
+    let mut cli = Client::new(&hub, Origin::Local);
+    let s = cli.new_session(&folder, "fclaude").await;
+    let r = cli.prompt(&s, "started-by-the-coordinator").await;
+    assert!(r.get("error").is_none(), "{r}");
+
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let r = app.prompt(&s, "sent-from-the-pane").await;
+    assert!(r.get("error").is_none(), "a running chat refused the pane's prompt: {r}");
+    assert!(app.agent_saw(&s, "sent-from-the-pane").await);
+    let r = app.call("session/set_mode", json!({"sessionId": s, "modeId": "default"})).await;
+    assert_ne!(reason(&r), "trust.pending", "{r}");
+
+    app.trust(&folder, "untrusted").await;
+    assert_eq!(reason(&app.prompt(&s, "after-dont-trust").await), "trust.untrusted");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 #[tokio::test]
 async fn local_app_and_web_cannot_create_an_agent_before_folder_trust() {
     let d = dir("new");
