@@ -1538,8 +1538,22 @@ export function VirtualTranscript({
   const [dockSpace, setDockSpace] = useState(0);
   const dockSpaceRef = useRef(0);
   dockSpaceRef.current = dockSpace;
-  /// The stack is shrinking because a queued prompt left it (read by the render that follows).
+  /// A queued prompt left the bottom stack this frame: it is about to come in as the latest row.
   const queueLeft = useRef(false);
+  const queueCount = useRef(0);
+  const dockRef = useRef(dock);
+  dockRef.current = dock;
+  /// Counts the stack's queued prompts; called first by each size observer (the stack's, and the
+  /// view's, for a stack laid out under the transcript), so the render a size change makes knows.
+  const noteQueue = useCallback(() => {
+    const count = dockRef.current?.querySelectorAll(".acpmux-queued").length ?? 0;
+    if (count < queueCount.current && !queueLeft.current) {
+      queueLeft.current = true;
+      // Only the size change of this frame is the card leaving.
+      requestAnimationFrame(() => requestAnimationFrame(() => (queueLeft.current = false)));
+    }
+    queueCount.current = count;
+  }, []);
   useLayoutEffect(() => {
     if (!dock) {
       setDockSpace(0);
@@ -1554,21 +1568,16 @@ export function VirtualTranscript({
       const view = ref.current?.getBoundingClientRect();
       return stack.height > 0 && view ? Math.max(0, Math.min(stack.height, view.bottom - stack.top)) : 0;
     };
-    const queued = () => dock.querySelectorAll(".acpmux-queued").length;
-    let wasQueued = queued();
     const observer = new ResizeObserver(() => {
+      noteQueue();
       const next = over();
-      const nowQueued = queued();
-      // A queued prompt left the stack: it is about to come in as the latest row (`queueLeft`).
-      queueLeft.current = nowQueued < wasQueued && next < dockSpaceRef.current;
-      wasQueued = nowQueued;
       if (Math.abs(next - dockSpaceRef.current) >= 0.5) flushSync(() => setDockSpace(next));
-      queueLeft.current = false;
     });
     observer.observe(dock);
+    noteQueue();
     setDockSpace(over());
     return () => observer.disconnect();
-  }, [dock]);
+  }, [dock, noteQueue]);
   const [width, setWidth] = useState(() => lastTranscriptBox.width);
   // The column's cap (layout.json `chatWidth`): a new one measures every row again.
   const chatWidth = useChatWidth();
@@ -1794,11 +1803,14 @@ export function VirtualTranscript({
     };
     // Before the frame paints: a resized pane (its tab strip showing or hiding) otherwise drew the
     // transcript at its old offset and caught up a frame later.
-    const observer = new ResizeObserver(() => flushSync(() => measure(true)));
+    const observer = new ResizeObserver(() => {
+      noteQueue();
+      flushSync(() => measure(true));
+    });
     observer.observe(node);
     measure(false);
     return () => observer.disconnect();
-  }, []);
+  }, [noteQueue]);
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
@@ -1925,20 +1937,23 @@ export function VirtualTranscript({
   // The transcript's height is the rows' as drawn, under the thread's top padding: the rows' total
   // alone placed the latest row's bottom that far under the view.
   // The bottom stack's room follows the rows, so the latest row ends above it.
-  // A followed view does not move down when a queued prompt's card leaves the stack: the room it
-  // leaves stays under the last row for the prompt, which arrives as the latest row a moment later.
-  // Dropping it moved the view down a card's height, and the prompt moved it back up. The room goes
-  // once rows grow into it, the reader leaves the latest row, the rows rewrap, or after FLOOR_HOLD_MS
-  // (a prompt deleted from the queue never arrives), when the view glides down to the rows' end.
+  // A followed view does not move down when a queued prompt's card leaves the stack: its offset stays,
+  // and the room the card leaves stays under the last row for the prompt, which arrives as the latest
+  // row a moment later. Dropping it moved the view down a card's height, and the prompt moved it back
+  // up. That holds for a stack over the view's foot (its room shrinks) and under it (the view grows).
+  // The room goes once rows grow into it, the reader leaves the latest row, the rows rewrap, or after
+  // FLOOR_HOLD_MS (a prompt deleted from the queue never arrives), when the view glides down.
   const floor = useRef({ height: 0, width, sessionId });
   const [, releaseFloor] = useReducer((count: number) => count + 1, 0);
   const floorTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(floorTimer.current), []);
   const kept = following && floor.current.width === width && floor.current.sessionId === sessionId;
+  const box = previousViewport.current;
+  const footDropped = height - dockSpace > box.height - box.dockSpace;
   const floorHeight = !kept
     ? 0
-    : queueLeft.current && dockSpace < previousViewport.current.dockSpace && previousLayout.current
-      ? Math.max(floor.current.height, previousLayout.current.totalHeight)
+    : queueLeft.current && footDropped && previousLayout.current
+      ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
       : floor.current.height;
   const rowsHeight = measured.layout.totalHeight + THREAD_TOP + dockSpace;
   const layout = useMemo(
