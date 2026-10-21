@@ -27,7 +27,7 @@ struct ChiefHostIdleHandoffTests {
             sent.append((pid, signal))
             return true
         }
-        #expect(asked)
+        #expect(asked == 4242)
         #expect(sent.map(\.0) == [4242])
         #expect(sent.map(\.1) == [SIGUSR1])
     }
@@ -39,7 +39,7 @@ struct ChiefHostIdleHandoffTests {
             sent.append((pid, signal))
             return true
         }
-        #expect(!asked)
+        #expect(asked == nil)
         #expect(sent.isEmpty)
     }
 
@@ -50,14 +50,14 @@ struct ChiefHostIdleHandoffTests {
             sent.append((pid, signal))
             return true
         }
-        #expect(!asked)
+        #expect(asked == nil)
         #expect(sent.isEmpty)
     }
 
     @Test func noRunningHostIsNotAsked() throws {
         let home = try home(lockPID: 4242, handoffPID: 4242)
         let asked = ChiefHostStop.askToHandOffWhenIdle(home: home, isChiefHost: { _ in false }) { _, _ in true }
-        #expect(!asked)
+        #expect(asked == nil)
     }
 
     // 15:41 and 16:57 PT, 2026-10-20: a Chief chat the peer check refused healed by stopping the

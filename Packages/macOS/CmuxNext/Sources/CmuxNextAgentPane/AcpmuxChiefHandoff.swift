@@ -79,8 +79,8 @@ public nonisolated struct AcpmuxChiefHandoff: Sendable {
     public enum ReplacedAction: Equatable, Sendable {
         /// Nothing: it does not run from a replaced bundle, or stopping it would end its agents.
         case keep
-        /// The Chief host was asked to hand off when its turn ends; the start after it exits
-        /// (`HomeBrainHost.start`) hands the daemon off.
+        /// The Chief host was asked to hand off when its turn ends; the caller hands the daemon
+        /// off after it exits (`ChiefAcpmuxHeal`, or `HomeBrainHost.start` at a relaunch).
         case waitForHost
         /// Stop it now (`_acpmux/shutdown`).
         case handOff

@@ -32,9 +32,6 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
         self.ensureHost = ensureHost
     }
 
-    /// How long the heal waits for a Chief host it asked to hand off when idle to end its turn.
-    static let turnLimit: Duration = .seconds(2 * 60 * 60)
-
     /// Hands off the stale daemon and restarts the Chief host. Returns whether
     /// it handed one off now; false leaves the daemon running (the Chief host may
     /// have been asked to hand off when its turn ends: then the heal finishes after that).
@@ -43,19 +40,26 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
         // An update never cuts a Chief turn: a host that takes it hands off when its turn ends,
         // and the heal finishes after it exits. Only an older host is stopped here.
         let home = home
-        let host = ChiefHostStop.runningHostPID(home: home)
-        switch await handoff.handOffReplaced(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: home) }) {
+        // The host that took the signal, not one read before it: a host that starts in between
+        // would otherwise be stopped mid-turn when the one read earlier is already gone.
+        let asked = OSAllocatedUnfairLock<pid_t?>(initialState: nil)
+        switch await handoff.handOffReplaced(waitFor: {
+            let pid = ChiefHostStop.askToHandOffWhenIdle(home: home)
+            asked.withLock { $0 = pid }
+            return pid != nil
+        }) {
         case .keep:
             return false
         case .waitForHost:
             let ensureHost = ensureHost
+            let host = asked.withLock { $0 }
             // task-owner: one follow-up per stale daemon (the pane heals each pid once); it ends
-            // when the host exits or after `turnLimit`
+            // when the host exits, however long its turn runs (one exit source, no timer)
             Task.detached {
                 await Self.finishAfterTurn(
                     hostExited: {
                         guard let host else { return true }
-                        return await AgentPaneProcessExit(pid: host).event(within: Self.turnLimit)
+                        return await AgentPaneProcessExit(pid: host).event(within: nil)
                     },
                     handOff: { await handoff.handOffReplaced(waitFor: { false }) == .handOff },
                     stopHost: { await Self.stopHost(home: home) },
