@@ -62,7 +62,13 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
         <output className="apps-error selectable">{snap.error}</output>
       )}
       {snap.connection === "disconnected" ? (
-        <div className="apps-empty">{t("store.disconnected")}</div>
+        <output className="apps-state">
+          <span className="apps-state-mark" aria-hidden="true">
+            !
+          </span>
+          <strong>{t("store.window.title")}</strong>
+          <span>{t("store.disconnected")}</span>
+        </output>
       ) : snap.tab === "installed" ? (
         <InstalledView snap={snap} store={store} strings={strings} />
       ) : (
@@ -72,26 +78,24 @@ export function AppsPage({ store, strings }: { store: AppsStore; strings: String
   );
 }
 
-function LoadingGrid({ strings }: { strings: Strings }) {
-  return (
-    <output className="apps-state" aria-busy="true">
-      <span className="apps-state-mark" aria-hidden="true">
-        …
-      </span>
-      <strong>{strings.t("store.detail.loading")}</strong>
-    </output>
-  );
-}
-
 function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsStore; strings: Strings }) {
   const { t } = strings;
   const selected = snap.selection;
   if (snap.layout !== "split" && selected) {
     return <AppDetailView snap={snap} store={store} strings={strings} showsBack />;
   }
+  const framed = !snap.query.trim() && !snap.category && snap.layout === "grid";
+  const featured = framed
+    ? [...snap.visible]
+        .filter((app) => app.tier === "first-party")
+        .sort((a, b) => b.install_count - a.install_count || a.name.localeCompare(b.name))
+        .slice(0, 2)
+    : [];
+  const featuredIds = new Set(featured.map((app) => app.id));
+  const catalog = featured.length ? snap.visible.filter((app) => !featuredIds.has(app.id)) : snap.visible;
   const listing = (
     <div className="apps-discover-list">
-      {!snap.query && !snap.category && <CloudFeature store={store} strings={strings} />}
+      {!snap.query.trim() && !snap.category && <CloudFeature store={store} strings={strings} />}
       <div className="apps-chips">
         <button
           type="button"
@@ -122,21 +126,48 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
           <span>{t("store.search")}</span>
         </output>
       ) : (
-        <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
-          {snap.visible.map((app) =>
-            snap.layout === "grid" ? (
-              <AppCard key={app.id} app={app} store={store} strings={strings} />
-            ) : (
-              <AppRow
-                key={app.id}
-                app={app}
-                selected={snap.layout === "split" && app.id === selected}
-                store={store}
-                strings={strings}
-              />
-            ),
+        <>
+          {featured.length > 0 && (
+            <section className="apps-catalog-section" aria-labelledby="apps-featured-title">
+              <div className="apps-section-heading">
+                <h3 id="apps-featured-title">{t("store.tier.firstParty")}</h3>
+              </div>
+              <div className="apps-featured-grid">
+                {featured.map((app) => (
+                  <AppCard key={app.id} app={app} store={store} strings={strings} featured />
+                ))}
+              </div>
+            </section>
           )}
-        </div>
+          {catalog.length > 0 && (
+            <section
+              className="apps-catalog-section"
+              aria-labelledby={featured.length > 0 ? "apps-catalog-title" : undefined}
+              aria-label={featured.length > 0 ? undefined : t("store.category.all")}
+            >
+              {featured.length > 0 && (
+                <div className="apps-section-heading">
+                  <h3 id="apps-catalog-title">{t("store.category.all")}</h3>
+                </div>
+              )}
+              <div className={snap.layout === "grid" ? "apps-grid" : "apps-rows"}>
+                {catalog.map((app) =>
+                  snap.layout === "grid" ? (
+                    <AppCard key={app.id} app={app} store={store} strings={strings} />
+                  ) : (
+                    <AppRow
+                      key={app.id}
+                      app={app}
+                      selected={snap.layout === "split" && app.id === selected}
+                      store={store}
+                      strings={strings}
+                    />
+                  ),
+                )}
+              </div>
+            </section>
+          )}
+        </>
       )}
     </div>
   );
@@ -151,6 +182,21 @@ function Discover({ snap, store, strings }: { snap: AppsSnapshot; store: AppsSto
           <div className="apps-empty">{t("store.empty.select")}</div>
         )}
       </div>
+    </div>
+  );
+}
+
+function LoadingGrid({ strings }: { strings: Strings }) {
+  return (
+    <div className="apps-grid apps-grid-loading" aria-busy="true" aria-label={strings.t("store.detail.loading")}>
+      {Array.from({ length: 6 }, (_, index) => (
+        <div className="apps-card-skeleton" key={index} aria-hidden="true">
+          <span className="apps-skeleton-icon" />
+          <span className="apps-skeleton-line wide" />
+          <span className="apps-skeleton-line" />
+          <span className="apps-skeleton-footer" />
+        </div>
+      ))}
     </div>
   );
 }
@@ -185,22 +231,54 @@ function InstallButton({ app, store, strings }: { app: CatalogApp; store: AppsSt
   );
 }
 
-function AppCard({ app, store, strings }: { app: CatalogApp; store: AppsStore; strings: Strings }) {
+function AppCard({
+  app,
+  store,
+  strings,
+  featured = false,
+}: {
+  app: CatalogApp;
+  store: AppsStore;
+  strings: Strings;
+  featured?: boolean;
+}) {
   const { t } = strings;
+  const descriptionId = `apps-description-${app.id.replace(/[^a-z0-9_-]/gi, "-")}`;
   return (
-    <article className="apps-card">
-      <button type="button" className="apps-card-open" onClick={() => void store.select(app.id)} aria-label={app.name}>
-        <AppIcon icon={app.icon} name={app.name} size={44} />
+    <article className={`apps-card${featured ? " featured" : ""}`}>
+      <button
+        type="button"
+        className="apps-card-open"
+        onClick={() => void store.select(app.id)}
+        aria-label={app.name}
+        aria-describedby={descriptionId}
+      >
+        <AppIcon icon={app.icon} name={app.name} size={featured ? 52 : 44} />
         <span className="apps-card-text">
           <span className="apps-name">{app.name}</span>
-          <span className="apps-description">{app.description}</span>
+          <span className="apps-card-meta">
+            <span>{app.publisher}</span>
+            {app.publisher_verified && (
+              <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
+                ✓
+              </span>
+            )}
+          </span>
+          <span className="apps-description" id={descriptionId}>
+            {app.description}
+          </span>
         </span>
       </button>
       <footer className="apps-card-footer">
         <Badge text={t(TierLabel[app.tier])} />
+        {app.categories[0] && <Badge text={categoryLabel(app.categories[0], t)} />}
         {app.installed && <Badge text={t("store.badge.installed")} />}
-        <span className="apps-spacer" />
-        <InstallButton app={app} store={store} strings={strings} />
+        <span className="apps-card-actions">
+          <button type="button" className="apps-button apps-button-subtle" onClick={() => void store.select(app.id)}>
+            {t("store.detail.preview")}
+          </button>
+          <InstallButton app={app} store={store} strings={strings} />
+        </span>
       </footer>
     </article>
   );
@@ -224,6 +302,14 @@ function AppRow({
         <AppIcon icon={app.icon} name={app.name} size={28} />
         <span className="apps-row-text">
           <span className="apps-name">{app.name}</span>
+          <span className="apps-card-meta">
+            <span>{app.publisher}</span>
+            {app.publisher_verified && (
+              <span className="apps-verified" title={t("store.tier.verified")} aria-hidden="true">
+                ✓
+              </span>
+            )}
+          </span>
           <span className="apps-description">{app.description}</span>
         </span>
       </button>

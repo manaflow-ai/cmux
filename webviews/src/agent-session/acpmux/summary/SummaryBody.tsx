@@ -5,7 +5,7 @@ import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import type { TurnFile } from "../diff";
-import { type BackgroundCommand, backgroundCommands } from "./backgroundWork";
+import { type BackgroundCommand, backgroundCommands } from "../inspector/processes";
 import type { SessionSummary } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 import { SummarySection } from "./SummarySection";
@@ -60,7 +60,7 @@ export function SummaryBody({
   onAttach?: () => void;
   /// The Subagents section, when the card draws it (SubagentStatusList.tsx).
   subagents?: ReactNode;
-  /// The chat's background commands, the registry's merged in (backgroundWork.ts); without them,
+  /// The chat's background commands, the registry's merged in (inspector/processes.ts); without them,
   /// the transcript's.
   commands?: readonly BackgroundCommand[];
   /// Stop for a running command the registry lists.
