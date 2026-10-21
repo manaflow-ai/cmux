@@ -15,7 +15,7 @@ import CmuxNextSidebar
 /// where you are); else the first slot of the workspace's machine section, which
 /// lists no pinned workspace (they show in the Pinned section above), above
 /// every group, and right below the home workspace's row when the list shows
-/// it. `afterCurrent` is right after the workspace the window showed
+/// it. `beforeCurrent` / `afterCurrent` is right before / after the workspace the window showed
 /// when the new one was asked for, inside its group when it has one; `top`
 /// when that workspace is not in the section (pinned, Home, another machine,
 /// none). `bottom` is the last slot of the current workspace's group; outside a
@@ -36,10 +36,11 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
                 return .bottom(anchor: current)
             }
             return nil
-        case .afterCurrent:
-            if let current, current != id, current != home,
-               WorkspaceSlot.below(current).position(moving: [id], section: section, in: sections) != nil {
-                return .below(current)
+        case .beforeCurrent, .afterCurrent:
+            let beside: WorkspaceSlot? = current.map { placement == .beforeCurrent ? .above($0) : .below($0) }
+            if let current, let beside, current != id, current != home,
+               beside.position(moving: [id], section: section, in: sections) != nil {
+                return beside
             }
             return Self.top(for: id, section: section, in: sections, home: home)
         case .top:
@@ -82,12 +83,17 @@ struct NewWorkspaceDefaultSlot: Hashable, Sendable {
 enum NewWorkspacePlacements {
     /// `workspaces.newPlacement` for a new workspace of window `windowID`
     /// (nil: the window reconcile gives it, the most recent open one), with
-    /// the workspace that window shows now. Read it before the claim selects
-    /// the new workspace.
+    /// the workspace that window shows now. Read it at the request, before
+    /// any hop and before the claim selects the new workspace. A window
+    /// showing a top page (Home, Chats, a pinned page) selects that page's row
+    /// in its sidebar, not a workspace's, so it has no current workspace: the
+    /// one it showed last is not the one the person sees selected. The create
+    /// sends the rule (`WorkspaceCreation`, `CreateWorkspaceRequest.current`), so
+    /// the daemon places the new row against the same workspace, or none.
     static func rule(for windowID: String?, in windows: WindowManager) -> NewWorkspaceDefaultSlot {
         let placement = windows.services.settings?.snapshot.newWorkspacePlacement ?? CmuxConfigSnapshot.newWorkspacePlacementFallback
-        let window = windowID ?? windows.registry.value.mostRecentOpen()
-        return NewWorkspaceDefaultSlot(placement: placement, current: window.flatMap { windows.states[$0]?.workspaceID })
+        let state = (windowID ?? windows.registry.value.mostRecentOpen()).flatMap { windows.states[$0] }
+        return NewWorkspaceDefaultSlot(placement: placement, current: state?.page == nil ? state?.workspaceID : nil)
     }
 
     /// Places workspace `id` at `slot`, else by `byDefault`, in window

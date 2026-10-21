@@ -60,6 +60,9 @@ pub enum NewWorkspacePlacement {
     /// First, below the home workspace's row, above every group.
     #[default]
     Top,
+    /// Right before the session's active workspace, in its group (`Top`
+    /// when there is none, or it is the home workspace).
+    BeforeCurrent,
     /// Right after the session's active workspace, in its group (`Top`
     /// when there is none, or it is the home workspace).
     AfterCurrent,
@@ -94,6 +97,7 @@ impl NewWorkspacePlacement {
             return Self::default();
         };
         match document.pointer("/workspaces/newPlacement").and_then(Value::as_str) {
+            Some("beforeCurrent") => Self::BeforeCurrent,
             Some("afterCurrent") => Self::AfterCurrent,
             Some("bottom") => Self::Bottom,
             _ => Self::default(),
