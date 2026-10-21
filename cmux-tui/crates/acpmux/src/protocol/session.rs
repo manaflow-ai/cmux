@@ -62,13 +62,19 @@ pub struct SessionSummary {
     pub queue_paused: bool,
     /// Being moved to another daemon; it takes no prompt meanwhile.
     pub moving: bool,
+    /// The family of a conversation another app runs that this chat only shows; null otherwise.
+    pub watching: Option<String>,
     /// The agent takes a prompt mid-turn.
     pub steering: bool,
+    /// `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+    /// harness is Claude Code (claude-stdio), whatever the harness's name.
+    /// Clients offer Ctrl-B from this, not from `harness`.
+    pub backgrounds_work: bool,
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
     /// What it waits on the person for: `question` (an agent question) or
-    /// `permission`; null while nothing is pending. Only the person answers.
+    /// `permission`; null while nothing is pending. Only the person allows a permission.
     pub waiting_on: Option<String>,
     /// The first prompt of the question it waits on, cut to 120 characters.
     pub waiting_prompt: Option<String>,

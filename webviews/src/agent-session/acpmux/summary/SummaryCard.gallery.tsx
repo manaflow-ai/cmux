@@ -10,7 +10,7 @@ import { minutesAgo } from "../../../gallery/clock";
 import { activity, CWD, tool, user } from "../../../gallery/fixtures/acpmux";
 import type { StartedSession } from "../started/startedSessions";
 import type { SummaryCardControl } from "./cardState";
-import type { RailProcess } from "./sessionProcesses";
+import type { InspectorProcess } from "../inspector/processes";
 import { SummaryCard } from "./SummaryCard";
 
 type Props = Pick<ComponentProps<typeof SummaryCard>, "rows" | "background" | "sessions" | "onAttach">;
@@ -60,8 +60,8 @@ const record = (id: string, command: string, startedMin: number, state = "runnin
     startedAt: minutesAgo(startedMin),
     state,
     ...(endedMin !== undefined ? { endedAt: minutesAgo(endedMin) } : {}),
-  }) satisfies RailProcess;
-const processes: RailProcess[] = [
+  }) satisfies InspectorProcess;
+const processes: InspectorProcess[] = [
   record("dev", "bun run dev --port 5173", 26),
   record("watch", "tsc --noEmit --watch", 25),
   record("logs", "tail -f logs/server.log", 3),
@@ -78,7 +78,7 @@ const sessions: StartedSession[] = [
   { sessionId: "child-5", title: "Draft the release notes for 0.42", state: "idle", createdAt: minutesAgo(16) },
 ];
 
-const background = (list: RailProcess[]) => ({
+const background = (list: InspectorProcess[]) => ({
   processes: list,
   listed: true,
   running: [],
@@ -92,7 +92,7 @@ export default componentEntry<Props>({
   pane: true,
   height: 560,
   widths: { narrow: 300, normal: 360 },
-  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/summary/ChildSessionRows.tsx"],
+  covers: ["agent-session/acpmux/summary/SummaryTasks.tsx", "agent-session/acpmux/inspector/ChildSessionRows.tsx"],
   load: async () => GallerySummaryCard,
   variants: {
     "background-work": {

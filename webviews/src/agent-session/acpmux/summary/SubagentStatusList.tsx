@@ -5,9 +5,10 @@
 // agent started with its `start_session` tool (subagents/subsessions.ts) follow, theirs indented under
 // each, with their live state, an unread dot, how many messages wait for them and what a working
 // one does now; a click opens its chat beside this one (`onOpenSession`). After them, the other
-// chats the agent started (`sessions`, ChildSessionRows.tsx), each opening its chat.
+// chats the agent started (`sessions`, inspector/ChildSessionRows.tsx), each opening its chat.
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
+import { AgentLine } from "../subagents/AgentLine";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
@@ -20,7 +21,7 @@ import {
   waitingLine,
 } from "../subagents/subsessions";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows } from "./ChildSessionRows";
+import { ChildSessionRows } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 
@@ -170,31 +171,19 @@ export function SubagentStatusList({
           const status = subagentStatus(agent, waiting);
           return (
             <li key={agent.id}>
-              <button
-                type="button"
-                className="acpmux-summary-row acpmux-summary-link acpmux-summary-agent"
-                style={depth > 0 ? { paddingLeft: 8 + depth * 14 } : undefined}
-                data-status={status}
-                aria-current={agent.id === current ? "true" : undefined}
-                /* tooltip-allow: the row shows the name; the task appears nowhere else */
+              {/* The tray's own line (subagents/AgentLine.tsx): a subagent reads the same here and above the composer. */}
+              <AgentLine
+                name={agent.name}
+                detail={agent.kind}
+                status={status}
+                state={t(subagentStatusLabel(agent, waiting))}
+                time={formatDuration(elapsed(agent, now))}
+                iconSize={ROW_ICON}
+                depth={depth}
+                current={agent.id === current}
                 title={agent.task}
-                disabled={!onOpen}
-                onClick={() => onOpen?.(agent.id)}
-              >
-                <span className="acpmux-lineage__icon" data-state={status}>
-                  <Icon name="agent.session" size={ROW_ICON} row />
-                </span>
-                <span className="acpmux-summary-text">
-                  <span className="acpmux-summary-agent__name">{agent.name}</span>
-                  {agent.kind && agent.kind !== agent.name && (
-                    <span className="acpmux-summary-agent__kind">{agent.kind}</span>
-                  )}
-                </span>
-                <span className="acpmux-summary-meta">{formatDuration(elapsed(agent, now))}</span>
-                <span className="acpmux-summary-meta acpmux-summary-agent__state">
-                  {t(subagentStatusLabel(agent, waiting))}
-                </span>
-              </button>
+                onOpen={onOpen ? () => onOpen(agent.id) : undefined}
+              />
             </li>
           );
         })}

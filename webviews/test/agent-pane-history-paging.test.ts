@@ -3,12 +3,14 @@
 // session on cmux server can hold thousands of turns: the pane asks acpmux for the newest records
 // only, then for the page before its oldest record each time the reader nears the top, until acpmux
 // says there is no more. The reader's place holds while pages land above it: a message moves only by
-// what the reader scrolled.
+// what the reader scrolled. A long chat left at its end holds its latest line still on every painted
+// frame from the first that shows it, while the pane reads its tail and the opener of the tail's turn.
 //
 // Real Chromium from Playwright; skipped where it is not installed (the hosted webviews job).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -114,6 +116,8 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     request.params.kinds.length === 1 &&
     request.params.kinds[0] === "user_message";
   let inflight = 0;
+  /// Replies sent so far: a page that lands while the view looks still restarts the wait.
+  let replies = 0;
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
@@ -155,6 +159,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           setTimeout(() => {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
             inflight--;
+            replies++;
           }, 40);
         },
       },
@@ -176,6 +181,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
 
   test("a long chat opens on its tail and pages older turns in as the reader scrolls up, holding its place", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     const errors: string[] = [];
     page.on("pageerror", (error) => errors.push(error.message));
     const { port } = vite!.httpServer!.address() as { port: number };
@@ -201,14 +207,31 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
     expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
 
-    // Each wheel step settles: no page in flight and the offset still for three reads.
+    // Each wheel step settles: no page in flight and the offset still for 120ms, timed in the page by
+    // frame. Polled from here (three reads 40ms apart, after one to start from) it cost four round
+    // trips a step: 65s of the 281 steps on the CI runner, where the wheel lands in one frame, and the
+    // file ran into its 120s limit when the runner was loaded.
     const settle = async () => {
-      let last = -1;
-      for (let still = 0, waited = 0; still < 3 && waited < 5_000; waited += 40) {
-        await page.waitForTimeout(40);
-        const top = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-        still = inflight === 0 && top === last ? still + 1 : 0;
-        last = top;
+      for (const started = Date.now(); Date.now() - started < 5_000;) {
+        const sent = replies;
+        const held = await page.evaluate(
+          (left) =>
+            new Promise<boolean>((resolve) => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              let last = scroller.scrollTop;
+              let since = performance.now();
+              const end = since + left;
+              window.cmuxAfterPaint((now) => {
+                if (scroller.scrollTop !== last) [last, since] = [scroller.scrollTop, now];
+                if (now - since >= 120) resolve(true);
+                else if (now >= end) resolve(false);
+                else return;
+                return false;
+              });
+            }),
+          5_000 - (Date.now() - started),
+        );
+        if (held && inflight === 0 && replies === sent) return;
       }
     };
     // The reader scrolls up with the wheel. Each step, a message in the upper part of the view must
@@ -294,5 +317,49 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     expect(cursors).toEqual([...cursors].sort((a, b) => b - a));
     expect(older.at(-1)!.sent).toBeGreaterThan(0);
     await page.close();
+  });
+
+  test("a long chat opened at its end holds its latest line on every painted frame", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
+    // From the first painted frame that shows the newest question: where it sits against the view's
+    // foot, and how far the view rests from its end.
+    await page.addInitScript((newest) => {
+      const frames: { t: number; line: number; fromEnd: number }[] = [];
+      (window as unknown as { __opened: typeof frames }).__opened = frames;
+      window.cmuxAfterPaint((frame) => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+        if (!scroller || scroller.hasAttribute("data-seeking")) return;
+        const bubble = [...scroller.querySelectorAll<HTMLElement>(".cv-user__bubble")].find(
+          (each) => each.textContent === newest,
+        );
+        if (!bubble) return;
+        frames.push({
+          t: Math.round(frame),
+          line: scroller.getBoundingClientRect().bottom - bubble.getBoundingClientRect().top,
+          fromEnd: Math.round(scroller.scrollHeight - scroller.clientHeight - scroller.scrollTop),
+        });
+      });
+    }, `Question ${TURNS}`);
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${CHAT}`);
+    await page.getByText(`Question ${TURNS}`, { exact: true }).waitFor({ timeout: 60_000 });
+    // fixed-wait: the test watches 3 s of painted frames after open for any jump; the window is the test
+    await page.waitForTimeout(3_000);
+    const frames = await page.evaluate(
+      () => (window as unknown as { __opened: { t: number; line: number; fromEnd: number }[] }).__opened,
+    );
+    await page.close();
+    const moved = frames.flatMap((frame, index) => {
+      const before = frames[index - 1];
+      return before && Math.abs(frame.line - before.line) > 1
+        ? [`${frame.t}ms: ${before.line.toFixed(1)} -> ${frame.line.toFixed(1)}`]
+        : [];
+    });
+    expect({ moved, atEnd: frames.length > 0 && frames.every((frame) => frame.fromEnd <= 4) }).toEqual({
+      moved: [],
+      atEnd: true,
+    });
   });
 });

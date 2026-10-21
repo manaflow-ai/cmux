@@ -33,7 +33,6 @@ fn memory_inputs(bin: &std::path::Path, cmux_json: Option<&str>) -> super::Input
         cua: None,
         cua_v2: None,
         acpmux: None,
-        acpmux_prefix: Vec::new(),
         secrets: false,
         offers: false,
         subsessions: false,
@@ -123,8 +122,10 @@ fn own_servers_run_under_the_daemon_prefix() {
     std::fs::create_dir_all(&root).unwrap();
     let exe = std::path::PathBuf::from("/usr/local/lib/cmux/cmux-tui");
     let inputs = |prefix: &[&str]| super::Inputs {
-        acpmux: Some(exe.clone()),
-        acpmux_prefix: prefix.iter().map(|p| (*p).to_owned()).collect(),
+        acpmux: Some(crate::self_command::SelfCommand::new(
+            exe.clone(),
+            prefix.iter().map(std::ffi::OsString::from).collect(),
+        )),
         cua_v2: Some(root.join("cua-v2")),
         secrets: true,
         offers: true,
@@ -142,6 +143,7 @@ fn own_servers_run_under_the_daemon_prefix() {
             (crate::secret_mcp::SERVER_NAME, "secret-mcp"),
             (crate::offer_mcp::SERVER_NAME, "offer-mcp"),
             (crate::subsession_mcp::SERVER_NAME, "subsession-mcp"),
+            (crate::forum_mcp::SERVER_NAME, "forum-mcp"),
         ]
         .into_iter()
         .map(|(name, word)| {

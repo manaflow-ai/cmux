@@ -1,27 +1,24 @@
-// The summary card's Background tasks (SummaryBody.tsx): the chat's background commands
-// (backgroundWork.ts), running ones first and newest first, each with how long it has run and a
-// Stop button (RailTasks.tsx `StopButton`). The finished ones fold into one "N finished" row that
-// opens them in place. A row opens the command's terminal beside the chat (processTerminal.ts).
+// The summary card's Background tasks (SummaryBody.tsx), with the Inspector off (Debug Settings
+// `agent.inspector`; on, the Inspector's TasksSection.tsx lists them): the chat's background
+// commands (inspector/processes.ts `backgroundCommands`), running ones first and newest first, each
+// with how long it has run and a Stop button (inspector/TasksSection.tsx `StopButton`). The finished
+// ones fold into one "N finished" row that opens them in place. A row opens the command's terminal
+// beside the chat (processTerminal.ts). A command that starts while the card is drawn drops in at the
+// top (ui/presence.ts `useArrivals`); the ones the card is drawn with are simply there.
 import { useMemo, useState } from "react";
+import { useArrivals } from "../../../ui/presence";
 import { formatDuration } from "../conversation/turns";
-import { useT, type StringKey } from "../i18n";
+import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
-import { type BackgroundCommand, splitCommands } from "./backgroundWork";
-import { StopButton } from "./RailTasks";
+import { arrivalKey, type BackgroundCommand, splitCommands } from "../inspector/processes";
+import { COMMAND_STATE, StopButton } from "../inspector/TasksSection";
 
 const ROW_ICON = rowIconSize(12);
 /// Running rows shown before "View all".
 const FOLDED = 5;
-
-const TASK_STATES: Record<BackgroundCommand["state"], StringKey> = {
-  running: "bgTask.state.running",
-  completed: "bgTask.state.completed",
-  failed: "bgTask.state.failed",
-  stopped: "bgTask.state.stopped",
-};
 
 export function SummaryTasks({
   commands,
@@ -39,13 +36,26 @@ export function SummaryTasks({
   const [finishedOpen, setFinishedOpen] = useState(false);
   const { running, finished } = useMemo(() => splitCommands(commands), [commands]);
   const now = useNow(running.length > 0);
+  const shown = all ? running : running.slice(0, FOLDED);
+  const { arrived, played } = useArrivals(
+    commands.map(arrivalKey),
+    (finishedOpen ? [...shown, ...finished] : shown).map(arrivalKey),
+  );
   if (commands.length === 0) return null;
   const title = t("summary.backgroundTasks");
   const row = (command: BackgroundCommand) => {
     const live = command.state === "running";
     const toolCallId = command.toolCallId;
+    const key = arrivalKey(command);
+    const enters = live && arrived.has(key);
     return (
-      <li key={command.id} className="acpmux-summary-task" data-state={command.state}>
+      <li
+        key={command.id}
+        className="acpmux-summary-task"
+        data-state={command.state}
+        data-enter={enters ? "top" : undefined}
+        onAnimationEnd={enters ? (event) => event.target === event.currentTarget && played(key) : undefined}
+      >
         <button
           type="button"
           className="acpmux-summary-row acpmux-summary-link"
@@ -61,7 +71,7 @@ export function SummaryTasks({
           <span className="acpmux-summary-meta">
             {live && command.startedAt !== undefined
               ? formatDuration(Math.max(0, now - command.startedAt))
-              : t(TASK_STATES[command.state])}
+              : t(COMMAND_STATE[command.state])}
           </span>
         </button>
         {live && command.processId && onStop && (
@@ -74,7 +84,7 @@ export function SummaryTasks({
     <section className="acpmux-summary-section acpmux-summary-tasks" aria-label={title}>
       <h3 className="acpmux-summary-title">{title}</h3>
       <ul className="acpmux-summary-list">
-        {(all ? running : running.slice(0, FOLDED)).map(row)}
+        {shown.map(row)}
         {running.length > FOLDED && (
           <li>
             <button type="button" className="acpmux-summary-more" onClick={() => setAll(!all)}>

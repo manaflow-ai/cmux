@@ -9,6 +9,15 @@ import type { PlayContext } from "../../gallery/play";
 import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 
+// Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, then Send comes in after the
+// mic, which moves one slot left. The plays that start a draft from an empty prompt measure that move.
+const SEND_ARRIVES = {
+  layoutShiftMax: {
+    value: 0.001,
+    reason: "Send comes in after the mic with the draft's first letter, moving the mic one slot left (0.0002).",
+  },
+};
+
 /// The one model button (Leo 2026-10-20: "Opus 5.5  Medium"): it names the model and its effort and
 /// opens the one menu, whose Effort row opens the levels beside it.
 const MODEL_BUTTON = { selector: ".acpmux-model .acpmux-picker-button" };
@@ -51,6 +60,32 @@ const waiting = [
   { id: "q3", prompt: "Run the whole suite" },
 ];
 
+// A screenshot-like picture (a title bar, a sidebar and lines of text) in `hue`, as a data URL, so
+// a queued prompt's thumbnails draw without acpmux.
+const shot = (hue: number, width = 1440, height = 900) =>
+  `data:image/svg+xml,${encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">` +
+      `<rect width="100%" height="100%" fill="hsl(${hue} 30% 16%)"/>` +
+      `<rect width="100%" height="7%" fill="hsl(${hue} 30% 26%)"/>` +
+      `<rect width="22%" height="100%" fill="hsl(${hue} 30% 24%)"/>` +
+      [0, 1, 2, 3, 4, 5]
+        .map(
+          (line) =>
+            `<rect x="27%" y="${14 + line * 11}%" width="${30 + ((line * 37) % 40)}%" height="3%" fill="hsl(${hue} 70% 62%)"/>`,
+        )
+        .join("") +
+      "</svg>",
+  )}`;
+// A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
+const pictured = {
+  id: "q1",
+  prompt: "Why does the sidebar overlap the toolbar here?",
+  images: [
+    { id: "a".repeat(64), mimeType: "image/svg+xml", name: "sidebar.png", src: shot(220) },
+    { id: "b".repeat(64), mimeType: "image/svg+xml", name: "image.png", src: shot(150, 2458, 1180) },
+  ],
+};
+
 // A running turn of an agent that steers (Claude Code, Codex) or not (acpmux `steering`).
 const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
@@ -82,6 +117,28 @@ const finished = [
   summary(9, { status: "completed" }),
 ];
 
+/// Pastes files into the prompt as the browser does: a paste event whose clipboardData is a real
+/// DataTransfer, so the prompt's paste handler can read it (getData) as it reads a person's paste.
+function pasteFiles(ctx: PlayContext, files: File[]): void {
+  const view = ctx.document.defaultView!;
+  const data = new view.DataTransfer();
+  for (const file of files) data.items.add(file);
+  const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(paste, "clipboardData", { value: data });
+  ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+}
+
+// A side session `/btw` opened: the question and its answer, its composer replying in it.
+const sideSession = (() => {
+  const side = chat(
+    [
+      user("Why did the retry test flake?", 2),
+      assistant("The backoff timer raced the mocked clock: the first retry waited 0 ms.", 1),
+    ],
+    { title: "Why did the retry test flake?", model: "claude-haiku-4-5" },
+  );
+  return { ...side, sessions: side.sessions.map((entry) => ({ ...entry, side: true })) };
+})();
 // A chat beside others, for the @ picker (Leo's Claude desktop screenshot, 2026-10-19): what
 // `@proje` finds among chats, folders and the chat folder's files.
 function mentionChat() {
@@ -265,7 +322,6 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
-    "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
     "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -275,6 +331,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/MarkdownField.tsx",
     "agent-session/acpmux/EmptyState.tsx",
     "agent-session/acpmux/ComposerQueue.tsx#ComposerQueue",
+    "agent-session/acpmux/QueuedImages.tsx#QueuedImages",
     "agent-session/acpmux/MentionMenu.tsx#MentionMenu",
   ],
   variants: {
@@ -284,6 +341,10 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    "side-session": {
+      note: "A side session (/btw): the empty prompt reads Reply in this session…, and /btw is not offered in it.",
+      snapshot: sideSession,
     },
     // Leo 2026-10-18: an idle new chat suggests the open PR another chat in this checkout made, Tab
     // to take it (promptSuggestion.ts).
@@ -394,18 +455,16 @@ export default agentPaneEntry({
     },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
     // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
-    // The + is a bare glyph: its tooltip says what its menu adds (files, screenshots, mentions...).
+    // The + is a bare glyph: its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21).
     "plus-tooltip": {
-      note: "Play: hover the +; the tooltip says what its menu adds.",
+      note: 'Play: hover the +; the tooltip reads "Add files and more".',
       snapshot: chat(finished),
       play: async (ctx) => {
         const selector = ".acpmux-composer-plus .acpmux-picker-button";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.hover({ selector });
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Add files") ??
-            false,
+          () => ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent === "Add files and more",
         );
       },
     },
@@ -478,10 +537,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "screenshot.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
@@ -504,10 +560,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "image.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
@@ -522,10 +575,7 @@ export default agentPaneEntry({
         const file = new view.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], "image.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
@@ -547,10 +597,7 @@ export default agentPaneEntry({
         const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "quick-screenshot.png", {
           type: "image/png",
         });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
         await ctx.click({ selector: ".acpmux-attachment-open" });
         await ctx.waitFor(() => ctx.document.querySelector('[role="dialog"]'));
@@ -563,10 +610,7 @@ export default agentPaneEntry({
         const view = ctx.document.defaultView!;
         const pdf = `%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n2 0 obj << /Type /Page >> endobj\n%%EOF`;
         const file = new view.File([pdf], "design-notes.pdf", { type: "application/pdf" });
-        const field = ctx.find({ selector: ".acpmux-md" });
-        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
-        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
-        field.dispatchEvent(paste);
+        pasteFiles(ctx, [file]);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document"));
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-document[data-page-count='2']"));
         await ctx.click({ selector: ".acpmux-attachment-document-open" });
@@ -652,6 +696,44 @@ export default agentPaneEntry({
         Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
         field.dispatchEvent(paste);
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
+      },
+    },
+    "folder-dropped-as-link": {
+      note: "A folder and a zip dropped from Finder on a chat whose folder is on this Mac: the host knows where they are (chat.attach.dropped), so each chip links to the real path (the folder's name ends in a slash) and nothing is copied or uploaded. The screenshot beside them is an image as before.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: `${CWD}/assets`, folder: true },
+            { path: "/Users/dev/Downloads/build-logs.zip", folder: false },
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const png = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+          (char) => char.charCodeAt(0),
+        );
+        // A dropped folder: WebKit hands a File whose bytes cannot be read.
+        const folder = new view.File([], "assets", { type: "" });
+        Object.defineProperty(folder, "arrayBuffer", { value: () => Promise.reject(new Error("a folder")) });
+        const files = [
+          folder,
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+          new view.File([png], "Screenshot.png", { type: "image/png" }),
+        ];
+        const drop = new view.Event("drop", { bubbles: true, cancelable: true });
+        Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-attachment-link:not([data-saved])").length === 2,
+        );
+        if (ctx.document.querySelector("output.acpmux-attachment-note"))
+          throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
       },
     },
     draft: {
@@ -746,6 +828,19 @@ export default agentPaneEntry({
         ],
       }),
     },
+    "queued-images": {
+      note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
+      snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+    },
+    "queued-images-edit": {
+      note: "Play: Edit on a queued prompt with images: each thumbnail shows its remove control; removing one and saving keeps the other.",
+      snapshot: chat(working, { isWorking: true, queue: [pictured, { id: "q2", prompt: "And update the README" }] }),
+      native: { "chat.queue.edit": { ok: true } },
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .acpmux-queued-action[data-action="edit"]' });
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-queued-image-remove").length === 2);
+      },
+    },
     "queued-paused": {
       note: "A turn failed with prompts queued: they wait, in order, until Resume. A prompt sent meanwhile runs now.",
       snapshot: (() => {
@@ -770,6 +865,7 @@ export default agentPaneEntry({
       },
     },
     "history-recall": {
+      checks: SEND_ARRIVES,
       note: "Play: ↑ from the empty prompt brings back the chat's last prompt, ↑ again the one before, ↓ steps forward and past the newest empties the prompt, as in Codex and Claude Code. The older prompt has Markdown characters the field escapes. A prompt being typed is never replaced.",
       snapshot: chat([
         user("Fix arr[0] and the 2 * 3 case in fetch_helper_retry", 6),
@@ -1166,6 +1262,7 @@ export default agentPaneEntry({
       },
     },
     "mention-picker": {
+      checks: SEND_ARRIVES,
       note: "Play: type @rea in the prompt; Ctrl-J/Ctrl-K move the file highlight, and Return writes @README.md into the prompt.",
       snapshot: chat(finished),
       native: {
@@ -1200,6 +1297,7 @@ export default agentPaneEntry({
       },
     },
     "mention-escaped-path": {
+      checks: SEND_ARRIVES,
       note: "Play: pick a path markdown escapes (src/__init__.py), then keep typing; the picker stays closed after the space it wrote.",
       snapshot: chat(finished),
       native: { "file.search": { root: CWD, results: [{ path: "src/__init__.py", matches: [6, 7, 8] }] } },
@@ -1222,6 +1320,7 @@ export default agentPaneEntry({
       },
     },
     "mention-mid-word": {
+      checks: SEND_ARRIVES,
       note: "Play: an @ inside a word (an email address) opens no file picker.",
       snapshot: chat(finished),
       native: { "file.search": { root: CWD, results: [{ path: "README.md" }] } },
@@ -1234,6 +1333,7 @@ export default agentPaneEntry({
       },
     },
     "mention-mixed": {
+      checks: SEND_ARRIVES,
       note: "Play: type @proje; other chats list first with their project muted, then folders, then the chat folder's files, matched letters bold.",
       snapshot: mentionChat(),
       native: { "file.search": MENTION_FILES },
@@ -1283,6 +1383,7 @@ export default agentPaneEntry({
       },
     },
     "mention-file-over-prompt-chat": {
+      checks: SEND_ARRIVES,
       note: "Play: type @app beside a chat named for a long prompt; the prompt's letters do not list the chat, and Return writes the file.",
       snapshot: (() => {
         const base = chat(finished);
@@ -1315,6 +1416,7 @@ export default agentPaneEntry({
       },
     },
     "mention-recent-chats": {
+      checks: SEND_ARRIVES,
       note: "Play: a bare @ lists the most recent other chats before a word is typed.",
       snapshot: mentionChat(),
       native: { "file.search": MENTION_FILES },

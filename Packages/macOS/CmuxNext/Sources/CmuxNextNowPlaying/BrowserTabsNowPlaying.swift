@@ -46,9 +46,22 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
             title: media.title, artist: media.artist, artwork: artworkData(media.artworkURL, tab: shown.tab), isPlaying: media.isPlaying,
             position: media.position, duration: media.duration, rate: media.rate, positionDate: media.positionDate,
             canPrevious: media.actions.contains(.previoustrack), canNext: media.actions.contains(.nexttrack),
+            site: Self.site(browserTab(shown.tab)?.state.url), canPictureInPicture: media.isVideo,
+            isPictureInPicture: media.isPictureInPicture,
             labels: SidebarNowPlaying.Labels(play: BrowserMediaStrings.play, pause: BrowserMediaStrings.pause,
-                                             previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next))
+                                             previous: BrowserMediaStrings.previous, next: BrowserMediaStrings.next,
+                                             pictureInPicture: BrowserMediaStrings.pictureInPicture,
+                                             exitPictureInPicture: BrowserMediaStrings.exitPictureInPicture))
     }
+
+    /// The page's site as macOS Now Playing names it: its host without `www.`.
+    static func site(_ url: URL?) -> String {
+        guard let host = url?.host(percentEncoded: false), !host.isEmpty else { return "" }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
+    }
+
+    /// The tab the card shows, picked as ``nowPlaying`` picks it; nil while no tab plays.
+    public var shownTab: BrowserTabID? { nowPlaying == nil ? nil : shown?.tab }
 
     public func perform(_ command: SidebarNowPlayingCommand) {
         guard let shown, let tab = browserTab(shown.tab) else { return }
@@ -57,6 +70,7 @@ public final class BrowserTabsNowPlaying: NowPlayingSource {
         case .previous: .previousTrack
         case .next: .nextTrack
         case .seek(let seconds): .seek(seconds)
+        case .pictureInPicture: .pictureInPicture
         }
         Task { await tab.media(media) }
     }

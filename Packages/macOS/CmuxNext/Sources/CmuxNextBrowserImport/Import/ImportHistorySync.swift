@@ -91,10 +91,24 @@ public actor ImportHistorySync {
         do {
             try await store.forgetHistory(profile: profile, since: since)
         } catch {
-            // The live history is cleared either way; the saved imported pages would come back at launch.
-            Logger(subsystem: "com.cmuxterm.app.next", category: "browser-import")
-                .error("clear history: saving the imported pages failed: \(String(describing: error), privacy: .public)")
+            Self.logForgetFailure("clear history", error)
         }
+    }
+
+    /// Remove from History of one page in `profile`: its saved imported copy goes and stays out.
+    public func forgetPage(_ url: URL, profile: String) async {
+        do { try await store.forgetPage(url, profile: profile) } catch { Self.logForgetFailure("remove page", error) }
+    }
+
+    /// Remove Site: every profile's saved imported pages of `host` go and stay out.
+    public func forgetSite(host: String) async {
+        do { try await store.forgetSite(host: host) } catch { Self.logForgetFailure("remove site", error) }
+    }
+
+    /// The live history changed either way; the saved imported pages would come back at launch.
+    private static func logForgetFailure(_ what: String, _ error: any Error) {
+        Logger(subsystem: "com.cmuxterm.app.next", category: "browser-import")
+            .error("\(what, privacy: .public): saving the imported pages failed: \(String(describing: error), privacy: .public)")
     }
 
     /// Remove Imported Data: deletes what every import saved into `profile`,

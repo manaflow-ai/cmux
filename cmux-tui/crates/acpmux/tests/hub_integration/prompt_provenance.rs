@@ -455,3 +455,40 @@ async fn a_prompt_sent_from_inside_another_session_records_that_session_as_its_s
     let kept = person.user_message(&receiver, "p-given").await;
     assert_eq!(kept.pointer("/_meta/provenance"), Some(&given), "{kept}");
 }
+
+// A steer names its pasted blocks (`_meta.cmux.pasted`) as a prompt does: UTF-16 ranges of its
+// text.
+#[tokio::test]
+async fn a_steer_records_its_pasted_ranges() {
+    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let turn = c.send("session/prompt", prompt(&session, "p-turn", "work", None)).await;
+    c.until(|v| {
+        v.pointer("/params/update/content/text")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.starts_with("turn: "))
+    })
+    .await;
+    let mut params = prompt(&session, "p-steer", "🦀 also", None);
+    params["prompt"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type": "text", "text": "a log", "_meta": {"cmux": {"pasted": true}}}));
+    params["_meta"]["acpmux"]["steer"] = json!(true);
+    let steer = c.send("session/prompt", params).await;
+    let mut answered = Vec::new();
+    while answered.len() < 2 {
+        let value = c
+            .until(|v| v.get("id") == Some(&json!(turn)) || v.get("id") == Some(&json!(steer)))
+            .await;
+        assert!(value.get("error").is_none(), "{value}");
+        answered.push(value);
+    }
+
+    let steered = c.user_message(&session, "p-steer").await;
+    assert_eq!(steered["steer"], true, "{steered}");
+    assert_eq!(steered["text"], "🦀 also\na log", "{steered}");
+    // 🦀 is two UTF-16 units: "🦀 also" is 7, and the paste starts after its "\n".
+    assert_eq!(steered["pasted"], json!([{"start": 8, "end": 13}]), "{steered}");
+}

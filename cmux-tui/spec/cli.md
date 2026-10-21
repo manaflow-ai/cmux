@@ -422,6 +422,16 @@ cmux workspace create --name build --cwd ~/src/app -- make watch
 cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
 ```
 
+`screen create`, `pane create`, `pane <selector> split` and `tab create
+terminal` take the same exact argv after `--` or `--shell <script>`: the new
+terminal runs it instead of a shell. Apps need `workspace:execute` for these
+too. Text after `--` on a command that starts no terminal is a usage error.
+
+```bash
+cmux tab create terminal --pane current -- htop
+cmux screen create --name logs -- tail -f /var/log/system.log
+```
+
 Both run forms accept `--on-exit <close|keep|shell>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
@@ -591,10 +601,12 @@ target terminal and submits with Return); `--window`
 and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
-session, and `--workspace` alone posts a session-level row with no terminal.
-A machine can only address its own session. `--clear` removes the retained
-rows for that target on the machine (`notification.clear`), so every attached
-client drops them. A reply goes only to the notification's target
+session, `--workspace <ws_id>` posts a row with no terminal that belongs to
+that workspace (`workspace_id`; the app's banner names it), and `--workspace
+current` posts a session-level row. A machine can only address its own
+session. `--clear` removes the retained rows for that target on the machine
+(`notification.clear`), so every attached client drops them; `--clear
+--workspace <ws_id>` removes that workspace's rows and those of its terminals. A reply goes only to the notification's target
 terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
 app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.

@@ -10,6 +10,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
 import CmuxNextFloating
+import CmuxNextHistory
 import CmuxNextHome
 import CmuxNextLayout
 import CmuxNextOnboarding
@@ -29,9 +30,10 @@ import Foundation
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
-            + [AgentPaneTunables.sessionRail.descriptor]
+            + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + AccountTunables.all
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all
     }
 }
 
