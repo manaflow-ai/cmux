@@ -39,6 +39,9 @@ task_complete, written a moment after the turn answers. session/load finds a rol
 unknown id fails), and "history-probe" replies with the prompts and session
 ids the loaded rollout holds.
 
+FAKE_FORK_DEFAULTS=1: session/fork answers with the harness's default model and effort
+(configOptions), not the forked session's, as Codex does.
+
 FAKE_NO_FORK=1: the agent does not advertise sessionCapabilities.fork and answers
 session/fork with a bare "Internal error", as Kimi does.
 
@@ -1026,7 +1029,16 @@ def main():
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "Internal error"}})
                 continue
             sessions += 1
-            send({"jsonrpc": "2.0", "id": rid, "result": {"sessionId": f"{SESSION_PREFIX}{sessions}"}})
+            result = {"sessionId": f"{SESSION_PREFIX}{sessions}"}
+            # FAKE_FORK_DEFAULTS=1 (with FAKE_PICKER_MODES=claude): the fork's reply reports the
+            # harness's defaults, not the forked session's model and effort, as Codex does.
+            if os.environ.get("FAKE_FORK_DEFAULTS") == "1":
+                result["configOptions"] = [
+                    {"id": "effort", "name": "Reasoning", "category": "thought_level", "type": "select", "currentValue": "high",
+                     "options": [{"value": v, "name": v} for v in ("low", "medium", "high")]},
+                    {"id": "model", "name": "Model", "category": "model", "type": "select", "currentValue": "default",
+                     "options": [{"value": v, "name": n} for v, n in CLAUDE_MODELS]}]
+            send({"jsonrpc": "2.0", "id": rid, "result": result})
         elif m == "session/set_mode":
             # FAKE_SET_MODE_FAIL=1: the harness refuses every mode change.
             if os.environ.get("FAKE_SET_MODE_FAIL") == "1":

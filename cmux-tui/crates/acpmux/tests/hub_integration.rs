@@ -346,6 +346,68 @@ async fn fork_copies_history_and_gets_its_own_agent() {
     assert_eq!(r["stopReason"], "end_turn");
 }
 
+/// A fork keeps the chat's model and effort. Codex answers `session/fork` with its
+/// defaults; the fork matrix found a chat on gpt-5.6-luna forking into one on the
+/// account's default model, which the account cannot run, so the fork's first
+/// prompt failed.
+#[tokio::test]
+async fn a_fork_keeps_the_chats_model_and_effort_when_the_agent_answers_with_its_defaults() {
+    let calls = std::env::temp_dir().join(format!("acpmux-fork-model-{}", uuid::Uuid::now_v7()));
+    let env = BTreeMap::from([
+        ("FAKE_PICKER".to_owned(), "1".to_owned()),
+        ("FAKE_PICKER_MODES".to_owned(), "claude".to_owned()),
+        ("FAKE_FORK_DEFAULTS".to_owned(), "1".to_owned()),
+        ("FAKE_CALLS".to_owned(), calls.to_string_lossy().into_owned()),
+    ]);
+    let (hub, mut c) = setup_env(PermissionPolicy::ApproveAll, env).await;
+    let s = c
+        .request(
+            method::SESSION_NEW,
+            json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"name": "picked"}}}),
+        )
+        .await
+        .unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    c.request(method::SESSION_SET_MODEL, json!({"sessionId": id, "modelId": "claude-haiku-5-5"}))
+        .await
+        .unwrap();
+    c.request(
+        method::SESSION_SET_CONFIG_OPTION,
+        json!({"sessionId": id, "configId": "effort", "value": "low"}),
+    )
+    .await
+    .unwrap();
+    c.request(
+        method::SESSION_PROMPT,
+        json!({"sessionId": id, "prompt": [{"type": "text", "text": "first"}]}),
+    )
+    .await
+    .unwrap();
+    let f = c.request(method::SESSION_FORK, json!({"sessionId": id, "cwd": cwd()})).await.unwrap();
+    let fid = f["sessionId"].as_str().unwrap().to_owned();
+    let fork = hub.session_summary(&hub.resolve(&fid).unwrap());
+    assert_eq!(fork["model"], "claude-haiku-5-5", "the fork runs the chat's model: {fork}");
+    // The fork's own agent session was told the chat's model and effort.
+    let agent_sid = hub.resolve(&fid).unwrap().meta().agent_session_id.unwrap();
+    let sets: Vec<Value> = std::fs::read_to_string(&calls)
+        .unwrap_or_default()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<Value>(l).ok())
+        .filter(|c| c["params"]["sessionId"] == agent_sid.as_str())
+        .collect();
+    let set = |id: &str| {
+        sets.iter().rev().find_map(|c| {
+            (c["params"]["configId"] == id).then(|| c["params"]["value"].clone()).or_else(|| {
+                (id == "model" && c["method"] == "session/set_model")
+                    .then(|| c["params"]["modelId"].clone())
+            })
+        })
+    };
+    assert_eq!(set("model"), Some(json!("claude-haiku-5-5")), "{sets:?}");
+    assert_eq!(set("effort"), Some(json!("low")), "{sets:?}");
+    let _ = std::fs::remove_file(&calls);
+}
+
 /// An agent that does not offer `session/fork` (Kimi, DeepSeek, Prime, Unii in
 /// the fork matrix) is not asked: the fork is refused with a reason that names
 /// the harness, and no chat is made, instead of the agent's bare "Internal error".
