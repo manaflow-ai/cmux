@@ -97,6 +97,38 @@ import Testing
         #expect(IPhonePairNotices.settingsRoute == "#/settings/mobile")
     }
 
+    /// Settings > Mobile is the one phone list: each row names its app, and Remove on a cmux next
+    /// row forgets it in the shared store, which closes its Iroh sessions (PhoneAdmissionTests).
+    @Test func eachPhoneRowNamesItsAppAndRemoveForgetsAnIrohPhone() async throws {
+        nonisolated final class Removed: @unchecked Sendable { var ids: [String] = [] }
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let host = IPhoneHostService()
+        host.pairedStore.attach(directory: directory)
+        host.pairedStore.load(userID: "u")
+        let key = String(repeating: "ab", count: 32)
+        let iroh = MobileHostPairRequest(phoneDeviceID: key, name: "Aziz's iPhone", identityKey: key, approvalKey: "", transport: .iroh)
+        try host.pairedStore.change { $0.approve(iroh, at: Date()) }
+        host.syncPaired()
+        // Signed out of hostd's connections, the cmux next phone still lists.
+        guard case .array(let alone)? = host.pageJSON["phones"] else { Issue.record("no phones"); return }
+        #expect(alone.map { $0["app"] } == [.string("cmux next")])
+        host.allowed = true
+        host.knownPhones = [MobileHostKnownPhone(name: "Aziz's iPhone", deviceIDs: ["p1"], updatedAt: nil)]
+        guard case .array(let rows)? = host.pageJSON["phones"] else { Issue.record("no phones"); return }
+        #expect(rows.map { $0["app"] } == [.string("cmux (iOS)"), .string("cmux next")])
+        #expect(rows.map { $0["subtitle"]?.stringValue?.hasPrefix(($0["app"]?.stringValue ?? "?") + " · ") } == [true, true])
+        #expect(rows.last?["id"] == .string(key) && rows.last?["removable"] == .bool(true))
+        let removed = Removed()
+        host.pairedStore.observe { change in removed.ids += change.removed.map(\.id) }
+        let provider = MobilePageProvider(host: host)
+        _ = try await provider.call("cmux.settings.mobile.remove_phone", params: ["id": .string(key)],
+                                    context: PageCallContext(page: "cmux.settings", userGesture: true))
+        #expect(removed.ids == [key])
+        #expect(host.pairedStore.current?.devices.isEmpty == true)
+        #expect(host.paired?.devices.isEmpty == true)
+    }
+
     @Test func aHostWithNoAccountShowsOffWithNoPhones() {
         let json = IPhoneHostService().pageJSON
         #expect(json["allowed"] == .bool(false))
