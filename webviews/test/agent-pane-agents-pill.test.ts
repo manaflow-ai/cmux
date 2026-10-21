@@ -1,5 +1,9 @@
 // l10n-allow-file: test fixture prompts and subagent names, not shipped UI.
-// While a chat's subagents run, a pill sits right above the composer, after Codex's phone app ("3
+// By default running subagents sit in one tray above the composer (subagents/SubagentTray.tsx): the
+// transcript has no running card and there is no pill; a subagent that ends leaves one line where it
+// ended. The tests below the first cover the older presentation, which Debug Settings
+// agentPane.debug.subagentTray off keeps (the host pushes `subagentTray: false` with the theme).
+// With it, while a chat's subagents run, a pill sits right above the composer, after Codex's phone app ("3
 // agents"): it counts the agents still running and opens a list split into Active and Completed,
 // a colored dot per agent. The same color marks the agent's name in the transcript, and an agent
 // keeps it for the life of the chat as others start and end. A click on an agent opens it. The
@@ -156,15 +160,23 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     return `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${session}`;
   };
-  const open = async (session: string, shown = "Read app.ts") => {
+  /// The older presentation: transcript group cards and the agents pill (Debug Settings
+  /// agentPane.debug.subagentTray off, which the host sends with the theme).
+  const trayOff = (page: Page) =>
+    page.evaluate(() =>
+      (window as any).cmuxAcpmuxBridge.applyTheme({ isDark: true, subagentTray: false }),
+    ) as Promise<void>;
+  const open = async (session: string, shown = "Read app.ts", tray = false) => {
     sockets.clear();
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(session));
     // The read in flight draws no row of its own (Debug toggle agentPane.debug.codexToolRuns, on by
     // default): the turn's live line names it by its file (Thinking.tsx).
     await page.getByText(shown).first().waitFor({ timeout: 25_000 });
+    if (!tray) await trayOff(page);
     return page;
   };
+  const tray = (page: Page) => page.locator(".acpmux-running-tray");
   const pill = (page: Page) => page.locator(".acpmux-agents-pill");
   const list = (page: Page) => page.getByRole("dialog", { name: "Agents" });
   /// Each agent's dot color in the open list, by name.
@@ -252,6 +264,44 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     await browser?.close();
     await vite?.close();
     await daemon?.stop(true);
+  });
+
+  test("by default the running agents sit in the tray above the composer, not in the transcript", async () => {
+    const page = await open(BUSY, "Read app.ts", true);
+    await tray(page).waitFor({ timeout: 5_000 });
+    // Reviewer and Tester run (Linter ended).
+    expect(await tray(page).locator(".acpmux-summary-agent__name").allTextContents()).toEqual(["Reviewer", "Tester"]);
+    expect(await tray(page).locator(".acpmux-agent-line__time").count()).toBe(2);
+    expect(await page.locator(".cv-subagents").count()).toBe(0);
+    expect(await page.locator(".cv-subagent").count()).toBe(0);
+    expect(await pill(page).count()).toBe(0);
+    const [trayBox, composerBox] = await Promise.all([
+      tray(page).boundingBox(),
+      page.locator(".acpmux-composer").first().boundingBox(),
+    ]);
+    expect(trayBox!.y + trayBox!.height).toBeLessThanOrEqual(composerBox!.y);
+    // Both end: the tray goes, and each leaves its line.
+    push(finished("a1", "Reviewer"));
+    push(finished("a2", "Tester"));
+    await tray(page).first().waitFor({ state: "detached", timeout: 5_000 });
+    expect(await tray(page).count()).toBe(0);
+    // Each leaves one line where it ended, at the transcript's end.
+    await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).waitFor({ timeout: 5_000 });
+    await page.locator(".cv-subagent-done", { hasText: "Tester" }).waitFor({ timeout: 5_000 });
+    await page.close();
+    // An agent spawned by another sits right under it in the tray.
+    const nested = await open(NESTED, "Read app.ts", true);
+    await tray(nested).waitFor({ timeout: 5_000 });
+    expect(await tray(nested).locator(".acpmux-summary-agent__name").allTextContents()).toEqual([
+      "Reviewer",
+      "Scout",
+      "Tester",
+    ]);
+    await nested.close();
+    // The turn is over: an agent left "running" by a cancel or a reconnect pins no tray.
+    const stale = await open(STUCK, "Review the branch with a few agents", true);
+    expect(await tray(stale).count()).toBe(0);
+    await stale.close();
   });
 
   test("a pill above the composer counts the agents still running", async () => {
@@ -378,6 +428,8 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.addInitScript(countPillRenders);
     await page.goto(url(BUSY));
+    await page.getByText("Read app.ts").first().waitFor({ timeout: 25_000 });
+    await trayOff(page);
     await pill(page).filter({ hasText: "2 agents" }).waitFor({ timeout: 25_000 });
     const before = await pillRenders(page);
     expect(before).toBeGreaterThan(0);

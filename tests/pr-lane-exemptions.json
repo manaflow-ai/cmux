@@ -1,0 +1,262 @@
+{
+  "_comment": [
+    "Tests no pull request into feat-cmux-next runs, on purpose, each with the reason.",
+    "validate_test_execution_registry.py --pr-lanes feat-cmux-next (cmux-next guards / tooling-tests)",
+    "fails on any other test no such pull request runs, and on an entry here once one does.",
+    "Route a test (a job that runs on those pull requests, by the paths it tests) rather than add it here."
+  ],
+  "exemptions": [
+    {
+      "reason": "ci-guards.yml's `preflight` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base.",
+      "tests": [
+        "tests/test_benchmark_dev_fleet_warm_slots.py",
+        "tests/test_build_graph_health.py",
+        "tests/test_ci_process_tree_reaping.py",
+        "tests/test_ci_test_execution_registry.py",
+        "tests/test_cmux_cua_drag_cursor_harness.py",
+        "tests/test_cmux_next_reel.py",
+        "tests/test_cmux_next_tour.py",
+        "tests/test_dev_fleet_warm_slot.py",
+        "tests/test_docs_deploy_auth_guard.py",
+        "tests/test_e2e_backend_scripts.py",
+        "tests/test_fake_socket_env.py",
+        "tests/test_lint_xcstrings.py",
+        "tests/test_localization_catalog.py",
+        "tests/test_localization_defaults.py",
+        "tests/test_localize_changes.py",
+        "tests/test_merge_pbxproj.py",
+        "tests/test_merge_xcstrings.py",
+        "tests/test_pairing_scheme_is_explicit_in_tests.py",
+        "tests/test_pairing_scheme_lint.py",
+        "tests/test_pr_media.py",
+        "tests/test_r2_presign.py",
+        "tests/test_release_changelog_lines.py",
+        "tests/test_release_media.py",
+        "tests/test_resources_plist_unique_keys.py",
+        "tests/test_review_fabric.py",
+        "tests/test_swift_incremental_diagnostics.py",
+        "tests/test_swift_testing_require_not_nested.py",
+        "tests/test_web_complexity_scope.py",
+        "tests/test_zig_free_step_lockfiles.py"
+      ]
+    },
+    {
+      "reason": "A classic-app shell or CLI regression on a macOS runner lane (run_python_test_lane.py in ci-macos.yml). ci.yml calls ci-macos.yml only for pull requests into main; cmux-next has its own Mac tiers.",
+      "tests": [
+        "tests/test_cmux_cua_build_cache_safety.py",
+        "tests/test_cmux_cua_compat_contract.py",
+        "tests/test_cmux_cua_helper_identity.py",
+        "tests/test_cmux_cua_mcp_smoke.py",
+        "tests/test_issue_10926_watcher_pid_reuse_guard.py",
+        "tests/test_issue_13343_claude_integration_toggle.py",
+        "tests/test_issue_13766_terminal_history.py",
+        "tests/test_issue_15066_zsh_watcher_sleep.py",
+        "tests/test_issue_2448_shell_claude_wrapper_dispatch.py",
+        "tests/test_issue_6714_zsh_shim_noclobber.py",
+        "tests/test_issue_7028_claude_shim_persistence.py",
+        "tests/test_issue_8093_ghostty_ssh_binary_path.py",
+        "tests/test_issue_8953_zsh_prompt_wrap_guard.py",
+        "tests/test_issue_9075_shell_socket_reports.py",
+        "tests/test_issue_9356_bash_shim_noclobber.py",
+        "tests/test_nushell_integration_hooks.py",
+        "tests/test_nushell_shim_path_refront.py",
+        "tests/test_shell_cli_shim_private_dir.py",
+        "tests/test_shell_first_prompt_spawns.py",
+        "tests/test_shell_git_branch_stale_cwd.py",
+        "tests/test_shell_git_config_remote_url_parsing.py",
+        "tests/test_shell_no_git_watch.py",
+        "tests/test_shell_pr_watch_private_state.py",
+        "tests/test_shell_welcome_banner_startup.py",
+        "tests/test_stress_cli_socket_api.py"
+      ]
+    },
+    {
+      "reason": "Registry lane `legacy` (migration inventory): no automatic lane runs it on either branch yet. Place it in a lane first.",
+      "tests": [
+        "tests/test_cloud_display_catalog.py",
+        "tests/test_cloud_vm_attach_retry_script.py",
+        "tests/test_ghostty_cli_helper_cache_failures.py",
+        "tests/test_ghostty_zsh_job_table_saturation_guard.py",
+        "tests/test_ghostty_zsh_prompt_redraw_uses_prompt_start.py",
+        "tests/test_ghostty_zsh_pure_hidden_cr_omits_continuation_marker.py",
+        "tests/test_ghostty_zsh_pure_preprompt_redraw.py",
+        "tests/test_issue_11257_prompt_command_export.py",
+        "tests/test_issue_734_shell_integration_none_respected.py",
+        "tests/test_memory_resource_diagnostics.py",
+        "tests/test_mobile_attach_prefers_iroh.py",
+        "tests/test_mobile_stability_soak_attach_contract.py",
+        "tests/test_notarize_computer_use_helper.py",
+        "tests/test_reconcile_entitlements_with_profile.py",
+        "tests/test_reload_tag_lock.py",
+        "tests/test_shell_histfile_ghostty_zdotdir_regression.py",
+        "tests/test_shell_scrollback_restore_color_replay.py",
+        "tests/test_shell_scrollback_restore_replay_path_regression.py",
+        "tests/test_shell_zdotdir_user_override.py",
+        "tests/test_shell_zdotdir_wrapper.py",
+        "tests/test_shell_zsh_prefers_bundled_ghostty_integration.py",
+        "tests/test_ssh_relay_report_tty_retry.py",
+        "tests/test_terminfo_bright_colors.py",
+        "tests/test_vm_scp.py"
+      ]
+    },
+    {
+      "reason": "No tests/test-execution.toml entry on the base (the registry check warns about it). Place it in a lane first.",
+      "tests": [
+        "tests/test_app_crate_licenses.py",
+        "tests/test_ci_package_lane_prebuild.py",
+        "tests/test_cmux_bug_triage.py",
+        "tests/test_cmux_code_mode_mcp.py",
+        "tests/test_cmux_cua_dev_helper_identity.py",
+        "tests/test_cmux_next_dev_daily_notify_cli.py",
+        "tests/test_cmux_next_media_publish_windows.py",
+        "tests/test_compile_string_catalogs.py",
+        "tests/test_list_macho_candidates.py",
+        "tests/test_publish_cmux_tui_tree.py",
+        "tests/test_shell_claude_rereports_pwd.py",
+        "tests/test_socket_control_schema.py",
+        "tests/test_swiftpm_test_product.py",
+        "tests/test_zsh_git_head_watch_no_fork.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `release-ios` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic iOS TestFlight and App Store upload workflows.",
+      "tests": [
+        "tests/test_ci_ios_conventions_diff.py",
+        "tests/test_ios_appstore_lane_identity.py",
+        "tests/test_ios_appstore_upload_marker.py",
+        "tests/test_ios_screenshot_capture_guard.py",
+        "tests/test_ios_testflight_archive_log.py",
+        "tests/test_ios_testflight_assignment_after_upload.py",
+        "tests/test_ios_testflight_external_distribution.py",
+        "tests/test_ios_testflight_main_push_filter.py",
+        "tests/test_ios_testflight_notes.py",
+        "tests/test_ios_testflight_pro_distribution.py",
+        "tests/test_ios_upload_array_expansion.py",
+        "tests/test_ios_upload_batching.py",
+        "tests/test_ios_upload_lean_checkout.py",
+        "tests/test_ios_workflow_dispatch_ref.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `app-host-cache` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic app host's Xcode build caches.",
+      "tests": [
+        "tests/test_ci_prune_xcode_compilation_cache.py",
+        "tests/test_ci_reload_build_cache_keys.py",
+        "tests/test_ci_sanitize_xcode_source_packages_cache.py",
+        "tests/test_ios_selected_test_execution.py",
+        "tests/test_local_build_cache_policy.py",
+        "tests/test_local_build_cache_preflight.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `quality-determinism` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. Most test the classic app's shell integration.",
+      "tests": [
+        "tests/test_bash_integration_no_done_notifications.py",
+        "tests/test_issue_1138_sidebar_pr_polling.py",
+        "tests/test_issue_15067_bash_watcher_churn.py",
+        "tests/test_issue_5164_starship_prompt_composition.py",
+        "tests/test_lint_errno_in_test_assertions.py",
+        "tests/test_shell_surface_scoped_keys.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `release-tooling` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic release and GhosttyKit build tooling.",
+      "tests": [
+        "tests/test_check_ghostty_zig_workflows.py",
+        "tests/test_ci_release_helper_archs.py",
+        "tests/test_ci_release_product_reuse.py",
+        "tests/test_ensure_ghosttykit_zig.py",
+        "tests/test_prune_nightly_release_assets.py",
+        "tests/test_reuse_release_product.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `app-host-execution` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic app host's Swift test execution.",
+      "tests": [
+        "tests/test_ci_guard_tests_emit_no_workflow_commands.py",
+        "tests/test_swift_package_execution.py",
+        "tests/test_swift_test_execution.py",
+        "tests/test_swift_testing_suite_timeout.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `app-host-watchdog` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic app host's xcodebuild watchdog.",
+      "tests": [
+        "tests/test_ci_xcodebuild_noninteractive_helper.py",
+        "tests/test_hung_test_watchdog.py",
+        "tests/test_run_with_timeout_process_tree.py"
+      ]
+    },
+    {
+      "reason": "remote-daemon.yml, which ci.yml calls only for pull requests into main and main pushes.",
+      "tests": [
+        "tests/test_remote_daemon_notices.py",
+        "tests/test_remote_daemon_release_assets.py",
+        "tests/test_remote_daemon_release_verification.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's workflow-guard-history job (the SwiftPM lockfile policy), which only ci.yml's guards job runs, for pull requests into main.",
+      "tests": [
+        "tests/test_check_package_resolved_policy.py",
+        "tests/test_package_resolved_policy_remote_inputs.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's workflow-guard-source-lints job, which only ci.yml's guards job runs, for pull requests into main.",
+      "tests": [
+        "tests/test_ci_source_lint_guard_structure.py",
+        "tests/test_lint_stored_dispatch_work_items.py"
+      ]
+    },
+    {
+      "reason": "cmux-browser-host-release.yml runs it on feat-cmux-next pushes that touch the browser host. A pull request lane needs that release workflow to gain a pull_request trigger with its publish jobs gated off.",
+      "tests": [
+        "tests/test_browser_host_release_package.py",
+        "tests/test_browser_host_release_smoke.py"
+      ]
+    },
+    {
+      "reason": "Only cmux-next-notices.yml runs it, on workflow_dispatch.",
+      "tests": [
+        "tests/test_install_zig_ci_reviewed_version.py"
+      ]
+    },
+    {
+      "reason": "Only nightly-next-feed-watch.yml runs it, on a schedule (from main's copy).",
+      "tests": [
+        "tests/test_nightly_next_feed_watch.py"
+      ]
+    },
+    {
+      "reason": "Only the scripts/verify-local.py recipe runs it, and no pull request job runs the recipe. It tests the classic cmux.xcodeproj normalizer.",
+      "tests": [
+        "tests/test_normalize_pbxproj.py"
+      ]
+    },
+    {
+      "reason": "ci-guards.yml's `preflight-agent-chat` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base.",
+      "tests": [
+        "tests/test_web_complexity_source_enumeration.py"
+      ]
+    },
+    {
+      "reason": "cmux-tui-artifacts.yml (pushes) and macos-cross-parity.yml (schedule) run it. Its subject, scripts/ci/macos_stubs.py and macho_weaken.py, is a cmux-next.yml path, but adding it there selects every cmux-next tier; route it with cmux_next_route.py.",
+      "tests": [
+        "tests/test_ci_macos_stubs.py"
+      ]
+    },
+    {
+      "reason": "cmux-tui-artifacts.yml and app-ffi-release.yml (pushes) and macos-cross-parity.yml (schedule) run it. Its subject, scripts/ci/macos_stubs.py and macho_weaken.py, is a cmux-next.yml path, but adding it there selects every cmux-next tier; route it with cmux_next_route.py.",
+      "tests": [
+        "tests/test_ci_macho_parity.py"
+      ]
+    },
+    {
+      "reason": "web-validation.yml's main-push job runs it; its subject (scripts/ci/web_validation.py) routes only that main-only workflow.",
+      "tests": [
+        "tests/test_web_validation.py"
+      ]
+    }
+  ]
+}

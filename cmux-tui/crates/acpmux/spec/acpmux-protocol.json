@@ -237,6 +237,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subsession/answer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/subsession/get",
       "params": true,
       "result": true
@@ -567,6 +573,12 @@
     {
       "kind": "request",
       "name": "_acpmux/import",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/file_put",
       "params": true,
       "result": true
     },
