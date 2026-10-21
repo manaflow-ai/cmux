@@ -618,20 +618,30 @@ async fn a_plain_cli_shutdown_keeps_hosted_agents_for_the_next_daemon() {
 /// What the agent of `session` has in its environment as `name`
 /// (the fake agent's `env:` prompt).
 async fn agent_env(daemon: &Daemon, session: &str, name: &str) -> String {
+    let prefix = format!("{name}=");
+    let values = || -> Vec<String> {
+        daemon
+            .events(session)
+            .iter()
+            .filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str())
+            .filter_map(|t| t.strip_prefix(&prefix).map(str::to_owned))
+            .collect()
+    };
+    let before = values().len();
     let mut rpc = daemon.rpc().await;
     rpc.call(
         "session/prompt",
         json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
     )
     .await;
-    let prefix = format!("{name}=");
-    let event = daemon.wait_event(session, name, |e| {
-        e["msg"]["params"]["update"]["content"]["text"]
-            .as_str()
-            .is_some_and(|t| t.starts_with(&prefix))
-    });
-    let text = event["msg"]["params"]["update"]["content"]["text"].as_str().unwrap();
-    text[prefix.len()..].to_owned()
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Some(value) = values().get(before) {
+            return value.clone();
+        }
+        assert!(Instant::now() < deadline, "the agent never said {name}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
 }
 
 /// A connection that presents `token` as session `session`'s caller token,
@@ -694,6 +704,21 @@ async fn an_unproven_caller_token_is_refused_with_how_to_get_a_new_one() {
         message.contains(&format!("acpmux session restart {session}")),
         "the refusal does not say how to get a new token: {message}"
     );
+    // What it says works: the agent restarts, with a token that proves it.
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "restarted");
+    let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    let restarted = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(restarted, harness, "the agent process did not restart");
+    let listed = list_as(&daemon, &session, &token).await;
+    assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
 }
 
 /// `--keep-agents` stays accepted (a no-op now) for callers that may run an

@@ -337,6 +337,9 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    /// Caller tokens of an earlier daemon run, by session: the one each
+    /// adopted host's harness started with (`start_gate.rs`).
+    pub(super) adopted_callers: StdMutex<HashMap<String, String>>,
 }
 
 impl Hub {
@@ -413,6 +416,7 @@ impl Hub {
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            adopted_callers: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);

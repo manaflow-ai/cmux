@@ -111,6 +111,11 @@ async fn start(spec: &SpawnSpec) -> Result<Started> {
         start_nonce: nonce,
         harness_pid: child.id(),
         owner_token: random_hex(32),
+        caller_token: spec
+            .env
+            .iter()
+            .find(|(k, _)| k == crate::hub::person::CALLER_TOKEN_ENV)
+            .map(|(_, v)| v.clone()),
         protocol_min: PROTOCOL_MIN,
         protocol_max: PROTOCOL_MAX,
         host_build: crate::hub::BUILD.to_owned(),

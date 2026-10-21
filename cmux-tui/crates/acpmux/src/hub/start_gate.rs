@@ -191,11 +191,35 @@ impl Hub {
     /// (`hub/person.rs` (a)): `(sessionId, token)` from [`take_caller`],
     /// when the token is that session's on this run and the session is here.
     pub fn proven_caller(&self, (id, token): (String, String)) -> Option<String> {
-        if caller_proves(&id, &token) && self.resolve(&id).is_ok_and(|s| s.id == id) {
-            Some(id)
-        } else {
-            None
-        }
+        let proves = caller_proves(&id, &token) || self.adopted_caller_proves(&id, &token);
+        if proves && self.resolve(&id).is_ok_and(|s| s.id == id) { Some(id) } else { None }
+    }
+
+    /// Whether `token` is the caller token session `session_id`'s adopted
+    /// host started its harness with under an earlier daemon run (constant time).
+    fn adopted_caller_proves(&self, session_id: &str, token: &str) -> bool {
+        let adopted = self.adopted_callers.lock().unwrap();
+        adopted
+            .get(session_id)
+            .is_some_and(|known| valid_key(token) && cmux_local_auth::tokens_match(token, known))
+    }
+
+    /// A host of session `session_id` was adopted (`hosts.rs`): its harness
+    /// and the MCP servers it started keep the caller token from the host's
+    /// record, so this run knows the session by that token too. A token of
+    /// this run, a malformed one or none (a host of an older build) records nothing.
+    pub(super) fn adopt_caller_token(&self, session_id: &str, token: Option<String>) {
+        let mut adopted = self.adopted_callers.lock().unwrap();
+        match token.filter(|t| valid_key(t) && !caller_proves(session_id, t)) {
+            Some(token) => adopted.insert(session_id.to_owned(), token),
+            None => adopted.remove(session_id),
+        };
+    }
+
+    /// A new host of session `session_id` started: its harness has this
+    /// run's token, and the adopted one's process group is gone.
+    pub(super) fn forget_adopted_caller(&self, session_id: &str) {
+        self.adopted_callers.lock().unwrap().remove(session_id);
     }
 
     /// A `session/new` without the person (module docs, (a), (b)): a mode
