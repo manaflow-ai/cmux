@@ -17,8 +17,11 @@ enum CoderouterCLIFailure: Error, Equatable, Sendable, LocalizedError {
     case planRequired
     /// The network or the control plane is down.
     case unreachable
-    /// Anything else, including a session or team change mid-command.
+    /// Anything else.
     case unavailable
+    /// The app's session was being revalidated or replaced while it was
+    /// captured. Transient: the next refresh retries, nothing is reported.
+    case sessionChanging
 
     var message: String {
         switch self {
@@ -34,7 +37,7 @@ enum CoderouterCLIFailure: Error, Equatable, Sendable, LocalizedError {
             return String(localized: "coderouter.failure.plan", defaultValue: "Coderouter needs a cmux Pro or Team plan.")
         case .unreachable:
             return String(localized: "coderouter.failure.network", defaultValue: "Coderouter is unreachable. Check your connection, then retry.")
-        case .unavailable:
+        case .unavailable, .sessionChanging:
             return String(localized: "coderouter.failure.unknown", defaultValue: "Coderouter accounts didn't load. Retry in a moment.")
         }
     }
