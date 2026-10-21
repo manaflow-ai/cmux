@@ -3,6 +3,9 @@
 // serves them with hot reload.
 // desktop.css first, as in the bundle: it defines the popup surface (--surface-popup) and type scale.
 import "../../pages/shared/desktop.css";
+// The liquid glass next, as in the bundle: a surface's own sheet (the composer's queue fill) must
+// come after `.ui-glass`, not before it as desktop.ts's import would put it.
+import "../../ui/glass/glass.css";
 import "../../ui/popupSurface.css";
 import "../shared/styles.css";
 import "./styles.css";
