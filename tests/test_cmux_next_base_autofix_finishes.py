@@ -286,6 +286,55 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(listed(PUSH_SCRIPT, "settings_exports"),
                          listed(ROOT / "scripts/cmux-next/regenerate-settings-exports.sh", "exports"))
 
+    def test_the_target_graph_never_waits_for_the_mac_job(self):
+        # 2026-10-21: a push to feat-cmux-next added a test target without the graph (Tier routing red on
+        # every PR) and the graph landed 90 minutes later: autofix, which made it, needed the Mac exports
+        # job, 12-15 minutes in the owned queue and 15-26 running, and two of those runs' repairs were
+        # held. The graph is made on Linux from the manifest alone, so its own job needs nothing.
+        job = DOC["jobs"]["target-graph"]
+        self.assertNotIn("needs", job)
+        self.assertIn("ubuntu", job["runs-on"])
+        self.assertNotIn("macos", job["runs-on"])
+        self.assertFalse(job["concurrency"]["cancel-in-progress"])
+        self.assertNotEqual(job["concurrency"]["group"], DOC["jobs"]["autofix"]["concurrency"]["group"])
+        push = next(step for step in job["steps"] if step.get("name") == "Push the graph")
+        self.assertIn("scripts/cmux-next/base-autofix-land.sh", push["run"])
+        self.assertEqual(push["env"]["ENABLED"], "${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}")
+
+    def test_the_target_graph_job_makes_the_graph_and_nothing_else(self):
+        # Its repair env asks for the graph only, and as a remake on the tip: no Mac export, nothing built
+        # from one (the defaults snapshot, the docs shortcuts, the app-host files), no formatting.
+        job = DOC["jobs"]["target-graph"]
+        steps = [step for step in job["steps"] if "base-autofix-repair.sh" in step.get("run", "")]
+        self.assertEqual(len(steps), 1)
+        env = {key: str(value) for key, value in steps[0]["env"].items()}
+        push = next(step for step in job["steps"] if step.get("name") == "Push the graph")
+        # The land script makes it again on a moved tip with the same areas.
+        self.assertEqual({key: push["env"][key] for key in ("GRAPH", "CMUX_BASE_AUTOFIX_AGAIN")},
+                         {key: env[key] for key in ("GRAPH", "CMUX_BASE_AUTOFIX_AGAIN")})
+        work = Path(tempfile.mkdtemp())
+        stub = work / "autofix.sh"
+        stub.write_text('#!/bin/sh\nprintf "%s\\n" "$@" > "$ARGS_OUT"\n')
+        stub.chmod(0o755)
+        dump = work / "dump.sh"
+        dump.write_text("#!/bin/sh\necho '{}'\n")
+        dump.chmod(0o755)
+        clean = {key: value for key, value in os.environ.items()
+                 if key not in ("GRAPH", "STRINGS", "SDK", "SHORTCUTS", "APPHOST", "ACTIONS", "SETTINGS", "RATCHETS",
+                                "CLOUD", "FMT", "EXPORTS_DIR", "WEBVIEWS_PATCH", "CMUX_BASE_AUTOFIX_AGAIN")}
+        done = subprocess.run(["bash", str(ROOT / "scripts/cmux-next/base-autofix-repair.sh"), str(work)],
+                              env={**clean, **env, "CMUX_BASE_AUTOFIX_SCRIPT": str(stub),
+                                   "CMUX_BASE_AUTOFIX_DUMP": str(dump), "ARGS_OUT": str(work / "args")},
+                              capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        args = (work / "args").read_text().split()
+        self.assertIn("--package-dump", args)
+        for flag in ("--unverified-exports", "--unverified-settings-exports", "--no-fmt"):
+            self.assertIn(flag, args)
+        for flag in ("--generated", "--strings", "--sdk", "--docs-shortcuts", "--app-host", "--ratchets",
+                     "--cloud-clients", "--webviews-fmt-patch"):
+            self.assertNotIn(flag, args)
+
     def mac_busy(self, runs: dict[int, list[tuple[str, str]]], self_run: int = 1, fail: bool = False) -> str:
         """Runs base-autofix-mac-busy.sh with a gh stand-in: `runs` maps an unfinished run to its (job, status)."""
         work = Path(tempfile.mkdtemp())
