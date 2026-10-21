@@ -1,4 +1,5 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { liftInlineImages } from "./inlineImages";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
@@ -337,6 +338,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
               // images as chips (its document paste listener). Left to ProseMirror (or Milkdown's
               // markdown paste), each became an image node drawn full size in the field and sent as
               // `![…](data:…)` text (Leo 2026-10-20).
+              // Files copied in Finder also put their names on the clipboard as text: not a prompt.
               // With no text, ProseMirror would also move focus to a stand-in element for 50 ms to
               // capture the paste, and the keys typed then came back stripped of spaces.
               paste: (editorView, event) => {
@@ -346,7 +348,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 if (!data.files.length && !htmlHasDataImage(data.getData("text/html")) && !lifted.attachments.length)
                   return false;
                 event.preventDefault();
-                const plain = lifted.text;
+                const plain = pasteIsOnlyFileNames(data) ? "" : lifted.text;
                 if (!plain.trim() || beforeInput(editorView, plain)) return true;
                 const { from, to } = editorView.state.selection;
                 editorView.dispatch(editorView.state.tr.insertText(plain, from, to).scrollIntoView());
@@ -431,12 +433,15 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
           const windowFocus = () => {
             if (focused(editorView)) enter(editorView);
           };
-          window.addEventListener("blur", windowBlur);
-          window.addEventListener("focus", windowFocus);
+          // The editor's own window, kept: the editor can be torn down after the page's global
+          // `window` is gone (a test's DOM unregistered before Milkdown's async destroy runs).
+          const win = editorView.dom.ownerDocument.defaultView;
+          win?.addEventListener("blur", windowBlur);
+          win?.addEventListener("focus", windowFocus);
           return {
             destroy: () => {
-              window.removeEventListener("blur", windowBlur);
-              window.removeEventListener("focus", windowFocus);
+              win?.removeEventListener("blur", windowBlur);
+              win?.removeEventListener("focus", windowFocus);
             },
           };
         },
