@@ -510,8 +510,11 @@ concurrency:
 # Manual reruns stay minis-first. The rescue's first re-run (the bot's attempt
 # 2) is the Blacksmith overflow (claude-sr2, 2026-10-21: under saturation a
 # second mini queue cost a pull request another rescue window and its running
-# jobs). It takes the free Blacksmith slot macos-placement found (retry_runner),
-# else the owned side label: never a Blacksmith queue. macos-placement
+# jobs). The compile jobs take the free Blacksmith slot macos-placement found
+# (retry_runner), else the owned side label, never a Blacksmith queue.
+# swift-test, daemon-test and generated-files take blacksmith-6vcpu-macos-26
+# whenever placement ran, with no free-slot check (attempt 3's old 6 vCPU
+# escape, one attempt earlier), so they can queue there. macos-placement
 # records idle side runners with the main picker's idle_placement() but never
 # turns a busy mini into an instant fallback, so jobs queue while the fleet
 # drains. When a job takes the side label, macos-placement uploads the
