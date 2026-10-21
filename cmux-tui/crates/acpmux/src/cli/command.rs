@@ -800,11 +800,23 @@ pub enum PeerCmd {
         #[arg(long, default_value_t = 47811)]
         port: u16,
     },
-    /// Copy this binary to an ssh peer (or every one with --all) and restart its daemon.
+    /// Copy this binary to an ssh peer (or every one with --all) and restart
+    /// its daemon. The previous binary is kept and put back when the
+    /// restarted daemon does not answer with the new build; a daemon under a
+    /// hand-written acpmux unit is moved to acpmux.service, agents kept.
     Update {
         name: Option<String>,
         #[arg(long)]
         all: bool,
+        /// Push DIR/acpmux-<target> instead, the target from the peer's
+        /// `uname -sm` (x86_64-unknown-linux-musl, aarch64-unknown-linux-musl,
+        /// aarch64-apple-darwin, x86_64-apple-darwin).
+        #[arg(long, value_name = "DIR")]
+        binary_dir: Option<PathBuf>,
+        /// Leave a peer alone while one of its sessions runs a turn or waits
+        /// on a permission.
+        #[arg(long)]
+        if_idle: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
     /// daemon, copy harness profiles and peer to it (and, with --reverse,

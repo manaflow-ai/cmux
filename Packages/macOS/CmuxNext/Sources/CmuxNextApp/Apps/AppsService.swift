@@ -23,7 +23,7 @@ final class AppsService {
     /// The control router once the socket starts (the CodeRouter page's ops run on it).
     private(set) var controlRouter: ControlRouter?
     /// The React CodeRouter page tab (Debug Settings `coderouter.surface = web`), registered on first open.
-    private var coderouterPage: CodeRouterPageTab?
+    private var coderouterPage: WebPageTab?
     /// An App Store request made while no main window could hold it (S22:
     /// the App Store is never a window of its own); the first window that
     /// mounts a pane shows it (`windowDidShowContent`).
@@ -153,7 +153,7 @@ final class AppsService {
     /// web page, else the app's own pane page; nil when the app has no page.
     func pageProvider(appID: String, codeRouterAsPage: Bool = true) -> (any InternalPageProvider)? {
         if codeRouterAsPage, appID == CodeRouterPageTab.appID, PageTunables.coderouter.value == .web {
-            let tab = coderouterPage ?? CodeRouterPageTab(services: services)
+            let tab = coderouterPage ?? CodeRouterPageTab.make(services)
             if coderouterPage == nil {
                 coderouterPage = tab
                 services.pages.register(tab)

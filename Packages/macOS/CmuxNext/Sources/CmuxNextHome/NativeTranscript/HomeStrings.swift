@@ -13,6 +13,10 @@ enum HomeStrings {
     static var attachFailed: String {
         String(localized: "home.composer.attach.failed", defaultValue: "The file couldn’t be attached.", bundle: .module)
     }
+    /// While a drop's files are still on their way from their app (a screenshot thumbnail, Photos, a browser).
+    static var attachPending: String {
+        String(localized: "home.composer.attach.pending", defaultValue: "Adding the dropped files…", bundle: .module)
+    }
     static func attachUnsupported(_ name: String) -> String {
         String(format: String(localized: "home.composer.attach.refused", defaultValue: "“%@” can’t be attached.", bundle: .module), name)
     }

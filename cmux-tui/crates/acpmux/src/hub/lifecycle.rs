@@ -295,6 +295,9 @@ impl Hub {
                 tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
                 self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
             }
+            if mode_eligible {
+                self.note_unenforced_policy(&session);
+            }
             Ok(())
         }
         .await;

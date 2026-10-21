@@ -32,8 +32,12 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Where the image viewer keeps the copies it shows or opens (``AgentPaneImageCopies``).
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
-    /// What the user's GitHub CLI says about a pull request (`pr.inspect`); nil when it can't say.
-    public var pullRequest: @MainActor (URL) async -> AgentPanePullRequest? = { _ in nil }
+    /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
+    /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
+    /// however often it is hovered (``AgentReplyPullRequests``).
+    public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
+    /// The pull requests a reply links, so the host has them before a card opens.
+    public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
@@ -43,9 +47,14 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 
     public init() {}
 
-    /// `pr.inspect`'s reply: the pull request, or `null` when the host can't read it.
-    func respondToPullRequest(_ url: URL) async -> [String: Any] {
-        AgentPaneReply.success(["pullRequest": await pullRequest(url)?.json.foundationObject ?? NSNull()])
+    /// `pr.inspect`'s reply: the pull request the host already has, when it was read, and whether
+    /// a read is running. `null` with no answer yet; the card then shows what the chat knows.
+    func respondToPullRequest(_ url: URL) -> [String: Any] {
+        let answer = pullRequest(url)
+        var reply: [String: Any] = ["pullRequest": answer.pullRequest?.json.foundationObject ?? NSNull(),
+                                    "reading": answer.reading]
+        if let fetchedAt = answer.fetchedAt { reply["fetchedAt"] = fetchedAt }
+        return AgentPaneReply.success(reply)
     }
 }
 
@@ -76,6 +85,9 @@ extension AgentPaneModel {
                 if let title = site.title, !title.isEmpty { entry["title"] = String(title.prefix(300)) }
                 if !entry.isEmpty { sites[text] = entry }
             }
+            // The reply's pull request links are read now, in the background, so a card has them
+            // before the pointer arrives and no hover ever waits on GitHub.
+            replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
             let setting = replyLinks.settings()
             return AgentPaneReply.success([
                 "paths": places, "sites": sites,
@@ -90,7 +102,7 @@ extension AgentPaneModel {
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
         case .inspectPullRequest(let url):
-            return await replyLinks.respondToPullRequest(url)
+            return replyLinks.respondToPullRequest(url)
         case .openIn(let url, let browserId):
             if browserId == "cmux" {
                 guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
