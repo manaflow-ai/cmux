@@ -154,6 +154,50 @@ async fn the_local_app_sends_no_prompt_while_the_folders_trust_is_pending() {
     let _ = std::fs::remove_dir_all(&d);
 }
 
+/// "Trust this repo" answers every worktree of it: a worktree cmux made for a chat (outside the
+/// repository, as `~/.cmux/worktrees/...` is) starts and prompts with no second question. A
+/// `.git` file the repository does not name back proves nothing and still waits.
+#[tokio::test]
+async fn a_worktree_of_a_trusted_repo_starts_and_prompts_with_no_question() {
+    let d = dir("worktree");
+    let hub = hub(&d);
+    let main = d.join("work");
+    let tree = d.join("worktrees").join("work").join("fix-retry");
+    let gitdir = main.join(".git").join("worktrees").join("fix-retry");
+    std::fs::create_dir_all(&gitdir).unwrap();
+    std::fs::create_dir_all(&tree).unwrap();
+    std::fs::write(tree.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display())).unwrap();
+    std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+    let forged = d.join("forged");
+    std::fs::create_dir_all(&forged).unwrap();
+    std::fs::write(forged.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    // A gitdir of its own that names the file back and claims the repository as its commondir.
+    let own = d.join("forged-own");
+    std::fs::create_dir_all(own.join("meta")).unwrap();
+    std::fs::write(own.join(".git"), "gitdir: meta\n").unwrap();
+    std::fs::write(own.join("meta/gitdir"), format!("{}\n", own.join(".git").display())).unwrap();
+    std::fs::write(own.join("meta/commondir"), format!("{}\n", main.join(".git").display()))
+        .unwrap();
+
+    let mut app = Client::new(&hub, Origin::LocalApp);
+    let new = |cwd: &Path| json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}});
+    assert_eq!(reason(&app.call("session/new", new(&tree)).await), "trust.pending");
+    app.trust(&main, "trusted").await;
+    let r = app.call("session/new", new(&tree)).await;
+    assert!(r.get("error").is_none(), "worktree session/new after Trust this repo: {r}");
+    let s = r["result"]["sessionId"].as_str().unwrap().to_owned();
+    let r = app.prompt(&s, "hello-from-the-worktree").await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert!(app.agent_saw(&s, "hello-from-the-worktree").await);
+    let r = app.call("acp.trust.get", json!({"cwd": tree})).await;
+    assert_eq!(r["result"]["via"], json!(main.to_string_lossy()), "{r}");
+
+    assert_eq!(reason(&app.call("session/new", new(&forged)).await), "trust.pending");
+    assert_eq!(reason(&app.call("session/new", new(&own)).await), "trust.pending");
+    let _ = std::fs::remove_dir_all(&d);
+}
+
 #[tokio::test]
 async fn local_app_and_web_cannot_create_an_agent_before_folder_trust() {
     let d = dir("new");
@@ -360,7 +404,8 @@ async fn a_fork_into_a_folder_without_trust_waits_for_it() {
     // Its own (trusted) folder: the fork goes.
     let r = app.call("session/fork", json!({"sessionId": s})).await;
     assert!(r.get("error").is_none(), "{r}");
-    // Another folder with no answer: refused before any agent runs there.
+    // Another folder with no answer (a plain folder's answer covers only itself): refused
+    // before any agent runs there.
     let r = app.call("session/fork", json!({"sessionId": s, "cwd": other})).await;
     assert_eq!(reason(&r), "trust.pending", "{r}");
     assert_eq!(r["error"]["data"]["cwd"], json!(other.to_string_lossy()), "{r}");

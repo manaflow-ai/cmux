@@ -12,8 +12,9 @@ nonisolated extension AcpmuxPaneMethods {
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
         // agent and keeps it out of the transcript text. `provenance`: a reply in place to another
         // agent's message (IncomingMessageCard.tsx); acpmux takes one from the app only as a reply
-        // from a chat it runs (prompt_provenance.rs).
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "provenance"]),
+        // from a chat it runs (prompt_provenance.rs). `surface`: the place a prompt was typed
+        // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580).
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "provenance", "surface"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).

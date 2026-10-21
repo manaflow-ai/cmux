@@ -751,16 +751,6 @@
             }
           },
           {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
-            }
-          },
-          {
             "key" : "settings.group.computerUse",
             "rows" : [
               "computerUse.enabled",
@@ -831,7 +821,6 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "chiefs",
           "computerUse"
         ]
       },
@@ -844,6 +833,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
             "key" : "settings.group.chiefPet",
             "rows" : [
               "home.chiefPetEnabled",
@@ -855,14 +854,15 @@
             }
           }
         ],
-        "id" : "chief-pet",
+        "id" : "chief",
         "lead" : [
+          "chiefs",
           "chiefPet"
         ],
-        "symbol" : "pawprint",
+        "symbol" : "crown",
         "title" : {
-          "key" : "settings.category.chiefPet",
-          "text" : "Chief Pet"
+          "key" : "settings.category.chief",
+          "text" : "Chief"
         },
         "trail" : [
 

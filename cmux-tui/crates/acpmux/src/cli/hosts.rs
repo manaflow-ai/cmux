@@ -78,8 +78,11 @@ fn ssh(host: &str, script: &str) -> Result<String> {
 
 /// Copy this very binary to the remote `~/.local/bin/acpmux` (rm then mv,
 /// never in place: macOS kills a running binary that is overwritten).
+/// Only the file goes (`self_command.rs`'s executable); no subcommand runs
+/// here, so no prefix: the remote copy is named `acpmux`, which cmux-tui
+/// runs as acpmux by its argv0, and its own daemon then needs none.
 fn push_binary(host: &str) -> Result<String> {
-    let exe = std::env::current_exe()?;
+    let exe = crate::self_command::SelfCommand::current()?.exe;
     ssh(host, "mkdir -p ~/.local/bin ~/.acpmux")?;
     let status = Command::new("scp")
         .args(scp_push_argv(host, &exe.to_string_lossy(), ".local/bin/acpmux.new")?)

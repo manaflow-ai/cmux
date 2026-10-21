@@ -91,7 +91,9 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "general", title: section(.general), symbol: "gearshape",
             groups: [
-                group("settings.group.window"), group("settings.group.tabs"), group("settings.group.columns"),
+                // Show All Chats on New Tab keeps its `sidebar.` key from when All chats was a sidebar section.
+                group("settings.group.window"), GroupSpec(group: "settings.group.tabs", keys: ["sidebar.showChats"]),
+                group("settings.group.columns"),
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
@@ -141,8 +143,6 @@ public nonisolated struct SettingsPageLayout: Sendable {
             id: "agents", title: SettingsText.keyed("settings.category.agents", "Agents"), symbol: "sparkles",
             groups: [
                 GroupSpec(group: "settings.group.agentChat", keys: ["app.warnBeforeClosingAgentSession"]),
-                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
-                group("settings.group.chiefChat"),
                 group("settings.group.computerUse"),
                 // The free AI model while signed out (cx-ds09i).
                 group("settings.group.freeModel"),
@@ -154,13 +154,22 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.folderTrust"),
             ],
             // Harnesses lists every harness; Your Agents (BRING-YOUR-OWN-HARNESS) adds, checks and
-            // removes the ones you added; Chiefs lists every Chief, each opening its editor (u2586).
-            trail: [.harnesses, .agentHarnesses, .chiefs, .computerUse]),
-        // The Chief pet floating over every app (ChatGPT's Mini & Pets): its card draws the preview,
-        // Show/Hide and the characters from its group's two rows (the page lists them for search).
+            // removes the ones you added.
+            trail: [.harnesses, .agentHarnesses, .computerUse]),
+        // Every Chief setting on one page (Leo 2026-10-20: the name pill's popover is the quick
+        // version; its All Chief Settings link opens this): Chiefs lists every Chief, each opening
+        // its editor (name, picture, backend; u2586); the Chief Pet card (ChatGPT's Mini & Pets)
+        // draws the preview, Show/Hide and the characters from its group's two rows; then the
+        // chat's look.
         CategorySpec(
-            id: "chief-pet", title: SettingsText.keyed("settings.category.chiefPet", "Chief Pet"), symbol: "pawprint",
-            groups: [group("settings.group.chiefPet")], lead: [.chiefPet]),
+            id: "chief", title: SettingsText.keyed("settings.category.chief", "Chief"), symbol: "crown",
+            groups: [
+                // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
+                group("settings.group.chiefChat"),
+                // The Chief pet floating over every app, and its character.
+                group("settings.group.chiefPet"),
+            ],
+            lead: [.chiefs, .chiefPet]),
         // A core cmux feature: banners, sounds, the attention ring and the
         // feed for agents, terminal programs and `cmux notify`.
         CategorySpec(
@@ -201,7 +210,7 @@ public nonisolated struct SettingsPageLayout: Sendable {
         CategorySpec(
             id: "accounts", title: section(.accounts), symbol: "person.crop.circle",
             // Phone access sits beside the account it signs in with and the machines list.
-            groups: [group("settings.group.phone")],
+            groups: [group("settings.group.phone"), group("settings.group.messagesServer")],
             lead: [.accounts, .machines], actions: [.accounts, .machines], aliases: [.accounts, .machines]),
         // Phones reaching this Mac: the iPhone host's switch, then its live status and phones.
         CategorySpec(
