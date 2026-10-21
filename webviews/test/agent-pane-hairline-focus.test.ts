@@ -7,7 +7,9 @@
 //   no outline. A page that is not the key one keeps the resting edge.
 // - The queued prompt's editor: no outline, the same focused hairline.
 // - A button reached from the keyboard: no outline (neither the shared accent ring nor WebKit's
-//   system-blue `outline: auto`); the soft pill marks it. Increase Contrast keeps the shared ring.
+//   system-blue `outline: auto`); the soft pill marks it, and a solid-fill one (a ready Send, Stop)
+//   takes its hover step, so keyboard focus always changes what it paints. Increase Contrast keeps the
+//   shared ring.
 //
 // Real Chromium from Playwright on the composer-rim harness (the pane's stylesheets in its entry's
 // order); CI fails the file when it cannot launch (requireBrowserLane).
@@ -149,11 +151,49 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
     await page.close();
   });
 
+  /** What an element's background paints over a dark backdrop: its color with every gradient's
+   *  color laid on top, composited on a 1x1 canvas, as [r, g, b]. */
+  function paint(page: Page, id: string): Promise<number[]> {
+    return page.evaluate((id) => {
+      const computed = getComputedStyle(document.getElementById(id)!);
+      const layers = [computed.backgroundColor];
+      for (const [, args] of computed.backgroundImage.matchAll(/gradient\(((?:[^()]|\([^()]*\))*)\)/g)) {
+        // A flat pill is a gradient of one color: its first stop.
+        let depth = 0;
+        let end = args.length;
+        for (let index = 0; index < args.length; index++) {
+          if (args[index] === "(") depth++;
+          else if (args[index] === ")") depth--;
+          else if (args[index] === "," && depth === 0) {
+            end = index;
+            break;
+          }
+        }
+        layers.push(args.slice(0, end).trim());
+      }
+      const context = Object.assign(document.createElement("canvas"), { width: 1, height: 1 }).getContext("2d")!;
+      context.fillStyle = "rgb(24, 24, 24)";
+      context.fillRect(0, 0, 1, 1);
+      for (const layer of layers) {
+        context.fillStyle = layer;
+        context.fillRect(0, 0, 1, 1);
+      }
+      return [...context.getImageData(0, 0, 1, 1).data.slice(0, 3)];
+    }, id);
+  }
+  const distance = (a: number[], b: number[]) => Math.max(...a.map((value, index) => Math.abs(value - b[index])));
+
   test("a button reached from the keyboard draws no ring; the soft pill marks it", async () => {
     const page = await open(2);
+    // No hover or press transition mid-read.
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const rest = {
+      "composer-chip": await paint(page, "composer-chip"),
+      "composer-send": await paint(page, "composer-send"),
+    };
     await page.focus("#composer-field");
     // Tab to the model chip, then Send: both keyboard focus (:focus-visible).
-    for (const id of ["composer-chip", "composer-send"]) {
+    for (const id of ["composer-chip", "composer-send"] as const) {
       await page.keyboard.press("Tab");
       expect(await page.evaluate(() => document.activeElement?.id)).toBe(id);
       const style = await page.evaluate((id) => {
@@ -162,20 +202,48 @@ await requireBrowserLane("agent-pane-hairline-focus.test.ts", async () => {
         return {
           visible: element.matches(":focus-visible"),
           outline: computed.outlineStyle,
-          image: computed.backgroundImage,
-          color: computed.backgroundColor,
         };
       }, id);
       expect(style.visible, `${id} has keyboard focus`).toBe(true);
       expect(style.outline, `${id} draws no outline`).toBe("none");
-      // A pill: the chip's own hover wash, or the pane's pill laid over Send's fill.
-      const pill =
-        style.image.includes("gradient") && !/gradient\((?:rgba\(0, 0, 0, 0\)(?:,\s*)?)+\)/.test(style.image);
-      expect(pill || style.color !== "rgba(0, 0, 0, 0)", `${id} shows the pill`).toBe(true);
+      expect(distance(await paint(page, id), rest[id]), `${id} shows the pill`).toBeGreaterThanOrEqual(8);
     }
     // Increase Contrast keeps the shared ring.
     await page.emulateMedia({ contrast: "more" });
     expect(await outline(page, "composer-send"), "Increase Contrast keeps the ring").toBe("solid");
+    await page.close();
+  });
+
+  test("keyboard focus changes what a solid Send, Stop and a plain button paint; solid ones take the hover step", async () => {
+    const page = await open(2);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    const ids = ["send-ready", "stop", "plain"];
+    const rest: Record<string, number[]> = {};
+    const hover: Record<string, number[]> = {};
+    for (const id of ids) {
+      rest[id] = await paint(page, id);
+      await page.hover(`#${id}`);
+      hover[id] = await paint(page, id);
+    }
+    await page.mouse.move(0, 0);
+    // Tab from the checkbox: each control in turn under keyboard focus.
+    await page.focus("#check");
+    for (const id of ids) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => document.activeElement?.id)).toBe(id);
+      expect(await page.evaluate((id) => document.getElementById(id)!.matches(":focus-visible"), id)).toBe(true);
+      expect(await outline(page, id), `${id} draws no outline`).toBe("none");
+      const focused = await paint(page, id);
+      expect(
+        distance(focused, rest[id]),
+        `${id} focused paints visibly different (rest ${rest[id]}, focused ${focused})`,
+      ).toBeGreaterThanOrEqual(8);
+      if (id !== "plain")
+        expect(
+          distance(focused, hover[id]),
+          `${id} focused takes its hover step (hover ${hover[id]}, focused ${focused})`,
+        ).toBeLessThanOrEqual(3);
+    }
     await page.close();
   });
 
