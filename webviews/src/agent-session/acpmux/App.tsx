@@ -124,6 +124,7 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
+import { useChatInspector } from "./inspector/ChatInspector";
 import {
   BACKGROUND_WORK,
   type BackgroundCounts,
@@ -132,8 +133,7 @@ import {
   backgroundRowShown,
 } from "./summary/backgroundWork";
 import { BackgroundWorkLine } from "./conversation/BackgroundWorkRow";
-import { useSessionRail } from "./summary/SessionRail";
-import { type ProcessSource, useProcessRegistry } from "./summary/sessionProcesses";
+import { type ProcessSource, useProcessRegistry } from "./inspector/processes";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { AgentTonesContext, agentTones } from "./subagents/agentTones";
@@ -256,6 +256,7 @@ import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
 import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
+import { EnvironmentLine } from "./header/EnvironmentLine";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
 import { PullRequestDock } from "./summary/PullRequestDock";
@@ -1952,6 +1953,8 @@ export function VirtualTranscript({
   const previousLayout = useRef<ReturnType<typeof layoutConversation> | null>(null);
   const previousRows = useRef<AcpmuxRow[]>(rows);
   const previousViewport = useRef({ height, width, dockSpace });
+  /// The room kept under the last row (`room` below) as of the last placement pass.
+  const heldRoom = useRef(dockSpace);
   /// The pane's width changed and no new content has come since: rows settling to their drawn
   /// heights at the new width are that resize, not growth, and never glide.
   const reflowing = useRef(false);
@@ -2100,14 +2103,20 @@ export function VirtualTranscript({
     : queueLeft.current && footDropped && previousLayout.current
       ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
       : floor.current.height;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + dockSpace;
+  // The room under the last row is the stack's height while the view follows the latest row, so
+  // the latest row ends above a composer that grows. Scrolled up, nothing under the stack is in view:
+  // the room stays as it was, and a composer that grows or shrinks a line (Shift-Return, a wrap)
+  // leaves the scroller's height, offset and scrollbar where they were (Leo 2026-10-20: a newline
+  // made the transcript's scrollbar jump). Back at the latest row, the room is the stack's again.
+  const sessionSwitched = previousSession.current !== sessionId;
+  const room = sessionSwitched || following ? dockSpace : heldRoom.current;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + room;
   const layout = useMemo(
     () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
     [measured, rowsHeight, floorHeight],
   );
   const reportedLayout = useRef<typeof measured | null>(null);
   const reportedEstimate = useRef<typeof estimated | null>(null);
-  const sessionSwitched = previousSession.current !== sessionId;
   // The old scroll state remains in React until the transition layout effect runs. Render the
   // new session from the top once so its first paint cannot reuse the previous chat's mounted rows.
   const renderScroll = sessionSwitched ? { top: 0, delta: 0 } : scroll;
@@ -2449,6 +2458,7 @@ export function VirtualTranscript({
     previousLayout.current = layout;
     previousRows.current = rows;
     previousViewport.current = { height, width, dockSpace };
+    heldRoom.current = room;
     // The room a followed view keeps (`floor` above), until the rows fill it or it stops following.
     const holding = didOpenAtLatest.current && followingRef.current && floorHeight > rowsHeight;
     // Held for a sent prompt: once, for the prompt to arrive. Held only for a withdrawn one (the
@@ -2474,7 +2484,7 @@ export function VirtualTranscript({
     // The minimap's band reads the offset this pass settled on.
     minimapPlaced.current?.();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- openAt is read once, at the first open
-  }, [layout, rows, range.first, height, width, dockSpace, sessionId, seekExpired, canLoadOlder]);
+  }, [layout, rows, range.first, height, width, dockSpace, room, sessionId, seekExpired, canLoadOlder]);
   // Commit before this frame paints; deferring to the next animation frame left the edge blank.
   // The page picks adaptive rendering; the host supplies the display interval and applies it.
   const renderRate = useMemo(() => new AdaptiveRenderRate(), []);
@@ -2889,7 +2899,9 @@ export function VirtualTranscript({
           layout={layout}
           scroller={ref}
           scrollTop={renderScroll.top}
-          viewportHeight={height - dockSpace}
+          // Above the room under the last row, so a composer that grows while the reader is scrolled
+          // up leaves the map as it was, as it does the scrollbar.
+          viewportHeight={height - room}
           scrolls={layout.totalHeight - height > 0.5}
           width={width}
           placed={minimapPlaced}
@@ -3879,9 +3891,8 @@ function AcpmuxPane() {
     },
     [snapshot.rows, openDiff],
   );
-  // The session side rail (Debug Settings `agent.sessionRail`): its button in the header, the rail beside the chat.
-  // The rail's Background tasks read acpmux's process registry through the pane's client. A
-  // reconnect makes a new client, so the source changes with it and the rail lists again.
+  // The Inspector's Background tasks and Servers read acpmux's process registry through the pane's
+  // client. A reconnect makes a new client, so the source changes with it and they list again.
   const [clientEpoch, setClientEpoch] = useState(0);
   const processSource = useMemo<ProcessSource>(
     () => ({
@@ -3895,14 +3906,6 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
-  const sessionRail = useSessionRail({
-    snapshot,
-    machineName,
-    onOpenOutput: openOutput,
-    processSource,
-    sessionId: shownSessionId,
-    onStopProcess: stopProcess,
-  });
   // The chat's background commands (summary/backgroundWork.ts): the transcript's still running, and
   // the registry's, read while the summary card shows, a turn runs or a command is known to run
   // (the hook stays on while one it knows runs, so its end arrives).
@@ -4388,6 +4391,23 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
+  // The Inspector (Debug Settings `agent.inspector`): its toggle at the header's end, the panel
+  // beside or over the chat. On, it takes the summary card's place.
+  const inspector = useChatInspector({
+    snapshot,
+    machineName,
+    repository: githubRepository,
+    shell,
+    onOpenOutput: quick ? undefined : openOutput,
+    onOpenUrl: quick
+      ? undefined
+      : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
+    onOpenImage: quick ? undefined : openImage,
+    processSource,
+    sessionId: shownSessionId,
+    onStopProcess: stopProcess,
+    subagents: cardSubagents,
+  });
   // The running line's counts (conversation/WorkingFor.tsx): the subagents still running, the
   // background commands that have not ended and the started chats that run. A count of one opens its
   // subagent, the command's row or the chat; of several, the summary card, which lists them all.
@@ -4405,8 +4425,24 @@ function AcpmuxPane() {
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
-  const counted = useRef({ runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard });
-  counted.current = { runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard };
+  const counted = useRef({
+    runningAgents,
+    runningCommands,
+    runningSessions,
+    sourceRows,
+    transcriptRows,
+    summaryCard,
+    inspector,
+  });
+  counted.current = {
+    runningAgents,
+    runningCommands,
+    runningSessions,
+    sourceRows,
+    transcriptRows,
+    summaryCard,
+    inspector,
+  };
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
     // holds the call. The reveal lets go after a moment, so the run closes again like any other.
@@ -4431,19 +4467,28 @@ function AcpmuxPane() {
       sessions: runningSessions.length,
       tokens: turnTokens,
       background: backgroundCounts,
-      openBackground: () => counted.current.summaryCard.show(),
+      openBackground: () => {
+        const { summaryCard: card, inspector: panel } = counted.current;
+        if (panel.reveal) panel.reveal("tasks");
+        else card.show();
+      },
       openAgents: () => {
-        const { runningAgents: agents, summaryCard: card } = counted.current;
+        const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
+        // The Inspector takes the summary card's place while it is on (its panel is never drawn).
+        else if (panel.reveal) panel.reveal("subagents");
         else card.show();
       },
       openCommands: () => {
-        const { runningCommands: commands, summaryCard: card } = counted.current;
-        if (commands.length !== 1 || !showToolRow(commands[0]!.toolCallId)) card.show();
+        const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
+        if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
+        if (panel.reveal) panel.reveal("tasks");
+        else card.show();
       },
       openSessions: () => {
-        const { runningSessions: sessions, summaryCard: card } = counted.current;
+        const { runningSessions: sessions, summaryCard: card, inspector: panel } = counted.current;
         if (sessions.length === 1) openOfferChat(sessions[0]!.sessionId);
+        else if (panel.reveal) panel.reveal("subagents");
         else card.show();
       },
     };
@@ -5704,6 +5749,17 @@ function AcpmuxPane() {
   const ComposerChips = registryChips ?? DefaultComposerChips;
   // The catalog arrives through the query cache, which composerSnapshot carries.
   const header = paneHeader(composerSnapshot, t);
+  // The header's Environment line (header/EnvironmentLine.tsx): machine · folder · branch, opening
+  // the Inspector at Environment while the Inspector is on.
+  const environmentLine = (compact: boolean) => (
+    <EnvironmentLine
+      summary={snapshot.summary}
+      machineName={machineName}
+      peerKinds={snapshot.peerKinds}
+      compact={compact}
+      onOpen={inspector.reveal ? () => inspector.reveal?.("environment") : undefined}
+    />
+  );
   const handoffTargets = continueTargets(composerSnapshot.catalog, snapshot.summary?.harness);
   const canContinue =
     !!snapshot.canHandoff &&
@@ -7089,9 +7145,15 @@ function AcpmuxPane() {
                 style={inTabRow ? tabRowStyle(tabRow) : undefined}
               >
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
-                  <ChatHeaderStatus status={header.status} detail={header.detail} />
+                  <ChatHeaderStatus status={header.status} detail={header.detail}>
+                    {!inTabRow && environmentLine(false)}
+                  </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
+                    {inTabRow && (
+                      <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
+                        {environmentLine(true)}
+                      </ChatHeaderInlineStatus>
+                    )}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"
@@ -7167,8 +7229,8 @@ function AcpmuxPane() {
                           configureQuickActions({ quickActions: before }),
                         );
                       }}
-                      sessionRail={sessionRail.button}
-                      summary={<SummaryButton card={summaryCard} />}
+                      inspector={inspector.button}
+                      summary={inspector.on ? null : <SummaryButton card={summaryCard} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}
@@ -7176,7 +7238,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {!summaryCard.column && summaryPanel}
+                {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
@@ -7277,10 +7339,11 @@ function AcpmuxPane() {
           !(replaying && replaying === snapshot.sessionId) &&
           !inspectorOpen &&
           !diffView &&
+          !inspector.on &&
           summaryCard.column &&
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
-        {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
+        {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && inspector.panel}
         {artifact && (
           <ArtifactPanel
             key={artifact.opened}

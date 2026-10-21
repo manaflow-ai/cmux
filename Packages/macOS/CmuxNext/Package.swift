@@ -650,7 +650,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming"],
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
