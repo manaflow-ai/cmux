@@ -31,16 +31,30 @@ final class AgentAutoResumeCoordinator {
 
     func observe(_ draft: AgentJournalEventDraft) {
         guard let surfaceId = draft.surfaceId else { return }
+        // Codex can render an upstream transport failure in the terminal and
+        // still emit a plain `Stop` hook.  In that case the hook has neither
+        // `is_error` nor a failure payload, so the journal quite correctly
+        // calls it a completed turn and the retry coordinator would never
+        // schedule anything.  Use the visible terminal only at that boundary,
+        // and only when the managed session identity and an idle composer
+        // agree.  This keeps replay and arbitrary scrollback from injecting
+        // input into a live turn while covering providers whose hook schema
+        // lost the error field.
+        let screenFailure = draft.kind == .turnCompleted
+            ? retryableScreenFailure(for: draft)
+            : nil
+        let observedKind = screenFailure == nil ? draft.kind : .errorReported
+        let observedDetail = screenFailure ?? draft.detail
         let hadResumes = tracker.totalResumes(surfaceId: surfaceId) > 0
         let action = tracker.observe(
-            kind: draft.kind,
+            kind: observedKind,
             surfaceId: surfaceId,
             isSubagent: draft.isSubagent,
-            detail: draft.detail,
+            detail: observedDetail,
             sessionId: draft.sessionId
         )
         // The marker lasts until the agent finishes a turn on its own.
-        if draft.kind == .sessionEnded || (hadResumes && tracker.totalResumes(surfaceId: surfaceId) == 0) {
+        if observedKind == .sessionEnded || (hadResumes && tracker.totalResumes(surfaceId: surfaceId) == 0) {
             clearMarker(surfaceId: surfaceId, workspaceHint: draft.workspaceId)
         }
         switch action {
@@ -49,7 +63,7 @@ final class AgentAutoResumeCoordinator {
         case .cancel(let surface):
             timers.removeValue(forKey: surface)?.cancel()
 #if DEBUG
-            cmuxDebugLog("agentAutoResume.cancel surface=\(surface.prefix(8)) kind=\(draft.kind.rawValue)")
+            cmuxDebugLog("agentAutoResume.cancel surface=\(surface.prefix(8)) kind=\(observedKind.rawValue)")
 #endif
         case let .schedule(surface, attempt, delay, token):
             guard isEnabled else {
@@ -84,6 +98,37 @@ final class AgentAutoResumeCoordinator {
                 )
             }
         }
+    }
+
+    private func retryableScreenFailure(for draft: AgentJournalEventDraft) -> String? {
+        guard !draft.isSubagent,
+              ["codex", "claude"].contains(draft.source.lowercased()),
+              let panelId = UUID(uuidString: draft.surfaceId ?? ""),
+              let target = resumeTarget(
+                  panelId: panelId,
+                  workspaceHint: draft.workspaceId.flatMap(UUID.init(uuidString:))
+              ),
+              target.matchesManagedSession(draft.sessionId, agent: draft.source),
+              let frame = target.terminal.surface.mobileRenderGridFrame(
+                  stateSeq: 0,
+                  includeTheme: false,
+                  anchor: .screen
+              )?.frame else { return nil }
+        let state = Self.screenState(in: frame)
+        guard state == .emptyPrompt || state == .codexGoalResume else { return nil }
+        guard let detail = Self.retryableScreenFailure(in: frame) else { return nil }
+        CmuxEventBus.shared.publish(
+            name: "agent.auto_resume.screen_failure_detected",
+            category: "agent",
+            source: "auto_resume",
+            workspaceId: draft.workspaceId,
+            surfaceId: draft.surfaceId,
+            payload: ["agent": draft.source]
+        )
+#if DEBUG
+        cmuxDebugLog("agentAutoResume.screenFailure surface=\((draft.surfaceId ?? "").prefix(8)) agent=\(draft.source)")
+#endif
+        return detail
     }
 
     func userDidInput(surfaceId: UUID) {
@@ -203,18 +248,8 @@ final class AgentAutoResumeCoordinator {
     }
 
     static func screenState(in frame: MobileTerminalRenderGridFrame) -> ScreenState {
-        let faintStyles = Set(frame.styles.filter(\.faint).map(\.id))
-        var rows = Array(repeating: [(column: Int, text: String, faint: Bool)](), count: max(frame.rows, 0))
-        for span in frame.rowSpans where span.row >= 0 && span.row < rows.count {
-            rows[span.row].append((span.column, span.text, faintStyles.contains(span.styleID)))
-        }
-        let plainRows = rows.map { spans in
-            spans.sorted { $0.column < $1.column }.reduce(into: "") { result, span in
-                let padding = span.column - result.count
-                if padding > 0 { result += String(repeating: " ", count: padding) }
-                result += span.text
-            }
-        }
+        let rows = screenRows(in: frame)
+        let plainRows = rows.map(\.plain)
         let nonEmptyRows = plainRows.map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
         let pickerRows = [
             "› 1. Resume goal   Mark it active and continue when idle",
@@ -237,8 +272,7 @@ final class AgentAutoResumeCoordinator {
         let trimmedPrompt = plainRows[promptIndex].drop(while: { $0 == " " || $0 == "│" })
         guard promptPrefixes.contains(where: trimmedPrompt.hasPrefix)
             || trimmedPrompt == "›" || trimmedPrompt == "❯" else { return .unknown }
-        var typed = rows[promptIndex]
-            .sorted { $0.column < $1.column }
+        var typed = rows[promptIndex].spans
             .filter { !$0.faint }
             .reduce(into: "") { result, span in
                 let padding = span.column - result.count
@@ -258,12 +292,50 @@ final class AgentAutoResumeCoordinator {
             if plain.isEmpty || plain.allSatisfy({ "─│╭╮╰╯".contains($0) || $0.isWhitespace }) {
                 break
             }
-            let typedRow = rows[index].filter { !$0.faint }.map(\.text).joined()
+            let typedRow = rows[index].spans.filter { !$0.faint }.map(\.text).joined()
                 .trimmingCharacters(in: .whitespaces)
             guard !typedRow.isEmpty else { continue }
             return .draft
         }
         return stalledFooter ? .codexGoalResume : .emptyPrompt
+    }
+
+    /// Returns a bounded, visible provider failure.  This is intentionally
+    /// narrower than the journal classifier: it is a screen fallback, so a
+    /// generic "try again" in an assistant transcript must not trigger it.
+    static func retryableScreenFailure(in frame: MobileTerminalRenderGridFrame) -> String? {
+        let markers = [
+            "connection failed", "failed to connect", "error sending request",
+            "reconnecting", "connection reset", "connection dropped",
+            "at capacity", "overloaded", "rate limit", "server error",
+            "service unavailable", "temporarily unavailable"
+        ]
+        return screenRows(in: frame).map(\.plain).suffix(12).reversed().first { row in
+            let lowered = row.lowercased()
+            return markers.contains(where: lowered.contains)
+        }
+    }
+
+    private struct ScreenRow {
+        let spans: [(column: Int, text: String, faint: Bool)]
+        var plain: String {
+            spans.reduce(into: "") { result, span in
+                let padding = span.column - result.count
+                if padding > 0 { result += String(repeating: " ", count: padding) }
+                result += span.text
+            }
+        }
+    }
+
+    private static func screenRows(in frame: MobileTerminalRenderGridFrame) -> [ScreenRow] {
+        let faintStyles = Set(frame.styles.filter(\.faint).map(\.id))
+        var rows = Array(repeating: [(column: Int, text: String, faint: Bool)](), count: max(frame.rows, 0))
+        for span in frame.rowSpans where span.row >= 0 && span.row < rows.count {
+            rows[span.row].append((span.column, span.text, faintStyles.contains(span.styleID)))
+        }
+        return rows.map { spans in
+            ScreenRow(spans: spans.sorted { $0.column < $1.column })
+        }
     }
 
     private func clearMarker(surfaceId: String, workspaceHint: String?) {

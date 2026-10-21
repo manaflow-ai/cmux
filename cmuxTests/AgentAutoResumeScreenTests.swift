@@ -89,6 +89,35 @@ struct AgentAutoResumeScreenTests {
     }
 
     @Test(arguments: [
+        "Connection failed: error sending request",
+        "Reconnecting... waiting for network (3m 41s)",
+        "API Error: 503 service unavailable",
+        "Selected model is at capacity"
+    ])
+    func visibleRetryableFailureIsDetectedAtTheIdlePrompt(text: String) throws {
+        let frame = try screen([text, "› "], cursorRow: 1)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .emptyPrompt)
+        #expect(AgentAutoResumeCoordinator.retryableScreenFailure(in: frame) == text)
+    }
+
+    @Test func ordinaryAssistantTextDoesNotBecomeAVisibleFailure() throws {
+        let frame = try screen([
+            "The request failed in the example and you can try again later.",
+            "› "
+        ], cursorRow: 1)
+        #expect(AgentAutoResumeCoordinator.retryableScreenFailure(in: frame) == nil)
+    }
+
+    @Test func visibleFailureWithDraftIsDetectedButScreenStateBlocksResume() throws {
+        let frame = try screen([
+            "Connection failed: error sending request",
+            "› continue"
+        ], cursorRow: 1)
+        #expect(AgentAutoResumeCoordinator.screenState(in: frame) == .draft)
+        #expect(AgentAutoResumeCoordinator.retryableScreenFailure(in: frame) != nil)
+    }
+
+    @Test(arguments: [
         "gpt-5.5 high · Context 98% left · /tmp/repo · app · main",
         "gpt-5.5 high · 98% context left · /tmp/repo"
     ])
