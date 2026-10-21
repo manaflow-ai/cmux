@@ -128,6 +128,8 @@ CI_CONTROL_PLANE_ONLY = frozenset({
     "scripts/ci/swift_incremental_diagnostics.py",
     "scripts/ci/triage-radar.py",
     "scripts/ci/validate_test_execution_registry.py",
+    # The registry check's pull request lanes (--pr-lanes).
+    "scripts/ci/pr_test_lanes.py",
     "scripts/ci/verify-r2-canary.py",
     # ci-web.yml's subarea router. It keeps the web area below -- editing it
     # selects every web subarea through the helper's own ALL_SUBAREA_INPUTS --
