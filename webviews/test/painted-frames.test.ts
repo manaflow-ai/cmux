@@ -6,7 +6,7 @@
 // frame), and failed on a 4px jump that was never on screen (scroll-jitter, 2026-10-21).
 //
 // Real Chromium and WebKit with real key events. Every read must see the page as its frame did,
-// and every frame is read. The test counts keys from a capturing listener added after the helper's.
+// and every frame is read. The test counts keys as a page's handler would, from the document.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/painted-frames.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
@@ -41,8 +41,9 @@ await requireBrowserLane("painted-frames.test.ts", async () => {
 
   test.each(engines.map(([name]) => name))("%s: a read never sees a key that came after its frame", async (name) => {
     const page = await browsers.get(name)!.newPage();
-    await page.setContent("<textarea></textarea>");
+    // Installed before setContent, as most tests do: document.open drops the window's listeners.
     await installPaintedFrames(page);
+    await page.setContent("<textarea></textarea>");
     await page.evaluate(() => {
       const w = window as unknown as {
         __keys: number;
@@ -53,7 +54,8 @@ await requireBrowserLane("painted-frames.test.ts", async () => {
       w.__keys = 0;
       w.__frames = 0;
       w.__reads = [];
-      addEventListener("keydown", () => (w.__keys += 1), true);
+      // On the document, as a page's own handlers are: the window's capture runs before it.
+      document.addEventListener("keydown", () => (w.__keys += 1), true);
       let atFrame = 0;
       w.__stop = window.cmuxAfterPaint(
         () => void w.__reads.push([atFrame, w.__keys]),
@@ -73,8 +75,9 @@ await requireBrowserLane("painted-frames.test.ts", async () => {
       return { reads: w.__reads, frames: w.__frames };
     });
     await page.close();
-    // Every frame is read, input or not (the last one's read can still be on its way).
-    expect(reads.length).toBeGreaterThanOrEqual(frames - 1);
+    // Every frame is read, input or not (the last two reads can still be on their way: under load
+    // the next frame can start before a read's task runs).
+    expect(reads.length).toBeGreaterThanOrEqual(frames - 2);
     // Keys counted by the read that its frame had not seen.
     expect(reads.filter(([atFrame, atRead]) => atRead !== atFrame)).toEqual([]);
   });

@@ -30,34 +30,44 @@ declare global {
 
 /** The page side; runs in the page, so it closes over nothing. */
 function definePaintedFrames() {
-  // Once per document: `document.open` (Playwright's setContent) drops the window's listeners.
-  const marked = document as unknown as { cmuxPaintedFrames?: true };
-  if (marked.cmuxPaintedFrames) return;
-  marked.cmuxPaintedFrames = true;
+  if (typeof window.cmuxAfterPaint === "function") return;
   // Reads of painted frames not yet run: the next input event runs them before it changes anything.
   const pending = new Set<() => void>();
-  for (const kind of [
-    "keydown",
-    "keyup",
-    "beforeinput",
-    "input",
-    "compositionupdate",
-    "pointerdown",
-    "pointerover",
-    "pointerout",
-    "pointermove",
-    "pointerup",
-    "mousedown",
-    "mouseover",
-    "mouseout",
-    "mousemove",
-    "mouseup",
-    "wheel",
-    "touchstart",
-    "touchmove",
-    "touchend",
-  ])
-    addEventListener(kind, () => [...pending].forEach((run) => run()), { capture: true, passive: true });
+  const flush = () => [...pending].forEach((run) => run());
+  // `document.open` (Playwright's setContent) drops the window's listeners and keeps the window's
+  // properties: each loop checks that the listeners still hear, and adds them again if not. The
+  // window's capture runs before every handler on the document and its elements; only a page's own
+  // window capture listener added before these runs first.
+  let heard = false;
+  const listen = () => {
+    heard = false;
+    dispatchEvent(new Event("cmux-painted-frames"));
+    if (heard) return;
+    addEventListener("cmux-painted-frames", () => (heard = true));
+    for (const kind of [
+      "keydown",
+      "keyup",
+      "beforeinput",
+      "input",
+      "compositionupdate",
+      "pointerdown",
+      "pointerover",
+      "pointerout",
+      "pointermove",
+      "pointerup",
+      "mousedown",
+      "mouseover",
+      "mouseout",
+      "mousemove",
+      "mouseup",
+      "wheel",
+      "touchstart",
+      "touchmove",
+      "touchend",
+    ])
+      addEventListener(kind, flush, { capture: true, passive: true });
+  };
+  listen();
   const afterThisFrame = (then: () => void) => {
     const channel = new MessageChannel();
     channel.port1.onmessage = () => {
@@ -67,6 +77,7 @@ function definePaintedFrames() {
     channel.port2.postMessage(null);
   };
   window.cmuxAfterPaint = (read, drive) => {
+    listen();
     let stopped = false;
     // The next frame is asked for in this one's callback, so no frame goes unread. A read runs as
     // the first task after its frame; under heavy load Chromium can start the next frame first.
