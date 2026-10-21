@@ -211,16 +211,22 @@ fn folder_allowed(
 }
 
 /// The folder a sub-session starts in, resolved once and held open (unix): the checks pass on
-/// the folder the session gets. Its worktree is made, and its harness spawns, only while the path
-/// still leads to that very folder (the same device and inode), so a folder renamed or a link
-/// swapped after the check (while the start waits on the trust card, say) cannot move the start
-/// into a folder nobody checked. The open handle keeps the inode from being reused meanwhile.
-/// Windows compares the session's folder only once it runs (`Hub::settle_subsession`).
+/// the folder the session gets. A folder renamed or a link swapped after the check (while the
+/// start waits on the trust card, say) must not move the start into a folder nobody checked:
+/// - before its worktree is made and before its harness spawns, the path must still lead to that
+///   very folder, the same device and inode ([`CheckedFolder::still_at`], a refusal that names
+///   the reason);
+/// - its harness process checks the same identity itself, after it changed into the folder and
+///   right before it execs (`cwd_pin.rs`), on every spawn of the start: none runs elsewhere.
+///
+/// The open handle keeps the inode from being reused meanwhile. Left over: `make_worktree` runs
+/// git by path after the first check. Windows compares the session's folder only once it runs
+/// (`Hub::settle_subsession`).
 #[derive(Clone, Debug)]
 pub struct CheckedFolder {
     path: PathBuf,
-    #[cfg(unix)]
-    id: (u64, u64),
+    /// Its device and inode; None off unix.
+    pin: Option<crate::cwd_pin::CwdPin>,
     #[cfg(unix)]
     _held: Arc<std::fs::File>,
 }
@@ -257,16 +263,17 @@ impl CheckedFolder {
     fn open(asked: &Path) -> Option<Self> {
         let path = std::fs::canonicalize(asked).ok().filter(|f| f.is_dir())?;
         #[cfg(unix)]
-        let (id, held) = {
+        let (pin, held) = {
             use std::os::unix::fs::MetadataExt;
             let held = std::fs::File::open(&path).ok()?;
             let m = held.metadata().ok().filter(std::fs::Metadata::is_dir)?;
-            ((m.dev(), m.ino()), Arc::new(held))
+            (Some(crate::cwd_pin::CwdPin { dev: m.dev(), ino: m.ino() }), Arc::new(held))
         };
+        #[cfg(not(unix))]
+        let pin = None;
         Some(Self {
             path,
-            #[cfg(unix)]
-            id,
+            pin,
             #[cfg(unix)]
             _held: held,
         })
@@ -275,24 +282,19 @@ impl CheckedFolder {
     /// Ok when `cwd` still leads to this folder: it resolves to the same path, and that is the
     /// same device and inode. Else `subsessions.cwd_moved`, and nothing may start there.
     pub(super) fn still_at(&self, cwd: &Path) -> Result<(), RpcError> {
-        #[cfg(unix)]
-        {
-            use std::os::unix::fs::MetadataExt;
-            let resolved = std::fs::canonicalize(cwd).ok();
-            let now = std::fs::metadata(cwd).ok().map(|m| (m.dev(), m.ino()));
-            if resolved.as_deref() != Some(self.path.as_path()) || now != Some(self.id) {
-                return Err(refusal(
-                    "subsessions.cwd_moved",
-                    format!(
-                        "start_session refused: {} is no longer the folder that was checked (it was moved, or a link now leads elsewhere), so nothing started there",
-                        cwd.display()
-                    ),
-                    json!({"cwd": self.path}),
-                ));
-            }
+        let resolved = std::fs::canonicalize(cwd).ok();
+        let moved = resolved.as_deref() != Some(self.path.as_path())
+            || crate::cwd_pin::CwdPin::of(cwd) != self.pin;
+        if cfg!(unix) && moved {
+            return Err(refusal(
+                "subsessions.cwd_moved",
+                format!(
+                    "start_session refused: {} is no longer the folder that was checked (it was moved, or a link now leads elsewhere), so nothing started there",
+                    cwd.display()
+                ),
+                json!({"cwd": self.path}),
+            ));
         }
-        #[cfg(not(unix))]
-        let _ = cwd;
         Ok(())
     }
 
@@ -303,21 +305,25 @@ impl CheckedFolder {
 }
 
 impl Hub {
-    /// `ensure_child` for new session `session`, refused with nothing started when its folder is
-    /// no longer the one a sub-session start checked (`checked`). Right before the spawn, not only
-    /// once the agent runs: an agent started in a folder nobody checked has already run that
-    /// folder's own code (its settings hooks, folder profiles, MCP config). The check after the
-    /// start (`settle_subsession`) stays as a backstop.
+    /// `ensure_child` for new session `session` in the folder a sub-session start checked
+    /// (`checked`): refused with nothing started when its folder is no longer that one, and every
+    /// harness it spawns is pinned to it (`cwd_pin.rs`), so one whose folder moved later fails at
+    /// its exec. Not only once the agent runs: an agent started in a folder nobody checked has
+    /// already run that folder's own code (its settings hooks, folder profiles, MCP config). The
+    /// check after the start (`settle_subsession`) stays as a backstop.
     pub(super) async fn ensure_checked_child(
         self: &Arc<Self>,
         session: &Arc<Session>,
         spawn: &super::spawn::Spawn,
         checked: Option<&CheckedFolder>,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        if let Some(checked) = checked {
-            checked.still_at(&session.meta().cwd)?;
-        }
-        self.ensure_child(session, spawn).await
+        let Some(checked) = checked else { return self.ensure_child(session, spawn).await };
+        let cwd = session.meta().cwd;
+        checked.still_at(&cwd)?;
+        let pinned = self.ensure_child(session, spawn);
+        let started = crate::cwd_pin::CwdPin::scope(checked.pin, pinned).await;
+        // A spawn its harness's own check failed (the folder moved since) says why.
+        started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
     }
 
     /// Everything a new sub-session takes before its first prompt: the
