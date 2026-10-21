@@ -1667,6 +1667,24 @@ button.cv-received__name:focus-visible {
   -webkit-user-select: text;
 }
 /* Another agent's images and its raw prompt, under its line. */
+/* Details under an opened message: the prompt as the agent got it, closed until asked for. */
+.cv-received__details {
+  margin: 0 0 6px 13px;
+}
+.cv-received__more {
+  all: unset;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 22px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-control);
+  cursor: pointer;
+}
+.cv-received__more:hover,
+.cv-received__more:focus-visible {
+  color: var(--cv-text);
+}
 .cv-received > .cv-message__images {
   justify-content: flex-start;
   max-width: none;

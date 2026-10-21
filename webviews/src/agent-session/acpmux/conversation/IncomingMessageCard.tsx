@@ -1,7 +1,8 @@
 // Another agent's message to this chat (incomingMessage.ts) as Claude desktop draws one: a quiet
 // line, "Received message from <sender> ›", never the person's bubble and never folded away. The
 // sender's name opens its chat beside this one when it is a chat here; › opens the message under
-// the line (and, for a Claude Code envelope, the prompt as the agent got it). Whether it is open
+// the line, the body only; the prompt as the agent got it (cmux's or Claude Code's envelope) waits
+// behind Details under it. Whether it is open
 // lasts while the page does, so scrolling it out of the virtualized transcript keeps it.
 import { useContext, useId, useLayoutEffect, useState } from "react";
 import { useT } from "../i18n";
@@ -49,6 +50,9 @@ export function IncomingMessageLine({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new match opens, not a new callback
   }, [hit, reveal]);
   const bodyId = useId();
+  const rawId = useId();
+  // The prompt as the agent got it (cmux's envelope around the message) waits behind Details.
+  const [details, setDetails] = useState(false);
   // The name sits where the sentence puts it ("Received message from {title}").
   const [before, after = ""] = t("offer.received", { title: "\u0000" }).split("\u0000");
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
@@ -97,7 +101,25 @@ export function IncomingMessageLine({
           {message.text || t("message.noText")}
         </div>
       )}
-      {open && raw !== undefined && <pre className="cv-tool-output selectable">{raw}</pre>}
+      {open && raw !== undefined && (
+        <div className="cv-received__details">
+          <button
+            type="button"
+            className="cv-received__more"
+            aria-expanded={details}
+            aria-controls={details ? rawId : undefined}
+            onClick={() => setDetails((value) => !value)}
+          >
+            {t("message.details")}
+            <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${details ? " is-open" : ""}`} />
+          </button>
+          {details && (
+            <pre id={rawId} className="cv-tool-output selectable">
+              {raw}
+            </pre>
+          )}
+        </div>
+      )}
       {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
     </div>
   );
