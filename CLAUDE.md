@@ -169,6 +169,10 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
   tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
   by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
+- A native UI change shows a real capture in its description (`pr-capture-check` fails it otherwise):
+  `cmux-ci capture <head sha> --state scene:NAME|tour:NAME --pr N [--video]` builds that commit, drives the
+  real app on a capture mini, takes light and dark stills, refuses any that show private text, and prints
+  the Markdown to paste. Or add the `media-tour` label, or write `No capture: <why>`. Never mock stills.
 - Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
   agent review and the relevant checks, then merge. High (auth, socket and relay policy,

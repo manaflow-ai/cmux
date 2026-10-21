@@ -85,6 +85,11 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     /// Times a Clear History removed this source's pages from: a later
     /// Keep in Sync read leaves out pages last visited in them.
     public var clearedRanges: [DateInterval]?
+    /// Pages a Remove from History took out (URL to when): a later read or
+    /// re-import leaves out their visits up to then; a newer visit comes back.
+    public var removedPages: [String: Date]?
+    /// Sites a Remove Site took out (lowercased host to when), the same way.
+    public var removedSites: [String: Date]?
 
     public init(browser: ImportBrowser, profileDirectory: String, displayName: String, proposedProfileID: String, targetProfileID: String,
                 profileName: String? = nil) {
@@ -97,6 +102,29 @@ public struct ImportSourceRecord: Sendable, Codable, Equatable, Hashable {
     }
 
     public var sourceKey: String { "\(browser.rawValue)/\(profileDirectory)" }
+
+    /// Whether a read page stays: not last visited in a cleared range, nor at or
+    /// before the removal of its page or its site.
+    public func keeps(_ page: ImportedHistoryEntry) -> Bool {
+        if clearedRanges?.contains(where: { $0.contains(page.lastVisit) }) == true { return false }
+        if let removed = removedPages?[page.url.absoluteString], page.lastVisit <= removed { return false }
+        if let host = page.url.host()?.lowercased(), let removed = removedSites?[host], page.lastVisit <= removed { return false }
+        return true
+    }
+
+    /// This record's fences joined with `other`'s (the record a fresh import builds has none).
+    func fences(adding other: ImportSourceRecord) -> ImportSourceRecord {
+        var joined = self
+        let cleared = ImportedDataStore.coalesced((clearedRanges ?? []) + (other.clearedRanges ?? []))
+        joined.clearedRanges = cleared.isEmpty ? nil : cleared
+        let latest = { (a: [String: Date]?, b: [String: Date]?) -> [String: Date]? in
+            let merged = (a ?? [:]).merging(b ?? [:], uniquingKeysWith: max)
+            return merged.isEmpty ? nil : merged
+        }
+        joined.removedPages = latest(removedPages, other.removedPages)
+        joined.removedSites = latest(removedSites, other.removedSites)
+        return joined
+    }
 
     /// The structured `source` for `create-browser-profile`.
     public var sourceFields: [String: String] {

@@ -118,8 +118,7 @@ IGNORED_JOB_LEVEL_KEYS = frozenset({
     "timeout-minutes",
     "permissions",
     "outputs",
-    # Which deployment environment's credentials the job may read (118e52e14907);
-    # like permissions, it grants access and changes no product byte.
+    # Which credentials the job may read (ci-build-cache-reader), like permissions; not what it builds.
     "environment",
 })
 
