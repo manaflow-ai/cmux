@@ -15,17 +15,17 @@ struct SidebarAccountMenuTests {
 
         #expect(Array(menu.items.prefix(3).map(\.title)) == ["Ada Lovelace", "ada@example.com", "Analytical"])
         let team = menu.items[2]
-        #expect(team.identifier?.rawValue == "profileMenu.team")
+        #expect(team.identifier?.rawValue == "cmux.action.openTeamPicker")
+        #expect(team.representedObject as? String == "openTeamPicker")
         #expect(team.image != nil)
-        #expect(ActionRegistry.menuRun(of: team)?.id == "openTeamPicker")
         #expect(menu.items[3].isSeparatorItem)
-        #expect(menu.items.last.flatMap { ActionRegistry.menuRun(of: $0)?.id } == "palette.auth.signOut")
+        #expect(menu.items.last?.representedObject as? String == "palette.auth.signOut")
     }
 
     @Test func noTeamNoTeamRow() throws {
         let menu = NSMenu()
         let account = try #require(SidebarAccount(name: "Ada Lovelace", email: nil, team: ""))
         SidebarAccount.addRows(to: menu, account: account, registry: .standard())
-        #expect(!menu.items.contains { $0.identifier?.rawValue == "profileMenu.team" })
+        #expect(!menu.items.contains { $0.representedObject as? String == "openTeamPicker" })
     }
 }
