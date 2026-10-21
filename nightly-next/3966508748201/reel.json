@@ -1,0 +1,236 @@
+{
+  "version": 1,
+  "build": "3966508748201",
+  "notes": "notes/3966508748201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23568,
+      "title": "cmux NEXT Home: a group's Chief bubbles wear its chosen avatar and follow a swap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23614,
+      "title": "fix(ci): the change-area router treats tests only feat workflows run as dead ends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23510,
+      "title": "cmux-next sidebar: a workspace's hover card says what its agents did since you looked",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23510/22622103/next-hover-card-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "22622103",
+      "tour": "hover-card"
+    },
+    {
+      "pr": 23584,
+      "title": "test(webviews): B3 waits for conditions, not fixed times (155 waits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23563,
+      "title": "gallery: trusted play input scrolls its target into view before it clicks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23636,
+      "title": "cmux-next: fix the two Chief title reds from #23391",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23625,
+      "title": "gallery health: each state has a ready-time budget that only goes down",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23474,
+      "title": "cmux-next sidebar: a working row's second line says what its agent does now (\"Now: …\")",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23109,
+      "title": "cmux NEXT: Cloud Diagnostics shows one readable line; the JSON report is behind Copy details and returned to the CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23609,
+      "title": "cmux NEXT sidebar: remote Priority rows age out and keep their read marks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23635,
+      "title": "cmux-mobile-host: a browser tab that takes the media lane back right after losing it gets a keyframe",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22097,
+      "title": "cmux NEXT: the left-out voice recording notice no longer claims two minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23602,
+      "title": "webviews: frame-paced waits in stream-jitter, minimap-feel and new-tab-composer-still",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23597,
+      "title": "cmux NEXT sidebar: Priority view follow-ups (palette titles, closing rows, archive check)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23630,
+      "title": "cmux NEXT Chief Settings popover: swap the pet's character from a grid of all nine",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23627,
+      "title": "ci(next): run the owned-pool rescue coverage guard on feat-cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23488,
+      "title": "cmux NEXT Cloud: an agent's machine request goes when the asking chat closes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23629,
+      "title": "Chief views: \"Terminal\" is the de, es and fr word too (localization ratchet base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23396,
+      "title": "cmux NEXT composer: a long paste is a Pasted text chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23505,
+      "title": "ThemedOverlayColorsTests: Chief settings has four pickers (Speed joined)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23616,
+      "title": "cmux NEXT: a refusal before the run says not_run, and the CLI prints no retry note for it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23607,
+      "title": "ci(cmux-next): a push to feat-cmux-next runs every routed guard group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23605,
+      "title": "fix(ci): the two-Ghostty-inits fixture resolves the Zig version the way cmux-tui-build-package.yml does",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23464,
+      "title": "test(next): SidebarCmdNumberTwiceTests waits for the sidebar's top items instead of 400 ms",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23509,
+      "title": "PhoneAccessSettingTests: Accounts also shows the home.server row",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23509/8d7ce8cc/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "8d7ce8cc",
+      "tour": "core"
+    },
+    {
+      "pr": 23555,
+      "title": "reload.sh reads the cmux-next tour's free-space floor from tour-requirements.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23247,
+      "title": "acpmux: no message larger than one frame on any transport; history pages fit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23549,
+      "title": "cmux NEXT Chief Pet: the chosen character is always checked; a pick only swaps the avatar",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22951,
+      "title": "cmux NEXT: one pull request card for every pull request cmux mentions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23618,
+      "title": "Window images paint React pages that run on Chromium (blank agent page on capture slots)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23617,
+      "title": "debug.page: hover moves the mouse onto a page element (capture slots never activate)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23617/21f3253a/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "21f3253a",
+      "tour": "core"
+    },
+    {
+      "pr": 23586,
+      "title": "test(webviews): B5 waits for conditions, not fixed times (141 waits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23592,
+      "title": "Agent pane: a failed Write stays on the edited card beside a counted file that only shares its name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22710,
+      "title": "cmux NEXT: import suggestion cards on Home, New Tab and Settings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23546,
+      "title": "cmux-next sidebar: the Chief's workspaces are one collapsible Chief group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23623,
+      "title": "cmux NEXT Home: a divider line no longer hides the Chief thought's heading",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
