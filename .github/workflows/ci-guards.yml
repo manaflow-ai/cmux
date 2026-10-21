@@ -277,8 +277,12 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_web_complexity_scope.py
 
+      # test-ios.yml and cmux-next.yml run the iOS package conventions lint for
+      # feat-cmux-next too, so this guard and the test-ios.yml dispatch guard are in
+      # preflight, which feat-cmux-next pull requests route; release-ios guards only
+      # main's iOS upload path.
       - name: Validate iOS package conventions for this change
-        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.merge_group.base_sha }}
         run: |
@@ -1108,7 +1112,7 @@ jobs:
         run: python3 ios/tests/test_dogfood_readiness_app_receipt.py
 
       - name: Validate manual iOS workflow ref resolution
-        if: ${{ !cancelled() && matrix.group == 'release-ios' }}
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_ios_workflow_dispatch_ref.py
 
       - name: Validate cmux scheme test configuration

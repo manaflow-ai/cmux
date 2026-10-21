@@ -26,6 +26,9 @@ struct World {
     socket: PathBuf,
     /// `bin` has a fake `ssh` and `scp`.
     fake_ssh: bool,
+    /// The app's control socket every command reaches (`CMUX_SOCKET_PATH`),
+    /// a `FakeApp`; none when unset.
+    app: Option<PathBuf>,
 }
 
 impl World {
@@ -46,6 +49,7 @@ impl World {
             bin: dir.join("bin"),
             socket: dir.join("d.sock"),
             fake_ssh: false,
+            app: None,
         };
         for path in [&world.home, &world.acpmux, &world.repo, &world.bin] {
             std::fs::create_dir_all(path).unwrap();
@@ -131,7 +135,24 @@ exit 0
             .env_remove("CLAUDE_CONFIG_DIR")
             .env_remove("CODEX_HOME")
             .env_remove("CMUX_SOCKET_PATH")
+            .env_remove("CMUX_BUNDLE_ID")
+            .env_remove("CMUX_TAG")
             .stdin(Stdio::null());
+        if let Some(app) = &self.app {
+            // Only the fake app: never the cmux app of the machine running the tests.
+            command.env("CMUX_SOCKET_PATH", app);
+        }
+        // No Claude sign-in from the runner's own env.
+        for key in [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_USE_VERTEX",
+            "CLAUDE_CODE_USE_FOUNDRY",
+        ] {
+            command.env_remove(key);
+        }
         if self.fake_ssh {
             // The fake ssh and scp are first on PATH; nothing reaches a real machine.
             command.env("FAKE_SSH_LOG", self.ssh_log());
@@ -168,10 +189,8 @@ exit 0
     /// A fake ACP harness CLI at `path`: `--version` prints `version`; on
     /// stdin it answers `initialize`, and `session/new` with ACP's
     /// "authentication required" until `signed_in(path)` exists. Every line
-    /// it reads goes to `path.log`. A short-lived `sh` writes it so no sibling
-    /// test's fork inherits a write descriptor (ETXTBSY).
+    /// it reads goes to `path.log`.
     fn harness(&self, path: &Path, version: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let script = format!(
             r#"#!/bin/sh
 [ "$1" = --version ] && {{ echo "{version}"; exit 0; }}
@@ -191,14 +210,39 @@ while IFS= read -r line; do
 done
 "#
         );
+        World::executable(path, &script);
+    }
+
+    /// Writes the script `body` at `path`, executable. A short-lived `sh`
+    /// writes it so no sibling test's fork inherits a write descriptor
+    /// (ETXTBSY).
+    fn executable(path: &Path, body: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut child = Command::new("/bin/sh")
             .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
             .arg(path)
             .stdin(Stdio::piped())
             .spawn()
             .unwrap();
-        child.stdin.take().unwrap().write_all(script.as_bytes()).unwrap();
+        child.stdin.take().unwrap().write_all(body.as_bytes()).unwrap();
         assert!(child.wait().unwrap().success());
+    }
+
+    /// acpmux's config.json with `harnesses` (id to profile), owner-only as
+    /// acpmux wants it.
+    fn configure(&self, harnesses: Value) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = self.acpmux.join("config.json");
+        std::fs::write(&path, json!({"harnesses": harnesses}).to_string()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    /// A Codex home at `name` under HOME with `config` as its config.toml.
+    fn codex_home(&self, name: &str, config: &str) -> PathBuf {
+        let home = self.home.join(name);
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("config.toml"), config).unwrap();
+        home
     }
 
     /// What the fake harness at `path` read.
@@ -235,6 +279,91 @@ done
         let words = shell_words(command);
         assert_eq!(words.first().map(String::as_str), Some("cmux"), "{command}");
         self.json(&words[1..].iter().map(String::as_str).collect::<Vec<_>>())
+    }
+}
+
+impl World {
+    /// Fake `claude` and `codex` CLIs whose `mcp add` and `mcp remove` write
+    /// the user-scope config the real ones write (`~/.claude.json`,
+    /// `$CODEX_HOME/config.toml`), holding only that one server. Every `mcp`
+    /// call goes to `mcp.log` under the world (the harness check's
+    /// `--version` does not).
+    fn with_fake_mcp_clients(self) -> Self {
+        let log = self.mcp_log();
+        let claude = format!(
+            r#"#!/bin/sh
+f="${{CLAUDE_CONFIG_DIR:-$HOME}}/.claude.json"
+[ "$1" = mcp ] || exit 2
+echo "claude $*" >>'{log}'
+op=$2; shift 2
+[ "$1" = --scope ] && [ "$2" = user ] || {{ echo "not user scope" >&2; exit 3; }}
+shift 2
+case $op in
+add)
+  name=$1; shift; [ "$1" = -- ] || exit 3; shift
+  cmd=$1; shift; args=""
+  for a in "$@"; do args="$args${{args:+,}}\"$a\""; done
+  printf '{{"mcpServers":{{"%s":{{"type":"stdio","command":"%s","args":[%s],"env":{{}}}}}}}}' "$name" "$cmd" "$args" >"$f" ;;
+remove) printf '{{"mcpServers":{{}}}}' >"$f" ;;
+*) exit 2 ;;
+esac
+"#,
+            log = log.display()
+        );
+        let codex = format!(
+            r#"#!/bin/sh
+f="${{CODEX_HOME:-$HOME/.codex}}/config.toml"
+mkdir -p "$(dirname "$f")"
+[ "$1" = mcp ] || exit 2
+echo "codex $*" >>'{log}'
+case $2 in
+add)
+  shift 2; name=$1; shift; [ "$1" = -- ] || exit 3; shift
+  cmd=$1; shift; args=""
+  for a in "$@"; do args="$args${{args:+, }}\"$a\""; done
+  printf '[mcp_servers.%s]\ncommand = "%s"\nargs = [%s]\n' "$name" "$cmd" "$args" >"$f" ;;
+remove) : >"$f" ;;
+*) exit 2 ;;
+esac
+"#,
+            log = log.display()
+        );
+        World::executable(&self.bin.join("claude"), &claude);
+        World::executable(&self.bin.join("codex"), &codex);
+        self
+    }
+
+    fn mcp_log(&self) -> PathBuf {
+        self.home.parent().unwrap().join("mcp.log")
+    }
+
+    /// The fake `claude` and `codex` calls since the last `take_mcp_calls`.
+    fn take_mcp_calls(&self) -> Vec<String> {
+        let text = std::fs::read_to_string(self.mcp_log()).unwrap_or_default();
+        let _ = std::fs::remove_file(self.mcp_log());
+        text.lines().map(str::to_owned).collect()
+    }
+
+    /// The settings file the app writes (`~/.config/cmux/cmux-next.json`).
+    fn settings(&self, document: &Value) {
+        let path = self.home.join(".config/cmux/cmux-next.json");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(path, document.to_string()).unwrap();
+    }
+
+    /// Runs a shell line a result named (an `undo` of `claude` and `codex`
+    /// calls), as an agent's shell would, with the world's PATH and HOME.
+    fn shell(&self, line: &str) {
+        let output = Command::new("/bin/sh")
+            .args(["-c", line])
+            .current_dir(&self.repo)
+            .env("HOME", &self.home)
+            .env("PATH", self.path())
+            .env_remove("CLAUDE_CONFIG_DIR")
+            .env_remove("CODEX_HOME")
+            .output()
+            .unwrap();
+        assert!(output.status.success(), "{line}: {}", String::from_utf8_lossy(&output.stderr));
     }
 }
 
@@ -730,7 +859,17 @@ fn cmux_setup_harness_an_agent_hands_the_person_the_sign_in_and_checks_again() {
     assert_eq!(task["setup"], "cmux setup harness [ID ...] [--dry-run]", "{task}");
     let status = world.json(&["setup", "status"]);
     let tasks = status["checks"].as_array().unwrap().iter().map(|c| &c["task"]).collect::<Vec<_>>();
-    assert_eq!(tasks, [&json!("trust"), &json!("machine"), &json!("harness")], "{status}");
+    assert_eq!(
+        tasks,
+        [
+            &json!("trust"),
+            &json!("machine"),
+            &json!("harness"),
+            &json!("mcp"),
+            &json!("computer_use")
+        ],
+        "{status}"
+    );
     let check = &status["checks"][2];
     assert_eq!(check["state"], "needs_user", "{status}");
     assert_eq!(check["user_action"]["command"], "cmux harness login gemini", "{status}");
@@ -805,4 +944,432 @@ fn cmux_setup_harness_with_none_installed_asks_for_one() {
     assert_eq!(none["harnesses"], json!([]));
     assert_eq!(none["user_action"]["kind"], "install", "{none}");
     assert!(none["user_action"]["url"].is_string(), "{none}");
+}
+
+/// A harness whose start would read the login keychain (its profile env
+/// names a Keychain item, Codex keeps its login in the keychain, or it is
+/// Claude Code, whose login may be its keychain item) is not
+/// asked its sign-in, by `setup status` or by name: setup never reads the
+/// keychain, as acpmux's own check does not (cx-hh0vu). Its sign-in stays
+/// unknown, with the reason.
+#[test]
+fn cmux_setup_harness_never_starts_a_harness_whose_sign_in_is_in_the_keychain() {
+    let world = World::new("hkeychain");
+    // Off macOS the secret store is `secret-tool` on PATH: this one answers
+    // and leaves a mark, so a lookup would show.
+    World::executable(&world.bin.join("secret-tool"), "#!/bin/sh\n: >\"$0.asked\"\necho secret\n");
+    let vault = world.bin.join("vault-acp");
+    world.harness(&vault, "1.0.0");
+    let codex = world.bin.join("keyring-codex-acp");
+    world.harness(&codex, "0.9.0");
+    let codex_home =
+        world.codex_home("keyring-codex", "cli_auth_credentials_store = \"keyring\"\n");
+    // A Claude Code ACP adapter with no sign-in in its env or files.
+    let claude = world.bin.join("claude-agent-acp");
+    world.harness(&claude, "0.5.0");
+    world.configure(json!({
+        "vault": {
+            "argv": [vault],
+            "env": {"VAULT_API_KEY": "${keychain:cmux-harness/vault/VAULT_API_KEY}"},
+        },
+        "keyring-codex": {"argv": [codex], "env": {"CODEX_HOME": codex_home}},
+        "my-claude": {"argv": [claude]},
+    }));
+
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][2];
+    assert_eq!(check["task"], "harness", "{status}");
+    let named = world.json(&["setup", "harness", "vault", "keyring-codex", "my-claude"]);
+    let mut reports = check["harnesses"].as_array().unwrap().clone();
+    reports.extend(named["harnesses"].as_array().unwrap().iter().cloned());
+    let ids = reports.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>();
+    let each = ["keyring-codex", "my-claude", "vault"];
+    assert_eq!(ids, [each, each].concat(), "{status} {named}");
+    for report in &reports {
+        assert_eq!(report["installed"], true, "{report}");
+        assert_eq!(report["signed_in"], Value::Null, "{report}");
+        assert_eq!(report["state"], "ok", "{report}");
+        let detail = report["auth_detail"].as_str().unwrap_or_default();
+        assert!(detail.contains("keychain"), "{report}");
+    }
+    for fake in [&vault, &codex, &claude] {
+        assert_eq!(World::harness_log(fake), "", "{} was started", fake.display());
+    }
+    assert!(!world.bin.join("secret-tool.asked").exists(), "the secret store was asked");
+}
+
+/// An unknown sign-in the check explains (Codex's provider reads a key that
+/// is not set) stays as the check said: the harness is not asked, since its
+/// answer to `session/new` says nothing about that key.
+#[test]
+fn cmux_setup_harness_keeps_the_reason_the_check_gave_for_an_unknown_sign_in() {
+    let world = World::new("hreason");
+    let codex = world.bin.join("router-codex-acp");
+    world.harness(&codex, "0.9.0");
+    // Asked, it would answer `session/new`.
+    World::sign_in(&codex);
+    let config = r#"model_provider = "router"
+[model_providers.router]
+base_url = "https://r.example/v1"
+env_key = "CXS_UNSET_ROUTER_KEY"
+"#;
+    let codex_home = world.codex_home("router-codex", config);
+    world.configure(json!({"router-codex": {"argv": [codex], "env": {"CODEX_HOME": codex_home}}}));
+
+    let status = world.json(&["setup", "status"]);
+    let named = world.json(&["setup", "harness", "router-codex"]);
+    for report in [&status["checks"][2]["harnesses"][0], &named["harnesses"][0]] {
+        assert_eq!(report["id"], "router-codex", "{report}");
+        assert_eq!(report["installed"], true, "{report}");
+        assert_eq!(report["signed_in"], Value::Null, "{report}");
+        let detail = report["auth_detail"].as_str().unwrap_or_default();
+        assert!(detail.contains("CXS_UNSET_ROUTER_KEY"), "{report}");
+    }
+    assert_eq!(World::harness_log(&codex), "", "the harness was asked");
+}
+
+/// The cmux MCP server for Claude Code and Codex started outside cmux: the
+/// agent reads `status`, hands the person the switch only they turn on,
+/// then adds the server through each harness's own CLI, runs it again
+/// (nothing to do), and runs the `undo` it named.
+#[test]
+fn cmux_setup_mcp_an_agent_gives_claude_code_and_codex_the_cmux_server_and_undoes_it() {
+    let world = World::new("mcp").with_fake_mcp_clients();
+    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    let claude_json = world.home.join(".claude.json");
+    let codex_toml = world.home.join(".codex").join("config.toml");
+
+    let list = world.json(&["setup", "list"]);
+    let task = list["tasks"].as_array().unwrap().iter().find(|t| t["id"] == "mcp").unwrap();
+    assert_eq!(task["setup"], "cmux setup mcp [claude|codex ...] [--dry-run]", "{task}");
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][3];
+    assert_eq!(check["task"], "mcp", "{status}");
+    assert_eq!(check["state"], "needs_setup", "{check}");
+    assert_eq!(check["enabled"], false, "{check}");
+    assert_eq!(check["fix"], "cmux setup mcp", "{check}");
+
+    // The switch is the person's: setup names it and writes nothing.
+    let off = world.follow(check["fix"].as_str().unwrap());
+    assert_eq!(off["state"], "needs_user", "{off}");
+    assert_eq!(off["enabled"], false);
+    assert_eq!(off["user_action"]["kind"], "setting", "{off}");
+    let text = off["user_action"]["text"].as_str().unwrap();
+    assert!(text.contains("\"mcp\": {\"enabled\": true}"), "{text}");
+    assert!(text.contains("cmux-next.json"), "{text}");
+    let states = off["clients"].as_array().unwrap().iter().map(|c| &c["state"]).collect::<Vec<_>>();
+    assert_eq!(states, [&json!("planned"), &json!("planned")], "{off}");
+    assert_eq!(off["undo"], Value::Null);
+    assert!(world.take_mcp_calls().is_empty(), "setup wrote with the switch off");
+    assert!(!claude_json.exists() && !codex_toml.exists());
+
+    // The person turns it on. A dry run plans and runs no CLI.
+    world.settings(&json!({"mcp": {"enabled": true}}));
+    let planned = world.json(&["setup", "mcp", "--dry-run"]);
+    assert_eq!(planned["state"], "planned", "{planned}");
+    assert_eq!(planned["dry_run"], true);
+    assert!(world.take_mcp_calls().is_empty(), "a dry run ran a CLI");
+
+    // Each harness's own CLI adds the server, user scope.
+    let changed = world.json(&["setup", "mcp"]);
+    assert_eq!(changed["state"], "changed", "{changed}");
+    assert_eq!(
+        changed["server"],
+        json!({"name": "cmux", "command": cmux, "args": ["mcp", "serve"]})
+    );
+    assert_eq!(
+        world.take_mcp_calls(),
+        [
+            format!("claude mcp add --scope user cmux -- {cmux} mcp serve"),
+            format!("codex mcp add cmux -- {cmux} mcp serve"),
+        ]
+    );
+    let claude: Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    assert_eq!(claude["mcpServers"]["cmux"]["command"], cmux, "{claude}");
+    assert_eq!(claude["mcpServers"]["cmux"]["args"], json!(["mcp", "serve"]));
+    let codex: toml::Table = std::fs::read_to_string(&codex_toml).unwrap().parse().unwrap();
+    assert_eq!(codex["mcp_servers"]["cmux"]["command"].as_str(), Some(cmux), "{codex}");
+    let undo = changed["undo"].as_str().expect("a change names its undo").to_owned();
+    assert_eq!(undo, "claude mcp remove --scope user cmux && codex mcp remove cmux");
+
+    // Again: nothing to do, no CLI run; status agrees.
+    let again = world.json(&["setup", "mcp"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["clients"][0]["entry"]["command"], cmux, "{again}");
+    assert!(world.take_mcp_calls().is_empty(), "a second run ran a CLI");
+    assert_eq!(world.json(&["setup", "status"])["checks"][3]["state"], "ok");
+
+    // The undo puts both back.
+    world.shell(&undo);
+    world.take_mcp_calls();
+    assert_eq!(world.json(&["setup", "mcp", "--dry-run"])["state"], "planned");
+
+    // One harness by name; one not installed is the person's install.
+    std::fs::remove_file(world.bin.join("codex")).unwrap();
+    let named = world.json(&["setup", "mcp", "codex"]);
+    assert_eq!(named["state"], "needs_user", "{named}");
+    assert_eq!(named["clients"].as_array().unwrap().len(), 1, "{named}");
+    assert_eq!(named["user_action"]["kind"], "install", "{named}");
+    assert_eq!(named["user_action"]["command"], "cmux setup harness codex");
+    // Not named and not installed: left out of the work.
+    let default = world.json(&["setup", "mcp", "--dry-run"]);
+    assert_eq!(default["clients"][1]["state"], "not_applicable", "{default}");
+
+    for args in [&["setup", "mcp", "nope"][..], &["setup", "mcp", "--bogus"]] {
+        let output = world.run(args);
+        assert_eq!(output.status.code(), Some(2), "{args:?}");
+        let error: Value = serde_json::from_slice(&output.stderr).unwrap();
+        assert_eq!(error["code"], "usage.invalid", "{args:?}");
+    }
+}
+
+/// A `cmux` server whose command is gone (an app that moved) is replaced,
+/// and its undo puts the old one back; a `cmux` server that runs something
+/// else is the person's, left as it is.
+#[test]
+fn cmux_setup_mcp_replaces_a_moved_cmux_and_leaves_another_server_named_cmux() {
+    let world = World::new("mcpold").with_fake_mcp_clients();
+    let cmux = env!("CARGO_BIN_EXE_cmux-tui");
+    world.settings(&json!({"mcp": {"enabled": true}}));
+    let gone = "/Applications/gone.app/Contents/Resources/bin/cmux";
+    let claude_json = world.home.join(".claude.json");
+    let old = json!({"mcpServers": {"cmux": {"type": "stdio", "command": gone, "args": ["mcp", "serve"]}}});
+    std::fs::write(&claude_json, old.to_string()).unwrap();
+    let codex_toml = world
+        .codex_home(".codex", "[mcp_servers.cmux]\ncommand = \"/bin/echo\"\nargs = [\"hi\"]\n");
+    let codex_toml = codex_toml.join("config.toml");
+    let codex_before = std::fs::read_to_string(&codex_toml).unwrap();
+
+    let result = world.json(&["setup", "mcp"]);
+    assert_eq!(result["state"], "needs_user", "{result}");
+    let claude = &result["clients"][0];
+    assert_eq!(claude["state"], "changed", "{claude}");
+    assert_eq!(claude["entry"]["command"], gone, "{claude}");
+    let codex = &result["clients"][1];
+    assert_eq!(codex["state"], "needs_user", "{codex}");
+    assert_eq!(codex["user_action"]["kind"], "conflict", "{codex}");
+    assert_eq!(codex["user_action"]["command"], "codex mcp remove cmux");
+    assert_eq!(result["user_action"], codex["user_action"]);
+    assert_eq!(
+        world.take_mcp_calls(),
+        [
+            "claude mcp remove --scope user cmux".to_owned(),
+            format!("claude mcp add --scope user cmux -- {cmux} mcp serve"),
+        ]
+    );
+    assert_eq!(std::fs::read_to_string(&codex_toml).unwrap(), codex_before, "setup touched Codex");
+
+    let undo = result["undo"].as_str().unwrap();
+    assert_eq!(
+        undo,
+        format!(
+            "claude mcp remove --scope user cmux && claude mcp add --scope user cmux -- {gone} mcp serve"
+        )
+    );
+    world.shell(undo);
+    let back: Value =
+        serde_json::from_str(&std::fs::read_to_string(&claude_json).unwrap()).unwrap();
+    assert_eq!(back["mcpServers"]["cmux"]["command"], gone, "{back}");
+}
+
+/// A fake cmux app on a socket of the world's that serves what `cmux setup
+/// computer-use` and `cmux settings set` ask: `computer_use.status` answers
+/// `status`; `settings.set computerUse.enabled` with `confirm` is the
+/// person's sheet, approved while `approve` is set (true turns Computer Use
+/// on with the grants of `on`, false turns it off) and declined otherwise;
+/// `settings.get computerUse.enabled` reads the last approved value.
+/// Every request is kept.
+struct FakeApp {
+    status: Arc<Mutex<Value>>,
+    approve: Arc<std::sync::atomic::AtomicBool>,
+    enabled: Arc<std::sync::atomic::AtomicBool>,
+    requests: Arc<Mutex<Vec<Value>>>,
+}
+
+impl FakeApp {
+    fn start(world: &mut World, off: Value, on: Value) -> Self {
+        let socket = world.home.parent().unwrap().join("app.sock");
+        let listener = UnixListener::bind(&socket).unwrap();
+        world.app = Some(socket);
+        let app = Self {
+            status: Arc::new(Mutex::new(off.clone())),
+            approve: Arc::new(std::sync::atomic::AtomicBool::new(true)),
+            enabled: Arc::new(std::sync::atomic::AtomicBool::new(false)),
+            requests: Arc::new(Mutex::new(Vec::new())),
+        };
+        let (status, approve, enabled, requests) =
+            (app.status.clone(), app.approve.clone(), app.enabled.clone(), app.requests.clone());
+        std::thread::spawn(move || {
+            for stream in listener.incoming() {
+                let Ok(stream) = stream else { break };
+                let mut reader = BufReader::new(stream.try_clone().unwrap());
+                let mut writer = stream;
+                let mut line = String::new();
+                while reader.read_line(&mut line).unwrap_or(0) > 0 {
+                    let request: Value = serde_json::from_str(&line).unwrap();
+                    line.clear();
+                    let params = &request["params"];
+                    let answer = match request["method"].as_str() {
+                        Some("computer_use.status") => Ok(status.lock().unwrap().clone()),
+                        Some("settings.get") if params["path"] == "computerUse.enabled" => {
+                            Ok(json!({"value": enabled.load(Ordering::SeqCst)}))
+                        }
+                        Some("settings.set")
+                            if params["path"] == "computerUse.enabled"
+                                && params["confirm"] == true =>
+                        {
+                            if approve.load(Ordering::SeqCst) {
+                                let next = if params["value"] == true { &on } else { &off };
+                                enabled.store(params["value"] == true, Ordering::SeqCst);
+                                *status.lock().unwrap() = next.clone();
+                                Ok(json!({"path": params["path"], "value": params["value"]}))
+                            } else {
+                                Err(json!({"code": "setting_user_only", "message": "declined",
+                                    "data": {"declined": true}}))
+                            }
+                        }
+                        Some("settings.set") => Err(json!({"code": "setting_user_only",
+                            "message": "computerUse.enabled is the person's; pass --confirm"})),
+                        _ => Err(json!({"code": "method_not_found", "message": "unknown"})),
+                    };
+                    let response = match answer {
+                        Ok(result) => json!({"id": request["id"], "ok": true, "result": result}),
+                        Err(error) => json!({"id": request["id"], "ok": false, "error": error}),
+                    };
+                    requests.lock().unwrap().push(request);
+                    if writeln!(writer, "{response}").is_err() {
+                        break;
+                    }
+                }
+            }
+        });
+        app
+    }
+
+    /// The `settings.set` params the app received, in order.
+    fn settings_sets(&self) -> Vec<Value> {
+        let requests = self.requests.lock().unwrap();
+        requests
+            .iter()
+            .filter(|r| r["method"] == "settings.set")
+            .map(|r| r["params"].clone())
+            .collect()
+    }
+}
+
+/// Computer Use driven the way an agent drives it: `status` names it, a dry
+/// run asks nothing, the person declines and then allows it on the app's
+/// sheet (one click), each missing macOS grant comes back as the System
+/// Settings pane to open, and the `undo` turns it off on the same sheet.
+#[test]
+fn cmux_setup_computer_use_turns_it_on_with_the_persons_ok_and_names_each_grant() {
+    const UNDO: &str = "cmux settings set computerUse.enabled false --confirm";
+    let mut world = World::new("cu");
+    let off =
+        json!({"phase": "off", "accessibility": null, "screen_recording": null, "helper": null});
+    let on =
+        json!({"phase": "ready", "accessibility": false, "screen_recording": true, "helper": "1"});
+    let app = FakeApp::start(&mut world, off, on);
+
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][4];
+    assert_eq!(check["task"], "computer_use", "{status}");
+    assert_eq!(check["state"], "needs_setup", "{check}");
+    let fix = check["fix"].as_str().expect("status names its fix").to_owned();
+    assert_eq!(fix, "cmux setup computer-use");
+
+    let planned = world.json(&["setup", "computer-use", "--dry-run"]);
+    assert_eq!(planned["state"], "planned", "{planned}");
+    assert_eq!(planned["undo"], UNDO);
+    assert!(app.settings_sets().is_empty(), "a dry run asked the person");
+
+    // The person declines: nothing changed, and the agent does not ask again.
+    app.approve.store(false, Ordering::SeqCst);
+    let declined = world.follow(&fix);
+    assert_eq!(declined["state"], "needs_user", "{declined}");
+    assert_eq!(declined["user_action"]["kind"], "declined", "{declined}");
+    assert_eq!(declined["undo"], Value::Null);
+
+    // The person allows it: on, and the one grant still missing.
+    app.approve.store(true, Ordering::SeqCst);
+    let on = world.follow(&fix);
+    assert_eq!(on["state"], "needs_user", "{on}");
+    assert_eq!(on["undo"], UNDO, "{on}");
+    assert_eq!(on["before"]["phase"], "off");
+    assert_eq!(on["after"]["phase"], "ready");
+    let action = &on["user_action"];
+    assert_eq!(action["kind"], "grant", "{action}");
+    let url = "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
+    assert_eq!(action["url"], url);
+    assert_eq!(action["command"], format!("open '{url}'"));
+    let sets = app.settings_sets();
+    assert_eq!(sets.len(), 2, "{sets:?}");
+    assert_eq!(sets[1]["path"], "computerUse.enabled");
+    assert_eq!(sets[1]["value"], true);
+    assert_eq!(sets[1]["confirm"], true);
+
+    // The person turns the switch on; nothing is left and nothing is asked.
+    app.status.lock().unwrap()["accessibility"] = json!(true);
+    let ready = world.json(&["setup", "computer-use"]);
+    assert_eq!(ready["state"], "ok", "{ready}");
+    assert_eq!(ready["undo"], Value::Null);
+    assert_eq!(ready["user_action"], Value::Null);
+    assert_eq!(app.settings_sets().len(), 2, "an ok run asked the person");
+    assert_eq!(world.json(&["setup", "status"])["checks"][4]["state"], "ok");
+
+    // The undo, as the agent's shell runs it: the same sheet, turned off.
+    let words = shell_words(UNDO);
+    let args = words[1..].iter().map(String::as_str).collect::<Vec<_>>();
+    let output = world.run(&args);
+    assert!(output.status.success(), "{UNDO}: {}", String::from_utf8_lossy(&output.stderr));
+    let sets = app.settings_sets();
+    assert_eq!((&sets[2]["value"], &sets[2]["confirm"]), (&json!(false), &json!(true)), "{sets:?}");
+    assert_eq!(world.json(&["setup", "computer-use", "--dry-run"])["state"], "planned");
+
+    let output = world.run(&["setup", "computer-use", "now"]);
+    assert_eq!(output.status.code(), Some(2));
+}
+
+/// Managed settings, a helper that is not ready, and no app: each is named
+/// for the person and nothing is asked of the app but its status.
+#[test]
+fn cmux_setup_computer_use_names_what_it_cannot_change() {
+    for (phase, kind) in [("disabled_by_policy", "policy"), ("version_mismatch", "app")] {
+        let mut world = World::new("cupolicy");
+        let status = json!({"phase": phase, "accessibility": null, "screen_recording": null});
+        let app = FakeApp::start(&mut world, status.clone(), status);
+        let result = world.json(&["setup", "computer-use"]);
+        assert_eq!(result["state"], "needs_user", "{result}");
+        assert_eq!(result["user_action"]["kind"], kind, "{result}");
+        assert_eq!(result["undo"], Value::Null);
+        assert!(app.settings_sets().is_empty(), "{phase}: setup changed a setting");
+    }
+    let mut world = World::new("cunoapp");
+    world.app = Some(world.home.parent().unwrap().join("gone.sock"));
+    let result = world.json(&["setup", "computer-use"]);
+    assert_eq!(result["state"], "needs_user", "{result}");
+    assert_eq!(result["user_action"]["kind"], "app", "{result}");
+}
+
+/// Allowed, but the app still reads `off` (its phase follows the setting a
+/// moment later): setup says to wait, not to ask the person again, and no
+/// rerun asks for a second sheet, before or after the phase caught up.
+#[test]
+fn cmux_setup_computer_use_waits_when_the_phase_lags_the_ok() {
+    let mut world = World::new("culag");
+    let off = json!({"phase": "off", "accessibility": null, "screen_recording": null});
+    let app = FakeApp::start(&mut world, off.clone(), off);
+    let result = world.json(&["setup", "computer-use"]);
+    assert_eq!(result["state"], "needs_user", "{result}");
+    assert_eq!(result["user_action"]["kind"], "wait", "{result}");
+    assert_eq!(result["undo"], "cmux settings set computerUse.enabled false --confirm");
+    let early = world.json(&["setup", "computer-use"]);
+    assert_eq!(early["user_action"]["kind"], "wait", "{early}");
+    assert_eq!(early["undo"], Value::Null, "{early}");
+    *app.status.lock().unwrap() =
+        json!({"phase": "ready", "accessibility": true, "screen_recording": true, "helper": "1"});
+    let rerun = world.json(&["setup", "computer-use"]);
+    assert_eq!(rerun["state"], "ok", "{rerun}");
+    assert_eq!(app.settings_sets().len(), 1, "the rerun showed a second sheet");
 }

@@ -80,6 +80,9 @@ enum SidebarContextMenus {
                                                 arguments: [PictureInPictureHandlers.cardArgument: .bool(true)])
             menu.themeRows(in: scope)
             return menu
+        case .priorityChat(let id):
+            // A Priority row: the actions its hover buttons run, on its chat.
+            return registry.makeContextMenu(for: .priorityRow, target: SidebarPriorityRowActions.target(id)).themeRows(in: scope)
         case .layoutItem, .layoutSection:
             return nil
         }

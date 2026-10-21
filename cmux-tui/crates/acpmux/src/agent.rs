@@ -15,6 +15,8 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
+#[cfg(unix)]
+pub(crate) mod session_tmp;
 pub(crate) use command::{
     REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
     host_environment,

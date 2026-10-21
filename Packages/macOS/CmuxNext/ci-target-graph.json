@@ -737,7 +737,8 @@
       ],
       "reads": [
         "Resources/cmux-themes/",
-        "Resources/ghostty/themes/"
+        "Resources/ghostty/themes/",
+        "schemas/theme/orange-accent-allowlist.json"
       ]
     },
     "CmuxNextDictation": {
@@ -1234,6 +1235,15 @@
         "CmuxNextWakeups"
       ],
       "packages": []
+    },
+    "CmuxNextRemoteViewTests": {
+      "kind": "test",
+      "path": "Packages/macOS/CmuxNext/Tests/CmuxNextRemoteViewTests",
+      "targets": [
+        "CmuxNextRemoteView"
+      ],
+      "packages": [],
+      "reads": []
     },
     "CmuxNextResources": {
       "kind": "regular",

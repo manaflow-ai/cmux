@@ -218,19 +218,41 @@ fn watch(
     };
     arm(&mut watcher, &mut watched_customize);
     // Only events inside the watched app folders count: the customize
-    // folder's parent also holds cmux.json and other files.
-    let relevant = |path: &Path| {
-        customize.as_ref().is_some_and(|dir| path.starts_with(dir))
-            || local.as_ref().is_some_and(|dir| path.starts_with(dir))
-    };
-    while next_burst(&events, &relevant) {
+    // folder's parent also holds cmux.json and other files. FSEvents names
+    // the real path, so a folder under a symlink (`/tmp`, a linked
+    // `~/.config`) is matched by its resolved spelling too.
+    let mut roots = watch_roots([customize.as_deref(), local.as_deref()]);
+    loop {
+        let relevant = |path: &Path| roots.iter().any(|root| path.starts_with(root));
+        if !next_burst(&events, &relevant) {
+            return;
+        }
         let Some(supervisor) = me.upgrade() else { return };
         prints = supervisor.reload_local_apps(&prints);
         drop(supervisor);
         if !watched_customize {
             arm(&mut watcher, &mut watched_customize);
+            roots = watch_roots([customize.as_deref(), local.as_deref()]);
         }
     }
+}
+
+/// Each folder as configured and, when it differs, as resolved: the folder
+/// itself when it exists, else its parent resolved with its name (a
+/// customize folder the user has not made yet).
+fn watch_roots(dirs: [Option<&Path>; 2]) -> Vec<PathBuf> {
+    let mut roots = Vec::new();
+    for dir in dirs.into_iter().flatten() {
+        roots.push(dir.to_path_buf());
+        let resolved = std::fs::canonicalize(dir).ok().or_else(|| {
+            let parent = std::fs::canonicalize(dir.parent()?).ok()?;
+            Some(parent.join(dir.file_name()?))
+        });
+        if let Some(resolved) = resolved.filter(|resolved| resolved != dir) {
+            roots.push(resolved);
+        }
+    }
+    roots
 }
 
 /// Waits for an event on a path `relevant` accepts, then drains the burst
