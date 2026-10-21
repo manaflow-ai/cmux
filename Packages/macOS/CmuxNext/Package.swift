@@ -1386,6 +1386,7 @@ let package = Package(
                 "CmuxNextApp",
                 "CmuxNextApps",
                 "CmuxNextBrowserHistory",
+                "CmuxNextChiefPetWiring",
                 "CmuxNextChromiumRuntime",
                 "CmuxNextCompat",
                 "CmuxNextComputerUse",

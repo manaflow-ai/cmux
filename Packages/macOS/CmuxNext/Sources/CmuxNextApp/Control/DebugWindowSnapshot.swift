@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextPages
 import CmuxNextSettings
 import WebKit
 
@@ -131,6 +132,12 @@ enum DebugWindowSnapshot {
                     pagesFailed += 1
                 }
             }
+            // React pages on the Chromium engine (the agent page, Settings) draw the same way.
+            let reactPages = PageRegistry.shownChromiumPages(in: window)
+            for (page, rect) in reactPages {
+                guard let image = await page.chromiumImage() else { pagesFailed += 1; continue }
+                layers.append(.page(image, rect))
+            }
             if let panels = window.childWindowsSnapshot(includeChild: { !WindowOverlayHost.isPageWindow($0) }) {
                 layers.append(.window(panels))
                 childrenIncluded += children.count - pageChildren
@@ -149,7 +156,8 @@ enum DebugWindowSnapshot {
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),
                 "child_windows_failed": JSONValue(children.count - childrenIncluded),
                 "floating_windows": JSONValue(floating?.count ?? 0),
-                "chromium_pages": JSONValue(pages.count), "chromium_pages_composited": JSONValue(pages.count - pagesFailed),
+                "chromium_pages": JSONValue(pages.count + reactPages.count),
+                "chromium_pages_composited": JSONValue(pages.count + reactPages.count - pagesFailed),
                 "chromium_pages_failed": JSONValue(pagesFailed),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])

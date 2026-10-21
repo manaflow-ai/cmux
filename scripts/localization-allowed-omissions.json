@@ -6680,5 +6680,13 @@
         ]
       }
     }
+  },
+  "chiefViews.terminal.untitled": {
+    "source": "Terminal",
+    "identityLocales": {
+      "de": "Terminal is the standard German UI word for a terminal (macOS Terminal.app is Terminal), spelled as in English.",
+      "es": "Terminal is the standard Spanish UI word for a terminal (macOS names the app Terminal), spelled as in English.",
+      "fr": "Terminal is the standard French UI word for a terminal (macOS names the app Terminal), spelled as in English."
+    }
   }
 }
