@@ -152,9 +152,9 @@ final class ChatsOpenCoordinator {
         // A page of another machine never becomes a chat of this Mac (cx-k21v): the chat opens in a
         // new workspace of this Mac instead, as before open-here.
         guard pane.daemon.isLocal else { return false }
-        if NewTabPage.opensBeside(page, in: pane) {
+        if NewTabPage.opensBeside(page, in: pane, mainPane: false) {
             let closePage = NewTabPage.closingPage(page, in: pane)
-            return services.linkOpener.open(from: pane) { [services] target, placed in
+            return services.linkOpener.open(from: pane, mainPane: false) { [services] target, placed in
                 services.agentTabs.openTab(in: target, seed: AgentPaneSeedSource(seed), select: placed == nil) { key in
                     if let placed, let surface = services.locateTab(key)?.0.surface { placed(surface) }
                     closePage()

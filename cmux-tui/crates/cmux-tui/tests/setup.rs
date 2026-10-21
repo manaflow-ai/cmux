@@ -345,6 +345,7 @@ fn cmux_setup_list_names_every_task_and_bad_arguments_exit_2() {
         &["setup", "machine", "box:2222"],
         &["setup", "machine", "a", "b"],
         &["setup", "machine", "box", "--name", "two words"],
+        &["setup", "machine", "box", "--name", "--dry-run"],
     ] {
         let output = world.run(args);
         assert_eq!(output.status.code(), Some(2), "{args:?}");
@@ -540,6 +541,55 @@ fn cmux_setup_machine_updates_an_outdated_peer_and_says_why_there_is_no_undo() {
     let again = world.json(&["setup", "machine", "dev@box.example"]);
     assert_eq!(again["state"], "ok", "{again}");
     assert!(world.take_ssh_calls().is_empty());
+}
+
+#[test]
+fn cmux_setup_machine_never_moves_a_peer_by_its_default_name() {
+    let world = World::new("taken").with_fake_ssh();
+    let ws = json!({
+        "name": "box", "url": "wss://box.relay.example/acp", "connected": true,
+        "outdated": false, "remoteBuild": "this", "error": null,
+    });
+    let daemon = FakeDaemon::start(&world, vec![ws.clone()]);
+
+    // `box` is the default name for box.example, but it names another peer:
+    // nothing runs, not even ssh, and the person picks a name.
+    for dry_run in [true, false] {
+        let mut args = vec!["setup", "machine", "box.example"];
+        if dry_run {
+            args.push("--dry-run");
+        }
+        let result = world.json(&args);
+        assert_eq!(result["state"], "needs_user", "{result}");
+        assert_eq!(result["user_action"]["kind"], "name", "{result}");
+        assert_eq!(result["user_action"]["command"], "cmux setup machine box.example --name NAME");
+        assert_eq!(result["before"]["url"], ws["url"]);
+        assert_eq!(result["plan"], json!([]));
+        assert_eq!(result["undo"], Value::Null);
+        assert!(world.take_ssh_calls().is_empty(), "a taken name reached the machine");
+    }
+    assert_eq!(daemon.peers(), [ws.clone()]);
+
+    // A new name adds the machine beside it.
+    let added = world.json(&["setup", "machine", "box.example", "--name", "box2"]);
+    assert_eq!(added["state"], "changed", "{added}");
+    assert_eq!(added["undo"], "cmux acp host rm box2");
+    world.take_ssh_calls();
+    let peers = daemon.peers();
+    assert_eq!(peers.len(), 2, "{peers:?}");
+    assert_eq!(peers[0], ws);
+
+    // Without --name, the peer at that host is found under its own name.
+    let again = world.json(&["setup", "machine", "box.example"]);
+    assert_eq!(again["state"], "ok", "{again}");
+    assert_eq!(again["name"], "box2");
+    assert!(world.take_ssh_calls().is_empty());
+
+    // An ssh peer moved by an explicit --name names the way back.
+    let moved = world.json(&["setup", "machine", "other.example", "--name", "box2", "--dry-run"]);
+    assert_eq!(moved["state"], "planned", "{moved}");
+    assert_eq!(moved["before"]["url"], "ssh://box.example");
+    assert_eq!(moved["undo"], "cmux acp host add box2 ssh://box.example");
 }
 
 #[test]
