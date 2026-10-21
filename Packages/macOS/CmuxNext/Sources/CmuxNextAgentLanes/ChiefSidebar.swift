@@ -116,8 +116,12 @@ public final class ChiefSidebar {
                       invoke: { [weak self] _ in self?.showsIdleSubagents.toggle() })
         ActionTargetTitles.setState(Self.toggleIdleAction, in: registry) { [weak self] _ in self?.showsIdleSubagents }
         registry.bind(Self.openSubagentAction, invoke: { [weak self, weak registry] invocation in
-            guard let self, let registry, let target = invocation.target, target.kind == .sidebarItem else { return }
-            _ = activate(LayoutItemID(target.id), registry: registry)
+            guard let self, let registry else { return }
+            // No subagent row (its shortcut, `cmux action run` without --target): say so, never a silent no-op.
+            guard let target = invocation.target else { return registry.refuse(ChiefToolStrings.noSubagent) }
+            if target.kind != .sidebarItem || !activate(LayoutItemID(target.id), registry: registry) {
+                registry.refuseNotFound(ChiefToolStrings.noSubagent)
+            }
         })
         // The docked Home's Messages view (the Chief's chat) shows its tools in the pane's tab row.
         HomeDockSwitchView.makeRowTools = { [weak self, weak registry] mode in
