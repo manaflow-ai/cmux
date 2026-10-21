@@ -283,7 +283,7 @@ await requireBrowserLane("agent-pane-agents-pill.test.ts", async () => {
     // Both end: the tray goes, and each leaves its line.
     push(finished("a1", "Reviewer"));
     push(finished("a2", "Tester"));
-    for (let tries = 0; tries < 50 && (await tray(page).count()) > 0; tries++) await page.waitForTimeout(100);
+    await tray(page).first().waitFor({ state: "detached", timeout: 5_000 });
     expect(await tray(page).count()).toBe(0);
     // Each leaves one line where it ended, at the transcript's end.
     await page.locator(".cv-subagent-done", { hasText: "Reviewer" }).waitFor({ timeout: 5_000 });
