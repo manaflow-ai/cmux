@@ -134,4 +134,24 @@ import Testing
         #expect(store.readState().floor == pointer.committedAt)
         #expect(!FileManager.default.fileExists(atPath: tree.path))
     }
+
+    /// NIGHTLY updates by Sparkle delta, which rewrites only the files whose bytes changed:
+    /// `web-abi.json` keeps the time of the first install across every later nightly, while each
+    /// nightly rewrites `Info.plist` (its build number and commit). The bundled web's build time
+    /// is the plist's, so a newer nightly still drops an older kept update.
+    @Test func theBundledWebIsAsNewAsTheAppsInfoPlistNotItsWebAbiJson() throws {
+        let root = try Self.scratch()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pages = root.appending(path: "pages", directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: pages, withIntermediateDirectories: true)
+        let abi = pages.appending(path: "web-abi.json")
+        try Data("{\"abi\": 2}\n".utf8).write(to: abi)
+        let plist = root.appending(path: "Info.plist")
+        try Data("<plist/>\n".utf8).write(to: plist)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_700_000_000)], ofItemAtPath: abi.path)
+        try FileManager.default.setAttributes([.modificationDate: Date(timeIntervalSince1970: 1_760_000_000)], ofItemAtPath: plist.path)
+        let app = try #require(WebUpdater.App.bundled(pages: pages, infoPlist: plist))
+        #expect(app.abi == 2)
+        #expect(app.webBuiltAt == 1_760_000_000)
+    }
 }
