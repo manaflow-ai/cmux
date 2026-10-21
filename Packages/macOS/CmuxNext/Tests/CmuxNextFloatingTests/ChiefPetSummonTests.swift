@@ -18,7 +18,7 @@ import Testing
 
     @Test func aSummonWhileThePetIsOffShowsItForThisMessageOnly() {
         let controller = Self.controller()
-        defer { controller.sync(false) }
+        defer { controller.closeReply(); controller.sync(false) }
         controller.sync(false)
         controller.summon(petOn: false)
         #expect(controller.isShown, "the pet shows as the box's anchor")
@@ -32,7 +32,7 @@ import Testing
 
     @Test func turningThePetOnWhileTheBoxIsOpenKeepsThePet() {
         let controller = Self.controller()
-        defer { controller.sync(false) }
+        defer { controller.closeReply(); controller.sync(false) }
         controller.summon(petOn: false)
         controller.sync(true)
         #expect(controller.replyPanel?.isVisible == true, "the open box stays")
@@ -42,7 +42,7 @@ import Testing
 
     @Test func aSummonRightAfterHideChiefPetKeepsTheBoxUntilItCloses() {
         let controller = Self.controller()
-        defer { controller.sync(false) }
+        defer { controller.closeReply(); controller.sync(false) }
         controller.sync(true)
         // Hide Chief Pet has landed but the controller has not followed it yet.
         controller.summon(petOn: false)
@@ -54,7 +54,7 @@ import Testing
 
     @Test func aSummonWhileThePetShowsOpensTheBoxAndKeepsItOpen() {
         let controller = Self.controller()
-        defer { controller.sync(false) }
+        defer { controller.closeReply(); controller.sync(false) }
         controller.sync(true)
         controller.summon(petOn: true)
         #expect(controller.replyPanel?.isVisible == true)

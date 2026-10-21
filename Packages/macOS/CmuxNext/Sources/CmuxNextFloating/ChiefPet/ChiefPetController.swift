@@ -37,7 +37,7 @@ public final class ChiefPetController {
     private(set) var expanded = false
     /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
     /// and goes when its reply box closes; the setting turning on keeps it.
-    private(set) var transient = false
+    var transient = false
 
     public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
