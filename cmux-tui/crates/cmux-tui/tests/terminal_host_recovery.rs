@@ -5318,6 +5318,9 @@ mod output_coalescing;
 #[path = "terminal_host_recovery/answers_before_adoption.rs"]
 mod answers_before_adoption;
 
+#[path = "terminal_host_recovery/adoption_startup_state.rs"]
+mod adoption_startup_state;
+
 #[cfg(target_os = "macos")]
 #[path = "terminal_host_recovery/slim_host.rs"]
 mod slim_host;
