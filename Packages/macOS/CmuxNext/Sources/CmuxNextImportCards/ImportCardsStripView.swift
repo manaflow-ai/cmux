@@ -149,9 +149,10 @@ final class ImportCardView: NSView {
     }
 
     private func build() {
-        // Opaque: the strip floats over the conversation, which must not show through the card.
-        let surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: .alwaysOpaque)
-        surface.translatesAutoresizingMaskIntoConstraints = false
+        // The strip floats over the conversation: real glass with the dialogs' denser neutral veil
+        // and rim, so the conversation blurs behind the text instead of showing through it, never
+        // a solid card (Leo 2026-10-21: "STOP DOING SOLID. WE HAVE GLASS, SO JUST USE GLASS.").
+        let surface = Glass.makeOverlayPanel(cornerRadius: Metrics.space3, interactive: false, tone: .neutralGlass(.dialog))
         addSubview(surface)
         let (primaryText, secondaryText, tertiaryText) = performWithTheme { (Palette.textPrimary, Palette.textSecondary, Palette.textTertiary) }
         let icon = NSImageView()
