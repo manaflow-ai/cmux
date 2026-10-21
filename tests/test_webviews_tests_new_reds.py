@@ -6,8 +6,11 @@ About 25 browser tests were red on feat-cmux-next for every pull request, so #23
 scripts/ci/webviews-tests-new-reds.sh runs each file red on the head again in a checkout of the base
 and compares per test name (scripts/ci/guards_new_reds.py). A fake `bun` stands in for the real one:
 a test file's `FAIL <name>` lines are the tests it fails, `CRASH` makes it fail before naming any,
-`HANG` makes it time out, and `SCOPED` crashes it like prScope.ts does when CMUX_PR_CHANGED_FILES is
-set and HEAD^1 is missing (the base checkout: the job fetched only the merge commit and its parents).
+`HANG` makes it time out, `SCOPED` crashes it like prScope.ts does when CMUX_PR_CHANGED_FILES is
+set and HEAD^1 is missing (the base checkout: the job fetched only the merge commit and its parents),
+and `RULE` fails `the rules hold` as a prScope rule test with findings does unless
+CMUX_NEXT_STYLE_GUARDS=warn. `bun install` leaves a fake Playwright whose install exits
+FAKE_PLAYWRIGHT_STATUS.
 """
 import json
 import os
@@ -24,7 +27,12 @@ COMPARE = ROOT / "scripts/ci/guards_new_reds.py"
 WORKFLOW = ROOT / ".github/workflows/ci-web.yml"
 
 FAKE_BUN = """#!/usr/bin/env bash
-if [ "$1" = install ]; then exit "${FAKE_BUN_INSTALL_STATUS:-0}"; fi
+if [ "$1" = install ]; then
+  mkdir -p node_modules/.bin
+  printf '#!/bin/sh\nexit "${FAKE_PLAYWRIGHT_STATUS:-0}"\n' > node_modules/.bin/playwright
+  chmod +x node_modules/.bin/playwright
+  exit "${FAKE_BUN_INSTALL_STATUS:-0}"
+fi
 [ "$1" = test ] || exit 9
 if grep -q '^CRASH' "$2"; then echo "error: Cannot find module './gone'"; exit 1; fi
 if grep -q '^HANG' "$2"; then sleep 30; fi
@@ -32,6 +40,7 @@ if grep -q '^SCOPED' "$2" && [ -n "${CMUX_PR_CHANGED_FILES:-}" ] && ! git rev-pa
   echo "error: git diff HEAD^1 HEAD"; exit 1
 fi
 status=0
+if grep -q '^RULE' "$2" && [ "${CMUX_NEXT_STYLE_GUARDS:-}" != warn ]; then echo "(fail) the rules hold [3.00ms]"; status=1; fi
 while read -r word name; do
   if [ "$word" = FAIL ]; then echo "(fail) $name [12.50ms]"; status=1; fi
 done < "$2"
@@ -147,6 +156,23 @@ class Wrapper(unittest.TestCase):
         done, out = self.run_pr(files, dict(files), extra_env={"CMUX_PR_CHANGED_FILES": "webviews/src/x.gallery.tsx"})
         self.assertEqual(done.returncode, 0, out)
         self.assertIn("::warning title=Webview test red on the base too::test/a.test.ts > old red", out)
+
+    def test_the_bases_rule_findings_do_not_hide_the_changes_own(self):
+        # On a main PR (CMUX_NEXT_STYLE_GUARDS=fail) the head's ui-rules test fails on the change's own
+        # finding only; the base, unscoped, would fail the same test on the findings it already has.
+        done, out = self.run_pr({"test/ui-rules.test.ts": "RULE\n" + body([])},
+                                {"test/ui-rules.test.ts": body(["the rules hold"])},
+                                extra_env={"CMUX_NEXT_STYLE_GUARDS": "fail"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertIn("::error title=Webview test red on this change::test/ui-rules.test.ts > the rules hold", out)
+
+    def test_a_base_without_its_own_playwright_engines_makes_every_red_the_changes(self):
+        # A change that bumps Playwright: the base's version has no engines on this runner, so its
+        # browser tests would all be red and match the head's.
+        base = {"test/a.test.ts": body(["old red"])}
+        done, out = self.run_pr(base, dict(base), extra_env={"FAKE_PLAYWRIGHT_STATUS": "1"})
+        self.assertEqual(done.returncode, 1, out)
+        self.assertIn("the base did not set up", out)
 
     def test_a_new_file_that_fails_is_the_changes(self):
         done, out = self.run_pr({"test/a.test.ts": body([])}, {"test/a.test.ts": body([]), "test/b.test.ts": body(["x"])})

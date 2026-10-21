@@ -39,11 +39,16 @@ done < <(python3 "$here/webviews_test_results.py" --failed-files "$work/head.jso
 echo "::group::the red files again on the base ($base_ref)"
 if [ -s "$work/files" ] && git worktree add -q --detach "$base_tree" "$base_ref" > /dev/null &&
   (cd "$base_tree/$prefix" && bun install --frozen-lockfile &&
+    # The base's own Playwright engines: a change that bumps Playwright would leave the base's
+    # browser tests red on a missing executable, and every head browser red would match them.
+    ./node_modules/.bin/playwright install --only-shell chromium webkit &&
     "$base_tree/scripts/cmux-next/build-web-bundles.sh" --force); then
-  # Every red file runs, whatever this job's shard, and prScope.ts scopes nothing to the change's
-  # files (in the base checkout its `git diff HEAD^1` has no parent and would crash the file).
+  # Every red file runs, whatever this job's shard. prScope.ts gets no changed files (in the base
+  # checkout its `git diff HEAD^1` has no parent and would crash the file) and warns only: the
+  # head's run already counted just the change's own findings, so the base's findings, all of
+  # them unscoped, must not turn the same test red there and pass the change's off as old.
   (cd "$base_tree/$prefix" && CMUX_WEB_TEST_FILES="$(cat "$work/files")" CMUX_WEB_TEST_RESULTS="$work/base.json" \
-    env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES \
+    env -u CMUX_WEB_TEST_SHARD -u CMUX_WEB_TEST_SHARD_COUNT -u CMUX_PR_CHANGED_FILES CMUX_NEXT_STYLE_GUARDS=warn \
     bash "$here/run-webviews-tests.sh" > "$work/base.log" 2>&1) || true
   sed -n '/^### webviews tests:/,$p' "$work/base.log"
 elif [ -s "$work/files" ]; then
