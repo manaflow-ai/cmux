@@ -7,6 +7,7 @@ import { BEGIN_SKEW_MS, beginProofMessage, codeFromRandom, displayCode, normaliz
 import { jwkThumbprint } from "./domains/user.ts"
 import { collectSecret, collectSecretValid } from "./pair-collect.ts"
 import type { PairingRecord, PairingResult } from "./pairing-do.ts"
+import { issuePairNetwork, nativeMesh, nativeServerName, networkLocator, type PairingApproval, type PairNetworkTransport } from "./server-pair-network.ts"
 
 /**
  * cmux server pairing routes (plans/cmux-next/server.md 6.2).
@@ -155,18 +156,21 @@ export const pairApprove = async (
   env: Env,
   principal: Principal,
   frame: { op: string; params: unknown; idempotency_key: string },
-  submit: (owner: "cloud:UserDO", p: Principal, f: { op: string; params: unknown; idempotency_key: string; origin: string }) => Promise<{ frames: ReadonlyArray<OwnerFrame> }>
+  submit: (owner: "cloud:UserDO", p: Principal, f: { op: string; params: unknown; idempotency_key: string; origin: string }) => Promise<{ frames: ReadonlyArray<OwnerFrame> }>,
+  transport: PairNetworkTransport = {}
 ): Promise<OpReply> => {
   const op = frame.op
   if (!isHumanSession(principal)) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing needs a signed-in user")
-  const params = (frame.params ?? {}) as { code?: unknown; team?: unknown; name?: unknown }
+  const params = (frame.params ?? {}) as { code?: unknown; team?: unknown; name?: unknown; mesh?: unknown }
   const code = normalizeCode(String(params.code ?? ""))
   if (!code) return fail(op, frame.idempotency_key, "validation.invalid", "invalid pairing code")
   // Phase 1 routes TeamDO by the token's team only (http.ts ownerRoute); another team is refused, not guessed.
   if (params.team !== principal.team) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing into another team is not supported yet")
   const name = typeof params.name === "string" && params.name.length >= 1 && params.name.length <= 80 ? params.name : null
   if (!name) return fail(op, frame.idempotency_key, "validation.invalid", "name must be 1 to 80 characters")
+  if (params.mesh !== undefined && (!nativeMesh(params.mesh) || !nativeServerName(name))) return fail(op, frame.idempotency_key, "validation.invalid", "network enrollment needs a mesh id and a server name of 1 to 63 letters, digits, spaces, dots, underscores or hyphens")
   const team = principal.team!
+  const approval: PairingApproval = { team, name, mesh: typeof params.mesh === "string" ? params.mesh : null }
   const stub = pairingStub(env, code)
   const now = Date.now()
   // Limit before any PairingDO wakes. When the guessing budget is spent, a retry of the caller's own
@@ -183,13 +187,23 @@ export const pairApprove = async (
     if (!(mine ?? (await stub.claimedBy(code, principal.user!, now)))) return fail(op, frame.idempotency_key, "auth.forbidden", "only team owners and admins may add a server")
   }
   // Claim before any write: concurrent approvals by different users cannot both register an install and a host.
-  const claimed = await stub.claim(code, principal.user!, now)
+  const claimed = await stub.claim(code, principal.user!, now, approval)
   if (!claimed.ok) {
     return claimed.reason === "unknown" ? fail(op, frame.idempotency_key, "selector.not_found", "pairing code expired or unknown") : fail(op, frame.idempotency_key, "auth.forbidden", "pairing code already used")
   }
   const done = (result: PairingResult): OpReply => ({ ok: true, op, value: result, transaction: "", idempotency_key: frame.idempotency_key, replayed: false, stream: `team:${result.team}`, sequence: 0 })
   if (claimed.result) return done(claimed.result)
   const rec = claimed.record
+  // The owner routing identity and both public-key pins are verified before any install/host write.
+  // The human's session is transient. Only the narrow invitation goes into the private pairing row.
+  let network = claimed.network
+  if (approval.mesh !== null && !network) {
+    const issued = await issuePairNetwork(env, approval, rec, transport)
+    if (!issued.ok) return fail(op, frame.idempotency_key, issued.code, issued.message, issued.retryable)
+    const reserved = await stub.reserveNetwork(code, rec.thumbprint, principal.user!, approval, issued.grant, Date.now())
+    if (!reserved.ok) return fail(op, frame.idempotency_key, "auth.forbidden", "pairing network approval changed or expired")
+    network = reserved.grant
+  }
   const reg = await submit("cloud:UserDO", pairingServerPrincipal(principal, team), {
     op: "install.register_server",
     // The approver's SSO team was resolved fresh for this approval (http.ts), so it counts as seen now.
@@ -203,7 +217,7 @@ export const pairApprove = async (
   const enrolled = await env.TEAM_DO.get(env.TEAM_DO.idFromName(team)).enrollServer(
     team,
     principal,
-    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key },
+    { install, name, platform: rec.info.platform, wg_public_key: rec.wg_public_key, ...(network ? { network: networkLocator(network) } : {}) },
     `pair:${code}:${rec.thumbprint}:host`
   )
   if (!enrolled.ok) {
@@ -211,7 +225,7 @@ export const pairApprove = async (
     if (enrolled.refused) await stub.abort(code, principal.user!, Date.now())
     return fail(op, frame.idempotency_key, enrolled.code, enrolled.message)
   }
-  const result: PairingResult = { host: enrolled.host, team, user: principal.user!, install }
+  const result: PairingResult = { host: enrolled.host, team, user: principal.user!, install, ...(network ? { network: networkLocator(network) } : {}) }
   const c = await stub.complete(code, rec.thumbprint, result, Date.now())
   if (!c.ok) return fail(op, frame.idempotency_key, "validation.invalid", c.message)
   return done(result)

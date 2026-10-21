@@ -47,7 +47,7 @@ struct AgentPaneColdChatRevealTests {
 
         view.model.markPainted()
         #expect(view.pageContent.alphaValue == 1, "the page stayed clear under its loading state")
-        if Motion.canAnimate(in: view), Motion.duration(.fadeIn) > 0 {
+        if Motion.canAnimate(in: view), Motion.home.duration(.fadeIn) > 0 {
             #expect(view.loadingView.superview != nil, "the chat's page replaced its loading state in one frame, with no fade")
         }
         try await Self.settle { view.loadingView.superview == nil }

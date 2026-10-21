@@ -547,6 +547,18 @@ final class RowCell: UICollectionViewCell {
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
     static var synchronousBitmaps = false
+    /// cmux (home-streaming-perf-DESIGN.md): a streaming bubble (ask 11) at least this tall draws its next
+    /// text off main while its previous bitmap stays (drawing the whole bubble on main per token was the
+    /// largest part of a streaming frame); a shorter one draws on main as before (cheap, and its look is
+    /// unchanged).
+    static var streamOffMainHeight: CGFloat = 160
+    /// Streaming rows that kept their previous bitmap while the next one is drawn off main (tests).
+    static var streamKeptBitmaps = 0
+    /// Whether `spec` is a tall streaming bubble's text row (it draws off main: `streamOffMainHeight`).
+    static func streamDrawsOffMain(_ spec: RowSpec) -> Bool {
+        guard spec.height >= streamOffMainHeight, case let .part(p) = spec.kind, !p.outgoing, case .text = p.part else { return false }
+        return StreamBubble.isStream(p.ref.messageId)
+    }
     /// Rows drawn on the main thread because their bitmap was not ready
     /// (bench evidence).
     static var syncRenders = 0
@@ -868,6 +880,7 @@ final class RowCell: UICollectionViewCell {
             liveKept = true
             RowCell.liveKeptBitmaps += 1
         } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
+                                                    && !(showingThisRow && RowCell.streamDrawsOffMain(spec)) // cmux: a tall stream's next text
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
             // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
@@ -897,6 +910,14 @@ final class RowCell: UICollectionViewCell {
                 bitmap.contents = nil
                 bitmapCleared()
                 tintTypingDiscs()
+            } else if showingThisRow, RowCell.streamDrawsOffMain(spec) {
+                // cmux (home-streaming-perf-DESIGN.md): a tall streaming bubble's new text is drawn off main. Its
+                // previous bitmap stays at its own size, top at the row's top: the text already shown sits where
+                // it will be, and the new line shows when its bitmap lands (a frame or two later), never stretched.
+                RowCell.streamKeptBitmaps += 1
+                bitmap.frame = CGRect(origin: bitmapFrame.origin, size: drawnSize)
+                bitmap.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
+                stretched = false
             } else if showingThisRow {
                 // The same row is on screen with its previous bitmap and its spec changed: a new
                 // width (live resize, the sidebar divider: every visible row at once) or a palette
@@ -934,7 +955,11 @@ final class RowCell: UICollectionViewCell {
             RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale] img in
                 if self?.pendingWant == want { self?.dropWant() }
                 // A bitmap of the scale the cell had at the request (a scale change since: its own request follows).
-                guard let self, self.spec == want, self.renderScale == scale else { return }
+                // cmux: a streaming bubble's earlier text that lands after a newer one was asked for still shows
+                // (top at the row's top, its own size): under a fast stream every text is followed by a newer one.
+                guard let self, self.renderScale == scale,
+                      self.spec == want || (self.spec?.key == want.key && RowCell.streamDrawsOffMain(want)
+                                            && self.drawn.map { $0.spec != want } ?? true) else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
                 Reclaimer.release(self.bitmap.contents)
                 MediaPlaceholder.clear(self.bitmap)

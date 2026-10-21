@@ -54,17 +54,19 @@ async function ready(sheets: HomeSheets) {
 }
 
 const profile = { name: "Uni", role: "", personality: "", instructions: "" };
+/** The Chief editor's save with only a backend picked (u2586: one save shape for both pages). */
+const save = (harness?: string) => ({ profile, ...(harness ? { engine: { harness } } : {}), picture: undefined });
 
 test("a new Chief on UniiChat names `harness: unii`; on Claude it names no harness", async () => {
   const { sheets, created } = sheetsWithHost();
   await ready(sheets);
-  await sheets.createChief(profile, undefined, undefined, "unii");
+  await sheets.createChief(save("unii"));
   expect(created[0]).toMatchObject({ display_name: "Uni", harness: "unii" });
-  await sheets.createChief(profile, undefined, undefined, "claude");
+  await sheets.createChief(save("claude"));
   expect("harness" in created[1]!).toBe(false);
-  await sheets.createChief(profile, undefined, undefined);
+  await sheets.createChief(save());
   expect("harness" in created[2]!).toBe(false);
-  await sheets.createChief(profile, undefined, undefined, "codex");
+  await sheets.createChief(save("codex"));
   expect(created[3]).toMatchObject({ harness: "codex" });
 });
 

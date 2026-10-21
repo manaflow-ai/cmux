@@ -17,9 +17,12 @@ export const CATEGORY_CARDS = [
   "machines",
   "accounts",
   "agentHarnesses",
+  "chiefs",
   "advancedInfo",
   "advancedActions",
   "backdrops",
+  "mobile",
+  "density",
 ] as const;
 
 /** A non-schema part a category draws (host lists, the theme studio, file actions). */

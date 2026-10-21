@@ -17,9 +17,9 @@ import os
 /// let renderer = OndineMermaidRenderer(script: resources.appending(path: "markdown-viewer/ondine.min.js"))
 /// let size = renderer.layout(mermaid: "graph TD\nA-->B", maxWidth: 340)
 /// ```
-public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, @unchecked Sendable {
-    // @unchecked Sendable: every mutable value (the context, the caches) lives in `state` and is
-    // read and written only inside its lock.
+public nonisolated final class OndineMermaidRenderer: HomeDiagramRendering, Sendable {
+    // Checked Sendable: every stored value is an immutable Sendable let; the mutable ones (the
+    // context, the caches) live in `state` and are read and written only inside its lock.
     /// Ondine's text size in points (the transcript's body text is 13 pt; diagrams are denser).
     public static let fontSize: CGFloat = 12
     /// Sources longer than this are refused (Mermaid's own `maxTextSize`).

@@ -1,10 +1,11 @@
 /// Files the composer attaches to a prompt. Images, PDFs and dictation's voice recordings go to
 /// the agent as ACP content blocks. A text file is written into the prompt's text because
-/// the web view never learns a dropped file's path; other files are refused.
+/// the web view never learns a dropped file's path; any other file (a binary, a large text file)
+/// goes to the chat's host (`chat.upload`), which saves it and puts its path in the prompt.
 
 export type ComposerAttachment = {
   id: string;
-  kind: "image" | "text" | "document" | "audio";
+  kind: "image" | "text" | "document" | "link" | "audio";
   name: string;
   mimeType: string;
   size: number;
@@ -16,6 +17,8 @@ export type ComposerAttachment = {
   pageCount?: number;
   /** A shell mode command's chip (shell/shellRuns.ts): its text is the run's output, filled when the prompt goes. */
   shellRun?: string;
+  /** A link's file or folder on this computer (Attach files or folders): the agent reads it there. */
+  path?: string;
 };
 
 export type AttachmentError = { name: string; reason: "tooLarge" | "unsupported" | "imagesUnsupported" | "tooMany" };
@@ -24,6 +27,7 @@ export type PromptBlock =
   | { type: "text"; text: string }
   | { type: "image"; mimeType: string; data: string; name?: string }
   | { type: "document"; mimeType: "application/pdf"; data: string; name?: string }
+  | { type: "resource_link"; uri: string; name: string }
   | { type: "audio"; mimeType: string; data: string };
 
 /** Anthropic's per-image limit. */
@@ -166,9 +170,13 @@ export function decodeText(bytes: Uint8Array): string | undefined {
 /// A thumbnail of an image attachment `height`px tall (as a data: URL), in the image's own shape
 /// between 0.7:1 and 2:1, its center cropped only past those bounds, so a wide screenshot shows as
 /// itself rather than a sliver of its text (Leo, 2026-10-14) and a chip never hands a
-/// multi-megabyte image to a small <img>. Undefined when the engine cannot decode the image or has
-/// no OffscreenCanvas; the chip then draws the image itself.
-export async function thumbnail(image: { mimeType: string; data: string }, height = 160): Promise<string | undefined> {
+/// multi-megabyte image to a small <img>, with the image's natural size (its hover name says it).
+/// Undefined when the engine cannot decode the image or has no OffscreenCanvas; the chip then draws
+/// the image itself.
+export async function thumbnail(
+  image: { mimeType: string; data: string },
+  height = 160,
+): Promise<{ url: string; width: number; height: number } | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   try {
     const bytes = Uint8Array.from(atob(image.data), (char) => char.charCodeAt(0));
@@ -199,9 +207,10 @@ export async function thumbnail(image: { mimeType: string; data: string }, heigh
       canvas.width,
       canvas.height,
     );
+    const natural = { width: bitmap.width, height: bitmap.height };
     bitmap.close();
     const blob = await canvas.convertToBlob({ type: "image/png" });
-    return `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`;
+    return { url: `data:image/png;base64,${base64(new Uint8Array(await blob.arrayBuffer()))}`, ...natural };
   } catch {
     return undefined;
   }
@@ -225,7 +234,7 @@ export function promptText(text: string, attachments: ComposerAttachment[]): str
   return [text, ...files].filter(Boolean).join("\n\n");
 }
 
-/// ACP prompt blocks: the text (with text files) first, then each image, PDF and recording.
+/// ACP prompt blocks: the text (with text files) first, then each image, PDF, recording and file or folder link.
 export function promptBlocks(text: string, attachments: ComposerAttachment[]): PromptBlock[] {
   const blocks: PromptBlock[] = [];
   const body = promptText(text, attachments);
@@ -235,9 +244,31 @@ export function promptBlocks(text: string, attachments: ComposerAttachment[]): P
       blocks.push({ type: "image", mimeType: attachment.mimeType, data: attachment.data, name: attachment.name });
     else if (attachment.kind === "document" && attachment.data)
       blocks.push({ type: "document", mimeType: "application/pdf", data: attachment.data, name: attachment.name });
+    else if (attachment.kind === "link" && attachment.path)
+      blocks.push({ type: "resource_link", uri: fileUri(attachment.path), name: attachment.name });
     else if (attachment.kind === "audio" && attachment.data)
       blocks.push({ type: "audio", mimeType: attachment.mimeType, data: attachment.data });
   return blocks;
+}
+
+/// A link chip for a file or folder the host's panel chose (`chat.attach.choose`): named by its
+/// last component, a folder's with a trailing slash.
+export function linkAttachment(path: string, folder: boolean): ComposerAttachment {
+  const trimmed = path.replace(/\/+$/, "") || "/";
+  const name = trimmed.slice(trimmed.lastIndexOf("/") + 1) || trimmed;
+  return {
+    id: `link:${trimmed}`,
+    kind: "link",
+    name: folder ? `${name}/` : name,
+    mimeType: "",
+    size: 0,
+    path: trimmed,
+  };
+}
+
+/// `file://` and the path, each segment percent-encoded.
+function fileUri(path: string): string {
+  return `file://${path.split("/").map(encodeURIComponent).join("/")}`;
 }
 
 /// Whether a session takes voice input through its picked model: the harness advertises ACP

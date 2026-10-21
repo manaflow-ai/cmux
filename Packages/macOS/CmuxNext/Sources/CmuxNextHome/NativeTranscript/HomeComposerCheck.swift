@@ -7,10 +7,9 @@ import UniformTypeIdentifiers
 /// type and the owner's limits for the size, so paste, drop, the drag check
 /// and the picker agree and a refused file is never hashed or copied.
 enum HomeComposerCheck {
-    /// The types the file picker offers: exactly what the data side accepts.
-    static var pickerTypes: [UTType] {
-        HomeAttachmentPolicy.acceptedInputTypes.sorted().compactMap { UTType($0) }
-    }
+    /// The types the file picker offers: none named, so every file (any file
+    /// attaches; the data side sends unlisted ones as text or a generic file).
+    static var pickerTypes: [UTType] { [] }
 
     /// Whether the data side takes a file of this URL's type.
     static func accepts(_ url: URL) -> Bool { HomeAttachmentPolicy.accepts(fileURL: url) }
@@ -23,7 +22,8 @@ enum HomeComposerCheck {
             // A stat for the size only; the bytes are read by the data side.
             let values = try? url.resourceValues(forKeys: [.fileSizeKey])
             name = url.lastPathComponent
-            accepted = accepts(url)
+            guard accepts(url) else { return HomeStrings.attachmentRefusal(.folder(name: name), name: name) }
+            accepted = true
             size = values?.fileSize ?? 0
             typeName = url.pathExtension
         case .data(let data, let identifier):
