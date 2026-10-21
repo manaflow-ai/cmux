@@ -175,6 +175,11 @@ public struct SidebarMapping {
         row.lastMessage = lastMessage(front, tabs)
         if showsUnread { row.notificationText = newestUnread(tabs).flatMap(notificationText) }
         row.reported = Self.reported(workspace.status, asset: iconAsset)
+        if tabs.contains(where: { $0.agentSession?.session.map(AgentBypassSessions.shared.contains) == true }) {
+            let reported = row.reported ?? SidebarWorkspaceStatus()
+            row.reported = SidebarWorkspaceStatus(entries: [.bypass] + reported.entries.filter { $0.key != SidebarWorkspaceStatus.Entry.bypassKey },
+                                                  log: reported.log, progressLabel: reported.progressLabel)
+        }
         row.workspaceDescription = workspace.workspaceDescription
         row.taskStatus = workspace.taskStatus.map(Self.taskStatus)
         row.checklist = workspace.checklist.map(Self.checklistItem)

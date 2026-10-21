@@ -94,6 +94,11 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
     }
 
+    /// The reachable remote machine `name` names (its sidebar name, tab badge or id, any case).
+    func remoteDaemon(named name: String) -> DaemonService? {
+        remoteDaemons.first { [$0.machineID, machineName($0.machineID), machineBadge($0.machineID)].contains { $0?.caseInsensitiveCompare(name) == .orderedSame } }.flatMap { daemon(machine: $0.machineID) }
+    }
+
     /// What `daemon` can do for the app. A remote daemon never needs the
     /// home-only capabilities, nor, once the local daemon keeps personal
     /// state (`profiles-v1`), workspace groups and saved tab groups.
