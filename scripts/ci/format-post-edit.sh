@@ -245,7 +245,7 @@ take_install_lock() { # lock-dir
   printf '%s\n' "$$" >"$1/pid"
 }
 
-web_packages="$(printf '%s\n' "$plan" | sed -n 's/^web\t\([^\t]*\)\t.*/\1/p' | sort -u)"
+web_packages="$(printf '%s\n' "$plan" | awk -F '\t' '$1 == "web" { print $2 }' | sort -u)"
 for package in $web_packages; do
   dir="$ROOT/$package"
   files="$(printf '%s\n' "$plan" | awk -F '\t' -v p="$package" '$1 == "web" && $2 == p { print $3 }')"
