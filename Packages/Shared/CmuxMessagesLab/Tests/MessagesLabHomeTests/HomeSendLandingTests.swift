@@ -13,6 +13,10 @@ import Testing
 /// while the bubble flies. Offscreen window view on a virtual clock
 /// (the HarnessTests loop).
 @MainActor @Suite(.serialized) struct HomeSendLandingTests {
+    /// These tests make a `MessagesWindowView` without a Home pane: springs.json comes from the package, as
+    /// `HomeMarkdownPolicy.install()` sets it for a pane (Springs.swift fails loudly without it, MessagesLab cdee8d9).
+    init() { HomeMarkdownPolicy.installSprings() }
+
     static let me = ParticipantID("user_me")
     static let them = ParticipantID("agent_chief")
     static let id = ConversationID("conv_landing")

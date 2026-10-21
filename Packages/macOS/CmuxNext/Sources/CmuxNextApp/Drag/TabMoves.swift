@@ -303,6 +303,19 @@ enum TabMoves {
         }
         let surface = tab.surface, handle = workspace.handle
         let echoes = daemon.supports(DaemonCapabilities.shared.tabDrag)
+        // Where the daemon appends the tab, shown now as an intent (tab-move-tearing); a workspace
+        // with no pane yet waits for the daemon's layout.
+        if let intent = daemon.store.workspaceMoveIntent(surface: surface, into: handle) {
+            let send = daemon.intendNow("move-tab-to-workspace", intent, transaction: transaction) { connection -> Void in
+                _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
+            }
+            services.registry.track(Task {
+                let ok = await send() != nil
+                completion(ok)
+                return ok ? nil : "move-tab-to-workspace failed (see the app log)"
+            })
+            return
+        }
         services.registry.track(Task {
             let ok = await daemon.request("move-tab-to-workspace") { connection -> Void in
                 _ = try await connection.moveTab(surface, toWorkspace: handle, transaction: echoes ? transaction : nil)
