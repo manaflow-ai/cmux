@@ -94,6 +94,13 @@ final class MachineRegistry {
         session(machineID)?.machine.title ?? sshSession(machineID)?.host.label ?? server(machineID)?.name
     }
 
+    /// The reachable remote machine `name` names (its sidebar name, tab badge or id, any case, as
+    /// `acpmux ls` shows a peer); nil when it names none or more than one.
+    func remoteDaemon(named name: String) -> DaemonService? {
+        let named = remoteDaemons.filter { [$0.machineID, machineName($0.machineID), machineBadge($0.machineID)].contains { $0?.caseInsensitiveCompare(name) == .orderedSame } }
+        return named.count == 1 ? daemon(machine: named[0].machineID) : nil
+    }
+
     /// What `daemon` can do for the app. A remote daemon never needs the
     /// home-only capabilities, nor, once the local daemon keeps personal
     /// state (`profiles-v1`), workspace groups and saved tab groups.
