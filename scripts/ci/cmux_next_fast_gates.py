@@ -6,10 +6,12 @@ and on dispatch (`pr=N`, against the current tip). It posts `cmux-next/fast-gate
 `base <BASE sha>` on the PR head; mergers (next-autoland, the hq merge hook) judge whether that
 result is fresh for the tip they merge into.
 
-  prepare --event pull_request --pr-head SHA      the checkout is GitHub's merge ref
-  prepare --event workflow_dispatch --pr N        fetch the PR head and the tip, merge them here
-      Writes base=, head_sha=, merge= and web= (true when web lint has something to lint) to
-      --output (GITHUB_OUTPUT). BASE is the merge's first parent; head_sha is the PR head.
+  prepare --event pull_request --head SHA --base SHA      the checkout is GitHub's merge ref
+  prepare --event workflow_dispatch --pr N --head SHA --base SHA
+                                                  fetch the PR head and the tip, merge them here
+      The workflow's resolve job names HEAD and BASE without running this checkout's code;
+      prepare fails unless the merge it gates is exactly BASE + HEAD. Writes merge= and web=
+      (true when web lint has something to lint) to --output (GITHUB_OUTPUT).
   run --base BASE [--web true|false]              every gate on BASE..HEAD (the merge); exit 1
                                                   when any gate fails, after running all of them
 
@@ -78,32 +80,42 @@ def web_needed(repo: Path, base: str, merge: str) -> bool:
     return bool(plan.script_packages or plan.eslint_files)
 
 
-def fetch_for_merge(repo: Path, remote: str, pr: str) -> None:
-    """Fetch the PR head and the branch tip shallowly, then deepen until they share a commit."""
+def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
+    """Fetch the PR head and the branch tip shallowly, then deepen until BASE is here and meets the head."""
     refspecs = [f"+refs/pull/{pr}/head:{HEAD_REF}", f"+refs/heads/{BRANCH}:{BASE_REF}"]
+
+    def met() -> bool:
+        return bool(rev(repo, base)) and git(repo, "merge-base", HEAD_REF, base, check=False).returncode == 0
+
     git(repo, "fetch", "--no-tags", "--quiet", f"--depth={FETCH_DEPTH}", remote, *refspecs)
     for depth in DEEPEN_STEPS:
-        if git(repo, "merge-base", HEAD_REF, BASE_REF, check=False).returncode == 0:
+        if met():
             return
         git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *refspecs)
-    if git(repo, "merge-base", HEAD_REF, BASE_REF, check=False).returncode != 0:
-        if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true":
-            git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *refspecs)
+    if not met() and git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+        git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *refspecs)
 
 
 def prepare(args: argparse.Namespace) -> int:
     repo = args.repo
+    base, head = args.base, args.head
+    for flag, value in (("--head", head), ("--base", base)):
+        if not SHA.match(value):
+            log(f"fast-gates: {flag} must be a full commit sha, not {value!r}")
+            return 2
     if args.event == "workflow_dispatch":
         if not PR_NUMBER.match(args.pr or ""):
             log(f"fast-gates: --pr must be a pull request number (digits only), not {args.pr!r}")
             return 2
-        fetch_for_merge(repo, args.remote, args.pr)
-        base, head = rev(repo, BASE_REF), rev(repo, HEAD_REF)
-        if not base or not head:
-            log(f"fast-gates: could not fetch pull request #{args.pr} and {BRANCH}")
+        fetch_for_merge(repo, args.remote, args.pr, base)
+        fetched = rev(repo, HEAD_REF)
+        if fetched != head:
+            log(f"fast-gates: pull request #{args.pr} is at {fetched}, not the resolved head {head}; "
+                "it moved since the run started. Dispatch again.")
             return 1
-        # BASE and the head are known before the merge, so a conflict still gets a status.
-        write_outputs(args.output, {"base": base, "head_sha": head})
+        if not rev(repo, base) or git(repo, "merge-base", "--is-ancestor", base, BASE_REF, check=False).returncode:
+            log(f"fast-gates: the resolved base {base} is not on {BRANCH}")
+            return 1
         git(repo, "checkout", "--quiet", "--detach", base)
         # --no-ff: a head already on top of the tip still gives a merge whose first parent is BASE.
         merged = git(repo, *IDENTITY, "merge", "--no-ff", "--no-edit", "--quiet", head, check=False)
@@ -117,15 +129,17 @@ def prepare(args: argparse.Namespace) -> int:
         merge = rev(repo, "HEAD")
     else:
         merge = rev(repo, "HEAD")
-        base, head = rev(repo, "HEAD^1"), rev(repo, "HEAD^2")
-        if not merge or not base or not head:
+        first, second = rev(repo, "HEAD^1"), rev(repo, "HEAD^2")
+        if not merge or not first or not second:
             log("fast-gates: the checkout is not a merge commit; expected the pull request's merge ref")
             return 1
-        if args.pr_head and head != args.pr_head:
-            log(f"fast-gates: the merge ref's second parent {head} is not the pull request head {args.pr_head}; "
+        if second != head:
+            log(f"fast-gates: the merge ref's second parent {second} is not the pull request head {head}; "
                 "GitHub had not refreshed the merge ref. Push again or dispatch the workflow.")
             return 1
-        write_outputs(args.output, {"base": base, "head_sha": head})
+        if first != base:
+            log(f"fast-gates: the merge ref's first parent {first} is not the resolved base {base}")
+            return 1
     write_outputs(args.output, {"merge": merge, "web": "true" if web_needed(repo, base, merge) else "false"})
     return 0
 
@@ -198,10 +212,11 @@ def run(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = parser.add_subparsers(dest="command", required=True)
-    prep = sub.add_parser("prepare", help="find or make the merge; write base, head_sha, merge, web")
+    prep = sub.add_parser("prepare", help="find or make the merge of BASE and HEAD; write merge, web")
     prep.add_argument("--event", required=True, choices=("pull_request", "workflow_dispatch"))
     prep.add_argument("--pr", help="pull request number (workflow_dispatch)")
-    prep.add_argument("--pr-head", help="the pull request head sha (pull_request)")
+    prep.add_argument("--head", required=True, help="the pull request head sha, resolved before this runs")
+    prep.add_argument("--base", required=True, help="the base sha the head merges into, resolved before this runs")
     prep.add_argument("--remote", default="origin")
     prep.add_argument("--output", type=Path, help="append key=value lines here (GITHUB_OUTPUT)")
     prep.add_argument("--repo", type=Path, default=Path.cwd())

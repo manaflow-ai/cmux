@@ -15,6 +15,12 @@ name: cmux-next fast gates
 # dispatches this workflow with pr=N on feat-cmux-next, which merges the PR head
 # into the current tip and runs the gates again. No paths filter: every pull
 # request gets a status. About two minutes on Linux.
+#
+# Three jobs, so pull request code never runs next to a write token: `resolve`
+# names the head and base without running any checked-out code (a dispatch
+# refuses a fork head or another base before anything is fetched), `gates` runs
+# the PR's code with contents: read only, and `post` writes the status from
+# resolve's outputs and the gates job's result, never from anything gates wrote.
 on:
   pull_request:
     branches: [feat-cmux-next]
@@ -33,25 +39,79 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  fast-gates:
-    name: fast gates
+  resolve:
+    name: resolve head and base
     # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: read
-      statuses: write
+      pull-requests: read
+    outputs:
+      head_sha: ${{ steps.resolve.outputs.head_sha }}
+      base: ${{ steps.resolve.outputs.base }}
+      post: ${{ steps.resolve.outputs.post }}
     steps:
-      - name: Validate the dispatch input
-        env:
-          PR: ${{ inputs.pr }}
-          EVENT_NAME: ${{ github.event_name }}
-        run: |
-          if [[ "$EVENT_NAME" == workflow_dispatch && ! "$PR" =~ ^[0-9]{1,7}$ ]]; then
-            echo "::error::pr must be a pull request number (digits only)"
-            exit 1
-          fi
+      # A pull request's merge commit and both parents; only git reads it here.
+      - name: Checkout the merge ref
+        if: ${{ github.event_name == 'pull_request' }}
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          fetch-depth: 2
 
+      # Runs no checked-out code: git rev-parse on the merge ref, or the GitHub API
+      # on dispatch, which refuses a fork head, a closed pull request
+      # or another base before the gates job fetches anything.
+      - name: Resolve the head and the base
+        id: resolve
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          PR: ${{ inputs.pr }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          PR_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          BRANCH: feat-cmux-next
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ ! "$PR" =~ ^[0-9]{1,7}$ ]]; then
+              echo "::error::pr must be a pull request number (digits only)"
+              exit 1
+            fi
+            read -r state head_repo base_ref head < <(gh api "repos/$GITHUB_REPOSITORY/pulls/$PR" \
+              --jq '[.state, (.head.repo.full_name // "deleted"), .base.ref, .head.sha] | @tsv')
+            if [[ "$head_repo" != "$GITHUB_REPOSITORY" ]]; then
+              echo "::error::#$PR comes from $head_repo; dispatch gates only pull requests from $GITHUB_REPOSITORY"
+              exit 1
+            fi
+            if [[ "$base_ref" != "$BRANCH" || "$state" != open ]]; then
+              echo "::error::#$PR is $state into $base_ref; dispatch gates only open pull requests into $BRANCH"
+              exit 1
+            fi
+            base=$(gh api "repos/$GITHUB_REPOSITORY/branches/$BRANCH" --jq .commit.sha)
+            post=true
+          else
+            [[ "$(git rev-parse HEAD^2)" == "$PR_HEAD" ]] || { echo "::error::the merge ref is not on the pull request head $PR_HEAD; push again or dispatch"; exit 1; }
+            head=$PR_HEAD
+            base=$(git rev-parse HEAD^1)
+            # A fork pull request's token cannot write statuses.
+            post=false
+            if [[ "$PR_REPO" == "$GITHUB_REPOSITORY" ]]; then post=true; fi
+          fi
+          [[ "$head" =~ ^[0-9a-f]{40}$ && "$base" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::could not resolve the head and base"; exit 1; }
+          { echo "head_sha=$head"; echo "base=$base"; echo "post=$post"; } >> "$GITHUB_OUTPUT"
+          echo "head $head, base $base"
+
+  fast-gates:
+    name: fast gates
+    needs: resolve
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    # The pull request's code runs here: no write permission of any kind.
+    permissions:
+      contents: read
+    steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
@@ -65,13 +125,14 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           PR: ${{ inputs.pr }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          BASE: ${{ needs.resolve.outputs.base }}
         run: |
           set -euo pipefail
           if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
-            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --output "$GITHUB_OUTPUT"
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
           else
-            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --pr-head "$PR_HEAD" --output "$GITHUB_OUTPUT"
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --head "$HEAD_SHA" --base "$BASE" --output "$GITHUB_OUTPUT"
           fi
 
       # Web lint installs node_modules only in the web folders the diff touches
@@ -106,26 +167,34 @@ jobs:
       - name: Fast gates on the merge
         id: gates
         env:
-          BASE: ${{ steps.prepare.outputs.base }}
+          BASE: ${{ needs.resolve.outputs.base }}
           WEB: ${{ steps.prepare.outputs.web }}
         run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --summary "$GITHUB_STEP_SUMMARY"
 
-      # Inline, not from the checkout: the status step runs no pull request code.
+  # Writes the status from resolve's outputs and the gates job's result only; it
+  # checks nothing out and reads nothing the gates job wrote.
+  post:
+    name: post cmux-next/fast-gates
+    needs: [resolve, fast-gates]
+    if: ${{ !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.post == 'true' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 5
+    permissions:
+      statuses: write
+    steps:
       - name: Post the cmux-next/fast-gates status
-        if: ${{ !cancelled() && steps.prepare.outputs.base != '' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) }}
         env:
           GH_TOKEN: ${{ github.token }}
           CONTEXT: cmux-next/fast-gates
-          HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
-          BASE: ${{ steps.prepare.outputs.base }}
-          PREPARE: ${{ steps.prepare.outcome }}
-          GATES: ${{ steps.gates.outcome }}
+          HEAD_SHA: ${{ needs.resolve.outputs.head_sha }}
+          BASE: ${{ needs.resolve.outputs.base }}
+          GATES: ${{ needs.fast-gates.result }}
           TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -euo pipefail
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
           state=failure
-          if [[ "$PREPARE" == success && "$GATES" == success ]]; then state=success; fi
+          if [[ "$GATES" == success ]]; then state=success; fi
           # gh api prints GitHub's message on an error (curl -f hid the reason for a 403).
           gh api --method POST "repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" \
             -f state="$state" -f context="$CONTEXT" -f target_url="$TARGET_URL" -f description="base $BASE" > /dev/null
