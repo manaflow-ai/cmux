@@ -279,8 +279,10 @@ class CampaignOutcomeTests(unittest.TestCase):
 
     def campaign_with(self, stderr, rc):
         import argparse
+        import shutil
         import tempfile
         d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
         os.makedirs(os.path.join(d, "bin"))
         fake = os.path.join(d, "bin", "cmux-ci")
         with open(fake, "w") as f:
@@ -303,6 +305,14 @@ class CampaignOutcomeTests(unittest.TestCase):
 
     def test_a_step_with_no_id_and_no_refusal_keeps_its_reservation(self):
         led = self.campaign_with("cmux-ci: connection reset", 1)
+        self.assertEqual(led.committed(), 37)
+
+    def test_a_refusal_after_the_step_existed_keeps_its_reservation(self):
+        led = self.campaign_with("cmux-ci: step s1 (exclusive, key x-A)\ncmux-ci: controller HTTP 404: no such step", 1)
+        self.assertEqual(led.committed(), 37)
+
+    def test_a_409_for_an_existing_key_keeps_its_reservation(self):
+        led = self.campaign_with("cmux-ci: controller HTTP 409: step_key already names a different step", 1)
         self.assertEqual(led.committed(), 37)
 
     def test_the_scorer_excludes_failed_and_off_pin_runs(self):
