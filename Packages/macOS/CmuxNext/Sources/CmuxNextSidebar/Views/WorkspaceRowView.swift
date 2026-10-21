@@ -259,7 +259,8 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.setString(row.detail ?? "")
         hasSubtitle = row.detail != nil
         // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
-        let trailingText = shown.workingSince != nil ? shown.trailingStatus : shown.trailingText
+        let trailingText = shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) }
+            ?? (shown.workingSince != nil ? shown.trailingStatus : shown.trailingText)
         (isExpanded, timeText) = (shown.expanded, trailingText)
         timeLabel.setString(trailingText ?? "")
         if workingSince != shown.workingSince { elapsedTicker.cancel() }

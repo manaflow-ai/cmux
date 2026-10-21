@@ -28,6 +28,7 @@ extension WorkspaceRowView {
     func accessibilityText(_ ws: SidebarWorkspace, content: WorkspaceRowContent) -> String {
         var parts = [ws.title]
         if let s = content.detail { parts.append(s) }
+        if let chip = content.chip { parts.append(SidebarPriorityRowView.chipText(chip, now: Date())) }
         if let s = content.trailingStatus { parts.append(s) }
         if let s = content.status?.searchText, !s.isEmpty { parts.append(s) }
         if let s = content.badge { parts.append(s) }
