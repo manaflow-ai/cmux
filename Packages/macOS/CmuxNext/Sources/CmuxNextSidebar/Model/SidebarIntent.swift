@@ -99,4 +99,6 @@ public nonisolated enum SidebarIntent: Hashable, Sendable {
     case dropOnLayoutSection([WorkspaceID], section: LayoutSectionID, index: Int)
     /// Collapse or expand a titled section (client view state).
     case toggleLayoutSection(LayoutSectionID)
+    /// Edit mode's Add Items: the App opens App Store Features (its Sidebar cards; the Sidebar filter comes with #22903).
+    case addItems
 }

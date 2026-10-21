@@ -29728,9 +29728,9 @@
     {
       "cli" : "offered",
       "cli_name" : "bookmark add",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "bookmarkManager"
       ],
       "default_aliases" : [
 
@@ -29759,7 +29759,8 @@
       "context_menu" : "offered",
       "context_menus" : [
         "bookmark",
-        "bookmarksBar"
+        "bookmarksBar",
+        "bookmarkManager"
       ],
       "default_aliases" : [
 
@@ -30129,9 +30130,9 @@
     {
       "cli" : "offered",
       "cli_name" : "bookmark import",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "bookmarkManager"
       ],
       "default_aliases" : [
 
@@ -30157,9 +30158,9 @@
     {
       "cli" : "offered",
       "cli_name" : "bookmark import-from-browser",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "bookmarkManager"
       ],
       "default_aliases" : [
 
@@ -30185,9 +30186,9 @@
     {
       "cli" : "offered",
       "cli_name" : "bookmark export",
-      "context_menu" : "noObject",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "bookmarkManager"
       ],
       "default_aliases" : [
 
@@ -34019,6 +34020,82 @@
           "id" : "bookmark.remove",
           "kind" : "action",
           "order" : 16,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        }
+      ],
+      "implied" : [
+
+      ]
+    },
+    "bookmarkManager" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.add",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.newFolder",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 2
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.importFromBrowser",
+          "kind" : "action",
+          "order" : 3,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.import",
+          "kind" : "action",
+          "order" : 4,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "bookmark.export",
+          "kind" : "action",
+          "order" : 5,
           "visible_when" : {
             "debug_only" : false,
             "feature" : null,
@@ -43076,7 +43153,7 @@
     },
     {
       "name" : "titlebarHistory",
-      "source" : "CmuxNextApp\/Windows\/TitlebarHistoryMenu.swift"
+      "source" : "CmuxNextHistory\/TitlebarHistoryMenu.swift"
     },
     {
       "name" : "notificationRow",
