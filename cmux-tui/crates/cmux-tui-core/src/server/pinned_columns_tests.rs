@@ -574,6 +574,8 @@ fn workspace_stash_skips_the_pinned_page() {
     resource_ok(&response);
     let value = &response["result"]["value"];
     assert_eq!(value["tab_ids"], json!([page_id]), "{response}");
-    assert_eq!(value["skipped"], json!([home_id]), "{response}");
+    // The right pane's terminal is skipped too (not a page).
+    let skipped = value["skipped"].as_array().unwrap();
+    assert!(skipped.contains(&json!(home_id)), "the pinned page is skipped: {response}");
     assert_eq!(wire.tabs(panes[0]), vec![home], "the pinned page stays");
 }
