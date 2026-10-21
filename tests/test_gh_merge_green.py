@@ -1503,9 +1503,11 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
                     stream.write(' '.join(a) + '\\n')
                 if a[-2:] == ['rev-parse', '--show-toplevel']:
                     print(os.environ['CHECKOUT'])
-                elif a[-2:] == ['status', '--porcelain'] or a[-3:] == ['status', '--porcelain', '--untracked-files=all']:
+                elif 'status' in a and '--porcelain' in a:
                     if os.environ['MODE'] == 'dirty':
                         print(' M scripts/gh-merge-green')
+                    elif os.environ['MODE'] == 'untracked' and '--untracked-files=no' not in a:
+                        print('?? .metadata_never_index')
                 elif a[-2:] == ['branch', '--show-current']:
                     print('main')
                 elif a[-2:] == ['rev-parse', 'refs/remotes/origin/main']:
@@ -1513,7 +1515,7 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
                 elif a[-2:] == ['rev-parse', 'HEAD']:
                     print('a' * 40)
                 elif 'merge-base' in a and '--is-ancestor' in a:
-                    if os.environ['MODE'] == 'behind' and a[-2:] == ['a' * 40, 'b' * 40]:
+                    if os.environ['MODE'] in ('behind', 'untracked') and a[-2:] == ['a' * 40, 'b' * 40]:
                         sys.exit(0)
                     sys.exit(1)
                 elif 'merge' in a and '--ff-only' in a:
@@ -1553,6 +1555,17 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
         self.assertIn("checkout", stderr)
         self.assertIn("dirty", stderr)
         self.assertIn("REPAIR.md#merging", stderr)
+
+    def test_an_untracked_file_alone_does_not_stop_the_update(self):
+        """cosmic-gray's helper checkout sat 14 h behind main (2026-10-21): its only change was
+        Spotlight's untracked .metadata_never_index. An untracked file can't be lost by a
+        fast-forward (git refuses one that would overwrite it), so only tracked edits block."""
+        result, marker_exists, marker_content, log, stderr = self.invoke("untracked")
+        self.assertEqual(result.returncode, 0, stderr + "\n" + log)
+        self.assertTrue(marker_exists, stderr + "\n" + log)
+        self.assertEqual(marker_content, "updated")
+        self.assertNotIn("dirty", stderr)
+        self.assertIn("merge --ff-only", log)
 
     def test_diverged_checkout_warns_and_does_not_update(self):
         result, marker_exists, marker_content, log, stderr = self.invoke("diverged")

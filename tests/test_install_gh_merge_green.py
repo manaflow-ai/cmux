@@ -116,6 +116,18 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "v1 owner/repo#1\n")
 
+    def test_install_keeps_spotlights_marker_out_of_git_status(self):
+        """Spotlight's .metadata_never_index marker is not a change: the managed clone's
+        info/exclude lists it, so git status stays clean for every worktree of the clone."""
+        self.assert_ok(self.install())
+        (self.clone / ".metadata_never_index").touch()
+        status = self.run_ok("git", "status", "--porcelain", "--untracked-files=all", cwd=self.clone).stdout
+        self.assertEqual(status, "")
+        self.assert_ok(self.install())  # a second install does not list it twice
+        exclude = Path(self.run_ok("git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+                                   cwd=self.clone).stdout.strip()) / "info" / "exclude"
+        self.assertEqual(exclude.read_text().splitlines().count(".metadata_never_index"), 1)
+
     def test_an_in_place_edit_of_the_snapshot_is_restored_before_running(self):
         self.assert_ok(self.install())
         script = (self.home / "current" / "scripts" / "gh-merge-green").resolve()
