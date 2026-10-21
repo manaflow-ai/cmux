@@ -500,13 +500,16 @@ const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
 const TURN_GAP = 24;
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and a steer's status line under it
-/// (SteerMark.tsx, `.cv-user__status`).
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), a steer's status line under it
+/// (SteerMark.tsx, `.cv-user__status`), and while the agent has not read the steer its Send now line
+/// (PendingSteer.tsx, `.cv-user__pending`: 4px above a 16px line, as the status line).
 /// A Chief's prompt (ChiefPromptBubble.tsx) draws no action row.
 const userMetaHeight = (row: AcpmuxRow) =>
   (row.text && !row.failed && !row.queued && row.from !== "chief" && !chiefEnvelope(row.text)
     ? META_GAP + META_ROW
-    : 0) + (row.steer ? USER_STATUS_HEIGHT : 0);
+    : 0) +
+  (row.steer ? USER_STATUS_HEIGHT : 0) +
+  (row.steer === "waiting" ? USER_STATUS_HEIGHT : 0);
 const chromeHeight = (row: AcpmuxRow) =>
   row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
@@ -800,11 +803,12 @@ function measuredRowHeight(
   if (row.received) return 26 + MESSAGE_GAP;
   // A turn's footer carries its answer's text for Copy (conversation/turns.ts); it draws one line.
   if (row.kind === "turnSummary") return fallbackRowHeight(row, width, beforeFooter, lastFooter);
-  // Another agent's message: one 26px line (opened, the row measures itself); a notice is a tool
-  // row's line (conversation/IncomingMessageCard.tsx).
+  // Another agent's message: one 26px line in `.cv-received`'s 2px margins (opened, the row measures
+  // itself); a notice is a tool row's line under `.cv-tools`' 2px margin
+  // (conversation/IncomingMessageCard.tsx). Each with the row's message gap.
   // Its images' 120px row with 2px above and 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT); no steer line.
-  if (row.incoming?.kind === "message") return 26 + 4 + (row.images?.length ? 128 : 0);
-  if (row.incoming?.kind === "notice") return 26 + 8;
+  if (row.incoming?.kind === "message") return 26 + 4 + MESSAGE_GAP + (row.images?.length ? 128 : 0);
+  if (row.incoming?.kind === "notice") return 2 + 26 + MESSAGE_GAP;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
   if (row.incoming?.kind === "hidden") return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
