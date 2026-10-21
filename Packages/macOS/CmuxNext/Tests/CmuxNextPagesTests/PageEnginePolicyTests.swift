@@ -40,7 +40,7 @@ struct PageEnginePolicyTests {
         let policy = PageEnginePolicy(preference: .chromium, chromiumAvailable: true)
         let spike = PageEngineOptions(chromiumAgentChat: true)
         #expect(policy.decide(for: Self.agent, options: spike) == .chromium)
-        #expect(policy.decide(for: Self.dynamic, options: spike) == .webKit(.runtimeResources))
+        #expect(policy.decide(for: Self.dynamic, options: spike) == .chromium)
         #expect(policy.decide(for: Self.agent, options: PageEngineOptions(requiresWebKit: .nativeHooks, chromiumAgentChat: true))
             == .webKit(.nativeHooks))
         #expect(PageEnginePolicy(preference: .webkit, chromiumAvailable: true).decide(for: Self.agent, options: spike)
