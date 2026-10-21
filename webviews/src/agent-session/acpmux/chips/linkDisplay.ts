@@ -8,8 +8,9 @@ export const REDACTED = "•••";
 
 // A query or fragment parameter whose name, or one of its `_`/`-`/`.` parts, names a secret.
 const SECRET_PART =
-  /^(?:token|key|apikey|secret|auth|authorization|sig|signature|password|passwd|pwd|code|credential|credentials|session|sid|jwt|otp|nonce)$/i;
-const SECRET_NAME = /token|secret|passw|apikey|signature|credential/i;
+  /^(?:token|tokens|key|apikey|secret|auth|authorization|sig|signature|hmac|password|passwd|pwd|code|credential|credentials|session|sessionid|sid|jwt|otp|nonce)$/i;
+// A name that ends in a secret word, run together (`accesstoken`, `clientSecret`, `xsignature`).
+const SECRET_NAME = /(?:token|secret|passw(?:or)?d|apikey|signature|credentials?|sessionid)$/i;
 
 /// Whether a query parameter named `name` holds a secret (`token`, `api_key`, `X-Amz-Signature`,
 /// `client_secret`, `code`).
@@ -39,15 +40,23 @@ export function redactUrlText(text: string): string {
 export function isPrivateUrl(href: string): boolean {
   let host: string;
   try {
-    host = new URL(href).hostname.toLowerCase();
+    host = new URL(href).hostname.toLowerCase().replace(/\.$/, "");
   } catch {
     return false;
   }
   if (host.startsWith("[") && host.endsWith("]")) {
     const v6 = host.slice(1, -1);
+    // An IPv4-mapped address (`[::ffff:127.0.0.1]`, which URL writes as `[::ffff:7f00:1]`).
+    const mapped = /^::ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/.exec(v6);
+    if (mapped) {
+      const [hi, lo] = [parseInt(mapped[1], 16), parseInt(mapped[2], 16)];
+      return isPrivateUrl(`http://${hi >> 8}.${hi & 255}.${lo >> 8}.${lo & 255}/`);
+    }
     return v6 === "::1" || v6 === "::" || /^f[cd][0-9a-f]{2}:/.test(v6) || /^fe[89ab][0-9a-f]:/.test(v6);
   }
-  if (host === "localhost" || host.endsWith(".localhost") || host.endsWith(".local")) return true;
+  // A single-label name (`http://mymac/`) is on the local network; `.internal` is a private zone.
+  if (host === "localhost" || !host.includes(".")) return true;
+  if (/\.(?:localhost|local|internal|lan|home\.arpa)$/.test(host)) return true;
   const v4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/.exec(host);
   if (!v4) return false;
   const [a, b] = [Number(v4[1]), Number(v4[2])];

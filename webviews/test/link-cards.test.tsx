@@ -77,7 +77,9 @@ test("secret-looking query values read as •••; other parameters and the re
   expect(redactUrlText("https://example.test/docs")).toBe("https://example.test/docs");
   for (const name of ["token", "auth", "sig", "password", "secret", "client_secret", "apiKey", "key", "code"])
     expect(isSecretParam(name)).toBe(true);
-  for (const name of ["q", "page", "keyboard", "sort", "entry", "tab"]) expect(isSecretParam(name)).toBe(false);
+  for (const name of ["sessionid", "hmac", "accessToken", "clientSecret"]) expect(isSecretParam(name)).toBe(true);
+  for (const name of ["q", "page", "keyboard", "sort", "entry", "tab", "tokenizer"])
+    expect(isSecretParam(name)).toBe(false);
 });
 
 test("local and private addresses are recognized", async () => {
@@ -94,9 +96,19 @@ test("local and private addresses are recognized", async () => {
     "http://printer.local/",
     "http://[::1]:3000/",
     "http://100.101.102.103:7000/",
+    "http://localhost./",
+    "http://[::ffff:127.0.0.1]:3000/",
+    "http://host.docker.internal/",
+    "http://mymac:3000/",
   ])
     expect(isPrivateUrl(url)).toBe(true);
-  for (const url of ["https://example.com/", "http://172.32.0.1/", "https://github.com/o/r", "not a url"])
+  for (const url of [
+    "https://example.com/",
+    "http://172.32.0.1/",
+    "http://[::ffff:8.8.8.8]/",
+    "https://github.com/o/r",
+    "not a url",
+  ])
     expect(isPrivateUrl(url)).toBe(false);
 });
 
