@@ -83,7 +83,7 @@ test("the header strip has no separators and every icon button draws the same gl
     "Split Down",
     "Browser",
     "New tab",
-    "Turn summary",
+    "Chat summary",
     "Chat actions",
   ]);
   for (const button of buttons) {
