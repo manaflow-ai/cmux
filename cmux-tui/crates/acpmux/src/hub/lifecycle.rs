@@ -363,7 +363,11 @@ impl Hub {
         // started or initialized a second time.
         if Self::host_record_live(&session.id) {
             match self.readopt(session).await {
-                Some(child) if child.is_alive().await => return Ok(child),
+                Some(child) if child.is_alive().await => {
+                    // Reached again, not started: no start below decides its Ctrl-B.
+                    self.note_host_kind(session, &child, Some(profile.kind)).await;
+                    return Ok(child);
+                }
                 // The host ended meanwhile: start a fresh agent below.
                 _ if !Self::host_record_live(&session.id) => {}
                 // Live but unreachable even after a reconnect: end it (nonce
@@ -381,6 +385,8 @@ impl Hub {
         }
 
         self.record_spawn_inputs(session, profile).await;
+        let moves = super::processes::backgrounds_work(profile.kind);
+        session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already
