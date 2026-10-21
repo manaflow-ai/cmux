@@ -16,6 +16,13 @@ public final class AgentPaneModel {
     /// The page drew its first frame after the handshake (`pane.painted`), the
     /// first that shows what it is. Until then its pane keeps what it showed.
     public internal(set) var hasPainted = false
+    /// That first frame drew a chat from a kept tail (`pane.painted`'s
+    /// `drewKeptTail`, tailCache.ts): it is already on screen, so the pane's
+    /// loading state shows the page in one frame instead of fading it in
+    /// (``AgentPaneView/pageFades(hasNewTab:isVisible:fromKeptTail:)``). False
+    /// for a chat read cold, for a page that says nothing, and for the host's
+    /// own give-up path, each of which keeps the fade.
+    public internal(set) var paintedFromKeptTail = false
     @ObservationIgnored var paintWaiters: [() -> Void] = []
 
     /// Called when the page switches to or creates a session, so the App can keep it with the tab.
@@ -63,6 +70,7 @@ public final class AgentPaneModel {
     @ObservationIgnored public var remoteChat = false
     @ObservationIgnored public var onOpenChat: ((String) -> Void)? // `chats.open`: the app's shared Open Chat path
     @ObservationIgnored public var onOpenChatInTerminal: ((String) -> Void)? // `chats.openInTerminal`: a row's right-click menu
+    @ObservationIgnored public var onWatchChat: ((String) -> Void)? // `chats.watch`: View Only from a row's right-click menu
     @ObservationIgnored public var onChatsPage: ((AgentPaneChatsQuery) async -> AgentPaneChatsPage?)? // `chats.page` (cx-n0i9)
     /// The chat's own right-click menu on empty space: detached items the App renders from its placements.
     @ObservationIgnored public var chatMenuItems: (@MainActor () -> [NSMenuItem])?
@@ -261,8 +269,12 @@ public final class AgentPaneModel {
         case .renderRate(let full):
             onRenderRate?(full)
             return AgentPaneReply.success()
-        case .painted:
+        case .painted(let fromKeptTail):
             AgentPaneLaunchTimings.shared.mark(newTab != nil ? "agent_pane.newtab_painted" : "agent_pane.painted")
+            // The first report only, and before `markPainted`: the pane's loading state leaves on
+            // that call, and what that frame drew is what decides whether the page fades in
+            // (``AgentPaneView/pageFades``). A later report describes a frame nothing is waiting on.
+            if !hasPainted { paintedFromKeptTail = fromKeptTail }
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
@@ -330,6 +342,7 @@ public final class AgentPaneModel {
             return AgentPaneReply.success(["projects": projects, "repos": await AgentPaneProjectRepoReader.replies(for: projects)])
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
+        case .watchChat(let key): if let onWatchChat { onWatchChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.watch") }
         case .chatsPage(let query): return await respondToChatsPage(query)
         case .environment(let request): return await request.reply(store: startFolders.environments, newTabPage: newTab != nil && sessionId == nil)
         case .paneAction, .preview, .setQuickActions, .tabState, .tabRowTools, .sideChat, .subagentPane, .processTerminal, .chatTab, .newChatHere: return await respondToHeader(request)

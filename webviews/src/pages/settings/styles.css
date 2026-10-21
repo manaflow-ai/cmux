@@ -33,8 +33,8 @@
   );
   --danger: var(--cmux-app-danger, light-dark(rgba(196, 43, 28, 1), rgba(255, 105, 97, 1)));
   --warning: var(--cmux-app-warning, light-dark(rgba(166, 104, 0, 1), rgba(255, 196, 77, 1)));
-  --motion-hover: 120ms;
-  --motion-focus: 120ms;
+  --motion-hover: var(--cmux-motion-quick, 80ms);
+  --motion-focus: var(--cmux-motion-quick, 80ms);
   font: 13px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
 }
 
@@ -1241,8 +1241,10 @@ mark {
   height: 100%;
   object-fit: cover;
 }
-.chiefs-initial {
-  font-weight: 600;
+/* Pixel-art mascots stay crisp and uncropped, as in the pet card. */
+.chiefs-picture img[data-mascot] {
+  object-fit: contain;
+  image-rendering: pixelated;
 }
 .chiefs-backend {
   flex: none;

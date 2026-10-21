@@ -228,6 +228,26 @@ export function deriveTokens(input: ThemeInput): ThemeTokens {
   };
 }
 
+/**
+ * ThemeTokens.litGlyph: a lit control's glyph, the accent lifted toward the primary text just far
+ * enough to contrast with the window at least as much as the rest ink (`textSecondary`).
+ */
+export function litGlyph(tokens: ThemeTokens): ThemeRGB {
+  const surface = withAlpha(tokens.windowBackground, 1);
+  const lit = composited(tokens.accent, surface);
+  const primary = composited(tokens.textPrimary, surface);
+  const floor = contrast(composited(tokens.textSecondary, surface), surface);
+  if (contrast(lit, surface) >= floor) return lit;
+  let low = 0;
+  let high = 1;
+  for (let step = 0; step < 12; step += 1) {
+    const mid = (low + high) / 2;
+    if (contrast(mixed(lit, primary, mid), surface) >= floor) high = mid;
+    else low = mid;
+  }
+  return mixed(lit, primary, high);
+}
+
 /** `rgba(r, g, b, a)` with 0-255 channels, as WebTheme.css and AgentPaneTheme.css write it. */
 export function css(color: ThemeRGB): string {
   const channel = (value: number) => Math.round(value * 255);

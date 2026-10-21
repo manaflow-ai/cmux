@@ -91,7 +91,7 @@ extension AgentPaneRequest {
                 self = .unsupported(method)
             }
         case "pane.painted":
-            self = .painted
+            self = .painted(fromKeptTail: params?["drewKeptTail"] as? Bool ?? false)
         case "pane.renderRate":
             if let full = params?["full"] as? Bool {
                 self = .renderRate(full)
@@ -226,6 +226,9 @@ extension AgentPaneRequest {
             else { self = .unsupported(method) }
         case "chats.openInTerminal":
             if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .openChatInTerminal(key) }
+            else { self = .unsupported(method) }
+        case "chats.watch":
+            if let key = params?["key"] as? String, key.contains(":"), key.count <= 512 { self = .watchChat(key) }
             else { self = .unsupported(method) }
         case "chats.page": self = .chatsPage(AgentPaneChatsQuery(params: params))
         case "app.action":

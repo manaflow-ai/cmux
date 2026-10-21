@@ -62,29 +62,18 @@ extension HomeNativeTranscriptView {
         }
     }
 
-    /// Prepares `inputs` after every earlier intake, in order.
+    /// Prepares `inputs` after every earlier intake, in order. The type and size checks stat each
+    /// file, so they run off the main actor (a click, a paste or a drop returns at once; a file on
+    /// a slow volume no longer stalls the window); refusals show as the notice when they are known.
     func attach(_ inputs: [HomeDraftInput]) {
         guard let preparer = attachmentPreparer else { return }
-        var accepted: [HomeDraftInput] = []
-        var refusals: [String] = []
-        // Attachments plus the text part fit the owner's part limit.
-        var room = CmuxHomeCore.HomeAttachmentPolicy.maxParts - 1 - transcript.draftAttachments.count
-        for input in inputs {
-            if let refusal = HomeComposerCheck.refusal(for: input) {
-                refusals.append(refusal)
-            } else if room <= 0 {
-                refusals.append(HomeStrings.attachmentRefusal(.tooManyParts(limit: CmuxHomeCore.HomeAttachmentPolicy.maxParts)))
-            } else {
-                accepted.append(input)
-                room -= 1
-            }
-        }
-        showNotice(refusals.first)
-        guard !accepted.isEmpty else { return }
         let previous = intake
         let keepLocation = self.keepLocation()
         intake = Task { [weak self] in
             await previous?.value
+            // task-owner: awaited here; the stats end with it
+            let problems = await Task.detached(priority: .userInitiated) { inputs.map(HomeComposerCheck.problem(for:)) }.value
+            guard !Task.isCancelled, let accepted = self?.admit(inputs, problems) else { return }
             for input in accepted {
                 let prepared: LocalAttachment
                 do {
@@ -100,6 +89,27 @@ extension HomeNativeTranscriptView {
                 await self.transcript.addDraftAttachment(prepared)
             }
         }
+    }
+
+    /// The inputs the checks passed that fit the part limit; the first refusal shows as the notice.
+    private func admit(_ inputs: [HomeDraftInput], _ problems: [(error: HomeAttachmentError, name: String?)?]) -> [HomeDraftInput] {
+        var accepted: [HomeDraftInput] = []
+        var refusals: [String] = []
+        // Attachments plus the text part fit the owner's part limit.
+        var room = CmuxHomeCore.HomeAttachmentPolicy.maxParts - 1 - transcript.draftAttachments.count
+        for (input, problem) in zip(inputs, problems) {
+            if let problem {
+                refusals.append(HomeComposerCheck.notice(problem))
+            } else if room <= 0 {
+                refusals.append(HomeStrings.attachmentRefusal(.tooManyParts(limit: CmuxHomeCore.HomeAttachmentPolicy.maxParts)))
+            } else {
+                accepted.append(input)
+                room -= 1
+            }
+        }
+        // A clean batch clears an earlier refusal, not a notice with an action (the mic's).
+        if let first = refusals.first { showNotice(first) } else if noticeAction == nil { showNotice(nil) }
+        return accepted
     }
 
     private static func prepare(_ input: HomeDraftInput, with preparer: any HomeAttachmentPreparing, keepLocation: Bool) async throws

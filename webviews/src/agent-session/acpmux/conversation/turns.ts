@@ -9,10 +9,11 @@
 // a field-for-field mapping of them and nothing else in the pane changes.
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { continuesTurn, opensTurn } from "../turnStart";
+import { findRowIndex } from "./chatFind";
 import { turnPreviewCardsOn, turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
-import { isSubagentGroup } from "../subagents/subagentRows";
+import { isSubagentGroup, SUBAGENT_DONE } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
@@ -511,6 +512,8 @@ const staysOut = (row: AcpmuxRow) =>
   isSubagentGroup(row) ||
   (row.kind === "plan" && row.plan !== undefined) ||
   row.kind === "backgroundTask" ||
+  // Where a subagent ended (the tray showed it while it ran, subagents/runningTray.ts).
+  row.kind === SUBAGENT_DONE ||
   // A compaction or a move to the fallback harness changes what the rest of the turn knows or
   // who answers it; folded, nobody would see it happened.
   row.kind === "compaction" ||
@@ -768,7 +771,7 @@ function inFlightCall(row: AcpmuxRow): { title: string; command: boolean; row: O
 type OwnRow = true | { key: string; open: boolean } | undefined;
 
 /// Where ToolRows draws a call (TurnRows.tsx groupNode, ToolGroupRow.tsx): a lone call, a message
-/// card and a lone MCP call have their own row; a grouped call shows under its group's line while
+/// card, a sub-session card and a lone MCP call have their own row; a grouped call shows under its group's line while
 /// the group is open, among its latest GROUP_TAIL; a folded run (`foldRun`, codexRuns) shows none
 /// until opened. The key is the one groupNode gives the group's disclosure.
 function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
@@ -776,7 +779,12 @@ function ownRow(row: AcpmuxRow, item: AcpmuxActivity): OwnRow {
   const at = groups.findIndex((group) => ("items" in group ? group.items.includes(item) : group.item === item));
   const group = groups[at];
   if (!group || row.foldRun) return undefined;
-  if (group.type === "item" || group.type === "message" || (group.type === "mcp" && group.items.length === 1))
+  if (
+    group.type === "item" ||
+    group.type === "message" ||
+    group.type === "subsession" ||
+    (group.type === "mcp" && group.items.length === 1)
+  )
     return true;
   const kind = group.type === "mcp" ? "mcp" : group.kind;
   const tail = kind === "mcp" || kind === "edits" || group.items.indexOf(item) >= group.items.length - GROUP_TAIL;
@@ -852,6 +860,25 @@ export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string |
   for (let at = Math.min(index, rows.length - 1); at >= 0; at -= 1)
     if (opensTurn(rows[at]!)) return `${WORKED}-${rows[at]!.id}`;
   return undefined;
+}
+
+/// Where to bring one message of the chat into view (a link's `message=<id>`, links.ts): the first
+/// of the message's rows the transcript already draws, else its first row and the "Worked for" fold
+/// that hides it. A tool call ends the reply it interrupts, so one message is several rows and only
+/// a turn's last one stays outside the fold: a link to a message that worked lands on a folded row,
+/// and the fold has to open before the transcript can scroll to it. Undefined when the chat's rows
+/// hold none of `messageRows` (another machine's transcript, or history not loaded yet).
+export function messageRevealTarget(
+  rows: readonly AcpmuxRow[],
+  drawn: readonly AcpmuxRow[],
+  messageRows: readonly string[],
+): { rowId: string; fold?: string } | undefined {
+  const places = messageRows.map((id) => rows.findIndex((row) => row.id === id)).filter((at) => at >= 0);
+  if (places.length === 0) return undefined;
+  const shown = places.find((at) => findRowIndex(drawn, rows[at]!.id) >= 0);
+  if (shown !== undefined) return { rowId: rows[shown]!.id };
+  const at = places[0]!;
+  return { rowId: rows[at]!.id, fold: turnFoldFor(rows, at) };
 }
 
 /// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward
