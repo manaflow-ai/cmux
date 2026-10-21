@@ -114,6 +114,22 @@ export class MemoryMirror implements HexclaveMirrorStore {
   projectPermissions = new Set<string>();
   tombstones = new Set<string>();
   events = new Map<string, { eventType: string; outcome: HexclaveWebhookOutcome; processed: boolean; attempts: number }>();
+  private userLocks = new Map<string, Promise<void>>();
+
+  private async withUserLock<T>(userId: string, operation: () => Promise<T>): Promise<T> {
+    const previous = this.userLocks.get(userId) ?? Promise.resolve();
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => { release = resolve; });
+    const queued = previous.then(() => gate);
+    this.userLocks.set(userId, queued);
+    await previous;
+    try {
+      return await operation();
+    } finally {
+      release();
+      if (this.userLocks.get(userId) === queued) this.userLocks.delete(userId);
+    }
+  }
 
   teamIdsFor(userId: string): string[] {
     return [...this.memberships].filter((key) => key.endsWith(`:${userId}`)).map((key) => key.split(":")[0]!).sort();
@@ -162,7 +178,16 @@ export class MemoryMirror implements HexclaveMirrorStore {
   }
 
   reconcileUser: HexclaveMirrorStore["reconcileUser"] = async (userId, read, options = {}) =>
-    this.applyUser(userId, await read(), options.revokeCandidateTeamIds ?? []);
+    this.withUserLock(userId, async () => this.applyUser(userId, await read(), options.revokeCandidateTeamIds ?? []));
+
+  settlePendingRevocation: HexclaveMirrorStore["settlePendingRevocation"] = async ({ teamId, userId }, operation) =>
+    this.withUserLock(userId, async () => {
+      const key = `${teamId}:${userId}`;
+      if (!this.pendingRevocations.has(key)) return false;
+      await operation();
+      this.pendingRevocations.delete(key);
+      return true;
+    });
 
   isRevocationPending: HexclaveMirrorStore["isRevocationPending"] = async ({ teamId, userId }) =>
     this.pendingRevocations.has(`${teamId}:${userId}`);
