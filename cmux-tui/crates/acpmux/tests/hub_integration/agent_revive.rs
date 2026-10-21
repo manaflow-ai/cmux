@@ -279,7 +279,7 @@ async fn a_deleted_worktree_is_added_back_before_the_agent_starts_and_the_agent_
     assert_eq!(moved[0]["to"], json!(lanes));
     assert_eq!(hub.resolve(&id).unwrap().meta().cwd, lanes);
     let said = reply(&hub, &id);
-    assert!(said.starts_with(&format!("cwd: {}", lanes.display())), "{said}");
+    assert!(said.starts_with(&format!("echo: cwd: {} |", lanes.display())), "{said}");
     assert!(
         said.contains(&format!(
             "[acpmux] your cwd {shown} was missing; its worktree could not be added back"
@@ -313,7 +313,7 @@ async fn a_missing_plain_folder_moves_the_session_to_its_parent_and_the_agent_is
     assert_eq!(moved.len(), 1, "{:?}", kinds(&hub, &id));
     assert_eq!(moved[0]["to"], json!(dir));
     let said = reply(&hub, &id);
-    assert!(said.starts_with(&format!("cwd: {}", dir.display())), "{said}");
+    assert!(said.starts_with(&format!("echo: cwd: {} |", dir.display())), "{said}");
     let told = format!(
         "[acpmux] your cwd {} was missing; it was not a git worktree acpmux knew; running in {} instead.",
         folder.display(),
