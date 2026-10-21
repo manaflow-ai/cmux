@@ -12,8 +12,12 @@
 # 2026-10-21).
 #
 # The Mac exports (the action and settings exports) are never made here: a held one waits for the
-# next run's Mac job, and the run fails, so the next run's "since" still covers it. So does a held
-# file a round on the tip does not make (what is built from the exports, the webviews formatting).
+# next run's Mac job, and the run fails, so the next run's "since" still covers it. What is built
+# from the action exports (the docs shortcuts, the app-host files) is made again on the tip only when
+# the tip's action exports are known current: none was held, and nothing after ACTIONS_MADE_AT moved
+# their inputs, so the tip holds the exports made there. The defaults snapshot, which reads both
+# exports, also needs the tip's settings stamp current (defaults_guard.py check-stamp). Otherwise,
+# and for the webviews formatting, a held file waits for the next run and the run fails.
 # A round that finds nothing left to repair on the tip ends the run.
 #
 # The repair runs without TOKEN, the push credentials; only base-autofix-push.sh gets them.
@@ -31,6 +35,10 @@ main() {
   base="${3:?usage: $0 REMOTE BRANCH BASE_SHA [SETTINGS_MADE_AT] [ACTIONS_MADE_AT]}"
   settings_made_at="${4:-}"
   actions_made_at="${5:-}"
+  actions_current=0 settings_current=0
+  action_exports='^plans/cmux-next/(action-surfaces\.json|actions\.md|links\.json)$'
+  # The run's own repair commit: the action exports as made at ACTIONS_MADE_AT.
+  first_repair="$(git rev-parse HEAD)"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
   rounds="${CMUX_BASE_AUTOFIX_ROUNDS:-3}"
   token="${TOKEN:-}"
@@ -39,28 +47,53 @@ main() {
   work="$(mktemp -d)"
   trap 'rm -rf "${work:-}"' EXIT
   root="$(git rev-parse --show-toplevel)"
-  # The run's own push and area rules, copied before a checkout of the tip can change them. The repair
-  # on the tip is the tip's own (base-autofix-repair.sh in the checkout).
+  # The run's own push, area rules and defaults guard, copied before a checkout of the tip can change
+  # them. The repair on the tip is the tip's own (base-autofix-repair.sh in the checkout).
+  cp "$here/autofix-areas.sh" "$work/autofix-areas.sh"
+  areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$work/autofix-areas.sh}"
+  guard=""
+  if [[ -f "$root/scripts/ci/defaults_guard.py" ]]; then
+    cp "$root/scripts/ci/defaults_guard.py" "$work/defaults_guard.py"
+    guard="$work/defaults_guard.py"
+  fi
   push_script="${CMUX_BASE_AUTOFIX_PUSH:-}"
   if [[ -z "$push_script" ]]; then
     cp "$here/base-autofix-push.sh" "$work/push.sh"
-    cp "$here/autofix-areas.sh" "$work/autofix-areas.sh"
     push_script="$work/push.sh"
-    export CMUX_BASE_AUTOFIX_AREAS="${CMUX_BASE_AUTOFIX_AREAS:-$work/autofix-areas.sh}"
+    export CMUX_BASE_AUTOFIX_AREAS="$areas_script"
   fi
   repair_script="${CMUX_BASE_AUTOFIX_REPAIR:-$root/scripts/cmux-next/base-autofix-repair.sh}"
 
   # A held file a round on the tip makes again (base-autofix-push.sh's output areas graph, sdk,
-  # ratchets, cloud and fmt). The rest needs the Mac job or an artifact made at an older commit.
+  # ratchets, cloud and fmt; what is built from the exports when they are current on the tip). The
+  # rest needs the Mac job or an artifact made at an older commit.
   remade() {
     case "$1" in
       Packages/macOS/CmuxNext/ci-target-graph.json | cmux-tui/bindings/* | scripts/lint-namespace-types-ratchet.txt \
         | clients/ts/cloud/* | cmux-tui/crates/cmux-cloud-wire/src/generated/*) return 0 ;;
-      # Built from the action exports, and the Chief inspector page from the webviews patch.
-      cmux-tui/crates/cmux-app-host/generated/* | Native/OptChat/optchat-chief/inspector/*) return 1 ;;
+      web/data/cmux-shortcuts.generated.json | cmux-tui/crates/cmux-app-host/generated/*) ((actions_current)) ;;
+      schemas/defaults/cmux-next.json) ((actions_current && settings_current)) ;;
+      # The Chief inspector page comes from the webviews patch.
+      Native/OptChat/optchat-chief/inspector/*) return 1 ;;
       cmux-tui/* | Native/OptChat/*) return 0 ;;
+      *) return 1 ;;
     esac
-    return 1
+  }
+
+  # The tip's action exports are the ones made at ACTIONS_MADE_AT: none was held, and nothing after
+  # it moved their inputs. The exports are themselves in that area: one the tip holds as this run
+  # made it (first_repair) is no move. A read that fails says no.
+  exports_current_on() { # <tip> <held so far>
+    local changed areas path
+    [[ -n "$actions_made_at" ]] || return 1
+    ! grep -qE "$action_exports" <<<"$2" || return 1
+    changed="$(git diff --name-only --no-renames "$actions_made_at" "$1" 2>/dev/null)" || return 1
+    changed="$(while IFS= read -r path; do
+      if [[ "$path" =~ $action_exports ]] && git diff --quiet "$first_repair" "$1" -- "$path" 2>/dev/null; then continue; fi
+      printf '%s\n' "$path"
+    done <<<"$changed")"
+    areas="$("$areas_script" <<<"$changed")" || return 1
+    ! grep -qx 'actions=true' <<<"$areas"
   }
 
   push() { # <base> [<settings made at>] [<action exports made at>] -> the push's status; its held files in $work/held
@@ -86,6 +119,16 @@ main() {
     if [[ -z "$held" ]]; then
       exit "$status"  # not a hold: a rejected push, a conflict, an unreadable history
     fi
+    git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
+      echo "::error::cannot read $branch from the remote to make the repair again" >&2
+      exit 1
+    }
+    tip="$(git rev-parse FETCH_HEAD)"
+    actions_current=0 settings_current=0
+    if exports_current_on "$tip" "$held"$'\n'"$waits"; then
+      actions_current=1
+      [[ -n "$guard" ]] && python3 "$guard" check-stamp --ref "$tip" >/dev/null 2>&1 && settings_current=1
+    fi
     again=""
     while IFS= read -r path; do
       if remade "$path"; then again+="$path"$'\n'; else waits+="$path"$'\n'; fi
@@ -99,15 +142,11 @@ main() {
       exit 1
     fi
     round=$((round + 1))
-    git fetch --quiet --no-tags "$remote" "refs/heads/$branch" || {
-      echo "::error::cannot read $branch from the remote to make the repair again" >&2
-      exit 1
-    }
-    tip="$(git rev-parse FETCH_HEAD)"
     echo "Making the repair again on ${tip:0:12} (round $round of $rounds): $branch moved the inputs of $(printf '%s' "$again" | tr '\n' ' ')"
     git checkout --quiet --force --detach "$tip"
     git clean --quiet -fd
-    CMUX_BASE_AUTOFIX_AGAIN=1 "$repair_script" "$root" | tee "$work/repair.txt" || {
+    CMUX_BASE_AUTOFIX_AGAIN=1 CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT="$actions_current" \
+      CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT="$settings_current" "$repair_script" "$root" | tee "$work/repair.txt" || {
       echo "::error::making the repair again on ${tip:0:12} failed" >&2
       exit 1
     }

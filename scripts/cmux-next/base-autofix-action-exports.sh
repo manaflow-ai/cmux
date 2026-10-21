@@ -107,8 +107,10 @@ moved() { # <from> <to>
   fi
 }
 
+# Called under `||`, where set -e is off: every failure returns on its own, or the exports made at the
+# old commit would be named as made at this one.
 check_out() { # <commit>
-  git checkout --quiet --force --detach "$1"
+  git checkout --quiet --force --detach "$1" || { echo "::error::cannot check out ${1:0:12}" >&2; return 1; }
   if [[ -n "$prepare" ]]; then
     "$prepare" >&2 || { echo "::error::preparing the checkout of ${1:0:12} failed ($prepare)" >&2; return 1; }
   fi
