@@ -197,7 +197,9 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         expect(await input.inputValue()).toBe("1000");
         await page.click(".md-width-presets button");
         await page.getByRole("menuitemradio", { name: "Full Width" }).click();
-        await page.waitForTimeout(100);
+        // The menu stays in the page until its exit animation ends (Base UI): past 100 ms on a loaded
+        // WebKit runner, where a read at a fixed 100 ms still found its six items.
+        await page.locator("[role=menuitemradio]").first().waitFor({ state: "detached" });
         box = await layout(page);
         expect(Math.abs(box.content - (box.paneWidth - 2 * box.padding))).toBeLessThan(2);
         expect(await page.locator(".md-width-input").count()).toBe(1);
@@ -205,7 +207,7 @@ await requireBrowserLane("markdown-wide-width-layout.test.ts", async () => {
         expect(await page.locator("[role=menuitemradio]").count()).toBe(0);
         await page.click(".md-width-presets button");
         await page.getByRole("menuitemradio", { name: "Comfortable" }).click();
-        await page.waitForTimeout(100);
+        await page.locator("[role=menuitemradio]").first().waitFor({ state: "detached" });
         box = await layout(page);
         expect(Math.abs(box.content - 72 * box.ch)).toBeLessThan(2);
         await page.close();
