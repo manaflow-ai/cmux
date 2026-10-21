@@ -20,9 +20,8 @@ extension WindowController {
             // The `scope` layout is the R69 list as it was: nothing to list, no menu. The others
             // always open, so a right-click is never dead (Show All History at least).
             if layout == .scope, sections.isEmpty { return nil }
-            let showAll: (() -> Void)? = layout == .scope ? nil : { [weak registry] in
-                _ = registry?.perform("history.show", invocation: ActionInvocation(origin: .user))
-            }
+            // Show All History is the registered `history.show` row, not a menu-only handler.
+            let showAll = layout == .scope ? nil : registry?.makeMenuItem(for: "history.show")
             return TitlebarHistoryMenu.make(sections, choose: { index in
                 _ = registry?.perform("history.goTo", invocation: ActionInvocation(arguments: ["index": .int(index)], origin: .user))
             }, showAll: showAll)

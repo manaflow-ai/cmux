@@ -4,13 +4,8 @@ public import CmuxNextDesign
 /// The rows' action target: a row's tag is its trail index.
 final class TitlebarHistoryMenuTarget: NSObject {
     let choose: (Int) -> Void
-    let showAll: (() -> Void)?
-    init(choose: @escaping (Int) -> Void, showAll: (() -> Void)?) {
-        self.choose = choose
-        self.showAll = showAll
-    }
+    init(choose: @escaping (Int) -> Void) { self.choose = choose }
     @objc func pick(_ item: NSMenuItem) { choose(item.tag) }
-    @objc func openAll(_ item: NSMenuItem) { showAll?() }
 }
 
 /// The right-click / long-press list of a Back or Forward button (R69,
@@ -19,11 +14,13 @@ final class TitlebarHistoryMenuTarget: NSObject {
 /// All History closes the list when there is one.
 public struct TitlebarHistoryMenu {
     public init() {}
-    /// `showAll` nil: no footer (the `scope` layout, the R69 list as it was).
+    /// `showAll` is the registry's `history.show` row (it runs the registered action, as the
+    /// palette does), retitled Show All History; nil: no footer (the `scope` layout, the R69
+    /// list as it was).
     public static func make(_ sections: [LocationTrailMenuSection], choose: @escaping (Int) -> Void,
-                            showAll: (() -> Void)?) -> NSMenu {
+                            showAll: NSMenuItem?) -> NSMenu {
         let menu = NSMenu()
-        let target = TitlebarHistoryMenuTarget(choose: choose, showAll: showAll)
+        let target = TitlebarHistoryMenuTarget(choose: choose)
         for section in sections where !section.items.isEmpty {
             if let header = HistoryStrings.menuHeader(section.kind) {
                 if !menu.items.isEmpty { menu.addItem(.separator()) }
@@ -39,11 +36,9 @@ public struct TitlebarHistoryMenu {
                 menu.addItem(row)
             }
         }
-        if showAll != nil {
+        if let all = showAll {
             if !menu.items.isEmpty { menu.addItem(.separator()) }
-            let all = NSMenuItem(title: HistoryStrings.menuShowAll, action: #selector(TitlebarHistoryMenuTarget.openAll(_:)), keyEquivalent: "")
-            all.target = target
-            all.representedObject = target
+            all.title = HistoryStrings.menuShowAll
             menu.addItem(all)
         }
         return menu

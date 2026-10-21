@@ -266,9 +266,11 @@ Rules:
 between chats/workspaces as history is part of the situation ... there may be situations where
 we want splits of history between browsers and agent sessions."
 
-The R69 list (4.2a rule 4) showed only what Back walks, so with the default `workspace` scope a
-jump between workspaces or chats never appeared, and a right-click with nothing in scope did
-nothing. Back's walk is unchanged; only the list grows. Debug Settings `history.menuLayout`
+The R69 list (4.2a rule 4) showed only what Back walks, and a right-click with nothing in scope
+did nothing. With the default workspace steps (`navigation.history.scope` `workspaces`) Back already walks
+the whole window (`LocationTrailService.scope` is `.window`), so by default the list now always
+opens and ends with Show All History; the Other Workspaces section adds rows only when steps are
+finer and the scope is `workspace`. Back's walk is unchanged; only the list grows. Debug Settings `history.menuLayout`
 (DEV and NIGHTLY; Release uses the default):
 
 | Value | List |
