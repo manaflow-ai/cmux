@@ -14,9 +14,9 @@ import { SubagentStatusList, subagentStatus, waitingSubagents } from "./Subagent
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
-import { backgroundCommands } from "./backgroundWork";
+import { backgroundCommands } from "../inspector/processes";
 import type { SummaryBackgroundTask } from "./sessionSummary";
-import type { ProcessRegistry } from "./sessionProcesses";
+import type { ProcessRegistry } from "../inspector/processes";
 
 const NO_SESSIONS: readonly StartedSession[] = [];
 const NO_TASKS: readonly SummaryBackgroundTask[] = [];
