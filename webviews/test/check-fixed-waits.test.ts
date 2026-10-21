@@ -27,7 +27,7 @@ test("a zero-delay yield, a condition wait and an unrelated timer are not", () =
   expect(findFixedWaits(file, source)).toEqual([]);
 });
 
-test("a local sleep helper is named at each call, not at its definition", () => {
+test("a local sleep helper counts at its wait and at each call", () => {
   const source = [
     "const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));",
     "function later(ms: number) {",
@@ -36,7 +36,7 @@ test("a local sleep helper is named at each call, not at its definition", () => 
     "await wait(200);",
     "await later(50);",
   ].join("\n");
-  expect(lines(findFixedWaits(file, source))).toEqual([5, 6]);
+  expect(lines(findFixedWaits(file, source))).toEqual([1, 3, 5, 6]);
 });
 
 test("a fixed-wait comment with a reason, on the line or the line above, lets one stay", () => {
@@ -61,7 +61,7 @@ test("a helper with no delay parameter counts at each call, and helpers built on
     "await twice();",
     "await twice();",
   ].join("\n");
-  expect(lines(findFixedWaits(file, source))).toEqual([6, 7, 8]);
+  expect(lines(findFixedWaits(file, source))).toEqual([1, 3, 4, 6, 7, 8]);
 });
 
 test("a helper whose delay defaults to 0 waits only when a call passes a delay", () => {
@@ -89,7 +89,7 @@ test("a timer callback with a block body, and window.setTimeout, are fixed waits
   expect(lines(findFixedWaits(file, source))).toEqual([2, 7]);
 });
 
-test("an exported helper counts at its definition, since its callers are elsewhere", () => {
+test("an exported helper counts at its wait, since its callers are elsewhere", () => {
   const source = "export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));";
   expect(lines(findFixedWaits(file, source))).toEqual([1]);
 });
@@ -127,5 +127,33 @@ test("a helper passed or returned as a value counts where it is passed", () => {
     "  return { open };",
     "}",
   ].join("\n");
-  expect(lines(findFixedWaits(file, source))).toEqual([2, 3]);
+  expect(lines(findFixedWaits(file, source))).toEqual([1, 2, 5, 7]);
+});
+
+test("a new wait or helper call inside an existing helper raises the count", () => {
+  const helper = [
+    "const settle = () => new Promise((resolve) => setTimeout(resolve, 50));",
+    "async function connect() {",
+    "  await settle();",
+    "}",
+    "await connect();",
+  ];
+  const before = findFixedWaits(file, helper.join("\n")).length;
+  const withWait = [...helper.slice(0, 3), "  await page.waitForTimeout(2000);", ...helper.slice(3)];
+  const withCall = [...helper.slice(0, 3), "  await settle();", ...helper.slice(3)];
+  expect(findFixedWaits(file, withWait.join("\n")).length).toBe(before + 1);
+  expect(findFixedWaits(file, withCall.join("\n")).length).toBe(before + 1);
+});
+
+test("an export list, a typeof and a recursive call are not uses", () => {
+  const source = [
+    "const settle = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 50));",
+    "type Settle = typeof settle;",
+    "export { settle as nap };",
+    "async function poll(): Promise<void> {",
+    "  await page.waitForTimeout(10);",
+    "  return poll();",
+    "}",
+  ].join("\n");
+  expect(lines(findFixedWaits(file, source))).toEqual([1, 5]);
 });
