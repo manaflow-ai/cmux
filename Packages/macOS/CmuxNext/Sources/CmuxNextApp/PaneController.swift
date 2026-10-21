@@ -215,6 +215,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
             item.icon = .icon(.terminal)
         } else if tab.kind != .browser {
             item.machineBadge = machine
+            if machine != nil { item.machineName = services.machines.machineName(daemon.machineID) }
             item.themeBadge = services.themes.badge(forTerminal: TerminalThemeKey(machine: daemon.machineID, tab: tab))
         } else {
             // A browser tab names the machine whose localhost it sees.

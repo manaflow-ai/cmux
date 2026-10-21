@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextPalette
@@ -98,11 +99,16 @@ enum PaletteSourcesBridge {
             for group in AppPaletteNavigationSource.groups(services) {
                 for id in group.workspaceIDs where groupNames[id] == nil { groupNames[id] = group.name }
             }
-            return services.machines.allWorkspaces.map(\.0).map { workspace in
+            let all = services.machines.allWorkspaces
+            // With workspaces on more than one machine, each row names its machine (this Mac by its own name).
+            let named = Set(all.map { $0.1.machineID }).count > 1
+            return all.map { workspace, daemon in
                 let cwd = workspace.screens.flatMap(\.panes).flatMap(\.tabs).first { $0.cwd != nil }?.cwd
+                let machine = !named ? nil : daemon.isLocal ? AgentPaneModel.localMachineDisplayName ?? Strings.localMachine
+                    : services.machines.machineName(daemon.machineID)
                 return PaletteWorkspace(id: workspace.id, title: workspace.displayName, directory: cwd,
                                         isSelected: workspace.id == shown, unreadCount: workspace.unreadCount,
-                                        groupName: groupNames[workspace.id])
+                                        groupName: groupNames[workspace.id], machineName: machine)
             }
         }
 
