@@ -162,7 +162,9 @@ final class SidebarPriorityRowView: NSView {
         title.frame = NSRect(x: inset, y: pad, width: max(0, titleWidth), height: lineHeight)
         placeLabel.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: pad, width: tagWidth, height: lineHeight)
         let previewTop = pad + lineHeight + Metrics.space1
-        preview.frame = NSRect(x: inset, y: previewTop, width: max(0, b.width - 2 * inset), height: max(0, b.height - previewTop - pad))
+        // The full row's lines, not the bounds': an opening or closing slot clips them, never squeezes them.
+        let fullHeight = Self.height(hasPreview: entry.preview != nil)
+        preview.frame = NSRect(x: inset, y: previewTop, width: max(0, b.width - 2 * inset), height: max(0, fullHeight - previewTop - pad))
     }
 
     override func updateLayer() {
