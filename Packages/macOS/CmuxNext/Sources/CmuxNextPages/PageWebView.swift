@@ -133,7 +133,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// When a real key or mouse event last reached the Chromium page (``PageChromiumEvent/userInput(_:)``).
     var chromiumUserEventUptime: TimeInterval?
-    /// Runs before the host builds a Chromium page's right-click menu (not used yet).
+    /// The host's extra message handlers (``addMessageHandler(_:handler:)``), for a Chromium page.
+    var chromiumMessageHandlers: [String: @MainActor (Any) -> Void] = [:]
+    /// Runs before the host builds a Chromium page's right-click menu: a host whose menu depends on
+    /// a report the page sends on `contextmenu` (the agent chat) waits for it here, since Chromium's
+    /// menu request and the page's message arrive in either order. Nil builds the menu at once.
     public var chromiumMenuWait: (@MainActor () async -> Void)?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
