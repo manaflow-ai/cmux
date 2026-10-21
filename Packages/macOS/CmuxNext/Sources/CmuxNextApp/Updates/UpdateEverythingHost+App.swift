@@ -7,8 +7,13 @@ extension UpdateEverythingHost {
     static func app(_ services: AppServices) -> Self {
         let machines = services.machines
         return Self(local: { machines.local }, remotes: {
-            machines.ssh.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.host.label, .ssh, $0.daemon) }
-                + machines.cloud.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.machine.title, .cloud, $0.daemon) }
+            var targets: [UpdateEverythingDaemon.Target] = machines.ssh.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.host.label, .ssh, $0.daemon) }
+            targets += machines.cloud.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.machine.title, .cloud, $0.daemon) }
+            // A paired server's cmux belongs to its installer and the server may be shared: off by default.
+            if services.settings?.snapshot.updates.updateEverythingServers == true {
+                targets += machines.servers.filter { $0.daemon.connection != nil }.map { ($0.machineID, $0.name, .server, $0.daemon) }
+            }
+            return targets
         }, daemon: { machines.anyDaemon(machine: $0) }, installSSH: { id in
             guard let session = machines.sshSession(id) else { throw ActionFailure(message: UpdateEverythingMachine.disconnected) }
             try await services.ssh.install(session)

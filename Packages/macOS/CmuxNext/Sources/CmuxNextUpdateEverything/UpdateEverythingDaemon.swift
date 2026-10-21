@@ -62,11 +62,11 @@ public struct UpdateEverythingDaemon {
     /// bundled cmux-tui's (one a prefix of the other is the same build). A daemon that names no
     /// build, or an unknown bundled build, is not called outdated: unknown is not older.
     /// - Parameters:
-    ///   - kind: Where the machine runs; This Mac's daemon is never updated here.
+    ///   - kind: Where the machine runs; This Mac's daemon and a paired server's are never updated here.
     ///   - running: The daemon's `build_commit`.
     ///   - bundled: The bundled cmux-tui's commit.
     public static func daemonChange(kind: UpdateEverythingMachine.Kind, running: String?, bundled: String?) -> UpdateEverythingChange? {
-        guard kind != .local, let bundled, !bundled.isEmpty, let running, !running.isEmpty,
+        guard kind == .ssh || kind == .cloud, let bundled, !bundled.isEmpty, let running, !running.isEmpty,
               !bundled.hasPrefix(running), !running.hasPrefix(bundled) else { return nil }
         return UpdateEverythingChange(name: UpdateEverythingMachine.daemonName, from: String(running.prefix(7)), to: String(bundled.prefix(7)))
     }

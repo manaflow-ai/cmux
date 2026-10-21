@@ -10,7 +10,7 @@ import Foundation
 public struct UpdateEverythingHost: Sendable {
     /// This Mac's daemon.
     public var local: @MainActor @Sendable () -> DaemonService
-    /// Every connected SSH and Cloud machine.
+    /// Every connected SSH and Cloud machine, and paired servers when `updates.updateEverythingServers` is on.
     public var remotes: @MainActor @Sendable () -> [UpdateEverythingDaemon.Target]
     /// A machine's daemon by id.
     public var daemon: @MainActor @Sendable (String) -> DaemonService?
@@ -97,7 +97,7 @@ final class UpdateEverythingHostSteps: UpdateEverythingSteps {
         self.host = host
     }
 
-    /// This Mac, then every connected SSH and Cloud machine.
+    /// This Mac, then every connected SSH and Cloud machine (and paired server, when included).
     func plan() async -> UpdateEverythingPlan {
         await UpdateEverythingDaemon.plan([("local", UpdateEverythingMachine.thisMac, .local, host.local())] + host.remotes(), updater: host.updater)
     }
@@ -112,7 +112,7 @@ final class UpdateEverythingHostSteps: UpdateEverythingSteps {
     }
 
     func updateDaemon(on machine: UpdateEverythingMachine) async throws {
-        guard machine.kind != .local else { return }
+        guard machine.kind == .ssh || machine.kind == .cloud else { return }
         guard let daemon = host.daemon(machine.id) else { throw ActionFailure(message: UpdateEverythingMachine.disconnected) }
         let before = daemon.identity?.pid
         if machine.kind == .ssh {

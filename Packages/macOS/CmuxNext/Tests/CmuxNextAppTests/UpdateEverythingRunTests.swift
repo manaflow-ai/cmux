@@ -119,6 +119,25 @@ struct UpdateEverythingRunTests {
             == UpdateEverythingChange(name: UpdateEverythingMachine.daemonName, from: "fedcba9", to: "0123456"))
     }
 
+    @Test func aPairedServerUpdatesOnlyItsAgentCLIsNeverItsDaemon() async throws {
+        let bundled = "0123456789abcdef0123456789abcdef01234567"
+        #expect(UpdateEverythingDaemon.daemonChange(kind: .server, running: "fedcba9876", bundled: bundled) == nil,
+                "a paired server's cmux belongs to its installer")
+        let (journal, cleanup) = Self.journal()
+        defer { cleanup() }
+        let steps = RecordingSteps()
+        var mac = Self.thisMac
+        mac.app = nil
+        let brain = UpdateEverythingMachine(id: "server:brain", name: "brain", kind: .server,
+                                            harnesses: [UpdateEverythingChange(id: "codex", name: "Codex", from: "0.1", to: "0.2")])
+
+        _ = await UpdateEverythingRunner(journal: journal, appVersion: "100")
+            .run(UpdateEverythingPlan(machines: [mac, brain]), continueThreads: true, steps: steps)
+
+        #expect(!steps.log.contains("daemon server:brain"))
+        #expect(steps.log.contains("agents server:brain codex continue"))
+    }
+
     @Test func aFailureWithoutWordsGetsAGenericReason() {
         #expect(UpdateEverythingMachine.failureText(nil) == UpdateEverythingMachine.updateFailed)
         #expect(UpdateEverythingMachine.failureText("") == UpdateEverythingMachine.updateFailed)

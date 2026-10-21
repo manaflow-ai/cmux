@@ -8,6 +8,9 @@ public nonisolated struct UpdateEverythingMachine: Sendable, Codable, Equatable,
         case ssh
         /// A cmux Cloud machine: its cmux daemon is updated in place.
         case cloud
+        /// A paired server (a Chief brain's daemon), only with `updates.updateEverythingServers` on: its
+        /// cmux belongs to its installer, so only its agent CLIs update.
+        case server
     }
 
     /// The machine id of `MachineRegistry` (`local` for this Mac).
