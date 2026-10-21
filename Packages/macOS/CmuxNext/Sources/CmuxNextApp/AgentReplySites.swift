@@ -21,7 +21,8 @@ struct AgentReplySites {
         links.findByName = { wanted, roots in await AgentReplyNames.shared.find(wanted, in: roots) }
         // A chip that did not open says why, as other refused actions do.
         links.notice = { [weak services] message in services?.registry.refuse(message) }
-        links.pullRequest = { url in await AgentReplyPullRequests.shared.read(url) }
+        links.pullRequest = { url in AgentReplyPullRequests.shared.answer(url) }
+        links.registerPullRequests = { urls in AgentReplyPullRequests.shared.register(urls) }
     }
 
     func sites(for urls: [URL]) -> [URL: AgentPaneReplySite] {

@@ -963,6 +963,12 @@ pub enum ControlRequest {
     Stop,
     /// chief.stop {name}: stops that one subagent.
     StopSubagent(String),
+    /// chief.stop {all: true}: the turn and every subagent ("Stop all
+    /// agents").
+    StopAll,
+    /// chief.stop {restart: [ids]}: those subagents go on (Restart on the
+    /// stop-all toast).
+    Restart(Vec<String>),
 }
 
 /// What the tools socket serves: the memory, the subagent tools when the
@@ -1117,10 +1123,26 @@ fn connection(conn: UnixStream, served: &Served) {
                 if tool == "engine" || (tool == "stop" && !model_stop) {
                     let field = |k: &str| req.get(k).and_then(Value::as_str).map(str::to_owned);
                     let ask = match (tool, field("action").as_deref()) {
-                        ("stop", _) => Some(match field("name").filter(|n| !n.trim().is_empty()) {
-                            Some(name) => ControlRequest::StopSubagent(name.trim().to_owned()),
-                            None => ControlRequest::Stop,
-                        }),
+                        ("stop", _) => {
+                            let restart = req.get("restart").and_then(Value::as_array).map(|ids| {
+                                ids.iter()
+                                    .filter_map(Value::as_str)
+                                    .map(str::to_owned)
+                                    .collect::<Vec<_>>()
+                            });
+                            let all = req.get("all").and_then(Value::as_bool) == Some(true);
+                            Some(
+                                match (restart, all, field("name").filter(|n| !n.trim().is_empty()))
+                                {
+                                    (Some(ids), _, _) => ControlRequest::Restart(ids),
+                                    (None, true, _) => ControlRequest::StopAll,
+                                    (None, false, Some(name)) => {
+                                        ControlRequest::StopSubagent(name.trim().to_owned())
+                                    }
+                                    (None, false, None) => ControlRequest::Stop,
+                                },
+                            )
+                        }
                         (_, Some("show") | None) => {
                             Some(ControlRequest::Engine(crate::brain::EngineRequest::Show))
                         }

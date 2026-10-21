@@ -201,6 +201,7 @@ extension SettingDescriptor {
         switch kind {
         case .choice(let choices): return .string(choices.first?.value ?? "")
         case .choiceOrNumber(let choices, let number): return choices.first.map { .string($0.value) } ?? .number(number.range.lowerBound)
+        case .choiceOrURL(let choices, let urlKey): return choices.first.map { .string($0.value) } ?? .object([urlKey: .string("http://mini.tail1234.ts.net:7320")])
         case .toggle: return .bool(false)
         case .number(let number): return .number(number.range.lowerBound)
         case .color: return .string("#336699")

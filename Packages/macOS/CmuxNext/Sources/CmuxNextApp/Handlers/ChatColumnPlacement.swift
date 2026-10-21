@@ -61,15 +61,22 @@ extension ChatColumnPlacement {
             guard let respawn, controller.daemon.supports(DaemonCapabilities.shared.tabColumnRespawn),
                   let chat = loneChat(in: controller.pane.tabs, isChat: { isChat($0, services: services) },
                                       isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) else { return controller }
-            // The new tab left in the pane takes focus, not the docked chat.
+            // The new tab left in the pane takes focus, not the docked chat. The chat stays where it
+            // shows; only the pane with the new tab comes in, from the right (as AgentBesidePlacement).
             let source = controller.pane, pane = controller.layoutPaneID
             let originalSurfaces = Set(source.tabs.map(\.surface))
             let intent = content.beginFocusIntent()
             let pages = newTabPages(in: source.tabs) { services.agentTabs.isNewTabPage($0.id) }
+            let layout = content.layoutModel
             services.registry.track(Task { @MainActor [weak content, weak controller] in
                 let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
-                    TabMoves.toNewDockColumn(chat, anchor: source, edge: .left, role: .agentChat,
-                                             respawn: respawn, services: services) { done.resume(returning: $0) }
+                    layout.handOffContent(of: pane) { handedOff in
+                        TabMoves.toNewDockColumn(chat, anchor: source, edge: .left, role: .agentChat,
+                                                 respawn: respawn, services: services) { moved in
+                            handedOff(moved)
+                            done.resume(returning: moved)
+                        }
+                    }
                 }
                 guard moved else { return "move-tab-to-column failed (see the app log)" }
                 if let content {

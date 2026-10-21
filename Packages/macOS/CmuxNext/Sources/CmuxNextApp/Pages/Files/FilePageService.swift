@@ -59,8 +59,7 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    /// File pages open dropped files themselves (`fileDrop`), a WebKit-only hook so far.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
+    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
@@ -131,7 +130,9 @@ final class FilePageService: InternalPageProvider {
 
     /// Opens `file` in a tab after `pane`'s selected tab, or selects the tab of `pane`'s window that
     /// already shows it. A user run (`focus`) selects and focuses it. `readOnly`: the tab never saves
-    /// the file (a chat transcript); every other markdown file opens writable.
+    /// the file (a chat transcript); every other markdown file opens writable. `line` (the code
+    /// editor only, a Find result or a reply link): the cursor goes there, in a new tab after its
+    /// load, in an open tab now (unless `revealExistingLine` is false).
     @discardableResult
     func open(_ file: URL, in pane: PaneController, focus: Bool, userChose: Bool = true, readOnly: Bool = false,
               recoveredText: String? = nil, line: FileLineLocation? = nil, revealExistingLine: Bool = true, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String {
@@ -353,7 +354,7 @@ final class FilePageService: InternalPageProvider {
         }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
-        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send to… on a selection; Reset
+        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send To… on a selection; Reset
         // Column Widths on a table (viewer-comments-DESIGN.md).
         installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
         tab.page = page
@@ -370,8 +371,7 @@ final class FilePageService: InternalPageProvider {
         let actions = MarkdownOmnibarActions(
             open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
             returnFocus: { [weak page] in
-                guard let page, let window = page.window else { return }
-                window.makeFirstResponder(page.webKitView)
+                page?.focusPage()
             },
             liveLink: { [weak self] url in try? await self?.liveShare.link(for: url) },
             openInBrowser: { [weak self] url in self?.openExternal(url, from: key) },

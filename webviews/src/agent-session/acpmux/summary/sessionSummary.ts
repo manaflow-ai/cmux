@@ -16,6 +16,9 @@ export type SummaryPullRequest = {
   state: PullRequestState;
   /// When the chat closed it (epoch ms), if the call says.
   closedAt?: number;
+  /// The chat opened it (`gh pr create`); false for one it only touched (merged, edited, labelled,
+  /// commented on, reviewed or checked out by URL or `owner/repo` and number).
+  opened: boolean;
 };
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
@@ -24,6 +27,8 @@ export type SummaryBackgroundTask = {
   id: string;
   command: string;
   state: "running" | "completed" | "failed" | "stopped";
+  /// When its call started (epoch ms), for its elapsed time; absent for one known from its end only.
+  startedAt?: number;
 };
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
@@ -48,13 +53,38 @@ const tools = (rows: readonly AcpmuxRow[]): Tool[] =>
 
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 
-/// Pull requests a `gh pr create` call printed, then marked merged or closed by a later
-/// successful `gh pr merge`, `gh-merge-green` or `gh pr close` naming the same number.
+/// A `gh pr` verb that acts on an existing pull request, and `gh-merge-green`.
+const TOUCH =
+  /\bgh\s+pr\s+(?:merge|close|edit|comment|review|ready|reopen|checkout)\b[^\n;&|]*|\bgh-merge-green\b[^\n;&|]*/g;
+/// `owner/repo#N` or `-R owner/repo` / `--repo owner/repo` with a bare number.
+const REPO_REF = /(?:^|\s)([\w.-]+\/[\w.-]+)#(\d+)\b/;
+const REPO_FLAG = /(?:^|\s)(?:-R|--repo)[= ]([\w.-]+\/[\w.-]+)\b/;
+const BARE_NUMBER = /(?:^|\s)#?(\d+)(?=\s|$)/;
+const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
+
+/// The pull request a touching command names by URL or repository and number, if it names one.
+function touched(call: string): { url: string; repo: string; number: number } | undefined {
+  // Quoted text (a comment's --body, an edit's --title) can name other pull requests.
+  const command = call.replace(QUOTED, " ");
+  const url = new RegExp(PR_URL.source).exec(command);
+  if (url) return { url: url[0], repo: url[1]!, number: Number(url[2]) };
+  const ref = REPO_REF.exec(command);
+  const repo = ref?.[1] ?? REPO_FLAG.exec(command)?.[1];
+  const number = ref?.[2] ?? BARE_NUMBER.exec(command.replace(REPO_FLAG, " "))?.[1];
+  if (!repo || !number) return undefined;
+  return { url: `https://github.com/${repo}/pull/${number}`, repo, number: Number(number) };
+}
+
+/// Pull requests a `gh pr create` call printed, and the ones a later successful `gh pr` call
+/// touched by URL or repository and number, oldest first. A successful `gh pr merge`,
+/// `gh-merge-green` or `gh pr close` naming the same number marks it merged or closed, and
+/// `gh pr reopen` opens it again.
 function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
   const found = new Map<string, SummaryPullRequest>();
   for (const tool of all) {
     const command = tool.command ?? "";
-    if (/\bgh\s+pr\s+create\b/.test(command) && succeeded(tool)) {
+    if (!succeeded(tool)) continue;
+    if (/\bgh\s+pr\s+create\b/.test(command)) {
       const title = TITLE.exec(command);
       for (const [url, repo, number] of (tool.output ?? "").matchAll(PR_URL))
         if (!found.has(url))
@@ -64,20 +94,27 @@ function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
             number: Number(number),
             title: title ? (title[1] ?? title[2] ?? title[3])?.replace(/\\(.)/g, "$1") : undefined,
             state: "open",
+            opened: true,
           });
       continue;
     }
+    for (const [call] of command.matchAll(TOUCH)) {
+      const named = touched(call);
+      if (named && !found.has(named.url)) found.set(named.url, { ...named, state: "open", opened: false });
+    }
+    const reopened = new RegExp(String.raw`\bgh\s+pr\s+reopen\s+${PR_ARGUMENT}`).exec(command);
     const merged = MERGE.exec(command);
-    const match = merged ?? CLOSE.exec(command);
-    if (!match || !succeeded(tool)) continue;
+    const match = merged ?? CLOSE.exec(command) ?? reopened;
+    if (!match) continue;
     // A URL or `owner/repo#N` names its repository; a bare number could be any of them.
     const repo = match[1] ?? match[3];
     const number = Number(match[2] ?? match[4]);
     for (const pr of found.values())
       if (pr.number === number && (!repo || repo === pr.repo)) {
-        pr.state = merged ? "merged" : "closed";
+        pr.state = merged ? "merged" : match === reopened ? "open" : "closed";
         const at = tool.endedAt ?? tool.startedAt;
-        if (!merged && at !== undefined) pr.closedAt = at;
+        if (pr.state === "closed" && at !== undefined) pr.closedAt = at;
+        else if (pr.state === "open") delete pr.closedAt;
       }
   }
   return [...found.values()];
@@ -146,21 +183,37 @@ function sources(all: readonly Tool[]): SummarySource[] {
   return [...seen.values()];
 }
 
-/// The chat's pull requests alone (the composer's PR bars, PullRequestDock.tsx).
-export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(tools(rows));
+/// The pull requests the chat opened (the composer's PR bars, PullRequestDock.tsx).
+export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(tools(rows)).filter((pr) => pr.opened);
 
-/// Shells the agent ran in the background (Claude's Bash `run_in_background`, cx-ncc.84): running
-/// until a background task row says how it ended.
+/// How background shells ended: on their call (`background`, direct.ts `markBackgroundCall`), or
+/// in a background task row when the call is not in the transcript.
+const backgroundEnds = (
+  row: AcpmuxRow,
+): { toolCallId: string; command: string; state: SummaryBackgroundTask["state"] }[] =>
+  row.backgroundTask
+    ? [row.backgroundTask]
+    : row.kind === "activity"
+      ? (row.items ?? []).flatMap(({ tool }) =>
+          tool?.background && tool.background.state !== "running"
+            ? [{ toolCallId: tool.id, command: tool.command ?? tool.title, state: tool.background.state }]
+            : [],
+        )
+      : [];
+
+/// Shells the agent ran in the background (Claude's Bash `run_in_background`, or a call it moved
+/// there, cx-ncc.84): running until their call or a background task row says how they ended.
 function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummaryBackgroundTask[] {
-  const ends = rows.flatMap((row) => (row.backgroundTask ? [row.backgroundTask] : []));
+  const ends = rows.flatMap(backgroundEnds);
   const ended = new Map(ends.map((end) => [end.toolCallId, end.state] as const));
   const launched = all
     // Shell calls only: a subagent's Agent call can run in the background too.
-    .filter((tool) => tool.kind === "execute" && input(tool).run_in_background === true)
+    .filter((tool) => tool.kind === "execute" && (input(tool).run_in_background === true || !!tool.background))
     .map((tool): SummaryBackgroundTask => ({
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,
       state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
+      ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
     }));
   // A shell whose Bash row is not loaded (an older page, or one Claude moved to the background
   // itself) is known from its end.

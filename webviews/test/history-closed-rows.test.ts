@@ -5,9 +5,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("history-closed-rows.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -31,8 +31,8 @@ await requireBrowserLane("history-closed-rows.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "pages.history", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -42,7 +42,7 @@ await requireBrowserLane("history-closed-rows.test.ts", async () => {
   test("Remove and Clear History delete Closed rows", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1000, height: 640 } });
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=pages.history&variant=closed-remove-clear`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame("pages.history", { variant: "closed-remove-clear" })}`);
     // A cold dev server compiles the gallery on the first request; give it longer than the default.
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
       timeout: 90_000,

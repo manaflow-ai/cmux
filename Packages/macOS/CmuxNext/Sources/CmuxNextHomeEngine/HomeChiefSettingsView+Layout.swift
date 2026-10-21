@@ -112,8 +112,9 @@ extension HomeChiefSettingsView {
         diagnosticsToggle.setAccessibilityLabel(HomeEngineStrings.diagnostics)
         let title = HomeChiefLinkButton(title: HomeEngineStrings.diagnostics, target: self, action: #selector(clickDiagnosticsTitle))
         // One control for VoiceOver and Tab: the triangle (named Diagnostics, with its expanded
-        // state); the title is a larger click target for the pointer only.
-        title.setAccessibilityElement(false)
+        // state); the title is a larger click target for the pointer only. A button is never an
+        // element itself, its cell is, so the cell is the one to hide.
+        title.cell?.setAccessibilityElement(false)
         title.refusesFirstResponder = true
         title.ink = .secondary
         title.textFont = Typography.header

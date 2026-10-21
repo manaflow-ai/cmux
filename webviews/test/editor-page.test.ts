@@ -24,6 +24,7 @@ import os from "node:os";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { stopDevServer } from "./support/devServer";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -146,24 +147,58 @@ await requireBrowserLane("editor-page.test.ts", async () => {
     );
   }
 
+  /** Cmd-S, once the save it starts has ended: written, refused, or nothing to write. */
   async function save(page: Page) {
+    // Each save the store ends is counted, after it set the status the host's answer gave.
+    const before = await page.evaluate(() => {
+      const store = window.__cmuxEditor!.store as NonNullable<Window["__cmuxEditor"]>["store"] & { saves?: number };
+      if (store.saves === undefined) {
+        store.saves = 0;
+        const save = store.save.bind(store);
+        store.save = async (...args) => {
+          try {
+            return await save(...args);
+          } finally {
+            store.saves! += 1;
+          }
+        };
+      }
+      return store.saves;
+    });
     await page.keyboard.press("Meta+s");
-    await page.waitForFunction(() => document.documentElement.dataset.cmuxEditorStatus !== "saving");
-    // The status updates after the host answered; give the page a frame to settle.
-    await page.waitForTimeout(100);
+    await page.waitForFunction(
+      (before) => ((window.__cmuxEditor!.store as { saves?: number }).saves ?? 0) > before,
+      before,
+    );
   }
 
   /** The dev host's preferences file once `check` holds for it (the write is asynchronous). */
   async function preferencesWhen(check: (preferences: Record<string, unknown>) => boolean) {
     const target = path.join(stateDir, "editor-preferences.json");
-    for (let tries = 0; tries < 50; tries += 1) {
+    const read = () => {
       try {
         const preferences = JSON.parse(fs.readFileSync(target, "utf8"));
-        if (check(preferences)) return preferences;
-      } catch {}
-      await new Promise((resolve) => setTimeout(resolve, 100));
-    }
-    throw new Error("preferences never matched");
+        return check(preferences) ? (preferences as Record<string, unknown>) : undefined;
+      } catch {
+        return undefined;
+      }
+    };
+    // Read again each time the state folder changes.
+    return new Promise<Record<string, unknown>>((resolve, reject) => {
+      const watcher = fs.watch(stateDir, () => attempt());
+      const timer = setTimeout(() => {
+        watcher.close();
+        reject(new Error("preferences never matched within 5 s"));
+      }, 5_000);
+      const attempt = () => {
+        const preferences = read();
+        if (!preferences) return;
+        watcher.close();
+        clearTimeout(timer);
+        resolve(preferences);
+      };
+      attempt();
+    });
   }
 
   const editorText = (page: Page) =>
@@ -184,6 +219,7 @@ await requireBrowserLane("editor-page.test.ts", async () => {
       const fresh = async (colorScheme: "light" | "dark" = "light") => {
         await page?.close();
         page = await browser.newPage({ viewport: { width: 1000, height: 640 }, colorScheme });
+        await installPaintedFrames(page);
         return page;
       };
 
@@ -478,7 +514,13 @@ await requireBrowserLane("editor-page.test.ts", async () => {
             });
             const target = file(fileName, "const a = 1;\n");
             await openEditor(page, target, { highlighted: fileName.endsWith(".ts") });
-            await page.waitForTimeout(200);
+            // Shiki's themes are defined and set once its highlighter loads, plain text too; the
+            // observer has seen that switch once a frame after it has painted.
+            await page.evaluate(async () => {
+              const view = window.__cmuxEditor!.view() as unknown as { syntax: { getHighlighter(): Promise<unknown> } };
+              await view.syntax.getHighlighter();
+              await window.cmuxPaintFrame();
+            });
             const frames = await page.evaluate(
               () => (window as unknown as { __themeFrames: { classes: string; background: string }[] }).__themeFrames,
             );
@@ -599,7 +641,8 @@ await requireBrowserLane("editor-page.test.ts", async () => {
         await page.waitForFunction(() => document.activeElement?.closest(".find-pill") != null);
         await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
         expect(await focusContent(page)).toBe(true);
-        await page.waitForTimeout(100);
+        // A request kept for later tries again on the next frame.
+        await page.evaluate(() => window.cmuxPaintFrame());
         expect(await page.evaluate(() => document.activeElement?.closest(".find-pill") != null)).toBe(true);
         // Nothing has focus: the window's focus (WebKit's first responder) lands in Monaco.
         await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());

@@ -9,6 +9,14 @@ public nonisolated struct FileLineLocation: Equatable, Sendable {
     /// The optional last line, at or after the first line.
     public let endLine: Int?
 
+    /// A line and column a caller already knows (a Find result, a config key's place), clamped to
+    /// the bounds.
+    public init(line: Int, column: Int = 1) {
+        self.line = min(max(1, line), 10_000_000)
+        self.column = min(max(1, column), 10_000_000)
+        endLine = nil
+    }
+
     /// Parses `42`, `42:7` or `42-50`; signs, whitespace and non-ASCII digits are refused.
     public init?(_ argument: String) {
         guard argument.utf8.count <= 24 else { return nil }

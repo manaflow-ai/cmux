@@ -115,6 +115,9 @@ public final class AppStoreModel {
     public var featureCategory: AppFeature.Category?
 
     public func isOn(_ feature: AppFeature) -> Bool { features?.isOn(feature) ?? false }
+    public func hasSettings(_ feature: AppFeature) -> Bool { features?.hasSettings(feature) ?? false }
+    /// The card's Settings… link: Settings on the feature's own rows.
+    public func openSettings(_ feature: AppFeature) { features?.openSettings(feature) }
 
     /// Get (on) or Remove (off) from this page's button: a user gesture.
     public func setFeature(_ feature: AppFeature, on: Bool) async throws {

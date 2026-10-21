@@ -46,7 +46,9 @@ final class FilePageOpener: FileOpening {
     /// is writable all the same; another document is writable only inside a root the user chose.
     /// `placed` (``LinkOpener``): a new tab opens unselected and reports its surface there, to be
     /// moved beside `pane`; a tab that already shows the file is selected and focused where it is.
-    func open(_ file: URL, in pane: PaneController?, userChose: Bool, line: FileLineLocation? = nil, revealExistingLine: Bool = true, placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
+    /// `line` (a Find result, a reply link): the code editor puts the cursor there; other pages ignore it.
+    func open(_ file: URL, in pane: PaneController?, userChose: Bool, line: FileLineLocation? = nil, revealExistingLine: Bool = true,
+              placed: (@MainActor (SurfaceID) -> Void)? = nil) -> String? {
         guard let url = AgentPaneFileOpen.resolve(file.path) else { return FilePageStrings.notAFile }
         guard let pane = pane ?? services.windows.active?.focusedPane else { return FilePageStrings.noPane }
         if userChose, FileOpenKind(fileName: url.lastPathComponent, isDirectory: false, isPackage: false) == .web {

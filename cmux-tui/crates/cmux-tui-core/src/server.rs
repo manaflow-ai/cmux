@@ -1748,6 +1748,9 @@ enum Command {
     CloudInboxList(cloud_conversations::InboxListParams),
     /// `cloud-requests-list`: the person's message requests (no fields).
     CloudRequestsList(cloud_conversations::NoParams),
+    /// `cloud-selfhost-info` (`cloud-selfhost-v1`): the self-hosted chat
+    /// server's identity of the person (no fields).
+    CloudSelfhostInfo(cloud_conversations::NoParams),
     CloudConversationSnapshot(cloud_conversations::SnapshotParams),
     CloudConversationHistory(cloud_conversations::HistoryParams),
     CloudConversationThread(cloud_conversations::ThreadParams),
