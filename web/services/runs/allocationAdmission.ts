@@ -19,6 +19,7 @@ export async function createRunWithAllocationAdmission(
     request: input.request,
     route: "run.create",
     billingTeamId: input.billingTeamId,
+    cost: input.run.desiredAttempts,
   });
   if (limited) return { kind: "limited" as const, response: limited };
   return {
