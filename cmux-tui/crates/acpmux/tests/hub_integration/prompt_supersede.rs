@@ -102,8 +102,13 @@ impl Client {
         page["events"].as_array().unwrap().iter().map(|e| e["msg"].clone()).collect()
     }
 
+    /// Whether the prompt went to the agent: its own turn, or one it joined (agent messages
+    /// waiting together go in as one turn, `digest.rs`).
     async fn ran(&mut self, session: &str, prompt_id: &str) -> bool {
-        self.records(session, "user_message").await.iter().any(|m| m["promptId"] == prompt_id)
+        let own = self.records(session, "user_message").await;
+        let joined = self.records(session, "dequeued").await;
+        own.iter().any(|m| m["promptId"] == prompt_id)
+            || joined.iter().any(|m| m["promptId"] == prompt_id && m["joinedTurnId"].is_string())
     }
 
     /// Starts an "until-cancel" turn and waits until it runs.
