@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createEntryStore, type EntrySource } from "../src/gallery/entryStore";
+import { createEntryStore, entryPath, type EntrySource } from "../src/gallery/entryStore";
 
 const entry = (id: string) => ({
   id,
@@ -26,4 +26,11 @@ test("find resolves a requested entry before a slow sibling", async () => {
 
   // Do not leave the store's intentionally slow sibling pending after the assertion.
   resolveSibling(entry("test.slow"));
+});
+
+test("an entry file under src/gallery keeps its path (Vite keys it ./ from the registry)", () => {
+  expect(entryPath("../pages/apps/apps.gallery.ts")).toBe("src/pages/apps/apps.gallery.ts");
+  expect(entryPath("./fixtures/VisualMediaBoard.gallery.tsx")).toBe(
+    "src/gallery/fixtures/VisualMediaBoard.gallery.tsx",
+  );
 });

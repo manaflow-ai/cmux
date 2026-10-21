@@ -148,6 +148,12 @@ pub enum Input {
     SubagentPrompted {
         id: String,
     },
+    /// A subagent's task turn started at acpmux: `turn_started` after the
+    /// echo of its task prompt `prompt_id` (`Spawner::forward_answer`).
+    SubagentTurnStarted {
+        id: String,
+        prompt_id: String,
+    },
     /// A subagent's cmux workspace exists.
     SubagentWorkspace {
         id: String,
@@ -1142,7 +1148,11 @@ impl Brain {
                 session_id,
                 policy,
             } => self.sub_started(&id, session_id, policy),
-            Input::SubagentPrompted { id } => self.sub_prompted(&id),
+            Input::SubagentPrompted { id } => {
+                self.sub_prompted(&id);
+                self.stop_if_cancelled(&id);
+            }
+            Input::SubagentTurnStarted { id, prompt_id } => self.sub_turn_started(&id, &prompt_id),
             Input::SubagentWorkspace { id, key, name } => self.sub_workspace(&id, key, name),
             Input::SubagentFailed { id, error } => self.sub_failed(&id, &error),
             Input::SubagentAnswer { id, answer } => self.sub_answer(&id, &answer),

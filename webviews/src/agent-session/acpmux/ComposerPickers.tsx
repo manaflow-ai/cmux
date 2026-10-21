@@ -202,7 +202,7 @@ export function ComposerPickers({
   // probe alone (a timeout) keeps it.
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
-  // harness, then Add harness…, read as an offer to switch), and another harness is Continue in…,
+  // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
   // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
   // keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
@@ -1313,7 +1313,12 @@ export function Picker({
       </button>
       {/* A native select cannot hold descriptions, sections or the pane's styling. */}
       {open && (
-        <div ref={attach} style={menuStyle} className={`ui-popup acpmux-menu acpmux-menu-${align}`} data-side="above">
+        <div
+          ref={attach}
+          style={menuStyle}
+          className={`ui-popup ui-glass acpmux-menu acpmux-menu-${align}`}
+          data-side="above"
+        >
           {/* oxlint-disable-next-line jsx-a11y/prefer-tag-over-role */}
           <div id={menuId} role="listbox" aria-label={heading ?? label}>
             {heading && (

@@ -89,7 +89,7 @@ fn refused(reason: &str, message: String, cwd: &str) -> RpcError {
 
 /// The card's request: `toolCall._meta.acpmux.trust` marks it for the daemon (only a person
 /// answers; a Web client cannot), `question` (harness `acp`) is what the chat draws.
-fn card(cwd: &str, short: &str) -> Value {
+pub(super) fn card(cwd: &str, short: &str) -> Value {
     let name = if short.is_empty() { "A sub-session" } else { short };
     json!({
         "toolCall": {
@@ -284,11 +284,13 @@ impl Hub {
         // The task ended (it settled its card itself): nothing is left for the guard to await.
         guard.task = None;
         // A card withdrawn because another start trusted the folder still lets this one go on;
-        // one withdrawn after Not now is declined too.
+        // one withdrawn after Not now is declined too. A card the person answered goes by its
+        // own answer: Trust on it wins over a Not now on another start's card.
         if let Some(decided) = self.trusted_now(&paths, &key, &family, web).await {
             return Ok(decided);
         }
-        if self.trust_waits.declined_recently(&key) {
+        let answered = outcome.pointer("/outcome/optionId").and_then(Value::as_str).is_some();
+        if !answered && self.trust_waits.declined_recently(&key) {
             return Err(declined(&key));
         }
         self.trust_card_answered(&paths, &key, &outcome).await?;
@@ -312,12 +314,23 @@ impl Hub {
     /// Records a worktree made from a folder a decision trusts (never an auto-trust rule alone,
     /// `ensure_folder_trusted`) as trusted, so opening its chat in the pane asks nothing. A Web
     /// client reads that record as a person's answer (`trust::web_session_level`). Best effort: a
-    /// record that cannot be written leaves the pane's own question.
+    /// record that cannot be written leaves the pane's own question. A worktree its repository's
+    /// decision already trusts (`via`) gets no record of its own, so Not now or Undo on the
+    /// repository still reaches it.
     pub(super) async fn trust_made_worktree(&self, cwd: &Path) {
         let Some(paths) = self.trust_gate() else { return };
         let folder = cwd.to_string_lossy().into_owned();
-        let _ = tokio::task::spawn_blocking(move || crate::trust::set(&paths, &folder, "trusted"))
-            .await;
+        let _ = tokio::task::spawn_blocking(move || {
+            let inherited = crate::trust::get(&paths, &folder).is_ok_and(|reply| {
+                reply["level"] == "trusted" && reply["decided"] == true && reply["via"].is_string()
+            });
+            if inherited {
+                Ok(serde_json::Value::Null)
+            } else {
+                crate::trust::set(&paths, &folder, "trusted")
+            }
+        })
+        .await;
         self.trust_changed();
     }
 

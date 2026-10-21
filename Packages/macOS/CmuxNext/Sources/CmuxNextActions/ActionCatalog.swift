@@ -127,6 +127,7 @@ public nonisolated enum ActionCatalog {
         AgentActionCatalog.self,
         AgentTranscriptActionCatalog.self,
         AgentChatIdentifierActionCatalog.self,
+        AgentChatViewActionCatalog.self,
         AgentHarnessActionCatalog.self,
         CloudActionCatalog.self,
         AccountActionCatalog.self,
@@ -144,6 +145,7 @@ public nonisolated enum ActionCatalog {
         NowPlayingCardActionCatalog.self,
         BookmarkActionCatalog.self,
         SidebarSectionActionCatalog.self,
+        SidebarPriorityActionCatalog.self,
         AppStoreActionCatalog.self,
         TasksActionCatalog.self,
         PhoneActionCatalog.self,
@@ -154,6 +156,7 @@ public nonisolated enum ActionCatalog {
         MarkdownPageActionCatalog.self,
         ListActionCatalog.self,
         PaletteKeyActionCatalog.self,
+        ImportActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {

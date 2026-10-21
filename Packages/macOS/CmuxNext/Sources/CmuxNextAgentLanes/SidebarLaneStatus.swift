@@ -1,17 +1,18 @@
 import CmuxNextAgentActivity
 public import CmuxNextBridge
 import CmuxNextDesign
+import Foundation
 public import CmuxNextSidebar
 
 extension SidebarRowFeed {
     /// This feed as the mapping's row source, each row's activity merged with this Mac's acpmux
     /// lanes (`SidebarLaneStatus`, `sidebar.laneStatus`).
     @MainActor public var laneRowSource: SidebarMapping.RowSource {
-        SidebarLaneStatus.applying(rowSource, lanes: .shared, turns: .shared)
+        SidebarLaneStatus.applying(rowSource, lanes: .shared, turns: .shared, marks: .shared)
     }
 }
 
-/// Rows show their agent sessions' acpmux lane state (`sidebar.laneStatus`, Debug, off by default):
+/// Rows show their agent sessions' acpmux lane state (`sidebar.laneStatus`, Debug, on by default):
 /// a row's status mark also follows the lane (`AgentLaneStore`) of each agent chat in it on this
 /// Mac (`SidebarLocalLanes`), so it reads working, waiting on you or failed even when no turn
 /// state reached the row, whatever harness runs the chat.
@@ -22,15 +23,22 @@ extension SidebarRowFeed {
 @MainActor
 enum SidebarLaneStatus {
     /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
-    /// merged with its lanes. The toggle and the lanes are read inside the row's mapping, so
-    /// flipping the toggle or a lane change maps that row again; with the toggle off no lane is read.
+    /// merged with its lanes, and its Priority chip (`sidebar.rowStatus`). The toggles, the lanes
+    /// and the read marks are read inside the row's mapping, so flipping a toggle, a lane change or
+    /// a mark maps that row again; with every toggle off no lane is read.
     static func applying(_ rows: SidebarMapping.RowSource?, lanes: AgentLaneStore,
-                         turns: AgentTurnStateStore) -> SidebarMapping.RowSource {
+                         turns: AgentTurnStateStore, marks: AgentPriorityMarks = .shared) -> SidebarMapping.RowSource {
         { workspace, machine, make in
             let merged: SidebarRowFeed.Make = {
                 var row = make()
-                guard SidebarTunables.laneStatus.value else { return row }
-                merge(SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns), into: &row)
+                let mergesState = SidebarTunables.laneStatus.value, namesState = SidebarTunables.rowStatus.value
+                let saysStep = SidebarTunables.nowLine.value
+                guard mergesState || namesState || saysStep else { return row }
+                let local = SidebarTunables.laneFixture.value ? SidebarLaneFixture.lanes(workspace)
+                    : SidebarLocalLanes.lanes(workspace, lanes: lanes, turns: turns)
+                if mergesState { merge(local, into: &row) }
+                if namesState { row.agentChip = chip(local, marks: marks.state) }
+                if saysStep { row.agentStep = step(local) }
                 return row
             }
             return rows?(workspace, machine, merged) ?? merged()
@@ -48,6 +56,25 @@ enum SidebarLaneStatus {
             row.activityStyle = nil
             row.detail.activitySince = lane.since
         }
+    }
+
+    /// The Priority view's chip for the most urgent of `lanes` (`AgentPriorityRanking`, with the
+    /// same read marks and Red CI), nil when each one works or is idle: the working mark already says working.
+    /// `failingChecks` is the Red CI answer, by default the session tree feed's.
+    static func chip(_ lanes: [AgentActivityLane], marks: AgentPriorityMarks.State,
+                     failingChecks: ((AgentActivityLane) -> Bool)? = nil) -> SidebarPriorityEntry.State? {
+        lanes.map { AgentPriorityRanking.state($0, read: marks.read[$0.id] == AgentPriorityMarks.stamp($0),
+                                               failingChecks: failingChecks?($0) ?? SidebarSessionTreeFeed.shared.checksFailing($0)) }
+            .filter { if case .working = $0 { false } else { $0 != .idle } }
+            .min { AgentPriorityRanking.tier($0) < AgentPriorityRanking.tier($1) }
+    }
+
+    /// The first line of the step of the working lane that started last, nil when none works or
+    /// says what it does.
+    static func step(_ lanes: [AgentActivityLane]) -> String? {
+        let step = lanes.filter { $0.state == .working && $0.step?.isEmpty == false }
+            .max { ($0.since ?? .distantPast) < ($1.since ?? .distantPast) }?.step
+        return step?.split(whereSeparator: \.isNewline).first.map { $0.trimmingCharacters(in: .whitespaces) }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     /// A lane state as the row's status mark.

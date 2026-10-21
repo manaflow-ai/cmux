@@ -101,7 +101,9 @@ const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its sess
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
-    call passes focus: true or the tool's purpose is focus.";
+    call passes focus: true or the tool's purpose is focus. \
+    In a cmux chat reply, show UI rather than describe it: ![alt](/abs/path.png), a bare image \
+    path or an https image address draws as a thumbnail, and two in one paragraph sit side by side.";
 
 /// A catalog entry that is not a tool, and why.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -307,6 +309,15 @@ pub(super) fn refusal(path: &std::path::Path) -> Option<String> {
     refusal_for(path, agent_chat)
 }
 
+/// The settings file, and whether it turns `serve` on for a client outside
+/// a cmux agent chat (Claude Code or Codex started in a terminal), or why
+/// it cannot be read (`cmux setup mcp`).
+pub(super) fn outside_chats() -> (PathBuf, Result<bool, String>) {
+    let path = config::path();
+    let on = config::setting(&path).map(|setting| setting == Some(true));
+    (path, on)
+}
+
 fn refusal_for(path: &std::path::Path, agent_chat: bool) -> Option<String> {
     let messages = messages::messages();
     match config::setting(path) {
@@ -414,6 +425,8 @@ pub(super) struct Server<B> {
     call_cap: Option<Duration>,
     /// Where `run` writes, for a call's `notifications/progress`.
     notes: Option<watch::Output>,
+    /// The ids `render` returned in this process: a render may update only one of these.
+    renders: std::collections::HashSet<String>,
 }
 
 impl<B: Backend> Server<B> {
@@ -432,6 +445,7 @@ impl<B: Backend> Server<B> {
             upstreams: Vec::new(),
             call_cap: None,
             notes: None,
+            renders: std::collections::HashSet::new(),
         }
     }
 
@@ -737,7 +751,7 @@ impl<B: Backend> Server<B> {
             return Ok(agent_events_tool::call(&self.backend, &arguments));
         }
         if name == render_tool::NAME {
-            return Ok(match render_tool::receipt(&arguments) {
+            return Ok(match render_tool::receipt(&arguments, &mut self.renders) {
                 Ok(receipt) => success(receipt, false),
                 Err(message) => tool_error(envelope(v2_tools::invalid(message), "not_run", None)),
             });
