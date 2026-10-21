@@ -458,19 +458,19 @@
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-picker-button:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-plan:hover,
   :is(.acpmux-composer-bar, .nt-pickers) .acpmux-steer:hover,
-  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]):hover {
+  :is(.acpmux-composer-bar, .nt-pickers) .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]):hover {
     background: var(--acpmux-row-hover);
     color: var(--agent-text);
   }
 }
-/* Keyboard focus draws the same pill on any button, beside its focus outline (below). A listening
-   mic keeps its red. */
+/* Keyboard focus draws the same pill on any button, beside its focus outline (below). A lit mic
+   (a running dictation, dictation.css) keeps its accent square. */
 :is(.acpmux-composer-bar, .nt-pickers)
   :is(
     .acpmux-picker-button,
     .acpmux-plan,
     .acpmux-steer,
-    .acpmux-mic:not([data-state="listening"], [data-state="finalizing"]),
+    .acpmux-mic:not([data-state="starting"], [data-state="listening"], [data-state="finalizing"]),
     .acpmux-fast
   ):focus-visible {
   background: var(--acpmux-row-hover);

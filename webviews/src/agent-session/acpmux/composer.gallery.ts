@@ -403,6 +403,50 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
     },
+    // Leo (2026-10-20): every pasted image read "image.png" on hover, and one that could not be
+    // drawn showed an empty checkerboard. WebKit names pasted image data "image.png".
+    "image-pasted-unnamed": {
+      note: "A pasted screenshot WebKit names image.png: hover names it Screenshot with its natural size.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(2458, 2324);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#1f2a44";
+        paint.fillRect(0, 0, 2458, 2324);
+        paint.fillStyle = "#5b8def";
+        for (let line = 0; line < 10; line += 1) paint.fillRect(560, 300 + line * 180, 1200 - line * 60, 60);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "image.png", {
+          type: "image/png",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.hover({ selector: ".acpmux-attachment-image" });
+      },
+    },
+    "image-failed": {
+      note: "A pasted image whose bytes cannot be drawn: its chip says Couldn't load image, and × still removes it.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const file = new view.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], "image.png", {
+          type: "image/png",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      },
+    },
     "quick-image-attached": {
       note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
       ready: { surface: "quick" },
