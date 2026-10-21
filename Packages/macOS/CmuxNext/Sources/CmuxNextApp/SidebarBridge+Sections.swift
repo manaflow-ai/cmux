@@ -127,7 +127,8 @@ extension SidebarBridge {
                          unread: Int = 0,
                          app: (String) -> SidebarItemInfo = { SidebarItemInfo.fallback(for: .app($0)) },
                          shortcut: (ActionID) -> String? = { _ in nil },
-                         workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil }) -> [LayoutItemID: SidebarItemInfo] {
+                         workspace: (LayoutItemRef) -> SidebarItemInfo? = { _ in nil },
+                         chiefMascot: String? = nil) -> [LayoutItemID: SidebarItemInfo] {
         var infos: [LayoutItemID: SidebarItemInfo] = [:]
         for section in layout.sections {
             for item in section.items {
