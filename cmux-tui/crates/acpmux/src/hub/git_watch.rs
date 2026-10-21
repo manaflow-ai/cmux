@@ -113,6 +113,13 @@ impl Hub {
         now.get(&m.id).cloned().unwrap_or_else(|| m.git_branch.clone())
     }
 
+    /// Whether the watch keeps a branch for session `id` (tests: a purged
+    /// session's is dropped).
+    #[doc(hidden)]
+    pub fn git_branch_tracked(&self, id: &str) -> bool {
+        self.git_watch.now.lock().unwrap_or_else(|p| p.into_inner()).contains_key(id)
+    }
+
     /// The sessions some client holds, with their folders.
     fn held_sessions(&self) -> Vec<(Arc<Session>, PathBuf)> {
         let held: Vec<Arc<Session>> = {
