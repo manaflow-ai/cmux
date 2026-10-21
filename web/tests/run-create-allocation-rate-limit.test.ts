@@ -35,6 +35,7 @@ describe("Run create allocation admission", () => {
       request,
       route: "run.create",
       billingTeamId: "team-run",
+      cost: 32,
     });
     expect(persist).not.toHaveBeenCalled();
   });
