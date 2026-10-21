@@ -109,6 +109,19 @@ import Testing
         #expect(part.kind == HomeTableRowProvider.kind)
     }
 
+    @Test func aColumnOfPaperSizesIsNotAPlan() throws {
+        let table = try #require(Self.table("| Size | mm |\n|---|---|\n| A4 | 210 × 297 |\n| A3 | 297 × 420 |"))
+        #expect(HomePlanCard(table) == nil)
+    }
+
+    @Test func aWrappedCellIsAsTallAsTheLinesItDraws() {
+        let text = HomeTableGrid.attributed(HomeTableCell(markdown: "Lasting canary results, a planner for each night's build, and a workflow that reverts"),
+                                            header: false)
+        let lines = HomeCardDraw.lines(text, width: 60)
+        #expect(lines.count >= 4)
+        #expect(HomeTableGrid.textHeight(text, width: 60) == lines.reduce(0) { $0 + $1.height })
+    }
+
     @Test func ownerIDsAreSubagentIdsOnly() {
         #expect(HomePlanCard.ownerID("a12") == "a12")
         #expect(HomePlanCard.ownerID("A7, added") == "a7")

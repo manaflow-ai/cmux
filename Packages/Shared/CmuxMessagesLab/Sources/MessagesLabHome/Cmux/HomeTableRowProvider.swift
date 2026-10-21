@@ -120,6 +120,10 @@ struct HomeTableGrid {
     func draw(_ ctx: CGContext, at origin: CGPoint) {
         let card = CGRect(x: origin.x, y: origin.y, width: cardWidth, height: height)
         HomeCardDraw.background(ctx, card)
+        // Columns at their 56 pt floor can be wider than a very narrow chat: they stop at the card.
+        ctx.saveGState()
+        defer { ctx.restoreGState() }
+        ctx.clip(to: card.insetBy(dx: Self.pad / 2, dy: 0))
         var y = card.minY + Self.pad
         for (r, row) in cells.enumerated() {
             var x = card.minX + Self.pad
@@ -151,12 +155,10 @@ struct HomeTableGrid {
         return CGFloat(CTLineGetTypographicBounds(CTLineCreateWithAttributedString(text), nil, nil, nil)).rounded(.up)
     }
 
+    /// The height ``HomeCardDraw/text`` draws `text` in at `width`: the same lines, each rounded up.
     static func textHeight(_ text: NSAttributedString, width: CGFloat) -> CGFloat {
         guard text.length > 0 else { return Fixture.bodyFont.pointSize + 4 }
-        let setter = CTFramesetterCreateWithAttributedString(text)
-        let size = CTFramesetterSuggestFrameSizeWithConstraints(setter, CFRange(location: 0, length: 0), nil,
-                                                                CGSize(width: max(1, width), height: .greatestFiniteMagnitude), nil)
-        return size.height.rounded(.up)
+        return HomeCardDraw.lines(text, width: width).reduce(0) { $0 + $1.height }
     }
 }
 
@@ -219,7 +221,7 @@ final class HomePlanRowProvider: TranscriptCustomRowProvider {
 struct HomePlanLayout {
     static let pad: CGFloat = 12
     static let rowPadY: CGFloat = 8
-    static let chipWidth: CGFloat = 44
+    static let chipWidth: CGFloat = 54
     static let pillWidth: CGFloat = 104
     static let lineGap: CGFloat = 2
 
@@ -317,30 +319,44 @@ enum HomeCardDraw {
         ctx.restoreGState()
     }
 
-    /// `text` wrapped into `rect` (top-left origin, y down).
-    static func text(_ ctx: CGContext, _ text: NSAttributedString, in rect: CGRect, alignment: HomeTable.Alignment) {
-        guard text.length > 0, rect.width > 0 else { return }
+    struct Line {
+        var line: CTLine
+        var width: CGFloat
+        var ascent: CGFloat
+        var height: CGFloat
+    }
+
+    /// `text` wrapped at `width`: each line with its width, ascent and height (rounded up). Measure
+    /// (``HomeTableGrid/textHeight(_:width:)``) and draw both use it, so a cell is as tall as it draws.
+    static func lines(_ text: NSAttributedString, width: CGFloat) -> [Line] {
+        guard text.length > 0 else { return [] }
         let setter = CTFramesetterCreateWithAttributedString(text)
         let frame = CTFramesetterCreateFrame(setter, CFRange(location: 0, length: 0),
-                                             CGPath(rect: CGRect(x: 0, y: 0, width: rect.width, height: .greatestFiniteMagnitude / 4), transform: nil), nil)
-        guard let lines = CTFrameGetLines(frame) as? [CTLine] else { return }
-        var y = rect.minY
-        for line in lines {
+                                             CGPath(rect: CGRect(x: 0, y: 0, width: max(1, width), height: 100_000), transform: nil), nil)
+        guard let lines = CTFrameGetLines(frame) as? [CTLine] else { return [] }
+        return lines.map { line in
             var ascent: CGFloat = 0, descent: CGFloat = 0, leading: CGFloat = 0
             let w = CGFloat(CTLineGetTypographicBounds(line, &ascent, &descent, &leading))
-            let lineHeight = (ascent + descent + leading).rounded(.up)
-            guard y + lineHeight <= rect.maxY + 1 else { break }
+            return Line(line: line, width: w, ascent: ascent, height: (ascent + descent + leading).rounded(.up))
+        }
+    }
+
+    /// `text` wrapped into `rect` (top-left origin, y down).
+    static func text(_ ctx: CGContext, _ text: NSAttributedString, in rect: CGRect, alignment: HomeTable.Alignment) {
+        guard rect.width > 0 else { return }
+        var y = rect.minY
+        for line in lines(text, width: rect.width) {
             let x: CGFloat = switch alignment {
             case .leading: rect.minX
-            case .center: rect.midX - w / 2
-            case .trailing: rect.maxX - w
+            case .center: rect.midX - line.width / 2
+            case .trailing: rect.maxX - line.width
             }
             ctx.saveGState()
             ctx.textMatrix = CGAffineTransform(scaleX: 1, y: -1)
-            ctx.textPosition = CGPoint(x: x, y: y + ascent)
-            CTLineDraw(line, ctx)
+            ctx.textPosition = CGPoint(x: x, y: y + line.ascent)
+            CTLineDraw(line.line, ctx)
             ctx.restoreGState()
-            y += lineHeight
+            y += line.height
         }
     }
 
@@ -358,15 +374,16 @@ enum HomeCardDraw {
         text(ctx, s, in: pill.insetBy(dx: 7, dy: 2), alignment: .center)
     }
 
+    /// Fixed sRGB tints (a system colour's cgColor off the main thread can resolve to its light variant).
     static func tint(_ state: ChiefPlanStep.State) -> UIColor {
         switch state {
-        case .working: UIColor.systemBlue
-        case .needsInput: UIColor.systemYellow
-        case .waitingOnCI: UIColor.systemOrange
-        case .ciFailed, .failed: UIColor.systemRed
-        case .inReview: UIColor.systemPurple
-        case .landed: UIColor.systemGreen
-        case .done: UIColor.systemGray
+        case .working: UIColor(srgbRed: 0.04, green: 0.52, blue: 1, alpha: 1)
+        case .needsInput: UIColor(srgbRed: 0.95, green: 0.72, blue: 0.05, alpha: 1)
+        case .waitingOnCI: UIColor(srgbRed: 1, green: 0.58, blue: 0.04, alpha: 1)
+        case .ciFailed, .failed: UIColor(srgbRed: 1, green: 0.27, blue: 0.23, alpha: 1)
+        case .inReview: UIColor(srgbRed: 0.69, green: 0.38, blue: 0.95, alpha: 1)
+        case .landed: UIColor(srgbRed: 0.2, green: 0.78, blue: 0.35, alpha: 1)
+        case .done: UIColor(srgbRed: 0.56, green: 0.56, blue: 0.58, alpha: 1)
         }
     }
 }

@@ -213,14 +213,12 @@ struct HomePlanCard: Codable, Hashable, Sendable {
     static let statusHeaders: Set<String> = ["status", "state", "where", "progress"]
 
     /// The plan card for `table`, or nil when it is not an assignment list: it needs a column whose
-    /// header names an owner, or whose every cell starts with a subagent id, and at least half its rows
-    /// must name one.
+    /// header names an owner (Who, Owner, Agent, Lane), and at least half its rows must name a subagent.
     init?(_ table: HomeTable) {
         guard table.columns >= 2 else { return nil }
         let headers = table.header.map { HomeTableCell(markdown: $0).text.lowercased().trimmingCharacters(in: .whitespaces) }
-        let ownerColumn = headers.firstIndex { Self.ownerHeaders.contains($0) }
-            ?? (0..<table.columns).first { c in table.rows.allSatisfy { Self.ownerID(HomeTableCell(markdown: $0[c]).text) != nil } }
-        guard let ownerColumn else { return nil }
+        // Only a header that names an owner: a column of A4 / A1 cells is not a list of subagents.
+        guard let ownerColumn = headers.firstIndex(where: { Self.ownerHeaders.contains($0) }) else { return nil }
         let owned = table.rows.filter { Self.ownerID(HomeTableCell(markdown: $0[ownerColumn]).text) != nil }.count
         guard owned * 2 >= table.rows.count, owned > 0 else { return nil }
         let statusColumn = headers.firstIndex { Self.statusHeaders.contains($0) }
