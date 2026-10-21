@@ -31,7 +31,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
         case .bookmarks: String(localized: "importSuggestions.kind.bookmarks", defaultValue: "bookmarks", table: "ImportSuggestions", bundle: .module)
         case .cookies: String(localized: "importSuggestions.kind.cookies", defaultValue: "cookies", table: "ImportSuggestions", bundle: .module)
         case .passwords: String(localized: "importSuggestions.kind.passwords", defaultValue: "passwords", table: "ImportSuggestions", bundle: .module)
-        case .openTabs, .extensions: ""
+        case .openTabs, .extensions, .searchEngines: ""
         }
     }
 
