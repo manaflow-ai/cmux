@@ -281,6 +281,18 @@ class SpillToCompatiblePool(unittest.TestCase):
         self.assertEqual(owned, ("a", "b", "c"))
         self.assertIn(LIGHT_SIDE, why)
 
+    def test_only_the_jobs_that_take_the_runner_output_count_against_the_own_class(self):
+        # cmux-next.yml lists seven JOBS, but its GUI and session jobs take gui_runner or
+        # session_runner; CASCADE_RUNS names the ones that take `runner`.
+        light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "abc"]
+        std = [runner(f"mini-{host}-glaeda-3") for host in "abcdefgh"]
+        seven = "fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files"
+        self.assertEqual(placement.route_want(env(JOBS=seven)), 7)
+        runs = env(JOBS=seven, CASCADE_RUNS=" fast-tier swift-canary cmux-scheme-compile ")
+        self.assertEqual(placement.route_want(runs), 3)
+        self.assertIn(LIGHT_SIDE, placement.decide({**runs, "SIDE_LABEL": LIGHT_SIDE}, light + std)[2])
+        self.assertEqual(placement.route_want(env(JOBS=seven, CASCADE_RUNS="  ")), 0)
+
     def test_a_std_job_never_takes_a_light_runner(self):
         light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "abcd"]
         std = [runner("mini-a-glaeda-3", busy=True)]
