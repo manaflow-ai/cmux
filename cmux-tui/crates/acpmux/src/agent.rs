@@ -152,6 +152,9 @@ pub struct ChildAgent {
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
     hosted: Option<Hosted>,
+    /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
+    /// decided at its session/new or load), for a fork through it.
+    pub all_tools: std::sync::atomic::AtomicBool,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -250,6 +253,7 @@ impl ChildAgent {
             translator: translator.clone(),
             codex,
             hosted: None,
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job,
         });
@@ -908,6 +912,7 @@ impl ChildAgent {
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job: None,
         });
