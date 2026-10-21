@@ -3,7 +3,7 @@ public import QuartzCore
 /// The pane attention ring's animation (`notifications.attention.style`).
 /// Blinks use half the `flash` loop period each; the pulse uses the `pulse`
 /// loop and runs for the configured duration only, so nothing loops while
-/// idle (architecture.md 5). Reduce Motion: one fade. Off: no animation.
+/// idle (architecture.md 5). Reduce Motion: a static ring, no flash. Off: no animation.
 extension Motion {
     /// The ring's opacity once its animation ends, while it persists: the look's
     /// steady strength for the steady style (clearly visible), its faint resting
@@ -15,10 +15,12 @@ extension Motion {
         return style == .steady ? look.steadyOpacity : look.restingOpacity
     }
 
-    /// The style the ring draws: static status indicators (cx-sya4n) turn a blink or pulse
-    /// into the steady ring, for its animation and its rest alike.
+    /// The style the ring draws: static status indicators (cx-sya4n) and Reduce Motion (a
+    /// static ring, unread rings from classic, 2026-10-20) turn a blink or pulse into the steady
+    /// ring, for its animation and its rest alike.
     static func attentionStyle(_ settings: AttentionSettings) -> AttentionStyle {
-        guard settings.style != .none, DesignSettings.shared.statusIndicator.animation == .static else {
+        guard settings.style != .none,
+              DesignSettings.shared.statusIndicator.animation == .static || !Motion.indicators.animatesLoops else {
             return settings.style
         }
         return .steady
@@ -44,10 +46,12 @@ extension MotionGate {
         let rest = Motion.attentionRestingOpacity(settings, look: look)
         let peak = look.peakOpacity
         guard animatesLoops else {
-            // Reduce Motion: fade in to rest, or a single flash that fades.
-            if settings.style == .steady, showing, rest > 0 { return nil }
+            // Reduce Motion: the ring shows at once at its rest, no flash (unread rings from
+            // classic, 2026-10-20). A ring that rests invisible (the Flash only look, or
+            // `persist` off) fades out once, or nothing would show.
+            if rest > 0 { return nil }
             let fade = CAKeyframeAnimation(keyPath: "opacity")
-            fade.values = rest > 0 ? [0, rest] : [peak, 0]
+            fade.values = [peak, 0]
             fade.duration = duration(.fadeIn)
             return fade
         }
@@ -100,25 +104,49 @@ extension MotionGate {
 }
 
 extension MotionGate {
-    /// The flash a ring plays as it goes away because the person went into its pane (cmux
-    /// classic's dismiss flash): `blinkCount` blinks at the peak, ending with no ring. Static
-    /// status indicators (cx-sya4n) and Reduce Motion get one fade out; no ring style, or
-    /// animations off, gets none.
+    /// The flash a ring plays as it goes away because the person went into its pane: cmux
+    /// classic's dismiss flash, `FocusFlashPattern.doubleBlink` (origin/main
+    /// `Sources/Panels/Panel.swift`). Each of the `blinkCount` blinks (two by default, as in
+    /// classic) rises from no ring to full strength with ease-out and falls with ease-in, at even
+    /// key times, ending with no ring. Classic ran two blinks in 0.9 s; the 2 Hz cap
+    /// (`MotionLoop.shortestFlashCycle`) holds two blinks to one `flash` loop period (1 s or more).
+    /// Static status indicators (cx-sya4n) get one fade out; Reduce Motion, no ring style, or
+    /// animations off get none: the ring just goes.
     public func attentionDismissAnimation(_ settings: AttentionSettings,
                                           look: AttentionHighlightLook = AttentionHighlightLook.tunable.value) -> CAAnimation? {
-        guard animatesFades, settings.style != .none else { return nil }
-        let peak = look.peakOpacity
+        guard animatesFades, animatesLoops, settings.style != .none else { return nil }
         let flash = CAKeyframeAnimation(keyPath: "opacity")
-        guard animatesLoops, DesignSettings.shared.statusIndicator.animation != .static else {
-            flash.values = [peak, 0]
+        guard DesignSettings.shared.statusIndicator.animation != .static else {
+            flash.values = [Motion.attentionRestingOpacity(settings, look: look), 0]
             flash.duration = duration(.fadeIn)
             return flash
         }
         let count = min(max(settings.blinkCount, AttentionSettings.blinkRange.lowerBound), AttentionSettings.blinkRange.upperBound)
-        var values: [Float] = []
-        for _ in 0..<count { values += [peak, 0] }
+        var values: [Float] = [0]
+        for _ in 0..<count { values += [1, 0] }
         flash.values = values
-        flash.duration = MotionLoop.flash.period / 2 * Double(count) * speed.timeScale
+        flash.keyTimes = values.indices.map { NSNumber(value: Double($0) / Double(values.count - 1)) }
+        let rise = CAMediaTimingFunction(name: .easeOut), fall = CAMediaTimingFunction(name: .easeIn)
+        flash.timingFunctions = (0..<count).flatMap { _ in [rise, fall] }
+        flash.duration = max(MotionLoop.flash.minimumPeriod, MotionLoop.flash.period * speed.timeScale) / 2 * Double(count)
         return flash
+    }
+
+    /// The ring's stronger glow held for the length of its dismiss flash (classic's
+    /// `flashRingStyle`): the shadow opacity and blur radius stay at the given values for
+    /// `duration` seconds, then return to the layer's own. Nil when fades are off.
+    public func attentionGlowHold(opacity: Float, radius: CGFloat, duration: TimeInterval) -> CAAnimation? {
+        guard animatesFades, duration > 0 else { return nil }
+        func hold(_ key: String, _ value: Double) -> CABasicAnimation {
+            let hold = CABasicAnimation(keyPath: key)
+            hold.fromValue = value
+            hold.toValue = value
+            hold.duration = duration
+            return hold
+        }
+        let group = CAAnimationGroup()
+        group.animations = [hold("shadowOpacity", Double(opacity)), hold("shadowRadius", Double(radius))]
+        group.duration = duration
+        return group
     }
 }

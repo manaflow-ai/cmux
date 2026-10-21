@@ -150487,6 +150487,399 @@
           }
         }
       }
+    },
+    "settings.attention.flash": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash the Pane When Read"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "既読時にペインを点滅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وميض الجزء عند القراءة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bljesni okno kad je pročitano"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink ruden, når den læses"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bereich beim Lesen aufblinken lassen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destellar el panel al leer"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Faire clignoter le volet à la lecture"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fai lampeggiare il riquadro alla lettura"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចេញពន្លឺផ្ទាំងពេលបានអាន"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽을 때 패널 깜박임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink ruten når den leses"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mignij panelem po przeczytaniu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Piscar o painel ao ler"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мигать панелью при прочтении"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กะพริบบานหน้าต่างเมื่ออ่าน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okununca Bölmeyi Yanıp Söndür"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Блимати панеллю під час прочитання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nháy khung khi đã đọc"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已读时闪烁窗格"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "已讀時閃爍窗格"
+          }
+        }
+      }
+    },
+    "settings.attention.flash.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "未読のペインをクリック、入力、またはジャンプすると、リングが消えるときに点滅します。"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "النقر على جزء غير مقروء أو الكتابة فيه أو الانتقال إليه يجعل حلقته تومض أثناء اختفائها."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klik na nepročitano okno, kucanje u njemu ili skok na njega bljesne njegov prsten dok nestaje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du klikker på en ulæst rude, skriver i den eller hopper til den, blinker dens ring, mens den forsvinder."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Klicken in einen ungelesenen Bereich, Tippen darin oder Springen dorthin lässt seinen Ring beim Verschwinden aufblinken."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hacer clic en un panel no leído, escribir en él o saltar a él hace destellar su anillo al desaparecer."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cliquer dans un volet non lu, y saisir du texte ou y aller fait clignoter son anneau quand il disparaît."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fare clic su un riquadro non letto, digitarvi o saltarvi fa lampeggiare il suo anello mentre scompare."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ការចុចលើផ្ទាំងមិនទាន់អាន ការវាយក្នុងវា ឬការលោតទៅវា បញ្ចេញពន្លឺរង្វង់របស់វាពេលវាបាត់។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "읽지 않은 패널을 클릭하거나, 입력하거나, 이동하면 링이 사라지면서 깜박입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Når du klikker i en ulest rute, skriver i den eller hopper til den, blinker ringen mens den forsvinner."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kliknięcie nieprzeczytanego panelu, pisanie w nim lub przejście do niego miga jego pierścieniem, gdy znika."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clicar em um painel não lido, digitar nele ou ir até ele faz seu anel piscar ao sumir."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Щелчок по непрочитанной панели, ввод в ней или переход к ней мигает её кольцом, когда оно исчезает."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การคลิกบานหน้าต่างที่ยังไม่อ่าน การพิมพ์ในนั้น หรือการข้ามไปยังนั้น จะทำให้วงแหวนกะพริบขณะหายไป"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Okunmamış bir bölmeye tıklamak, içinde yazmak veya ona atlamak, halkası kaybolurken onu yanıp söndürür."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Клацання по непрочитаній панелі, введення в ній або перехід до неї блимає її кільцем, коли воно зникає."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nhấp vào khung chưa đọc, gõ phím trong đó hoặc chuyển đến nó sẽ nháy vòng của nó khi biến mất."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "点击未读窗格、在其中输入或跳转到它时，其光环会在消失时闪烁。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "點按未讀窗格、在其中輸入或跳至它時，其光環會在消失時閃爍。"
+          }
+        }
+      }
+    },
+    "settings.attention.flashOnTyping": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Flash When Typing Reads It"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "入力で既読になったときに点滅"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "وميض عند القراءة بالكتابة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Bljesni kad ga kucanje pročita"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink, når indtastning læser den"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aufblinken, wenn Tippen ihn liest"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Destellar al leerlo escribiendo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Clignoter quand la saisie le lit"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Lampeggia quando la digitazione lo legge"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បញ្ចេញពន្លឺពេលការវាយអានវា"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "입력으로 읽을 때 깜박임"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Blink når skriving leser den"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mignij, gdy pisanie go odczyta"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Piscar quando a digitação o lê"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Мигать при прочтении вводом"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "กะพริบเมื่อการพิมพ์ทำให้อ่านแล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yazmak Okuduğunda Yanıp Sön"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Блимати, коли введення його читає"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nháy khi gõ phím đọc nó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "输入使其已读时闪烁"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "輸入使其已讀時閃爍"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
