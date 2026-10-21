@@ -7,19 +7,31 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct AgentPaneSuggestedTasksSettingTests {
-    private func settle(until condition: () -> Bool) async {
-        for _ in 0..<200 where !condition() { await Task.yield() }
-    }
-
-    @Test func theSettingReachesThePagesAndTheNextDaemon() async {
+    @Test func theSettingReachesTheNextDaemonAtOnceAndBack() async {
+        let debugOn = AgentPaneTunables.suggestedTasks.value
         let tasks = AgentPaneSuggestedTasks()
         tasks.setting = { true }
         #expect(tasks.isOn)
-        await settle { AgentPaneSuggestedTasks.forNextDaemon.isOn }
+        // Set at once, before the observation runs: a daemon prewarmed at launch sees it.
         #expect(AgentPaneSuggestedTasks.forNextDaemon.isOn)
 
         tasks.setting = { false }
-        await settle { !AgentPaneSuggestedTasks.forNextDaemon.isOn }
-        #expect(tasks.isOn == AgentPaneTunables.suggestedTasks.value)
+        #expect(tasks.isOn == debugOn)
+        #expect(AgentPaneSuggestedTasks.forNextDaemon.isOn == debugOn)
+        // The observation's later passes keep it there.
+        for _ in 0..<50 { await Task.yield() }
+        #expect(AgentPaneSuggestedTasks.forNextDaemon.isOn == debugOn)
+    }
+
+    @Test func aReleasedInstanceLeavesTheSharedFlagAlone() async {
+        var released: AgentPaneSuggestedTasks? = AgentPaneSuggestedTasks()
+        released?.setting = { true }
+        released = nil
+        let live = AgentPaneSuggestedTasks()
+        live.setting = { true }
+        for _ in 0..<50 { await Task.yield() }
+        #expect(released == nil)
+        #expect(AgentPaneSuggestedTasks.forNextDaemon.isOn)
+        live.setting = { false }
     }
 }

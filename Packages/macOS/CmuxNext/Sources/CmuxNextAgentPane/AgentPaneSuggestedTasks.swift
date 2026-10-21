@@ -13,7 +13,9 @@ public final class AgentPaneSuggestedTasks {
     private var observation: Task<Void, Never>?
     /// `sessions.promptSuggestions`, read through Observation (the App reads its settings snapshot).
     public var setting: @MainActor () -> Bool = { false } {
-        didSet { observation?.cancel(); observation = nil; follow() }
+        // Written now, not only by the observation: a daemon started before its first pass
+        // (AgentTabs prewarms one at launch) still gets the tools.
+        didSet { Self.forNextDaemon.set(isOn); observation?.cancel(); observation = nil; follow() }
     }
     /// The value for the next acpmux daemon this app starts (``AcpmuxHost``, off the main actor),
     /// kept current here on the main actor.
@@ -53,13 +55,19 @@ public final class AgentPaneSuggestedTasks {
         view.deliver([.suggestedTasks(on)], scripts: [Self.script(on)])
     }
 
+    // Same shape as AgentPaneView's (cx-t7hu): not an isolated deinit.
+    nonisolated deinit {
+        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
+        MainActor.assumeIsolated { observation?.cancel() }
+    }
+
     private func follow() {
         guard observation == nil else { return }
         // task-owner: app-lifetime; event-driven (Observation on the setting and the tunable key)
         observation = Task { [weak self] in
             for await on in ObservationStream({ [weak self] in self?.isOn ?? false }) {
+                guard let self else { return }  // a released instance never writes the shared flag
                 Self.forNextDaemon.set(on)
-                guard let self else { return }
                 for view in views.allObjects { send(to: view) }
             }
         }
