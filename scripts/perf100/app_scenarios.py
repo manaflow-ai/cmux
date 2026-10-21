@@ -1,0 +1,402 @@
+"""perf100 app scenarios S0-S4 against a tagged cmux NEXT bundle (GUI host only).
+
+Every scenario launches the bundle on a new scratch profile, builds its state over the control
+socket, measures, then quits with `quitEndSessions` and sweeps (appdriver.App.stop / sweep).
+Latency probes run after the resource windows, so their socket reads do not count in them.
+"""
+from __future__ import annotations
+
+import json
+import os
+import random
+import subprocess
+import sys
+import threading
+import time
+
+import appdriver
+import procstat
+import runlib
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+FIXTURES = os.path.join(HERE, "fixtures")
+sys.path.insert(0, FIXTURES)
+import pages  # noqa: E402
+
+
+def _python() -> str:
+    return "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
+
+
+def _fifo_wait(paths: list[str], timeout: float) -> list[float | None]:
+    t0 = time.monotonic()
+    done: list[float | None] = [None] * len(paths)
+
+    def reader(i, path):
+        with open(path, "rb") as handle:  # blocks until the shell in the terminal writes it
+            handle.read()
+        done[i] = time.monotonic() - t0
+
+    threads = [threading.Thread(target=reader, args=(i, p), daemon=True) for i, p in enumerate(paths)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=max(0.0, timeout - (time.monotonic() - t0)))
+    return done
+
+
+def _fifo_release(paths: list[str], timeout: float):
+    """Writes one line to each go FIFO; each open blocks until its shell reads it (no race)."""
+
+    def writer(path):
+        with open(path, "w") as handle:
+            handle.write("go\n")
+
+    threads = [threading.Thread(target=writer, args=(p,), daemon=True) for p in paths]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=timeout)
+
+
+def _key_latency(app: appdriver.App, run: runlib.Run, samples: int, rng: random.Random, name: str):
+    values = []
+    for _ in range(samples):
+        marker = "".join(rng.choice("qwzx") for _ in range(4))
+        ms = app.key_echo_ms(marker, timeout=10)
+        if ms is not None:
+            values.append(ms)
+    run.latency(name, values)
+    if len(values) < samples:
+        run.note(f"{name}: {samples - len(values)} of {samples} keys never showed on the terminal")
+
+
+def _end(app: appdriver.App, run: runlib.Run, prefix: str = "stop"):
+    try:
+        run.metric(f"{prefix}.quit_ms", round(app.stop() or 0, 1) or None)
+    finally:
+        app.sweep()
+    run.data.setdefault("on_disk", {})[prefix] = procstat.du(app.home)
+    run.metric(f"disk.{prefix}.home_mb", run.data["on_disk"][prefix]["allocated_mb"])
+    for sub in ("Library/Application Support", ".local/state", ".cmux", ".acpmux"):
+        path = os.path.join(app.home, sub)
+        if os.path.isdir(path):
+            for name in sorted(os.listdir(path)):
+                usage = procstat.du(os.path.join(path, name))
+                if usage["allocated_mb"] >= 0.1:
+                    run.data["on_disk"].setdefault(f"{prefix}.tree", {})[f"{sub}/{name}"] = usage
+
+
+def run_app(args, build: dict, out_dir: str) -> list[str]:
+    paths = []
+    for scenario in args.scenarios.split(","):
+        rng = random.Random(f"{args.seed}-{scenario}")
+        run = runlib.Run(scenario, "app", args.seed, vars(args), build, args.host_class)
+        run.apps = []
+        try:
+            fn = {"S0": s0, "S1": s1, "S2": s2, "S3": s3, "S4": s4}[scenario]
+            fn(args, run, rng)
+        except Exception as error:  # noqa: BLE001 - the run records the failure, the next scenario runs
+            run.data["error"] = repr(error)
+        finally:
+            for app in run.apps:
+                if app.pid is not None:
+                    try:
+                        _end(app, run)
+                    except Exception as error:  # noqa: BLE001
+                        run.data.setdefault("teardown_error", repr(error))
+                if not args.keep_scratch:
+                    app.cleanup()
+            paths.append(run.write(out_dir))
+            print(f"perf100: {scenario} done ({run.data.get('error') or 'ok'})", flush=True)
+    return paths
+
+
+def _new_app(args, run: runlib.Run, allow_agents: bool = False) -> appdriver.App:
+    app = appdriver.App(args.app, allow_agents=allow_agents)
+    run.apps.append(app)
+    return app
+
+
+def _launch(args, run: runlib.Run, allow_agents: bool = False) -> appdriver.App:
+    app = _new_app(args, run, allow_agents)
+    run.metric("launch.socket_ms", round(app.launch(), 1))
+    launch = app.wait_first_terminal()
+    for key in ("first_window_frame_committed", "first_terminal_surface_created"):
+        if key in launch:
+            run.metric(f"launch.{key}_ms", round(launch[key], 1))
+    return app
+
+
+def _idle_window(run, app, name, seconds, settle, per=None):
+    time.sleep(settle)  # bench: let launch and setup work finish before the idle window
+    window = procstat.Tracker(app.discover).start()
+    time.sleep(seconds)  # bench: the measured idle window
+    entry = run.phase(name, window.stop())
+    if per:
+        for unit, count, groups in per:
+            units = runlib.per_unit(entry["groups"], count, unit, groups)
+            entry.setdefault("per_unit", {}).update(units)
+            for key, value in units[unit].items():
+                run.metric(f"{name}.per_{unit}.{key}", value)
+    return entry
+
+
+def s0(args, run, rng):
+    """App open, 10 terminals with idle shells, 3 idle agent TUIs, 5 browser tabs; 60 s idle."""
+    urls, server = pages.serve(args.seed)
+    app = _launch(args, run)
+    run.metric("setup.terminals", args.terminals)
+    for _ in range(args.terminals - 1):
+        app.act("newSurface")
+    for i in range(args.agent_tuis):
+        app.act("newSurface", focus=True)
+        app.send_text(f"exec {_python()} {os.path.join(FIXTURES, 'idle_tui.py')} {rng.randrange(1000)}\n")
+    for url in urls[: args.tabs]:
+        # focus: a background browser tab does not load until it is shown (xbench, bench_memory).
+        app.act("openBrowser.chromium", focus=True, url=url)
+    app.act("selectSurfaceByNumber", focus=True, index=1)  # rest on the first terminal, as a user would
+    _idle_window(run, app, "idle", args.idle, args.settle,
+                 per=[("terminal", args.terminals + args.agent_tuis, ("tui",)), ("tab", args.tabs, ("browser",))])
+    _key_latency(app, run, args.latency_samples, rng, "keystroke_to_glyph")
+    server.shutdown()
+    return app
+
+
+def s1(args, run, rng):
+    """`yes | head -c <flood_mb>M` in 1 terminal, then in `flood_terminals` terminals at once."""
+    app = _launch(args, run)
+    size = int(args.flood_mb * 1048576)
+    fifo_dir = os.path.join(app.scratch, "fifo")
+    os.makedirs(fifo_dir)
+    for phase, count in (("flood1", 1), (f"flood{args.flood_terminals}", args.flood_terminals)):
+        if phase != "flood1":
+            app.new_workspace()
+        fifos, gos = [], []
+        for i in range(count):
+            if i:
+                app.act("newSurface", focus=True)
+            fifo = os.path.join(fifo_dir, f"{phase}-{i}")
+            go = os.path.join(fifo_dir, f"{phase}-{i}.go")
+            os.mkfifo(fifo)
+            os.mkfifo(go)
+            fifos.append(fifo)
+            gos.append(go)
+            # The shell waits on its own go FIFO, so every flood starts together.
+            command = f"read _ < '{go}'; LC_ALL=C yes | head -c {size}; printf done > '{fifo}'\n"
+            if not app.send_text(command):
+                run.note(f"{phase}: send to terminal {i} failed")
+        window = procstat.Tracker(app.discover, interval=0.5).start()
+        t0 = time.monotonic()
+        _fifo_release(gos, timeout=60)
+        done = _fifo_wait(fifos, timeout=args.flood_timeout)
+        wall = time.monotonic() - t0
+        entry = run.phase(phase, window.stop())
+        finished = [d for d in done if d is not None]
+        run.metric(f"{phase}.wall_s", round(wall, 2))
+        run.metric(f"{phase}.finished", len(finished))
+        if finished:
+            run.metric(f"{phase}.throughput_mb_s", round(count * args.flood_mb / max(finished), 1))
+        cmux = entry["groups"].get("cmux", {})
+        run.metric(f"{phase}.cmux_cpu_s_per_100mb", round(cmux.get("cpu_s", 0) / (count * args.flood_mb / 100), 3))
+        run.metric(f"{phase}.cmux_disk_written_per_output_mb", round(cmux.get("disk_written_mb", 0) / (count * args.flood_mb), 4))
+        if len(finished) < count:
+            run.note(f"{phase}: {count - len(finished)} of {count} floods did not report within {args.flood_timeout} s")
+    run.note("S1: the terminals are tabs of one pane: one is visible, the others ingest output in the daemon only")
+    _idle_window(run, app, "after", min(args.idle, 30), args.settle)
+    return app
+
+
+def s2(args, run, rng):
+    """`agents` agent sessions on the replay agent stream recorded Markdown replies at once."""
+    app = _launch(args, run, allow_agents=True)
+    agent_dir = os.path.join(app.scratch, "agent")
+    os.makedirs(agent_dir)
+    import shutil
+    for name in ("replay_agent.py", "streams.py"):
+        shutil.copy(os.path.join(FIXTURES, name), os.path.join(agent_dir, name))
+    shutil.copytree(os.path.join(FIXTURES, "agent-streams"), os.path.join(agent_dir, "agent-streams"))
+    script = os.path.join(agent_dir, "replay_agent.py")
+    added = app.actions.run("agent.harness.add", id="perf100", name="perf100 replay", command=_python(),
+                            args=script, protocol="acp", replace="true")
+    if added.get("error") or added.get("code"):
+        raise RuntimeError(f"agent.harness.add: {added}")
+    env = dict(app._cli_env(), ACPMUX_SOCKET=app.acpmux_socket())
+
+    def acp(*argv, timeout=120):
+        return subprocess.run([app.cli, "acp", *argv], capture_output=True, text=True, timeout=timeout, env=env)
+
+    sessions = []
+    t0 = time.monotonic()
+    for i in range(args.agents):
+        made = acp("new", "--json", "-d", "-m", "perf100", f"perf100 session {i}")
+        try:
+            sid = json.loads(made.stdout.strip().splitlines()[-1])["sessionId"]
+        except (ValueError, KeyError, IndexError):
+            raise RuntimeError(f"acp new: {(made.stdout + made.stderr)[-300:]}")
+        opened = app.act("agent.openSessionWorkspace", session=sid)
+        ws = next((c for c in opened.get("created", []) if str(c).startswith("ws_")), None)
+        sessions.append({"sid": sid, "workspace": ws})
+    run.metric("setup.agents", len(sessions))
+    run.metric("setup.seconds", round(time.monotonic() - t0, 2))
+    if sessions and sessions[-1]["workspace"]:
+        app.act("goToWorkspace", focus=True, workspace=sessions[-1]["workspace"])
+    _idle_window(run, app, "idle", min(args.idle, 30), args.settle,
+                 per=[("session", len(sessions), ("cmux", "acpmux", "browser", "agents"))])
+    fixtures = ["prose-8k", "mixed-24k", "code-48k"]
+    window = procstat.Tracker(app.discover).start()
+    t0 = time.monotonic()
+    for i, s in enumerate(sessions):
+        fixture = fixtures[rng.randrange(len(fixtures))] if args.stream == "seeded" else args.stream
+        acp("send", "--no-wait", s["sid"], f"perf100 stream={fixture} speed={args.speed} tag={i}")
+    waited = acp("wait", "--all", "--timeout", str(int(args.stream_timeout)), *[s["sid"] for s in sessions],
+                 timeout=args.stream_timeout + 60)
+    wall = time.monotonic() - t0
+    entry = run.phase("stream", window.stop())
+    run.metric("stream.wall_s", round(wall, 2))
+    run.metric("stream.wait_rc", waited.returncode)
+    cmux = entry["groups"].get("cmux", {})
+    run.metric("stream.cmux_cpu_s_per_session", round(cmux.get("cpu_s", 0) / max(len(sessions), 1), 4))
+    run.metric("stream.cmux_disk_written_mb_per_session",
+               round(cmux.get("disk_written_mb", 0) / max(len(sessions), 1), 4))
+    # Token-to-screen on the visible agent pane, apart from the resource window (its reads cost app CPU).
+    if sessions:
+        log = os.path.join(app.scratch, "marks.jsonl")
+        acp("send", "--no-wait", sessions[-1]["sid"],
+            f"perf100 stream=prose-8k speed={args.speed} marks={args.marks} tag=probe log={log}")
+        seen = _watch_page_for_marks(app, args.marks, timeout=60)
+        emitted = {}
+        try:
+            with open(log) as handle:
+                for line in handle:
+                    e = json.loads(line)
+                    emitted[e["mark"]] = e["t"]
+        except (OSError, ValueError):
+            pass
+        run.latency("token_to_screen", [(seen[m] - t) * 1000 for m, t in emitted.items() if m in seen])
+        if len(seen) < len(emitted) or not emitted:
+            run.note(f"token_to_screen: {len(seen)} of {len(emitted)} markers seen on the agent page")
+            run.unverified("token_to_screen reads the agent page text with debug.page state; a page whose "
+                           "text it cannot read leaves the metric empty")
+        acp("wait", "--timeout", "120", sessions[-1]["sid"], timeout=180)
+    return app
+
+
+def _watch_page_for_marks(app, marks: int, timeout: float) -> dict[str, float]:
+    """debug.page state of the agent page until every marker shows; {mark: first time seen}."""
+    seen: dict[str, float] = {}
+    deadline = time.monotonic() + timeout
+    rpc = appdriver.Rpc(app.socket)
+    try:
+        while time.monotonic() < deadline and len(seen) < marks:
+            state = rpc.result("debug.page", {"page": "cmux.agent", "action": "state"})
+            now = time.time()
+            text = json.dumps(state)
+            start = 0
+            while True:
+                i = text.find("[pm:probe:", start)
+                if i < 0:
+                    break
+                j = text.find("]", i)
+                if j < 0:
+                    break
+                seen.setdefault(text[i:j + 1], now)
+                start = j + 1
+            time.sleep(0.005)  # bench: next read of the page (bounded by the deadline)
+    finally:
+        rpc.close()
+    return seen
+
+
+def s3(args, run, rng):
+    """`workspaces` workspaces with `per_workspace` terminals each (capped by free PTYs)."""
+    app = _launch(args, run)
+    _build_scale(app, run, args)
+    _key_latency(app, run, args.latency_samples, rng, "keystroke_to_glyph")
+    return app
+
+
+def _build_scale(app, run, args) -> int:
+    workspaces, per = args.workspaces, args.per_workspace
+    cap = _pty_cap(args)
+    if cap is not None and workspaces * per > cap:
+        per = max(1, cap // workspaces)
+        if workspaces * per > cap:
+            workspaces = cap
+        run.note(f"S3: {args.workspaces} x {args.per_workspace} terminals exceed the PTYs this job may take ({cap}); "
+                 f"ran {workspaces} x {per}")
+        run.unverified(f"S3 at {args.workspaces * args.per_workspace} terminals in the app: PTY cap {cap} on this host")
+    window = procstat.Tracker(app.discover, interval=2.0).start()
+    t0 = time.monotonic()
+    for w in range(workspaces):
+        if w:
+            app.new_workspace()
+        for _ in range(per - 1):
+            app.act("newSurface")
+    create_s = time.monotonic() - t0
+    run.phase("create", window.stop())
+    total = workspaces * per
+    run.metric("create.workspaces", workspaces)
+    run.metric("create.terminals", total)
+    run.metric("create.seconds", round(create_s, 2))
+    _idle_window(run, app, "idle", args.idle, args.settle,
+                 per=[("terminal", total, ("cmux", "tui", "app")), ("workspace", workspaces, ("cmux", "app"))])
+    return total
+
+
+def _pty_cap(args) -> int | None:
+    try:
+        ptmx = int(runlib.sh(["sysctl", "-n", "kern.tty.ptmx_max"]))
+    except ValueError:
+        return None
+    in_use = sum(1 for name in os.listdir("/dev") if name.startswith("ttys") and name[4:].isdigit())
+    # nx-remote refuses GUI jobs under 50 free PTYs: leave other jobs `pty_reserve`.
+    return max(1, min(args.pty_budget, ptmx - in_use - args.pty_reserve))
+
+
+def s4(args, run, rng):
+    """Cold start to interactive, quit, then restart with an S3-sized session."""
+    # Cold start: a new profile, no daemon.
+    app = _new_app(args, run)
+    t0 = time.monotonic()
+    run.metric("cold.socket_ms", round(app.launch(), 1))
+    launch = app.wait_first_terminal()
+    for key in ("first_window_frame_committed", "first_terminal_surface_created"):
+        if key in launch:
+            run.metric(f"cold.{key}_ms", round(launch[key], 1))
+    ms = app.key_echo_ms("".join(rng.choice("qwzx") for _ in range(4)), timeout=60)
+    run.metric("cold.launch_to_interactive_ms", round((time.monotonic() - t0) * 1000, 1) if ms is not None else None)
+    run.data.setdefault("latency", {})["launch_to_interactive"] = {"cold_ms": run.data["metrics"].get("cold.launch_to_interactive_ms")}
+    if run.data["metrics"].get("cold.launch_to_interactive_ms") is not None:
+        run.metric("latency.launch_to_interactive.cold_ms", run.data["metrics"]["cold.launch_to_interactive_ms"])
+    run.metric("cold.quit_end_sessions_ms", round(app.stop() or 0, 1) or None)
+    app.sweep()
+    # Restart with the S3 session: build it, quit keeping sessions, launch on the same profile.
+    app = _new_app(args, run)
+    app.launch()
+    app.wait_first_terminal()
+    total = _build_scale(app, run, args)
+    window = procstat.Tracker(app.discover, interval=0.5).start()
+    quit_ms = app.stop(end_sessions=False)
+    run.metric("restart.quit_keep_sessions_ms", round(quit_ms, 1) if quit_ms else None)
+    t0 = time.monotonic()
+    app.launch()
+    app.wait_first_terminal()
+    ms = app.key_echo_ms("".join(rng.choice("qwzx") for _ in range(4)), timeout=120)
+    interactive = (time.monotonic() - t0) * 1000 if ms is not None else None
+    restored = None
+    deadline = time.monotonic() + 120
+    while time.monotonic() < deadline:
+        if app.workspace_count() >= run.data["metrics"].get("create.workspaces", 1):
+            restored = (time.monotonic() - t0) * 1000
+            break
+        time.sleep(0.05)  # bench: next topology read (bounded)
+    run.phase("restart", window.stop())
+    run.metric("restart.launch_to_interactive_ms", round(interactive, 1) if interactive else None)
+    run.metric("restart.launch_to_all_workspaces_ms", round(restored, 1) if restored else None)
+    run.metric("restart.terminals", total)
+    if interactive:
+        run.metric("latency.launch_to_interactive.restart_ms", round(interactive, 1))
+    run.unverified("S4 restart-to-update: quit with sessions kept and launch of the same build; the Sparkle "
+                   "install and UpdateWindowHandoff path are not exercised")
+    return app
