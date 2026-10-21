@@ -202,7 +202,7 @@ final class ComposeVoiceWave: NSView {
         return (0..<bars).map { i in
             let w = weight(i)
             guard w > 0 else { return barWidth }
-            let amount: CGFloat = moving ? 0.18 + 0.82 * CGFloat(max(0, min(1, level))) * jitter[(i + step) % jitter.count] : 0.45
+            let amount: CGFloat = moving ? 0.18 + 0.82 * CGFloat(max(0, min(1, level))) * (jitter[checked: (i + step) % jitter.count] ?? 1) : 0.45
             return max(barWidth, (height - 2) * w * amount)
         }
     }
@@ -213,8 +213,7 @@ final class ComposeVoiceWave: NSView {
         if moving { phase &+= 1 }
         heights = Self.heights(level: level, step: phase, moving: moving)
         CATransaction.begin(); CATransaction.setDisableActions(true)
-        for (i, l) in layers.enumerated() {
-            let h = heights[i]
+        for (i, (l, h)) in zip(layers, heights).enumerated() {
             l.frame = CGRect(x: CGFloat(i) * Self.pitch, y: (Self.height - h) / 2, width: Self.barWidth, height: h)
         }
         CATransaction.commit()
