@@ -11,6 +11,13 @@ rule:
   any:
     - pattern: '$C ? $LIT : $REST'
     - pattern: '$C ? $REST : $LIT'
+    # An ink set in one branch of an if (a selected row's glyph); an always-on link or status ink is not.
+    - all:
+        - kind: assignment
+        - regex: '^[\w?.]*(themeTint|contentTintColor|textColor|themeColor|tintColor)\s*=\s*\{?\s*(Palette|tokens|\w*[cC]olors)\.(accent|accentFill|focusRing)\s*\}?$'
+        - inside:
+            kind: if_statement
+            stopBy: end
   not:
     inside:
       kind: assignment

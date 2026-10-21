@@ -8,7 +8,9 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join, relative } from "node:path";
 
 const SRC = join(import.meta.dir, "../src");
-const LIT = /aria-(pressed|checked|selected)=["']?true|\.is-on\b|\[data-on\b|data-state=["']?on\b|:checked\b/;
+// A menu row's check (`.ui-menu-check`) draws only on the chosen row, so its ink is lit too.
+const LIT =
+  /aria-(pressed|checked|selected)=["']?true|\.is-on\b|\[data-on\b|data-state=["']?on\b|:checked\b|\.ui-menu-check\b/;
 const RAW_ACCENT_INK = /(?<![\w-])color\s*:\s*var\(\s*--(agent|cmux)-accent\s*[,)]/;
 
 function cssFiles(dir: string): string[] {
