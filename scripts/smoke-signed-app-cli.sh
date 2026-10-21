@@ -250,7 +250,13 @@ STEP="wait for socket"
 deadline=$((SECONDS + SOCKET_TIMEOUT_SECONDS))
 until [[ -S "$SOCKET_PATH" ]]; do
   kill -0 "$APP_PID" 2>/dev/null || fail "app exited before opening its control socket"
-  (( SECONDS < deadline )) || fail "control socket $SOCKET_PATH did not appear within ${SOCKET_TIMEOUT_SECONDS}s"
+  if (( SECONDS >= deadline )); then
+    # A socket that never appears is usually a main-thread stall (nightly
+    # afa4850): sample the app first, so the log shows where it was stuck.
+    echo "--- sample of app pid $APP_PID (3 s) ---" >&2
+    /usr/bin/sample "$APP_PID" 3 -mayDie 2>/dev/null | head -n 120 >&2 || true
+    fail "control socket $SOCKET_PATH did not appear within ${SOCKET_TIMEOUT_SECONDS}s"
+  fi
   sleep 0.25
 done
 
