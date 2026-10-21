@@ -65,6 +65,11 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// Windows the person closed before `restore` finished (cx-ghagp): the restore puts back the
+    /// saved registry, where they are open, and must not open them again. Empty once it finished.
+    var closedDuringRestore: Set<String> = []
+    /// True while `restore` runs.
+    private(set) var restoring = false
     /// The windows the previous launch left open, captured at restore (Restore Previous App
     /// Launch reopens those closed since); nil before restore and when nothing was saved.
     var previousLaunch: PreviousLaunch?
@@ -184,6 +189,11 @@ final class WindowManager {
     private func restore() async {
         guard !restored else { return }
         restored = true
+        restoring = true
+        defer {
+            restoring = false
+            closedDuringRestore = []
+        }
         registry.provisional = [:]
         DebugTimings.markLaunch("daemon_snapshot_loaded")
         var document = WindowStateDocument()
@@ -215,9 +225,15 @@ final class WindowManager {
             }
         }
         reconcileMembership()
+        // A window the person closed before this finished stays closed, even the last one: no window
+        // open is the background mode, not a launch to recover.
+        for id in closedDuringRestore where registry.value.window(id)?.isOpen == true {
+            registry.apply { $0.setRestored(id, open: false); return WindowRegistry.Changes() }
+        }
         // Every remaining window closed (the open ones lost their workspaces while the app was
         // not running): the most recent one opens, so the app never starts with no window.
-        if !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen), let front = registry.value.recency.first {
+        if closedDuringRestore.isEmpty, !registry.value.windows.isEmpty, !registry.value.windows.contains(where: \.isOpen),
+           let front = registry.value.recency.first {
             registry.apply { $0.setRestored(front, open: true); return WindowRegistry.Changes() }
         }
         // Restored windows but the front one come back at their saved place, in any content arrival order.
