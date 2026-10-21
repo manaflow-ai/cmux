@@ -171091,133 +171091,133 @@
       }
     },
     "offer.label": {
-      "comment": "Agent pane: heading of the card for one suggested chat an agent offers; the same word as the suggested tasks list, no noun (cx-lo9yf)",
+      "comment": "Agent pane: label on an agent's offer of a parallel chat (cx-807da)",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مقترح"
+            "value": "محادثة مقترحة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Predloženo"
+            "value": "Predloženi razgovor"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Foreslået"
+            "value": "Foreslået chat"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vorgeschlagen"
+            "value": "Vorgeschlagener Chat"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suggested"
+            "value": "Suggested chat"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sugerido"
+            "value": "Chat sugerido"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suggéré"
+            "value": "Discussion suggérée"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Suggerito"
+            "value": "Chat suggerita"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "提案"
+            "value": "提案されたチャット"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បានស្នើ"
+            "value": "ការជជែកដែលបានណែនាំ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "제안됨"
+            "value": "제안된 채팅"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Foreslått"
+            "value": "Foreslått chat"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sugerowane"
+            "value": "Proponowany czat"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Sugerido"
+            "value": "Chat sugerido"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Предложено"
+            "value": "Предложенный чат"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แนะนำ"
+            "value": "แชทที่แนะนำ"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Önerilen"
+            "value": "Önerilen sohbet"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Запропоновано"
+            "value": "Запропонований чат"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Được đề xuất"
+            "value": "Cuộc trò chuyện được gợi ý"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "建议"
+            "value": "建议的聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "建議"
+            "value": "建議的聊天"
           }
         }
       }
