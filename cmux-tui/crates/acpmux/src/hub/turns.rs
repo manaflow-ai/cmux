@@ -230,6 +230,7 @@ impl Hub {
         // wait again when it failed.
         let joined = super::digest::DigestTurn::default();
         let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
+        // `finish_turn` put them back already when the turn itself failed; this is any other way.
         if result.is_err() {
             self.requeue_joined(session, &joined);
         }
@@ -510,8 +511,9 @@ impl Hub {
         // model switch (`detach_child`) that ended the turn is no connection error.
         let agent_error = result.as_ref().err().map(|e| e.message.clone());
         let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
-        let mut result =
-            self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        let mut result = self
+            .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
+            .await;
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
         let cut = match (&result, detached) {
             (Err(e), false) => Some(super::auto_resume::CutTurn {
@@ -547,6 +549,7 @@ impl Hub {
         prompt_id: &str,
         turn_id: &str,
         turn_seq: u64,
+        joined: Option<&super::digest::DigestTurn>,
     ) -> Result<Value, RpcError> {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
@@ -596,6 +599,11 @@ impl Hub {
         let harness_failed = harness_failure.is_some();
         if let Some(e) = harness_failure {
             result = Err(e);
+        }
+        // The agent messages that went in with it go back before anything here waits, so one sent
+        // from now on goes behind them (`digest.rs`).
+        if let (Err(_), Some(joined)) = (&result, joined) {
+            self.requeue_joined(session, joined);
         }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.
