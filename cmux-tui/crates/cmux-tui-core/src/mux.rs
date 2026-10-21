@@ -501,7 +501,7 @@ pub struct Mux {
     next_notification_id: AtomicU64,
     next_active_at: AtomicU64,
     next_in_process_resize_owner: AtomicU64,
-    surface_options: Mutex<SurfaceOptions>,
+    pub(crate) surface_options: Mutex<SurfaceOptions>,
     provider_workspace: Mutex<ProviderWorkspaceState>,
     /// `provider_workspace.managed`, readable under the registry and state
     /// locks (the provider lock orders before them; the flag is one-way).

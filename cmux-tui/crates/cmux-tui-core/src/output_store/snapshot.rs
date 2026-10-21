@@ -161,6 +161,10 @@ fn write_pass_at(mux: &Mux, store: &OutputStore, policy: PersistencePolicy, quit
     store.full.set_enabled(full);
     let dirty = store.take_dirty();
     let prune_pending = store.prune_pending.swap(false, std::sync::atomic::Ordering::AcqRel);
+    if !dirty.is_empty() {
+        // Memory grows only when terminals print.
+        super::memory_budget::enforce(mux, store, policy.memory_total_bytes);
+    }
     if policy.mode == PersistenceMode::Memory {
         if !dirty.is_empty() || prune_pending {
             prune(mux, store, policy);

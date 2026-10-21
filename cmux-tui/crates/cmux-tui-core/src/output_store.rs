@@ -31,6 +31,7 @@
 //! that sleeps until a terminal has new output, then waits out the interval,
 //! so an idle session wakes nothing.
 
+mod memory_budget;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 
@@ -112,6 +113,9 @@ pub(crate) struct PersistencePolicy {
     /// uncompressed replay one snapshot may hold.
     pub(crate) max_bytes_per_terminal: u64,
     pub(crate) max_total_bytes: u64,
+    /// Total scrollback RAM across terminals
+    /// (`terminal.scrollback.maxTotalMemoryBytes`).
+    pub(crate) memory_total_bytes: u64,
 }
 
 impl PersistencePolicy {
@@ -130,19 +134,25 @@ impl PersistencePolicy {
                 (FULL_DEFAULT_MAX_PER_TERMINAL_BYTES, FULL_DEFAULT_MAX_TOTAL_BYTES)
             }
         };
+        let memory_total_bytes = memory_budget::DEFAULT_MEMORY_TOTAL_BYTES;
         if mode == PersistenceMode::Memory {
-            return Self { mode, max_bytes_per_terminal: 0, max_total_bytes: 0 };
+            return Self {
+                mode,
+                max_bytes_per_terminal: 0,
+                max_total_bytes: 0,
+                memory_total_bytes,
+            };
         }
         let max_total_bytes = total.unwrap_or(default_total).max(MIN_CAP_BYTES);
         let max_bytes_per_terminal =
             per_terminal.unwrap_or(default_per_terminal).max(MIN_CAP_BYTES).min(max_total_bytes);
-        Self { mode, max_bytes_per_terminal, max_total_bytes }
+        Self { mode, max_bytes_per_terminal, max_total_bytes, memory_total_bytes }
     }
 
     /// The policy from the environment override, else the settings owner.
     pub(crate) fn current(mux: &Arc<Mux>) -> Self {
         let env_mode = std::env::var(PERSISTENCE_MODE_ENV).ok();
-        let (mode, per_terminal, total) = mux.with_settings(|state| {
+        let (mode, per_terminal, total, memory) = mux.with_settings(|state| {
             let value = |key: &str| {
                 state.get(&cmux_config::Target::Key(key.to_string())).row.and_then(|row| row.value)
             };
@@ -150,9 +160,18 @@ impl PersistencePolicy {
                 value(PERSISTENCE_MODE_SETTING).and_then(|value| value.as_str().map(str::to_owned)),
                 value(PERSISTENCE_MAX_PER_TERMINAL_SETTING).as_ref().and_then(byte_count),
                 value(PERSISTENCE_MAX_TOTAL_SETTING).as_ref().and_then(byte_count),
+                value(memory_budget::MEMORY_TOTAL_SETTING).as_ref().and_then(byte_count),
             )
         });
-        Self::resolve(env_mode.as_deref().or(mode.as_deref()), per_terminal, total)
+        let mut policy =
+            Self::resolve(env_mode.as_deref().or(mode.as_deref()), per_terminal, total);
+        let env_memory = std::env::var(memory_budget::MEMORY_TOTAL_ENV)
+            .ok()
+            .and_then(|value| value.parse::<u64>().ok());
+        if let Some(memory) = env_memory.or(memory) {
+            policy.memory_total_bytes = memory;
+        }
+        policy
     }
 }
 
@@ -225,6 +244,7 @@ pub(crate) struct OutputStore {
     /// A terminal runtime left: the next pass removes files of terminals
     /// that are no longer in the session.
     prune_pending: std::sync::atomic::AtomicBool,
+    memory_budget: memory_budget::MemoryBudget,
 }
 
 impl OutputStore {
@@ -242,6 +262,7 @@ impl OutputStore {
             policy: Mutex::new(None),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
+            memory_budget: memory_budget::MemoryBudget::default(),
         }
     }
 
@@ -421,6 +442,7 @@ impl OutputStore {
     /// lost host reads them); the next write pass removes the files of
     /// terminals that left the session.
     pub(crate) fn forget(&self, terminal_id: &TerminalPublicId) {
+        self.memory_budget.forget(terminal_id);
         if self.logs.lock().unwrap_or_else(PoisonError::into_inner).remove(terminal_id).is_some()
             && self.directory.is_some()
         {

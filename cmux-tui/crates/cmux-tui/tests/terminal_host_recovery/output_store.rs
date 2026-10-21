@@ -322,3 +322,64 @@ fn memory_mode_keeps_no_output_on_disk_and_loses_it_after_a_reboot() {
     assert!(stored.is_empty(), "memory mode wrote output files: {stored:?}");
     assert_eq!(journal_output_rows(&restored.state), 0, "the journal holds terminal output");
 }
+
+/// History rows `surface` can scroll back to.
+fn history_rows(harness: &RecoveryHarness, surface: u64) -> u64 {
+    request(
+        &harness.socket,
+        serde_json::json!({"cmd":"read-scrollback","surface":surface,"start":0,"count":1}),
+    )["total"]
+        .as_u64()
+        .unwrap()
+}
+
+/// Past `terminal.scrollback.maxTotalMemoryBytes` the terminals that printed
+/// least recently give back scrollback first; the most recent keeps its own
+/// Ghostty `scrollback-limit`.
+#[test]
+fn idle_terminals_give_back_scrollback_past_the_total_memory_budget() {
+    let _exclusive = exclusive_process_test();
+    let mut harness = RecoveryHarness::start_unstarted("output-memory-budget");
+    harness
+        .extra_env
+        .push(("CMUX_TUI_TEST_OUTPUT_SNAPSHOT_INTERVAL_MS".into(), SNAPSHOT_INTERVAL_MS.into()));
+    // 16 MiB for four terminals that each fill a 10 MB scrollback.
+    harness
+        .extra_env
+        .push(("CMUX_TUI_TERMINAL_SCROLLBACK_MEMORY_BYTES".into(), (16 << 20).to_string()));
+    harness.restart();
+    let mut surfaces = Vec::new();
+    for index in 0..4 {
+        let done = format!("budget-done-{index}");
+        let created = request(
+            &harness.socket,
+            serde_json::json!({
+                "id":index,"cmd":"run",
+                "argv":["/bin/sh","-c",format!(
+                    "seq -f 'budget line %g padded to look like a long build log line' 1 40000; \
+                     echo {done}; exec sleep 600"
+                )],
+                "new_workspace":true,"cols":120,"rows":40,
+            }),
+        );
+        let surface = created["surface"].as_u64().unwrap();
+        wait_for_screen(&harness.socket, surface, &done);
+        surfaces.push(surface);
+    }
+    let first_full = history_rows(&harness, surfaces[3]);
+    // The writer's pass runs one interval after the last output.
+    let deadline = Instant::now() + test_timeout(Duration::from_secs(10));
+    loop {
+        let oldest = history_rows(&harness, surfaces[0]);
+        let newest = history_rows(&harness, surfaces[3]);
+        if oldest * 3 < newest {
+            assert_eq!(newest, first_full, "the most recent terminal lost scrollback");
+            break;
+        }
+        assert!(
+            Instant::now() < deadline,
+            "the idle terminal kept {oldest} rows next to {newest} over the memory budget"
+        );
+        std::thread::sleep(Duration::from_millis(100));
+    }
+}
