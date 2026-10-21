@@ -62,8 +62,8 @@ public final class ChiefSidebar {
     /// Written only when it changes (`watch`), so a Chief lane step does not rebuild the sidebar's
     /// item info.
     public internal(set) var status = Status()
-    /// Whether the sidebar shows the Chief item (`SidebarModel.followTopItems`): the App Store's
-    /// Chief in Sidebar card is on while it does.
+    /// Whether the sidebar shows the Chief item (`SidebarModel.followTopItems` reads the layout):
+    /// the subagent fold applies only then, and the App Store's Chief in Sidebar card is on.
     public internal(set) var isPlaced = false
     @ObservationIgnored private let lanes: AgentLaneStore
     @ObservationIgnored private var host: Host?
@@ -104,7 +104,8 @@ public final class ChiefSidebar {
             guard let registry else { return }
             self?.openChief(registry, origin: invocation.origin)
         })
-        registry.bind(Self.toggleIdleAction, invoke: { [weak self] _ in self?.showsIdleSubagents.toggle() })
+        registry.bind(Self.toggleIdleAction, isEnabled: { [weak self] in self?.isPlaced == true },
+                      invoke: { [weak self] _ in self?.showsIdleSubagents.toggle() })
         ActionTargetTitles.setState(Self.toggleIdleAction, in: registry) { [weak self] _ in self?.showsIdleSubagents }
         // The App Store's Chief in Sidebar card: Get is Add to Sidebar, Remove takes every Chief item out.
         let chief = SidebarBuiltIn.chief.rawValue
