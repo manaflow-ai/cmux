@@ -44,10 +44,14 @@ final class WindowOverlayLayer {
     private(set) var placement: Placement = .inWindow
     /// Interactive overlay rects in window coordinates.
     private(set) var interactiveRects: [CGRect] = []
-    /// Divider hit areas in window coordinates, the sidebar's resize band last.
+    /// The layout's divider hit areas in window coordinates (`debug.layers`
+    /// `divider_areas_in_window`: pane dividers only, which the perf gate and
+    /// live drag scripts grab).
     private(set) var dividerAreas: [LayoutMouseArea] = []
     /// The sidebar's resize band (`setSidebarResizeBand`).
-    private var sidebarResizeArea: LayoutMouseArea?
+    private(set) var sidebarResizeArea: LayoutMouseArea?
+    /// What the catcher panels cover: the divider areas, the sidebar's resize band last.
+    private(set) var catcherAreas: [LayoutMouseArea] = []
     static let sidebarResizeAreaID = "sidebar.resize"
     let catchers: DividerMouseCatchers
     private var observers: [any NSObjectProtocol] = []
@@ -256,9 +260,10 @@ final class WindowOverlayLayer {
                 return area
             }
         }
+        dividerAreas = areas
         if let sidebarResizeArea { areas.append(sidebarResizeArea) }
-        if areas != dividerAreas {
-            dividerAreas = areas
+        if areas != catcherAreas {
+            catcherAreas = areas
             syncCatchers()
         }
         guard rects != interactiveRects else { return }
@@ -358,7 +363,7 @@ final class WindowOverlayLayer {
         }
         // A modal or dimming overlay blocks the whole window: no divider takes the mouse under it.
         let blocked = WindowOverlayHost.existingHost(for: window)?.blocksWholeWindow == true
-        catchers.update(dividerAreas, active: placement == .overlayWindow && !blocked)
+        catchers.update(catcherAreas, active: placement == .overlayWindow && !blocked)
         // The panels pass hover through to the layout, and moving them under
         // a still pointer sends no event: the layout recomputes now (cx-ww20).
         for plane in planes {
