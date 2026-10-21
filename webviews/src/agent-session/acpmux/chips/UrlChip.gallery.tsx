@@ -1,6 +1,7 @@
 // l10n-allow-file: gallery fixtures (sample URLs), not shipped UI.
 import { componentEntry, type ChipHostFixture, type PullRequestFixture } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
+import { GALLERY_NOW, minutesAgo } from "../../../gallery/clock";
 import type { ReactNode } from "react";
 
 type UrlChipProps = { href: string; icon?: ReactNode; children: ReactNode };
@@ -41,7 +42,7 @@ const pullRequest = (extra: Record<string, unknown> = {}) => ({
   review: "changes_requested",
   mergeable: "conflicting",
   author: "teamleaderleo",
-  updatedAt: "2026-10-20T20:52:00Z",
+  updatedAt: new Date(minutesAgo(7)).toISOString(),
   baseRef: "feat-cmux-next",
   headRef: "cmux/pr-cards",
   labels: ["risk:normal", "agent"],
@@ -54,9 +55,11 @@ const pullRequest = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 const prHost = (fixture: PullRequestFixture): ChipHostFixture => ({ pullRequests: { [PULL_REQUEST]: fixture } });
+// The card opens with the link it already has and fills in when the host answers `pr.inspect`,
+// so the stage waits for the pull request's own rows, not just for the card.
 const openCard: Play = async (ctx) => {
   await ctx.hover({ selector: "a.cv-chip.is-web" });
-  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__body"));
+  await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__changes"));
 };
 
 export default componentEntry<UrlChipProps>({
@@ -96,16 +99,17 @@ export default componentEntry<UrlChipProps>({
       },
     },
     "pull-request": {
-      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 20 }),
+      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: GALLERY_NOW / 1000 - 20 }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
     },
     "pull-request-lines-by-kind": {
-      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 20 }),
+      chipHost: prHost({ pullRequest: pullRequest(), fetchedAt: GALLERY_NOW / 1000 - 20 }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: async (ctx) => {
         await openCard(ctx);
-        await ctx.hover({ selector: ".acpmux-pr-card__lines" });
+        // A click pins the breakdown, so it stays open however the stage settles.
+        await ctx.click({ selector: ".acpmux-pr-card__lines" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
       },
     },
@@ -124,7 +128,7 @@ export default componentEntry<UrlChipProps>({
           deletions: 9,
           changedFiles: 1,
         }),
-        fetchedAt: Date.now() / 1000 - 15,
+        fetchedAt: GALLERY_NOW / 1000 - 15,
       }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
@@ -134,7 +138,7 @@ export default componentEntry<UrlChipProps>({
       // the copy is, instead of showing an error where the pull request should be.
       chipHost: prHost({
         pullRequest: pullRequest({ state: "merged", mergeable: "", review: "approved" }),
-        fetchedAt: Date.now() / 1000 - 23 * 60,
+        fetchedAt: GALLERY_NOW / 1000 - 23 * 60,
       }),
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,

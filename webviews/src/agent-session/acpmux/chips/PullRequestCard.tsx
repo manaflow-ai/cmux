@@ -154,9 +154,12 @@ function Review({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
   );
 }
 
-/// The files and `+/−`; hovering or focusing them breaks the lines down by kind.
+/// The files and `+/−`; hovering or focusing them breaks the lines down by kind, and a click
+/// pins that open so the breakdown can be read without holding the pointer still.
 function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
-  const [open, setOpen] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const [pinned, setPinned] = useState(false);
+  const open = hovered || pinned;
   if (!read) return null;
   const files = read.files ?? [];
   const changed = read.changedFiles || files.length;
@@ -169,17 +172,17 @@ function Changes({ read, t }: { read: LinkedPullRequest | undefined; t: Translat
   return (
     <div className="acpmux-pr-card__changes">
       <div className="acpmux-pr-card__counts">
-        {changed > 0 && <span className="acpmux-pr-card__files">{t("prCard.files", { count: changed })}</span>}
+        {changed > 0 && <span className="acpmux-pr-card__files">{t("prCard.files", { n: changed })}</span>}
         <button
           type="button"
           className="acpmux-pr-card__lines"
           aria-expanded={totals.length > 0 ? open : undefined}
           disabled={totals.length === 0}
-          onPointerEnter={() => setOpen(true)}
-          onPointerLeave={() => setOpen(false)}
-          onFocus={() => setOpen(true)}
-          onBlur={() => setOpen(false)}
-          onClick={() => setOpen((shown) => !shown)}
+          onPointerEnter={() => setHovered(true)}
+          onPointerLeave={() => setHovered(false)}
+          onFocus={() => setHovered(true)}
+          onBlur={() => setHovered(false)}
+          onClick={() => setPinned((was) => !was)}
         >
           <span className="acpmux-pr-card__added">+{additions.toLocaleString()}</span>
           <span className="acpmux-pr-card__removed">−{deletions.toLocaleString()}</span>

@@ -175,6 +175,8 @@ test("code changed with no test gets a warning; a change with a test does not", 
     fetchedAt: Date.now() / 1000 - 5,
   });
   expect(warned.body.querySelector(".acpmux-pr-card__warning")?.textContent).toBe("no tests");
+  // One file counts as one, not "1 files".
+  expect(warned.body.querySelector(".acpmux-pr-card__files")?.textContent).toBe("1 file");
   await teardown?.();
   teardown = undefined;
   const tested = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });

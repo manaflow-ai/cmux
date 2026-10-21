@@ -53,10 +53,8 @@ const MAX_KEPT = 200;
 const answers = new Map<string, PullRequestAnswer>();
 const asking = new Set<string>();
 const listeners = new Set<() => void>();
-let version = 0;
 
 function changed() {
-  version += 1;
   for (const listener of listeners) listener();
 }
 
@@ -87,8 +85,6 @@ function ask(url: string) {
     });
 }
 
-const snapshot = () => version;
-
 function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
@@ -99,8 +95,12 @@ function subscribe(listener: () => void) {
  * while the host says it is reading. Undefined before the first answer.
  */
 export function usePullRequestAnswer(url: string | undefined, open: boolean): PullRequestAnswer | undefined {
-  useSyncExternalStore(subscribe, snapshot, snapshot);
-  const answer = url ? answers.get(url) : undefined;
+  // The snapshot is the answer itself, not a version counter: a counter leaves the map read
+  // outside React's view, and the React Compiler then memoizes a stale answer forever (the card
+  // stayed empty in the gallery build). An unchanged link keeps the same object, so this
+  // re-renders only when its own answer changes.
+  const read = () => (url ? answers.get(url) : undefined);
+  const answer = useSyncExternalStore(subscribe, read, read);
   // No answer yet, or the host is still reading: ask it again until it settles.
   const waiting = answer === undefined || answer.reading;
   // One ask when the card opens…
