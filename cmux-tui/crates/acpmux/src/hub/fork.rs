@@ -130,6 +130,7 @@ impl Hub {
             fork_seq: Some(fork_seq),
             agent_info: parent_meta.agent_info.clone(),
             agent_capabilities: parent_meta.agent_capabilities.clone(),
+            steering: parent_meta.steering,
             modes: res.get("modes").cloned().filter(|v| !v.is_null()).or(parent_meta.modes.clone()),
             config_options: res
                 .get("configOptions")

@@ -292,6 +292,7 @@ pub(super) fn draft_meta(d: Draft<'_>) -> SessionMeta {
         fork_seq: None,
         agent_info: None,
         agent_capabilities: None,
+        steering: false,
         modes: None,
         config_options: None,
         models: None,

@@ -614,6 +614,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
 
         if is_claude {
