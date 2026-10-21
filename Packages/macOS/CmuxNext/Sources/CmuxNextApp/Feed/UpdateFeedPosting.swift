@@ -39,9 +39,14 @@ enum UpdateFeedPosting {
         return card(for: highlights, at: at).map(Step.post) ?? .wait
     }
 
-    /// The highlights the card is built from on this look: the Updated card's.
+    /// The highlights the card is built from on this look: the Updated card's while it shows. Its x
+    /// clears them, maybe before this build's notes load; the Feed keeps what the card showed and
+    /// lists the notes' changes once they arrive.
     static func highlights(_ updater: UpdaterService, held: UpdateHighlights?) -> UpdateHighlights? {
-        updater.lastUpdateHighlights ?? updater.updatedWithoutRecordHighlights
+        if let shown = updater.lastUpdateHighlights ?? updater.updatedWithoutRecordHighlights { return shown }
+        guard let held, held.items.isEmpty, let notes = updater.currentBuildNotes else { return held }
+        return UpdateHighlights(version: held.version, build: held.build, fromVersion: held.fromVersion, fromBuild: held.fromBuild,
+                                notes: notes, appcast: nil)
     }
 
     /// The highlights an earlier look saw (``highlights(_:held:)``).
