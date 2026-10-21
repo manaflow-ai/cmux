@@ -164,7 +164,7 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     currentModeId: "default",
     modes: {
       currentModeId: "default",
-      availableModes: [{ id: "default", name: "Normal", description: "Ask before edits and commands" }],
+      availableModes: [{ id: "default", name: "Manual", description: "Always ask before making changes" }],
     },
   });
 

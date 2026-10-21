@@ -187,7 +187,12 @@ test("a Codex chat's menu is Codex's own approval menu, with its icons and descr
   await render(summary("codex", "agent-full-access", CODEX_REPORTED));
   expect(heading()).toBe("How should actions be approved?");
   expect(rows().map(({ name, description, icon, key }) => ({ name, description, icon, key }))).toEqual([
-    { name: "Ask for approval", description: "Always ask to edit external files and use the internet", icon: "hand", key: "" },
+    {
+      name: "Ask for approval",
+      description: "Always ask to edit external files and use the internet",
+      icon: "hand",
+      key: "",
+    },
     {
       name: "Approve for me",
       description: "Only ask for actions detected as potentially unsafe",
@@ -223,7 +228,9 @@ const css = readFileSync(
 
 test("the plain footer keeps the mode's symbol beside its label and draws no pill at rest", () => {
   // No rule hides the access button's leading symbol in the plain footer any more.
-  expect(css).not.toMatch(/data-footer-look="plain"\][^{]*\.acpmux-access-trigger > \.acpmux-icon:first-child\s*\{\s*display:\s*none/);
+  expect(css).not.toMatch(
+    /data-footer-look="plain"\][^{]*\.acpmux-access-trigger > \.acpmux-icon:first-child\s*\{\s*display:\s*none/,
+  );
   // At rest the plain footer's mode button has no fill and no ring.
   expect(css).toMatch(
     /\[data-footer-look="plain"\]\s*:is\(\.acpmux-model, \.acpmux-effort, \.acpmux-access\)\s*\.acpmux-picker-button:not\(:hover, :focus-visible, :active, \[aria-expanded="true"\], \[data-press-active\]\)\s*\{\s*background: none;\s*box-shadow: none;/,
