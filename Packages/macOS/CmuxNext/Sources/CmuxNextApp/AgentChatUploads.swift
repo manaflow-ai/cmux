@@ -8,12 +8,15 @@ import Foundation
 /// in its pane, the app writes them owner-only under `~/Library/Application Support/cmux/Chat
 /// Uploads/sessions/<session>/<random>/<index>/<name>` (`<random>/...` for a new chat with no session yet)
 /// and answers where each is, so the composer puts the paths in the prompt and the agent opens them
-/// with its own tools. A chat's files go when acpmux deletes the chat (``remove(session:in:)``), and
-/// any upload goes once it is older than ``maximumAge`` (``sweep(_:now:)``, at launch), as acpmux
-/// does its own uploads (`file_uploads.rs`). Only folders named as the app names them are deleted.
+/// with its own tools. A chat's files go when this Mac's acpmux deletes the chat
+/// (``remove(session:in:)``, ``AgentTurnStateFeed/deletesSession(_:)``: not a peer's purge, nor the
+/// copy Bring Back replaces), and any upload goes once it is older than ``maximumAge``
+/// (``sweep(_:now:)``, at launch), as acpmux does its own uploads (`file_uploads.rs`). A chat
+/// deleted while the app was not watching keeps its folder until the sweep. Only folders named as
+/// the app names them are deleted.
 @MainActor
 struct AgentChatUploads {
-    /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default.
+    /// How long an upload is kept: acpmux's `uploadsMaxAgeDays` default for its own (`config.rs`).
     nonisolated static let maximumAge: TimeInterval = 30 * 24 * 60 * 60
     /// The folder under ``root`` that holds a folder per chat (session ids are UUIDs, as upload
     /// folders' names are, so they never share one folder).
@@ -117,7 +120,8 @@ extension AgentChatUploads {
         guard realFolders(in: root).contains(where: { $0.lastPathComponent == sessions }) else { return removed }
         for chat in realFolders(in: chats) where isSessionName(chat.lastPathComponent) {
             sweepUploads(in: chat)
-            if (try? manager.contentsOfDirectory(atPath: chat.path))?.isEmpty == true { try? manager.removeItem(at: chat) }
+            // rmdir(2) refuses a folder that is not empty: an upload written into it meanwhile stays.
+            _ = rmdir(chat.path)
         }
         return removed
     }
