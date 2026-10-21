@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
@@ -28,7 +29,8 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    @Test func aPaneCloseShowsInTheKeysFrameWithNoApplyOrTopologyOfItsOwn() throws {
+    /// The two-pane workspace shown in a borderless window, laid out.
+    private static func shown() throws -> (AppServices, NSWindow, WorkspaceContentController, [LayoutPaneID]) {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         let store = services.daemon.store
@@ -40,9 +42,7 @@ import Testing
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 1200, height: 700), styleMask: [.borderless],
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
-        defer { window.close() }
         let content = WorkspaceContentController(workspace: workspace, daemon: services.daemon, services: services, state: state)
-        defer { content.teardown() }
         content.contentView.frame = NSRect(x: 0, y: 0, width: 1200, height: 700)
         window.contentView = content.contentView
         window.orderFrontRegardless()
@@ -50,6 +50,12 @@ import Testing
         content.contentView.layoutSubtreeIfNeeded()
         let panes = try #require(content.layoutModel.screens.first?.layout.panes)
         try #require(panes.count == 2)
+        return (services, window, content, panes)
+    }
+
+    @Test func aPaneCloseShowsInTheKeysFrameWithNoApplyOrTopologyOfItsOwn() throws {
+        let (services, window, content, panes) = try Self.shown()
+        defer { withExtendedLifetime(services) { content.teardown(); window.close() } }
         let closing = try #require(content.paneController(key: panes[1].rawValue))
 
         let applies = DebugLayoutCounters.workspaceApplies, topologies = DebugLayoutCounters.topologySends
@@ -62,5 +68,23 @@ import Testing
         #expect(content.layoutModel.screens.first?.layout.panes == [panes[0]], "the closing pane is still shown")
         let drawn = content.layoutView.overlayRings.map(\.pane)
         #expect(drawn == [panes[0].rawValue], "the closing pane is still drawn in the key's frame: \(drawn)")
+    }
+
+    /// A CLI, script or agent close of the focused pane may not move the view, so the coordinator
+    /// refuses the successor's focus: the topology without the pane still moves the focus off it in
+    /// the key's turn, so keys never go to a pane that left.
+    @Test func aRunThatMayNotMoveTheViewStillTakesTheFocusOffTheClosingPane() throws {
+        let (services, window, content, panes) = try Self.shown()
+        defer { withExtendedLifetime(services) { content.teardown(); window.close() } }
+        content.focus.send(.focusPane(panes[1].rawValue, source: .programmatic))
+        try #require(content.focus.state.pane == panes[1].rawValue)
+        let closing = try #require(content.paneController(key: panes[1].rawValue))
+
+        let close = ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            closing.showPaneClose()
+        }
+
+        #expect(close != nil)
+        #expect(content.focus.state.pane == panes[0].rawValue, "the focus stayed on the closing pane: \(String(describing: content.focus.state.pane))")
     }
 }
