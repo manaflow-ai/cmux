@@ -356,9 +356,9 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(members), parents: o.sessionTree?.parents),
                                                  workspace: { if case let .workspace(ws) = members[$0] { ws } else { nil } }, fold: fold, options: o)
                     for (position, (childIndex, depth)) in drawn.enumerated() {
-                        if childIndex == Self.doneFoldIndex {
-                            Self.appendDoneFold(fold, count: depth, open: o.openDoneFolds.contains(fold), parent: index, color: group.color,
-                                                last: position == drawn.count - 1, to: &rows, y: &y, metrics: m)
+                        if childIndex < 0 {
+                            Self.appendFold(childIndex, fold, count: depth, parent: index, color: group.color, last: position == drawn.count - 1,
+                                            options: o, to: &rows, y: &y, metrics: m)
                             continue
                         }
                         let member = members[childIndex]
@@ -415,9 +415,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 let drawn = Self.foldingDone(Self.treeOrder(Self.workspaceIDs(nodes.map { $0.node }), parents: o.sessionTree?.parents),
                                              workspace: { if case let .workspace(ws) = nodes[$0].node { ws } else { nil } }, fold: fold, options: o)
                 for (index, depth) in drawn {
-                    guard index == Self.doneFoldIndex else { emit(index, nodes[index], depth: depth); continue }
-                    Self.appendDoneFold(fold, count: depth, open: o.openDoneFolds.contains(fold), parent: nil, color: nil, last: false,
-                                        to: &rows, y: &y, metrics: m)
+                    guard index < 0 else { emit(index, nodes[index], depth: depth); continue }
+                    Self.appendFold(index, fold, count: depth, parent: nil, color: nil, last: false, options: o, to: &rows, y: &y, metrics: m)
                 }
                 openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
                 continue

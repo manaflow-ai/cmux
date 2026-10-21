@@ -103,6 +103,15 @@ public nonisolated enum SidebarTunables {
         help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
         default: true, code: "SidebarTunables.doneFold")
 
+    /// A group or list longer than this shows its first rows, the ones that need you and the active one, then a
+    /// "Show N more" row (`SidebarLayout+DoneFold`). 0 shows every row.
+    public static let groupRowLimit = Tunable<Double>.number(
+        "sidebar.groupRowLimit", .sidebar, "Rows before Show more",
+        help: "A group or list longer than this shows its first rows, the ones that need you and the active one, then a Show more row. 0 shows every row.",
+        default: 10, range: 0...100, step: 1, unit: .count, code: "SidebarTunables.groupRowLimit")
+    /// `groupRowLimit` as a row count.
+    public static var rowLimit: Int { max(0, Int(groupRowLimit.value)) }
+
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
         "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
@@ -173,6 +182,7 @@ public nonisolated enum SidebarTunables {
             evenRowText.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
+            groupRowLimit.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
             laneFixture.descriptor,

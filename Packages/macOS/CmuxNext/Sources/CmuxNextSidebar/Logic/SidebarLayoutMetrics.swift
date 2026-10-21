@@ -149,6 +149,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var foldsDone = false
     /// The "Done (N)" rows the person opened: their workspaces list below them.
     public var openDoneFolds: Set<SidebarDoneFoldID> = []
+    /// `sidebar.groupRowLimit`: a list longer than this shows its first rows and a "Show N more" row; 0 shows all.
+    public var rowLimit = 0
+    /// The lists whose "Show N more" row the person opened.
+    public var openShowMore: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
