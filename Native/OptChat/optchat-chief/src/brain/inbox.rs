@@ -267,9 +267,7 @@ impl Brain {
                 .map(|cmux_conversation::Origin::Remote { install }| install.clone());
             // The turn sees the images; the log keeps their references.
             let images = match self.daemon.as_mut() {
-                Some(daemon) if has_images => {
-                    super::images::read_images(daemon.as_mut(), &message)
-                }
+                Some(daemon) if has_images => super::images::read_images(daemon.as_mut(), &message),
                 _ => Vec::new(),
             };
             // The turn opens other files from this Mac; the line names where.
@@ -280,10 +278,8 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
-            let logged = super::files::logged_text(
-                &super::images::logged_text(&text, &images),
-                &files,
-            );
+            let logged =
+                super::files::logged_text(&super::images::logged_text(&text, &images), &files);
             self.queue_with_images(
                 logged,
                 images,

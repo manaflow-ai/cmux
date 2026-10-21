@@ -225,9 +225,7 @@ impl Brain {
                 .as_ref()
                 .map(|cmux_conversation::Origin::Remote { install }| install.clone());
             let images = match self.daemon.as_mut() {
-                Some(daemon) if has_images => {
-                    super::images::read_images(daemon.as_mut(), &message)
-                }
+                Some(daemon) if has_images => super::images::read_images(daemon.as_mut(), &message),
                 _ => Vec::new(),
             };
             // The turn opens other files from this Mac; the line names where.
@@ -238,10 +236,8 @@ impl Brain {
                 }
                 _ => Vec::new(),
             };
-            let logged = super::files::logged_text(
-                &super::images::logged_text(&labelled, &images),
-                &files,
-            );
+            let logged =
+                super::files::logged_text(&super::images::logged_text(&labelled, &images), &files);
             if let Some(target) = crate::membership::thread_target(summary, &message) {
                 self.reply_threads.insert(message.id.clone(), target);
             }

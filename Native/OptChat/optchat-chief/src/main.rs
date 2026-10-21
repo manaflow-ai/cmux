@@ -222,9 +222,7 @@ fn main() -> std::process::ExitCode {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
                         if let Some((key, value)) = set {
-                            use optchat_chief::chief_settings::{
-                                CACHE_TTL, parse_ttl,
-                            };
+                            use optchat_chief::chief_settings::{CACHE_TTL, parse_ttl};
                             match key {
                                 CACHE_TTL => s.cache_ttl = Some(parse_ttl(value)?),
                                 optchat_chief::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS => {

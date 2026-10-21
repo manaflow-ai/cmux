@@ -222,9 +222,7 @@ fn questions(h: &Harness) -> usize {
         .ops
         .iter()
         .filter(|(_, op)| match op {
-            Op::MessageSend { parts, .. } => {
-                parts.iter().any(|p| matches!(p, Part::Question(_)))
-            }
+            Op::MessageSend { parts, .. } => parts.iter().any(|p| matches!(p, Part::Question(_))),
             _ => false,
         })
         .count()
@@ -285,11 +283,7 @@ fn another_persons_turn_refuses_local_effects_at_once_and_asks_nobody() {
     for (id, tool, input) in [
         ("p0", "mcp__optchat__zoom", json!({"id": 0, "n": 1})),
         ("p1", "mcp__optchat__send", json!({"text": "on it"})),
-        (
-            "p2",
-            "mcp__optchat__control",
-            json!({"action": "status"}),
-        ),
+        ("p2", "mcp__optchat__control", json!({"action": "status"})),
     ] {
         h.brain.step(permission(id, tool, input));
         assert_eq!(answered(&h, id), Some(Some("allow".into())), "{id}");
