@@ -153,7 +153,7 @@ def s0(args, run, rng):
         app.act("newSurface", focus=True)  # shown once, as Cmd-T does, so its terminal starts
     for i in range(args.agent_tuis):
         app.act("newSurface", focus=True)
-        error = app.send_text(f"exec {_python()} {os.path.join(FIXTURES, 'idle_tui.py')} {rng.randrange(1000)}\\n")
+        error = app.send_text(f"exec {_python()} {os.path.join(FIXTURES, 'idle_tui.py')} {rng.randrange(1000)}\n")
         if error:
             run.note(f"S0: idle agent TUI {i}: {error}")
     for url in urls[: args.tabs]:
@@ -187,10 +187,10 @@ def s1(args, run, rng):
             fifos.append(fifo)
             gos.append(go)
             # The shell waits on its own go FIFO, so every flood starts together.
-            command = f"read _ < '{go}'; LC_ALL=C yes | head -c {size}; printf done > '{fifo}'\\n"
+            command = f"read _ < '{go}'; LC_ALL=C yes | head -c {size}; printf done > '{fifo}'\n"
             error = app.send_text(command)
             if error:
-                run.note(f"{phase}: send to terminal {i}: {error}")
+                raise RuntimeError(f"{phase}: send to terminal {i}: {error}")
         window = procstat.Tracker(app.discover, interval=0.5).start()
         t0 = time.monotonic()
         _fifo_release(gos, timeout=60)

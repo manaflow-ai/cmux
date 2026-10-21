@@ -16,7 +16,7 @@ macOS (one call per process, no wakeup of the process read):
     (syscalls), pti_csw (context switches).
 Linux:
   /proc/<pid>/stat utime+stime, /proc/<pid>/status Threads/VmRSS/VmHWM, voluntary context switches
-  summed over /proc/<pid>/task/* (wakeups), /proc/<pid>/smaps_rollup Pss (footprint),
+  summed over /proc/<pid>/task/* (wakeups; threads that exit inside a window are not counted), /proc/<pid>/smaps_rollup Pss (footprint),
   /proc/<pid>/io write_bytes (disk_write_logical and disk_write_io: bytes this process caused to be
   sent to storage, counted when the page is dirtied; wchar is not used, it counts PTY, pipe and
   socket writes too), syscr+syscw (I/O syscalls only).
@@ -343,7 +343,9 @@ class Window:
             for field in FIELDS:
                 if field in CUMULATIVE:
                     a, b = first.get(field), last.get(field)
-                    row[field] = (b - a) if (a is not None and b is not None) else None
+                    # Linux sums context switches over live threads: an exited thread takes its
+                    # count with it, so a delta can go below zero. Clamp (an undercount, noted).
+                    row[field] = max(0, b - a) if (a is not None and b is not None) else None
                 else:
                     row[field] = last.get(field)
             self.rows.append(row)

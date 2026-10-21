@@ -177,15 +177,36 @@ class App:
                             return tab
         return None
 
-    def send_text(self, text: str, surface: str | None = None) -> str | None:
-        """Types `text` into a terminal through the app (`cmux send`; the focused tab by default).
-        Returns None on success, else the CLI's error."""
-        surface = surface or (self.topology().get("focus") or {}).get("tab")
-        if not surface:
-            return "no focused tab"
-        argv = [self.cli, "--socket", self.socket, "send", "--surface", surface, "--", text]
-        out = subprocess.run(argv, capture_output=True, text=True, timeout=60, env=self._cli_env())
-        return None if out.returncode == 0 else (out.stderr or out.stdout).strip()[:300] or f"exit {out.returncode}"
+    def daemon_socket(self) -> str | None:
+        """The control socket of this app's cmux-tui daemon (its `--socket` argument)."""
+        prefix = os.path.join(self.bundle, "Contents/Resources/bin/cmux-tui") + " --headless --session cmux-app-"
+        alt = prefix.removeprefix("/private")
+        for _pid, _ppid, cmd in procstat.process_table():
+            if cmd.startswith((prefix, alt)) and " --socket " in cmd:
+                return cmd.split(" --socket ", 1)[1].split()[0]
+        return None
+
+    def send_text(self, text: str, tab_id: str | None = None) -> str | None:
+        """Types `text` into a terminal tab (the focused one by default) through the app's daemon:
+        `send` on its control socket, as the app's own input path does. None on success, else why."""
+        import headless
+        topo_tabs = self.tabs()
+        tab_id = tab_id or (self.topology().get("focus") or {}).get("tab")
+        tab = next((t for t in topo_tabs if t.get("id") == tab_id), None)
+        if tab is None or tab.get("kind") != "terminal" or tab.get("surface") is None:
+            return f"tab {tab_id} is not a terminal in the focused workspace"
+        path = self.daemon_socket()
+        if not path:
+            return "no cmux-tui daemon of this app"
+        try:
+            conn = headless.Conn(path, timeout=30)
+            try:
+                reply = conn.call("send", surface=int(tab["surface"]), text=text)
+            finally:
+                conn.close()
+        except (OSError, ConnectionError, ValueError) as error:
+            return repr(error)
+        return None if reply.get("ok") else str(reply.get("error"))[:300]
 
     def tabs(self, kind: str | None = None, workspace: str | None = None) -> list[dict]:
         topo = self.topology()
