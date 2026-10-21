@@ -34,8 +34,9 @@ test("a loaded reply image fades in instead of popping (#21383)", () => {
   expect(rule(".cv-img--enter")?.style.animation).toContain("cv-enter-fade");
 });
 
-test("Debug Settings can put the turn footer actions on the left (#21344)", () => {
-  expect(rule(':root[data-turn-actions-placement="left"] .cv-turn-actions')?.style.justifyContent).toBe("flex-start");
+test("the turn footer actions sit on the left, and Debug Settings can put them on the right (#21344)", () => {
+  expect(rule(".cv-turn-actions")?.style.justifyContent).toBe("flex-start");
+  expect(rule(':root[data-turn-actions-placement="right"] .cv-turn-actions')?.style.justifyContent).toBe("flex-end");
   expect(app).toContain("configureTurnActionsPlacement(theme.turnActionsPlacement)");
 });
 
