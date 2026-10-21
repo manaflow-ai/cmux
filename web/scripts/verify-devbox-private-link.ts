@@ -144,6 +144,27 @@ function verify(image: string, client: string, requestedAuth: "trusted-carrier" 
       yield* connection.ready;
       yield* readSnapshot(client, socket);
     }));
+    if (requestedAuth === "client-grant") {
+      const socket = path.join(root, "carrier-negative.sock");
+      const carrierEndpoint = { ...endpoint, invitation: undefined, trustedCarrier: true };
+      const carrierAccepted = yield* Effect.scoped(Effect.gen(function* () {
+        const connection = yield* startPrivateLinkClient(
+          client,
+          connectArgs(carrierEndpoint, root, hubSocket, `${slug}-carrier-negative`, socket),
+          { event: "connection-snapshot", socket },
+        );
+        yield* connection.ready;
+      })).pipe(
+        Effect.timeoutFail({
+          duration: "10 seconds",
+          onTimeout: () => new Error("Carrier-negative probe did not finish"),
+        }),
+        Effect.either,
+      );
+      if (carrierAccepted._tag === "Right") {
+        return yield* Effect.fail(new Error("Client-grant image still accepts carrier authentication"));
+      }
+    }
     const reconnectEndpoint = yield* attempt("Read enrolled attach bundle failed", () =>
       provider.openCmuxRemote(vm.providerVmId, {
         clientCapabilities: probe.capabilities,
@@ -160,7 +181,9 @@ function verify(image: string, client: string, requestedAuth: "trusted-carrier" 
     yield* readSnapshot(client, socket);
     console.log(JSON.stringify({ image, clientCommit: probe.build_identity,
       daemonCommit: endpoint.daemonBuild?.commit, trustedCarrier: endpoint.trustedCarrier,
-      enrolled: deviceFingerprint !== undefined, reconnect: "passed", snapshot: "passed" }));
+      enrolled: deviceFingerprint !== undefined,
+      carrierRejected: requestedAuth === "client-grant" ? true : undefined,
+      reconnect: "passed", snapshot: "passed" }));
   });
 }
 
