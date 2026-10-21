@@ -319,6 +319,13 @@ class CampaignOutcomeTests(unittest.TestCase):
         self.assertEqual(len(runs), 3)
         self.assertTrue(all(c[c.index("--target-worker") + 1] in ("m1", "m2") for c in runs))
 
+    def test_a_short_ref_is_refused_before_any_reservation(self):
+        import argparse
+        self.assertEqual(team_eval.full_sha("a" * 40), "a" * 40)
+        for bad in ("ec65b11c722", "A" * 40, "feat-cmux-next"):
+            with self.assertRaises(argparse.ArgumentTypeError):
+                team_eval.full_sha(bad)
+
     def test_a_409_for_an_existing_key_keeps_its_reservation(self):
         led = self.campaign_with("cmux-ci: controller HTTP 409: step_key already names a different step", 1)
         self.assertEqual(led.committed(), 37)

@@ -711,6 +711,14 @@ def step_spend(stdout):
     return None
 
 
+def full_sha(ref):
+    """cmux-ci takes only a full SHA and refuses anything else before a step
+    exists, so reject it here, before any reservation."""
+    if not re.fullmatch(r"[0-9a-f]{40}", ref):
+        raise argparse.ArgumentTypeError(f"{ref!r} is not a lowercase 40-character commit SHA")
+    return ref
+
+
 def campaign(opts):
     import queue
     from concurrent.futures import ThreadPoolExecutor
@@ -791,7 +799,7 @@ def main():
     sub = ap.add_subparsers(dest="cmd", required=True)
     c = sub.add_parser("campaign")
     c.add_argument("--name", required=True, help="the campaign's name, in every step key (pilot, full)")
-    c.add_argument("--ref", required=True)
+    c.add_argument("--ref", required=True, type=full_sha, help="the full 40-character commit the steps check out")
     c.add_argument("--base-url", required=True)
     c.add_argument("--task", nargs="+", required=True)
     c.add_argument("--arm", nargs="+", required=True, choices=CAMPAIGN_ARMS)
