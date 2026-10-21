@@ -47,6 +47,9 @@ fn every_safe_transport_operation_has_a_noun_first_path() {
         // takes retention bounds.
         (vec!["closed", "c1", "delete", "--members", "1"], "closed.delete"),
         (vec!["closed", "clear", "--before-ms", "5", "--keep-newest", "3"], "closed.delete"),
+        // closed.reopen by a closed tab's id (its link), with the pane a tab
+        // whose pane and workspace are gone opens in.
+        (vec!["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE], "closed.reopen"),
         // machine.list and machine.get: the reader opts in to owner metadata
         // and admitted remote records.
         (vec!["machine", "list", "--catalog"], "machine.list"),

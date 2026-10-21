@@ -760,8 +760,10 @@ pub(super) fn parse_screen_group(
 // closed
 
 /// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
-/// (the newest group of that window: Cmd-Shift-T),
-/// `closed <id> reopen [--members 0,2]`, `closed <id> delete [--members]`
+/// (the newest group of that window: Cmd-Shift-T), `closed reopen --tab T
+/// [--fallback-pane P]` (the closed tab T under its own id: a `cmux://tab/`
+/// link), `closed <id> reopen [--members 0,2] [--fallback-pane P]`,
+/// `closed <id> delete [--members]`
 /// and `closed clear [--since-ms T] [--before-ms T] [--keep-newest N]`: the
 /// closed groups of the session.
 pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -777,6 +779,11 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
         }
         ["reopen"] => {
             insert_optional_string(&mut params.fields, flags, "window", "window");
+            if let Some(tab) = flags.take("tab") {
+                validate_prefixed_id("tab", "tab", &tab)?;
+                params.insert("tab", Value::String(tab));
+            }
+            fallback_pane(&mut params, flags)?;
             Op::ClosedReopen
         }
         ["clear"] => {
@@ -824,11 +831,22 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
             if let Some(members) = flags.take("members") {
                 params.insert("members", closed_members(&members)?);
             }
+            fallback_pane(&mut params, flags)?;
             Op::ClosedReopen
         }
         _ => return usage("closed action"),
     };
     params.send(operation, &selectors, flags)
+}
+
+/// `--fallback-pane P`: where a reopened tab goes when its own pane and
+/// workspace are gone.
+fn fallback_pane(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
+    if let Some(pane) = flags.take("fallback-pane") {
+        validate_prefixed_id("pane", "pane", &pane)?;
+        params.insert("fallback_pane", Value::String(pane));
+    }
+    Ok(())
 }
 
 /// `--members 0,2`: member indexes of a closed group.

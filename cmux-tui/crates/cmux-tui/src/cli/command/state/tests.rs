@@ -560,6 +560,25 @@ fn closed_history_scopes_to_a_window_and_reopens_groups() {
     assert!(rejects(&["closed", "list", "--limit", "0"]).contains("--limit"));
 }
 
+/// A closed tab's link reopens that tab under its own id; a tab whose pane
+/// and workspace are gone goes to the fallback pane (f03a19a2580).
+#[test]
+fn closed_reopen_takes_a_tab_and_a_fallback_pane() {
+    const TAB: &str = "tab_00000000000000000000000000000007";
+    assert_eq!(
+        sent(&["closed", "reopen", "--tab", TAB, "--fallback-pane", PANE]),
+        ("closed.reopen".into(), json!({"tab": TAB, "fallback_pane": PANE}))
+    );
+    assert_eq!(
+        sent(&["closed", "c1", "reopen", "--fallback-pane", PANE]),
+        ("closed.reopen".into(), json!({"closed": "c1", "fallback_pane": PANE}))
+    );
+    assert!(rejects(&["closed", "reopen", "--tab", "t1"]).contains("tab_"));
+    assert!(rejects(&["closed", "reopen", "--fallback-pane", "p1"]).contains("pane_"));
+    // A group id and a tab exclude each other: the id form takes no --tab.
+    assert!(!rejects(&["closed", "c1", "reopen", "--tab", TAB]).is_empty());
+}
+
 #[test]
 fn every_state_mutation_takes_an_explicit_idempotency_key() {
     let args = ["room", "Work", "move", "--index", "1", "--idempotency-key", "mutation_retry"]
