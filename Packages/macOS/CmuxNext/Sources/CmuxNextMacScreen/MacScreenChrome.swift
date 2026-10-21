@@ -340,10 +340,15 @@ struct MacScreenToolbar: View {
 
     private func statsLine(_ session: ScreenSession) -> String {
         let stats = session.stats
-        var parts = [session.streamPath, String(format: "%.0f fps", stats.fps)]
-        if let rtt = stats.latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
-        if stats.encoding != "-" { parts.append(stats.encoding) }
-        if session.frameSize.width >= 1 { parts.append("\(Int(session.frameSize.width))×\(Int(session.frameSize.height))") }
+        return Self.statsLine(path: session.streamPath, fps: stats.fps, targetFps: stats.targetFps, latencyMs: stats.latencyMs,
+                              encoding: stats.encoding, frameSize: session.frameSize)
+    }
+
+    static func statsLine(path: String, fps: Double, targetFps: Int?, latencyMs: Double?, encoding: String, frameSize: CGSize) -> String {
+        var parts = [path, String(format: "%.0f fps", fps)]
+        if let rtt = latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
+        if encoding != "-" { parts.append(encoding) }
+        if frameSize.width >= 1 { parts.append("\(Int(frameSize.width))×\(Int(frameSize.height))") }
         return parts.joined(separator: " · ")
     }
 

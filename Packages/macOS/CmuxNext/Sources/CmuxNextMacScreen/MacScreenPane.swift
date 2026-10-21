@@ -352,6 +352,8 @@ public final class MacScreenPaneView: NSView {
         gate == .open && card == nil && !viewOnly
     }
 
+    func reportDisplayRefresh(_ fps: Int?) {}
+
     /// The input gate was synced (the pane tells the system shortcut tap).
     var onInputGateChange: (() -> Void)?
 

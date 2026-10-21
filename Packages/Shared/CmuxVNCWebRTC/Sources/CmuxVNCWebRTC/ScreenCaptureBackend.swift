@@ -98,6 +98,9 @@ public final class ScreenCaptureBackend: NSObject, ScreenBackend, SCStreamOutput
         return CGSize(width: mode?.pixelWidth ?? display.width, height: mode?.pixelHeight ?? display.height)
     }
 
+    static func captureFrameRate(for fps: Int) -> Int { 60 }
+    static func queueDepth(for fps: Int) -> Int { 4 }
+
     private func capture(_ display: SCDisplay) async throws {
         let configuration = SCStreamConfiguration()
         let size = pixelSize(display)

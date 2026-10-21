@@ -34,6 +34,7 @@ public final class ScreenSession {
         public var decodeMs: Double?
         /// The codec and decoder ("H264 HW"), or the busiest RFB encoding.
         public var encoding = "-"
+        public var targetFps: Int?
     }
 
     public let title: String
@@ -99,6 +100,7 @@ public final class ScreenSession {
     /// An app's own identifier for what this session opened (a saved host),
     /// so it can keep the session's preferences afterwards.
     @ObservationIgnored public var hostID: UUID?
+    @ObservationIgnored public var displayMaximumFrameRate: Int?
     /// The remote pointer in framebuffer pixels.
     @ObservationIgnored public private(set) var pointer = CGPoint(x: 100, y: 100)
 

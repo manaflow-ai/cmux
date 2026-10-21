@@ -59,8 +59,13 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
         var scaleDown: Double
     }
 
-    /// The sender's encoding for a display `sourceHeight` pixels tall (0: unknown).
-    func settings(sourceHeight: Int) -> Settings {
+    /// The frames per second to capture and encode at.
+    func frameRate(hostMaximum: Int?, viewerMaximum: Int?) -> Int {
+        settings(sourceHeight: 0).maxFramerate
+    }
+
+    /// The sender's encoding for a display `sourceHeight` pixels tall (0: unknown) at `frameRate`.
+    func settings(sourceHeight: Int, frameRate: Int = 60) -> Settings {
         func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
         switch self {
         case .auto: return Settings(degradation: .maintainResolution, maxBitrate: 12_000_000, maxFramerate: 60, scaleDown: 1)
@@ -83,6 +88,7 @@ public struct ScreenHostMessage: Codable, Sendable {
     public var displays: [Display]?
     public var current: Int?
     public var name: String?
+    public var fps: Int?
 }
 
 /// Where a screen stream's pictures come from and where its input goes.
@@ -97,6 +103,13 @@ public protocol ScreenBackend: AnyObject, Sendable {
     func select(display index: Int)
     func handle(_ input: ScreenInput)
     func stop()
+    var maximumFrameRate: Int? { get }
+    func setFrameRate(_ fps: Int)
+}
+
+public extension ScreenBackend {
+    var maximumFrameRate: Int? { nil }
+    func setFrameRate(_ fps: Int) {}
 }
 
 /// The Mac side of a screen stream: answers a viewer with the screen as a
@@ -351,6 +364,8 @@ public final class ScreenStreamHost: @unchecked Sendable {
                                         current: current, name: name)
         if let data = try? JSONEncoder().encode(message) { _ = session.link.sendText(String(decoding: data, as: UTF8.self)) }
     }
+
+    static func reportedFrameRate(_ input: ScreenInput) -> Int? { nil }
 
     /// Whether a viewer message ends its session (the viewer left: `bye`).
     static func endsSession(_ input: ScreenInput) -> Bool { input.t == "bye" }
@@ -688,6 +703,8 @@ public final class ScreenStreamViewer: @unchecked Sendable {
             break
         }
     }
+
+    static func frameRateInput(_ fps: Int) -> ScreenInput { ScreenInput(t: "fps", i: fps) }
 
     /// Asks the Mac for `quality` (sent again by the app after a reconnect).
     public func setQuality(_ quality: ScreenQuality) {
