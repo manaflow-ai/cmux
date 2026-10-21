@@ -1,3 +1,5 @@
+import AppKit
+import CmuxNextActions
 import Testing
 @testable import CmuxNextAgentPane
 
@@ -55,5 +57,30 @@ struct AgentPaneConnectActionTests {
         let reply = await model.respond(to: .runAction("cloudBringBack"))
         #expect(reply["ok"] as? Bool != true)
         #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+    }
+
+    /// Which move a started chat's picker offers is the app's call: `pane.tabState` reports the moves
+    /// the chat's own right-click menu offers now (the App hides Bring Back Local on a chat no move
+    /// from this Mac put on its machine, and Move to Cloud on a chat of another machine).
+    @Test func tabStateReportsTheMovesTheChatMenuOffers() async {
+        let registry = ActionRegistry.standard()
+        for id: ActionID in ["cloudMove", "cloudBringBack"] { registry.bind(id, invoke: { _ in }) }
+        registry.context = ActionContext(rawValue: .max)
+        let model = AgentPaneModel(host: NoHost())
+        model.header = AgentPaneHeaderHooks(run: { _, _ in }, tabState: { AgentPaneHeaderState() })
+        var hidden: Set<ActionID> = ["cloudBringBack"]
+        model.chatMenuItems = {
+            let entries = ContextMenuCatalog.shared.entries(for: .agentChat, removing: hidden)
+            let menu = registry.makeContextMenu(for: .agentChat, target: ActionTargetRef(kind: .tab, id: "tab_chat"),
+                                                entries: entries, implied: [])
+            let items = menu.items
+            menu.removeAllItems()
+            return items
+        }
+        #expect(await model.respond(to: .tabState(refresh: false))["moves"] as? [String] == ["cloudMove"])
+        hidden = ["cloudMove"]
+        #expect(await model.respond(to: .tabState(refresh: false))["moves"] as? [String] == ["cloudBringBack"])
+        hidden = ["cloudMove", "cloudBringBack"]
+        #expect(await model.respond(to: .tabState(refresh: false))["moves"] as? [String] == [])
     }
 }

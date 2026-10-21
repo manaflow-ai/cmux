@@ -342,10 +342,12 @@ test("each connect choice runs its own host action", async () => {
 
 // A started chat's computer is fixed, so its picker lists no other machine to pick: it shows where
 // the chat runs and the one move that chat can make, the same action as the tab's right-click menu.
+// Which move applies is the app's call (`pane.tabState` `moves`, from that menu), never the page's.
 const startedOn = (hostKind: "local" | "cloud" | "ssh") => ({
   started: true,
   onProject: undefined,
   onOffload: undefined as unknown,
+  offloads: (hostKind === "local" ? ["move"] : hostKind === "cloud" ? ["bringBack"] : []) as unknown,
   summary:
     hostKind === "local"
       ? { sessionId: "s", harness: "claude", host: "This Mac", hostKind: "local", cwd: "/Users/you/src/cmux" }
@@ -361,9 +363,10 @@ const startedOn = (hostKind: "local" | "cloud" | "ssh") => ({
           },
 });
 
-async function mountStarted(hostKind: "local" | "cloud" | "ssh", offload = true) {
+async function mountStarted(hostKind: "local" | "cloud" | "ssh", offload = true, offloads?: string[]) {
   const calls: unknown[][] = [];
   const extra = startedOn(hostKind);
+  if (offloads) extra.offloads = offloads;
   if (offload) extra.onOffload = (kind: string) => calls.push(["offload", kind]);
   const mounted = await mount(true, extra);
   return { calls, mounted };
@@ -406,12 +409,17 @@ test("a started chat with no move to offer keeps the fixed computer label", asyn
     [...host.querySelectorAll(".acpmux-location-readonly")].some((label) =>
       (label.getAttribute("aria-label") ?? "").startsWith(t("composer.computer") + ":"),
     );
-  // An SSH machine's chat has no move; the floating chat offers none (the host passes no onOffload).
-  for (const [hostKind, offload] of [
+  // An SSH machine's chat has no move; the floating chat offers none (the host passes no onOffload);
+  // a Cloud chat that no move from this Mac put there, or a chat the app won't move, gets none
+  // from the app, whatever its machine's kind.
+  const cases: [hostKind: "local" | "cloud" | "ssh", offload: boolean, offloads?: string[]][] = [
     ["ssh", true],
     ["local", false],
-  ] as const) {
-    await mountStarted(hostKind, offload);
+    ["cloud", true, []],
+    ["local", true, []],
+  ];
+  for (const [hostKind, offload, offloads] of cases) {
+    await mountStarted(hostKind, offload, offloads);
     expect(computerButton()).toBeUndefined();
     expect(fixed()).toBe(true);
     act(() => root?.unmount());
