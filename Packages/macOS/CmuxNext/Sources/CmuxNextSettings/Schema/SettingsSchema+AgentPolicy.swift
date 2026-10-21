@@ -103,6 +103,7 @@ extension SettingsSchema {
         "appearance.metrics.chromeFontSize",
         "appearance.interfaceScale",
         "appearance.borders",
+        "appearance.glass",
         "appearance.sidebarSurface",
         "appearance.chromeStyle",
         "appearance.focusIndicator",
