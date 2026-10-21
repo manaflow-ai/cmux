@@ -80,8 +80,9 @@ final class EventInbox: Sendable {
             }
             state.events.append(envelope)
         case .bookmarksChanged, .historyChanged, .keybindingsChanged, .conversationChanged, .conversationTyping, .conversationDraft, .conversationLive, .conversationRunChanged, .cloudConversations,
-             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown:
-            // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1).
+             .terminalClipboardRead, .terminalClipboardReadCancelled, .unknown, .client:
+            // Not part of the tree snapshot a resync refetches (.unknown: the `apps-*` events of apps-v1;
+            // .client: another client came or went, for a restart that waits for quiet).
             state.events.append(envelope)
         default:
             guard let transaction = envelope.event.clientTransactionID, state.echoes.insert(transaction).inserted else { return }

@@ -10,22 +10,40 @@ import Foundation
 ///   `busyClientKinds` kind, or a WebSocket client, other than this connection).
 ///   An open `cmux chief` chat is a `chief-chat` client (cmux-tui cli/chief).
 /// Any error answers false: a probe that cannot see the owner never restarts it.
+///
+/// ``Clients/reconnecting`` is the rule for this app's own cmux-tui, whose handoff keeps every
+/// terminal: the app holds many `frontend` connections of its own there (each terminal view, the
+/// page relay), and they, other apps and pages all reconnect to the next daemon. Only a client
+/// that does not come back keeps it busy: a `cmux chief` chat or a terminal UI (`tui`), and a
+/// local client that never named its kind, which is a `cmux` CLI or MCP call in flight.
 public struct OwnerIdleProbe: Sendable {
+    /// Which other clients keep the owner busy.
+    public enum Clients: Sendable {
+        /// Another app or chat (``OwnerIdleProbe/busyClientKinds``) and any WebSocket or remote client.
+        case everyOther
+        /// Only clients that do not reconnect by themselves: a chat or TUI, and a CLI call in flight.
+        case reconnecting
+    }
+
     public let connection: DaemonConnection
+    public let clients: Clients
     /// Client kinds that keep the owner busy: another app (`frontend`) and an open
     /// `cmux chief` chat (`chief-chat`).
     public static let busyClientKinds: Set<String> = ["frontend", "chief-chat"]
+    /// Client kinds that keep this app's own cmux-tui busy under ``Clients/reconnecting``: an open
+    /// `cmux chief` chat and a terminal UI attached to the session.
+    public static let interactiveClientKinds: Set<String> = ["chief-chat", "tui"]
 
-    public init(_ connection: DaemonConnection) {
+    public init(_ connection: DaemonConnection, clients: Clients = .everyOther) {
         self.connection = connection
+        self.clients = clients
     }
 
     public func isIdle() async -> Bool {
         do {
             let clients = try await read("client.list", [:])
             for client in clients.arrayValue ?? [] where client["self"]?.boolValue != true {
-                if let kind = client["client_kind"]?.stringValue, Self.busyClientKinds.contains(kind) { return false }
-                if client["transport"]?.stringValue != "unix" { return false }
+                if keepsBusy(client) { return false }
             }
             let conversations = try await read("conversation.list", [:])
             for summary in conversations.arrayValue ?? [] {
@@ -36,6 +54,19 @@ public struct OwnerIdleProbe: Sendable {
             return true
         } catch {
             return false
+        }
+    }
+
+    private func keepsBusy(_ client: JSONValue) -> Bool {
+        let kind = client["client_kind"]?.stringValue
+        switch clients {
+        case .everyOther:
+            if let kind, Self.busyClientKinds.contains(kind) { return true }
+            return client["transport"]?.stringValue != "unix"
+        case .reconnecting:
+            // A page names no kind either, but it comes over the WebSocket listener and reconnects.
+            guard let kind else { return client["transport"]?.stringValue == "unix" }
+            return Self.interactiveClientKinds.contains(kind)
         }
     }
 

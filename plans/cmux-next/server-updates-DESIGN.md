@@ -25,8 +25,11 @@ wire for cmux-tui; this doc adds the user-facing half.
 | GUI capability gate | `DaemonIdentity.supports(_:)`, `DaemonCapabilities.shared` (required + optional) | built; the GUI hides a feature when the daemon lacks its capability |
 | Required set | `DaemonCapabilities.required`: a daemon without one is refused | built |
 | Local daemon upgrade | `DaemonLauncher.handOffIfStale` at app launch: other build -> fenced `shutdown-daemon`, terminals adopted | built, automatic, lossless |
+| Stale local daemon after launch | `QuietDaemonUpdate` (CmuxNextDaemonService): every handshake (launch and each reconnect, bundled build read again) checks the build and the app's capabilities; a stale daemon is handed off (`handOffForUpdate`) at a quiet moment, then health-checked | built, automatic, lossless; Debug toggle `cmuxTUI.restartStaleWhenQuiet` (on) |
+| Unresponsive local owner | `UnresponsiveOwnerWatch` (CmuxNextDaemon) in `DaemonRecovery`: plain `ensure` failing as a stuck owner for 30 s and 2+ times in a row runs `server ensure --replace-unresponsive` without the confirm, once per owner process | built, automatic, terminals survive; Debug toggle `cmuxTUI.restartUnresponsive` (on) |
 | Capability handoff | `handOffForCapability` (page listener) | built, one capability |
-| acpmux upgrade | `AcpmuxVersionHandoff`: hand off only when the daemon runs agent hosts; otherwise **keep it running** ("its agents would end") | built; the kept daemon never upgrades and nothing tells the user |
+| acpmux upgrade | `AcpmuxVersionHandoff` + `AcpmuxQuietHandoff`: a daemon of another build is handed off at every lookup (launch and reconnect) once no session runs a turn or waits on a permission; one without agent hosts (an older build) is replaced too and its chats resume from disk; one with agent hosts waits at most 10 minutes; the next daemon must report the bundled build within 5 s (one retry, then the "acpmux did not start" banner) | built, automatic; Debug toggle `agent.replaceStaleAcpmuxWhenQuiet` (on) |
+| Unresponsive acpmux | `AcpmuxUnresponsiveWatch`: status calls missing their deadline 3 times over 20 s, then a 5 s confirm, SIGTERM (agent hosts survive and are adopted), SIGKILL after 10 s; once per pid | built, automatic; Debug toggle `agent.restartUnresponsiveAcpmux` (on) |
 | Chief's cmux-tui daemon | `cmux-chief-*` never upgrades until it restarts (`update-keeps-sessions.md` 2.3) | open |
 | Remote daemons (Mac mini, VM, Cloud) | `DaemonService` connects through `cmux link dial`; same `identify` | no upgrade path, no notice |
 
@@ -38,9 +41,42 @@ daemon, and every remote daemon. Today the matching features just disappear with
 
 1. **Background app downloads stay as they are** (user, Oct 20). No "Preparing update %" pill;
    a240 owns the update card and loading flow.
-2. **Never auto-restart a server when a restart loses anything.** The existing lossless handoffs stay
-   automatic (local daemon at launch: terminals survive; acpmux with agent hosts: agents survive).
-   Everything else asks: a toast, then a confirm.
+2. **Never auto-restart a server when a restart loses anything.** The lossless handoffs are
+   automatic: the local daemon at launch; acpmux with agent hosts (agents survive); and a stale
+   local cmux-tui found at any later handshake, at a quiet moment (2a). Everything else asks: a
+   toast, then a confirm.
+
+   2a. **The local cmux-tui restarts by itself when quiet.** A cmux-tui of another build than the
+   bundled one (or, build unknown, without capabilities the app uses) is not left behind a new app:
+   `QuietDaemonUpdate` checks every handshake, the first one and each reconnect's, against the
+   bundled build read again each time (the app may be updated in place while it runs), and hands
+   the daemon off with the same `handOffForUpdate` path as the toast's button. It is lossless:
+   `shutdown-daemon` without `end_terminals` leaves every terminal host running and the new daemon
+   adopts it (durable-sessions.md section 3), and `DaemonConnection.quietHandoff` holds the app's
+   own requests until the new daemon answers. The only work it could cut is a client that does not
+   reconnect: a `cmux` CLI or MCP call in flight (a local client with no kind), a `cmux chief` chat
+   or a TUI, or a conversation turn. So it waits for a quiet moment, all of: the person gave no
+   input for 60 s or the app is in the background, no menu, drag or resize tracking runs, no request
+   of the app's connection is in flight, and `OwnerIdleProbe` (`.reconnecting`) finds no such
+   client and nobody typing. The app's own `frontend` connections (each terminal view, the page
+   relay), other apps and pages reconnect by themselves and do not count. While busy it tries again
+   on owner events (`client-detached`, `client-changed`, typing), when the app goes to the
+   background, and on a deadline once a minute for 30 minutes, then on events only. It never
+   forces: after 30 minutes the toast shows too while it keeps waiting. At most once per daemon
+   process and bundled build, three times per launch.
+
+   Health check: the next daemon must connect with the bundled build within 90 s. If none connects
+   the reconnect is woken and it waits once more; if one of another build connects it is restarted
+   once more (quietly). A second failure shows "Couldn't restart cmux-tui: ..." and the toast with
+   its manual Restart, and no more automatic restarts run until a daemon of the bundled build connects.
+
+   2b. **An unresponsive local owner restarts by itself.** When plain `server ensure` keeps failing
+   the way a stuck owner makes it fail (restore bound passed, no answer, `server.unavailable`) for
+   30 s and at least twice in a row, `DaemonRecovery` runs the button's `server ensure
+   --replace-unresponsive` without its confirm, once per owner process and three times per launch.
+   An owner that refuses at its connection limit (`server.busy`) answers and is never killed by this
+   path; the button stays for it. Terminal hosts are separate processes: they outlive the replaced
+   owner and the next owner adopts them.
 3. **Capabilities, not versions.** The gate is "the server advertises X". The app keeps working on
    the older protocol: every optional capability already has a fallback (the feature is hidden).
 4. **Name what you gain.** The toast lists the user-visible features the restart turns on (the
@@ -65,8 +101,9 @@ daemon, and every remote daemon. Today the matching features just disappear with
 
 The app side: `ServerSkewPolicy.notice(for:appCapabilities:bundledBuild:)` returns a
 `ServerUpdateNotice` when the server lacks capabilities this app can use and its build is known to
-serve (`DaemonCapabilities` optional set minus `unservedByBundledDaemon`), or, for a server that
-advertises nothing, when its build differs from the bundled one. Required capabilities never reach
+serve (`DaemonCapabilities` optional set minus `unservedByBundledDaemon`), or when its build differs
+from the bundled one (a notice with no feature list; for the local cmux-tui it shows only when its
+quiet restart cannot run, rule 2a). Required capabilities never reach
 this path (a daemon without them is refused before attach, as today).
 
 ## 4. Feature catalog
@@ -99,7 +136,11 @@ One toast per server and host, shown once per app launch per server build:
 
 - It stays until acted on (no timeout); x snoozes that server build for 24 hours. A new server
   build (or a new app build with more capabilities) is a new notice.
-- The button opens the confirm; nothing restarts without the confirm.
+- The button opens the confirm; nothing restarts from the toast without the confirm. For the local
+  cmux-tui the toast stays hidden while its quiet restart (2a) waits; it shows when that restart is
+  refused or impossible (an external binary, the toggle off), overdue (30 minutes without a quiet
+  moment) or failed its health check. A build that differs with no capability missing gets the
+  generic "Restart cmux-tui to use new features" with no feature list.
 - After a restart the app re-reads the handshake: the new capabilities turn on and the notice ends.
   A restart that still lacks them (an external binary) says so in a toast and does not loop.
 - Motion: the toast's appear and slide go through the shared motion path (`CmuxToastMotion`);
