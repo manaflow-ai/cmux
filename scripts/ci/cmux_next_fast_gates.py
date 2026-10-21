@@ -87,12 +87,17 @@ def fetch_for_merge(repo: Path, remote: str, pr: str, base: str) -> None:
     def met() -> bool:
         return bool(rev(repo, base)) and git(repo, "merge-base", HEAD_REF, base, check=False).returncode == 0
 
+    # A depth flag only in a checkout that is already shallow (the CI checkout): in a full clone it would make
+    # every worktree sharing it shallow (tests/test_ci_no_shallow_dev_fetch.py), so there it fetches whole.
+    if git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() != "true":
+        git(repo, "fetch", "--no-tags", "--quiet", remote, *refspecs)
+        return
     git(repo, "fetch", "--no-tags", "--quiet", f"--depth={FETCH_DEPTH}", remote, *refspecs)
     for depth in DEEPEN_STEPS:
         if met():
             return
         git(repo, "fetch", "--no-tags", "--quiet", f"--deepen={depth}", remote, *refspecs)
-    if not met() and git(repo, "rev-parse", "--is-shallow-repository").stdout.strip() == "true":
+    if not met():
         git(repo, "fetch", "--no-tags", "--quiet", "--unshallow", remote, *refspecs)
 
 
