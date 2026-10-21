@@ -16,11 +16,24 @@ final class CEFHostView: NSView {
         }
     }
     private var windowObserver: (any NSObjectProtocol)?
+    /// The shown page's own background (`CEFTab.pageBackdropColor`). While
+    /// the window live-resizes, this view fills with it instead of the pane
+    /// ground: the page window's gap shows this view until Chromium's frame
+    /// at the new size arrives (`CEFTab+ResizeBackdrop`).
+    var pageBackdrop: CGColor? {
+        didSet { if pageBackdrop != oldValue { updateBackground() } }
+    }
+    /// Called when the window starts a live resize (`CEFPaneHost` re-reads
+    /// the shown page's background).
+    var liveResizeWillStart: (() -> Void)?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
+        #if DEBUG
+        Self.registerMotionSampler()
+        #endif
     }
 
     @available(*, unavailable)
@@ -31,10 +44,26 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
+    override func viewWillStartLiveResize() {
+        super.viewWillStartLiveResize()
+        liveResizeWillStart?()
+        updateBackground()
+    }
+
+    override func viewDidEndLiveResize() {
+        super.viewDidEndLiveResize()
+        updateBackground()
+    }
+
     /// Until Chromium's page window shows its first frame, the page area
     /// follows the shared pane ground. It stays clear over Liquid Glass so
-    /// the window backdrop remains visible.
+    /// the window backdrop remains visible. During a live resize it takes
+    /// the page's own background (`pageBackdrop`).
     private func updateBackground() {
+        if inLiveResize, let pageBackdrop {
+            layer?.backgroundColor = pageBackdrop
+            return
+        }
         performWithTheme {
             layer?.backgroundColor = Palette.paneFill.cgColor
         }

@@ -94,6 +94,63 @@ struct InstantCreateIntentTests {
         #expect(pane.tabs.count == 2)
     }
 
+    // MARK: Ctrl-` (New Terminal Tab, ctrl-backtick-instant)
+
+    private static func pane(of store: DaemonStore) throws -> PaneModel {
+        try #require(store.workspace(id: Self.baseKey.rawValue)?.screens.first?.panes.first)
+    }
+
+    private static func tabAdded(_ surface: SurfaceID, terminal: TerminalID, sequence: UInt64) -> DaemonEventEnvelope {
+        let entity = TabSnapshot(surface: surface, terminalID: terminal, kind: .pty)
+        return DaemonEventEnvelope(sequence: sequence, event: .tabAdded(TabDelta(
+            workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: Self.pane, surface: surface,
+            index: 1, entity: entity, clientTransactionID: nil)))
+    }
+
+    @Test func newTerminalTabShowsInItsPaneInTheIntentsTurn() throws {
+        let store = Self.store()
+        let provisional = ProvisionalTab()
+        store.intend(.createTab(pane: Self.pane, provisional: provisional.terminal(.generate(), cwd: "/tmp")), transaction: .generate())
+        let pane = try Self.pane(of: store)
+        #expect(pane.tabs.map(\.surface) == [SurfaceID(rawValue: 4), provisional.surface])
+        #expect(pane.tabs.last?.kind == .pty)
+    }
+
+    /// The daemon's `tab-added` (no transaction on `new-tab`) can beat the reply: the tab carrying
+    /// the terminal id the stand-in named takes its place in that apply, never beside it.
+    @Test func daemonTerminalTabTakesTheStandInsPlaceBeforeTheReply() throws {
+        let store = Self.store()
+        let provisional = ProvisionalTab(), terminal = TerminalID.generate()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.createTab(pane: Self.pane, provisional: provisional.terminal(terminal, cwd: nil)), transaction: transaction)
+        _ = store.apply(batch: [Self.tabAdded(SurfaceID(rawValue: 7), terminal: terminal, sequence: 1)])
+        let pane = try Self.pane(of: store)
+        #expect(pane.tabs.map(\.surface) == [SurfaceID(rawValue: 4), SurfaceID(rawValue: 7)], "one new tab, the daemon's")
+        // The reply then names the same tab: nothing changes, the intent settles.
+        ProvisionalTab.created(transaction, surface: SurfaceID(rawValue: 7), in: store)
+        store.noteSettled(transaction, at: 1)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [SurfaceID(rawValue: 4), SurfaceID(rawValue: 7)])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
+    /// Another terminal's tab (a CLI `new-tab` racing the key) is not the stand-in's.
+    @Test func anotherTerminalTabShowsBesideTheStandIn() throws {
+        let store = Self.store()
+        let provisional = ProvisionalTab()
+        store.intend(.createTab(pane: Self.pane, provisional: provisional.terminal(.generate(), cwd: nil)), transaction: .generate())
+        _ = store.apply(batch: [Self.tabAdded(SurfaceID(rawValue: 7), terminal: .generate(), sequence: 1)])
+        #expect(Set(try Self.pane(of: store).tabs.map(\.surface)) == [SurfaceID(rawValue: 4), SurfaceID(rawValue: 7), provisional.surface])
+    }
+
+    @Test func refusedNewTerminalTabLeavesNothing() throws {
+        let store = Self.store()
+        let transaction = ClientTransactionID.generate()
+        store.intend(.createTab(pane: Self.pane, provisional: ProvisionalTab().terminal(.generate(), cwd: nil)), transaction: transaction)
+        store.rejectIntent(transaction)
+        #expect(try Self.pane(of: store).tabs.map(\.surface) == [SurfaceID(rawValue: 4)])
+        #expect(store.mirrorViolations.isEmpty)
+    }
+
     // MARK: Cmd-D, Cmd-Shift-D
 
     @Test(arguments: [SplitDirection.right, .down])

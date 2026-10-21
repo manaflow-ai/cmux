@@ -78,6 +78,23 @@ pub fn is_chief(summary: &Summary, id: &str) -> bool {
     })
 }
 
+/// Whether `message` was written by this Chief owner's own local identity or
+/// one of that person's paired devices. Other human participants may wake a
+/// Chief, but they cannot authorize effects on the owner's machine.
+pub fn is_owner_message(summary: &Summary, message: &Message) -> bool {
+    is_owner_message_as(summary, message, USER_LOCAL)
+}
+
+/// [`is_owner_message`] for an explicit owner participant id (a placed Cloud
+/// brain uses its `user_...` owner rather than the local `user_local`).
+pub fn is_owner_message_as(summary: &Summary, message: &Message, owner: &str) -> bool {
+    summary.participants.iter().any(|p| {
+        p.id == message.author
+            && p.kind == ParticipantKind::Human
+            && (p.id == owner || p.person.as_deref() == Some(owner))
+    })
+}
+
 /// [`wakes`] for the Chief `rule.chief` with the group rule `rule.group`. A
 /// Chief never wakes on its own message. Other agents never wake it; other
 /// Chiefs do only with `rule.chiefs`.

@@ -15,7 +15,7 @@ extension TerminalSurfaceView: NSMenuItemValidation {
     /// nothing for a Command key on macOS, so a shell sees nothing.
     @objc public func copy(_ sender: Any?) {
         guard hasSelection else { return sendCommandKeyToProgram("c", keyCode: UInt16(kVK_ANSI_C)) }
-        performBindingAction("copy_to_clipboard")
+        clipboardRequests.asUserClipboardWrite { performBindingAction("copy_to_clipboard") }
     }
 
     private func sendCommandKeyToProgram(_ character: String, keyCode: UInt16) {

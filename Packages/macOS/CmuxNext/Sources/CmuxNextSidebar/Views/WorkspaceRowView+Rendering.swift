@@ -147,7 +147,11 @@ extension WorkspaceRowView {
         let pinStart = layoutPin(showMore: showMore, control: control, fades: fades)
         let overlayStart = [showClose ? closeButton.frame.minX : nil, showMore ? moreButton.frame.minX : nil, pinStart].compactMap { $0 }.min()
         let ind = SidebarStyle.indicatorSize
-        trailing = layoutRowBadge(trailing: trailing, cy: cy)
+        // With nothing else at the row's end, the lone dot or spinner takes the trailing column,
+        // centered on the group header chevron's x (SidebarStyle+TrailingColumn).
+        let columnFree = trailing == b.width - SidebarStyle.horizontalInset
+        trailing = layoutRowBadge(trailing: trailing, cy: cy,
+                                  columnCenterX: columnFree ? SidebarStyle.trailingColumnCenterX(rowWidth: b.width) : nil)
         let markReplacesStatus = !agentMark.isHidden && agentMarkVariant == .replacesStatus
         activity.isHidden = markReplacesStatus
         if markReplacesStatus {

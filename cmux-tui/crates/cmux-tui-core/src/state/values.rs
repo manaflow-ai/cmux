@@ -38,7 +38,7 @@ fn workspace_extra(
     let mut fields = Map::new();
     let presentation = connection
         .query_row(
-            "SELECT p.title, p.color, p.icon
+            "SELECT p.title, p.color, p.icon, p.description, p.task_status
              FROM resource_workspaces AS rw
              JOIN workspace_presentation AS p ON p.workspace_key = rw.workspace_key
              WHERE rw.public_id = ?1",
@@ -48,12 +48,22 @@ fn workspace_extra(
                     row.get::<_, Option<String>>(0)?,
                     row.get::<_, Option<String>>(1)?,
                     row.get::<_, Option<String>>(2)?,
+                    row.get::<_, Option<String>>(3)?,
+                    row.get::<_, Option<String>>(4)?,
                 ))
             },
         )
         .optional()?;
-    if let Some((title, color, icon)) = presentation {
-        for (name, value) in [("title", title), ("color", color), ("icon", icon)] {
+    if let Some((title, color, icon, description, task_status)) = presentation {
+        // `workspace-description-v1` and `workspace-status-v1`: absent until set.
+        let fields_of = [
+            ("title", title),
+            ("color", color),
+            ("icon", icon),
+            ("description", description),
+            ("task_status", task_status),
+        ];
+        for (name, value) in fields_of {
             if let Some(value) = value {
                 fields.insert(name.into(), json!(value));
             }

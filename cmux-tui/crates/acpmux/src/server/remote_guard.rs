@@ -159,6 +159,12 @@ pub(super) async fn check(
     if m == method::MUX_PROMPT_WITHDRAW {
         return Err(crate::prompt_provenance::withdraw_origin_refused());
     }
+    // A paused agent pair is the person's to resume, on this machine (`hub/agent_pairs.rs`).
+    if m == method::MUX_AGENT_PAIR_RESUME && origin.web_class() {
+        return Err(RpcError::invalid_params(
+            "resuming agent pairs is accepted only from this machine's app or unix socket",
+        ));
+    }
     // Which machines this daemon reaches with the user's ssh keys and
     // tokens changes over the unix socket only (LocalApp included).
     if matches!(m, "_acpmux/peer_add" | "_acpmux/peer_remove") {
@@ -356,26 +362,48 @@ pub(super) async fn settle_web_session_mode(
     hub: &std::sync::Arc<crate::hub::Hub>,
     s: &std::sync::Arc<crate::hub::Session>,
 ) -> Result<(), RpcError> {
+    // The Codex bridge takes any mode from an authenticated Web connection
+    // (`any_mode_for_web`), but a session the Web STARTS begins in a mode
+    // that asks before every change (`BRIDGE_ASKING_MODES`), never in the
+    // bridge's own default (`agent`: edits and commands without asking).
+    if hub.any_mode_for_web(&s.meta()) {
+        let asks = |m: &crate::store::SessionMeta| {
+            crate::web_modes::mode_of(m)
+                .is_some_and(|mode| crate::web_modes::BRIDGE_ASKING_MODES.contains(&mode.as_str()))
+        };
+        if asks(&s.meta()) {
+            return Ok(());
+        }
+        let start = crate::web_modes::BRIDGE_ASKING_MODES[0];
+        if hub.set_mode(s, start).await.is_err() || !asks(&s.meta()) {
+            let _ = hub.kill(s, true).await;
+            return Err(no_reviewed_asking_mode());
+        }
+        hub.restore_web_control(s);
+        return Ok(());
+    }
     if mode_asks(hub, &s.meta()).await {
         return Ok(());
     }
-    let refuse = || {
-        RpcError::invalid_params(
-            "this harness has no reviewed asking mode for a remote WebSocket connection",
-        )
-    };
     let Some(default) = asking_modes(hub, &family_of(&s.meta())).await.into_iter().next() else {
         let _ = hub.kill(s, true).await;
-        return Err(refuse());
+        return Err(no_reviewed_asking_mode());
     };
     if hub.set_mode(s, &default).await.is_err() || !mode_asks(hub, &s.meta()).await {
         let _ = hub.kill(s, true).await;
-        return Err(refuse());
+        return Err(no_reviewed_asking_mode());
     }
     // The daemon's own move to the asking default clears the flag its
     // starting mode set.
     hub.restore_web_control(s);
     Ok(())
+}
+
+fn no_reviewed_asking_mode() -> RpcError {
+    RpcError::invalid_params(
+        "this harness has no reviewed asking mode for a remote WebSocket connection",
+    )
+    .with_data(serde_json::json!({"reason": "remote.mode_not_asking"}))
 }
 
 /// What a Web (remote-origin) connection may never do; LocalApp and the
@@ -466,7 +494,31 @@ async fn web_starts_asking(
 ) -> Result<(), RpcError> {
     // A remote chain never resumes a local harness session (REMOTE-FLOOR v3).
     let web = control == crate::hub::Control::Web;
+    // On a dedicated agent VM (vmHost, not a Mac) the owner's peer daemon's
+    // session with no policy stays without one: `requests.rs` starts it
+    // approve-all (hub/remote_sandbox.rs `vm_host_peer_approves`).
+    let vm_host_peer = crate::hub::vm_host_peer_approves(
+        hub.config.read().await.vm_host,
+        cfg!(target_os = "macos"),
+        control == crate::hub::Control::Peer,
+    );
+    if m == method::SESSION_NEW {
+        let meta = params.pointer("/_meta/acpmux");
+        let pick = |key: &str| {
+            meta.and_then(|m| m.get(key))
+                .and_then(Value::as_str)
+                .map(str::to_owned)
+                .or_else(|| params.get(key).and_then(Value::as_str).map(str::to_owned))
+        };
+        let cwd = params.get("cwd").and_then(Value::as_str).map(Path::new).map(Path::to_path_buf);
+        let (family, any_mode) =
+            hub.preflight_remote_new(pick("harness"), pick("preset"), pick("model"), cwd).await?;
+        if !any_mode && asking_modes(hub, &family).await.is_empty() {
+            return Err(no_reviewed_asking_mode());
+        }
+    }
     if m == method::SESSION_NEW
+        && !vm_host_peer
         && params.get("policy").is_none_or(Value::is_null)
         && params.pointer("/_meta/acpmux/policy").is_none_or(Value::is_null)
     {
@@ -523,6 +575,10 @@ async fn web_starts_asking(
             if !(draft && not_asking) {
                 return Err(e);
             }
+            settle_web_session_mode(hub, &t).await?;
+        } else if draft && hub.any_mode_for_web(&t.meta()) {
+            // A new Codex bridge target starts asking too (a Web connection
+            // may switch it later, as any bridge session).
             settle_web_session_mode(hub, &t).await?;
         }
         return hub.web_control_check(&t, control);
@@ -629,14 +685,18 @@ fn outside_roots(field: &str) -> RpcError {
     ))
 }
 
-/// The folders a Web connection may work in: `webRoots` from config.json
-/// and the known projects (every local session's cwd), each in the
+/// The folders a Web connection may work in: `webRoots` from config.json,
+/// the known projects (every local session's cwd) and the workspace folders
+/// the person's app set (`_acpmux/workspace_roots_set`), each in the
 /// filesystem's own spelling. A root that is `/`, the home directory or any
 /// ancestor of it is dropped: one session started in `~` must not open
 /// `~/.ssh` or `~/Library` to the Web. Compared by path components.
 async fn web_roots(hub: &std::sync::Arc<crate::hub::Hub>) -> Vec<std::path::PathBuf> {
     let mut raw: Vec<String> = hub.config.read().await.web_roots.clone();
     raw.extend(hub.sessions().iter().map(|s| s.meta().cwd.to_string_lossy().into_owned()));
+    // The folders of the workspaces the person's app lists now (its own
+    // daemon's tabs, `_acpmux/workspace_roots_set`), under the same guards.
+    raw.extend(hub.person.workspace_roots());
     raw.sort();
     raw.dedup();
     let home = match dirs::home_dir() {

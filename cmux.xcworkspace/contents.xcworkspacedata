@@ -32,6 +32,9 @@
          location = "group:CmuxAuthRuntime">
       </FileRef>
       <FileRef
+         location = "group:CmuxChiefVoiceCore">
+      </FileRef>
+      <FileRef
          location = "group:CmuxFeedPushCore">
       </FileRef>
       <FileRef

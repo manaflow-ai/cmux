@@ -199,10 +199,10 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** Open-ended ring used as the "working" spinner. */
+/** Open-ended ring used as the "working" spinner. `cv-spinner` turns it (conversation.css). */
 export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIconProps) => (
   <svg
-    className={className}
+    className={className ? `cv-spinner ${className}` : "cv-spinner"}
     style={style}
     width={size}
     height={size}
@@ -365,6 +365,14 @@ export const Envelope = (p: CvIconProps) => (
   <Svg strokeWidth={1.1} {...p}>
     <rect x="2.25" y="3.75" width="11.5" height="8.5" rx="1.75" />
     <path d="m2.75 4.75 5.25 4 5.25-4" />
+  </Svg>
+);
+
+/** A paused agent pair's note (AgentPairNote.tsx). */
+export const PauseCircle = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.75" />
+    <path d="M6.5 6v4M9.5 6v4" />
   </Svg>
 );
 
