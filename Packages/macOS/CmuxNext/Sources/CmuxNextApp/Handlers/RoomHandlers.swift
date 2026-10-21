@@ -36,10 +36,8 @@ enum RoomHandlers {
             let room = try context.room(invocation)
             if let name = invocation["name"]?.stringValue, !name.isEmpty {
                 update(room.id, context) { try await $0.updateProfile($1, name: name) }
-            } else if let window = context.activeWindow?.window {
-                RenamePrompt.run(title: RoomStrings.renameTitle, initial: room.name, in: window) { name in
-                    update(room.id, context) { try await $0.updateProfile($1, name: name) }
-                }
+            } else {
+                context.services.registry.ask("space.rename", invocation, ActionArgumentAsk(argument: "name", initialText: room.name))
             }
         }
         bind("space.setColor") { invocation in
