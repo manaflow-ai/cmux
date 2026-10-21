@@ -10,7 +10,11 @@
 //! disk (`peer_cache.rs`), and stops with its connection
 //! (`Conn::end_peer_leases` in `server/mod.rs`).
 //!
-//! Lock order: `peer_leases`, then `peers`; never the other way round.
+//! Lock order: `peer_leases`, then `remote_sessions`, then `peers`; never
+//! the other way round. A peer leaves the `peers` registry before its rows
+//! are dropped, and a notice changes rows only while its instance is still
+//! registered (`apply_peer_notice` checks under the rows lock), so a late
+//! notice of a replaced or removed peer never adds rows back.
 
 use super::*;
 
@@ -91,11 +95,6 @@ impl Hub {
     /// Whether `name` is a leased peer now.
     pub fn is_leased(&self, name: &str) -> bool {
         self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).contains_key(name)
-    }
-
-    /// A saved peer took `name` over, or it was removed: no lease holds it.
-    pub(super) fn forget_lease(&self, name: &str) {
-        self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
     }
 }
 

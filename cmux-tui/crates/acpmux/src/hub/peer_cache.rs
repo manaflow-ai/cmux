@@ -34,13 +34,20 @@ pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
 }
 
 impl Hub {
-    /// Save `peer`'s rows; unless `now`, at most once per `SAVE_EVERY_MS`.
-    pub(super) fn save_peer_cache(&self, peer: &str, now: bool) {
+    /// Save `peer`'s rows, while `generation` is the instance registered
+    /// under that name; unless `now`, at most once per `SAVE_EVERY_MS`.
+    pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
+        // Held to the end: a lease, `add_peer` taking a leased name over and
+        // `remove_peer` change who holds the name under this lock, so a save
+        // of a replaced or removed instance never lands (lock order:
+        // `peer_leases` first).
+        let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
         // A leased peer leaves nothing on disk (`peer_lease.rs`).
-        if self.is_leased(peer) {
+        if leases.contains_key(peer) {
             return;
         }
-        let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), self.peer(peer)) else { return };
+        let p = self.peer(peer).filter(|p| p.generation == generation);
+        let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), p) else { return };
         let Some(path) = cache_path(&dir, peer) else { return };
         let at = now_ms();
         let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
@@ -64,6 +71,7 @@ impl Hub {
         if let Err(e) = write() {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");
         }
+        drop(leases);
     }
 
     /// A peer that starts with no rows here (this daemon just started) lists
