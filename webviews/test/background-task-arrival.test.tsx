@@ -4,12 +4,22 @@
 // plays once on mount, on the host's motion tokens. The rows a list is drawn with are simply there,
 // so opening the Inspector, the Summary or the finished fold never replays every row.
 import { afterEach, expect, test } from "bun:test";
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
-import type { BackgroundCommand } from "../src/agent-session/acpmux/inspector/processes";
+import type { AcpmuxSnapshot } from "../src/agent-session/acpmux/model";
+import { setChatDisplay } from "../src/agent-session/acpmux/chatDisplay";
+import { setHeaderState } from "../src/agent-session/acpmux/header/headerState";
+import { useChatInspector } from "../src/agent-session/acpmux/inspector/ChatInspector";
+import {
+  resetInspectorState,
+  setInspectorOpen,
+  setInspectorSection,
+} from "../src/agent-session/acpmux/inspector/inspectorState";
+import type { BackgroundCommand, InspectorProcess } from "../src/agent-session/acpmux/inspector/processes";
 import { TasksSection } from "../src/agent-session/acpmux/inspector/TasksSection";
 import { SummaryTasks } from "../src/agent-session/acpmux/summary/SummaryTasks";
+import { assistant, chat, user } from "../src/gallery/fixtures/acpmux";
 
 let dom: JSDOM | undefined;
 let root: Root | undefined;
@@ -28,6 +38,11 @@ function installDom(): HTMLElement {
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    MutationObserver: dom.window.MutationObserver,
+    localStorage: dom.window.localStorage,
+    StorageEvent: dom.window.StorageEvent,
+    addEventListener: dom.window.addEventListener.bind(dom.window),
+    removeEventListener: dom.window.removeEventListener.bind(dom.window),
     getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
     cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
@@ -41,6 +56,8 @@ function installDom(): HTMLElement {
 afterEach(async () => {
   if (root) await act(async () => root!.unmount());
   root = undefined;
+  resetInspectorState();
+  setHeaderState({ inspector: false });
   dom?.window.close();
   dom = undefined;
   for (const [key, value] of saved) {
@@ -60,9 +77,14 @@ const command = (id: string, text: string, state: BackgroundCommand["state"] = "
 
 const entering = (container: HTMLElement, selector: string) =>
   [...container.querySelectorAll<HTMLElement>(selector)].map(
-    (row) =>
-      `${row.textContent?.includes("pytest") ? "pytest" : row.textContent?.includes("tsc") ? "tsc" : "?"}:${row.dataset.enter ?? "-"}`,
+    (row) => `${row.textContent?.match(/pytest|tsc|cargo|vite|bun/)?.[0] ?? "?"}:${row.dataset.enter ?? "-"}`,
   );
+
+/// The row's entrance finished playing (the stylesheet's `ui-enter` keyframe).
+const played = (row: Element) =>
+  act(async () => {
+    row.dispatchEvent(new dom!.window.Event("animationend", { bubbles: true }));
+  });
 
 test("the Inspector's new running task enters from the top; the ones it was drawn with do not", async () => {
   const container = installDom();
@@ -113,4 +135,98 @@ test("an entering row inside an entering card keeps its own edge and distance", 
     expect(body).toContain("--ui-enter-y:");
   }
   expect(rule(":where([data-enter] [data-enter])")).toContain("--ui-enter-distance: 8px");
+});
+
+// The Inspector stays drawn while the pane switches chats: the next chat's tasks are the ones its
+// list is drawn with, so none of them drops in.
+test("switching chats with the Inspector open replays none of the next chat's tasks", async () => {
+  const container = installDom();
+  setHeaderState({ inspector: true });
+  setChatDisplay({});
+  resetInspectorState();
+  const process = (id: string, command: string): InspectorProcess => ({
+    id,
+    command,
+    startedAt: 1_000,
+    state: "running",
+  });
+  const first: AcpmuxSnapshot = chat([user("Build it", 4), assistant("Done.", 3)]);
+  const second: AcpmuxSnapshot = { ...first, sessionId: "other-session" };
+  let show: (chat: AcpmuxSnapshot, processes: InspectorProcess[]) => void = () => {};
+  function Pane() {
+    const [state, setState] = useState({
+      snapshot: first,
+      processes: [process("s1/a", "tsc --watch")],
+    });
+    show = (snapshot, processes) => setState({ snapshot, processes });
+    const inspector = useChatInspector({
+      snapshot: state.snapshot,
+      shell: null,
+      processes: { processes: state.processes, listed: true },
+    });
+    return <section className="acpmux-shell">{inspector.panel}</section>;
+  }
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane />);
+  });
+  await act(async () => {
+    setInspectorSection("tasks", true);
+    setInspectorOpen(true);
+  });
+  const rows = () => entering(container, "li.acpmux-chat-inspector-task--command");
+  expect(rows()).toEqual(["tsc:-"]);
+  await act(async () => show(second, [process("other-session/b", "pytest -x")]));
+  expect(rows()).toEqual(["pytest:-"]);
+});
+
+// A command only the transcript knew, once the registry lists it, takes the registry's id: it is
+// the same command, already in the list, so it does not drop in again.
+test("a transcript-only command the registry then lists does not enter again", async () => {
+  const container = installDom();
+  const transcriptOnly: BackgroundCommand = {
+    ...command("call-a", "tsc --watch"),
+    toolCallId: "call-a",
+  };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<TasksSection commands={[transcriptOnly]} />);
+  });
+  const listed: BackgroundCommand = {
+    ...command("s1/a", "tsc --watch"),
+    toolCallId: "call-a",
+    processId: "s1/a",
+  };
+  await act(async () => root!.render(<TasksSection commands={[listed]} />));
+  expect(entering(container, "li.acpmux-chat-inspector-task--command")).toEqual(["tsc:-"]);
+
+  await act(async () => root!.render(<SummaryTasks commands={[transcriptOnly]} />));
+  await act(async () => root!.render(<SummaryTasks commands={[listed]} />));
+  expect(entering(container, "li.acpmux-summary-task")).toEqual(["tsc:-"]);
+});
+
+// A row's entrance plays once: after it has, the row folding away and back (View all, Show fewer)
+// shows it in place.
+test("View all and Show fewer replay no row that already entered", async () => {
+  const container = installDom();
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<SummaryTasks commands={[]} />);
+  });
+  const names = ["bun test", "cargo test", "vite", "pytest -x", "tsc -b", "tsc --watch"];
+  const commands = names.map((name, index) => ({
+    ...command(`c${index}`, name),
+    startedAt: 1_000 + index,
+  }));
+  await act(async () => root!.render(<SummaryTasks commands={commands} />));
+  const rows = () => [...container.querySelectorAll<HTMLElement>("li.acpmux-summary-task")];
+  expect(rows().every((row) => row.dataset.enter === "top")).toBe(true);
+  for (const row of rows()) await played(row);
+  const more = () => container.querySelector<HTMLButtonElement>("button.acpmux-summary-more")!;
+  await act(async () => more().click());
+  expect(rows()).toHaveLength(6);
+  expect(rows().map((row) => row.dataset.enter ?? "-")).toEqual(["-", "-", "-", "-", "-", "-"]);
+  await act(async () => more().click());
+  await act(async () => more().click());
+  expect(rows().map((row) => row.dataset.enter ?? "-")).toEqual(["-", "-", "-", "-", "-", "-"]);
 });

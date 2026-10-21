@@ -10878,6 +10878,268 @@
         }
       }
     },
+    "control.action.needsContext": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %@ in the focused window."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %@ في النافذة النشطة."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert %@ im aktiven Fenster."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita %@ en la ventana activa."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite %@ dans la fenêtre active."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなウインドウに %@ が必要です。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 창에 %@이(가) 필요합니다."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在当前窗口中有 %@。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在目前視窗中有 %@。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebno je %@ u aktivnom prozoru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræver %@ i det aktive vindue."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede %@ nella finestra attiva."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ %@ នៅក្នុងបង្អួចសកម្ម។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krever %@ i det aktive vinduet."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga %@ w aktywnym oknie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requer %@ na janela ativa."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно %@ в активном окне."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมี %@ ในหน้าต่างที่ใช้งานอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin pencerede %@ gerekir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібно %@ в активному вікні."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần %@ trong cửa sổ đang hoạt động."
+          }
+        }
+      }
+    },
+    "control.action.needsContextOrTarget": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Needs %1$@ in the focused window, or pass --target %2$@:<id>."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يتطلب %1$@ في النافذة النشطة، أو مرّر ‎--target %2$@:<id>‎."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Erfordert %1$@ im aktiven Fenster, oder übergib --target %2$@:<id>."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Necesita %1$@ en la ventana activa, o pasa --target %2$@:<id>."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nécessite %1$@ dans la fenêtre active, ou passez --target %2$@:<id>."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "アクティブなウインドウに %1$@ が必要です。または --target %2$@:<id> を指定してください。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "활성 창에 %1$@이(가) 필요하거나 --target %2$@:<id>를 전달하세요."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在当前窗口中有 %1$@，或传入 --target %2$@:<id>。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要在目前視窗中有 %1$@，或傳入 --target %2$@:<id>。"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Potrebno je %1$@ u aktivnom prozoru ili proslijedite --target %2$@:<id>."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kræver %1$@ i det aktive vindue, eller angiv --target %2$@:<id>."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Richiede %1$@ nella finestra attiva, oppure passa --target %2$@:<id>."
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ត្រូវការ %1$@ នៅក្នុងបង្អួចសកម្ម ឬបញ្ជូន --target %2$@:<id>។"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Krever %1$@ i det aktive vinduet, eller angi --target %2$@:<id>."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wymaga %1$@ w aktywnym oknie lub podaj --target %2$@:<id>."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Requer %1$@ na janela ativa ou passe --target %2$@:<id>."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Нужно %1$@ в активном окне или передайте --target %2$@:<id>."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ต้องมี %1$@ ในหน้าต่างที่ใช้งานอยู่ หรือส่ง --target %2$@:<id>"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Etkin pencerede %1$@ gerekir veya --target %2$@:<id> verin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Потрібно %1$@ в активному вікні або передайте --target %2$@:<id>."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cần %1$@ trong cửa sổ đang hoạt động, hoặc truyền --target %2$@:<id>."
+          }
+        }
+      }
+    },
     "control.error.wheelOffset": {
       "extractionState": "manual",
       "localizations": {

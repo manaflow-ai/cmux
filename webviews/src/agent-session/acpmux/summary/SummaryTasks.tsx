@@ -13,7 +13,7 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { openProcessTerminal } from "../processTerminal";
 import { useNow } from "../subagents/SubagentGroup";
-import { type BackgroundCommand, splitCommands } from "../inspector/processes";
+import { arrivalKey, type BackgroundCommand, splitCommands } from "../inspector/processes";
 import { COMMAND_STATE, StopButton } from "../inspector/TasksSection";
 
 const ROW_ICON = rowIconSize(12);
@@ -36,18 +36,25 @@ export function SummaryTasks({
   const [finishedOpen, setFinishedOpen] = useState(false);
   const { running, finished } = useMemo(() => splitCommands(commands), [commands]);
   const now = useNow(running.length > 0);
-  const arrived = useArrivals(commands.map((command) => command.id));
+  const shown = all ? running : running.slice(0, FOLDED);
+  const { arrived, played } = useArrivals(
+    commands.map(arrivalKey),
+    (finishedOpen ? [...shown, ...finished] : shown).map(arrivalKey),
+  );
   if (commands.length === 0) return null;
   const title = t("summary.backgroundTasks");
   const row = (command: BackgroundCommand) => {
     const live = command.state === "running";
     const toolCallId = command.toolCallId;
+    const key = arrivalKey(command);
+    const enters = live && arrived.has(key);
     return (
       <li
         key={command.id}
         className="acpmux-summary-task"
         data-state={command.state}
-        data-enter={live && arrived.has(command.id) ? "top" : undefined}
+        data-enter={enters ? "top" : undefined}
+        onAnimationEnd={enters ? (event) => event.target === event.currentTarget && played(key) : undefined}
       >
         <button
           type="button"
@@ -77,7 +84,7 @@ export function SummaryTasks({
     <section className="acpmux-summary-section acpmux-summary-tasks" aria-label={title}>
       <h3 className="acpmux-summary-title">{title}</h3>
       <ul className="acpmux-summary-list">
-        {(all ? running : running.slice(0, FOLDED)).map(row)}
+        {shown.map(row)}
         {running.length > FOLDED && (
           <li>
             <button type="button" className="acpmux-summary-more" onClick={() => setAll(!all)}>

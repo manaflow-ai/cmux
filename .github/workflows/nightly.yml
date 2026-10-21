@@ -6882,7 +6882,9 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # contents: write reaches the pr-media branch through scripts/pr-media.py.
+    # contents: write reaches the pr-media branch through scripts/pr-media.py,
+    # whose privacy check (scripts/ci/pr_media_privacy.py) refuses any private
+    # name in this bot's folder before the first upload.
     permissions:
       contents: write
     steps:
@@ -6908,6 +6910,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          # Built-in fleet patterns only: the private names are a secret, which a
+          # dispatchable job may read only in an environment. main's
+          # pr-media-privacy.yml scans the push with them and removes a bot's hit.
+          PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
         run: |
           set -euo pipefail
           # The notes this run signed and published, checked against the content key.

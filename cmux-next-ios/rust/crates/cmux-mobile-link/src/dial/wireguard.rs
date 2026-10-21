@@ -47,7 +47,7 @@ mod roam;
 use roam::{Control, Session};
 pub use roam::{network_changed, rehome, roam_timeline};
 #[doc(hidden)]
-pub use roam::{roam_session, simulate_network_loss, simulate_turn_loss};
+pub use roam::{roam_session, session_endpoints, simulate_network_loss, simulate_turn_loss};
 
 /// The link's TCP port inside the tunnel (PROTOCOL.md).
 pub const LINK_PORT: u16 = 7420;
@@ -123,6 +123,12 @@ pub fn primary_local_ip() -> Option<IpAddr> {
 /// Whether this side uses no plain UDP at all (relay only, or UDP blocked).
 fn no_plain_udp(options: &DialOptions) -> bool {
     options.relay_only || options.block_udp
+}
+
+/// Asked for a TURN allocation (`wanted`) and got none in time, though a TURN
+/// server is configured: the session takes it once the server answers.
+fn missed_turn(wanted: bool, turn: Option<&TurnCarrier>, options: &DialOptions) -> bool {
+    wanted && turn.is_none() && super::turn::turn_servers(&options.ice_servers) != (None, None)
 }
 
 /// Host endpoints of a socket on `port` (no STUN).
@@ -647,6 +653,23 @@ impl HybridUnderlay {
                     {
                         self.pinned_until = None;
                         self.demote("the peer left the chosen route's address");
+                    }
+                    // So is a route to a relayed address the peer replaced (its
+                    // old allocation is gone). Relabeled below it would pass for
+                    // a direct route, which a relayed arrival never displaces
+                    // while it delivered within RELAYED_RECENT: the new relay's
+                    // first datagram takes the route instead, and until then
+                    // every route gets what is sent.
+                    if !relayed.is_empty()
+                        && self.direct.is_some_and(|route| {
+                            route.carrier == Carrier::Udp
+                                && self.labels.peer_relayed.contains(&route.addr)
+                                && !relayed.contains(&route.addr.to_string())
+                        })
+                    {
+                        self.direct = None;
+                        self.pinned_until = None;
+                        self.demote("the peer replaced the route's relayed address");
                     }
                     self.set_peer_endpoints(endpoints);
                     // A roaming phone announces its new TURN address; an
@@ -1320,6 +1343,7 @@ impl Dialer for WireGuardDialer {
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
+            let turn_missed = missed_turn(true, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (relayed, relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(relayed.iter().cloned());
@@ -1409,6 +1433,9 @@ impl Dialer for WireGuardDialer {
             let guard = Guard { session: Arc::clone(&tunnel.session) };
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
+            if turn_missed {
+                tunnel.session.retry_missing_turn();
+            }
             // The media lane's port is bound before the link stream opens, so
             // the Mac's first frames (sent once a browser tab claims the lane)
             // find it.
@@ -1500,14 +1527,12 @@ impl Dialer for WireGuardDialer {
             let gathered = gather_endpoints(&socket, options).await;
             // A Mac whose network answers no STUN (it drops UDP) takes its
             // own TURN allocation, over TLS when UDP to the server fails too.
-            let turn = if no_plain_udp(options) || gathered.udp_looks_blocked() {
-                TurnCarrier::allocate(options).await
-            } else {
-                None
-            };
+            let wants_turn = no_plain_udp(options) || gathered.udp_looks_blocked();
+            let turn = if wants_turn { TurnCarrier::allocate(options).await } else { None };
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
+            let turn_missed = missed_turn(wants_turn, turn.as_ref(), options);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (own_relayed, own_relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(own_relayed.iter().cloned());
@@ -1525,7 +1550,7 @@ impl Dialer for WireGuardDialer {
                 peer_relayed_tls: &peer_relayed_tls,
                 peer_version,
                 own_endpoints: endpoints.clone(),
-                keeps_turn: turn.is_some(),
+                keeps_turn: wants_turn,
                 turn,
                 dialer: false,
                 stun,
@@ -1535,6 +1560,9 @@ impl Dialer for WireGuardDialer {
             let guard = Guard { session: Arc::clone(&tunnel.session) };
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
+            if turn_missed {
+                tunnel.session.retry_missing_turn();
+            }
             let mut listener = net.listen(LINK_PORT).await.map_err(transport_error)?;
             // The media lane: listed back only once its port is bound, so a
             // phone never expects a lane this side cannot serve.
@@ -1657,6 +1685,46 @@ mod tests {
         let mut initiation = vec![0u8; 148];
         initiation[0] = 1;
         assert_eq!(send_class_of(&initiation, Priority::Bulk), SendClass::Control);
+    }
+
+    /// The phone roams from one TURN allocation to another and announces its
+    /// new relayed address. The Mac's route to the old one is dead, not a
+    /// direct route: the phone's first datagram from the new relay takes the
+    /// route at once, not after the 1 s guard that keeps relayed copies off a
+    /// direct route that still delivers. (Holding the dead route stalled the
+    /// Mac's output about 1 s on such a roam: the CI flake of
+    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`.)
+    #[tokio::test]
+    async fn a_route_to_the_peers_retired_relayed_address_gives_way_to_its_new_one() {
+        let old: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let new: SocketAddr = "203.0.113.9:50002".parse().unwrap();
+        let lan = "192.168.1.20:41000".to_owned();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[old.to_string(), lan.clone()],
+                peer_relayed: &[old.to_string()],
+                peer_relayed_tls: &[old.to_string()],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
+        underlay.authenticated(udp_from(old));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: old }));
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![new.to_string(), lan],
+            relayed: vec![new.to_string()],
+            relayed_tls: vec![new.to_string()],
+        });
+        underlay.authenticated(udp_from(new));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
     }
 
     #[test]

@@ -50,10 +50,17 @@ extension AcpmuxHost {
             }
             // After an update the daemon may be the previous build's: this app's own daemon is
             // handed off at a daemon start and at every reconnect (its agents keep running under
-            // their hosts) and ours starts below. One that is busy is handed off when quiet.
-            let outcome = owned
-                ? await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment, quietWait: upkeep.quietWait)
-                : .kept
+            // their hosts) and ours starts below. One that is busy is handed off when quiet. At a
+            // daemon start, a daemon no cmux install runs (`~/.local/bin/acpmux`) is taken over
+            // first (`AcpmuxStrayDaemon`).
+            let stray = startsDaemon ? await AcpmuxStrayDaemon.handOffIfStray(status, environment: environment) : false
+            let outcome: AcpmuxVersionHandoff.Outcome = if stray {
+                .stopped
+            } else if owned {
+                await AcpmuxVersionHandoff.handOffIfStale(status, environment: environment, quietWait: upkeep.quietWait)
+            } else {
+                .kept
+            }
             if outcome == .waitingForQuiet, let pid = status.pid { upkeep.onWaiting?(pid) }
             replacing = outcome == .stopped
             // Otherwise a reconnect never stops or starts a daemon. It still gives a daemon that
