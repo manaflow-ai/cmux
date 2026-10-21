@@ -15,6 +15,9 @@ use crate::resource::{
 };
 use crate::workspace_registry::registry_connection::JournalWriterCommitScope;
 
+// Output coalescing only ever held terminal output, which shipped builds no
+// longer journal (output_store.rs); the ingress tests still exercise it.
+#[cfg(test)]
 mod coalesce;
 mod completion;
 pub(crate) mod contention;
@@ -27,7 +30,9 @@ const JOURNAL_TERMINAL_QUEUE_CAPACITY: usize = 1024;
 const JOURNAL_DURABLE_QUEUE_CAPACITY: usize = 256;
 const JOURNAL_TERMINAL_BATCH_CHUNKS: usize = 64;
 const JOURNAL_DURABLE_BATCH_BYTES: usize = 8 * 1024 * 1024;
+#[cfg(test)]
 pub(crate) const TERMINAL_OUTPUT_INGRESS_BYTES: usize = 64 * 1024;
+#[cfg(test)]
 const TERMINAL_OUTPUT_BATCH_BYTES: usize = 256 * 1024;
 const JOURNAL_TERMINAL_FAILURE_RETRY_ATTEMPTS: usize = 6;
 /// A guest can be descheduled for several seconds while its state disk is
@@ -175,6 +180,10 @@ pub(crate) enum JournalIngressEvent {
     /// completion proves every earlier terminal output or resize committed
     /// before an exit transaction can remove that terminal's topology.
     TerminalBarrier,
+    /// Test-only: shipped builds cannot construct terminal output for the
+    /// journal (output_store.rs owns output). Kept for the ingress tests and
+    /// for writer code that still reads older registries' records.
+    #[cfg(test)]
     TerminalOutput {
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
@@ -190,9 +199,9 @@ pub(crate) enum JournalIngressEvent {
         cell_width: u16,
         cell_height: u16,
     },
-    /// Durable evidence that the terminal host could not prove a complete
-    /// source drain before daemon handoff. This record stays in the terminal
-    /// lane after all bytes accepted by the old reader and before its barrier.
+    /// A structural marker (no output): a terminal-host reconnect or respawn
+    /// (surface/journal_reconnect.rs). Terminal lane, after the terminal's
+    /// earlier resizes.
     TerminalOutputGap {
         terminal_id: Arc<TerminalPublicId>,
         generation: Arc<str>,
@@ -228,9 +237,10 @@ impl JournalIngressEvent {
     pub(crate) fn lane(&self) -> JournalLane {
         match self {
             Self::TerminalBarrier
-            | Self::TerminalOutput { .. }
             | Self::TerminalResize { .. }
             | Self::TerminalOutputGap { .. } => JournalLane::Terminal,
+            #[cfg(test)]
+            Self::TerminalOutput { .. } => JournalLane::Terminal,
             Self::Frontend { .. } | Self::Producer { .. } | Self::Effect(_) => JournalLane::Durable,
         }
     }
@@ -238,6 +248,7 @@ impl JournalIngressEvent {
     fn estimated_bytes(&self) -> usize {
         match self {
             Self::TerminalBarrier => 0,
+            #[cfg(test)]
             Self::TerminalOutput { bytes, .. } => bytes.len(),
             Self::TerminalResize { .. } => 64,
             Self::TerminalOutputGap { .. } => 128,
@@ -267,6 +278,7 @@ impl JournalIngressEvent {
         }
     }
 
+    #[cfg(test)]
     fn merge_output(&mut self, next: Self) -> Option<Self> {
         match self {
             Self::TerminalOutput { terminal_id, generation, bytes, .. } => match next {
@@ -359,6 +371,7 @@ impl QueuedJournalEvent {
         self.completion.as_ref().map(JournalIngressCompletion::deadline)
     }
 
+    #[cfg(test)]
     fn merge_output(&mut self, next: Self) -> Option<Self> {
         if self.completion.is_some() || next.completion.is_some() {
             return Some(next);
@@ -477,6 +490,7 @@ pub(crate) struct JournalIngressReceivers {
     state: Arc<JournalIngressState>,
 }
 
+#[cfg(test)]
 pub(crate) enum JournalIngressTrySendError {
     Full { event: Box<JournalIngressEvent>, space_epoch: u64 },
     Failed { event: Box<JournalIngressEvent>, error: String },
@@ -627,14 +641,10 @@ impl JournalIngressSender {
     }
 
     pub(crate) fn send(&self, event: JournalIngressEvent) {
-        debug_assert!(matches!(
-            &event,
-            JournalIngressEvent::TerminalOutput { .. }
-                | JournalIngressEvent::TerminalResize { .. }
-                | JournalIngressEvent::TerminalOutputGap { .. }
-        ));
+        debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return };
         match event {
+            #[cfg(test)]
             JournalIngressEvent::TerminalOutput {
                 terminal_id,
                 generation,
@@ -660,16 +670,12 @@ impl JournalIngressSender {
         }
     }
 
+    #[cfg(test)]
     pub(crate) fn try_send(
         &self,
         event: JournalIngressEvent,
     ) -> Result<(), JournalIngressTrySendError> {
-        debug_assert!(matches!(
-            &event,
-            JournalIngressEvent::TerminalOutput { .. }
-                | JournalIngressEvent::TerminalResize { .. }
-                | JournalIngressEvent::TerminalOutputGap { .. }
-        ));
+        debug_assert!(event.lane() == JournalLane::Terminal);
         let Some(sender) = &self.terminal_sender else { return Ok(()) };
         let _admission = self.state.enqueue_admission.lock().unwrap();
         if let Some(error) = self.state.admission_error() {
@@ -717,10 +723,7 @@ impl JournalIngressSender {
         if let Some(error) = self.state.admission_error() {
             anyhow::bail!(error);
         }
-        let sender = if matches!(
-            &event,
-            JournalIngressEvent::TerminalBarrier | JournalIngressEvent::TerminalOutputGap { .. }
-        ) {
+        let sender = if event.lane() == JournalLane::Terminal {
             &self.terminal_sender
         } else {
             &self.durable_sender
@@ -750,40 +753,6 @@ impl JournalIngressSender {
         );
         self.state.stats.receipt_waited(waited.elapsed());
         outcome
-    }
-
-    /// Queue a terminal output gap without waiting for queue space or a
-    /// durability receipt. This is used after the bounded capture deadline has
-    /// elapsed: a free slot should still preserve the gap marker, but the
-    /// reader must not incur a second durability wait on a stalled writer.
-    pub(crate) fn try_send_terminal_gap(&self, event: JournalIngressEvent) -> anyhow::Result<()> {
-        debug_assert!(matches!(&event, JournalIngressEvent::TerminalOutputGap { .. }));
-        let Some(sender) = &self.terminal_sender else { return Ok(()) };
-        let _admission =
-            self.state.enqueue_admission.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if let Some(error) = self.state.admission_error() {
-            anyhow::bail!(error);
-        }
-        self.state.stats.enqueued(JournalLane::Terminal);
-        match sender.try_send(QueuedJournalEvent { event, completion: None }) {
-            Ok(()) => {
-                if let Some(wake) = &self.wake_sender {
-                    match wake.try_send(()) {
-                        Ok(()) | Err(TrySendError::Full(())) => {}
-                        Err(TrySendError::Disconnected(())) => {}
-                    }
-                }
-                Ok(())
-            }
-            Err(TrySendError::Full(_)) => {
-                self.state.stats.enqueue_failed(JournalLane::Terminal);
-                anyhow::bail!("session journal terminal queue is full")
-            }
-            Err(TrySendError::Disconnected(_)) => {
-                self.state.stats.enqueue_failed(JournalLane::Terminal);
-                anyhow::bail!(self.writer_error())
-            }
-        }
     }
 
     pub(crate) fn flush_terminal(&self) -> anyhow::Result<()> {
@@ -1062,14 +1031,6 @@ impl JournalIngressSender {
 
     fn writer_error(&self) -> String {
         self.state.admission_error().unwrap_or_else(|| "session journal writer stopped".into())
-    }
-
-    pub(crate) fn wait_for_queue_space_until(
-        &self,
-        observed: u64,
-        deadline: Instant,
-    ) -> Result<(), String> {
-        self.state.wait_for_queue_space_until(observed, deadline)
     }
 
     fn wait_for_commit_result<T>(
@@ -1394,9 +1355,9 @@ fn receive_batch(receivers: &JournalIngressReceivers) -> Option<Vec<QueuedJourna
         if terminal_drained + durable_drained != 0 {
             receivers.state.publish_queue_space();
         }
-        // Plain terminal output waits a bounded window for more output, so
-        // a redrawing TUI costs one record and one commit per window instead
-        // of one per PTY read (coalesce.rs).
+        // Test builds: plain terminal output waits a bounded window for more
+        // output (coalesce.rs). Shipped builds journal no output.
+        #[cfg(test)]
         coalesce::hold_terminal_output(receivers, &mut batch, &mut durable, terminal_drained);
         batch.append(&mut durable);
         if !batch.is_empty() {
@@ -1426,7 +1387,10 @@ fn drain_lane(
         };
         drained += 1;
         drained_bytes = drained_bytes.saturating_add(next.event.estimated_bytes());
+        #[cfg(test)]
         coalesce::push_coalesced(batch, next);
+        #[cfg(not(test))]
+        batch.push(next);
     }
     drained
 }

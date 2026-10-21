@@ -56,6 +56,12 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     public var status: SidebarWorkspaceStatus?
     /// The computer the workspace runs on, while the sidebar lists more than one (SidebarMachineMark).
     public var machine: SidebarMachineMark?
+    /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
+    public var treeDepth = 0
+    /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
+    public var keycap: Int?
+    /// The session tree: the row's pull requests, a glyph and a count in their status color.
+    public var pullRequests: SidebarPullRequestBadge?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
