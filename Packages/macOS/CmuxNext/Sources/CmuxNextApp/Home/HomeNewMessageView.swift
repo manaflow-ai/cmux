@@ -50,10 +50,7 @@ final class HomeNewMessageView: NSView {
         let home = services.home
         field.contacts = { [weak home] in home?.contacts() ?? [] }
         // Before anyone is chosen the list under To: offers the Chiefs (plans/cmux-next/chief-group-chats-DESIGN.md).
-        field.idleSuggestions = { [weak home, weak field] in
-            guard let home, let field else { return [] }
-            return home.newMessageChiefs(field.draft)
-        }
+        field.idleSuggestions = { [weak home, weak field] in field.flatMap { home?.newMessageChiefs($0.draft) } ?? [] }
         field.suggestions.look = { [weak home] in home?.recipientLook($0) ?? HomeRecipientLook() }
         field.onChange = { [weak self] _ in self?.recipientsChanged() }
         field.onDone = { [weak self] in self?.focusMessageBox() }
