@@ -518,16 +518,23 @@ await requireBrowserLane("editor-page.test.ts", async () => {
 
       test("opening a file does not show the scroller; scrolling the editor does", async () => {
         await fresh();
+        // Counts every time an editor is marked scrolling, from the first frame: the mark clears
+        // 800 ms later, so a check after the file loads could miss it.
+        await page.addInitScript(() => {
+          const scope = window as unknown as { scrollMarks: number };
+          scope.scrollMarks = 0;
+          new MutationObserver((records) => {
+            for (const record of records)
+              if ((record.target as Element).hasAttribute("data-cmux-scrolling")) scope.scrollMarks++;
+          }).observe(document, { subtree: true, attributes: true, attributeFilter: ["data-cmux-scrolling"] });
+        });
         const lines = Array.from({ length: 200 }, (_, index) => `const line${index} = ${index};`).join("\n");
         await openEditor(page, file("long.ts", `${lines}\n`), { highlighted: true });
-        const scrolling = () =>
-          page.evaluate(() =>
-            window.__cmuxEditor!.view()!.monacoEditor.getDomNode()!.hasAttribute("data-cmux-scrolling"),
-          );
+        const marks = () => page.evaluate(() => (window as unknown as { scrollMarks: number }).scrollMarks);
         // The file's height arriving is not a scroll: the overlay scroller stays hidden.
-        expect(await scrolling()).toBe(false);
+        expect(await marks()).toBe(0);
         await page.evaluate(() => window.__cmuxEditor!.view()!.monacoEditor.setScrollTop(400));
-        expect(await scrolling()).toBe(true);
+        await page.waitForFunction(() => (window as unknown as { scrollMarks: number }).scrollMarks > 0);
       });
 
       test("a large file opens with highlighting and the minimap off, and takes typing", async () => {
