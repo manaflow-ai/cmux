@@ -74,6 +74,12 @@ if "needs.decide.outputs.no_publish != 'true' && matrix.variant == 'arm64' && 't
 if "(matrix.variant != 'arm64' || needs.build-sign-notarize-nightly.outputs.notary_pending != 'true')" not in job("verify-final-dmg-nightly"):
     failures.append("verify-final-dmg-nightly must smoke x86_64 while arm64 is pending")
 
+# A failed notarize leg on nightly-next may be recovered later: both verify
+# jobs still run, so that run's x86_64 is verified for the recovery.
+for name in ("verify-signed-nightly", "verify-final-dmg-nightly"):
+    if "needs.decide.outputs.track == 'nightly-next' && needs.build-sign-notarize-nightly.result == 'failure'" not in job(name).split("    steps:", 1)[0]:
+        failures.append(f"{name} must run its legs after a failed nightly-next notarize job")
+
 # publish: nightly-next publishes both aliases and both feeds, and refuses a missing variant.
 publish = step("Publish nightly release assets")
 if 'variants=(arm64 x86_64)' not in publish or "$NIGHTLY_FEEDS" not in publish:
@@ -116,7 +122,7 @@ if run_script(require, env, {"nightly-out/p-arm64-123.dmg": "x"}) == 0:
 recover = job("recover-nightly-next-notarization")
 cont = recover[recover.index("      - name: Continue the newest accepted pending notarization\n"):]
 for needle in ("cmux-nightly-variant-x86_64", "cmux-nightly-tested-x86_64", "cmux-nightly-signed-verified-x86_64",
-               "has no verified Intel (x86_64) app; skipping"):
+               "cmux-nightly-signed-verified-arm64", "has no verified Intel (x86_64) app or arm64 signed app; skipping"):
     if needle not in cont:
         failures.append(f"the recovery must check the candidate's x86_64 leg ({needle})")
 if cont.index("has no verified Intel (x86_64) app") > cont.index("./scripts/ci/notarize-nightly-dmg.sh"):

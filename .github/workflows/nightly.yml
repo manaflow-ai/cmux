@@ -3949,7 +3949,11 @@ jobs:
     # inside the final DMG at the same time on another runner. publish-nightly
     # publishes this run's build only when both jobs passed.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly]
-    if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+    # On nightly-next a failed notarize leg can still be recovered by a later
+    # run, which takes this run's verified x86_64: run every leg, and each
+    # fails on its own if its leg uploaded nothing. publish-nightly still
+    # publishes this run's own build only when build-sign-notarize-nightly passed.
+    if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.decide.outputs.track == 'nightly-next' && needs.build-sign-notarize-nightly.result == 'failure') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
       issues: read # the canary mode's report week (nightly_next_canary_mode.py)
@@ -4232,7 +4236,11 @@ jobs:
     # publishes this run's build only when both jobs passed, and only the DMG
     # bytes this job launched.
     needs: [decide, build-nightly-app, resolve-nightly-cmux-tui-client, build-sign-notarize-nightly]
-    if: "!cancelled() && needs.build-sign-notarize-nightly.result == 'success' && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
+    # On nightly-next a failed notarize leg can still be recovered by a later
+    # run, which takes this run's verified x86_64: run every leg, and each
+    # fails on its own if its leg uploaded nothing. publish-nightly still
+    # publishes this run's own build only when build-sign-notarize-nightly passed.
+    if: "!cancelled() && (needs.build-sign-notarize-nightly.result == 'success' || needs.decide.outputs.track == 'nightly-next' && needs.build-sign-notarize-nightly.result == 'failure') && needs.decide.outputs.notary_test != 'true' && needs.decide.outputs.import_paused != 'true'"
     permissions:
       contents: read
     runs-on: macos-26
@@ -4594,11 +4602,14 @@ jobs:
             # makes no new submission.
             intel="$dir/intel"
             intel_ok=true
-            for artifact_name in cmux-nightly-variant-x86_64 cmux-nightly-tested-x86_64 cmux-nightly-signed-verified-x86_64; do
+            for artifact_name in cmux-nightly-variant-x86_64 cmux-nightly-tested-x86_64 cmux-nightly-signed-verified-x86_64 cmux-nightly-signed-verified-arm64; do
               gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "$artifact_name" --dir "$intel" || intel_ok=false
             done
             intel_dmg="$intel/${CHANNEL_DMG_PREFIX}-x86_64-${BUILD}.dmg"
+            # The arm64 signed app passed verify-signed-nightly in that run too;
+            # verify-recovered-nightly-next smokes only the final DMG.
             if $intel_ok && [ "$(cat "$intel/signed-verified-x86_64" 2>/dev/null)" = "$BUILD" ] \
+                && [ "$(cat "$intel/signed-verified-arm64" 2>/dev/null)" = "$BUILD" ] \
                 && [ -f "$intel_dmg" ] && [ -f "$intel/${CHANNEL_DMG_PREFIX}-x86_64.dmg" ] \
                 && [ -f "$intel/appcast-x86_64.xml" ] && [ -f "$intel/tested-x86_64.sha256" ]; then
               for dmg in "$intel_dmg" "$intel/${CHANNEL_DMG_PREFIX}-x86_64.dmg"; do
@@ -4609,7 +4620,7 @@ jobs:
               intel_ok=false
             fi
             if ! $intel_ok; then
-              echo "::notice::run $run_id: build $BUILD has no verified Intel (x86_64) app; skipping"
+              echo "::notice::run $run_id: build $BUILD has no verified Intel (x86_64) app or arm64 signed app; skipping"
               echo "::endgroup::"; continue
             fi
             mkdir -p "$dir/cmux-nightly-notarization-recovery-app"

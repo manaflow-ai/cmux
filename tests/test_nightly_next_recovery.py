@@ -626,9 +626,13 @@ case "$name" in
   cmux-nightly-tested-x86_64)
     [ "$FIXTURE_INTEL" = untested ] && exit 1
     sum="$(printf intel | shasum -a 256 | awk '{print $1}')"
+    [ "$FIXTURE_INTEL" = wrong-digest ] && sum="$(printf other | shasum -a 256 | awk '{print $1}')"
     printf '%s  %s\n' "$sum" p-x86_64-49801.dmg "$sum" p-x86_64.dmg > "$dir/tested-x86_64.sha256" ;;
   cmux-nightly-signed-verified-x86_64)
     if [ "$FIXTURE_INTEL" = other-build ]; then echo 49800; else echo 49801; fi > "$dir/signed-verified-x86_64" ;;
+  cmux-nightly-signed-verified-arm64)
+    [ "$FIXTURE_INTEL" = arm64-unverified ] && exit 1
+    echo 49801 > "$dir/signed-verified-arm64" ;;
   *) cp "$FIXTURE_APP_TAR" "$dir/cmux-nightly-notarization-recovery-app.tar.gz"
      printf arm > "$dir/next.dmg"; mkdir -p "$dir/remote-daemon-assets"; : > "$dir/remote-daemon-assets/cmuxd-remote-fixture" ;;
 esac
@@ -640,7 +644,8 @@ def run_continue_step(notary: str, intel: str = "verified") -> subprocess.Comple
     manifest check, the feed check and notarize-nightly-dmg.sh stubbed. The
     stub notarizer reports Apple's verdict and exits as `notary` says; `intel`
     sets the candidate run's x86_64 artifacts (verified, missing, untested,
-    other-build)."""
+    wrong-digest, other-build) or drops its arm64 signed-app record
+    (arm64-unverified)."""
     script = step(workflow()["jobs"]["recover-nightly-next-notarization"], "Continue the newest accepted pending notarization")["run"]
     with tempfile.TemporaryDirectory() as temp:
         work = Path(temp)
@@ -713,11 +718,11 @@ class ContinueIntelTests(unittest.TestCase):
         self.assertEqual(result.intel, ["appcast-x86_64.xml", "p-x86_64-49801.dmg", "p-x86_64.dmg"])
 
     def test_a_build_without_a_verified_intel_leg_is_skipped_before_notarizing(self):
-        for intel in ("missing", "untested", "other-build"):
+        for intel in ("missing", "untested", "wrong-digest", "other-build", "arm64-unverified"):
             with self.subTest(intel=intel):
                 result = run_continue_step("accepted", intel)
                 self.assertEqual(result.returncode, 0, result.stderr)
-                self.assertIn("has no verified Intel (x86_64) app; skipping", result.stdout)
+                self.assertIn("has no verified Intel (x86_64) app or arm64 signed app; skipping", result.stdout)
                 self.assertIn("accepted=false", result.output)
                 self.assertFalse(result.notarized, "a skipped candidate must make no notarization step")
 
