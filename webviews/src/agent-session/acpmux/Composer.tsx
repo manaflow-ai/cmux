@@ -64,7 +64,12 @@ import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
-import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
+import {
+  appendAttachments,
+  AttachmentStrip,
+  attachmentErrorText,
+  useAttachmentIntake,
+} from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -460,16 +465,17 @@ export function Composer({
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
-        const held = attachmentsRef.current.filter((chip) => chip.id !== attachment.id);
-        if (held.length >= MAX_ATTACHMENTS) {
+        const held = attachmentsRef.current;
+        const next = appendAttachments(held, [attachment]);
+        if (next.length > MAX_ATTACHMENTS) {
           setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
           return;
         }
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
-        attachmentsRef.current = [...held, attachment];
+        attachmentsRef.current = next;
         setAttachments((current) => {
-          const kept = current.filter((chip) => chip.id !== attachment.id);
-          return kept.length >= MAX_ATTACHMENTS ? current : [...kept, attachment];
+          const next = appendAttachments(current, [attachment]);
+          return next.length > MAX_ATTACHMENTS ? current : next;
         });
       },
       detach(ids) {
