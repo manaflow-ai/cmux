@@ -35,7 +35,7 @@ public nonisolated struct ChiefAcpmuxHeal: Sendable {
     /// it handed one off; false leaves everything as it was.
     @concurrent public func heal() async -> Bool {
         let handoff = AcpmuxChiefHandoff(environment: environment, chiefMuxHome: home.muxHome.path)
-        guard await handoff.handOffReplaced() else { return false }
+        guard await handoff.handOffReplaced(waitFor: { false }) else { return false }
         if let pid = await ChiefHostStop.stop(home: home) {
             Self.logger.info("Chief host \(pid) stopped after its acpmux handoff; the brain watch starts it again")
             _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))

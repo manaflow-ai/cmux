@@ -75,17 +75,48 @@ public nonisolated struct AcpmuxChiefHandoff: Sendable {
         return .handOff(.lacksChiefHome)
     }
 
+    /// What the heal does with the running Chief-home daemon.
+    enum ReplacedAction: Equatable, Sendable {
+        /// Nothing: it does not run from a replaced bundle, or stopping it would end its agents.
+        case keep
+        /// The Chief host was asked to hand off when its turn ends; the start after it exits
+        /// (`HomeBrainHost.start`) hands the daemon off.
+        case waitForHost
+        /// Stop it now (`_acpmux/shutdown`).
+        case handOff
+    }
+
+    /// The heal's decision for a daemon that runs from a replaced bundle (`replaced`) with or
+    /// without agent hosts. `hostWaits` asks the Chief host to hand off when idle; true when it
+    /// took that, so its running turn ends on this daemon first.
+    static func replacedAction(replaced: Bool, agentHosts: Bool, hostWaits: () async -> Bool) async -> ReplacedAction {
+        guard replaced, agentHosts else { return .keep }
+        return .handOff
+    }
+
     /// Stops the running Chief-home daemon when it runs from a replaced bundle and has agent
     /// hosts (they are adopted by the next daemon), while the app runs: a Chief chat that the
     /// peer check refused asks for it (``AcpmuxHost``'s heal), so the chat heals without a
     /// relaunch. Unlike ``handOffIfStale()`` it is not limited to once per Chief home: the
     /// caller asks once per daemon pid. Returns true when it stopped one.
-    @concurrent public func handOffReplaced() async -> Bool {
+    ///
+    /// - Parameter waitFor: called once a handoff is due; true when the handoff must wait (the
+    ///   Chief host was asked to hand off when idle), as in ``handOffIfStale(waitFor:)``.
+    @concurrent public func handOffReplaced(waitFor: @Sendable () async -> Bool) async -> Bool {
         guard let status = try? await AcpmuxStatusClient.status(socketPath: environment.socketPath),
-              let pid = status.pid, AcpmuxVersionHandoff.replaced(pid: pid) else { return false }
-        guard status.agentHosts else {
-            Self.logger.error("Chief acpmux \(pid) runs from a replaced bundle but has no agent hosts; it keeps running so its agents do not end")
+              let pid = status.pid else { return false }
+        let replaced = AcpmuxVersionHandoff.replaced(pid: pid)
+        switch await Self.replacedAction(replaced: replaced, agentHosts: status.agentHosts, hostWaits: waitFor) {
+        case .keep:
+            if replaced {
+                Self.logger.error("Chief acpmux \(pid) runs from a replaced bundle but has no agent hosts; it keeps running so its agents do not end")
+            }
             return false
+        case .waitForHost:
+            Self.logger.info("Chief acpmux \(pid) runs from a replaced bundle; the handoff waits until the Chief host's turn ends")
+            return false
+        case .handOff:
+            break
         }
         Self.logger.info("Chief acpmux \(pid) runs from a replaced bundle; handing it off now")
         do {
