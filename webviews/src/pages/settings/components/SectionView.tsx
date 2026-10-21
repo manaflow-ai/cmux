@@ -4,6 +4,7 @@ import { sections } from "../schema";
 import { text } from "../strings";
 import { AccountsSection } from "./AccountsSection";
 import { AgentHarnesses } from "./AgentHarnesses";
+import { CHIEF_PET_ROWS, ChiefPetCard } from "./ChiefPetCard";
 import { ChiefsCard } from "./ChiefsCard";
 import { ComputerUseCard } from "./ComputerUseCard";
 import { DevicesCard } from "./DevicesCard";
@@ -42,6 +43,7 @@ const CARDS: Record<CategoryCard, (focus: string | null, workspace: string | nul
   backdrops: (focus, workspace) => <Backdrops focus={focus} workspace={workspace} />,
   mobile: () => <MobileCard />,
   devices: () => <DevicesCard />,
+  chiefPet: (focus) => <ChiefPetCard focus={focus} />,
   density: () => <DensityCard />,
 };
 
@@ -62,6 +64,8 @@ export function SectionView({
   const drawn = new Set(studio ? [THEME_KEY, APP_THEME_KEY, ACCENT_KEY] : []);
   // The background picker draws appearance.background and its Opacity while it shows.
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
+  // The Chief Pet card draws home.chiefPetEnabled and home.chiefPetMascot.
+  const pet = category.lead.includes("chiefPet");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
   // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own. The page has no
@@ -76,6 +80,7 @@ export function SectionView({
           row.kind !== "string_map" &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
+          !(pet && CHIEF_PET_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
       ),
     }))

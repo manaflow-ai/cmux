@@ -168,7 +168,7 @@ extension AppControl {
             "last_probe": status.lastProbe.map(json) ?? .null,
             "last_probe_error": status.lastProbeError.map(JSONValue.string) ?? .null,
             "channel_switch_target": status.channelSwitchTarget.map { .string($0.rawValue) } ?? .null,
-            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null,
+            "test_feed": status.testFeedURL.map(JSONValue.string) ?? .null, "ring": .string(status.ring.rawValue),
             "card": status.card.map { card in
                 let shown = status.cardPresentation ?? card.presentation(version: status.version, build: status.build)
                 return .object(["kind": .string(card.kind), "title": .string(shown.title),
