@@ -35,11 +35,13 @@ export function answerParams(
 export function useNeedsYou({
   snapshot,
   callNative,
-  ask,
+  sideSession,
 }: {
   snapshot: Pick<AcpmuxSnapshot, "sessions" | "asks" | "sessionId" | "rows">;
   callNative: CallNative;
-  ask: (question: string, sessionId: string) => Promise<string>;
+  /// Opens a side session about chat `sessionId` with `question` (direct.ts `btw`, then the host's
+  /// `chat.sideChat`); rejects when acpmux or the relay refused it.
+  sideSession: (sessionId: string, question: string) => Promise<unknown>;
 }): { mode: NeedsYouMode; items: NeedsYouItem[]; actions: NeedsYouActions; pill?: TranscriptNeedsYou } {
   const mode = needsYouMode();
   const pillOn = needsYouPillOn();
@@ -74,7 +76,12 @@ export function useNeedsYou({
       return callNative(call.method, call.params);
     },
     goTo,
-    ask: (item, question) => ask(question, item.sessionId),
+    ask: async (item, question) => {
+      // `_acpmux/btw` is session scoped like an answer: another chat's ask opens that chat first,
+      // and its side session opens beside it. The same click's gesture covers both.
+      if (item.sessionId !== sessionId) await callNative("chat.select", { sessionId: item.sessionId });
+      return sideSession(item.sessionId, question);
+    },
   };
   // The last ask the pill went to, so the next press goes to the one after it.
   const last = useRef<string | undefined>(undefined);

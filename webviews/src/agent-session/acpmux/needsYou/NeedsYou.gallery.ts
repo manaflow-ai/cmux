@@ -150,7 +150,7 @@ export default agentPaneEntry({
       },
     },
     "ask-about-this": {
-      note: "Ask about this opens a side question to the asking chat, seeded with What is going on here?",
+      note: "Ask about this opens a side session about the asking chat, seeded with What is going on here?",
       snapshot: snapshot(),
       play: async (ctx) => {
         await openList(ctx);

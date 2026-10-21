@@ -7,7 +7,6 @@
 import { useEffect, useRef, useState } from "react";
 import { AgentMark } from "../../shared/AgentMark";
 import { useMinuteClock } from "../clock";
-import { RevealedMarkdown } from "../conversation/RevealedMarkdown";
 import { agentDisplayName } from "../agents";
 import { useT, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -34,8 +33,9 @@ export type NeedsYouActions = {
   answer(item: NeedsYouItem, answer: NeedsYouAnswer): Promise<unknown>;
   /// Opens the chat the ask is in, at the ask.
   goTo(item: NeedsYouItem): void;
-  /// Asks the asking chat a side question (`_acpmux/ask`), seeded with the ask; resolves to the answer.
-  ask(item: NeedsYouItem, question: string): Promise<string>;
+  /// Opens a side session about the asking chat (`_acpmux/btw`) beside it, its first prompt the
+  /// question seeded with the ask; rejects when it could not.
+  ask(item: NeedsYouItem, question: string): Promise<unknown>;
 };
 
 const KINDS: Record<NeedsYouKind, StringKey> = {
@@ -54,13 +54,11 @@ export function NeedsYouButton({
   mode = "pinned",
   actions,
   defaultOpen = false,
-  githubRepository,
 }: {
   items: readonly NeedsYouItem[];
   mode?: NeedsYouMode;
   actions: NeedsYouActions;
   defaultOpen?: boolean;
-  githubRepository?: string;
 }) {
   const t = useT();
   const [open, setOpen] = useState(defaultOpen);
@@ -129,7 +127,6 @@ export function NeedsYouButton({
             },
           }}
           focus={focus}
-          githubRepository={githubRepository}
         />
       </Popover>
     </>
@@ -142,14 +139,12 @@ export function NeedsYouPanel({
   mode = "pinned",
   actions,
   focus,
-  githubRepository,
 }: {
   items: readonly NeedsYouItem[];
   mode?: NeedsYouMode;
   actions: NeedsYouActions;
   /// The ask a link opened the list on: scrolled to and marked.
   focus?: string;
-  githubRepository?: string;
 }) {
   const t = useT();
   const now = useMinuteClock();
@@ -180,7 +175,6 @@ export function NeedsYouPanel({
               now={now}
               focused={item.id === focus}
               actions={actions}
-              githubRepository={githubRepository}
               onSent={() => setSent((before) => new Set(before).add(item.id))}
               onRefused={() =>
                 setSent((before) => {
@@ -197,15 +191,12 @@ export function NeedsYouPanel({
   );
 }
 
-type Asked = { question: string; answer?: string; error?: string };
-
 function NeedsYouRow({
   item,
   mode,
   now,
   focused,
   actions,
-  githubRepository,
   onSent,
   onRefused,
 }: {
@@ -214,7 +205,6 @@ function NeedsYouRow({
   now: number;
   focused: boolean;
   actions: NeedsYouActions;
-  githubRepository?: string;
   onSent(): void;
   onRefused(): void;
 }) {
@@ -223,7 +213,6 @@ function NeedsYouRow({
   const [failed, setFailed] = useState(false);
   const [sending, setSending] = useState<string>();
   const [asking, setAsking] = useState(false);
-  const [asked, setAsked] = useState<Asked[]>([]);
   useEffect(() => {
     if (focused) row.current?.scrollIntoView({ block: "nearest" });
   }, [focused]);
@@ -297,68 +286,37 @@ function NeedsYouRow({
         </div>
       )}
       {failed && <p className="acpmux-needs-you-error">{t("needsYou.answerFailed")}</p>}
-      {asking && !compact && (
-        <SideQuestion
-          item={item}
-          asked={asked}
-          onAsked={setAsked}
-          ask={actions.ask}
-          githubRepository={githubRepository}
-        />
-      )}
+      {asking && !compact && <SideQuestion item={item} ask={actions.ask} onAsked={() => setAsking(false)} />}
     </li>
   );
 }
 
-/// Ask about this: a side question to the asking chat, seeded with "What is going on here?". Each
-/// answer stays under the ask while the list is open; a follow-up carries the earlier ones.
-function SideQuestion({
-  item,
-  asked,
-  onAsked,
-  ask,
-  githubRepository,
-}: {
-  item: NeedsYouItem;
-  asked: readonly Asked[];
-  onAsked(next: Asked[]): void;
-  ask: NeedsYouActions["ask"];
-  githubRepository?: string;
-}) {
+/// Ask about this: a side session about the asking chat, seeded with "What is going on here?". It
+/// opens beside that chat (acpmux answers there, where the person can follow up); the field closes
+/// once it is asked, and says so when it could not be.
+function SideQuestion({ item, ask, onAsked }: { item: NeedsYouItem; ask: NeedsYouActions["ask"]; onAsked(): void }) {
   const t = useT();
-  const [draft, setDraft] = useState(() => (asked.length ? "" : t("needsYou.askSeed")));
-  const busy = asked.length > 0 && asked.at(-1)!.answer === undefined && asked.at(-1)!.error === undefined;
+  const [draft, setDraft] = useState(() => t("needsYou.askSeed"));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string>();
   const send = () => {
     const question = draft.trim();
     if (!question || busy) return;
-    const before = asked.filter((entry) => entry.answer !== undefined);
-    const pending = [...asked, { question }];
-    onAsked(pending);
-    setDraft("");
-    ask(item, sideQuestionPrompt(item, question, before)).then(
-      (answer) => onAsked([...asked, { question, answer }]),
-      (error: unknown) =>
-        onAsked([...asked, { question, error: error instanceof Error && error.message ? error.message : "" }]),
-    );
+    setBusy(true);
+    setError(undefined);
+    ask(item, sideQuestionPrompt(item, question)).then(onAsked, (failure: unknown) => {
+      setBusy(false);
+      setError(failure instanceof Error && failure.message ? failure.message : "");
+    });
   };
   return (
     <div className="acpmux-needs-you-side">
-      {asked.map((entry, index) => (
-        <div key={index} className="acpmux-needs-you-side-turn">
-          <p className="acpmux-needs-you-side-q">{entry.question}</p>
-          {entry.answer !== undefined ? (
-            <div className="acpmux-needs-you-side-a">
-              <RevealedMarkdown text={entry.answer} streaming={false} githubRepository={githubRepository} />
-            </div>
-          ) : entry.error !== undefined ? (
-            <p className="acpmux-needs-you-error">
-              {entry.error ? t("needsYou.askFailedReason", { reason: entry.error }) : t("needsYou.askFailed")}
-            </p>
-          ) : (
-            <p className="acpmux-needs-you-side-status">{t("needsYou.asking")}</p>
-          )}
-        </div>
-      ))}
+      {busy && <p className="acpmux-needs-you-side-status">{t("needsYou.asking")}</p>}
+      {error !== undefined && (
+        <p className="acpmux-needs-you-error">
+          {error ? t("needsYou.askFailedReason", { reason: error }) : t("needsYou.askFailed")}
+        </p>
+      )}
       <form
         className="acpmux-needs-you-side-form"
         onSubmit={(event) => {
@@ -408,9 +366,9 @@ export function askText(item: NeedsYouItem, t: Translate): string {
   return item.ask || t("needsYou.waiting");
 }
 
-/// The side question acpmux asks the chat's copy (`_acpmux/ask`): the ask, then the person's
-/// question and any earlier answers, so the copy answers about this ask without the chat re-reading.
-export function sideQuestionPrompt(item: NeedsYouItem, question: string, before: readonly Asked[] = []): string {
+/// The side session's first prompt (`_acpmux/btw`): the ask, then the person's question, so the
+/// side session answers about this ask from the chat's conversation without the chat re-reading.
+export function sideQuestionPrompt(item: NeedsYouItem, question: string): string {
   // l10n-allow: a prompt to the agent, never shown to the person
   const lines = [
     "I am about to answer an open ask from this chat and want to understand it first.",
@@ -419,7 +377,6 @@ export function sideQuestionPrompt(item: NeedsYouItem, question: string, before:
     ...(item.question?.items[0]?.options.length
       ? [`Choices: ${item.question.items[0].options.map((option) => option.label).join(" / ")}`]
       : []),
-    ...before.flatMap((entry) => [`Earlier I asked: ${entry.question}`, `You said: ${entry.answer ?? ""}`]),
     `My question: ${question}`,
     "Answer briefly from what this chat has done: what the agent is doing, why it asks, and what each answer would lead to.",
   ];

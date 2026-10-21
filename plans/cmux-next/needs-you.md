@@ -13,8 +13,10 @@ its subagents and every other agent chat.
   - its kind and age;
   - one-click answers (Allow / Deny, or one of up to four choices);
   - Go to source, which opens the asking chat at the ask's turn;
-  - Ask about this, which sends a side question (`_acpmux/ask`) to a read-only copy of the asking
-    chat, seeded with "What is going on here?".
+  - Ask about this, which opens a read-only side session about the asking chat beside it
+    (`_acpmux/btw`, then `chat.sideChat`), seeded with "What is going on here?". The relay sends
+    `_acpmux/btw` only for a chat in the pane's scope, so an ask of another chat opens that chat
+    first, as a one-click answer does.
 - **Needs your input pill.** While any ask is open, the floating Jump to latest button becomes a
   pill: the blue dot, "Needs your input" (or "Needs your input · N"), and a chevron.
   - A press goes to this chat's ask first, then cycles through the asks open in other chats.
@@ -38,9 +40,14 @@ The sources, all in `webviews/src/agent-session/acpmux/needsYou/`:
   - each new request arrives as `_acpmux/permission_pending` (`via: watch` for chats the pane has
     not attached);
   - a change to a chat's `pendingPermissions`, or an answer (`permission_decision`,
-    `permission_resolved`), rereads `_acpmux/info` `pending`;
+    `permission_resolved`), rereads `_acpmux/info` `pending`. The pane's relay never sends
+    `_acpmux/info`: the page asks the host (`chat.asks.pending {sessionId}`,
+    `AgentPanePendingAsks`), which reads it on its own person-proven connection, as the approval
+    banners do, and hands back only each entry's `permissionId`, `request`, `turnId` and `groupId`;
   - a count of zero clears the chat at once;
-  - a read that predates a newer ask or read is dropped.
+  - a read that predates a newer ask or read is dropped;
+  - after a lag (`_acpmux/lagged`) every chat with open requests is read again, and a chat acpmux
+    no longer lists is dropped.
 
   `acpmux pending` and the Feed bridge (`AcpmuxPermissionFeedBridge`) read the same source.
 - **Session indicators.** A chat whose `indicator` is `input`, or whose `pendingPermissions` is

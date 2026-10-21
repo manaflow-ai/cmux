@@ -2,22 +2,47 @@
 // Needs you list's asks (model.ts). The pane already watches every session (`_acpmux/watch`), and
 // acpmux tells a watcher of each new request (`_acpmux/permission_pending`, `via: watch` for a
 // chat the pane is not attached to) and of each change to a chat's count (`session_changed`, its
-// `pendingPermissions`). What is open now is acpmux's own list, read with `_acpmux/info`
-// (`pending`), as the Feed bridge and `acpmux pending` read it: a chat whose count changed in a way
-// the page cannot account for is read again, so an ask answered anywhere (its card, the Feed, the
-// CLI, another pane) leaves; a count of zero clears the chat at once.
+// `pendingPermissions`). What is open now is acpmux's own list (`_acpmux/info` `pending`), which the
+// pane's relay never sends: the host reads it on its own connection, as the approval banners do,
+// and answers `chat.asks.pending` (CmuxNextAgentPane AgentPanePendingAsks). A chat whose count
+// changed in a way the page cannot account for is read again, so an ask answered anywhere (its
+// card, the Feed, the CLI, another pane) leaves; a count of zero clears the chat at once.
 import type { AcpmuxPermission } from "../model";
 import type { WatchedAsk } from "./model";
 
 /// A session as the watch reports it: its id, how many requests it holds open, when it last changed.
 export type WatchedSession = { sessionId: string; pendingPermissions?: unknown; updatedAt?: unknown };
 
-/// One pending entry of `_acpmux/info`: `{permissionId, request, turnId?, ...}`.
+/// One pending entry of `_acpmux/info`: `{permissionId, request, turnId?, groupId?}` (the host
+/// hands the page only these).
 export type PendingEntry = { permissionId?: unknown; request?: unknown; turnId?: unknown; groupId?: unknown };
 
 /// Reads a chat's pending requests (`_acpmux/info` `pending`); undefined when it cannot be read (a
 /// chat on another computer, a closed connection): what the page holds then stays.
 export type ReadPending = (sessionId: string) => Promise<readonly PendingEntry[] | undefined>;
+
+/// The host op that reads a chat's open requests (`cmux.agent.chat.asks.pending {sessionId}`,
+/// AgentPageOps): the pane's relay refuses `_acpmux/info` (AcpmuxPaneMethods.requests).
+export const PENDING_ASKS_OP = "chat.asks.pending";
+
+/// The relay method Ask about this sends (`_acpmux/btw {sessionId, question}`): a side session
+/// about the asking chat. `_acpmux/ask` is not on the relay's list (#20826).
+export const SIDE_SESSION_METHOD = "_acpmux/btw";
+
+/// How a chat's open requests are read: in the app through the host (`PENDING_ASKS_OP`), never the
+/// relay; in mock mode (`native()` false, an in-page daemon with no relay) from the daemon itself.
+export function pendingReader(
+  native: () => boolean,
+  host: (op: string, params: Record<string, unknown>) => Promise<unknown>,
+  daemon: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+): ReadPending {
+  return async (sessionId) => {
+    const info = (
+      native() ? await host(PENDING_ASKS_OP, { sessionId }) : await daemon("_acpmux/info", { sessionId })
+    ) as { pending?: unknown } | null | undefined;
+    return Array.isArray(info?.pending) ? (info.pending as PendingEntry[]) : undefined;
+  };
+}
 
 /// Maps a `permission_pending` notification (or an info entry with its session) to the pane's
 /// permission: direct.ts `permissionFromMessage`, the card's own mapping.
@@ -96,8 +121,29 @@ export class AskTracker {
     if (reported !== before || changed) void this.reread(session.sessionId);
   }
 
-  /// A chat acpmux purged: its asks go.
+  /// After a lag (`_acpmux/lagged`), notices may be missing: every listed chat acpmux reports
+  /// requests in is read again whatever its count was, and a chat no longer listed is dropped.
+  /// `only`: the lag named these chats alone (an attach's lag); the others keep what they hold.
+  resync(sessions: readonly WatchedSession[], only?: ReadonlySet<string>): void {
+    const listed = new Set(sessions.map((session) => session.sessionId));
+    if (!only)
+      for (const sessionId of new Set([
+        ...this.reported.keys(),
+        ...[...this.asks.values()].map((ask) => ask.sessionId),
+      ]))
+        if (!listed.has(sessionId)) this.forget(sessionId);
+    for (const session of sessions) {
+      if (only && !only.has(session.sessionId)) continue;
+      // Forgets the count, so the summary reads as changed: a nonzero count is read again, a zero clears.
+      this.reported.delete(session.sessionId);
+      this.session(session);
+    }
+  }
+
+  /// A chat acpmux purged (or no longer listed): its asks go, and a read still out for it is stale.
   forget(sessionId: string): void {
+    this.reads.set(sessionId, (this.reads.get(sessionId) ?? 0) + 1);
+    this.updatedAt.delete(sessionId);
     let removed = false;
     for (const [id, ask] of this.asks)
       if (ask.sessionId === sessionId) {

@@ -54,7 +54,7 @@ import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
-import { AskTracker, type PendingEntry } from "./needsYou/asks";
+import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -746,11 +746,14 @@ export class AcpmuxDirectClient {
   private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
   /// Every chat's open permission requests, for the Needs you list (needsYou/asks.ts).
+  /// The pane's relay never sends `_acpmux/info`, so the app's host reads it (asks.ts `pendingReader`).
   private readonly asks = new AskTracker(
-    (sessionId) =>
-      this.request("_acpmux/info", { sessionId }).then((info: any) =>
-        Array.isArray(info?.pending) ? (info.pending as PendingEntry[]) : undefined,
-      ),
+    pendingReader(
+      // Read when called: the field is set before the constructor's `gitRoute`.
+      () => this.gitRoute === "native",
+      (op, params) => postNative(op, params),
+      (method, params) => this.request(method, params),
+    ),
     permissionFromMessage,
     () => this.emitInFrame("asks"),
   );
@@ -1299,7 +1302,15 @@ export class AcpmuxDirectClient {
   /// agent-gui daemons send {sessionIds, watch, dropped}; older ones send only
   /// {dropped}, so a notice without sessionIds resyncs the selected session.
   private resyncAfterLag(params: any): void {
-    if (params?.watch === true) void this.refreshSessions().catch(() => this.rereadSessionsLater());
+    // Needs you's asks: notices of new or answered requests may be lost, so every chat with open
+    // requests is read again (after the session list, which drops the chats acpmux no longer lists).
+    if (params?.watch === true)
+      void this.refreshSessions()
+        .then((settled) => {
+          if (settled) this.asks.resync(this.sessions);
+        })
+        .catch(() => this.rereadSessionsLater());
+    else if (Array.isArray(params?.sessionIds)) this.asks.resync(this.sessions, new Set(params.sessionIds.map(String)));
     const sessionId = this.selectedSessionId;
     // Before the attach reply lands there is no cursor; the reply carries the latest events.
     if (!sessionId || this.attachedGeneration !== this.selectionGeneration) return;
@@ -1340,16 +1351,17 @@ export class AcpmuxDirectClient {
 
   /// session_changed notices dropped by a watch lag: reread the whole list.
   /// A selection made while the request was out is newer than the list.
-  private async refreshSessions(): Promise<void> {
+  /// True once this read set the list (false when a newer reread will).
+  private async refreshSessions(): Promise<boolean> {
     const generation = this.selectionGeneration;
     const first = await this.sessionPages.first();
     // A newer reread started meanwhile; it sets the list.
-    if (!first) return;
+    if (!first) return false;
     let list = first.sessions;
     const add = (more: Session[]) => {
       list = [...list, ...more];
     };
-    if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return;
+    if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return false;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
     const missing =
@@ -1357,6 +1369,7 @@ export class AcpmuxDirectClient {
       !this.sessions.some((session) => session.sessionId === this.selectedSessionId);
     if (missing && generation === this.selectionGeneration) this.selectFallbackSession("session changed");
     else this.emit("session changed");
+    return true;
   }
 
   /// The selected session is gone: a tab bound to its session (`sessionMustExist`) says so;
@@ -3856,14 +3869,24 @@ export class AcpmuxDirectClient {
   }
   /// Asks a side question about the open session (`/btw`). acpmux answers it in a throwaway copy
   /// of the chat (`_acpmux/ask`), so the chat never holds it. Resolves to the answer's text.
-  async ask(question: string, session?: string): Promise<string> {
-    const sessionId = session ?? this.actingSessionId;
-    if (!sessionId) return "";
+  async ask(question: string): Promise<string> {
+    if (!this.actingSessionId) return "";
     const result = await this.request("_acpmux/ask", {
-      sessionId,
+      sessionId: this.actingSessionId,
       text: question,
     });
     return typeof result?.text === "string" ? result.text : "";
+  }
+  /// Starts a side session about chat `sessionId` (`_acpmux/btw`, acpmux hub/btw.rs): read-only,
+  /// beside the chat, its first prompt `question`. Resolves to the side session's id once acpmux
+  /// recorded the prompt, never waiting for the answer. The relay sends it only for a chat in the
+  /// pane's scope (AcpmuxPaneMethods.sessionScoped) and on a click (its gesture rule); its reply's
+  /// session joins the scope, so the host may open it beside the chat (`chat.sideChat`).
+  async btw(sessionId: string, question: string): Promise<string> {
+    const result = await this.request(SIDE_SESSION_METHOD, { sessionId, question });
+    const side = result?.sessionId;
+    if (typeof side !== "string" || !side) throw new Error(translate("needsYou.askFailed"));
+    return side;
   }
   async setModel(modelId: string): Promise<void> {
     if (this.actingSessionId) await this.request("session/set_model", { sessionId: this.actingSessionId, modelId });

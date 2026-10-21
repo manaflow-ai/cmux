@@ -5609,7 +5609,11 @@ function AcpmuxPane() {
   const needsYou = useNeedsYou({
     snapshot,
     callNative,
-    ask: (question, sessionId) => directClient.current?.ask(question, sessionId) ?? Promise.resolve(""),
+    sideSession: async (sessionId, question) => {
+      const client = directClient.current;
+      if (!client) throw new Error(translate("needsYou.askFailed"));
+      await postNative("chat.sideChat", { sessionId: await client.btw(sessionId, question) });
+    },
   });
   const lastForkSeq = latestForkSeq(snapshot.rows);
   const sideChat = sideChatRow(
@@ -6859,12 +6863,7 @@ function AcpmuxPane() {
                         {snapshot.summary?.enforcement ? handoffLabels.nativePolicy : handoffLabels.unverified}
                       </span>
                     )}
-                    <NeedsYouButton
-                      items={needsYou.items}
-                      mode={needsYou.mode}
-                      actions={needsYou.actions}
-                      githubRepository={githubRepository}
-                    />
+                    <NeedsYouButton items={needsYou.items} mode={needsYou.mode} actions={needsYou.actions} />
                     <ChatHeaderTools
                       tabTools={!quick}
                       // A new chat's picked folder too: New Worktree names its branch before the first prompt.

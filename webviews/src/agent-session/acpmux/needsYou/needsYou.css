@@ -351,22 +351,14 @@
   border-radius: 8px;
   background: color-mix(in srgb, var(--agent-text) 5%, transparent);
 }
-.acpmux-needs-you-side-turn + .acpmux-needs-you-side-turn,
-.acpmux-needs-you-side-turn + .acpmux-needs-you-side-form {
+.acpmux-needs-you-side > p + .acpmux-needs-you-side-form {
   margin-top: 8px;
 }
-.acpmux-needs-you-side-q {
+.acpmux-needs-you-side .acpmux-needs-you-error {
   margin: 0;
-  color: var(--agent-muted);
-  font-size: var(--text-detail);
-}
-.acpmux-needs-you-side-a {
-  margin-top: 4px;
-  font-size: var(--text-detail);
-  line-height: 17px;
 }
 .acpmux-needs-you-side-status {
-  margin: 4px 0 0;
+  margin: 0;
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
