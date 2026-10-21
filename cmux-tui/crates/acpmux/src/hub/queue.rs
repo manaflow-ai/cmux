@@ -452,32 +452,31 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
-        let removed = {
+        let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
                 return false;
             };
+            // Pin the identity before it leaves the queue: its runner may settle it meanwhile.
+            let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
             session.queued.fetch_sub(1, Ordering::SeqCst);
-            queue.remove(i)
+            (queue.remove(i), ledger)
         };
-        session.queue_moved.notify_waiters();
-        // A resend of a rebuilt prompt waits on the ledger entry `restore_queues` made.
-        if removed.restored
-            && let Some((_, outcome)) = session
-                .prompts
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .iter()
-                .find(|(id, _)| id == prompt_id)
-        {
-            outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
-        }
         let mut msg =
             json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()});
         if let Some(reason) = reason {
             msg["reason"] = json!(reason);
         }
         self.append(session, "mux", "queue_removed", msg);
+        // Finish the best-effort append before settlement can evict the retry identity.
+        if removed.restored {
+            if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
+                outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
+            }
+            prompt_ledger::prune(&mut ledger);
+        }
+        drop(ledger);
+        session.queue_moved.notify_waiters();
         // A stored permit: the waiting task sees it even before it polls.
         removed.withdraw.notify_one();
         true
@@ -536,7 +535,8 @@ impl Hub {
         let mut unstarted = lost_start::Unstarted::default();
         let scanned =
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
-                unstarted.read(&e, &waiting);
+                let settled = unstarted.read(&e, &waiting);
+                waiting.retain(|q| q.msg.get("turnId").is_none_or(|t| !settled.contains(t)));
                 if matches!(e.kind.as_str(), "queued" | "user_message")
                     && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
                 {
@@ -552,6 +552,12 @@ impl Hub {
                     | "agent_pair_resumed" => pair_records.push(e),
                     "transfer_out" => moving = e.msg["transferId"].as_str().map(str::to_owned),
                     "transfer_aborted" | "imported" => moving = None,
+                    // Left the queue for a turn that has not started (`lost_start.rs`): its
+                    // `queued` record stays waiting, so later records apply to it, and it goes
+                    // back ahead of the queue.
+                    "dequeued" | "user_message" if unstarted.holds(turn_id) => {
+                        unstarted.lead(&mut order);
+                    }
                     "dequeued" | "queue_removed" | "user_message" | "turn_started" => {
                         waiting.retain(|q| q.msg.get("turnId") != turn_id);
                     }
@@ -585,7 +591,8 @@ impl Hub {
                             .get("order")
                             .and_then(Value::as_array)
                             .cloned()
-                            .unwrap_or_default()
+                            .unwrap_or_default();
+                        unstarted.lead(&mut order);
                     }
                     _ => {}
                 }
@@ -593,17 +600,16 @@ impl Hub {
             });
         self.restore_agent_pairs(&session.id, pair_records, &recorded);
         session.moving.lock().unwrap_or_else(|e| e.into_inner()).clone_from(&moving);
-        let unstarted = unstarted.prompts();
-        if scanned.is_err() || (waiting.is_empty() && unstarted.is_empty()) {
+        if scanned.is_err() || waiting.is_empty() {
             return;
         }
-        // The last reorder holds; a prompt queued after it keeps its place at the end.
+        // The last reorder holds (a prompt that left the queue for its turn went back ahead of
+        // it); a prompt queued after it keeps its place at the end.
         waiting.sort_by_key(|q| {
             order.iter().position(|id| Some(id) == q.msg.get("promptId")).unwrap_or(order.len())
         });
         // A prompt that left the queue for its turn runs first, as it would have.
-        held.retain(|id| unstarted.iter().all(|q| q.msg.get("promptId") != Some(id)));
-        let waiting: Vec<EventRecord> = unstarted.into_iter().chain(waiting).collect();
+        held.retain(|id| !unstarted.holds_prompt(id));
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
         let mut restored = session.restored.lock().unwrap_or_else(|e| e.into_inner());
@@ -638,9 +644,6 @@ impl Hub {
             });
             session.queued.fetch_add(1, Ordering::SeqCst);
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
-            if ledger.len() > PROMPT_LEDGER {
-                ledger.pop_front();
-            }
         }
         tracing::info!(session = %session.id, queued = queue.len(), "restored queued prompts");
     }
@@ -673,10 +676,11 @@ impl Hub {
                     let blocks = q.run.blocks.clone();
                     let result = hub.run_prompt(&session, blocks, &q.client, false, opts).await;
                     // A client that resent this prompt id waits on the entry `restore_queues` made.
-                    let ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
+                    let mut ledger = session.prompts.lock().unwrap_or_else(|e| e.into_inner());
                     if let Some((_, outcome)) = ledger.iter().find(|(id, _)| *id == q.prompt_id) {
                         outcome.send_replace(Some(result.clone()));
                     }
+                    prompt_ledger::prune(&mut ledger);
                     drop(ledger);
                     // Refused before its turn (its harness is gone): it leaves the queue, so the
                     // prompts behind it still run.

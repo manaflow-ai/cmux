@@ -12,6 +12,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import sys
 import unittest
 import git_fixture_env  # disables git auto maintenance
 
@@ -56,6 +57,15 @@ for arg in "$@"; do
 done
 exit $status
 """
+
+
+def load_lint(repo):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("web_lint_prepush", repo / "scripts/web_lint_prepush.py")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses look their module up
+    spec.loader.exec_module(module)
+    return module
 
 
 class WebLintPrePushTests(unittest.TestCase):
@@ -145,6 +155,55 @@ class WebLintPrePushTests(unittest.TestCase):
         return subprocess.run(["git", "-C", str(self.repo), "push", "origin", "feat-cmux-next"],
                               env={**self.env, **env}, text=True, capture_output=True)
 
+    def logged_trees(self):
+        """GIT_TRACE for the run, which every git under the hook inherits (a PATH shim would not: git puts
+        its exec-path first for hooks); returns (env, a reader of the `git worktree add` calls). A lint tree
+        is a full checkout, 913 MB on cmux."""
+        log = self.root / "git-trace.log"
+
+        def trees():
+            lines = log.read_text().splitlines() if log.exists() else []
+            return [line for line in lines if "built-in: git" in line and " worktree add " in line]
+        return {"GIT_TRACE": str(log)}, trees
+
+    def test_a_push_with_nothing_to_lint_builds_no_lint_tree(self):
+        # A dirty checkout and a Swift-only push: the plan is empty, so no full checkout is written.
+        self.write("Sources/App.swift", "let a = 1\n")
+        self.commit("swift only")
+        self.write("notes.txt", "untracked\n")
+        env, trees = self.logged_trees()
+
+        result = self.push(**env)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(trees(), [])
+
+    def test_the_trace_sees_a_lint_tree_when_one_is_needed(self):
+        self.write("webviews/src/app.ts", "export const app = 5;\n")
+        self.commit("web change")
+        self.write("notes.txt", "untracked\n")
+        env, trees = self.logged_trees()
+
+        result = self.push(**env)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(len(trees()), 1)
+
+    def test_a_dry_run_builds_no_lint_tree(self):
+        self.write("webviews/src/app.ts", "export const app = 4;\n")
+        self.commit("web change")
+        self.write("notes.txt", "untracked\n")
+        env, trees = self.logged_trees()
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+
+        result = subprocess.run([sys.executable, "scripts/web_lint_prepush.py", "--dry-run", "--base", "HEAD~1",
+                                 "--head", head], cwd=self.repo, env={**self.env, **env}, text=True,
+                                capture_output=True)
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("webviews: sh check-lanes.sh && sh check-format.sh", result.stdout)
+        self.assertEqual(trees(), [])
+
     def remote_head(self):
         return subprocess.run(["git", "-C", str(self.origin), "rev-parse", "feat-cmux-next"],
                               env=self.env, text=True, capture_output=True).stdout.strip()
@@ -188,6 +247,77 @@ class WebLintPrePushTests(unittest.TestCase):
 
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("web lint", result.stderr)
+
+    def test_a_lint_error_in_the_pushed_commit_is_refused_when_the_working_tree_has_the_fix(self):
+        # The fix is made but not committed: linting the working tree passed this push (0b115ab).
+        before = self.remote_head()
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")
+        self.commit("bad lane")
+        self.write("webviews/src/app.ts", "export const app = 3;\n")
+
+        result = self.push()
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_head(), before, "the bad commit must not reach origin")
+        self.assertIn("browser lane import", result.stderr)
+
+    def test_a_clean_pushed_commit_passes_whatever_the_working_tree_holds(self):
+        self.write("webviews/src/app.ts", "export const app = 3;\n")
+        self.write("web/app/page.tsx", "export const page = 3;\n")
+        self.commit("clean")
+        self.write("webviews/src/app.ts", "export const app = BAD_LANE;\n")  # uncommitted, not pushed
+        self.write("webviews/src/draft.ts", "export const draft = BAD_FORMAT;\n")  # untracked, not pushed
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+
+        result = self.push()
+
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_head(), self.git("rev-parse", "HEAD").stdout.strip())
+        self.assertIn("BAD_LANE", (self.repo / "webviews/src/app.ts").read_text(), "the working tree is left alone")
+
+    def test_pushing_a_branch_that_is_not_checked_out_lints_that_branch(self):
+        self.git("checkout", "--quiet", "-b", "side")
+        self.write("web/app/page.tsx", "export const page = BAD_ESLINT;\n")
+        self.commit("bad web on side")
+        self.git("checkout", "--quiet", "feat-cmux-next")
+        before = self.remote_head()
+
+        result = subprocess.run(["git", "-C", str(self.repo), "push", "origin", "side:feat-cmux-next"],
+                                env=self.env, text=True, capture_output=True)
+
+        self.assertNotEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.remote_head(), before)
+        self.assertIn("app/page.tsx: error no-bad", result.stderr)
+
+    def test_a_lint_tree_shares_node_modules_only_when_it_installs_the_same_thing(self):
+        lint = load_lint(self.repo)
+        self.write("pkg/package.json", '{"dependencies": {"b": "file:../bindings"}}\n')
+        self.write("pkg/bun.lock", "lock 1\n")
+        self.write("bindings/index.ts", "export const b = 1;\n")
+        self.commit("pkg")
+        (self.repo / "pkg/node_modules").mkdir()
+        head = self.git("rev-parse", "HEAD").stdout.strip()
+        self.assertTrue(lint.shares_deps(self.repo, head, "pkg"))
+        for path, text in (("pkg/bun.lock", "lock 2\n"), ("pkg/package.json", '{"dependencies": {}}\n'),
+                           ("bindings/index.ts", "export const b = 2;\n")):
+            with self.subTest(path=path):
+                before = (self.repo / path).read_text()
+                self.write(path, text)
+                self.commit(f"change {path}")
+                pushed = self.git("rev-parse", "HEAD").stdout.strip()
+                self.git("checkout", "--quiet", "HEAD~1")
+                self.assertFalse(lint.shares_deps(self.repo, pushed, "pkg"), path)
+                self.git("checkout", "--quiet", "feat-cmux-next")
+                self.write(path, before)
+                self.commit(f"restore {path}")
+        (self.repo / "pkg/node_modules").rmdir()
+        self.assertFalse(lint.shares_deps(self.repo, self.git("rev-parse", "HEAD").stdout.strip(), "pkg"))
+
+    def test_eslint_in_a_lint_tree_keeps_no_cache(self):
+        # The cache is keyed by absolute path: a random tree path misses every time and prunes the checkout's.
+        lint = load_lint(self.repo)
+        self.assertIn("--cache", lint.eslint_command(self.repo, "web", ["web/a.ts"], False))
+        self.assertNotIn("--cache", lint.eslint_command(self.repo, "web", ["web/a.ts"], False, cache=False))
 
     def test_web_eslint_checks_only_the_changed_files(self):
         self.write("web/app/page.tsx", "export const page = 2;\n")
