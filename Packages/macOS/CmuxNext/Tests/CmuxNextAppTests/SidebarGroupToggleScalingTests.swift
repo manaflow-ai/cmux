@@ -10,7 +10,7 @@ import Testing
 /// The harness lists `count` workspaces in 100 groups (fewer groups below 100 workspaces), all open, in one machine
 /// section, and toggles one group near the top with a real click on its header's name (mouse down and up on the
 /// list, then the observation's render, as the window draws it). The toggled group always holds the same 10
-/// workspaces, so 100 and 10,000 workspaces change the same rows. Each toggle is timed on the main thread; the median
+/// workspaces, so 100 and 10,000 workspaces change the same rows. Each toggle's main-thread CPU is timed; the median
 /// of 16 is compared.
 @MainActor @Suite(.serialized) struct SidebarGroupToggleScalingTests {
     struct Harness {
@@ -88,11 +88,13 @@ import Testing
         // Warm up both directions (caches, row views of the toggled rows).
         for _ in 0..<4 { toggle(h) }
         _ = SidebarPerfCounters.report(reset: true)
-        let clock = ContinuousClock()
+        // Main-thread CPU, as SidebarScrollBench times a frame: other work on the host delays the toggle, but it
+        // adds nothing to the toggle's own cost.
         var samples: [Double] = []
         for _ in 0..<runs {
-            let elapsed = clock.measure { work(h) }
-            samples.append(Double(elapsed.components.attoseconds) / 1e15 + Double(elapsed.components.seconds) * 1000)
+            let started = SidebarScrollBench.threadCPU()
+            work(h)
+            samples.append((SidebarScrollBench.threadCPU() - started) * 1000)
         }
         let reloads = SidebarPerfCounters.report(reset: true)["list_reloads"] ?? 0
         samples.sort()
