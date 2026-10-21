@@ -3273,7 +3273,7 @@ export class AcpmuxDirectClient {
     return this.request("_acpmux/chat/route.set", { sessionId, routeId, when: "after-turn" });
   }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
-  /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
+  /// (0 runs next), `send_now` or `interrupt`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
     if (!this.actingSessionId) return { ok: false };
     return this.request("_acpmux/queue_edit", {
