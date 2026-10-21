@@ -144,20 +144,23 @@ final class ChiefPetBubbleView: NSView {
     }
 }
 
-/// One notice: a glass capsule (the solid overlay surface under Reduce Transparency) with the
-/// title in bold and one muted line under it, no status glyph, as the references draw it.
+/// One notice: a glass capsule with the title in bold and one muted line under it, no status
+/// glyph, as the references draw it. The glass is the overlay card (``Glass/makeOverlayPanel``):
+/// the popup surface, mostly opaque, under the glass, so the text reads over any page or app
+/// behind it. The bare glass let a web page's headline show through the notice (Leo 2026-10-20).
 final class ChiefPetCapsule: NSView {
     /// A VoiceOver press: opens this notice, as a click on it does.
     var onPress: (() -> Void)?
-    private let surface: NSView
+    let surface: OverlaySurfaceView
     private let title = ChromeLabel(labelWithString: "")
     private let detail = ChromeLabel(labelWithString: "")
 
     override init(frame: NSRect) {
         let radius = ChiefPetBubblePanel.pillHeight / 2
-        surface = NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency
-            ? Glass.makeOverlayPanel(cornerRadius: radius) as NSView
-            : Glass.makePanel(style: .regular, cornerRadius: radius, interactive: true)
+        // The solid surface under Reduce Transparency, followed live.
+        surface = Glass.makeOverlayPanel(cornerRadius: radius)
+        // The capsule is the whole content of a clear window: the blur before macOS 26 samples what is behind it.
+        surface.samplesBehindWindow = true
         super.init(frame: frame)
         surface.translatesAutoresizingMaskIntoConstraints = true
         addSubview(surface)
