@@ -1,5 +1,8 @@
 import { readFileSync } from "node:fs";
+import { spawn } from "node:child_process";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { tmpdir } from "node:os";
 import { describe, expect, setSystemTime, test } from "bun:test";
 import { FreestyleApiError, type Freestyle } from "freestyle";
 import {
@@ -462,7 +465,7 @@ describe("Freestyle platform contract", () => {
     const fake = fakeFreestyle({ probeExit: 0 });
     const result = await providerWith(fake).exec(VM_ID, "echo hi", { timeoutMs: 5_000 });
     expect(result.exitCode).toBe(0);
-    expect(fake.execs).toEqual(["echo hi"]);
+    expect(fake.execs[0]).toContain("getent passwd");
     expect(fake.execUsers).toEqual([undefined]);
     expect(fake.writes).toHaveLength(0);
   });
@@ -479,7 +482,7 @@ describe("Freestyle platform contract", () => {
     const result = await providerWith(fake).exec(VM_ID, "cmux self --json");
     expect(result.exitCode).toBe(0);
     expect(fake.writes).toHaveLength(0);
-    expect(fake.execs).toEqual(["cmux self --json"]);
+    expect(fake.execs[0]).toContain("getent passwd");
     expect(fake.execUsers).toEqual([undefined]);
   });
 
@@ -917,15 +920,39 @@ describe("Freestyle client configuration", () => {
     // layout.
     const execCalls = driverSource.match(/\.exec\(\{[\s\S]*?\}\)/g) ?? [];
     expect(execCalls.length).toBeGreaterThan(0);
-    for (const call of execCalls.filter((call) => !call.includes("command, timeoutMs }"))) {
+    for (const call of execCalls.filter((call) => !call.includes("freestyleExecCommand(command)"))) {
       expect(call).toContain("linuxUser");
     }
   });
 
   test("public vm exec leaves the guest user to the provider default", () => {
     expect(driverSource).toContain(
-      "const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });",
+      "const r = await vm.exec(opts?.asRoot\n            ? { command, timeoutMs, linuxUser: GUEST_LINUX_USER }\n            : { command: freestyleExecCommand(command), timeoutMs });",
     );
+  });
+
+  test("public vm exec derives HOME from the guest passwd entry", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "cmux-exec-home-"));
+    const bin = path.join(root, "bin");
+    await mkdir(bin, { recursive: true });
+    await writeFile(path.join(bin, "getent"), "#!/bin/sh\nprintf '%s\n' 'cmux:x:1000:1000::/home/cmux:/bin/bash'\n", { mode: 0o755 });
+    try {
+      const fake = fakeFreestyle({ probeExit: 0 });
+      await providerWith(fake).exec(VM_ID, 'printf "%s" "$HOME"');
+      const result = await new Promise<{ status: number | null; stdout: string }>((resolve) => {
+        const child = spawn("/bin/sh", ["-c", fake.execs[0]], {
+          env: { ...process.env, HOME: "/home/ubuntu", PATH: `${bin}:/usr/bin:/bin` },
+          stdio: ["ignore", "pipe", "ignore"],
+        });
+        let stdout = "";
+        child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString(); });
+        child.on("close", (status: number | null) => resolve({ status, stdout }));
+      });
+      expect(result.status).toBe(0);
+      expect(result.stdout).toBe("/home/cmux");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 
   test("the driver talks to the SDK's default public edge unless overridden", () => {

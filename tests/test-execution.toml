@@ -693,6 +693,10 @@ path = "tests/test_ci_merge_queue_required_checks.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_nightly_off_blacksmith.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_nightly_push_throttle.py"
 lane = "linux-guard"
 
@@ -1674,6 +1678,10 @@ path = "tests/test_ci_admission_placement.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_gate_absent_signal.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_run_guards.py"
 lane = "linux-guard"
 
@@ -1823,6 +1831,14 @@ path = "tests/test_base_red_excuse.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_install_gh_merge_green.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_workflow_concurrency.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_nightly_release_notes.py"
 lane = "linux-guard"
 
@@ -1947,4 +1963,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_linux_tests_lane.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_evidence_paginate_without_slurp.py"
 lane = "linux-guard"
