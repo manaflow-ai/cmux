@@ -187,6 +187,15 @@ class PlanRefusesWhatItCannotRun(unittest.TestCase):
         ])
         self.assertTrue(run_ci_guards.is_stateful(unit))
 
+    def test_the_zig_installer_test_keeps_its_github_env_to_itself(self) -> None:
+        """Run in order, release-tooling's Zig download test published its fake zig through the job's
+        GITHUB_ENV, and the next step (the Zig package fetch test) ran that deleted zig (#23534)."""
+        text = (ROOT / "tests/test_install_zig_ci_download_resume.sh").read_text(encoding="utf-8")
+        body = text[text.index("run_install() {"):]
+        body = body[:body.index('"$SCRIPT"')]
+        self.assertIn('GITHUB_ENV="$TMP_DIR/', body)
+        self.assertIn('GITHUB_PATH="$TMP_DIR/', body)
+
 
 class StepsFinish(unittest.TestCase):
     def test_a_leaked_background_child_does_not_hang_the_runner(self) -> None:
