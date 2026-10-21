@@ -145,8 +145,8 @@ struct AppFeatureButton: View {
     }
 }
 
-/// The card's preview: a bundled painting, sidebar rows at a density, or the feature's icon on a
-/// quiet tile.
+/// The card's preview: a bundled painting, sidebar rows at a density, or a small cmux window with
+/// the part the feature changes lit.
 struct AppFeaturePreviewView: View {
     let preview: AppFeature.Preview
     @Environment(\.appSceneColors) private var colors
@@ -160,10 +160,10 @@ struct AppFeaturePreviewView: View {
                 if let image = AppFeaturePreviewImages.shared.painting() {
                     Image(nsImage: image).resizable().scaledToFill()
                 } else {
-                    Icon(.sitePermissionImages, size: 28).foregroundStyle(colors.secondary)
+                    AppFeatureWindowPreview(area: .background, icon: .sitePermissionImages)
                 }
-            case .icon(let name):
-                Icon(name, size: 28).foregroundStyle(colors.secondary)
+            case .window(let area, let icon):
+                AppFeatureWindowPreview(area: area, icon: icon)
             case .sidebarRows(let density):
                 AppFeatureSidebarRows(density: density)
             }
