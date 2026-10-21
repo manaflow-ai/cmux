@@ -10,8 +10,8 @@ import Foundation
 /// `CmuxVNC`, the path badge reads "VNC compatibility", and an
 /// authentication failure ends the session as `signInRequired`.
 /// Each `connect` starts a new RFB session; the pane resubscribes per start.
+// crash-allow: its only stored property is `state`, a Mutex that holds every mutable field.
 final class RemoteVNCSource: RemoteViewFrameSource, @unchecked Sendable {
-    // @unchecked: mutable state lives in `state` (a Mutex).
     private struct State {
         var client: VNCClient?
         var status = RemoteViewStatus(path: .compatibility, state: .connecting)
