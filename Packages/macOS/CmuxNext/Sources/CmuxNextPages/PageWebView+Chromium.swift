@@ -183,6 +183,8 @@ extension PageWebView {
             fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
         case .openRequested(let url):
             openOutside(url, modifiers: [])
+        case .filesDragged:
+            break
         }
     }
 
