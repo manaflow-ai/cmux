@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Perf source guard (invariant I5, plans/cmux-next/perf-speed-of-light.md): no CATransaction.flush
+"""Perf source guard (invariant I5): no CATransaction.flush
 and no window capture in Packages/macOS/CmuxNext/Sources outside the capture helpers, the
 screenshot actions and the debug tools. A theme change captures no window and forces no commit.
 
@@ -24,7 +24,9 @@ SOURCES = "Packages/macOS/CmuxNext/Sources"
 ALLOW = re.compile(r"//\s*perf-gate-ok:\s*\S")
 # Window capture APIs and the files that may use them.
 CAPTURE = re.compile(r"CGWindowListCreateImage|CGDisplayCreateImage|SCScreenshotManager|\.renderSnapshot\(\)"
-                     r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to")
+                     r"|\.compositedSnapshot\(|\.childWindowsSnapshot\(|\.floatingWindowsSnapshot\(\)|\.writeSnapshot\(to"
+                     # The screenshot helpers' own entry points (NSWindow+Screenshot.swift).
+                     r"|\.screenshotImage\(|\.screenCaptureKitSnapshot\(")
 CAPTURE_FILES = re.compile(
     # The capture helpers.
     r"/CmuxNextDesign/Windows/(NSWindow\+Snapshot|NSWindow\+Screenshot|WindowFrame)\.swift$"

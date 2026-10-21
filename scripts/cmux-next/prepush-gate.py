@@ -119,7 +119,7 @@ COMMENT_LINE = re.compile(r"^\s*(//|\*|/\*)")
 LOCATION = re.compile(r"(?P<path>[\w.+@/-]+\.(?:swift|rs|ts|tsx|py|sh|json|xcstrings|md)):(?P<line>\d+)(?::\d+)?")
 NUMBER = re.compile(r"\d+")
 # Lines a scanner prints that are not findings: summaries, backlogs and warning-tier annotations.
-INFO = re.compile(r"^(needs_review \(machine translated\)|\d+ tables, \d+ keys|::warning|.*ratchet debt)")
+INFO = re.compile(r"^(needs_review \(machine translated\)|\d+ tables, \d+ keys|::warning|.*ratchet debt|perf source guard: )")
 # A check that crashed instead of judging (both sides crash alike, so the diff alone would hide it).
 BROKEN = re.compile(r"Traceback \(most recent call last\)|No such file or directory|command not found|SyntaxError")
 # The warning tiers CI gives the ratchets (cmux-next.yml, checks job).

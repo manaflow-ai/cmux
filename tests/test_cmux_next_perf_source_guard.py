@@ -31,6 +31,10 @@ class ScanFileTests(unittest.TestCase):
         self.assertEqual(len(hits), 1)
         self.assertIn("Blend.swift:1: CATransaction.flush forces a commit", hits[0])
 
+    def test_a_screenshot_helper_called_elsewhere_is_a_capture(self):
+        hits = guard.scan_file(f"{SOURCES}/CmuxNextApp/Theme/Blend.swift", "let image = try await window.screenshotImage()\n")
+        self.assertEqual(len(hits), 1)
+
     def test_a_capture_outside_the_capture_files_is_a_hit(self):
         hits = guard.scan_file(f"{SOURCES}/CmuxNextApp/Theme/Blend.swift", "let image = window.compositedSnapshot(in: r)\n")
         self.assertEqual(len(hits), 1)
@@ -92,6 +96,7 @@ class WiringTests(unittest.TestCase):
     def test_the_perf_gate_uses_the_same_rule(self):
         perf_gate = (ROOT / "scripts/cmux-next/perf-gate.py").read_text(encoding="utf-8")
         self.assertIn("check-perf-source-guard.py", perf_gate)
+        self.assertRegex(perf_gate, r"def source_guard\(\):\n    hits, count = perf_source_guard\.scan\(ROOT\)")
         self.assertNotIn("CATransaction\\.flush", perf_gate)
 
 

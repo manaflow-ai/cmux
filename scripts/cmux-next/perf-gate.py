@@ -6,7 +6,8 @@ app's own debug counters (debug.layout_counters, debug.sidebar_perf, debug.surfa
 budgets are host-independent, so they BLOCK. Timing values (op latency, frame intervals) are
 warnings only.
 
-  source guard   no CATransaction.flush and no window capture outside the debug tools in
+  source guard   no CATransaction.flush and no window capture outside the capture helpers, the screenshot
+                 actions and the debug tools in
                  Packages/macOS/CmuxNext/Sources (I5: a theme change captures no window and
                  forces no commit). A reviewed exception carries `// perf-gate-ok: <reason>`
                  on the line or the line above it.
@@ -130,7 +131,7 @@ def source_guard():
     hits, count = perf_source_guard.scan(ROOT)
     for hit in hits:
         print("  " + hit, flush=True)
-    check(not hits, f"no CATransaction.flush and no window capture outside the debug tools ({count} files, "
+    check(not hits, f"no CATransaction.flush and no window capture outside the capture helpers, screenshot actions and debug tools ({count} files, "
                     f"{len(hits)} hits; a reviewed exception carries `// perf-gate-ok: <reason>`)", "source guard")
 
 
