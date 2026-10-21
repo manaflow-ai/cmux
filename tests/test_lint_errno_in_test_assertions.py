@@ -271,7 +271,6 @@ class CommandLine(unittest.TestCase):
                 self.assertEqual(status, 1)
                 self.assertIn(f"{path}:2", stderr)
 
-
     def test_a_test_target_outside_the_scanned_roots_fails(self) -> None:
         # Review of #23095: cmux-next-ios's tests were never scanned. Every
         # Swift file that imports a test framework must sit under a scanned
@@ -285,7 +284,7 @@ class CommandLine(unittest.TestCase):
                 self.assertIn("new-app/Tests/NewAppTests/ProbeTests.swift", stderr)
                 self.assertIn("TEST_ROOTS", stderr)
 
-    def test_excluded_and_non_test_swift_files_pass(self) -> None:
+    def test_vendored_and_ios_tests_are_scanned_and_sources_are_not(self) -> None:
         status, stdout, stderr = self.run_lint(
             {
                 "vendor/sdk/Tests/SDKTests/VendorTests.swift": "import XCTest\n",
@@ -294,7 +293,8 @@ class CommandLine(unittest.TestCase):
             }
         )
         self.assertEqual(status, 0, stderr)
-        self.assertIn("1 Swift test files", stdout)
+        self.assertIn("2 Swift test files", stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

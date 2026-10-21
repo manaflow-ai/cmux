@@ -55,13 +55,13 @@ TEST_ROOTS = (
     "cmux-next-ios/CmuxMobileKit/Tests/",
     "cmux-next-ios/UITests/",  # CmuxMobileAppUITests in cmux-next-ios/project.yml
     "cmux-tui/**/Tests/",  # TerminalBytesDemo and the cmux-mobile-ffi Swift tests
-)
-
-# Swift files that import a test framework but are not scanned, with why.
-NOT_SCANNED = (
-    "vendor/",  # third-party SDKs, kept as their authors wrote them
+    "vendor/**/Tests/",  # vendored SDKs' tests, which carry cmux changes
     "Packages/Shared/CmuxMessagesLab/Harness/",  # copied into a gitignored test target at harness time
 )
+
+# Swift files that import a test framework but are not scanned, each with why.
+# Empty: every test source is ours to keep errno-safe.
+NOT_SCANNED: Tuple[str, ...] = ()
 
 
 def _prefixes(roots: Tuple[str, ...]) -> str:
@@ -69,7 +69,7 @@ def _prefixes(roots: Tuple[str, ...]) -> str:
 
 
 TEST_PATH = re.compile(rf"^(?:{_prefixes(TEST_ROOTS)}).*\.swift$")
-EXCLUDED_PATH = re.compile(rf"^(?:{_prefixes(NOT_SCANNED)})")
+EXCLUDED_PATH = re.compile(rf"^(?:{_prefixes(NOT_SCANNED)})") if NOT_SCANNED else None
 # A Swift file with tests in it: it imports Swift Testing or XCTest.
 TEST_IMPORT = re.compile(r"^\s*(?:@testable\s+)?import\s+(?:Testing|XCTest)\b", re.MULTILINE)
 
@@ -355,7 +355,7 @@ def unscanned_test_sources(root: Path) -> List[str]:
     """Swift files with tests in them that no root in TEST_ROOTS or NOT_SCANNED covers."""
     unscanned = []
     for path in tracked_swift_sources(root):
-        if TEST_PATH.match(path) or EXCLUDED_PATH.match(path):
+        if TEST_PATH.match(path) or (EXCLUDED_PATH and EXCLUDED_PATH.match(path)):
             continue
         try:
             text = (root / path).read_text(encoding="utf-8", errors="replace")
