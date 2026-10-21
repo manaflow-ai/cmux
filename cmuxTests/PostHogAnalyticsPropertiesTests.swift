@@ -1032,6 +1032,60 @@ struct PostHogAnalyticsPropertiesTests {
         #expect(capturedQueue.sync { capturedEvents }.isEmpty)
         #expect(defaults.object(forKey: "posthog.lastReportedCrashAt") == nil)
     }
+
+    @MainActor
+    @Test("a remote refresh with unchanged values writes no defaults")
+    func unchangedRemoteRefreshWritesNoDefaults() throws {
+        let suiteName = "cmux.feature.flags.unchanged-refresh.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        defer { defaults.removePersistentDomain(forName: suiteName) }
+        let flags = CmuxFeatureFlags(
+            defaults: defaults,
+            remoteFlagValueProvider: { _ in nil },
+            pinsFlagsToLocalValues: false
+        )
+        let definitions = CmuxFeatureFlags.allFlags
+        let firstKey = try #require(definitions.first?.key)
+        var values = Dictionary(uniqueKeysWithValues: definitions.dropLast().map { ($0.key, true) })
+
+        let changes = DefaultsChangeCounter()
+        let observer = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification,
+            object: defaults,
+            queue: nil
+        ) { _ in changes.increment() }
+        defer { NotificationCenter.default.removeObserver(observer) }
+
+        flags.applyRemoteFlagValues(values)
+        #expect(changes.count > 0)
+        #expect(defaults.object(forKey: "cmux.flags.remote.\(firstKey)") as? Bool == true)
+
+        // The periodic refresh usually returns the same values; each write
+        // would fan out to every defaults observer on the main thread.
+        changes.reset()
+        flags.applyRemoteFlagValues(values)
+        #expect(changes.count == 0)
+
+        values[firstKey] = false
+        flags.applyRemoteFlagValues(values)
+        #expect(changes.count == 1)
+        #expect(defaults.object(forKey: "cmux.flags.remote.\(firstKey)") as? Bool == false)
+
+        values.removeValue(forKey: firstKey)
+        flags.applyRemoteFlagValues(values)
+        #expect(changes.count == 2)
+        #expect(defaults.object(forKey: "cmux.flags.remote.\(firstKey)") == nil)
+    }
+}
+
+private final class DefaultsChangeCounter: @unchecked Sendable {
+    // Safety: `value` is only touched under `lock`.
+    private let lock = NSLock()
+    private var value = 0
+
+    var count: Int { lock.withLock { value } }
+    func increment() { lock.withLock { value += 1 } }
+    func reset() { lock.withLock { value = 0 } }
 }
 
 private actor FeatureFlagRemoteLoaderProbe {

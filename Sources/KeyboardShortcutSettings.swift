@@ -1260,6 +1260,78 @@ struct CarbonHotKeyRegistration: Equatable {
     let modifiers: UInt32
 }
 
+/// Remembers which physical key a character-based shortcut stroke resolves to
+/// under the current keyboard input source.
+///
+/// Resolving a stroke scans every supported key code through
+/// `KeyboardLayout.character`, and each call copies the current input source
+/// through TSM, which can block on the input-source cache file lock (Sentry
+/// CMUXTERM-MACOS-2N7E). Shortcut lookups resolve the system-wide hotkey on
+/// every UserDefaults change, so results are kept until the selected input
+/// source changes. Observers that re-resolve on that change call
+/// ``invalidate()`` first, so their order relative to this cache's own
+/// observer does not matter.
+final class ShortcutKeyCodeResolutionCache: @unchecked Sendable {
+    static let shared = ShortcutKeyCodeResolutionCache(
+        distributedNotificationCenter: DistributedNotificationCenter.default()
+    )
+
+    // Safety: `keyCodes` and `generation` are only touched under `lock`.
+    private let lock = NSLock()
+    private var keyCodes: [ShortcutStroke: UInt16?] = [:]
+    private var generation: UInt64 = 0
+    private var inputSourceObservers: [NSObjectProtocol] = []
+
+    init(distributedNotificationCenter: DistributedNotificationCenter?) {
+        guard let distributedNotificationCenter else { return }
+        // The ASCII-capable fallback layout depends on the enabled sources too.
+        let names = [
+            kTISNotifySelectedKeyboardInputSourceChanged as String,
+            kTISNotifyEnabledKeyboardInputSourcesChanged as String,
+        ]
+        inputSourceObservers = names.map { name in
+            distributedNotificationCenter.addObserver(
+                forName: Notification.Name(rawValue: name),
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                self?.invalidate()
+            }
+        }
+    }
+
+    /// Returns the cached key code for `stroke`, calling `resolve` on a miss.
+    func keyCode(for stroke: ShortcutStroke, resolve: () -> UInt16?) -> UInt16? {
+        let startGeneration: UInt64
+        lock.lock()
+        if let cached = keyCodes[stroke] {
+            lock.unlock()
+            return cached
+        }
+        startGeneration = generation
+        lock.unlock()
+
+        let resolved = resolve()
+
+        lock.lock()
+        // An input-source change during `resolve` may have produced a stale
+        // answer; return it to this caller but do not keep it.
+        if generation == startGeneration {
+            keyCodes[stroke] = .some(resolved)
+        }
+        lock.unlock()
+        return resolved
+    }
+
+    /// Drops every cached resolution, e.g. after the input source changed.
+    func invalidate() {
+        lock.lock()
+        generation &+= 1
+        keyCodes.removeAll()
+        lock.unlock()
+    }
+}
+
 final class SystemWideHotkeyController {
     static let shared = SystemWideHotkeyController()
     private static let hotKeySignature: OSType = 0x434D484B // "CMHK"
@@ -1318,6 +1390,7 @@ final class SystemWideHotkeyController {
             object: nil,
             queue: .main
         ) { [weak self] _ in
+            ShortcutKeyCodeResolutionCache.shared.invalidate()
             self?.refreshRegistration()
         }
         appHideObserver = NotificationCenter.default.addObserver(
@@ -2175,7 +2248,10 @@ struct ShortcutStroke: Equatable, Hashable {
     }
 
     var carbonHotKeyRegistration: CarbonHotKeyRegistration? {
-        guard let keyCode = resolvedKeyCode() else { return nil }
+        let resolved = keyCode ?? ShortcutKeyCodeResolutionCache.shared.keyCode(for: self) {
+            resolvedKeyCode()
+        }
+        guard let keyCode = resolved else { return nil }
         return CarbonHotKeyRegistration(keyCode: UInt32(keyCode), modifiers: carbonModifiers)
     }
 

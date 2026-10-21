@@ -1,3 +1,4 @@
+import Combine
 import Foundation
 import Testing
 
@@ -106,5 +107,63 @@ import Testing
         let asynchronousIDs = (await store.suggestionsAsync(for: "needle", limit: 12)).map(\.id)
 
         #expect(asynchronousIDs == synchronousIDs)
+    }
+
+    @Test func importMergeMatchesFirstExistingRowAndPublishesOnce() throws {
+        let (store, fileURL) = makeStore()
+        defer { store.clearHistory(); try? FileManager.default.removeItem(at: fileURL) }
+
+        store.recordVisit(url: URL(string: "https://www.example.com/docs"), title: "Docs")
+        store.recordVisit(url: URL(string: "https://news.example.org/today"), title: "News")
+        let docsID = try #require(store.entries.first { $0.url == "https://www.example.com/docs" }?.id)
+
+        let now = Date().addingTimeInterval(60)
+        var imported = (0..<3_000).map { index in
+            BrowserHistoryStore.Entry(
+                id: UUID(),
+                url: "https://host-\(index).example.net/page",
+                title: "Imported \(index)",
+                lastVisited: now.addingTimeInterval(-Double(index)),
+                visitCount: 1
+            )
+        }
+        // Same page as the existing `www.` row once normalized: merges into it.
+        imported.append(BrowserHistoryStore.Entry(
+            id: UUID(),
+            url: "https://example.com/docs/",
+            title: "Docs (imported)",
+            lastVisited: now,
+            visitCount: 9
+        ))
+        // A duplicate inside the batch merges into the row the batch appended.
+        imported.append(BrowserHistoryStore.Entry(
+            id: UUID(),
+            url: "https://host-7.example.net/page",
+            title: "Imported 7",
+            lastVisited: now,
+            visitCount: 4
+        ))
+
+        var publishCount = 0
+        let subscription = store.$entries.dropFirst().sink { _ in publishCount += 1 }
+        defer { subscription.cancel() }
+
+        let mergedCount = store.mergeImportedEntries(imported)
+
+        #expect(mergedCount == 3_002)
+        #expect(publishCount == 1)
+        #expect(store.entries.count == 3_002)
+        let docsRows = store.entries.filter { $0.url.contains("example.com/docs") }
+        #expect(docsRows.count == 1)
+        #expect(docsRows.first?.id == docsID)
+        #expect(docsRows.first?.visitCount == 9)
+        #expect(docsRows.first?.title == "Docs (imported)")
+        let duplicateRows = store.entries.filter { $0.url == "https://host-7.example.net/page" }
+        #expect(duplicateRows.count == 1)
+        #expect(duplicateRows.first?.visitCount == 4)
+
+        // Re-importing the same rows changes nothing and publishes nothing.
+        #expect(store.mergeImportedEntries(imported) == 0)
+        #expect(publishCount == 1)
     }
 }

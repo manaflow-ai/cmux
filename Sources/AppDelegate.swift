@@ -1009,6 +1009,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     var menuBarExtraController: MenuBarExtraController?
     private var transientGlobalSearchMenuBarExtraController: MenuBarExtraController?
     private var lastMenuBarExtraShouldInstall: Bool?
+    private lazy var activationPolicySync = MenuBarOnlyActivationPolicySync()
     /// App-owned computer-use graph; all runtime dependencies are injected here.
     private(set) lazy var computerUseUXCoordinator: ComputerUseUXCoordinator = {
         guard let computerUseRuntimeService else {
@@ -11310,7 +11311,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     private func syncActivationPolicy(defaults: UserDefaults = .standard) {
-        MenuBarOnlySettings.applyActivationPolicy(defaults: defaults)
+        activationPolicySync.sync(defaults: defaults)
     }
 
     private func syncMenuBarExtraVisibility(defaults: UserDefaults = .standard) {

@@ -541,19 +541,37 @@ final class CmuxFeatureFlags {
         }
     }
 
-    private func applyRemoteFlagValues(_ values: [String: Bool]) {
+    func applyRemoteFlagValues(_ values: [String: Bool]) {
         let previousResolutions = resolutionsByKey
         for definition in Self.allFlags {
             if let value = values[definition.key] {
                 remoteValuesByKey[definition.key] = value
-                defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
+                storeRemoteCacheValue(value, for: definition.key)
             } else {
                 remoteValuesByKey.removeValue(forKey: definition.key)
-                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
+                storeRemoteCacheValue(nil, for: definition.key)
             }
         }
         recomputeEffectiveValues()
         postChangeIfNeeded(previousResolutions: previousResolutions)
+    }
+
+    /// Writes a flag's cached remote value only when it changed.
+    ///
+    /// Every UserDefaults write posts a change notification that SwiftUI's
+    /// `@AppStorage` observers and the app's defaults observers handle
+    /// synchronously on the main thread. A periodic refresh that rewrote every
+    /// flag with the same value fanned that work out once per flag (Sentry
+    /// CMUXTERM-MACOS-2ZF2).
+    private func storeRemoteCacheValue(_ value: Bool?, for flagKey: String) {
+        let cacheKey = Self.remoteCacheKey(for: flagKey)
+        if let value {
+            guard defaults.object(forKey: cacheKey) as? Bool != value else { return }
+            defaults.set(value, forKey: cacheKey)
+        } else {
+            guard defaults.object(forKey: cacheKey) != nil else { return }
+            defaults.removeObject(forKey: cacheKey)
+        }
     }
 
     static func postHogControlPlaneRequest(
@@ -775,10 +793,10 @@ final class CmuxFeatureFlags {
         for definition in Self.allFlags {
             if let value = Self.coerceBoolFlagValue(remoteFlagValueProvider(definition.key)) {
                 remoteValuesByKey[definition.key] = value
-                defaults.set(value, forKey: Self.remoteCacheKey(for: definition.key))
+                storeRemoteCacheValue(value, for: definition.key)
             } else if remoteValuesByKey[definition.key] == true {
                 remoteValuesByKey.removeValue(forKey: definition.key)
-                defaults.removeObject(forKey: Self.remoteCacheKey(for: definition.key))
+                storeRemoteCacheValue(nil, for: definition.key)
             }
         }
         recomputeEffectiveValues()
