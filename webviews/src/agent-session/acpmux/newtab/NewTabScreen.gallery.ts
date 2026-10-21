@@ -745,63 +745,29 @@ export default agentPaneEntry({
       },
     },
     "typed-prompt": {
-      note: "A typed prompt: Ask first (Return's, highlighted), a web search, then New terminal, New browser tab and New chat in the popover over the cards; the cards stay where they were.",
+      note: "A typed instruction: Ask first (Return's, highlighted), a web search, then New terminal, New browser tab and New chat in the popover over the cards; the cards stay where they were.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
         await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
       },
     },
-    "typed-search-mode": {
-      note: "Leo 2026-10-18 (reverses R86): Tab flips the glass Search | Ask switch at the field's right; in Search the web search leads and Return takes it.",
+    "typed-keywords": {
+      note: "Leo 2026-10-20 (no Search | Ask switch): plain keywords. The web search leads (Return's, highlighted), Ask Claude Code one row down for a miss.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
-        await ctx.press("Tab");
-        // What React renders, not the data-mode the switch writes first: the rows in Search order.
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector('.nt-mode button[data-mode="search"][aria-pressed="true"]') &&
-            ctx.document.querySelector('#nt-row-0[data-type="search"]'),
-        );
+        await ctx.type("rust serde", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"][aria-selected="true"]'));
       },
     },
-    "typed-ask-mode": {
-      note: "Ask, the mode a tab opens in: the switch's thumb on Ask, and Ask Claude Code first (Return's) over the web search.",
+    "typed-question": {
+      note: "A question: Ask Claude Code leads (Return's, highlighted), the web search one row down.",
       ready: newTab({ projects: [CWD] }),
       snapshot: noChat(manySessions(3)),
       play: async (ctx) => {
-        await ctx.type("fix the flaky upload test", { selector: ".nt-field" });
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector('.nt-mode button[data-mode="ask"][aria-pressed="true"]') &&
-            ctx.document.querySelector('#nt-row-0[data-type="ask"]'),
-        );
-      },
-    },
-    "empty-search-mode": {
-      note: 'Search mode on an empty field: Tab moved the thumb to Search and the placeholder reads "Search the web or type a URL".',
-      ready: newTab({ projects: [CWD] }),
-      snapshot: noChat(manySessions(3)),
-      play: async (ctx) => {
-        await ctx.focus({ selector: ".nt-field" });
-        await ctx.press("Tab");
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-field[placeholder="Search the web or type a URL"]'));
-      },
-    },
-    "typed-url-search-mode": {
-      note: "An address in Search mode: it still opens first (highlighted), ahead of the web search, as in Ask.",
-      ready: newTab(),
-      snapshot: noChat(manySessions(3)),
-      play: async (ctx) => {
-        await ctx.type("localhost:3000", { selector: ".nt-field" });
-        await ctx.press("Tab");
-        await ctx.waitFor(
-          () =>
-            ctx.document.querySelector('.nt-mode button[data-mode="search"][aria-pressed="true"]') &&
-            ctx.document.querySelector('#nt-row-0[data-type="open"]'),
-        );
+        await ctx.type("why does the upload test flake?", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="ask"][aria-selected="true"]'));
       },
     },
     "typed-tab-match-stage": {
@@ -810,7 +776,7 @@ export default agentPaneEntry({
       snapshot: noChat(manySessions(3)),
     },
     "typed-tab-match": {
-      note: "Text that matches open tabs, workspaces and visited pages: Ask first (Return's), a web search, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
+      note: "Text that matches open tabs, workspaces and visited pages: a web search first (Return's, a plain word), Ask, then those rows (with their favicons, a glyph while one loads) in the popover; Down to the last row scrolls to it (dogfood 2026-10-08).",
       ready: newTab({
         omnibar: RELEASE_OMNIBAR,
       }),
@@ -818,8 +784,8 @@ export default agentPaneEntry({
       play: async (ctx) => {
         await ctx.type("release", { selector: ".nt-field" });
         await ctx.waitFor(() => ctx.document.querySelector(".nt-rows"));
-        // Ask, the search, two tabs, the workspace, a page and the three create actions: eight
-        // presses from Ask end on the last row, and three more wrap round to the first tab.
+        // The search, Ask, two tabs, the workspace, a page and the three create actions: eight
+        // presses from the top end on the last row, and three more wrap round to the first tab.
         for (let step = 0; step < 8; step++) await ctx.press("ArrowDown");
         for (let step = 0; step < 3; step++) await ctx.press("ArrowDown");
         await ctx.press("Enter");
@@ -1009,17 +975,17 @@ export default agentPaneEntry({
       },
     },
     "template-cards": {
-      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the Search | Ask switch, the mic and Send, the mode, model and effort in the quiet row under it, then three chat cards.",
+      note: "Cards template, the default and the first dot (u2851): Claude Code's split, the project strip heading the card, the box with the prompt, the mic and Send, the mode, model and effort in the quiet row under it, then three chat cards.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
     },
-    "template-cards-search": {
-      note: "Cards template in Search: the box keeps the mic and Send, and the suggestions open under the quiet row, never over its chips.",
+    "template-cards-typed": {
+      note: "Cards template with keywords typed: the box keeps the mic and Send, and the suggestions (the web search first) open under the quiet row, never over its chips.",
       ready: newTab({ template: "cards" }),
       snapshot: noChat(manySessions(6)),
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: "Search" });
-        await ctx.waitFor(() => ctx.document.querySelector('.nt-screen[data-mode="search"]'));
+        await ctx.type("rust serde", { selector: ".nt-field" });
+        await ctx.waitFor(() => ctx.document.querySelector('#nt-row-0[data-type="search"]'));
       },
     },
     "template-composer": {
