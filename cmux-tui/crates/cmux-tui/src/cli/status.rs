@@ -7,7 +7,7 @@
 //! cmux status set [KEY] (TEXT | --label T) [--target ws_…|current] [--state S] [--progress 0.4|40%]
 //!                 [--style arc|native|dot|none] [--ttl 30s] [--pid N] [--keep | --owner none]
 //! cmux status clear [KEY] [--target …] [--all]
-//! cmux status list [--target …]
+//! cmux status list [--target … | --all]
 //! cmux status run [--label T] [--target …] [--badge-ttl 8s] -- CMD …
 //! cmux status wait KEY [--target …] [--until settled|cleared|state=S] [--timeout D]
 //! ```
@@ -163,7 +163,7 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
     let (positional, options, argv) = split_options(words);
     let mut target = Vec::new();
     let mut label = None;
-    let mut badge_ttl = DEFAULT_BADGE_TTL.to_owned();
+    let mut badge_ttl = None;
     let mut passthrough = Vec::new();
     let mut all = false;
     for (name, value) in options {
@@ -175,7 +175,7 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
         match name.as_str() {
             "target" => target = vec![value_of(value)?],
             "label" => label = Some(value_of(value)?),
-            "badge-ttl" => badge_ttl = value_of(value)?,
+            "badge-ttl" => badge_ttl = Some(value_of(value)?),
             "all" => all = true,
             "keep" => passthrough.extend(["--owner".to_owned(), "none".to_owned()]),
             flag if SET_FLAGS.contains(&flag) => {
@@ -194,6 +194,22 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
         words
     };
     let positional: Vec<&str> = positional.iter().map(String::as_str).collect();
+    // A flag the verb does not read is an error, never silently dropped.
+    let verb = positional.first().copied().unwrap_or("");
+    let refuse = |flag: &str| Err(UsageError::new(format!("status {verb} does not take {flag}")));
+    if all && !matches!(verb, "clear" | "list") {
+        return refuse("--all");
+    }
+    if all && verb == "list" && !target.is_empty() {
+        return Err(UsageError::new("status list --all lists every workspace; drop --target"));
+    }
+    if label.is_some() && !matches!(verb, "set" | "run") {
+        return refuse("--label");
+    }
+    if badge_ttl.is_some() && verb != "run" {
+        return refuse("--badge-ttl");
+    }
+    let badge_ttl = badge_ttl.unwrap_or_else(|| DEFAULT_BADGE_TTL.to_owned());
     match (positional.as_slice(), argv) {
         (["set"], None) | (["set", _], None) | (["set", _, _], None) => {
             let key = positional.get(1).map_or_else(default_key, |key| (*key).to_owned());
@@ -221,7 +237,8 @@ fn parse(words: &[String]) -> Result<Status, UsageError> {
             Ok(Status::Send(words(&["clear"], vec![(*key).to_owned()])))
         }
         (["list"], None) if passthrough.is_empty() => {
-            Ok(Status::Send(words(&["list"], Vec::new())))
+            let extra = if all { vec!["--all".to_owned()] } else { Vec::new() };
+            Ok(Status::Send(words(&["list"], extra)))
         }
         (["run"], Some(_)) if !passthrough.is_empty() => {
             Err(UsageError::new("status run takes only --label, --target and --badge-ttl"))
