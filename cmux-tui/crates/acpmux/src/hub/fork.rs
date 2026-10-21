@@ -57,6 +57,14 @@ impl Hub {
                 .and_then(|p| crate::config::turn_cut(&parent_meta.harness, p))
         };
         let cut = through.filter(|_| turn_cut.is_some());
+        // Claude forks by `--resume <parent> --fork-session`, which needs a stored
+        // conversation; a chat with no turn has none, and its fork would fail at its
+        // first prompt ("No conversation found"). Refuse before a chat is made.
+        if is_claude && cut.is_none() && parent_meta.turn_count == 0 {
+            return Err(RpcError::invalid_params(
+                "the chat has no turn yet, so there is nothing to fork; send a message first",
+            ));
+        }
         let mut turn_count = parent_meta.turn_count;
         let (res, new_sid) = if let Some(through) = cut {
             // The fork resumes a copy of the agent's transcript through that turn.
@@ -98,6 +106,14 @@ impl Hub {
             (json!({}), String::new())
         } else {
             let child = self.child_for(session).await?;
+            // An agent that does not offer session/fork (Kimi, DeepSeek) answers it
+            // with a bare internal error: refuse with the reason instead.
+            if !offers_fork(session.meta().agent_capabilities.as_ref()) {
+                return Err(RpcError::invalid_params(format!(
+                    "{} cannot fork a chat: its agent does not offer session/fork",
+                    parent_meta.harness
+                )));
+            }
             // The list the parent's agent got at its start (`spawn.rs`).
             let all = child.all_tools.load(std::sync::atomic::Ordering::Relaxed);
             let res = child
@@ -243,4 +259,10 @@ impl Hub {
         self.save_meta(&new);
         Ok(new)
     }
+}
+
+/// Whether an ACP agent's `initialize` capabilities offer `session/fork`. Capabilities
+/// not known yet (the agent never started) count as offered: the agent then answers.
+pub(crate) fn offers_fork(caps: Option<&Value>) -> bool {
+    caps.is_none_or(|c| c.pointer("/sessionCapabilities/fork").is_some_and(|f| !f.is_null()))
 }
