@@ -12,11 +12,21 @@ const RENDER_FRAME_CADENCE: Duration = Duration::from_millis(8);
 /// The render requests of one surface: the newest requested generation and
 /// whether the producer owes a frame. A request while a frame is owed only
 /// raises the generation; the first one kicks the surface's lane.
+///
+/// It also holds the surface's scroll position change that output caused
+/// and no `scroll-changed` event has published yet. Output moves the
+/// scroll offset on almost every chunk (93k events/s while one terminal
+/// floods, perf100 tui lane), so output only records the newest position
+/// here and the frame lane publishes it once per frame. Every other scroll
+/// change (a viewport scroll, a resize, a clear) publishes at once and drops
+/// a recorded one, under the same lock, so an older position can never be
+/// published after a newer one.
 #[derive(Default)]
 pub(super) struct FrameRequests {
     requested: AtomicU64,
     armed: AtomicBool,
     lane: OnceLock<Lane>,
+    scroll: Mutex<Option<(u64, bool)>>,
 }
 
 impl FrameRequests {
@@ -27,6 +37,35 @@ impl FrameRequests {
         {
             lane.kick();
         }
+    }
+}
+
+impl FrameRequests {
+    /// Output moved the scroll position: publish it with the next frame.
+    pub(super) fn defer_scroll(&self, offset: u64, at_bottom: bool) {
+        *self.scroll.lock().unwrap() = Some((offset, at_bottom));
+    }
+
+    /// Publish a recorded output scroll change, if any; whether one was.
+    pub(super) fn flush_scroll(&self, mux: &Mux, surface: SurfaceId) -> bool {
+        let mut pending = self.scroll.lock().unwrap();
+        let Some((offset, at_bottom)) = pending.take() else { return false };
+        mux.emit_terminal_scroll(surface, offset, at_bottom);
+        true
+    }
+
+    /// A scroll change that is not output's: publish it now, replacing a
+    /// recorded one.
+    pub(super) fn publish_scroll_now(
+        &self,
+        mux: &Mux,
+        surface: SurfaceId,
+        offset: u64,
+        at_bottom: bool,
+    ) {
+        let mut pending = self.scroll.lock().unwrap();
+        *pending = None;
+        mux.emit_terminal_scroll(surface, offset, at_bottom);
     }
 }
 
@@ -77,7 +116,15 @@ pub(super) fn spawn_frame_producer(surface: &Arc<Surface>) -> anyhow::Result<()>
             let defaults = pty.mux.upgrade().map(|mux| mux.default_colors()).unwrap_or_default();
             let _ = pty.flush_attach_colors_locked(&term, defaults);
         }
-        if pty.build_producer_frame(term, generation).unwrap_or(false) || colors_pending {
+        let built = pty.build_producer_frame(term, generation).unwrap_or(false);
+        // A published scroll position paces the lane like a frame does: with
+        // no render viewer no frame is built, and output would otherwise
+        // publish a position per chunk.
+        let scrolled = pty
+            .mux
+            .upgrade()
+            .is_some_and(|mux| pty.frame_requests.flush_scroll(&mux, pty.event_surface_id));
+        if built || colors_pending || scrolled {
             last_frame = Instant::now();
         }
         LaneNext::Idle
