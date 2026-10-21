@@ -381,7 +381,11 @@ await requireBrowserLane("agent-pane-start-mode-chip.test.ts", async () => {
     await other.waitForFunction((selector) => document.querySelector(selector)?.textContent === "Normal", CHIP, {
       timeout: 10_000,
     });
-    expect(asks()).toBeGreaterThan(before);
+    // Once every answer is in, the push is the only ask since the rounds: a re-ask the rounds set
+    // off later would have landed by now.
+    expect(await settledChip(other, sent)).toBe("Normal");
+    expect(await asked(other)).toBe(sent + 1);
+    expect(asks()).toBe(before + 1);
     await context.close();
   });
 });
