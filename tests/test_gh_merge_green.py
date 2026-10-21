@@ -1978,7 +1978,8 @@ class MergedHeadChecksRegression(unittest.TestCase):
             result = InstalledHelperRegression.run_helper(
                 self, directory, marker, changed_files=tuple(changed_files or pr_files), is_cross_repository=fork,
                 extra_args=((*extra_args, "--trust-fork-head", head) if trust_head else extra_args),
-                full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head)
+                full=full, rollup=() if full else InstalledHelperRegression.FAST_GREEN, rollup_head=head,
+                reviews=reviews_fixture((f"Review (subagent, correctness first): SHIP at {head[:12]}", "2026-10-21T05:00:00Z"), head=head))
         finally:
             HEAD = saved[0]
             os.environ["PATH"] = saved[2]
