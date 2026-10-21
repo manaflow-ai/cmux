@@ -393,7 +393,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     return result;
   };
 
-  const report = (name: string, opened: Opened[]) => {
+  /// `phase` says which budget the run is held to, named rather than read out of `name`: the names
+  /// carry the load the run was under ("loaded cached"), and a notice that guessed the budget from
+  /// the name printed the cold one for every cached phase the moment a name changed.
+  const report = (name: string, phase: "cold" | "cached", opened: Opened[]) => {
     const drawn = opened.map((entry) => entry.drawn ?? Number.POSITIVE_INFINITY);
     const worst = Math.max(...drawn);
     console.log(
@@ -414,14 +417,14 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     // The brief's budget is named apart from the ceiling asserted, which is that plus the dev
     // bundle's render frame: a cold open back at 520 ms is comfortably inside the ceiling and 120 ms
     // outside what Leo asked for, and this line is all a green run leaves to read it in.
-    const asked = name === "cached" ? CACHED_PAINT_MS : COLD_PAINT_MS;
+    const asked = phase === "cached" ? CACHED_PAINT_MS : COLD_PAINT_MS;
     const cadence = opened.map((entry) => entry.cadence.length);
     console.log(
       `::notice title=chat-open-perf (${name})::worst draw ` +
         `${Number.isFinite(worst) ? worst.toFixed(0) : "never"} ms of ${asked} ms asked for ` +
         `(${asked + DEV_RENDER_MS} ms the ceiling here, the dev bundle's render frame on top), ` +
         `draw frame count ${cadence.join("/")}` +
-        (name === "cached" ? ` of ${CACHED_DRAW_FRAMES} allowed` : "") +
+        (phase === "cached" ? ` of ${CACHED_DRAW_FRAMES} allowed` : "") +
         `, shifted frames ${opened.reduce((all, entry) => all + entry.shifted, 0)}, ` +
         `blank frames ${opened.reduce((all, entry) => all + entry.blank, 0)}, ` +
         `${CHAT_COUNT} chats, ${CALL_MS} ms a call and ${ATTACH_MS} ms an attach`,
@@ -454,8 +457,8 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     for (const entry of picked) cached.push(await open(entry));
     await page.close();
 
-    const worstCold = report(`${name} cold`, cold);
-    const worstCached = report(`${name} cached`, cached);
+    const worstCold = report(`${name} cold`, "cold", cold);
+    const worstCached = report(`${name} cached`, "cached", cached);
     console.log(`chat-open-perf ${name}: ${attaches} attaches for ${picked.length} cold and ${picked.length} cached`);
     return { cold, cached, worstCold, worstCached };
   };
