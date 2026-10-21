@@ -149,6 +149,10 @@ public nonisolated struct DeepLink: Sendable, Hashable {
     /// (schemas/deeplinks/agent-link.json `ignoredOrder`).
     public var usedParameters: Set<String> {
         var names: Set<String> = []
+        // An agent link carries its harness and session in the path, where the page carries them
+        // as parameters (schemas/deeplinks/agent-link.json `pathParams`), so a stray `?session=x`
+        // beside `cmux://agent/claude/s1` must not read as a session the link left out either.
+        if case .agent = target { names.formUnion(Self.agentPathKeys) }
         if machine != nil { names.insert(Self.machineKey) }
         if hostHint != nil { names.insert(Self.hostHintKey) }
         if nameHint != nil { names.insert(Self.nameHintKey) }
@@ -158,6 +162,10 @@ public nonisolated struct DeepLink: Sendable, Hashable {
 
     /// The fragment that names a turn: `#turn-<turnId>`.
     static let turnFragmentPrefix = "turn-"
+
+    /// What the page calls the two parts of an agent link's path
+    /// (schemas/deeplinks/agent-link.json `pathParams`).
+    static let agentPathKeys: Set<String> = ["harness", "session"]
 
     /// The query parameters of an agent link's display hints.
     static let hostHintKey = "host"

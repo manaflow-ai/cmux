@@ -139,4 +139,14 @@ struct ToastCopyTests {
         let named = try #require(RefusalStrings.linkParametersIgnored(["host"], used: ["message"]))
         #expect(named.contains("host"), "\(named)")
     }
+
+    /// Two stray names the charset leaves the same of are one name, as the page counts what it
+    /// shows rather than what the link wrote: `?cwd%20=x&cwd%09=y` says `cwd` once, and two names
+    /// with nothing printable left say `?` once.
+    @Test func twoStrayNamesShownTheSameAreSaidOnce() throws {
+        let message = try #require(RefusalStrings.linkParametersIgnored(["cwd ", "cwd\t", "\u{2713}", "\u{202E}"]))
+        #expect(message.contains("cwd, ?"), "\(message)")
+        #expect(!message.contains("cwd, cwd"), "\(message)")
+        #expect(!message.contains("?, ?"), "\(message)")
+    }
 }

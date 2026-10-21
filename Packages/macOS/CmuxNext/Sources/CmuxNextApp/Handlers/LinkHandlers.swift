@@ -25,10 +25,13 @@ enum LinkHandlers {
             // Only this kind, and only after it opened: the older kinds have always ignored
             // their extra parameters (a shared `?utm_source=…`, nightly's `stable_*_id`), and a
             // link that refused shows why it refused instead.
-            // It is a notice in the window the reader is in, so it follows the rule refusals
-            // follow (`AppActionContext.showsNotice`): a run this user did not start, and one
-            // whose caller (CLI, socket, palette) reads the reason itself, show no HUD.
-            if case .agent = parsed.link.target, !background, !registry.refusalHasCaller,
+            // It is a notice in the window the reader is in, so a run this user did not start
+            // (`background`) and one whose caller collects what the run said instead of showing
+            // it (`isCapturingRefusal`: the socket, the CLI) show no HUD. Not
+            // `refusalHasCaller`, which also covers a reporting run such as the palette's: that
+            // one only shows a reason `refuse()` reported, which this notice is not, so gating on
+            // it would leave Open Link… from the palette with no word of a stray parameter.
+            if case .agent = parsed.link.target, !background, !registry.isCapturingRefusal,
                let notice = RefusalStrings.linkParametersIgnored(parsed.ignoredParameters,
                                                                  used: parsed.link.usedParameters) {
                 services.refusalHUD.show(notice, in: services.windows.active?.window ?? NSApp.keyWindow)

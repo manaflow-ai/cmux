@@ -178,6 +178,25 @@ struct AgentLinkSchemaTests {
         #expect(parsed.ignoredParameters == ignored, "\(text)")
     }
 
+    /// What a reader may never say a link ignored: an agent link's path carries its harness and
+    /// its session where the page carries them as parameters, so `?session=x` beside
+    /// `cmux://agent/claude/s1` is ignored, yet never named -- naming it would deny the chat the
+    /// link just opened (schemas/deeplinks/agent-link.json `pathParams`, `ignoredOrder`).
+    @Test func theNamesOfAnAgentLinksPathAreNeverSaidToBeIgnored() throws {
+        let url = try #require(URL(string: "cmux://agent/claude/s1?session=x&harness=y&cwd=z"))
+        let parsed = try #require(DeepLink.read(url, scheme: "cmux"))
+        #expect(parsed.link.target == .agent(harness: "claude", session: "s1"))
+        #expect(parsed.ignoredParameters == ["session", "harness", "cwd"])
+        let used = parsed.link.usedParameters
+        #expect(used.isSuperset(of: ["harness", "session"]), "\(used)")
+        #expect(!used.contains("cwd"), "\(used)")
+        // Only an agent link's path names them: another kind's `?session=x` is a stray name.
+        let tab = try #require(URL(string: "cmux://tab/tab_0123456789abcdef0123456789abcdef?session=x"))
+        let other = try #require(DeepLink.read(tab, scheme: "cmux"))
+        #expect(other.ignoredParameters == ["session"])
+        #expect(other.link.usedParameters.isEmpty, "\(other.link.usedParameters)")
+    }
+
     /// A link with every parameter right ignores nothing.
     @Test func aLinkWithNothingStrayIgnoresNothing() throws {
         let url = try #require(URL(string: "cmux://agent/codex/s1?host=big-red&name=Rivetmoss&message=msg_1"

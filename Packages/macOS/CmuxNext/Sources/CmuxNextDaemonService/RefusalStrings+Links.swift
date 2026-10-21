@@ -26,7 +26,13 @@ nonisolated extension RefusalStrings {
     ///     beside `?host=big-red` would otherwise deny a parameter the link carries.
     /// - Returns: The notice, or nil when nothing is left to name.
     public static func linkParametersIgnored(_ names: [String], used: Set<String> = []) -> String? {
-        let shown = names.map(displayedParameterName).filter { !used.contains($0) }.prefix(shownNames)
+        // Each name once, counted on what is shown rather than on what the link wrote, as the
+        // page counts it: `?host%20=x&host%09=y` is one name here, and two names with nothing
+        // printable left are one `?`.
+        var seen: Set<String> = []
+        let shown = names.map(displayedParameterName)
+            .filter { !used.contains($0) && seen.insert($0).inserted }
+            .prefix(shownNames)
         guard !shown.isEmpty else { return nil }
         return format("handlers.refusal.linkParametersIgnored",
                       "opened the link and ignored parameters it doesn't use: %@",
