@@ -394,8 +394,8 @@ final class SidebarBridge {
 
     func contextMenu(for target: SidebarContextTarget) -> NSMenu? {
         switch target {
-        case .layoutItem(let id): layoutItemMenu(id)
-        case .layoutSection(let id): layoutSectionMenu(id)
+        case .layoutItem(let id): layoutItemMenu(id)?.themeRows(in: container.themeScope.fullStrength)
+        case .layoutSection(let id): layoutSectionMenu(id)?.themeRows(in: container.themeScope.fullStrength)
         default: SidebarContextMenus.menu(for: target, model: model, services: services, scope: container.themeScope.fullStrength)
         }
     }

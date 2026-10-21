@@ -79,6 +79,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var animationKinds = AnimationKindsSetting()
     /// `ui.animations.enabled` and `ui.animations.<category>` (``MotionCategoriesSetting``).
     public var motionCategories = MotionCategoriesSetting()
+    /// `ui.calm`; off when unset or invalid.
+    public var calmMode: CalmMode = CalmModeSetting.fallback
     /// `ui.paneAnimations`; on when unset or invalid.
     public var paneAnimations: Bool = PaneAnimationsSetting.fallback
     /// `layout.centerFocusedColumn`; "never" when unset or invalid.
@@ -131,6 +133,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var attention = AttentionSettings()
     /// `appearance.backgroundOpacity` and `appearance.backgroundBlur`; both nil (Ghostty's values) when unset or invalid.
     public var windowBackground = WindowBackgroundOverride()
+    /// `appearance.inactiveWindowDim`: 0 unless set.
+    public var inactiveWindowDim = 0.0
     /// `appearance.surfaces.<surface>.color|opacity` (R55); no override
     /// (every surface shows the window's backdrop) when unset or invalid.
     public var surfaceBackgrounds = SurfaceBackgrounds.none
@@ -286,6 +290,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.take(AnimationKindsSetting.parse(root), \.animationKinds)
         snapshot.take(MotionCategoriesSetting.parse(root), \.motionCategories)
         snapshot.take(PaneAnimationsSetting.parse(root), \.paneAnimations)
+        snapshot.take(CalmModeSetting.parse(root), \.calmMode)
         let (centering, centeringDiagnostic) = CenterFocusedColumnSetting.parse(root)
         snapshot.centerFocusedColumn = centering
         if let centeringDiagnostic { snapshot.diagnostics.append(centeringDiagnostic) }
@@ -305,6 +310,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
         snapshot.focusRing = PaneRingConfigParser.focusRing(root, diagnostics: &snapshot.diagnostics)
         snapshot.attention = PaneRingConfigParser.attention(root, diagnostics: &snapshot.diagnostics)
         snapshot.windowBackground = WindowBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
+        snapshot.inactiveWindowDim = WindowBackgroundSetting.parseInactiveDim(root, diagnostics: &snapshot.diagnostics)
         snapshot.surfaceBackgrounds = SurfaceBackgroundSetting.parse(root, diagnostics: &snapshot.diagnostics)
         snapshot.backdropSelection = BackdropSelectionSetting().parse(root, diagnostics: &snapshot.diagnostics)
         if case .art(let art) = snapshot.backdropSelection { snapshot.backdropArt = art } else { snapshot.backdropArt = nil }

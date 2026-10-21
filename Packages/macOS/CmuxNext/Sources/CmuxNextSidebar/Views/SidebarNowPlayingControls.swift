@@ -13,7 +13,6 @@ final class SidebarNowPlayingPlayButton: NSButton {
         didSet {
             guard label != oldValue else { return }
             setAccessibilityLabel(label)
-            themedToolTip = label
         }
     }
     private var renderedSide: CGFloat = 0

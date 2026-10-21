@@ -38,7 +38,6 @@ export function Switch({
       role="switch"
       aria-checked={on}
       aria-label={label}
-      title={label}
       disabled={disabled}
       className={`apps-switch${on ? " on" : ""}`}
       onClick={() => onChange(!on)}

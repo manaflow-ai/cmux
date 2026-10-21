@@ -16,7 +16,7 @@ import CoreGraphics
 /// |------------------------|---------|-------------|-------------------|
 /// | row, tab row, group    | 24      | 28          | + `space2`        |
 /// | machine/section header | 22      | 26          | + `space2`        |
-/// | row with a detail line | 36      | 40          | + `space2`        |
+/// | row with a detail line | 37      | 41          | row + detail line |
 /// | horizontal inset       | 6       | 8           | `space3`→`space4` |
 /// | section gap            | 8       | 12          | `space4`→`space5` |
 /// | list top padding       | 4       | 6           | `space2`→`space3` |
@@ -36,8 +36,12 @@ enum SidebarDensityTokens {
 
     /// A one-line workspace row, tab row, group header or band row.
     static var rowHeight: CGFloat { Metrics.sidebarRowHeight + extra }
-    /// A workspace row with one detail line (the step per extra line is the app's).
-    static var rowHeightWithSubtitle: CGFloat { Metrics.sidebarRowHeightWithSubtitle + extra }
+    /// A workspace row with one detail line: the one-line row plus that line's height, so a row's
+    /// text keeps the same room above and below with one line or more (Leo 2026-10-20). With
+    /// `SidebarTunables.evenRowText` off, the app's fixed step instead.
+    static var rowHeightWithSubtitle: CGFloat {
+        SidebarTunables.evenRowText.value ? rowHeight + SidebarStyle.detailLineHeight : Metrics.sidebarRowHeightWithSubtitle + extra
+    }
     /// A machine or section header in the list, and a band's header.
     static var headerHeight: CGFloat { Metrics.sidebarHeaderHeight + extra }
     /// Rows inset from the sidebar edge, and their content from the row edge.

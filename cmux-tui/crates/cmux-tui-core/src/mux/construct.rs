@@ -181,6 +181,9 @@ impl Mux {
             crate::journal_ingress::JournalIngressSender::new(
                 registry.session_journal_database_path().is_some(),
             );
+        let output_store = crate::output_store::OutputStore::new(
+            registry.session_journal_database_path().as_deref().and_then(Path::parent),
+        );
         Self::rebuild_split_screen_index(&mut state);
         let resource_projection_stats = registry.resource_projection_stats().clone();
         let launch_identity = crate::launch_credential::LaunchIdentity::load(
@@ -323,6 +326,7 @@ impl Mux {
             resource_machine_service: OnceLock::new(),
             journal_kernel,
             journal_ingress,
+            output_store,
             journal_maintenance: Mutex::new(None),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
@@ -409,6 +413,7 @@ impl Mux {
             mux.record_journal_plugin_exit(plugin_id, generation);
         })));
         crate::journal_ingress::start(&mux, journal_ingress_receiver)?;
+        mux.output_store.start(&mux)?;
         mux.materialize_interrupted_resource_workspaces()?;
         mux.materialize_restored_browsers(&contents)?;
         #[cfg(any(unix, windows))]
