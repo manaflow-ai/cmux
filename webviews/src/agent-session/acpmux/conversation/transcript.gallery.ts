@@ -130,7 +130,7 @@ const openSingleShell = async (ctx: PlayContext) => {
 
 const openGroupedShells = async (ctx: PlayContext) => {
   await openWorked(ctx);
-  await ctx.click({ selector: ".cv-tool.is-toggle" });
+  // A group of commands lists its calls without a click.
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-command").length === 2);
   await ctx.click({ selector: ".cv-command" });
   await ctx.waitFor(() => ctx.document.querySelectorAll(".cv-shell__command").length === 1);
@@ -368,6 +368,55 @@ const footerActionsPlacement = (placement: "left" | "right") => async (ctx: Play
     throw new Error(`turn footer actions are not ${placement}-aligned`);
 };
 
+/// A run of commands longer than a group shows at once (ToolGroupRow.tsx GROUP_TAIL).
+const DENSE_COMMANDS = [
+  "cd ~/Projects/cmux && git log --oneline -5 -- Sources/Sidebar",
+  "rg -n 'onDrop' webviews/src/sidebar",
+  "rg -n 'dragIndex' webviews/src/sidebar",
+  "git diff origin/feat-cmux-next -- webviews/src/sidebar/SidebarDrag.tsx",
+  "bun test test/sidebar-drag.test.tsx",
+  "rg -n 'reorder' webviews/src/sidebar/sidebarStore.ts",
+  "git log -3 --format='%h %s' -- webviews/src/sidebar/sidebarStore.ts",
+];
+const shellTool = (command: string) =>
+  tool(command, "execute", "completed", {
+    command,
+    exitCode: 0,
+    output: "",
+    startedAt: minutesAgo(2.8),
+    endedAt: minutesAgo(2.79),
+  });
+
+const MCP_THREAD = "01a14822-c01a-76a1-9fc5-1268687464d4";
+/// Codex's MCP call shape: `<server>.<tool> call`, arguments nested under `arguments`.
+const mcpTool = (name: string, args: unknown, output: string) =>
+  tool(`codex_apps.${name} call`, "execute", "completed", {
+    inputSummary: JSON.stringify({ server: "codex_apps", tool: name, arguments: args }),
+    output,
+  });
+const MCP_SENDS = ["READY #22338", "MERGED #22283", "CI armed", "Previews saved"].map((message) =>
+  mcpTool("send_message", { threadId: MCP_THREAD, message }, JSON.stringify({ ok: true })),
+);
+const MCP_READ = mcpTool(
+  "read_thread",
+  { threadId: MCP_THREAD },
+  JSON.stringify({
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          thread: {
+            id: MCP_THREAD,
+            title: "Coordination hub",
+            preview:
+              '<in-app-browser-context source="ambient-ui-state">\nActive tab\n</in-app-browser-context>\nship it',
+          },
+        }),
+      },
+    ],
+  }),
+);
+
 export default agentPaneEntry({
   id: "agent-pane.transcript",
   title: "Transcript rows",
@@ -405,6 +454,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/ToolRun.tsx",
     "agent-session/acpmux/conversation/transcriptDisclosure.tsx#TranscriptDisclosureProvider",
     "agent-session/acpmux/conversation/ToolGroupRow.tsx",
+    "agent-session/acpmux/conversation/McpCallRows.tsx#McpCallRows",
     "agent-session/acpmux/conversation/CommandRow.tsx",
     "agent-session/acpmux/conversation/ShellBlock.tsx#ShellBlock",
     "agent-session/acpmux/conversation/CopyButton.tsx#CopyButton",
@@ -767,6 +817,57 @@ export default agentPaneEntry({
             ],
           }),
           activity([tool("Read client.ts", "read", "in_progress")], 1.5),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "dense-live-run": {
+      note: "A running turn lists each call on its own line: the latest five commands under Ran 7 commands with +2 more, then the read, and the running MCP call named by server and action.",
+      snapshot: chat(
+        [
+          user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 3),
+          assistant("I'll look at the drag handlers and the recent changes first.", 2.9),
+          activity(
+            [
+              ...DENSE_COMMANDS.map((command) => shellTool(command)),
+              tool("Read SidebarDrag.tsx", "read", "completed"),
+              tool("mcp__cmux-subsessions__start_session", "other", "in_progress", {
+                inputSummary: JSON.stringify({ name: "sidebar-drag-bugs", prompt: "Fix the sidebar drag bugs" }),
+              }),
+            ],
+            2.8,
+          ),
+        ],
+        { isWorking: true },
+      ),
+    },
+    "dense-ended-run": {
+      note: "An ended turn folds under Worked for; opened, its commentary, each group and each call keep their own lines, with no Used tools summary to click through.",
+      snapshot: chat([
+        user("Find why the sidebar drag drops tabs, and hand the fix to a sub-session.", 6),
+        assistant("I'll look at the drag handlers and the recent changes first.", 5.9),
+        activity(
+          [
+            ...DENSE_COMMANDS.map((command) => shellTool(command)),
+            tool("Read SidebarDrag.tsx", "read", "completed"),
+            tool("mcp__cmux-subsessions__start_session", "other", "completed", {
+              inputSummary: JSON.stringify({ name: "sidebar-drag-bugs", prompt: "Fix the sidebar drag bugs" }),
+              output: JSON.stringify({ ok: true }),
+            }),
+          ],
+          5.8,
+        ),
+        assistant("The drop target loses its index when the list re-sorts. A sub-session is fixing it.", 3),
+        summary(3, { status: "completed", toolCount: 9, durationMs: 174_000 }),
+      ]),
+      play: openWorked,
+    },
+    "mcp-calls": {
+      note: "MCP calls read as what they did: four sends to one chat are one line, the read names the chat.",
+      snapshot: chat(
+        [
+          user("Post the lane updates to the Coordination hub and read it back.", 1),
+          activity([...MCP_SENDS, MCP_READ], 0.8),
         ],
         { isWorking: true },
       ),

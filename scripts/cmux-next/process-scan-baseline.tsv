@@ -38,7 +38,6 @@ Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFChildProcessMonitor.swift
 Packages/macOS/CmuxNext/Sources/CmuxNextWakeups/UnixSocketPeer.swift	1	keep	peer authentication of one connected socket
 Packages/macOS/CmuxNext/Sources/CmuxNextControl/ControlPeerAncestry.swift	2	remove	cx-t2sqm.11 (walks the control peer's ancestors; decision D5)
 Packages/macOS/CmuxNext/Sources/CmuxNextResources/TaskManager/SystemProcessLineage.swift	2	remove	cx-t2sqm.11 (Kill Process walks a named pid's ancestors and reads its executable to decide it is cmux's; decision D5: end only pids the Task Manager sample listed)
-Packages/macOS/CmuxNext/Sources/CmuxNextComputerUse/ComputerUseHelperV2.swift	1	keep	peer authentication of the computer-use helper socket
 Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePersonInput.swift	1	keep	peer authentication of one posted event source pid
 Packages/macOS/CmuxComputerUseHelper/Sources/CmuxCuaHelperCore/PeerInspector.swift	1	remove	cx-t2sqm.11 (walks the peer's ancestors; decision D5)
 cmux-tui/crates/cmux-server/src/health/mod.rs	1	keep	reads the system route table under /proc/net, not processes

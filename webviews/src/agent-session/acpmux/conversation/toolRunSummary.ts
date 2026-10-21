@@ -3,6 +3,7 @@
 import type { Translate } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { editedPaths } from "../toolPaths";
+import { mcpCall } from "./mcpCalls";
 
 /// What a call did, in the order a run's summary names them.
 export type ToolRunCategory = "used" | "edited" | "read" | "searched" | "web" | "ran";
@@ -30,9 +31,14 @@ export function toolRunCategory(kind?: string): ToolRunCategory {
   }
 }
 
-/// A run in an ended turn (inside an open "Worked for") folds under one summary line once it
-/// holds two or more calls. A live turn lists every call, so its height and the user's place
-/// don't change as each call starts and ends.
+/// What one call did. An MCP call used a tool whatever kind its harness gives it (Codex says
+/// "execute" for every one).
+function callCategory(tool: NonNullable<AcpmuxActivity["tool"]>): ToolRunCategory {
+  return mcpCall(tool) ? "used" : toolRunCategory(tool.kind);
+}
+
+/// A run the Codex-style runs (Debug toggle) settle folds under one summary line once it holds two
+/// or more calls. Otherwise every run lists its calls (TurnRows.tsx `shouldFoldToolRun`).
 export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
   return items.filter((item) => item.tool).length >= 2;
 }
@@ -40,7 +46,7 @@ export function isFoldedRun(items: readonly AcpmuxActivity[]): boolean {
 /// The categories a run's calls fall in, in summary order. Searches count as reads when the
 /// run also reads files, as in "Read files, ran commands".
 export function toolRunCategories(items: readonly AcpmuxActivity[]): ToolRunCategory[] {
-  const present = new Set(items.filter((item) => item.tool).map((item) => toolRunCategory(item.tool!.kind)));
+  const present = new Set(items.filter((item) => item.tool).map((item) => callCategory(item.tool!)));
   if (present.has("read")) present.delete("searched");
   return ORDER.filter((category) => present.has(category));
 }
@@ -52,7 +58,7 @@ export function toolRunSummary(t: Translate, items: readonly AcpmuxActivity[]): 
     category === "edited"
       ? editedFiles(tools)
       : tools.filter((item) => {
-          const own = toolRunCategory(item.tool!.kind);
+          const own = callCategory(item.tool!);
           return own === category || (category === "read" && own === "searched");
         }).length;
   const phrase = (category: ToolRunCategory) => {

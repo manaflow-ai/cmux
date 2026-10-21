@@ -341,6 +341,50 @@ export default agentPaneEntry({
         await ctx.hover({ selector: ".acpmux-attachment-image" });
       },
     },
+    // Leo (2026-10-20): every pasted image read "image.png" on hover, and one that could not be
+    // drawn showed an empty checkerboard. WebKit names pasted image data "image.png".
+    "image-pasted-unnamed": {
+      note: "A pasted screenshot WebKit names image.png: hover names it Screenshot with its natural size.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const canvas = new view.OffscreenCanvas(2458, 2324);
+        const paint = canvas.getContext("2d")!;
+        paint.fillStyle = "#1f2a44";
+        paint.fillRect(0, 0, 2458, 2324);
+        paint.fillStyle = "#5b8def";
+        for (let line = 0; line < 10; line += 1) paint.fillRect(560, 300 + line * 180, 1200 - line * 60, 60);
+        const file = new view.File([await canvas.convertToBlob({ type: "image/png" })], "image.png", {
+          type: "image/png",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-image img[src^='data:image/png']"));
+        await ctx.hover({ selector: ".acpmux-attachment-image" });
+      },
+    },
+    "image-failed": {
+      note: "A pasted image whose bytes cannot be drawn: its chip says Couldn't load image, and × still removes it.",
+      snapshot: ((base) => ({ ...base, summary: { ...base.summary!, promptCapabilities: { image: true } } }))(
+        chat(finished),
+      ),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const file = new view.File([new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4])], "image.png", {
+          type: "image/png",
+        });
+        const field = ctx.find({ selector: ".acpmux-md" });
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files: [file], types: ["Files"] } });
+        field.dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment"));
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      },
+    },
     "quick-image-attached": {
       note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
       ready: { surface: "quick" },
@@ -427,14 +471,13 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
-    // Leo 2026-10-18: the empty prompt mid-turn teaches its keys, as Claude's "↵ to send, ⌘↵ to
-    // queue for later" does.
+    // Leo 2026-10-20: the empty prompt mid-turn teaches its keys, as Claude's composer does.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says ↵ queues and ⌘↵ steers.",
+      note: "A turn running for an agent that steers: the empty prompt says ↵ steers and ⌘↵ queues.",
       snapshot: steering(true),
     },
-    "working-hint-interrupt": {
-      note: "The same for an agent that cannot steer: the empty prompt says ↵ queues and ⌘↵ interrupts.",
+    "working-hint-queue": {
+      note: "The same for an agent that cannot steer: nothing sent stops the turn, so the empty prompt says it queues.",
       snapshot: steering(false),
     },
     "working-stop": {
@@ -453,12 +496,12 @@ export default agentPaneEntry({
       },
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Steer beside Send puts it into the turn now (⌘Return); Send queues it for after the turn (Return); Esc on an empty prompt stops the turn.",
+      note: "A prompt typed while the turn runs: Steer beside Send puts it into the turn, read when the agent's current step ends (Return); Send queues it for after the turn (⌘Return); Esc on an empty prompt stops the turn.",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
     },
-    "working-interrupt": {
-      note: "The same for an agent that cannot steer: Interrupt stops the turn and sends the prompt next (⌘Return).",
+    "working-queue": {
+      note: "The same for an agent that cannot steer: no Steer control; Send queues the prompt (Return or ⌘Return).",
       snapshot: steering(false),
       ready: { draft: "Use the new tokenizer instead" },
     },
