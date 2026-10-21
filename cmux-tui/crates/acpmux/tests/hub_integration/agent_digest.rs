@@ -235,3 +235,43 @@ async fn agent_messages_a_failed_turn_held_go_in_after_the_next_completed_turn()
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(queue_order(&mut c, &id).await, ["p-me"], "the person's held prompt still waits");
 }
+
+/// A turn of agent messages that fails puts the messages that joined it back, held, in order:
+/// none is lost to a turn the agent may never have read. The next completed turn releases them.
+#[tokio::test]
+async fn a_failed_turn_of_agent_messages_puts_the_joined_ones_back() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let mut agents = connect(&hub).await;
+    let id = busy(&mut c).await;
+    let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    let b = queue(&mut agents, from_agent(&id, "p-b", "lane-b", "[fail-digest-once] from b")).await;
+    let d = queue(&mut agents, from_agent(&id, "p-c", "lane-c", "from c")).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    // The head's sender hears the failure, as for any failed prompt.
+    let failed = agents.response(a).await.0;
+    assert!(failed.is_err(), "{failed:?}");
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let attached =
+            c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+        if attached["session"]["turn"].is_null() && queue_order(&mut c, &id).await.len() == 2 {
+            break;
+        }
+        assert!(tokio::time::Instant::now() < deadline, "not put back: {attached}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(queue_order(&mut c, &id).await, ["p-b", "p-c"]);
+
+    c.send(method::SESSION_PROMPT, person(&id, "p-next", "next")).await;
+    let echoes = echoes_until(&mut c, "from c").await;
+    assert_eq!(echoes.len(), 2, "{echoes:?}");
+    assert_eq!(echoes[0], "echo: next");
+    assert!(echoes[1].contains("[agent message 1 of 2] from lane-b"), "{echoes:?}");
+    assert!(echoes[1].contains("[agent message 2 of 2] from lane-c"), "{echoes:?}");
+    // p-b led the second turn; p-c went in with it.
+    let answered = answers(&mut agents, &[b, d]).await;
+    assert_eq!(answered[&b]["_meta"]["acpmux"]["promptId"], "p-b", "{answered:?}");
+    assert_eq!(answered[&d]["_meta"]["acpmux"]["promptId"], "p-c", "{answered:?}");
+    assert_eq!(answered[&d]["_meta"]["acpmux"]["joinedPromptId"], "p-b", "{answered:?}");
+    assert!(queue_order(&mut c, &id).await.is_empty());
+}

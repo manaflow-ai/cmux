@@ -72,7 +72,22 @@ impl Found {
             self.turn_id = field("turnId").to_owned();
             self.ended = false;
         }
+        // Back in the queue after the turn of agent messages it joined failed (`digest.rs`).
+        if e.kind == "queued"
+            && e.msg.get("requeued") == Some(&Value::Bool(true))
+            && field("promptId") == self.prompt_id
+        {
+            self.turn_id = field("turnId").to_owned();
+            (self.started, self.ended) = (false, false);
+            return;
+        }
         let same_turn = !self.turn_id.is_empty() && field("turnId") == self.turn_id;
+        // It went in with an earlier agent message's turn (`digest.rs`): that turn is its own.
+        if e.kind == "dequeued" && same_turn && !field("joinedTurnId").is_empty() {
+            self.turn_id = field("joinedTurnId").to_owned();
+            (self.started, self.ended) = (true, false);
+            return;
+        }
         match e.kind.as_str() {
             "user_message" | "dequeued" | "turn_started" if same_turn => self.started = true,
             "queue_removed" if same_turn => self.removed = true,

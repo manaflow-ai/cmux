@@ -14,7 +14,9 @@
 //!   oldest first, under a line naming its sender (`digest_blocks`), up to
 //!   [`DIGEST_MAX_BYTES`] of text; the rest goes in together as the next turn. A joined prompt
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
-//!   `session/prompt` answers with that turn's answer (`joined_reply`).
+//!   `session/prompt` answers with that turn's answer (`joined_reply`). When that turn fails,
+//!   the joined messages go back to the head of the queue, held, once (`requeue_joined`):
+//!   none is lost to a turn the agent may never have read.
 //!
 //! A failed turn holds the prompts behind it (`queue.rs` `pause_queue`): the person's wait for
 //! the person to resume them, since they were written for a turn that went well. Agent messages
@@ -33,6 +35,7 @@
 //! `_meta.acpmux.fromAgent` (`acpmux send --from`). Naming yourself an agent only puts you
 //! later, so it needs no proof. Every other prompt is the person's, as before.
 
+use super::queue::{Answer, PromptRun, QueuedPrompt};
 use super::*;
 use std::sync::atomic::Ordering;
 
@@ -44,7 +47,7 @@ pub const MAX_FROM_AGENT_CHARS: usize = 64;
 
 /// What a joined prompt's wait gets (`queue.rs` `QueuedPrompt::joined`): the turn it joined and,
 /// once that turn ends, its answer.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub(super) struct Joined {
     pub(super) prompt_id: String,
     pub(super) turn_id: String,
@@ -173,19 +176,20 @@ impl Hub {
     /// agent messages waiting right behind it under the same rules out of the queue, oldest
     /// first, to go in with it. Held prompts wait where they are; anything else (the person's
     /// prompt, one sent now, one under other rules) ends the run. Each joined prompt's wait
-    /// answers with `answer` once the turn ends.
+    /// answers with `digest.answer` once the turn ends; a failed turn puts them back
+    /// (`requeue_joined`).
     pub(super) fn take_joined(
         &self,
         session: &Arc<Session>,
         head: &PromptRun,
         prompt_id: &str,
         turn_id: &str,
-        answer: &tokio::sync::watch::Sender<Option<Answer>>,
+        digest: &DigestTurn,
     ) -> Vec<Part> {
         if head.agent.is_none() {
             return Vec::new();
         }
-        let mut bytes = prompt_text(&head.blocks).len();
+        let mut bytes = blocks_bytes(&head.blocks);
         let taken: Vec<QueuedPrompt> = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut taken = Vec::new();
@@ -201,17 +205,17 @@ impl Hub {
                     && !q.sent_now
                     && q.run.control == head.control
                     && q.run.trust_gate == head.trust_gate;
-                let size = prompt_text(&q.run.blocks).len();
+                let size = blocks_bytes(&q.run.blocks);
                 if !joins || bytes + size > DIGEST_MAX_BYTES {
                     break;
                 }
                 bytes += size;
                 let q = queue.remove(i);
                 session.queued.fetch_sub(1, Ordering::SeqCst);
-                let _ = q.joined.set(Joined {
+                *q.joined.lock().unwrap_or_else(|e| e.into_inner()) = Some(Joined {
                     prompt_id: prompt_id.to_owned(),
                     turn_id: turn_id.to_owned(),
-                    answer: answer.subscribe(),
+                    answer: digest.answer.subscribe(),
                 });
                 taken.push(q);
             }
@@ -221,22 +225,91 @@ impl Hub {
             return Vec::new();
         }
         session.queue_moved.notify_waiters();
-        taken
-            .into_iter()
+        let mut left = session.queued() + taken.len() as u64;
+        let parts = taken
+            .iter()
             .map(|q| {
+                left -= 1;
                 self.append(
                     session,
                     "mux",
                     "dequeued",
-                    json!({"promptId": q.prompt_id, "turnId": q.turn_id, "queued": session.queued(), "joinedPromptId": prompt_id, "joinedTurnId": turn_id}),
+                    json!({"promptId": q.prompt_id, "turnId": q.turn_id, "queued": left, "joinedPromptId": prompt_id, "joinedTurnId": turn_id}),
                 );
                 // A stored permit: the waiting task answers from `joined` (`queue_slot`).
                 q.withdraw.notify_one();
                 let sender = q.run.agent.clone().unwrap_or_default();
-                Part { prompt_id: q.prompt_id, sender, run: q.run }
+                Part { prompt_id: q.prompt_id.clone(), sender, run: q.run.clone() }
             })
-            .collect()
+            .collect();
+        *digest.taken.lock().unwrap_or_else(|e| e.into_inner()) = taken;
+        parts
     }
+
+    /// After a turn of agent messages failed: the messages that joined it go back to the head of
+    /// the queue, held, in order, so none is lost to a turn the agent may never have read. Their
+    /// waiting tasks wait again (`queue_slot`); the chat's next completed turn releases them
+    /// (`release_held_agent_messages`). An agent that read them before failing may read them
+    /// twice.
+    pub(super) fn requeue_joined(&self, session: &Arc<Session>, digest: &DigestTurn) {
+        let mut taken =
+            std::mem::take(&mut *digest.taken.lock().unwrap_or_else(|e| e.into_inner()));
+        // Once: a message that fails every turn it is in must not hold the queue again and again.
+        taken.retain(|q| !q.requeued);
+        if taken.is_empty() || session.meta().status == SessionStatus::Closed {
+            return;
+        }
+        let ids: Vec<String> = taken.iter().map(|q| q.prompt_id.clone()).collect();
+        let order: Vec<String> = {
+            let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+            for (i, mut q) in taken.iter().cloned().enumerate() {
+                *q.joined.lock().unwrap_or_else(|e| e.into_inner()) = None;
+                (q.held, q.steer, q.sent_now, q.restored, q.resume, q.requeued) =
+                    (true, false, false, false, false, true);
+                queue.insert(i, q);
+                session.queued.fetch_add(1, Ordering::SeqCst);
+            }
+            queue.iter().map(|q| q.prompt_id.clone()).collect()
+        };
+        let mut position = session.queued() - taken.len() as u64;
+        for q in &taken {
+            position += 1;
+            let text = prompt_text(&q.run.blocks);
+            let mut queued = json!({"text": text, "client": q.client, "position": position, "promptId": q.prompt_id, "turnId": q.turn_id, "prompt": q.run.blocks, "control": q.run.control.as_str(), "trustGate": q.run.trust_gate, "requeued": true});
+            if let Some(agent) = &q.run.agent {
+                queued["fromAgent"] = json!(agent);
+            }
+            let queued = crate::prompt_provenance::marked(queued, q.run.provenance.as_ref());
+            self.append(session, "mux", "queued", queued);
+        }
+        self.append(session, "mux", "queue_paused", json!({"held": ids, "requeued": true}));
+        self.append(session, "mux", "queue_order", json!({"order": order}));
+        session.queue_moved.notify_waiters();
+    }
+}
+
+/// What one prompt's turn hands the agent messages that join it: its answer, and the queue
+/// entries they left, which go back if it fails.
+pub(super) struct DigestTurn {
+    pub(super) answer: tokio::sync::watch::Sender<Option<Answer>>,
+    taken: StdMutex<Vec<QueuedPrompt>>,
+}
+
+impl Default for DigestTurn {
+    fn default() -> Self {
+        Self { answer: tokio::sync::watch::channel(None).0, taken: StdMutex::new(Vec::new()) }
+    }
+}
+
+/// How much of a turn's budget a prompt's blocks take: their text, and an image's data.
+fn blocks_bytes(blocks: &[Value]) -> usize {
+    blocks
+        .iter()
+        .map(|b| match b.get("text").and_then(Value::as_str) {
+            Some(text) => text.len(),
+            None => b.get("data").and_then(Value::as_str).map_or(0, str::len),
+        })
+        .sum()
 }
 
 #[cfg(test)]

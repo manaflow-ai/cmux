@@ -217,10 +217,14 @@ impl Hub {
         steer: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
-        // The agent messages that go in with this one (`digest.rs`) answer with its answer.
-        let joined = tokio::sync::watch::channel(None).0;
+        // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
+        // wait again when it failed.
+        let joined = super::digest::DigestTurn::default();
         let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
-        joined.send_replace(Some(result.clone()));
+        if result.is_err() {
+            self.requeue_joined(session, &joined);
+        }
+        joined.answer.send_replace(Some(result.clone()));
         result
     }
 
@@ -231,7 +235,7 @@ impl Hub {
         client: &str,
         steer: bool,
         opts: PromptOptions,
-        joined: &tokio::sync::watch::Sender<Option<super::queue::Answer>>,
+        joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
