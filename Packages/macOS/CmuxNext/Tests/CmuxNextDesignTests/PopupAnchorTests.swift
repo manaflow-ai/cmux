@@ -65,6 +65,10 @@ import Testing
         let card = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: nil, window: window)
         #expect(window.contains(card), "card \(card) leaves the window \(window)")
         #expect(card.minX == 242, "card \(card) is not on the button's leading edge")
+        // A window narrower than the card bounds nothing on that axis (as the screen would).
+        let narrow = CGRect(x: 100, y: 200, width: 200, height: 600)
+        let wide = PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: nil, window: narrow)
+        #expect(wide.maxX == 262 && wide.maxY == 698, "card \(wide) is not under the button's trailing edge")
         // With neither, the card is placed as anchored.
         #expect(PopupAnchor(rect: button, edge: .trailing, gap: 2, margin: 4).cardFrame(size: size, visible: nil).minX == 22)
     }
