@@ -68,6 +68,9 @@ pub struct Conn {
     caller: std::sync::OnceLock<String>,
     /// The session a first unix `initialize` named with a token that did not prove it.
     pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// The peers this connection leased (`hub/peer_lease.rs`); None once it
+    /// closed, so a lease that settles after the close ends at once.
+    peer_leases: StdMutex<Option<Vec<crate::hub::PeerLease>>>,
 }
 
 impl Conn {
@@ -113,6 +116,26 @@ impl Conn {
             if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
                 self.person.store(true, Ordering::SeqCst);
             }
+        }
+    }
+
+    /// Hold `lease` until this connection closes; ended now if it already did.
+    pub(super) fn hold_peer_lease(&self, hub: &Hub, lease: crate::hub::PeerLease) {
+        let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        match leases.as_mut() {
+            Some(held) => held.push(lease),
+            None => {
+                drop(leases);
+                hub.end_peer_lease(&lease);
+            }
+        }
+    }
+
+    /// The connection closed: every peer it leased stops.
+    fn end_peer_leases(&self, hub: &Hub) {
+        let held = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).take();
+        for lease in held.unwrap_or_default() {
+            hub.end_peer_lease(&lease);
         }
     }
 
@@ -727,6 +750,7 @@ async fn serve_connection_from(
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
+        peer_leases: StdMutex::new(Some(Vec::new())),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -773,6 +797,7 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
+    conn.end_peer_leases(&hub);
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 

@@ -80,8 +80,10 @@ pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 pub mod approvers;
 mod peer_cache;
+mod peer_lease;
+pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::PEER_PERMISSION_PENDING;
+pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET};
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -263,6 +265,9 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
+    /// Leased peers by name, with the generation of the peer each lease
+    /// started (`peer_lease.rs`); never saved.
+    pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
@@ -394,6 +399,7 @@ impl Hub {
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: StdMutex::new(HashMap::new()),
+            peer_leases: StdMutex::new(HashMap::new()),
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
