@@ -103,7 +103,7 @@ import { HomeLists } from "./HomeLists";
 import { endsTurn, turnFiles, turnRows, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
 import type { TrustSource } from "./folderTrust";
-import { TrustAsk } from "./TrustAsk";
+import { TrustAsk, trustedLabel } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
@@ -6316,6 +6316,7 @@ function AcpmuxPane() {
           ask={trustAsk.ask}
           agent={snapshot.summary?.harness ? agentName(snapshot.summary.harness) : t("trust.agent")}
           onTrust={trustAsk.trust}
+          onTrustRepo={trustAsk.trustRepo}
           onDistrust={trustAsk.distrust}
           onUndo={trustAsk.undo}
         />
@@ -6372,12 +6373,15 @@ function AcpmuxPane() {
       )}
     </div>
   ) : null;
-  const trustLabel =
-    trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted"
-      ? isAgentHome(trustAsk.ask.cwd)
-        ? t("trust.trustedPrivate")
-        : t("trust.trusted", { folder: projectName(trustAsk.ask.cwd) ?? trustAsk.ask.cwd })
-      : undefined;
+  // The trusted grant names where the answer lives (the repository, a worktree's root, the
+  // folder), from the answer just given or the last read; its × forgets it there.
+  const trustScope =
+    trustAsk.ask?.state === "decided" && trustAsk.ask.level === "trusted" ? trustAsk.ask : trustAsk.scope;
+  const trustLabel = trustScope
+    ? isAgentHome(trustScope.cwd)
+      ? t("trust.trustedPrivate")
+      : trustedLabel(t, trustScope)
+    : undefined;
   const permissionAccess: ComposerPermissionAccess = {
     grants: [
       ...(trustAsk.trusted
