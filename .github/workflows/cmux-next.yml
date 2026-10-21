@@ -1933,6 +1933,56 @@ jobs:
           esac
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
 
+  # A same-repository pull request's app compile, on the build fleet instead
+  # of the Mac Release queue (2026-10-21: 76 of ~350 queued Mac jobs were
+  # Release compiles). It compiles and links the app at the PR's head, the
+  # commit merge_compile_guard.py and the landing hooks ask about, in about a
+  # minute. A fleet compile error fails this job: the PR's own red. No verdict
+  # (no client, the fleet down, a timeout) is a notice, and release-compile
+  # runs on a Mac instead. A full-ci PR, a fork, and every push and dispatch
+  # keep the Mac Release compile; the base push compiles Release after the
+  # merge, and push-attribution names the PR on a red.
+  app-compile-fleet:
+    needs: [path_route, push-head-preflight]
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') }}
+    name: cmux-next app compile (build fleet)
+    concurrency:
+      group: cmux-next-pr-${{ github.event.pull_request.number }}-app-compile-fleet
+      cancel-in-progress: true
+    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+    permissions: {}
+    timeout-minutes: 30
+    outputs:
+      verdict: ${{ steps.check.outputs.verdict }}
+    steps:
+      # The gateway checks nothing out: the fleet fetches the commit itself.
+      - name: Compile-check the app at the pull request's head on the build fleet
+        id: check
+        env:
+          REF: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -uo pipefail
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::notice title=Build fleet compile::$client is not installed on runner $RUNNER_NAME; the Mac Release compile runs."
+            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          status=0
+          "$client" compile-check --ref "$REF" --app --timeout 1200 --queue-timeout 300 || status=$?
+          case "$status" in
+            0) verdict=pass; summary="The build fleet compiled and linked the cmux-next app at \`$REF\` (Debug, swift.org toolchain). The Release compile runs on the base push after the merge." ;;
+            1) verdict=fail; summary="The cmux-next app did not compile on the build fleet at \`$REF\`; the errors are in this job's log above." ;;
+            *) verdict=unavailable; summary="No build-fleet verdict (exit $status); the Mac Release compile runs instead." ;;
+          esac
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          echo "### Build fleet app compile: $verdict"$'\n\n'"$summary" >> "$GITHUB_STEP_SUMMARY"
+          if [[ "$verdict" == fail ]]; then
+            echo "::error title=Build fleet compile::$summary"
+            exit 1
+          fi
+          [[ "$verdict" == pass ]] || echo "::notice title=Build fleet compile::$summary"
+
   # Small package-only Swift edits get a mini-first type-check/build canary.
   # This uses the same placement and linked SwiftPM scratch as the other Mac
   # jobs, so a warm mini can answer in roughly 1-2 minutes. It deliberately
@@ -3176,8 +3226,8 @@ jobs:
 
   release-compile:
     environment: ${{ github.event_name != 'pull_request' && 'ci-build-cache-reader' || '' }}
-    needs: [path_route, macos-placement, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && (needs.push-head-preflight.outputs.current == 'true' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true') }}
+    needs: [path_route, macos-placement, push-head-preflight, app-compile-fleet]
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && (needs.push-head-preflight.outputs.current == 'true' || github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next') && (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'full-ci') || github.event.pull_request.head.repo.full_name != github.repository && needs.path_route.outputs.cmuxnext_swift == 'true' || github.event.pull_request.head.repo.full_name == github.repository && needs.app-compile-fleet.outputs.verdict != 'pass' && needs.app-compile-fleet.outputs.verdict != 'fail') }}
     name: cmux-next Release compile (Xcode 26)
     # The base's compile check: a feat-cmux-next push compiles even when a newer
     # push has landed (push-head-preflight says superseded). The job group below
@@ -3190,8 +3240,10 @@ jobs:
     # Release runs on every base push, next-batch/* push and dispatch, and on a
     # PR the native tier reaches with full-ci. #22325 ran it on every
     # same-repository PR; on 2026-10-21 (~20:10Z) 76 of the ~350 queued Mac jobs
-    # were this compile, so a same-repository PR needs full-ci again and its
-    # merge is compiled by the base push (push-attribution names it on a red).
+    # were this compile, so a same-repository PR compiles its head on the build
+    # fleet (app-compile-fleet) and runs this only with full-ci or when the
+    # fleet gave no verdict; its merge is compiled by the base push
+    # (push-attribution names it on a red).
     # A fork PR runs it with full-ci, or when it changes any .swift
     # file under Packages/macOS/CmuxNext/ (Sources or Tests, whatever else it
     # changes; path_route's cmuxnext_swift). A Release-only

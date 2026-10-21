@@ -1799,6 +1799,8 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
             "github.run_attempt": 1,
             "github.triggering_actor": "someone",
             "needs.push-head-preflight.outputs.current": "true",
+            # The build fleet compiled a same-repository PR's head (PullRequestCompileOnTheBuildFleet).
+            "needs.app-compile-fleet.outputs.verdict": "pass",
             # With macos-placement's outputs empty (it skipped), runs-on takes the shared route.
             "needs.macos-placement.outputs.runner": "",
             "vars.CI_PR_POOL_OWNED": "1",
@@ -1878,6 +1880,9 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
         self.assertEqual(context["needs.path_route.outputs.cmuxnext_swift"], "false")
         self.assertFalse(self.runs(context))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",))))
+        # With no build-fleet verdict, the Mac compiles it instead.
+        context["needs.app-compile-fleet.outputs.verdict"] = "unavailable"
+        self.assertTrue(self.runs(context))
         self.assertFalse(self.runs(self.context(["App/Info.plist"], head_repo="someone/cmux")))
         self.assertTrue(self.runs(self.context(["App/Info.plist"], labels=("full-ci",), head_repo="someone/cmux")))
 
@@ -1916,6 +1921,7 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
             "needs.push-head-preflight.outputs.current": "true",
             "needs.web-bundles.result": "success",
             "needs.path_route.outputs.tree_state": "ready",
+            "needs.app-compile-fleet.outputs.verdict": "pass",
         }
         for tier in ("macos", "native", "swift_canary", "scheme", "generated", "swift", "daemon"):
             context[f"needs.path_route.outputs.{tier}"] = "true"
