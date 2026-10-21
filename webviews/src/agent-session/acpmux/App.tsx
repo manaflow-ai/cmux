@@ -7653,8 +7653,9 @@ function AcpmuxPane() {
                 </header>
                 {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
+                {/* The lines under the header drop in from the top (ui/popupSurface.css `data-enter`). */}
                 {snapshot.missingSession && (
-                  <p className="acpmux-link-missing" role="alert">
+                  <p className="acpmux-link-missing" role="alert" data-enter="top">
                     {t("link.sessionMissing")}
                   </p>
                 )}
@@ -7678,7 +7679,7 @@ function AcpmuxPane() {
                   />
                 )}
                 {!reviewing && snapshot.handoff?.error && (
-                  <p className="acpmux-handoff-error" role="alert">
+                  <p className="acpmux-handoff-error" role="alert" data-enter="top">
                     {snapshot.handoff.error}
                   </p>
                 )}
