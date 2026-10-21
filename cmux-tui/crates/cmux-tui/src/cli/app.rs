@@ -773,35 +773,18 @@ fn error_code(error: &Value) -> Option<&str> {
 /// A `busy` answer is safe to retry only when the app says the request
 /// never ran; one that may have started (`in_progress`) is reported.
 fn busy_before_running(error: &Value) -> bool {
-    let data = error.get("data").unwrap_or(&Value::Null);
-    error_code(error) == Some("busy")
-        && (data.get("not_run") == Some(&Value::Bool(true))
-            || data.get("state").and_then(Value::as_str) == Some("not_run"))
+    error_code(error) == Some("busy") && refused_before_running(error)
 }
 
-/// The app refused the request before anything ran (no such action or
-/// target, not in this context, a bad request, a `busy` that never
-/// started), so no change may still apply and there is no key to retry.
-/// A `timeout` or a work failure may come after part of the run, and keeps
-/// the retry note.
+/// The app says nothing ran (`data.not_run`): it refused before the
+/// handler ran or before any of its work started, or a `busy` or `timeout`
+/// came before the start. No change may still apply and there is no key to
+/// retry. A refusal from the action's work (`unavailable` after a group was
+/// made, a send still resending) carries no mark and keeps the retry note.
 fn refused_before_running(error: &Value) -> bool {
-    busy_before_running(error)
-        || matches!(
-            error_code(error),
-            Some(
-                "not_found"
-                    | "not_bound"
-                    | "unavailable"
-                    | "disabled"
-                    | "feature.disabled"
-                    | "confirmation_required"
-                    | "invalid_params"
-                    | "invalid_request"
-                    | "method_not_found"
-                    | "idempotency_conflict"
-                    | "ambiguous"
-            )
-        )
+    let data = error.get("data").unwrap_or(&Value::Null);
+    data.get("not_run") == Some(&Value::Bool(true))
+        || data.get("state").and_then(Value::as_str) == Some("not_run")
 }
 
 fn busy_retry_delay(error: &Value) -> Duration {

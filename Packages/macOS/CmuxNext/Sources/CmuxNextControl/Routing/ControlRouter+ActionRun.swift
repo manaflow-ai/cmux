@@ -22,6 +22,15 @@ extension ControlRouter {
     static let settleLimit: Duration = .seconds(30)
 
     func runAction(_ call: ControlCall) async throws -> JSONValue {
+        do {
+            return try await startAction(call)
+        } catch let error as ControlError where !call.progress.hasStarted && error.code != "timeout" {
+            // Refused before the handler ran: nothing applied (a timeout gets its mark from the progress).
+            throw error.notRun()
+        }
+    }
+
+    private func startAction(_ call: ControlCall) async throws -> JSONValue {
         let catalog = call.snapshot.catalog
         let action = try Self.resolveAction(call.params, in: catalog)
         var given = try Self.validatedRequest(for: action, params: call.params, knownKinds: catalog.targetKinds,
@@ -108,7 +117,9 @@ extension ControlRouter {
         }
         do {
             try Self.check(run.outcome, action: action.id)
-        } catch let error as ControlError {
+        } catch var error as ControlError {
+            // A refusal that started no work applied nothing; one that did may have applied part.
+            if run.work.isEmpty { error = error.notRun() }
             // The run started, so `runAction` keeps the key: record the refusal.
             if let key { idempotency.finish(key, with: .failure(error)) }
             throw error
