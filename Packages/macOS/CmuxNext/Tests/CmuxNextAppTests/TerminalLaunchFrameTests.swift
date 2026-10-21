@@ -12,9 +12,9 @@ import Testing
 @MainActor @Suite(.serialized) struct TerminalLaunchFrameTests {
     static let size = NSSize(width: 480, height: 240)
 
-    /// A frame of `size` at 2x, as a quit saves it.
-    static func frame(_ size: NSSize) -> NSImage {
-        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * 2), pixelsHigh: Int(size.height * 2),
+    /// A frame of `size` at `scale`, as a quit saves it.
+    static func frame(_ size: NSSize, scale: CGFloat) -> NSImage {
+        let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: Int(size.width * scale), pixelsHigh: Int(size.height * scale),
                                    bitsPerSample: 8, samplesPerPixel: 4, hasAlpha: true, isPlanar: false,
                                    colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0)
         rep?.size = size
@@ -70,7 +70,7 @@ import Testing
         defer { pane.close() }
         try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
         // Saved at quit at the terminal's size in this pane (the pane less its scroller, if any).
-        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size)])
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
         let frames = TerminalLaunchFrames(directory: directory)
         #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
@@ -81,13 +81,25 @@ import Testing
         #expect(!frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal), "a frame is shown once per launch")
     }
 
+    @Test func aFrameSavedOnAScreenOfAnotherScaleIsNotShown() async throws {
+        let reveal = LaunchReveal(deadline: .seconds(60))
+        let pane = Pane(reveal: reveal)
+        defer { pane.close() }
+        let scale: CGFloat = pane.window.backingScaleFactor == 2 ? 1 : 2
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size, scale: scale)])
+        defer { try? FileManager.default.removeItem(at: directory) }
+        #expect(!TerminalLaunchFrames(directory: directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal),
+                "it would draw at the window's scale, twice or half its size")
+        #expect(pane.content.alphaValue == 0)
+    }
+
     @Test func aFrameOfAnotherSizeIsNotShown() async throws {
         let reveal = LaunchReveal(deadline: .seconds(60))
         let pane = Pane(reveal: reveal)
         defer { pane.close() }
         // Saved in a wider window.
         let surface = pane.session.surfaceView.bounds.size
-        let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height))])
+        let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height), scale: pane.window.backingScaleFactor)])
         defer { try? FileManager.default.removeItem(at: directory) }
         #expect(!TerminalLaunchFrames(directory: directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as before")

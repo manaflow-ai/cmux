@@ -42,6 +42,8 @@ final class TerminalLaunchFrames {
         let size = session.surfaceView.bounds.size
         guard !laidOut || (abs(image.size.width - size.width) < 1 && abs(image.size.height - size.height) < 1),
               let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
+              // The held frame draws at the window's scale: one saved on a screen of another scale would not fit.
+              content.window.map({ abs(CGFloat(frame.width) / image.size.width - $0.backingScaleFactor) < 0.01 }) ?? true,
               TerminalLaunchFrame(frame).show(on: session) else { return false }
         reveal.release(content)
         DebugTimings.markLaunch("terminal.launch_frame_shown")

@@ -11,10 +11,11 @@ public struct TerminalLaunchFrame {
         self.image = image
     }
 
-    /// Shows the frame over `session`; false when the session has content already.
+    /// Shows the frame over `session`; false when the session has content already, or holds a
+    /// newer frame (an evicted terminal's last frame, ``TerminalLastFrames``).
     @discardableResult
     public func show(on session: TerminalSession) -> Bool {
-        guard !session.surfaceHasContent else { return false }
+        guard !session.surfaceHasContent, !session.frameHold.isHolding else { return false }
         session.frameHold.begin(lastFrame: image, over: session.surfaceView, in: session.view)
         return true
     }
