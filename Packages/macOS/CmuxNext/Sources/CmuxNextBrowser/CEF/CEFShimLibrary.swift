@@ -247,19 +247,24 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
-        let resolver = Resolver(handle: handle)
-        let library = try CEFShimLibrary(resolver)
+        let library = try CEFShimLibrary(Resolver { dlsym(handle, $0) })
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
     }
 
+    /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
     private struct Resolver {
-        let handle: UnsafeMutableRawPointer
+        let symbol: (String) -> UnsafeMutableRawPointer?
 
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
-            guard let symbol = dlsym(handle, name) else { throw .missingSymbol(name) }
+            guard let symbol = symbol(name) else { throw .missingSymbol(name) }
             return unsafeBitCast(symbol, to: T.self)
         }
+    }
+
+    /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
+    static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
+        try CEFShimLibrary(Resolver(symbol: symbol))
     }
 
     private init(_ r: Resolver) throws(LoadError) {

@@ -40,7 +40,10 @@ struct PageEnginePolicyTests {
         let policy = PageEnginePolicy(preference: .chromium, chromiumAvailable: true)
         let spike = PageEngineOptions(chromiumAgentChat: true)
         #expect(policy.decide(for: Self.agent, options: spike) == .chromium)
-        #expect(policy.decide(for: Self.dynamic, options: spike) == .webKit(.runtimeResources))
+        // Only that one hold: a page the spike says nothing about keeps the reason it has.
+        #expect(policy.decide(for: Self.dynamic,
+                              options: PageEngineOptions(requiresWebKit: .transparentOverlay, chromiumAgentChat: true))
+            == .webKit(.transparentOverlay))
         #expect(policy.decide(for: Self.agent, options: PageEngineOptions(requiresWebKit: .nativeHooks, chromiumAgentChat: true))
             == .webKit(.nativeHooks))
         #expect(PageEnginePolicy(preference: .webkit, chromiumAvailable: true).decide(for: Self.agent, options: spike)

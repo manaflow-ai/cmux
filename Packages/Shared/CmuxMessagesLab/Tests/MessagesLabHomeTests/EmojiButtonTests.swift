@@ -108,4 +108,21 @@ import Testing
         #expect(stops == 1)
         #expect(opened == 0)
     }
+
+    /// Option-click on Stop is the host's Stop all agents; a plain click
+    /// stops only the Chief's turn (coordinator 2026-10-20).
+    @Test func optionClickOnStopStopsAllAgents() async {
+        let p = pane()
+        var stops = 0, all = 0
+        p.controller.onStop = { stops += 1 }
+        p.controller.onStopAll = { all += 1 }
+        p.controller.isWorking = true
+
+        p.controller.roundButtonClicked(option: true)
+        #expect(all == 1)
+        #expect(stops == 0)
+        p.controller.roundButtonClicked(option: false)
+        #expect(all == 1)
+        #expect(stops == 1)
+    }
 }

@@ -4854,7 +4854,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue in…"
+            "value": "Continue In…"
           }
         },
         "ja": {
@@ -15727,127 +15727,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud Diagnostics…"
+            "value": "Cloud Diagnostics"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 診断…"
+            "value": "Cloud 診断"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تشخيصات Cloud…"
+            "value": "تشخيصات Cloud"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud dijagnostika…"
+            "state": "translated",
+            "value": "Cloud dijagnostika"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-diagnostik…"
+            "state": "translated",
+            "value": "Cloud-diagnostik"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud-Diagnose…"
+            "value": "Cloud-Diagnose"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnósticos de Cloud…"
+            "value": "Diagnósticos de Cloud"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Diagnostics Cloud…"
+            "value": "Diagnostics Cloud"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diagnostica Cloud…"
+            "state": "translated",
+            "value": "Diagnostica Cloud"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ការវិនិច្ឆ័យ Cloud…"
+            "state": "translated",
+            "value": "ការវិនិច្ឆ័យ Cloud"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 진단…"
+            "value": "Cloud 진단"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud-diagnostikk …"
+            "state": "translated",
+            "value": "Cloud-diagnostikk"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diagnostyka Cloud…"
+            "state": "translated",
+            "value": "Diagnostyka Cloud"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Diagnóstico do Cloud…"
+            "state": "translated",
+            "value": "Diagnóstico do Cloud"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Диагностика Cloud…"
+            "state": "translated",
+            "value": "Диагностика Cloud"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "การวินิจฉัย Cloud…"
+            "state": "translated",
+            "value": "การวินิจฉัย Cloud"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cloud Tanılama…"
+            "state": "translated",
+            "value": "Cloud Tanılama"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Діагностика Cloud…"
+            "state": "translated",
+            "value": "Діагностика Cloud"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chẩn đoán Cloud…"
+            "state": "translated",
+            "value": "Chẩn đoán Cloud"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 诊断…"
+            "value": "Cloud 诊断"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cloud 診斷…"
+            "value": "Cloud 診斷"
           }
         }
       }
@@ -17734,7 +17734,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Palette de commandes..."
+            "value": "Palette de commandes…"
           }
         },
         "it": {
@@ -17776,13 +17776,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Палитра команд..."
+            "value": "Палитра команд…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แถบคำสั่ง..."
+            "value": "แถบคำสั่ง…"
           }
         },
         "tr": {
@@ -17806,13 +17806,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "命令面板..."
+            "value": "命令面板…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "指令面板..."
+            "value": "指令面板…"
           }
         }
       }
@@ -22712,7 +22712,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher..."
+            "value": "Rechercher…"
           }
         },
         "it": {
@@ -22754,13 +22754,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Найти..."
+            "value": "Найти…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ค้นหา..."
+            "value": "ค้นหา…"
           }
         },
         "tr": {
@@ -22784,13 +22784,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "查找..."
+            "value": "查找…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "尋找..."
+            "value": "尋找…"
           }
         }
       }
@@ -25594,7 +25594,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aller à l'espace de travail..."
+            "value": "Aller à l'espace de travail…"
           }
         },
         "it": {
@@ -25636,13 +25636,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Перейти к рабочему пространству..."
+            "value": "Перейти к рабочему пространству…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ไปที่เวิร์กสเปซ..."
+            "value": "ไปที่เวิร์กสเปซ…"
           }
         },
         "tr": {
@@ -25666,13 +25666,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作区..."
+            "value": "前往工作区…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "前往工作區..."
+            "value": "前往工作區…"
           }
         }
       }
@@ -35026,7 +35026,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ouvrir un dossier..."
+            "value": "Ouvrir un dossier…"
           }
         },
         "it": {
@@ -35068,13 +35068,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Открыть папку..."
+            "value": "Открыть папку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปิดโฟลเดอร์..."
+            "value": "เปิดโฟลเดอร์…"
           }
         },
         "tr": {
@@ -35098,13 +35098,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "打开文件夹..."
+            "value": "打开文件夹…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "開啟資料夾..."
+            "value": "開啟資料夾…"
           }
         }
       }
@@ -35288,7 +35288,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réglages..."
+            "value": "Réglages…"
           }
         },
         "it": {
@@ -35330,13 +35330,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Настройки..."
+            "value": "Настройки…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "การตั้งค่า..."
+            "value": "การตั้งค่า…"
           }
         },
         "tr": {
@@ -35360,13 +35360,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "设置..."
+            "value": "设置…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "設定..."
+            "value": "設定…"
           }
         }
       }
@@ -35377,127 +35377,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Team Picker"
+            "value": "Team Picker…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チームを選択"
+            "value": "チームを選択…"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "منتقي الفريق"
+            "state": "translated",
+            "value": "منتقي الفريق…"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Odabir tima"
+            "state": "translated",
+            "value": "Odabir tima…"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Teamvælger"
+            "state": "translated",
+            "value": "Teamvælger…"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Team auswählen"
+            "state": "translated",
+            "value": "Team auswählen…"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Selector de equipo"
+            "state": "translated",
+            "value": "Selector de equipo…"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sélecteur d’équipe"
+            "state": "translated",
+            "value": "Sélecteur d’équipe…"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Selettore team"
+            "state": "translated",
+            "value": "Selettore team…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ជ្រើសក្រុម"
+            "state": "translated",
+            "value": "ជ្រើសក្រុម…"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "팀 선택"
+            "state": "translated",
+            "value": "팀 선택…"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Teamvelger"
+            "state": "translated",
+            "value": "Teamvelger…"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wybór zespołu"
+            "state": "translated",
+            "value": "Wybór zespołu…"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Seletor de Equipe"
+            "state": "translated",
+            "value": "Seletor de Equipe…"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Выбор команды"
+            "state": "translated",
+            "value": "Выбор команды…"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ตัวเลือกทีม"
+            "state": "translated",
+            "value": "ตัวเลือกทีม…"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ekip Seçici"
+            "state": "translated",
+            "value": "Ekip Seçici…"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Вибір команди"
+            "state": "translated",
+            "value": "Вибір команди…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chọn nhóm"
+            "state": "translated",
+            "value": "Chọn nhóm…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "团队选择器"
+            "state": "translated",
+            "value": "团队选择器…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "選擇團隊"
+            "state": "translated",
+            "value": "選擇團隊…"
           }
         }
       }
@@ -36163,127 +36163,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Browser History"
+            "value": "Clear Browser History…"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ブラウザの履歴を消去"
+            "value": "ブラウザの履歴を消去…"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "مسح سجل المتصفح"
+            "value": "مسح سجل المتصفح…"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Obriši historiju preglednika"
+            "value": "Obriši historiju preglednika…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ryd browserhistorik"
+            "value": "Ryd browserhistorik…"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Browserverlauf löschen"
+            "value": "Browserverlauf löschen…"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Borrar historial del navegador"
+            "value": "Borrar historial del navegador…"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Effacer l'historique du navigateur"
+            "value": "Effacer l'historique du navigateur…"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cancella cronologia browser"
+            "value": "Cancella cronologia browser…"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "សម្អាតប្រវត្តិកម្មវិធីរុករក"
+            "state": "translated",
+            "value": "សម្អាតប្រវត្តិកម្មវិធីរុករក…"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "브라우저 기록 지우기"
+            "value": "브라우저 기록 지우기…"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tøm nettleserhistorikk"
+            "value": "Tøm nettleserhistorikk…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wyczyść historię przeglądarki"
+            "value": "Wyczyść historię przeglądarki…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Limpar Histórico do Navegador"
+            "value": "Limpar Histórico do Navegador…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Очистить историю браузера"
+            "value": "Очистить историю браузера…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ล้างประวัติเบราว์เซอร์"
+            "value": "ล้างประวัติเบราว์เซอร์…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tarayıcı Geçmişini Temizle"
+            "value": "Tarayıcı Geçmişini Temizle…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Очистити історію браузера"
+            "value": "Очистити історію браузера…"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Xóa lịch sử trình duyệt"
+            "state": "translated",
+            "value": "Xóa lịch sử trình duyệt…"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除浏览器历史记录"
+            "value": "清除浏览器历史记录…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "清除瀏覽記錄"
+            "value": "清除瀏覽記錄…"
           }
         }
       }
@@ -36598,7 +36598,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rechercher des mises à jour..."
+            "value": "Rechercher des mises à jour…"
           }
         },
         "it": {
@@ -36640,13 +36640,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Проверить обновления..."
+            "value": "Проверить обновления…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตรวจหาอัปเดต..."
+            "value": "ตรวจหาอัปเดต…"
           }
         },
         "tr": {
@@ -36670,13 +36670,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "检查更新..."
+            "value": "检查更新…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "檢查更新..."
+            "value": "檢查更新…"
           }
         }
       }
@@ -45726,7 +45726,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Swap With Session…"
+            "value": "Swap with Session…"
           }
         },
         "ja": {
@@ -45988,7 +45988,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Current Directory in…"
+            "value": "Open Current Directory In…"
           }
         },
         "ja": {
@@ -50222,7 +50222,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renommer l'onglet..."
+            "value": "Renommer l'onglet…"
           }
         },
         "it": {
@@ -50264,13 +50264,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переименовать вкладку..."
+            "value": "Переименовать вкладку…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนชื่อแท็บ..."
+            "value": "เปลี่ยนชื่อแท็บ…"
           }
         },
         "tr": {
@@ -50294,13 +50294,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重命名标签页..."
+            "value": "重命名标签页…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新命名標籤頁..."
+            "value": "重新命名標籤頁…"
           }
         }
       }
@@ -50353,7 +50353,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Renommer l'espace de travail..."
+            "value": "Renommer l'espace de travail…"
           }
         },
         "it": {
@@ -50395,13 +50395,13 @@
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Переименовать рабочее пространство..."
+            "value": "Переименовать рабочее пространство…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "เปลี่ยนชื่อเวิร์กสเปซ..."
+            "value": "เปลี่ยนชื่อเวิร์กสเปซ…"
           }
         },
         "tr": {
@@ -50425,13 +50425,13 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重命名工作区..."
+            "value": "重命名工作区…"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重新命名工作區..."
+            "value": "重新命名工作區…"
           }
         }
       }
@@ -63542,127 +63542,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close All Workspaces in Group"
+            "value": "Close Workspaces in Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループ内のすべてのワークスペースを閉じる"
+            "value": "グループ内のワークスペースを閉じる"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إغلاق كل مساحات العمل في المجموعة"
+            "state": "translated",
+            "value": "إغلاق مساحات العمل في المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatvori sve radne prostore u grupi"
+            "state": "translated",
+            "value": "Zatvori radne prostore u grupi"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Luk alle arbejdsområder i gruppe"
+            "state": "translated",
+            "value": "Luk arbejdsområder i gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alle Arbeitsbereiche der Gruppe schließen"
+            "state": "translated",
+            "value": "Arbeitsbereiche der Gruppe schließen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerrar todos los espacios de trabajo del grupo"
+            "state": "translated",
+            "value": "Cerrar espacios de trabajo del grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fermer tous les espaces du groupe"
+            "state": "translated",
+            "value": "Fermer les espaces du groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiudi tutte le aree di lavoro del gruppo"
+            "state": "translated",
+            "value": "Chiudi le aree di lavoro del gruppo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទកន្លែងធ្វើការទាំងអស់ក្នុងក្រុម"
+            "state": "translated",
+            "value": "បិទកន្លែងធ្វើការក្នុងក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹의 모든 작업 공간 닫기"
+            "state": "translated",
+            "value": "그룹의 작업 공간 닫기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk alle arbeidsområder i gruppen"
+            "state": "translated",
+            "value": "Lukk arbeidsområder i gruppen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij wszystkie przestrzenie w grupie"
+            "state": "translated",
+            "value": "Zamknij przestrzenie w grupie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fechar Todas as Áreas de Trabalho do Grupo"
+            "state": "translated",
+            "value": "Fechar Áreas de Trabalho do Grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть все пространства в группе"
+            "state": "translated",
+            "value": "Закрыть пространства в группе"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดทุกเวิร์กสเปซในกลุ่ม"
+            "state": "translated",
+            "value": "ปิดเวิร์กสเปซในกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruptaki Tüm Çalışma Alanlarını Kapat"
+            "state": "translated",
+            "value": "Gruptaki Çalışma Alanlarını Kapat"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити всі робочі області групи"
+            "state": "translated",
+            "value": "Закрити робочі області групи"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đóng tất cả không gian làm việc trong nhóm"
+            "state": "translated",
+            "value": "Đóng không gian làm việc trong nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭组中所有工作区"
+            "state": "translated",
+            "value": "关闭组中的工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉群組中所有工作區"
+            "state": "translated",
+            "value": "關閉群組中的工作區"
           }
         }
       }
@@ -65114,127 +65114,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit Group Config…"
+            "value": "Edit Group Config"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループ設定を編集…"
+            "value": "グループ設定を編集"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تحرير إعداد المجموعة…"
+            "value": "تحرير إعداد المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Uredi konfiguraciju grupe…"
+            "value": "Uredi konfiguraciju grupe"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rediger gruppekonfiguration…"
+            "value": "Rediger gruppekonfiguration"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gruppen-Konfiguration bearbeiten …"
+            "value": "Gruppen-Konfiguration bearbeiten"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar configuración del grupo…"
+            "value": "Editar configuración del grupo"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifier la configuration du groupe…"
+            "value": "Modifier la configuration du groupe"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Modifica configurazione gruppo…"
+            "value": "Modifica configurazione gruppo"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edit Group Config…"
+            "value": "កែសម្រួលការកំណត់ក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "그룹 설정 편집…"
+            "value": "그룹 설정 편집"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Rediger gruppekonfigurasjon …"
+            "value": "Rediger gruppekonfigurasjon"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Edytuj konfigurację grupy…"
+            "value": "Edytuj konfigurację grupy"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Editar configuração do grupo…"
+            "value": "Editar configuração do grupo"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Изменить конфигурацию группы…"
+            "value": "Изменить конфигурацию группы"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "แก้ไขการตั้งค่ากลุ่ม…"
+            "value": "แก้ไขการตั้งค่ากลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Grup yapılandırmasını düzenle…"
+            "value": "Grup yapılandırmasını düzenle"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Редагувати конфігурацію групи…"
+            "value": "Редагувати конфігурацію групи"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sửa cấu hình nhóm…"
+            "state": "translated",
+            "value": "Sửa cấu hình nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "编辑分组配置…"
+            "value": "编辑分组配置"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "編輯群組設定…"
+            "value": "編輯群組設定"
           }
         }
       }
@@ -87011,7 +87011,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Move Chief to…"
+            "value": "Move Chief To…"
           }
         },
         "ar": {
@@ -89109,6 +89109,270 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "Markdown：重新載入"
+          }
+        }
+      }
+    },
+    "action.home.stopAllAgents": {
+      "comment": "Stop all agents: the Chief's turn and every subagent. Menu item and palette.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إيقاف كل الوكلاء"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zaustavi sve agente"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop alle agenter"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Agenten stoppen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stop All Agents"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Detener todos los agentes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Arrêter tous les agents"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Interrompi tutti gli agenti"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのエージェントを停止"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បញ្ឈប់ភ្នាក់ងារទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 에이전트 중지"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stopp alle agenter"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zatrzymaj wszystkich agentów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parar todos os agentes"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Остановить всех агентов"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "หยุดเอเจนต์ทั้งหมด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm ajanları durdur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Зупинити всіх агентів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dừng tất cả agent"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止所有智能体"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "停止所有代理"
+          }
+        }
+      }
+    },
+    "action.palette.forkAgentConversationNewWindow": {
+      "comment": "Command palette and right-click: fork the agent conversation into a new window",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تفريع المحادثة إلى نافذة جديدة"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Račvaj razgovor u novi prozor"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork samtale til nyt vindue"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konversation in neuem Fenster forken"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork Conversation to New Window"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bifurcar conversación en ventana nueva"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dériver la conversation dans une nouvelle fenêtre"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Duplica conversazione in nuova finestra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "会話を新規ウインドウにフォーク"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork ការសន្ទនាទៅបង្អួចថ្មី"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "대화를 새 창으로 포크"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Forgren samtale til nytt vindu"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rozwidl rozmowę do nowego okna"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bifurcar Conversa em Nova Janela"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Форк беседы в новое окно"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork บทสนทนาไปหน้าต่างใหม่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Konuşmayı Yeni Pencereye Çatalla"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Відгалузити розмову в нове вікно"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Fork cuộc hội thoại sang cửa sổ mới"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "将对话分叉到新窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "將對話分叉到新視窗"
           }
         }
       }
