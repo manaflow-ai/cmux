@@ -395,21 +395,6 @@ async fn the_shown_tab_takes_the_lane_back_over_webrtc() {
     the_shown_tab_takes_the_media_lane_back(Transport::WebRtc, false, "webrtc-track").await;
 }
 
-// TEMPORARY: measure how often the WebRTC lane-back flakes (reverted before landing).
-#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn lane_back_over_webrtc_repeats() {
-    let mut failed = Vec::new();
-    for round in 0..20 {
-        let run =
-            tokio::spawn(the_shown_tab_takes_the_media_lane_back(Transport::WebRtc, false, "webrtc-track"));
-        if run.await.is_err() {
-            failed.push(round);
-        }
-    }
-    eprintln!("lane-back repeats: {} of 20 failed: {failed:?}", failed.len());
-    assert!(failed.is_empty(), "lane-back repeats: {} of 20 failed: {failed:?}", failed.len());
-}
-
 /// The real CEF browser host (`CMUX_MOBILE_RB_HOST_EXE`, e.g. a DEV app's
 /// `Contents/Helpers/cmux-remote-browser-host.app/Contents/MacOS/...`) over
 /// the WebRTC video track, with a page from `CMUX_MOBILE_RB_URL`. Measurement support,
