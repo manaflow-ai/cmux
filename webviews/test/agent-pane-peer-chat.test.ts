@@ -173,11 +173,14 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
       );
       // The call in flight ("Run make") is named once, on its own tool row, and the line over the
       // turn reads its time (WorkingFor.tsx, #23090).
+      // The line already reads before the call comes in: wait for the call's own row.
+      const row = page.locator(".cv-tool.is-live .cv-tool__text", { hasText: "Run make" });
+      await row.first().waitFor();
       const working = page.locator(".cv-worked__label");
       await working.waitFor();
       const label = (await working.textContent()) ?? "";
       const seconds = /^Working for (\d+)s$/.exec(label)?.[1];
-      const named = await page.locator(".cv-tool.is-live .cv-tool__text", { hasText: "Run make" }).count();
+      const named = await row.count();
       const strips = await page.locator(".acpmux-composer-strip").count();
       // A few seconds (page load included), never the peer's ten minutes of clock skew.
       expect({
