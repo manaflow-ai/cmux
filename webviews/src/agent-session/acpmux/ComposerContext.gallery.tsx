@@ -152,12 +152,13 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
       play: openComputer,
     },
     "environment-picker": {
-      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last.",
+      note: "Preview: the computer is the environment picker, one searchable list in Local, SSH and Cloud sections with ⌥⌘1–9; New Cloud Machine ends the Cloud section and New environment (SSH…) comes last. gpu-box is connected (a filled dot), Cloud machine is not (a ring); this Mac has no status.",
       props: {
         ...baseProps,
         environments: true,
         peers: ["gpu-box", "Cloud machine"],
         peerKinds: { "gpu-box": "ssh", "Cloud machine": "cloud" },
+        peerConnected: { "gpu-box": true, "Cloud machine": false },
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /^Environment/ });
