@@ -59,7 +59,7 @@ cmux workspace ws_… progress set 0.4 --label "3 of 8"
 cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only
 ```
 
-To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `tab_create_browser` with `activate: false` adds a tab instead. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
+To open a link, the MCP tool `workspace_open_url` loads it on the workspace's right side, but it navigates a browser tab already there; `cmux browser profile open URL --profile default --background true` (MCP `browser_profile_open` with `activate: false`) adds a tab and keeps the pane's selected tab. `tab focus`, `workspace focus`, `agents tab select` and `focus: true` do move the person's focus: use them only when asked. `current` is the workspace the person looks at, not yours: from a cmux terminal `status set` without a selector targets that terminal's workspace, but an agent chat has no terminal, so name the workspace (`$CMUX_WORKSPACE_ID` when set).
 
 ## Screenshots of the app
 

@@ -75,8 +75,9 @@ pub(super) const GUIDES: &[Guide] = &[Guide {
         session's chat in a new workspace; the workspace the user looks at stays. Open a link: \
         workspace_open_url {url, workspace} loads it in a browser tab on the workspace's right \
         side and keeps the keyboard focus, but it navigates a browser tab already there, so \
-        when the user's page must stay use tab_create_browser {url, pane, activate: false}, \
-        which adds a tab and keeps the pane's selected tab. Post \
+        when the user's page must stay use browser_profile_open {url, profile: \"default\", pane, \
+        activate: false} (CLI `cmux browser profile open URL --profile default --background \
+        true`), which adds a tab and keeps the pane's selected tab. Post \
         status on a workspace's sidebar row: workspace_status_set {workspace, key, text, state, \
         progress, ttl_ms} (CLI `cmux workspace WS status set KEY TEXT`), workspace_progress_set \
         and workspace_log_append; clear them when the work is done. Ask for attention: \
@@ -314,7 +315,7 @@ mod tests {
         let operations = catalog()["operations"].as_object().unwrap();
         for op in [
             "workspace.open_url",
-            "tab.create_browser",
+            "browser.profile.open",
             "workspace_status.set",
             "workspace_progress.set",
             "workspace_log.append",
