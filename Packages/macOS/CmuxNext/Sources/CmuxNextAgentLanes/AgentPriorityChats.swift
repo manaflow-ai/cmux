@@ -3,50 +3,101 @@ public import CmuxNextSidebar
 public import Foundation
 import os
 
-/// The chats the Priority view ranks (every lane of this Mac's acpmux and the Chief home's) and
-/// what a row does to one: mark read, pin, snooze, archive. One per app: the registered row
+/// The chats the Priority view ranks (every lane of this Mac's acpmux and the Chief home's, and
+/// every agent chat on the other machines the app shows: ``SidebarPriorityMachine``) and what a
+/// row does to one: mark read, pin, snooze, archive. One per app: the registered row
 /// actions write through it, so a hover button, the row's menu and the palette change the same
 /// marks (`AgentPriorityMarks`). Each returns false when no store lists the chat.
 @MainActor
 public final class AgentPriorityChats {
     private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "sidebar.priority")
 
+    /// The machines the rows name, read inside an observation scope.
+    public struct Machines {
+        /// The other machines whose daemon trees list agent chats.
+        public var remote: @MainActor () -> [SidebarPriorityMachine]
+        /// The display name of the machine an acpmux peer is; nil when none matches (the row
+        /// then shows the peer's name).
+        public var peer: @MainActor (String) -> String?
+        /// This Mac's tag: its name while `sidebar.showLocalMachine` is on, else nil.
+        public var local: @MainActor () -> String?
+
+        public init(remote: @escaping @MainActor () -> [SidebarPriorityMachine], peer: @escaping @MainActor (String) -> String?,
+                    local: @escaping @MainActor () -> String?) {
+            self.remote = remote
+            self.peer = peer
+            self.local = local
+        }
+
+        /// No other machine, every peer by its own name, this Mac untagged.
+        public static var none: Self { Self(remote: { [] }, peer: { _ in nil }, local: { nil }) }
+    }
+
     public let marks: AgentPriorityMarks
     public let stores: [AgentLaneStore]
+    /// Set by the App once its machines exist (the app's chats outlive no window).
+    public var machines: Machines
     private let ranking = AgentPriorityRanking()
     /// `_acpmux/archive` for a session on the acpmux socket at the first argument.
     private let archiveRequest: @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void
     /// Whether a chat's pull request checks fail (Red CI), by default the session tree feed's answer.
     private let checksFailing: @MainActor (AgentActivityLane) -> Bool
 
-    public init(marks: AgentPriorityMarks = .shared, stores: [AgentLaneStore] = [.shared, .chief],
+    public init(marks: AgentPriorityMarks = .shared, stores: [AgentLaneStore] = [.shared, .chief], machines: Machines = .none,
                 checksFailing: (@MainActor (AgentActivityLane) -> Bool)? = nil,
                 archive: @escaping @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void) {
         self.marks = marks
         self.stores = stores
+        self.machines = machines
         self.checksFailing = checksFailing ?? { SidebarSessionTreeFeed.shared.checksFailing($0) }
         self.archiveRequest = archive
     }
 
-    /// Every lane of every store, this Mac's first when an id repeats.
-    public var lanes: [AgentActivityLane] {
+    /// Every lane of every store, then of every other machine's tree, this Mac's first when an id
+    /// repeats (a peer's chat that its machine's tree shows too), and each one's machine tag.
+    func chats() -> (lanes: [AgentActivityLane], tags: [String: String]) {
         var seen = Set<String>()
-        return stores.flatMap { $0.lanes.values.sorted { $0.id < $1.id } }.filter { seen.insert($0.id).inserted }
+        var tags: [String: String] = [:]
+        let localTag = machines.local()
+        var lanes = stores.flatMap { $0.lanes.values.sorted { $0.id < $1.id } }.filter { seen.insert($0.id).inserted }
+        for lane in lanes {
+            tags[lane.id] = lane.peer.map { machines.peer($0) ?? $0 } ?? localTag
+        }
+        for machine in machines.remote() {
+            for lane in machine.lanes() where seen.insert(lane.id).inserted {
+                lanes.append(lane)
+                tags[lane.id] = machine.name ?? localTag
+            }
+        }
+        return (lanes, tags)
+    }
+
+    /// Every chat the view ranks.
+    public var lanes: [AgentActivityLane] { chats().lanes }
+
+    /// Every watched store and every other machine's tree is live: `lanes` is every chat, not a
+    /// gap, so a chat missing from it may lose its marks.
+    public var complete: Bool {
+        stores.allSatisfy { $0.live || $0.socketPath == nil } && machines.remote().allSatisfy(\.live)
     }
 
     public func lane(_ id: String) -> AgentActivityLane? {
-        stores.lazy.compactMap { $0.lanes[id] }.first
+        stores.lazy.compactMap { $0.lanes[id] }.first ?? lanes.first { $0.id == id }
     }
 
-    /// The chats with a pull request whose checks fail (Red CI).
+    /// The chats with a pull request whose checks fail (Red CI). Only this Mac's and the Chief
+    /// home's: the session tree reads pull requests from a lane's folder and opened URLs, which
+    /// another machine's chat tab does not carry, so a remote row is never Red CI.
     public var failingChecks: Set<String> {
-        Set(lanes.filter { checksFailing($0) }.map(\.id))
+        var seen = Set<String>()
+        return Set(stores.flatMap { $0.lanes.values }.filter { seen.insert($0.id).inserted && checksFailing($0) }.map(\.id))
     }
 
-    /// The rows as the Priority view ranks them now, Red CI included, so a row's menu and the
-    /// palette read the state the row shows.
+    /// The rows as the Priority view ranks them now, Red CI included and each named by its
+    /// machine, so a row's menu and the palette read the state the row shows.
     public func entries(now: Date = Date()) -> [SidebarPriorityEntry] {
-        ranking.entries(lanes, marks: marks.state, now: now, failingChecks: failingChecks)
+        let all = chats()
+        return ranking.entries(all.lanes, marks: marks.state, now: now, failingChecks: failingChecks) { all.tags[$0.id] }
     }
 
     /// The chat's row, nil when the view does not list it (archived, snoozed, idle too long).
@@ -76,7 +127,7 @@ public final class AgentPriorityChats {
     }
 
     /// Hides the chat here at once, then archives it in the acpmux that reports it (this Mac's or
-    /// the Chief home's). A refusal (a peer's chat this acpmux does not own, a dropped socket)
+    /// the Chief home's; another machine's chat has no socket here and is not archived). A refusal (a peer's chat this acpmux does not own, a dropped socket)
     /// shows the chat again.
     @discardableResult
     public func archive(_ id: String) -> Bool {
