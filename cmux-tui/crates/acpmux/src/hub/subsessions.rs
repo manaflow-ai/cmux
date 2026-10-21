@@ -25,11 +25,37 @@
 //!   the index lock before the session is created, so concurrent starts
 //!   never pass the limit.
 //!
-//! What a child may do is never wider than its parent: it runs the parent's permission policy; on
-//! the same harness family it starts in the parent's current mode (the start gate's inherit rule),
-//! on another family in the person's default start mode only when the parent runs with full access,
-//! else in that harness's own (asking) mode. What the tools read back of a child (its title, last
-//! reply, error and running prompt) is masked (`secret_scan`).
+//! What a child may do is never wider than its parent
+//! (`subsession_guard.rs`):
+//! - Its folder is resolved once (a path that does not resolve is refused);
+//!   that folder is what is checked and what the session (or its worktree)
+//!   gets, and a child that reports another folder is closed. It must be
+//!   inside the parent's folder or one the person trusted in cmux: the
+//!   trust walk reads every folder up to `/`, and an untrusted one refuses
+//!   unless the person's own nearer `trusted` decision ended the walk.
+//!   Claude Code's or Codex's trust, or an agent-home folder, counts only
+//!   for a parent in full access.
+//! - It runs the parent's effective permission policy (one the parent does
+//!   not name is the daemon default; one acpmux cannot parse is `ask`).
+//! - On the same harness family it starts in the parent's current mode (the
+//!   start gate's inherit rule), on another family in the person's default
+//!   start mode only when the parent runs with full access. A child that
+//!   still asks less than the parent, on the reviewed lists, is moved to an
+//!   asking mode or closed: OpenCode's `build`, a Codex mode that decides
+//!   when to ask, a harness's own default that skips approvals.
+//! - A folder profile, or a profile whose command skips the permission
+//!   checks or the sandbox, starts only from a parent in full access (or as
+//!   the parent's own harness).
+//! - Every refusal after the session exists closes it.
+//! - A message (`send`) never reaches a session that asks less than its
+//!   sender, child or parent: checked when it is sent and again when it
+//!   runs (a queued one, `turns.rs`).
+//!
+//! A family lives on one daemon: there is no start on another host. What
+//! the tools read back of a family member (its title, last reply, capped
+//! at [`MAX_REPLY_CHARS`], error, running prompt and what it does now) is masked (`secret_scan`),
+//! the reply and the prompt before their cut, and only the caller's descendants and its own parent
+//! are read. A start or a message never attaches, so the receiver's unread mark stays.
 //!
 //! A chat the person starts from a suggested task (`offers.rs`) becomes the offering chat's
 //! sub-session too ([`Hub::offer_link`]), so the agent that suggested it reads and waits on it with
@@ -324,11 +350,7 @@ impl Drop for KeptWorktree {
     }
 }
 
-pub(super) fn refused(reason: &str, message: String, data: Value) -> RpcError {
-    let mut data = data;
-    data["reason"] = json!(reason);
-    RpcError::invalid_params(message).with_data(data)
-}
+pub(super) use super::subsession_guard::refusal as refused;
 
 /// A short name from the request or the prompt: lowercase words joined by
 /// dashes, at most [`MAX_SHORT_NAME`] characters.
@@ -575,35 +597,29 @@ impl Hub {
         let short = self.subsessions.claim_name(&parent.id, &base);
         let name = self.unique_name(&format!("{}/{short}", pm.name));
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
-        if let Some(cwd) = &req.cwd
-            && !(cwd.is_absolute() && cwd.is_dir())
-        {
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} must be an absolute path to an existing folder",
-                cwd.display()
-            )));
-        }
-        let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
-        // A folder nobody answered the trust question for waits on a card in the parent's chat
-        // instead of failing (`trust_wait.rs`).
-        let decided = self.ensure_folder_trusted(parent, &cwd, &harness, &short).await?;
+        let asked = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
+        let folder = super::subsession_guard::resolved_folder(&asked)?;
+        // The harness, then the folder: one nobody answered the trust question for waits on a
+        // card in the parent's chat instead of failing (`subsession_guard.rs`, `trust_wait.rs`).
+        let model = req.model.as_deref();
+        let decided =
+            self.subsession_place_check(parent, pm, &folder, &harness, model, &short).await?;
+        let mut cwd = folder.clone();
         let worktree = if req.worktree {
-            let mut kept = self.subsession_worktree(pm, &cwd, &short).await?;
+            let mut kept = self.subsession_worktree(pm, &folder, &short).await?;
             kept.source_decided = decided;
-            cwd = kept.made.cwd.clone();
+            cwd = std::fs::canonicalize(&kept.made.cwd).unwrap_or_else(|_| kept.made.cwd.clone());
             Some(kept)
         } else {
             None
         };
-        let parent_mode = crate::web_modes::mode_of(pm);
-        let parent_full = parent_mode
-            .as_deref()
-            .is_some_and(|m| super::start_mode::FULL_ACCESS_MODES.contains(&m));
-        let policy = pm.permission_policy.as_deref().and_then(|p| p.parse().ok());
+        // Always the caller's effective policy: one it does not name is the
+        // daemon default, never the child harness's own default.
+        let policy = Some(self.effective_policy(pm).await);
         let request = NewRequest {
             harness: Some(harness),
             name: Some(name),
-            cwd: Some(cwd),
+            cwd: Some(cwd.clone()),
             policy,
             model: req.model.clone(),
             remote: pm.remote_origin,
@@ -620,44 +636,12 @@ impl Hub {
             ..Default::default()
         };
         let probe = self.new_session(request).await?;
-        // The parent's rules above its policy (which can deny) and the MCP
-        // servers the user turned off apply to the child too.
+        // From here every refusal closes the child: it never runs unchecked.
+        if let Err(e) = self.settle_subsession(parent, pm, &probe, &cwd, req.name.as_deref()).await
         {
-            let mut m = probe.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.permission_rules = pm.permission_rules.clone();
-            // Titled by its name, else by its prompt and then a generated title (`titles.rs`).
-            super::titles::title_subsession(&mut m, req.name.as_deref());
-            for row in &pm.tools.off {
-                if !m.tools.off.contains(row) {
-                    m.tools.off.push(row.clone());
-                }
-            }
+            return Err(self.close_refused(&probe, e).await);
         }
-        self.save_meta(&probe);
         let cm = probe.meta();
-        let same_family = crate::web_modes::family_of(&cm) == crate::web_modes::family_of(pm);
-        // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
-        // starts as a cross-family child would, at the person's start level, which is not full access.
-        let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
-            && !super::start_mode::full_access_allowed();
-        let inherit = same_family && !capped;
-        let mode = if inherit {
-            parent_mode.clone()
-        } else if parent_full || capped {
-            self.start_mode(&probe).await
-        } else {
-            None
-        };
-        if let Some(mode) = mode {
-            let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
-            // The inherit rule (or the person's default under a full-access
-            // parent) grants it; a refusal ends the new session.
-            if inherit {
-                self.start_in_mode(false, Some(&parent.id), &params, &probe, false).await?;
-            } else if let Err(e) = self.set_mode(&probe, &mode).await {
-                tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
-            }
-        }
         let accepted =
             self.send_family_prompt(parent, &probe, &req.prompt, None, false, false).await;
         let accepted = match accepted {
@@ -749,8 +733,14 @@ impl Hub {
             provenance["fromShortName"] = json!(link.short_name);
         }
         let (tx, rx) = tokio::sync::oneshot::channel::<Value>();
+        // An agent a remote device drove (its turn, or its last one, is a Web
+        // turn) prompts under the remote floor, and so does a prompt to a
+        // session whose last turn was one: a family prompt never runs, or
+        // lets the receiver run, below the floor (`remote_floor.rs`).
+        let web = Self::web_turn(from) || Self::web_turn(to);
         let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
+            control: if web { Control::Web } else { Control::Local },
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
                 stop(&v);
@@ -778,7 +768,11 @@ impl Hub {
 
     /// One family row for the tools: the session's place, state and last reply.
     pub fn subsession_row(&self, s: &Session, with_reply: bool) -> Value {
-        let summary = self.session_summary(s);
+        let mut summary = self.session_summary(s);
+        // Masked before its cut (`TurnInfo::masked_preview`), for `turn.prompt` and `doing`.
+        if let Some(t) = s.turn().filter(|t| summary["turn"]["turnId"] == t.turn_id.as_str()) {
+            summary["turn"]["prompt"] = json!(t.masked_preview);
+        }
         let pick = |k: &str| summary.get(k).cloned().unwrap_or(Value::Null);
         let mut row = json!({
             "sessionId": s.id,
@@ -815,13 +809,18 @@ impl Hub {
                 row[key] = json!(crate::secret_scan::mask(text));
             }
         }
-        if let Some(text) = row["lastTurn"]["errorText"].as_str() {
-            row["lastTurn"]["errorText"] = json!(crate::secret_scan::mask(text));
+        // The last turn's text, and the running turn's prompt again (a turn that changed
+        // between the two reads above): a parent may have pasted a key into it.
+        for pointer in ["/lastTurn/errorText", "/lastTurn/prompt", "/turn/prompt"] {
+            if let Some(slot) = row.pointer_mut(pointer)
+                && let Some(text) = slot.as_str()
+            {
+                *slot = json!(crate::secret_scan::mask(text));
+            }
         }
-        // The running turn's prompt is the child's text too (a parent may have pasted a key into
-        // it, or named a file whose name is one), and what it does now is a tool call's title,
-        // often a command with its arguments.
-        for key in ["prompt", "activity", "planStep"] {
+        // What the running turn does now is a tool call's title, often a command with its
+        // arguments.
+        for key in ["activity", "planStep"] {
             if let Some(text) = row["turn"][key].as_str() {
                 row["turn"][key] = json!(crate::secret_scan::mask(text));
             }

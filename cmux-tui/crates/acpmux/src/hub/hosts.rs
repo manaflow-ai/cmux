@@ -609,12 +609,12 @@ impl Hub {
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at: now_ms(),
                         client,
+                        masked_preview: crate::secret_scan::mask(&prompt),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
                         turn_seq,
-                        // Who prompted, as `turn_started` recorded it; an
-                        // older record without it counts as Web.
+                        // Who prompted (`turn_started`); an older record without it is Web.
                         control,
                         activity: None,
                         plan_step: None,
