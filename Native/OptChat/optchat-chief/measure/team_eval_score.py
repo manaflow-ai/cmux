@@ -48,8 +48,22 @@ def transcript(run, conv):
     return "\n".join(lines)
 
 
+def excluded(run):
+    """Why a run is not a result (it did not pass the step, or ran another
+    model or effort than the pin), or None."""
+    why = list(run.get("failed") or [])
+    if run.get("ok") is None:
+        why.append("no ok in run.json (not packed by the step)")
+    if not (run.get("pin") or {}).get("ok"):
+        why.append(f"pin: {(run.get('pin') or {}).get('bad')}")
+    return why or None
+
+
 def score(out, tasks, opts):
     run = json.load(open(os.path.join(out, "run.json")))
+    why = excluded(run)
+    if why:
+        return {"task": run.get("task"), "arm": run.get("arm"), "excluded": why}
     conv = json.load(open(os.path.join(out, "conversation.json")))
     diff = open(os.path.join(out, "diff.patch")).read()
     checks = json.load(open(os.path.join(out, "checks.json"))) if os.path.exists(os.path.join(out, "checks.json")) else {}
@@ -91,7 +105,7 @@ def score(out, tasks, opts):
     met = [i for i in checklist.get("items", []) if i.get("met")]
     return {
         "task": run["task"], "arm": run["arm"], "end": run.get("end"), "minutes": run.get("minutes"),
-        "cost_usd": run.get("cost_usd", {}).get("all"), "turns": run.get("turns"), "spawns": run.get("spawns"),
+        "cost_usd": max([v for v in (run.get("cost_usd", {}).get(k) for k in ("all", "live")) if v is not None] or [None]), "turns": run.get("turns"), "spawns": run.get("spawns"),
         "receipts": run.get("receipts"), "flags": run.get("flags"), "leaks": len(run.get("leaks") or []),
         "first_reply_s": (run["timeline"]["brief"]["first_reply_ms"] or 0) / 1000 if run["timeline"]["brief"]["first_reply_ms"] is not None else None,
         "waits_s": waits,
@@ -99,6 +113,7 @@ def score(out, tasks, opts):
         "dropped": [i["item"] for i in checklist.get("items", []) if not i.get("met")],
         "quality": quality.get("score"), "quality_why": quality.get("why"),
         "bun_check_rc": checks.get("bun_check_rc"), "hidden_tests_rc": checks.get("hidden_tests_rc"),
+        "hidden_pass": checks.get("hidden_pass"), "hidden_skip": checks.get("hidden_skip"), "hidden_fail": checks.get("hidden_fail"),
     }
 
 

@@ -1,7 +1,8 @@
 // The summary card's Subagents section (SummaryCard.tsx): every subagent of the chat, nested ones
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
 // done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one. Its
-// title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx).
+// title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx). After them, the chats the
+// agent started (`sessions`, inspector/ChildSessionRows.tsx), each opening its chat.
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
@@ -9,8 +10,14 @@ import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
+import type { StartedSession } from "../started/startedSessions";
+import { ChildSessionRows } from "../inspector/ChildSessionRows";
+import type { SummarySubagent } from "./sessionSummary";
+import { SubagentStack } from "./SubagentStack";
 
 const ROW_ICON = rowIconSize(12);
+const NO_SESSIONS: readonly StartedSession[] = [];
+const NO_STACK: readonly SummarySubagent[] = [];
 
 /// What a row says of its subagent: a subagent that asks the user for a permission or an answer
 /// is waiting on them, not running; a cancelled (stopped by the person) or disconnected (lost by
@@ -96,6 +103,9 @@ export function SubagentStatusList({
   onOpen,
   autoOpen,
   onShowAll,
+  sessions = NO_SESSIONS,
+  onOpenSession,
+  stack = NO_STACK,
 }: {
   agents: readonly Subagent[];
   waiting: ReadonlySet<string>;
@@ -106,11 +116,19 @@ export function SubagentStatusList({
   autoOpen?: { on: boolean; set: (on: boolean) => void };
   /// Opens the card's Subagents tab; the title is a button only with it.
   onShowAll?: () => void;
+  /// The chats the agent started, after the subagents, and how one opens.
+  sessions?: readonly StartedSession[];
+  onOpenSession?: (sessionId: string) => void;
+  /// Subagents an older record names only by their Task calls (sessionSummary.ts), as one line,
+  /// when acpmux reports none.
+  stack?: readonly SummarySubagent[];
 }) {
   const t = useT();
   const now = useNow(agents.some(running));
   const title = t("summary.subagents");
-  const live = agents.filter((agent) => subagentStatus(agent, waiting) === "running").length;
+  const live =
+    agents.filter((agent) => subagentStatus(agent, waiting) === "running").length +
+    sessions.filter((child) => child.state === "running").length;
   const heading = live > 0 ? `${title} · ${t("summary.subagents.running", { n: live })}` : title;
   return (
     <section className="acpmux-summary-section acpmux-summary-agents" aria-label={title}>
@@ -125,7 +143,7 @@ export function SubagentStatusList({
         )}
       </h3>
       <ul className="acpmux-summary-list">
-        {agents.length === 0 && <li className="acpmux-summary-row acpmux-summary-none">{t("summary.none")}</li>}
+        {agents.length === 0 && stack.length > 0 && <SubagentStack subagents={stack} />}
         {ordered(agents, waiting).map(({ agent, depth }) => {
           const status = subagentStatus(agent, waiting);
           return (
@@ -158,6 +176,7 @@ export function SubagentStatusList({
             </li>
           );
         })}
+        <ChildSessionRows sessions={sessions} onOpen={onOpenSession} />
       </ul>
       {autoOpen && (
         <label className="acpmux-summary-row acpmux-summary-autoopen">

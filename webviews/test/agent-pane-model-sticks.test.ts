@@ -215,8 +215,11 @@ await requireBrowserLane("agent-pane-model-sticks.test.ts", async () => {
     }
     return last;
   }
+  /// A pick in the full picker, which Cmd-Ctrl-M opens over the model button (its click opens the
+  /// compact menu, whose More models leads to the full picker: Leo 2026-10-20).
   async function pickModel(page: Page, id: string) {
-    await page.locator('[data-menu="Model"]').first().click();
+    await page.locator('[data-menu="Model"]').first().waitFor();
+    await page.keyboard.press("Meta+Control+m");
     await page.locator(`.acpmux-mp-models [role="option"][data-key="model:${id}"]`).click();
   }
   async function until(what: string, check: () => boolean) {

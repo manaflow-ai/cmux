@@ -306,6 +306,9 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                                    kind: .string, isRequired: false),
                     ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
                                    kind: .string, isRequired: false),
+                    // A group's name (made when missing), not a target: a launcher names it.
+                    ActionArgument(name: "group", title: String(localized: "argument.group", defaultValue: "Group", bundle: .module),
+                                   kind: .string, isRequired: false),
                 ],
                 cliName: "agent open",
                 // It starts the workspace's terminal: action.run waits the
@@ -353,7 +356,8 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 keywords: ["chief", "move", "migrate", "host", "remote", "mac mini", "linux", "vm", "cloud"],
                 category: .agents, symbol: "arrow.right.circle", surfaces: [.palette],
                 arguments: [ActionArgument(name: "target", title: String(localized: "argument.chiefMoveTarget", defaultValue: "Target", table: "RemoteActions", bundle: .module),
-                                           kind: .string, isRequired: false)],
+                                           kind: .string, isRequired: false,
+                                           suggestions: ActionSuggestions(source: ActionSuggestions.chiefMoveTargets, pinned: []))],
                 destructive: true,
                 // `cmux chief move --to` and the Chief's MCP `move` tool run the same move (one implementation).
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.familyMember), contextMenuExemption: .noObject)

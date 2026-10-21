@@ -373,8 +373,10 @@ const status: AcpmuxRow = { id: "working", kind: "working", version: 1, at: STAR
 const counts = (extra: Partial<WorkingCounts> = {}): WorkingCounts => ({
   agents: 0,
   commands: 0,
+  sessions: 0,
   openAgents: () => {},
   openCommands: () => {},
+  openSessions: () => {},
   ...extra,
 });
 const drawn = (row: AcpmuxRow, value: WorkingCounts) =>

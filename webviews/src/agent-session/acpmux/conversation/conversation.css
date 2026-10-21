@@ -7,6 +7,10 @@
    their own cast. Percentages are measured against #f8f8f3 on #272823. */
 
 :root {
+  /* The fold: a collapsible's body opening or closing, and its chevron turning (fold.ts). The host's
+     move duration (--agent-motion-move, AgentPaneTheme.swift: ~190ms, 0 under Reduce Motion or with
+     animation off), the token the newtab-resize-anim lane's resizes share; 180ms without a host. */
+  --cv-fold-duration: var(--agent-motion-move, 180ms);
   --cv-text: var(--agent-text);
   --cv-text-muted: var(--agent-muted); /* "Worked for", tool verbs */
   --cv-text-dim: var(--agent-soft); /* progress rows */
@@ -457,9 +461,9 @@
   border: 0;
   background: transparent;
 }
-/* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
-   reached them, as Claude's. The row is one compact line right under the bubble; hidden, it keeps
-   only that line, so pointing at a prompt moves nothing. */
+/* A prompt's action row under its bubble's right edge (UserBubble.tsx), as Claude Code desktop's:
+   shown while the pointer is over the prompt or a key reached it. Hidden, it keeps its one compact
+   line, so pointing at a prompt moves nothing. */
 .cv-user__actions {
   display: flex;
   align-items: center;
@@ -468,15 +472,45 @@
   margin-top: var(--cv-meta-gap);
   padding-right: 2px;
   opacity: 0;
-  transition: opacity 120ms ease-out;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-user__actions {
+    transition: opacity 120ms ease-out;
+  }
 }
 .cv-user:hover .cv-user__actions,
-.acpmux-row[data-last-prompt] .cv-user__actions,
 .cv-user__actions:focus-within,
 .cv-user__actions--versions {
   opacity: 1;
 }
-/* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
+/* At the end of another agent's message line (MessageActions.tsx ReceivedActions): the same row,
+   on hover or focus only, no box. */
+.cv-received-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-inline-start: 8px;
+  white-space: nowrap;
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-received-actions {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-received:hover .cv-received-actions,
+.cv-received-actions:focus-within {
+  opacity: 1;
+}
+/* Retry sends the last ended turn's prompt again (VirtualTranscript marks its row; MessageActions.tsx). */
+.cv-message-retry {
+  display: none;
+}
+.acpmux-row[data-retryable] .cv-message-retry {
+  display: inline-flex;
+  align-items: center;
+}
+/* The prompt's age and its read receipt lead the row, quiet, as Claude Code desktop's. */
 .cv-user__time {
   margin-inline-end: 4px;
   color: var(--cv-text-dim);
@@ -994,6 +1028,11 @@ pre.cv-math-source {
   outline-offset: -1.5px;
   border-radius: 8px;
 }
+/* An answer's footer row draws no box around itself (Leo, 2026-10-20: the outline read as a box
+   around the message); its action row shows while it holds focus instead. */
+.acpmux-row.acpmux-turnSummary[data-transcript-active="true"]:focus-visible {
+  outline: none;
+}
 /* A pointer click can focus an article without asking for keyboard focus. Keep that path quiet;
    the active row above is the only transcript outline, and it is intentionally :focus-visible. */
 .acpmux-row:focus:not(:focus-visible) {
@@ -1281,6 +1320,15 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
+/* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
+.cv-worked__glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-inline-end: 6px;
+  color: var(--cv-text-muted);
+}
 /* "Thinking" stays still in the muted color. No mark blinks before it or before "Working for". */
 .cv-thinking {
   color: var(--cv-text-muted);
@@ -1440,15 +1488,21 @@ pre.cv-math-source {
 .cv-iconbtn:focus:not(:focus-visible) {
   outline: none;
 }
-/* One right chevron, turned a quarter when open; a message head's shows on hover. */
+/* One right chevron, turned a quarter when open; a message head's shows on hover. It turns with the
+   fold it opens (fold.ts), on the same token. */
 .cv-rotor {
   flex: none;
 }
 /* With Reduce Motion on, the chevron snaps to its new angle. */
 @media (prefers-reduced-motion: no-preference) {
   .cv-rotor {
-    transition: transform 150ms ease-out;
+    transition: transform var(--cv-fold-duration) var(--agent-ease-out, ease-out);
   }
+}
+/* A collapsible's body (fold.ts sizes it while it opens or closes): its own block, so the body's
+   margins stay inside the height the fold animates instead of popping in at its ends. */
+.cv-fold {
+  display: flow-root;
 }
 .cv-rotor.is-open {
   transform: rotate(90deg);
@@ -1478,6 +1532,23 @@ pre.cv-math-source {
 }
 .cv-shell__label .cv-codeblock__action {
   margin-right: -6px;
+}
+.cv-shell__title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+/* The folder the command ran in, by its last part ("cg-next-reds" for ~/wt/lanes/cg-next-reds). */
+.cv-shell__folder {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--cv-text-dim);
+  font-family: var(--cv-mono);
+  font-size: var(--text-detail);
+  line-height: 18px;
 }
 .cv-shell__body {
   display: flex;
@@ -1580,6 +1651,41 @@ pre.cv-math-source {
 .cv-command__ok {
   color: var(--acpmux-add);
 }
+/* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
+.cv-tool__meta {
+  margin-left: auto;
+}
+.cv-command__bg-state {
+  display: flex;
+}
+/* Its words, for screen readers only (the pane does not load ui.css's .ui-sr-only). */
+.cv-command__bg-label {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+.cv-command__stopped {
+  color: var(--cv-text-dim);
+}
+/* "⌃B to run in background" on a running command (BackgroundHint.tsx), at the row's right edge.
+   It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
+   Reduce Motion too. */
+.cv-command__bg {
+  flex: none;
+  margin-left: auto;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+/* Quick commands end before the hint shows. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-command__bg {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) 1.5s both;
+  }
+}
 /* A message to another agent: sender to recipient over the message's first line (MessageCard.tsx). */
 .cv-message {
   margin: 4px 0;
@@ -1659,6 +1765,19 @@ pre.cv-math-source {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   overflow: hidden;
+}
+/* How far the message got: a glyph and one line, always shown (Sending…, Sent, Delivered to …). */
+.cv-message__receipt {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: -3px 10px 7px 32.5px;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  line-height: 16px;
+}
+.cv-message[data-delivery="failed"] .cv-message__receipt {
+  color: var(--agent-danger);
 }
 .cv-message__more {
   all: unset;
@@ -1871,7 +1990,7 @@ button.cv-received__name:focus-visible {
 }
 
 /* The answer's action row; its height is reserved. One quiet line under the answer, where its text
-   starts, as Claude Code desktop's: the time, then Copy, Retry and Fork. */
+   starts, as Claude Code desktop's: Copy, Fork, Pin and Read aloud, then the answer's age. */
 .cv-turn-actions {
   display: flex;
   align-items: center;
@@ -1958,13 +2077,13 @@ button.cv-received__name:focus-visible {
   color: var(--cv-text-dim);
   font-variant-numeric: tabular-nums;
 }
-/* Hidden, its space kept, but for the last turn, a failed one, the turn the reader points at
-   (data-turn-revealed, VirtualTranscript) or keyboard focus. */
+/* Hidden, its space kept, but for a failed turn, the turn the reader points at (data-turn-revealed,
+   VirtualTranscript) or keyboard focus. */
 .acpmux-turnSummary .cv-turn-actions {
   opacity: 0;
 }
-.acpmux-turnSummary[data-last-turn] .cv-turn-actions,
 .acpmux-turnSummary[data-turn-revealed] .cv-turn-actions,
+.acpmux-turnSummary:focus-visible .cv-turn-actions,
 .acpmux-turnSummary:hover .cv-turn-actions,
 .acpmux-turnSummary .cv-turn-actions:focus-within,
 .acpmux-turnSummary .cv-turn-actions--failed {
@@ -2914,20 +3033,31 @@ button.cv-received__name:focus-visible {
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
-/* The compaction note under the facts line: wraps (it is a sentence or three), indented to the
-   facts' text, quiet until dismissed. */
-.cv-session-start__compaction {
-  display: flex;
-  align-items: flex-start;
-  gap: 6px;
-  padding-left: 22.5px;
+/* Two quiet tool-height lines: the short facts, then how the chat compacts with Learn more and
+   its dismiss. What either opens (the full facts, the explanation) wraps under it, indented to
+   the lines' text. */
+.cv-session-start__compaction .cv-tool__text {
+  flex: 1;
+}
+.cv-session-start__more {
+  all: unset;
+  cursor: pointer;
+  color: var(--cv-text-dim);
+}
+.cv-session-start__more:hover {
+  color: var(--agent-text);
+}
+.cv-session-start__more:focus-visible {
+  outline: 2px solid var(--agent-accent, currentColor);
+  outline-offset: 1px;
+  border-radius: 3px;
+}
+.cv-session-start__detail {
+  padding: 0 0 4px 22.5px;
   line-height: 18px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
-}
-.cv-session-start__compaction-text {
-  min-width: 0;
-  flex: 1;
+  overflow-wrap: anywhere;
 }
 .cv-session-start__dismiss {
   all: unset;
@@ -3074,11 +3204,6 @@ button.cv-received__name:focus-visible {
   padding-bottom: var(--cv-message-gap);
 }
 
-/* A steer under its bubble (SteerMark.tsx): "Steered" once the agent read it, nothing before. */
-.cv-user__steer-label {
-  color: var(--cv-text);
-  font-weight: 500;
-}
 /* A steer the agent has not read yet (PendingSteer.tsx): a faint clock, then Send now. */
 .cv-user__pending {
   display: flex;
@@ -3113,7 +3238,53 @@ button.cv-received__name:focus-visible {
 .cv-user__send-now:disabled {
   opacity: 0.5;
 }
-/* A steer's read state under another agent's message, in line with its text (App.tsx). */
-.cv-incoming > .cv-user__steer {
-  padding-left: 32.5px;
+/* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
+   message and its Details, and a quiet line once sent or when it was not. */
+.cv-message__note {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cv-message__note.is-failed {
+  color: var(--agent-danger);
+}
+.cv-message__reply {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px 13px;
+}
+.cv-message__reply > .cv-user__edit {
+  width: 100%;
+}
+.cv-received__replied {
+  display: block;
+  margin: 0 0 6px 13px;
+}
+/* Its Reply sits after the chevron, inside the line's padding, and shows while the line is hovered or holds the focus, so the
+   line reads as before. */
+.cv-received__reply {
+  all: unset;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-left: 8px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.cv-received:hover .cv-received__reply,
+.cv-received:focus-within .cv-received__reply {
+  opacity: 1;
+}
+.cv-received__reply:hover,
+.cv-received__reply:focus-visible {
+  color: var(--cv-text);
+}
+/* The running turn's line while the chat waits on the person (waitingOn.ts): full text color, so it
+   reads as a call to act, not the muted "Thinking" it replaces. It holds still: no mark, no clock. */
+.cv-waiting {
+  color: var(--cv-text);
 }

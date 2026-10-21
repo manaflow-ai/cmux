@@ -69,9 +69,10 @@ export type ModelPickerProps = {
   signedOut?: Readonly<Record<string, string>>;
   /// Runs a signed-out harness's login (its Log In row).
   onLogIn?(harness: string, login: string): void;
-  /// The compact menu a click on the chip opens (QuickModelMenu; the Debug Settings choice
-  /// `agent.modelMenu`). Without it the chip opens the full picker at once. With it the chip draws
-  /// `detail` (the effort) after the model and no chevron.
+  /// The compact menu a click on the chip opens (QuickModelMenu). Every composer passes it (Leo
+  /// 2026-10-20: one model button); the full picker is its More models row. Without it (a picker
+  /// on its own) the chip opens the full picker at once. With it the chip draws `detail` (the
+  /// effort) after the model and no chevron.
   quick?: QuickMenuExtras;
   /// The effort's short name ("Med") the compact chip shows in a narrow row (composerRowFit.ts).
   detailShort?: string;
@@ -101,6 +102,10 @@ export const MODEL_PICKER_MAX_HEIGHT = 480;
 /// has it does it open below and run past the room, where the page scrolls to it; above, it ran off
 /// the top of the window (the New Tab chip's menu, 94 px).
 export const MODEL_PICKER_MIN_HEIGHT = 220;
+
+/// The agent pane's chat column: the model menus and their submenus stay inside it, never over the
+/// session rail, summary column or sidebar beside it (a composer outside one keeps to the window).
+export const CHAT_COLUMN = ".acpmux-main";
 
 /// The open picker's height bounds: at most the anchor's room (`room`, when known) and
 /// MODEL_PICKER_MAX_HEIGHT, never below MODEL_PICKER_MIN_HEIGHT; at least its height when it

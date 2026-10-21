@@ -12,6 +12,7 @@
 pub mod inventory;
 pub mod mailbox;
 pub mod permission;
+pub mod process;
 pub mod session;
 #[cfg(test)]
 mod tests;
@@ -52,6 +53,17 @@ impl Kind {
             Kind::ClientLocal => "client_local",
         }
     }
+}
+
+/// `_acpmux/protocol` takes no params.
+#[derive(Debug, Clone, Default, serde::Serialize, serde::Deserialize, JsonSchema)]
+#[schemars(deny_unknown_fields)]
+pub struct ProtocolParams {}
+
+/// What `_acpmux/protocol` answers: `ir()`, built once per daemon run.
+pub fn served() -> &'static Value {
+    static IR: std::sync::OnceLock<Value> = std::sync::OnceLock::new();
+    IR.get_or_init(ir)
 }
 
 type SchemaFn = fn(&mut SchemaGenerator) -> schemars::Schema;
@@ -107,6 +119,7 @@ pub fn registry() -> Vec<MethodDecl> {
     use Kind::*;
     use mailbox::*;
     use permission::*;
+    use process::*;
     use session::*;
     vec![
         // Standard ACP.
@@ -162,6 +175,7 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_PROCESS_LIST, Request),
         untyped(method::MUX_PROCESS_TAIL, Request),
         untyped(method::MUX_PROCESS_KILL, Request),
+        request::<ProcessBackgroundParams, ProcessBackgroundResult>(method::MUX_PROCESS_BACKGROUND),
         untyped(method::MUX_WORKTREE_REPORT, Request),
         untyped(method::MUX_WORKTREE_CLEAN, Request),
         untyped(method::MUX_WORKTREE_RESTORE, Request),
@@ -270,9 +284,13 @@ pub fn registry() -> Vec<MethodDecl> {
         untyped(method::MUX_WEB_TOKEN_ROTATE, Request),
         untyped(method::MUX_RELOAD_CONFIG, Request),
         untyped(method::MUX_SCHEMA, Request),
+        // The result is this IR document (`ir()`), left open: its own
+        // schema would describe itself.
+        request::<ProtocolParams, Value>(method::MUX_PROTOCOL),
         untyped(method::MUX_SHUTDOWN, Request),
         untyped("_acpmux/peers", Request),
         untyped("_acpmux/peer_add", Request),
+        untyped("_acpmux/peer_lease", Request),
         untyped("_acpmux/peer_reconnect", Request),
         untyped("_acpmux/peer_remove", Request),
         // Notifications.

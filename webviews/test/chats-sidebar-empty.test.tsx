@@ -48,13 +48,24 @@ const chat = (sessionId: string, title: string): AcpmuxSessionEntry => ({
   updatedAt: 1,
 });
 
-async function sidebar(sessions: ReturnType<typeof chat>[], settledSessions: ReturnType<typeof chat>[]) {
+async function sidebar(
+  sessions: ReturnType<typeof chat>[],
+  settledSessions: ReturnType<typeof chat>[],
+  groupProjects = false,
+) {
   const { createRoot } = await import("react-dom/client");
   const { SessionSidebar } = await import("../src/agent-session/acpmux/SessionSidebar");
   act(() => root?.unmount());
   root = createRoot(host);
   await act(async () =>
-    root!.render(<SessionSidebar sessions={sessions} settledSessions={settledSessions} onSelect={() => {}} />),
+    root!.render(
+      <SessionSidebar
+        sessions={sessions}
+        settledSessions={settledSessions}
+        groupProjects={groupProjects}
+        onSelect={() => {}}
+      />,
+    ),
   );
 }
 
@@ -74,6 +85,19 @@ test("a search that matches nothing says so once", async () => {
   expect(said).toBe(1);
   expect(host.textContent).not.toContain("sessions");
   expect(host.querySelector('input[type="search"]')!.getAttribute("aria-label")).toBe("Search chats");
+});
+
+// Grouped by project, the chats live in groups, not the flat Active list; they count as matches.
+test("chats grouped by project are not called no matches", async () => {
+  await sidebar([chat("a", "Fix the build"), chat("c", "Ship the docs")], [], true);
+  expect(host.textContent).toContain("Fix the build");
+  expect(host.textContent).not.toContain("No matching chats");
+  expect(host.querySelector(".acpmux-sidebar-settled")).not.toBeNull();
+  await search("docs");
+  expect(host.textContent).toContain("Ship the docs");
+  expect(host.textContent).not.toContain("No matching chats");
+  await search("zzz");
+  expect(host.textContent!.split("No matching chats").length - 1).toBe(1);
 });
 
 test("an empty sidebar says there are no chats yet", async () => {

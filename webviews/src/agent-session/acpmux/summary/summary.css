@@ -2,7 +2,7 @@
    narrow pane gets a popover; a wide pane reserves a quiet column beside the chat and composer.
    Rows are 28px, text truncates, and every control follows the Motion hover fade. */
 .acpmux-summary{position:relative;flex:none;display:flex}
-.acpmux-summary-button{display:grid;place-items:center;width:26px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
+.acpmux-summary-button{display:grid;place-items:center;width:24px;height:26px;padding:0;border:0;border-radius:6px;background:none;color:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-button:hover,.acpmux-summary-button[aria-pressed="true"]{background:color-mix(in srgb,currentColor 8%,transparent)}
 .acpmux-summary-button:active{background:color-mix(in srgb,var(--agent-text) 20%,transparent)}
 .acpmux-summary-button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
@@ -70,7 +70,6 @@
 .acpmux-summary-dot[data-tone="3"]{background:var(--agent-ansi-5,#a371f7)}
 .acpmux-summary-dot[data-state=failed]{background:var(--agent-danger)}
 .acpmux-summary-dot[data-state=running]{box-shadow:0 0 0 1px var(--agent-accent)}
-.acpmux-summary-none{color:var(--agent-muted)}
 /* The Subagents tab (SubagentsTab.tsx): the Subagents title opens it; the card's head then shows a Summary tab and a closable Subagents tab. Its rows are the transcript's subagent rows (SubagentGroup.tsx), compact and unbordered here. */
 .acpmux-summary-title__button{display:inline-flex;align-items:center;gap:4px;margin:-2px -4px;padding:2px 4px;border:0;border-radius:5px;background:none;color:inherit;font:inherit;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out),color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
 .acpmux-summary-title__button>svg{flex:none;opacity:.7}
@@ -169,62 +168,13 @@
 .acpmux-recap__button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
 .acpmux-recap__dismiss{position:absolute;top:6px;right:6px}
 .acpmux-recap__error{margin:6px 0 0;color:var(--agent-muted);font-size:var(--text-detail);line-height:var(--text-detail--line-height)}
-/* The session side rail (SessionRail.tsx, Debug Settings agent.sessionRail): a column beside the chat, as the side preview is (.acpmux-artifact), narrower; under 720px it lies over the chat. Cards are hairline-bordered and a step lighter than the page, rows 28px; it fades in, the width never animates. */
-.acpmux-rail{flex:0 0 clamp(240px,26%,340px);min-width:0;display:flex;flex-direction:column;align-items:stretch;gap:8px;box-sizing:border-box;padding:8px 10px 10px 2px;overflow-x:hidden;overflow-y:auto;background:var(--agent-page-bg);color:var(--agent-text);font-size:var(--text-control);line-height:18px}
-@media (max-width:560px){.acpmux-rail{position:absolute;z-index:var(--layer-overlay);top:0;right:0;bottom:0;width:min(300px,calc(100% - 32px));padding-left:10px;box-shadow:var(--elevation-2)}}
-@media (prefers-reduced-motion:no-preference){.acpmux-rail{animation:acpmux-rail-in 100ms var(--acpmux-motion-ease,ease-out)}}
-@keyframes acpmux-rail-in{from{opacity:0}}
-.acpmux-rail-card{flex:none;align-self:stretch;min-width:0;overflow:hidden;padding:4px;border:var(--cmux-hairline,.5px) solid var(--agent-border);border-radius:10px;background:color-mix(in srgb,var(--agent-text) 3%,var(--agent-page-bg))}
-.acpmux-rail-card .ui-disclosure-trigger,.acpmux-rail-card__head{display:flex;align-items:center;gap:6px;width:100%;height:28px;padding:0 8px;box-sizing:border-box;border-radius:7px;text-align:left;cursor:default}
-.acpmux-rail-card .ui-disclosure-trigger{margin:0;border:0;background:none;color:inherit;font:inherit;letter-spacing:inherit;-webkit-appearance:none;appearance:none;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-rail-card .ui-disclosure-trigger:hover{background:var(--acpmux-menu-hover)}
-.acpmux-rail-card .ui-disclosure-trigger:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-.acpmux-rail-card__title{flex:none;font-weight:500}
-.acpmux-rail-card__fold{flex:none;color:var(--agent-muted)}
-.acpmux-rail-card__meta{flex:none;display:inline-flex;align-items:center;gap:8px;margin-left:auto;color:var(--agent-muted);font-variant-numeric:tabular-nums}
-.acpmux-rail-meter{display:block;width:28px;height:6px;border-radius:2px;overflow:hidden;background:color-mix(in srgb,var(--agent-text) 14%,transparent)}
-.acpmux-rail-meter>span{display:block;height:100%;min-width:6px;border-radius:2px;background:var(--agent-accent)}
-.acpmux-rail-card__disclosure,.acpmux-rail-card .ui-disclosure-panel{min-width:0}
-.acpmux-rail-list{min-width:0;margin:0;padding:0;list-style:none}
-.acpmux-rail-row{display:flex;align-items:center;gap:8px;width:100%;height:28px;padding:0 8px;box-sizing:border-box;border:0;border-radius:7px;background:none;color:inherit;font:inherit;text-align:left;white-space:nowrap;cursor:default}
-.acpmux-rail-row>svg{flex:none;color:var(--agent-muted)}
-.acpmux-rail-row__name{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.acpmux-rail-row__detail{flex:0 1000 auto;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--agent-muted)}
-.acpmux-rail-row__state{flex:none;margin-left:auto;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-rail-row__state.is-failed{color:var(--agent-danger,var(--agent-muted))}
-.acpmux-rail-row .acpmux-diff-counts{flex:none;margin-left:auto;font-size:var(--text-detail);opacity:.8}
-.acpmux-rail-output{transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-rail-output:hover{background:var(--acpmux-menu-hover)}
-.acpmux-rail-output:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-.acpmux-rail-note{margin:0;padding:4px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-rail-pr{display:flex;align-items:flex-start;gap:8px;padding:5px 8px;border-radius:7px;color:inherit;text-decoration:none;cursor:default;transition:background-color var(--acpmux-motion-hover,80ms) var(--acpmux-motion-ease,ease-out)}
-.acpmux-rail-pr:hover{background:var(--acpmux-menu-hover)}
-.acpmux-rail-pr:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-.acpmux-rail-pr>svg{flex:none;margin-top:3px;color:var(--agent-muted)}
-.acpmux-rail-pr[data-state="open"]>svg{color:var(--agent-success,var(--acpmux-add))}
-.acpmux-rail-pr[data-state="merged"]>svg{color:var(--agent-ansi-5,var(--agent-accent))}
-.acpmux-rail-pr[data-state="closed"]>svg{color:var(--agent-danger)}
-.acpmux-rail-pr__text{flex:1 1 auto;min-width:0;display:flex;flex-direction:column}
-.acpmux-rail-pr__title{min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.acpmux-rail-pr__line{display:flex;align-items:center;gap:6px;min-width:0;color:var(--agent-muted);font-size:var(--text-detail);white-space:nowrap;font-variant-numeric:tabular-nums}
-.acpmux-rail-pr__ref{flex:0 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis}
-.acpmux-rail-pr__line .acpmux-diff-counts{flex:none}
-.acpmux-rail-pr__state,.acpmux-rail-pr__checks{flex:none;margin-left:auto}
-.acpmux-rail-pr__checks[data-checks="failing"]{color:var(--agent-danger)}
-.acpmux-rail-pr__checks[data-checks="passing"],.acpmux-rail-pr__checks[data-checks="pending"]{width:7px;height:7px;margin-right:2px;border-radius:50%;background:var(--agent-success,var(--acpmux-add))}
-.acpmux-rail-pr__checks[data-checks="pending"]{background:var(--agent-warning,var(--agent-muted))}
-/* Background tasks: a running command, how long it has run, and Stop. */
-.acpmux-rail-task{display:flex;align-items:center;gap:8px;min-height:26px;padding:2px 4px 2px 8px}
-.acpmux-rail-task>svg{flex:none;color:var(--agent-muted)}
-.acpmux-rail-task__command{flex:1 1 auto;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
-.acpmux-rail-task__time{flex:none;color:var(--agent-muted);font-size:var(--text-detail);font-variant-numeric:tabular-nums}
-.acpmux-rail-task__stop{flex:none;display:grid;place-items:center;width:20px;height:20px;padding:0;border:0;border-radius:5px;background:none;color:var(--agent-muted);cursor:default}
-.acpmux-rail-task__stop:hover{background:var(--acpmux-menu-hover);color:var(--agent-text)}
-.acpmux-rail-task__stop:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-.acpmux-rail-task__stop:disabled{opacity:.4}
-.acpmux-rail-task__stop[data-state="failed"]{color:var(--agent-danger)}
-.acpmux-rail-tasks__finished{margin:4px 8px 2px;color:var(--agent-muted);font-size:var(--text-detail)}
-.acpmux-rail-more{display:block;height:26px;padding:0 8px;border:0;border-radius:7px;background:none;color:var(--agent-muted);font:inherit;font-size:var(--text-detail);cursor:default}
-.acpmux-rail-more:hover{color:var(--agent-text)}
-.acpmux-rail-more:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
-.acpmux-rail-sr{position:absolute;width:1px;height:1px;margin:-1px;padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+/* The summary card's Background tasks (SummaryTasks.tsx): a command's row opens its terminal, Stop sits beside it; the finished ones fold into one row. */
+.acpmux-summary-task{display:flex;align-items:center;gap:2px}
+.acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0}
+.acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
+.acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-danger)}
+.acpmux-summary-finished{display:flex;align-items:center;gap:6px}
+/* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */
+.acpmux-summary-empty{margin:0;padding:10px 8px 6px;color:var(--agent-muted);font-size:var(--text-detail);line-height:16px}
+.acpmux-summary-attach{margin-top:2px;color:var(--agent-muted)}
+.acpmux-summary-attach:hover{color:var(--agent-text)}
