@@ -90,6 +90,7 @@ import Testing
         await watch.refresh().value
 
         watch.perform(.rollBack)
+        watch.perform(.rollBack) // a second press while one runs is ignored
         for _ in 0..<50 where watch.rollbackFailure == nil { await Task.yield() }
 
         #expect(calls.rolledBackTo == ["200"])

@@ -69,6 +69,10 @@ public final class PulledBuildWatch {
     @ObservationIgnored let rollBack: @MainActor (_ build: String, _ stateDirectories: [URL?]) async -> String?
     @ObservationIgnored let defaults: UserDefaults
     @ObservationIgnored private var refreshTask: Task<Void, Never>?
+    /// The rollback check ran for the current pulled build.
+    @ObservationIgnored private var rollbackChecked = false
+    /// A rollback is running: another Roll Back press is ignored.
+    @ObservationIgnored private var rollingBack = false
 
     static let waitingKey = "cmux.next.updates.pulledBuildWaiting"
 
@@ -131,10 +135,15 @@ public final class PulledBuildWatch {
         guard let entry else {
             pulled = nil
             rollbackTarget = nil
+            rollbackChecked = false
             rollbackFailure = nil
             return
         }
-        rollbackTarget = await rollbackCheck(stateDirectories())
+        // The check verifies the app's signature, so it runs once per pulled build, not every cycle.
+        if pulled?.build != entry.build || !rollbackChecked {
+            rollbackTarget = await rollbackCheck(stateDirectories())
+            rollbackChecked = true
+        }
         pulled = entry
     }
 
@@ -149,12 +158,15 @@ public final class PulledBuildWatch {
         guard let pulled else { return }
         switch action {
         case .rollBack:
-            guard let target = rollbackTarget else { return }
+            guard let target = rollbackTarget, !rollingBack else { return }
             rollbackFailure = nil
+            rollingBack = true
             let directories = stateDirectories(), rollBack = rollBack
             Task { [weak self] in
                 // Success relaunches into the kept build; only a failure comes back.
-                if let failure = await rollBack(target.build, directories) { self?.rollbackFailure = failure }
+                let failure = await rollBack(target.build, directories)
+                self?.rollingBack = false
+                if let failure { self?.rollbackFailure = failure }
             }
         case .waitForFix:
             waitingBuild = pulled.build
