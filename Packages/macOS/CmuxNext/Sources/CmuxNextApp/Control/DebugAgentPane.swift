@@ -1,5 +1,6 @@
 #if DEBUG
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextResources
 import CmuxNextSettings
@@ -97,7 +98,9 @@ enum DebugAgentPane {
             return .object(["pane": .string(pane), "engine": .string(view.engineName)])
         }
         if action == "focus_composer" {
-            // The chat takes the keyboard and its composer the caret, in either engine, for typing benches.
+            // The chat's pane takes the app's focus, the chat the keyboard and its composer the caret, in
+            // either engine, for typing benches (focus elsewhere would take the keyboard back).
+            _ = services.registry.perform("pane.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane), origin: .script))
             view.focusChat()
             let script = """
                 const field = document.querySelector('.acpmux-composer [contenteditable="true"], .acpmux-composer textarea');
