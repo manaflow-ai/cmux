@@ -7,8 +7,8 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
   setDefaultTimeout(240_000);
@@ -24,8 +24,8 @@ await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.bottom-stack", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -38,7 +38,7 @@ await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
     for (const width of [1100, 420]) {
       const page = await browser!.newPage({ viewport: { width, height: 760 } });
       await page.goto(
-        `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.bottom-stack&variant=trust-permission-queue`,
+        `http://127.0.0.1:${port}${galleryFrame("agent-pane.bottom-stack", { variant: "trust-permission-queue" })}`,
       );
       // The first page waits on a cold Vite compiling the gallery, past 30 s on a busy runner.
       await page.locator(".acpmux-trust-ask").first().waitFor({ timeout: 90_000 });
@@ -63,7 +63,7 @@ await requireBrowserLane("agent-pane-trust-ask-corner.test.ts", async () => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 1100, height: 760 } });
     await page.goto(
-      `http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.bottom-stack&variant=trust-permission-queue`,
+      `http://127.0.0.1:${port}${galleryFrame("agent-pane.bottom-stack", { variant: "trust-permission-queue" })}`,
     );
     await page.locator(".acpmux-trust-ask").first().waitFor({ timeout: 90_000 });
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {

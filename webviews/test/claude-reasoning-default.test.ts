@@ -9,9 +9,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -35,8 +35,8 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     await browser?.close();
@@ -47,7 +47,7 @@ await requireBrowserLane("claude-reasoning-default.test.ts", async () => {
   const play = async (variant: string) => {
     const port = (vite!.httpServer!.address() as { port: number }).port;
     const page = await browser!.newPage({ viewport: { width: 760, height: 560 } });
-    await page.goto(`http://127.0.0.1:${port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}`);
+    await page.goto(`http://127.0.0.1:${port}${galleryFrame("agent-pane.composer", { variant })}`);
     // A cold dev server compiles the gallery on the first request; give it longer than the default.
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
       timeout: 90_000,

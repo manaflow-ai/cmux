@@ -7,8 +7,8 @@ import { readFileSync } from "node:fs";
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -26,7 +26,7 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (reduced = true, entry = "ui.menu") =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}${reduced ? "&reducedMotion=1" : ""}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { reducedMotion: reduced ? 1 : undefined })}`;
 
   async function ready(page: Page) {
     for (;;) {
@@ -46,13 +46,8 @@ await requireBrowserLane("popup-reduce-motion.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage();
-    await warm.goto(url());
-    await ready(warm);
-    await warm.close();
+    await warmGalleryFrame(vite, ["ui.menu", "ui.dialog"], { browser });
   });
   afterAll(async () => {
     await browser?.close();

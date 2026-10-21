@@ -99,29 +99,6 @@ export function checkDevServerWarmSource(file: string, text: string): string[] {
  * for those PRs.
  */
 const EVERY_ENTRY_PENDING = new Map<string, string>([
-  // Agent pane, New Tab, menus and chips.
-  ["test/agent-pane-chat-width.test.ts", "narrowed in the agent-pane batch"],
-  ["test/agent-pane-column-edges.test.ts", "narrowed in the agent-pane batch"],
-  ["test/agent-pane-trust-ask-corner.test.ts", "narrowed in the agent-pane batch"],
-  ["test/chat-palette-actions.test.ts", "narrowed in the agent-pane batch"],
-  ["test/chief-context-copy.test.ts", "narrowed in the agent-pane batch"],
-  ["test/claude-reasoning-default.test.ts", "narrowed in the agent-pane batch"],
-  ["test/ghost-button-balance.test.ts", "narrowed in the agent-pane batch"],
-  ["test/menu-focus.test.ts", "narrowed in the agent-pane batch"],
-  ["test/menu-pointer-close-focus.test.ts", "narrowed in the agent-pane batch"],
-  ["test/model-picker-round-rail.test.ts", "narrowed in the agent-pane batch"],
-  ["test/narrow-layouts.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-chat-effort-chip.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-add-project-layer.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-list-motion.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-now-playing-look.test.ts", "narrowed in the agent-pane batch"],
-  ["test/new-tab-scroll.test.ts", "narrowed in the agent-pane batch"],
-  ["test/popup-escape.test.ts", "narrowed in the agent-pane batch"],
-  ["test/popup-reduce-motion.test.ts", "narrowed in the agent-pane batch"],
-  ["test/reasoning-chip-steps.test.ts", "narrowed in the agent-pane batch"],
-  ["test/reasoning-menu-check.test.ts", "narrowed in the agent-pane batch"],
-  ["test/reasoning-own-control.test.ts", "narrowed in the agent-pane batch"],
-  ["test/retry-model-menu.test.ts", "narrowed in the agent-pane batch"],
   // Files other lanes' open PRs change.
   ["test/suggestion-lists-float.test.ts", "#22795 (directional-motion) changes this file"],
   ["test/transcript-thought.test.ts", "#23084 (thought-rows) changes this file"],
