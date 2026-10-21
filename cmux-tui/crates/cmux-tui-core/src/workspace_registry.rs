@@ -2460,6 +2460,13 @@ impl WorkspaceRegistry {
     }
 
     pub fn open(root: &Path, session_name: &str) -> anyhow::Result<Self> {
+        Self::open_inner(root, session_name, false)
+    }
+
+    /// `roll_back_first`: an owner build on a registry swapped in by output
+    /// cleanup failed before any full start on it; the previous registry is
+    /// put back under this open's locks before the open.
+    fn open_inner(root: &Path, session_name: &str, roll_back_first: bool) -> anyhow::Result<Self> {
         let root = platform::normalize_filesystem_path(root.to_path_buf());
         // Keep short roots in their existing spelling while giving all
         // root-level files the same long-path handling as their descendants.
@@ -2490,6 +2497,12 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
+        if roll_back_first && output_cleanup::rollback_possible(&db_path) {
+            output_cleanup::roll_back_swap(
+                &db_path,
+                &anyhow::anyhow!("the owner did not start on the new registry"),
+            );
+        }
         // Before the orphan check: an interrupted swap is put back first.
         // The swap opens the new file through `initialize` and reads its
         // layout before the rename, so a file that cannot serve never
@@ -2508,6 +2521,9 @@ impl WorkspaceRegistry {
             registry.snapshot()?;
             Ok(())
         });
+        // A swap that failed after it moved the registry aside left only
+        // the backup: put it back before anything opens db_path.
+        output_cleanup::restore_interrupted_swap(&db_path);
         // The locks stay held across a failed open and its rollback: no
         // other owner can open either file in between.
         let mut session_guard = Some(session_guard);
@@ -2538,10 +2554,22 @@ impl WorkspaceRegistry {
                 Some(db_path.clone()),
             )
         };
-        match open_once(&mut session_guard, &mut lease) {
+        #[cfg(debug_assertions)]
+        let first =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_OPEN").is_some() {
+                Err(anyhow::anyhow!("test: the swapped registry did not open"))
+            } else {
+                open_once(&mut session_guard, &mut lease)
+            };
+        #[cfg(not(debug_assertions))]
+        let first = open_once(&mut session_guard, &mut lease);
+        match first {
             Ok(mut registry) => {
-                registry.output_cleanup_swapped = swapped;
-                if !swapped {
+                // Also true on a later start when the swap start never got
+                // through a full start (killed during restore).
+                registry.output_cleanup_swapped =
+                    swapped || output_cleanup::rollback_possible(&db_path);
+                if !registry.output_cleanup_swapped {
                     output_cleanup::remove_previous_registry_when_started(&db_path);
                 }
                 Ok(registry)
@@ -2584,19 +2612,14 @@ impl WorkspaceRegistry {
                 }
                 Ok(loaded)
             }
-            Err(error) if swapped && let Some(db_path) = db_path => {
-                {
-                    let root = platform::normalize_filesystem_path(root.to_path_buf());
-                    let session_dir = platform::normalize_filesystem_path(
-                        root.join(session_storage_component(session_name)),
-                    );
-                    let _session_guard = acquire_session_guard(&root, session_name)?;
-                    let _lease = SessionLease::acquire(&platform::normalize_filesystem_path(
-                        session_dir.join(SESSION_WRITER_LOCK_FILE),
-                    ))?;
-                    output_cleanup::roll_back_swap(&db_path, &error);
-                }
-                load(Self::open(root, session_name)?)
+            Err(error) if swapped && db_path.is_some() => {
+                eprintln!(
+                    "cmux-tui: output cleanup: the owner did not start on the new registry: {error:#}"
+                );
+                // The failed build released its locks with the registry. One
+                // open takes them again and holds them through the rollback
+                // and the open of the restored registry.
+                load(Self::open_inner(root, session_name, true)?)
             }
             Err(error) => Err(error),
         }

@@ -727,6 +727,74 @@ fn a_swapped_registry_that_cannot_serve_is_rolled_back() {
     owner.stop();
 }
 
+/// The original registry serves again, with its output, and this build does
+/// not try the cleanup again.
+fn assert_rolled_back(dir: &Path, session: &str, owner: Owner, prepared: &Prepared) {
+    owner.wait_for_log("restoring the previous registry");
+    assert_eq!(workspaces(&owner), prepared.workspaces, "the original registry serves");
+    let (journal, reason) = read_journal(&owner.socket());
+    assert_eq!(reason, "completed");
+    assert_eq!(
+        journal.iter().filter(|record| record.kind == "terminal.output").count(),
+        SEEDED_SEALED + SEEDED_LIVE,
+        "the original journal is back, output included"
+    );
+    owner.stop();
+    assert!(!sidecar(&prepared.registry, ".pre-output-cleanup").exists());
+    assert!(sidecar(&prepared.registry, ".output-cleanup-failed").is_file());
+    assert_eq!(integrity(&prepared.registry), "ok");
+    let owner = Owner::start(
+        dir,
+        session,
+        "after-rollback-check",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0")],
+    );
+    owner.wait_for_log("output cleanup: skipped; an earlier attempt failed");
+    owner.stop();
+}
+
+#[test]
+fn a_swapped_registry_that_does_not_open_is_rolled_back() {
+    let dir = state_dir("open-fails");
+    let session = "oc-open-fails";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+    // The first open of the swapped registry fails (debug hook).
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "open-fails",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_OPEN", "1")],
+    );
+    owner.wait_for_log("output cleanup: swapped the registry");
+    assert_rolled_back(&dir.0, session, owner, &prepared);
+}
+
+#[test]
+fn a_swap_start_that_never_finished_rolls_back_at_a_later_failed_start() {
+    let dir = state_dir("unfinished");
+    let session = "oc-unfinished";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+    let owner = Owner::start(&dir.0, session, "swap", &[]);
+    owner.wait_for_log("output cleanup: swapped the registry");
+    owner.stop();
+    // As if the swap start was killed during restore: no full start counted.
+    Connection::open(&prepared.registry)
+        .unwrap()
+        .execute("UPDATE meta SET value = '0' WHERE key = 'output_cleanup_full_starts'", [])
+        .unwrap();
+    // A later start whose owner build fails still puts the original back.
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "later-fails",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_LOAD", "1")],
+    );
+    assert!(!owner.log_text().contains("swapped the registry"), "no second swap");
+    assert_rolled_back(&dir.0, session, owner, &prepared);
+}
+
 #[test]
 fn a_restore_preview_reads_across_a_pruned_tail() {
     let dir = state_dir("tail");

@@ -140,6 +140,27 @@ pub(crate) fn roll_back_swap(db_path: &Path, error: &anyhow::Error) {
     write_failure_marker(db_path, &format!("the new registry did not serve: {error:#}"));
 }
 
+/// A previous registry exists and no owner got through a full start on the
+/// registry that replaced it: a failed owner build may still roll back.
+pub(crate) fn rollback_possible(db_path: &Path) -> bool {
+    if !previous_path(db_path).is_file() || !db_path.is_file() {
+        return false;
+    }
+    open_registry_database_read_only(db_path)
+        .ok()
+        .map(|connection| {
+            connection
+                .query_row("SELECT value FROM meta WHERE key = ?1", [FULL_STARTS_META_KEY], |row| {
+                    row.get::<_, String>(0)
+                })
+                .ok()
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0)
+                == 0
+        })
+        .unwrap_or(false)
+}
+
 /// Records a full owner start (restore done) on a registry that still has
 /// the file a swap replaced.
 pub(crate) fn note_full_start(db_path: &Path) {
@@ -203,10 +224,34 @@ pub(crate) fn remove_previous_registry_when_started(db_path: &Path) {
 
 /// Without hard links the swap renames the registry aside first; a crash
 /// between the two renames leaves only the previous file.
-fn restore_interrupted_swap(db_path: &Path) {
+pub(crate) fn restore_interrupted_swap(db_path: &Path) {
     let previous = previous_path(db_path);
     if db_path.exists() || !previous.is_file() {
         return;
+    }
+    // Sidecars without their main file belong to a file that is gone; an old
+    // WAL must never be applied to the backup. They are moved aside, not
+    // deleted.
+    let orphaned = super::super::open_guard::orphaned_sidecars(db_path);
+    let shm = sidecar_path(db_path, "-shm");
+    if !orphaned.is_empty() || shm.exists() {
+        match super::super::open_guard::quarantine(
+            db_path,
+            "sidecars of a missing registry before an interrupted swap was undone",
+        ) {
+            Ok(kept) => eprintln!(
+                "cmux-tui: output cleanup: moved stale sidecars to {}",
+                kept.recovery_dir.display()
+            ),
+            Err(error) => {
+                eprintln!(
+                    "cmux-tui: output cleanup: could not move stale sidecars aside, \
+                     the backup stays at {}: {error:#}",
+                    previous.display()
+                );
+                return;
+            }
+        }
     }
     match fs::rename(&previous, db_path) {
         Ok(()) => {
@@ -404,18 +449,10 @@ fn build_in(tx: &Transaction<'_>, steps: &mut Steps) -> anyhow::Result<Built> {
     // intents, effects, workspace positions).
     for table in &copied {
         let columns = column_list(tx, "src", table, None)?;
-        let sql = objects
-            .iter()
-            .find(|(kind, name, _)| kind == "table" && name == table)
-            .map(|(_, _, sql)| sql.to_ascii_uppercase())
-            .unwrap_or_default();
-        let rowid = !sql.contains("WITHOUT ROWID") && !has_rowid_alias(tx, table)?;
-        let (insert, select, order) = if rowid {
+        let (insert, select, order) = if has_rowid(tx, table)? {
             (format!("rowid, {columns}"), format!("rowid, {columns}"), " ORDER BY rowid")
-        } else if sql.contains("WITHOUT ROWID") {
-            (columns.clone(), columns.clone(), "")
         } else {
-            (columns.clone(), columns.clone(), " ORDER BY rowid")
+            (columns.clone(), columns.clone(), "")
         };
         tx.execute(
             &format!(
@@ -869,16 +906,28 @@ fn install(db_path: &Path) -> anyhow::Result<()> {
     remove_if_present(&sidecar_path(db_path, "-shm"))?;
     let previous = previous_path(db_path);
     remove_if_present(&previous)?;
+    let parent = db_path.parent().context("registry path has no directory")?;
     let linked = fs::hard_link(db_path, &previous).is_ok();
     if !linked {
         fs::rename(db_path, &previous)
             .with_context(|| format!("keep the registry as {}", previous.display()))?;
     }
-    let parent = db_path.parent().context("registry path has no directory")?;
-    platform::sync_directory(parent)?;
+    // From here the registry may exist only as `previous`: no error path
+    // may leave db_path empty. A failed directory sync is only logged (the
+    // rename below orders after the link or rename above on every file
+    // system the daemon supports; a crash leaves `previous`, which the next
+    // open restores).
+    if let Err(error) = platform::sync_directory(parent) {
+        eprintln!("cmux-tui: output cleanup: sync {}: {error}", parent.display());
+    }
     if let Err(error) = fs::rename(staging_path(db_path), db_path) {
         if !linked {
-            let _ = fs::rename(&previous, db_path);
+            if let Err(restore) = fs::rename(&previous, db_path) {
+                eprintln!(
+                    "cmux-tui: output cleanup: could not put back {}: {restore}",
+                    previous.display()
+                );
+            }
         } else {
             let _ = fs::remove_file(&previous);
         }
@@ -929,14 +978,15 @@ fn table_exists(tx: &Transaction<'_>, schema: &str, table: &str) -> anyhow::Resu
     )?)
 }
 
-/// The table has an INTEGER PRIMARY KEY column, which is its rowid.
-fn has_rowid_alias(tx: &Transaction<'_>, table: &str) -> anyhow::Result<bool> {
-    let mut statement = tx.prepare("SELECT type, pk FROM pragma_table_info(?1, 'src')")?;
-    let keys = statement
-        .query_map([table], |row| Ok((row.get::<_, String>(0)?, row.get::<_, i64>(1)?)))?
-        .collect::<Result<Vec<_>, _>>()?;
-    let primary = keys.iter().filter(|(_, pk)| *pk > 0).collect::<Vec<_>>();
-    Ok(primary.len() == 1 && primary[0].0.eq_ignore_ascii_case("INTEGER"))
+/// The table stores a rowid (it is not WITHOUT ROWID). An INTEGER PRIMARY
+/// KEY column aliases it; naming `rowid` too copies the same value.
+fn has_rowid(tx: &Transaction<'_>, table: &str) -> anyhow::Result<bool> {
+    let without: i64 = tx.query_row(
+        "SELECT wr FROM pragma_table_list(?1) WHERE schema = 'src' AND type = 'table'",
+        [table],
+        |row| row.get(0),
+    )?;
+    Ok(without == 0)
 }
 
 /// Every source record is either kept or removed output: per staged segment
@@ -983,6 +1033,28 @@ fn check_counts(tx: &Transaction<'_>) -> anyhow::Result<()> {
             kept_in(first - 1, last)? == kept,
             "the kept sealed records do not match the staged segment counts"
         );
+        let mismatched: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM main.output_cleanup_segments AS segment
+             WHERE segment.kept + segment.removed != segment.record_count
+                OR segment.kept != (
+                  SELECT COUNT(*) FROM main.output_cleanup_records AS kept
+                  WHERE kept.sequence BETWEEN segment.start_sequence AND segment.end_sequence)",
+            [],
+            |row| row.get(0),
+        )?;
+        anyhow::ensure!(
+            mismatched == 0,
+            "{mismatched} staged segments do not add up (kept plus removed)"
+        );
+        let gaps: i64 = tx.query_row(
+            "SELECT COUNT(*) FROM main.output_cleanup_segments AS segment
+             WHERE segment.start_sequence > ?1 AND NOT EXISTS (
+               SELECT 1 FROM main.output_cleanup_segments AS previous
+               WHERE previous.end_sequence = segment.start_sequence - 1)",
+            [first],
+            |row| row.get(0),
+        )?;
+        anyhow::ensure!(gaps == 0, "the staged segments are not contiguous");
     }
     let live_archive_end = value("live_archive_end")?;
     let live_head = value("live_head")?;

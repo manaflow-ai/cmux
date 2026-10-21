@@ -356,9 +356,6 @@ impl RestoreReducer {
         self.apply_read(record)
     }
 
-    /// A record from a journal reader, which refuses every gap that output
-    /// cleanup did not prune (`journal_pruned_ranges`): records only have
-    /// to ascend here.
     /// The last sequence this reducer applied (or its checkpoint's).
     pub(crate) fn last_sequence(&self) -> u64 {
         self.last_sequence
@@ -370,6 +367,9 @@ impl RestoreReducer {
         self.last_sequence = self.last_sequence.max(head);
     }
 
+    /// A record from a journal reader, which refuses every gap that output
+    /// cleanup did not prune (`journal_pruned_ranges`): records only have
+    /// to ascend here.
     pub(crate) fn apply_read(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
             record.sequence > self.last_sequence,

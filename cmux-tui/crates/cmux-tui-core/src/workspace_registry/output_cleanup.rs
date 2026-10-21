@@ -40,7 +40,8 @@ use super::{WorkspaceRegistry, meta_value};
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
 pub(super) use swap::{
-    note_full_start, remove_previous_registry_when_started, roll_back_swap, swap_at_open,
+    note_full_start, remove_previous_registry_when_started, restore_interrupted_swap,
+    roll_back_swap, rollback_possible, swap_at_open,
 };
 
 /// Registry meta key set once the cleanup is done (or was not needed). The
@@ -199,12 +200,18 @@ fn is_temporary(error: &anyhow::Error) -> bool {
                 rusqlite::ErrorCode::DatabaseBusy
                     | rusqlite::ErrorCode::DatabaseLocked
                     | rusqlite::ErrorCode::DiskFull
-                    | rusqlite::ErrorCode::SystemIoFailure
-                    | rusqlite::ErrorCode::CannotOpen
-                    | rusqlite::ErrorCode::OutOfMemory
             );
         }
-        cause.is::<std::io::Error>() || cause.to_string().contains(STAGED_WORK_CHANGED)
+        if let Some(error) = cause.downcast_ref::<std::io::Error>() {
+            return matches!(
+                error.kind(),
+                std::io::ErrorKind::StorageFull
+                    | std::io::ErrorKind::ResourceBusy
+                    | std::io::ErrorKind::WouldBlock
+                    | std::io::ErrorKind::Interrupted
+            );
+        }
+        cause.to_string().contains(STAGED_WORK_CHANGED)
     })
 }
 
