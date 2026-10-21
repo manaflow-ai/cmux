@@ -543,6 +543,13 @@ impl Hub {
     /// daemon runs it after its ready line; prompts wait for it (`wait_logs`).
     pub fn load_logs(self: &Arc<Self>) {
         let started = std::time::Instant::now();
+        // Debug builds only: a test makes the load fail as a corrupt log could
+        // (`durable_agents.rs`). Release builds have no seam.
+        #[cfg(debug_assertions)]
+        if std::env::var_os("ACPMUX_TEST_PANIC_IN_LOAD_LOGS").is_some() {
+            // crash-allow: debug-build test seam; the test asks for this panic, like a corrupt log
+            panic!("ACPMUX_TEST_PANIC_IN_LOAD_LOGS");
+        }
         let sessions = self.sessions();
         self.on_every_core(&sessions, |session| self.catch_up(session));
         let waiting = std::mem::take(&mut *self.waiting_at_load.lock().unwrap());
