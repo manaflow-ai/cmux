@@ -162,7 +162,9 @@ impl RemoteSession {
 
     fn initialize(&self, subscribe: bool) -> anyhow::Result<()> {
         // Identify the endpoint and register this connection before any optional subscription.
-        let ident = self.request(json!({"cmd": "identify"}))?;
+        // `revisions` asks for the API revision range and the server's update
+        // command; an older server ignores the flag.
+        let ident = self.request(json!({"cmd": "identify", "revisions": true}))?;
         validate_remote_identity(&ident)?;
         *self.capabilities.lock().unwrap() = identity_capabilities(&ident);
         let mut client_info = json!({"cmd": "set-client-info", "kind": "tui"});

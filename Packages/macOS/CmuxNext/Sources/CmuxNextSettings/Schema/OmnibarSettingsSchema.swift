@@ -60,13 +60,20 @@ nonisolated enum OmnibarSettingsSchema {
                 help: SettingsText.keyed("settings.browser.omnibar.calculator.help", "Shows the answer to arithmetic you type. Return copies it."),
                 kind: .toggle, default: .bool(fallback.calculator), keywords: ["calculator", "math", "answer", "omnibox"]
             ),
+            SettingDescriptor(
+                S.showFullURLsPath, section: .browser, group: group,
+                title: SettingsText.keyed("settings.browser.omnibar.showFullURLs", "Always Show Full URLs"),
+                help: SettingsText.keyed("settings.browser.omnibar.showFullURLs.help",
+                                         "Shows the whole address, with https:// and www., when you are not editing it."),
+                kind: .toggle, default: .bool(fallback.showFullURLs), keywords: ["url", "address", "https", "www", "full", "omnibox"]
+            ),
         ] + OmnibarLookSettingsSchema.descriptors
     }
 
     /// Agents may change how many rows show and inline completion; the
     /// engine and remote suggestions decide what leaves the machine.
     static var agentSettableKeys: Set<String> {
-        Set(["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows", "browser.omnibar.calculator"])
+        Set(["browser.omnibar.inlineAutocomplete", "browser.omnibar.maxRows", "browser.omnibar.calculator", "browser.omnibar.showFullURLs"])
             .union(OmnibarLookSettingsSchema.agentSettableKeys)
     }
 

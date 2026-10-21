@@ -54,6 +54,12 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// label with `progress` on. Nil when none of those is reported, so a
     /// quiet workspace keeps its one-line row.
     public var status: SidebarWorkspaceStatus?
+    /// The session tree (`sidebar.sessionTree`): 1 under the workspace whose agent started this one's.
+    public var treeDepth = 0
+    /// The session tree: the Command-number that goes to the row (1 to 9), drawn as a keycap.
+    public var keycap: Int?
+    /// The session tree: the row's pull requests, a glyph and a count in their status color.
+    public var pullRequests: SidebarPullRequestBadge?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
@@ -82,7 +88,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         // Another computer's workspace names its folder after the computer, so the row says
         // where its terminals run (`host · ~/code/app`), unless the folder element shows it already (cx-gaq9).
         let folder = machine != nil && !set.secondLine.contains(.directory) ? Self.nonEmpty(ws.directory) : nil
-        let lead = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage)].compactMap { $0 }
+        let lead = [Self.nonEmpty(machine), folder, Self.nonEmpty(ws.stage), Self.descriptionLine(ws)].compactMap { $0 }
         let secondLine = set.secondLine.compactMap { element in Self.text(of: element, in: ws, now: now).map { (element, $0) } }
         var items = lead + secondLine.map(\.1)
         var status = Self.status(ws.reported, set)
@@ -98,7 +104,7 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         }
         let working = ws.agentWorking && set.shows(.working)
         self.init(
-            icon: set.shows(.icon) ? ws.icon : nil,
+            icon: (set.shows(.icon) ? ws.icon : nil) ?? ws.taskStatus?.glyph,
             detail: items.isEmpty ? nil : items.joined(separator: Self.separator),
             tabCount: set.shows(.tabCount) ? ws.tabs.count : nil,
             badge: set.shows(.pullRequest) ? Self.nonEmpty(ws.pullRequest) : nil,
@@ -122,8 +128,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
         let place = [Self.nonEmpty(ws.directory), Self.nonEmpty(ws.branch)].compactMap { $0 }
         let meta = [Self.nonEmpty(machine), Self.nonEmpty(ws.stage), Self.nonEmpty(ws.pullRequest)].compactMap { $0 }
         self.init(
-            icon: ws.icon,
-            detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
+            icon: ws.icon ?? ws.taskStatus?.glyph,
+            detail: (showsNotification ? Self.nonEmpty(ws.notificationText) : nil) ?? Self.descriptionLine(ws)
+                ?? Self.nonEmpty(ws.lastMessage) ?? Self.nonEmpty(ws.status)
                 ?? (place.isEmpty ? nil : place.joined(separator: Self.separator)),
             activity: Self.activity(ws.activity, working: ws.agentWorking, progress: true),
             progress: Self.bar(ws),
@@ -191,6 +198,12 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     static func bar(_ ws: SidebarWorkspace) -> SidebarProgress? {
         guard let progress = ws.progress else { return nil }
         return progress.value != nil || progress.isError || ws.rowState == .placeholder ? progress : nil
+    }
+
+    /// The description's first non-empty line, trimmed: what a row shows of it.
+    static func descriptionLine(_ ws: SidebarWorkspace) -> String? {
+        ws.workspaceDescription?.split(whereSeparator: \.isNewline).lazy
+            .map { $0.trimmingCharacters(in: .whitespaces) }.first { !$0.isEmpty }
     }
 
     static func nonEmpty(_ text: String?) -> String? {

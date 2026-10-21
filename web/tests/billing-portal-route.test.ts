@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
+import { afterAll, beforeEach, describe, expect, mock, test } from "bun:test";
 import { NextRequest } from "next/server";
 
 import { stripeCustomers, stripeSubscriptions } from "../db/schema";
@@ -50,6 +50,7 @@ const createPortalSession = mock(async (params: unknown) => ({
   params,
 }));
 const captureBillingError = mock(() => undefined);
+const originalTeamPortalConfiguration = process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID;
 
 mock.module("../app/lib/stack", () => ({
   getStackServerApp: () => ({ getUser }),
@@ -97,8 +98,14 @@ mock.module("../services/errors", () => ({
 
 const { GET } = await import("../app/api/billing/portal/route");
 
+afterAll(() => {
+  if (originalTeamPortalConfiguration === undefined) delete process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID;
+  else process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID = originalTeamPortalConfiguration;
+});
+
 describe("billing portal route", () => {
   beforeEach(() => {
+    process.env.STRIPE_TEAM_PORTAL_CONFIGURATION_ID = "bpc_team";
     stackConfigured = true;
     stripeConfigured = true;
     returnNullUser = signedInUser;
@@ -314,6 +321,7 @@ describe("billing portal route", () => {
     expect(createPortalSession).toHaveBeenCalledWith({
       customer: "cus_team",
       return_url: "https://cmux.test/dashboard/billing?team=team-pro",
+      configuration: "bpc_team",
     });
   });
 

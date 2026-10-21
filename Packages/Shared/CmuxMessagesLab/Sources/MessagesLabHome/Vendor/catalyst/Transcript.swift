@@ -547,6 +547,18 @@ final class RowCell: UICollectionViewCell {
     private var pendingWant: RowSpec?
     private func dropWant() { if let w = pendingWant { RowBitmaps.shared.unwant(w); pendingWant = nil } }
     static var synchronousBitmaps = false
+    /// cmux (home-streaming-perf-DESIGN.md): a streaming bubble (ask 11) at least this tall draws its next
+    /// text off main while its previous bitmap stays (drawing the whole bubble on main per token was the
+    /// largest part of a streaming frame); a shorter one draws on main as before (cheap, and its look is
+    /// unchanged).
+    static var streamOffMainHeight: CGFloat = 160
+    /// Streaming rows that kept their previous bitmap while the next one is drawn off main (tests).
+    static var streamKeptBitmaps = 0
+    /// Whether `spec` is a tall streaming bubble's text row (it draws off main: `streamOffMainHeight`).
+    static func streamDrawsOffMain(_ spec: RowSpec) -> Bool {
+        guard spec.height >= streamOffMainHeight, case let .part(p) = spec.kind, !p.outgoing, case .text = p.part else { return false }
+        return StreamBubble.isStream(p.ref.messageId)
+    }
     /// Rows drawn on the main thread because their bitmap was not ready
     /// (bench evidence).
     static var syncRenders = 0
@@ -736,6 +748,7 @@ final class RowCell: UICollectionViewCell {
             case let .receipt(b, r): return b + " " + r
             case let .label(text, _, _): return text
             case let .notice(text): return text
+            case let .senderName(name): return name // cmux: a group chat's sender name
             default: return nil
             }
         }
@@ -867,6 +880,7 @@ final class RowCell: UICollectionViewCell {
             liveKept = true
             RowCell.liveKeptBitmaps += 1
         } else if RowCell.synchronousBitmaps || (!deferred && !(repaint && showingThisRow) && !(RowCell.reflow != nil && showingThisRow && Images.ready(spec))
+                                                    && !(showingThisRow && RowCell.streamDrawsOffMain(spec)) // cmux: a tall stream's next text
                                                     && ((RowCell.transitionDepth > 0 && !RowCell.inPaging)
                                                         || (RowCell.mainDrawBudgetLeft() && Images.ready(spec)))) {
             // (A scrolled-in row whose image is not decoded waits for its off-main bitmap: no decode on main.)
@@ -896,6 +910,14 @@ final class RowCell: UICollectionViewCell {
                 bitmap.contents = nil
                 bitmapCleared()
                 tintTypingDiscs()
+            } else if showingThisRow, RowCell.streamDrawsOffMain(spec) {
+                // cmux (home-streaming-perf-DESIGN.md): a tall streaming bubble's new text is drawn off main. Its
+                // previous bitmap stays at its own size, top at the row's top: the text already shown sits where
+                // it will be, and the new line shows when its bitmap lands (a frame or two later), never stretched.
+                RowCell.streamKeptBitmaps += 1
+                bitmap.frame = CGRect(origin: bitmapFrame.origin, size: drawnSize)
+                bitmap.contentsCenter = CGRect(x: 0, y: 0, width: 1, height: 1)
+                stretched = false
             } else if showingThisRow {
                 // The same row is on screen with its previous bitmap and its spec changed: a new
                 // width (live resize, the sidebar divider: every visible row at once) or a palette
@@ -933,7 +955,11 @@ final class RowCell: UICollectionViewCell {
             RowBitmaps.shared.request(want, scale: renderScale) { [weak self, scale = renderScale] img in
                 if self?.pendingWant == want { self?.dropWant() }
                 // A bitmap of the scale the cell had at the request (a scale change since: its own request follows).
-                guard let self, self.spec == want, self.renderScale == scale else { return }
+                // cmux: a streaming bubble's earlier text that lands after a newer one was asked for still shows
+                // (top at the row's top, its own size): under a fast stream every text is followed by a newer one.
+                guard let self, self.renderScale == scale,
+                      self.spec == want || (self.spec?.key == want.key && RowCell.streamDrawsOffMain(want)
+                                            && self.drawn.map { $0.spec != want } ?? true) else { return }
                 CATransaction.begin(); CATransaction.setDisableActions(true)
                 Reclaimer.release(self.bitmap.contents)
                 MediaPlaceholder.clear(self.bitmap)
@@ -1398,7 +1424,7 @@ final class RowCell: UICollectionViewCell {
         case let .label(_, outgoing, _), let .replies(_, _, outgoing): return outgoing
         case .receipt: return true
         case let .threadPreview(pv): return pv.outgoing
-        case .separator, .unsent, .typing, .notice: return false
+        case .separator, .unsent, .typing, .notice, .senderName: return false // cmux: senderName
         }
     }
     /// The x (view pt) of the row's anchored side for a cell at `frame` (snapRow, the send morph's landing place): the
@@ -1493,10 +1519,12 @@ final class RowCell: UICollectionViewCell {
     /// down to this bubble: an arc that hangs from the root and a vertical
     /// stroke whose bottom stays 8.5 pt above this bubble. When the two rows
     /// move apart, the arc and the stroke's height animate (no path animation).
-    private var connectorState: (CGFloat?, CGFloat, Bool, CGFloat)?
+    private var connectorState: (CGFloat?, CGFloat, Bool, CGFloat, CGFloat)?
     func setConnector(top: CGFloat?, bottom: CGFloat, mirrored: Bool) {
-        let state = (top, bottom, mirrored, spec?.width ?? 0)
-        if let c = connectorState, c.0 == state.0, c.1 == state.1, c.2 == state.2, c.3 == state.3 { return }
+        // cmux: a group chat's incoming reply sits right of the avatar column; its connector moves with it.
+        let indent: CGFloat = { if !mirrored, case let .part(p)? = spec?.kind { return p.cmuxIndent }; return 0 }()
+        let state = (top, bottom, mirrored, spec?.width ?? 0, indent)
+        if let c = connectorState, c.0 == state.0, c.1 == state.1, c.2 == state.2, c.3 == state.3, c.4 == state.4 { return }
         connectorState = state
         CATransaction.begin(); CATransaction.setDisableActions(true)
         defer { CATransaction.commit() }
@@ -1509,7 +1537,7 @@ final class RowCell: UICollectionViewCell {
             contentView.layer.insertSublayer(connector, at: 0)
             contentView.layer.insertSublayer(connectorLine, at: 1)
         }
-        let r: CGFloat = 19, x: CGFloat = 34.25, endX: CGFloat = 63
+        let r: CGFloat = 19, x: CGFloat = 34.25 + indent, endX: CGFloat = 63 + indent // cmux: + indent
         let cx = x + r, cy = top + r
         let w = spec?.width ?? 628
         let p = UIBezierPath()

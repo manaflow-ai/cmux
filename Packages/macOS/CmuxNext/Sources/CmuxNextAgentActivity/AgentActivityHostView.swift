@@ -31,6 +31,7 @@ public final class AgentActivityHostView: NSView {
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.theme(.app).applyScript, injectionTime: .atDocumentStart,
                          forMainFrameOnly: true))
+        // webview-allow: agent activity view not ported to the page host yet; it stays in WebKit
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         super.init(frame: .zero)
@@ -39,9 +40,8 @@ public final class AgentActivityHostView: NSView {
         webView.allowsBackForwardNavigationGestures = false
         webView.allowsLinkPreview = false
         if webView.responds(to: NSSelectorFromString("_setDrawsBackground:")) { webView.setValue(false, forKey: "drawsBackground") }
-        #if DEBUG
+        // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
-        #endif
         bridge.view = self
         model.onChange = { [weak self] in self?.scheduleStatePush() }
         addSubview(webView)

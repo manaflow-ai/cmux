@@ -73,7 +73,7 @@ def path_without_timeout(temp):
 
 
 class PerFileRunner(unittest.TestCase):
-    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None):
+    def run_runner(self, files, without_timeout=False, contents=None, shard=None, shard_count=None, extra_env=None):
         temp = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
         web = temp / "webviews"
         for name in files:
@@ -96,16 +96,20 @@ class PerFileRunner(unittest.TestCase):
         self.dev.write_text("", encoding="utf-8")
         self.peak.write_text("", encoding="utf-8")
         running.mkdir()
-        (web / "node_modules").mkdir()
+        (web / "node_modules").mkdir(exist_ok=True)
+        if getattr(self, "web_hook", None):
+            self.web_hook(web)
         self.shared_cache = web / "node_modules" / ".vite"
         system_path = path_without_timeout(temp) if without_timeout else os.environ["PATH"]
-        env = {**os.environ, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
+        base_env = {k: v for k, v in os.environ.items() if k not in ("CMUX_BROWSER_TESTS", "GITHUB_ACTIONS")}
+        env = {**base_env, "PATH": f"{bin_dir}:{system_path}", "BUN_CALLS": str(calls),
                "BUN_OVERLAPS": str(self.overlaps), "SHARED_VITE_CACHE": str(web / "node_modules" / ".vite"),
                "BUN_DEV": str(self.dev), "BUN_PEAK": str(self.peak), "DEV_RUNNING": str(running),
                "CMUX_WEB_TEST_FILE_TIMEOUT": "2", "CMUX_WEB_TEST_JOBS": "8"}
         if shard is not None:
             env["CMUX_WEB_TEST_SHARD"] = str(shard)
             env["CMUX_WEB_TEST_SHARD_COUNT"] = str(shard_count)
+        env.update(extra_env or {})
         started = time.monotonic()
         result = subprocess.run(["bash", str(RUNNER)], cwd=web, env=env, capture_output=True, text=True, timeout=40)
         return result, time.monotonic() - started, sorted(calls.read_text(encoding="utf-8").split())
@@ -137,6 +141,20 @@ class PerFileRunner(unittest.TestCase):
         result, _, calls = self.run_runner(["test/a.test.ts", "src/b.test.tsx"])
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_a_focused_list_runs_only_those_files(self):
+        """scripts/ci/car_guards.py passes the focused tests a car selects."""
+        files = ["test/a.test.ts", "test/fail.test.ts", "src/b.test.tsx"]
+        result, _, calls = self.run_runner(files, extra_env={"CMUX_WEB_TEST_FILES": "src/b.test.tsx\ntest/a.test.ts\n"})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./src/b.test.tsx", "./test/a.test.ts"])
+
+    def test_a_focused_list_naming_no_test_file_fails(self):
+        """A stale selection (a moved or deleted test) must not pass by running nothing."""
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={"CMUX_WEB_TEST_FILES": "test/gone.test.ts"})
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("test/gone.test.ts", result.stderr)
+        self.assertEqual(calls, [])
 
     def test_shards_cover_each_file_once(self):
         files = ["test/a.test.ts", "test/b.test.ts", "test/c.test.ts", "src/d.test.tsx", "src/e.test.tsx"]
@@ -182,6 +200,37 @@ class PerFileRunner(unittest.TestCase):
         self.assertEqual(sum(warm == "cold" for _, _, warm in runs), 4, runs)
         self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
 
+    def test_a_failed_warming_file_hands_warming_to_the_next_file_of_its_config(self):
+        # One red pane file warmed first, and every other pane file then ran one at a time on a
+        # cold cache: about 7 minutes of a 13-minute shard (react-apps-check 4/4, job 118973285057).
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        contents = {f"test/agent-{name}.test.ts": pane_server
+                    for name in ("a-fail", "history", "peer-chat", "steps", "subagents")}
+        result, _, calls = self.run_runner(list(contents), contents=contents)
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([warm for _, _, warm in runs].count("cold"), 2,
+                         f"the failed warmer and the one after it start cold, the rest warm: {runs}")
+        self.assertGreater(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
+    def test_warming_stops_after_the_attempt_limit_and_the_rest_run_one_at_a_time_cold(self):
+        # A config whose warmers all fail must not try every file as a warmer: after
+        # CMUX_WEB_TEST_WARM_ATTEMPTS failures its other files run one at a time on cold caches.
+        pane_server = 'spawn(vp, ["dev", "--config", "vite.config.acpmux-pane.mjs", "--port", String(port)]);\n'
+        contents = {f"test/agent-{name}-fail.test.ts": pane_server for name in ("a", "b", "c", "d")}
+        result, _, calls = self.run_runner(list(contents), contents=contents,
+                                           extra_env={"CMUX_WEB_TEST_WARM_ATTEMPTS": "2"})
+        output = result.stdout + result.stderr
+        self.assertEqual(result.returncode, 1, output)
+        self.assertEqual(calls, sorted(f"./{name}" for name in contents), "each file runs once")
+        self.assertIn("4 failed or timed out", output)
+        runs = [line.split() for line in self.dev.read_text(encoding="utf-8").splitlines()]
+        self.assertEqual([warm for _, _, warm in runs], ["cold"] * 4, runs)
+        self.assertEqual(self.overlaps.read_text(encoding="utf-8"), "", output)
+        self.assertEqual(max(int(n) for n in self.peak.read_text(encoding="utf-8").split()), 1, output)
+
     def test_a_file_can_declare_a_longer_limit_than_the_default(self):
         # editor-page runs 24 browser tests in two engines, about 115 s on the CI runner: the
         # 120 s default killed it mid-WebKit, and its later tests read "browser has been closed".
@@ -199,6 +248,45 @@ class PerFileRunner(unittest.TestCase):
         self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-default\.test\.ts \(limit 2s\)")
         self.assertIn("test/slow-declared.test.ts", output)
         self.assertRegex(output, r"TIMEOUT[^\n]*test/slow-shorter\.test\.ts \(limit 2s\)")
+
+    def install_fake_playwright(self):
+        """A fake webviews/node_modules/.bin/playwright that logs its install calls."""
+        self.playwright_calls = None
+
+        def hook(web):
+            bin_dir = web / "node_modules" / ".bin"
+            bin_dir.mkdir(parents=True, exist_ok=True)
+            log = web.parent / "playwright-calls"
+            log.write_text("", encoding="utf-8")
+            script = bin_dir / "playwright"
+            script.write_text('#!/usr/bin/env bash\nprintf \'%s|%s\\n\' "$*" "$PLAYWRIGHT_BROWSERS_PATH" >> "' + str(log)
+                              + '"\n', encoding="utf-8")
+            script.chmod(0o755)
+            self.playwright_calls = log
+        return hook
+
+    def test_a_fleet_browser_run_installs_the_ci_engines_into_the_step_cache(self):
+        """A fleet cmux-ci step passes CMUX_BROWSER_TESTS=1 to run the browser lane, which needs the
+        engines CI installs (requireBrowserLane.ts); without it the lane skips everywhere but PR CI."""
+        cache = pathlib.Path(self.enterContext(tempfile.TemporaryDirectory()))
+        self.web_hook = self.install_fake_playwright()
+        result, _, calls = self.run_runner(["test/a.test.ts"], extra_env={
+            "CMUX_BROWSER_TESTS": "1", "CMUX_CI_CACHE_DIR": str(cache)})
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(calls, ["./test/a.test.ts"])
+        lines = self.playwright_calls.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        args, browsers = lines[0].split("|")
+        self.assertEqual(args, "install --only-shell chromium webkit")
+        self.assertTrue(browsers.startswith(str(cache / "playwright")), browsers)
+
+    def test_ci_and_plain_runs_install_no_engines(self):
+        for env in ({}, {"CMUX_BROWSER_TESTS": "0"}, {"CMUX_BROWSER_TESTS": "1", "GITHUB_ACTIONS": "true"}):
+            with self.subTest(env=env):
+                self.web_hook = self.install_fake_playwright()
+                result, _, _ = self.run_runner(["test/a.test.ts"], extra_env=env)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertEqual(self.playwright_calls.read_text(encoding="utf-8"), "")
 
     def test_no_test_files_is_an_error(self):
         result, _, _ = self.run_runner([])

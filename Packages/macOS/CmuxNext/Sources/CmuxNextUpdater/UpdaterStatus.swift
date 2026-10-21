@@ -26,6 +26,8 @@ nonisolated public struct UpdaterStatus: Sendable, Equatable {
     public var channelSwitchTarget: AppChannelSwitchTarget?
     /// The test feed in use ("Use Test Update Feed"), or nil.
     public var testFeedURL: String? = nil
+    /// The release ring followed (`updates.channel`).
+    public var ring: UpdateRing = .nightly
     /// The notice card's update status (``UpdaterService/card``), or nil.
     public var card: UpdateCard? = nil
     /// The card as shown: with a found update's version, date and changelog

@@ -2,7 +2,8 @@ import { depart, isOpen, validName, type OpOf } from "./cloud.ts"
 import { formatRfc3339Millis, parseRfc3339Millis, validAddressId, validInviteId, validParticipantId, validToken } from "./ids.ts"
 import { fail } from "./reject.ts"
 import { conversationChanged, upsertParticipant, type Commit, type Draft, type OpRequest } from "./request.ts"
-import { INVITE_TTL_MS, MAX_PARTICIPANTS, MAX_PENDING_INVITES, type ConversationHead, type DeliveryState, type Invite, type Participant } from "./types.ts"
+import { MAX_GROUP_MEMBERS, memberCount } from "./large.ts"
+import { INVITE_TTL_MS, MAX_PENDING_INVITES, type ConversationHead, type DeliveryState, type Invite, type Participant } from "./types.ts"
 import { currentParticipant } from "./validate.ts"
 
 /**
@@ -77,7 +78,7 @@ export const createInvite = (head: ConversationHead, next: Draft, request: OpReq
   if (head.kind === "dm" && !existing) fail("kind_forbids")
   if (existing && existing.kind !== "address") fail("invalid_invite")
   if (!existing || existing.left_at !== undefined) {
-    if (next.participants.filter((participant) => participant.left_at === undefined).length >= MAX_PARTICIPANTS) fail("invalid_participant")
+    if (memberCount(next) >= MAX_GROUP_MEMBERS) fail("invalid_participant")
     next.participants = upsertParticipant(next.participants, {
       id: op.address,
       kind: "address",
@@ -143,7 +144,7 @@ const bindUser = (head: ConversationHead, next: Draft, invite: Invite, user: str
     if (address) {
       participants = participants.map((participant) => (participant.id === address.id ? joined : participant))
     } else {
-      if (participants.filter((participant) => participant.left_at === undefined).length >= MAX_PARTICIPANTS) fail("invalid_participant")
+      if (memberCount({ ...next, participants }) >= MAX_GROUP_MEMBERS) fail("invalid_participant")
       participants = [...participants, joined]
     }
   } else if (address) {

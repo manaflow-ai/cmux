@@ -64,5 +64,13 @@ let package = Package(
                 .define("APPKIT_NATIVE"),
             ]
         ),
+        .testTarget(
+            name: "MessagesLabSidebarTests",
+            dependencies: ["MessagesLabSidebar"],
+            swiftSettings: [
+                .swiftLanguageMode(.v5),
+                .define("APPKIT_NATIVE"),
+            ]
+        ),
     ]
 )

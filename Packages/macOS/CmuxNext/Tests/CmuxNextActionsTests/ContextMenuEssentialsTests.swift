@@ -38,8 +38,8 @@ struct ContextMenuEssentialsTests {
         let menu = registry().makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
         // The group rows keep their own top-level section (Lawrence 2026-10-14: "my groups UI is lost").
         // Move ▸ (its first row: Move to Top) stays on top (u2418: Move to Top of Group was not found under More).
-        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow",
-                               "palette.moveWorkspaceToTop", "—",
+        #expect(rows(menu) == ["renameWorkspace", "palette.toggleWorkspacePin", "palette.workspaceColor", "workspace.newBelow", "workspace.duplicate",
+                               "home.messageAbout", "palette.moveWorkspaceToTop", "—",
                                "moveWorkspaceToGroup", "groupSelectedWorkspaces", "removeWorkspaceFromGroup", "—", "More", "—", "closeWorkspace"])
         // Move to Group > Frontend names the group as a target, as the handler needs.
         let groups = menu.items.first { ActionRegistry.menuRun(of: $0.submenu?.items.first ?? NSMenuItem())?.id == "moveWorkspaceToGroup" }
@@ -83,5 +83,24 @@ struct ContextMenuEssentialsTests {
         for id in ["closeTabsToLeft", "tab.moveToNewWindow", "renameTab", "tab.restart", "browser.resetPinnedTab"] {
             #expect(allActions(menu).contains(id), "\(id)")
         }
+    }
+}
+
+/// Every right-click row shows its action's icon, as Chrome's menus do (Leo 2026-10-20), and a
+/// folder its own; an action with only the catalog's placeholder symbol shows none.
+@MainActor
+struct ContextMenuIconTests {
+    @Test func theWorkspaceMenusRowsAndFoldersHaveIcons() throws {
+        let registry = ActionRegistry.standard()
+        registry.bind("moveWorkspaceToGroup", invoke: { _ in })
+        let menu = registry.makeContextMenu(for: .workspaceRow, target: ActionTargetRef(kind: .workspace, id: "ws"))
+        let rows = menu.items.filter { !$0.isSeparatorItem }
+        #expect(!rows.isEmpty)
+        for item in rows {
+            #expect(item.image != nil, "\(item.title) has no icon")
+            #expect(item.image?.isTemplate != false, "\(item.title)'s icon takes the row's ink")
+        }
+        #expect(ActionRegistry.menuIcon("command") == nil)
+        #expect(ActionRegistry.menuIcon("pin") != nil)
     }
 }

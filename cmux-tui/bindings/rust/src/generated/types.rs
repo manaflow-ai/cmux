@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 4633825b44cf1cd8d82b476aadb9d938af82ebe6107c28580c40a44dd11d363b.
+// cmux-tui mux protocol 12, IR 96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -61,6 +61,9 @@ pub struct AgentRecord {
     /// Adapter identity (\`claude\`, \`codex\`, ...) when a hook claimed the terminal; null for socket-only reports.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub agent: Optional<String>,
+    /// The harness's own session id that the agent's hooks reported (\`claude\`, \`codex\` session ids), checked to \`[A-Za-z0-9._:-]\` and at most 256 bytes; null when no hook reported one or it isn't portable (a session-less adapter's local token). Hook reports keep \`session\` for a human label, so clients find a terminal's agent session by this.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub agent_session_id: Optional<String>,
     /// The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted.
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub last_prompt: Optional<String>,
@@ -358,6 +361,15 @@ pub struct CloseTerminalResult {
     pub terminal_id: String,
     pub terminal_incarnation: Nullable<String>,
     pub terminal_revision: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ColumnMoveDirection {
+    #[serde(rename = "left")]
+    Left,
+    #[serde(rename = "right")]
+    Right,
 }
 
 #[rustfmt::skip]
@@ -2658,6 +2670,13 @@ pub struct TerminalResourcesResult {
     pub missing: Vec<Id>,
     pub sampled_at_ns: u64,
     pub terminals: Vec<TerminalResources>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TerminalResumeCommandResult {
+    pub command: Nullable<String>,
+    pub terminal_id: String,
 }
 
 #[rustfmt::skip]

@@ -3753,7 +3753,7 @@ class IOSWiring(unittest.TestCase):
                 self.assertNotIn(routed, text, f"{name} must not route to an owned Mac")
         validate = self.workflow("ios-streamed-validate.yml")["jobs"]["validate"]
         self.assertEqual(validate["runs-on"], "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || "
-                                              "vars.MACOS_RUNNER_IOS || 'blacksmith-6vcpu-macos-26' }}")
+                                              "'blacksmith-6vcpu-macos-26' }}")
 
     def test_home_secrets_are_removed_however_the_job_ends(self):
         # A reused runner keeps $HOME: every job that writes a secret file there
