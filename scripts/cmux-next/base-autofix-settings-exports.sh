@@ -28,14 +28,15 @@ set -euo pipefail
 
 # The whole body is read before it runs: a checkout of a newer tip rewrites this file.
 main() {
-  local out remote branch tries here work root start at tip try moved file rel prepare regenerate
+  local out remote branch tries here root start at tip try moved changed areas file rel prepare regenerate
   out="$(mkdir -p "${1:?usage: $0 OUT REMOTE BRANCH}" && cd "$1" && pwd)"
   remote="${2:?usage: $0 OUT REMOTE BRANCH}"
   branch="${3:?usage: $0 OUT REMOTE BRANCH}"
   tries="${CMUX_BASE_AUTOFIX_SETTINGS_TRIES:-3}"
   here="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+  # Global, and removed on EXIT, not RETURN: set -e ends the script without returning from main.
   work="$(mktemp -d)"
-  trap 'rm -rf "$work"' RETURN
+  trap 'rm -rf "${work:-}"' EXIT
   # The run's own area rules, copied before a checkout can change them.
   cp "$here/autofix-areas.sh" "$work/areas.sh"
   root="$(git rev-parse --show-toplevel)"
@@ -61,8 +62,14 @@ main() {
       return 1
     }
     tip="$(git rev-parse FETCH_HEAD)"
-    moved="$(git diff --name-only --no-renames "$at" "$tip" | "$work/areas.sh" | grep -x 'settings=true' || true)"
-    if [[ -z "$moved" ]]; then
+    # A diff or area read that fails counts as moved: it never proves the exports current.
+    moved=1
+    if changed="$(git diff --name-only --no-renames "$at" "$tip")" && areas="$("$work/areas.sh" <<<"$changed")"; then
+      grep -qx 'settings=true' <<<"$areas" || moved=0
+    else
+      echo "::warning::cannot read what ${at:0:12}..${tip:0:12} changed; counting the settings inputs as moved" >&2
+    fi
+    if ((moved == 0)); then
       while IFS= read -r -d '' file; do
         rel="${file#"$work/out"/}"
         if git cat-file -e "$start:$rel" 2>/dev/null && cmp -s <(git cat-file blob "$start:$rel") "$file"; then

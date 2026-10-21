@@ -60,7 +60,11 @@ settings_exports=(
 areas_script="${CMUX_BASE_AUTOFIX_AREAS:-$(dirname "${BASH_SOURCE[0]}")/autofix-areas.sh}"
 
 # The areas whose inputs a list of changed paths (stdin) touches.
-input_areas() { "$areas_script" | sed -n 's/=true$//p' | sort -u; }
+input_areas() {
+  local lines
+  lines="$("$areas_script")" || return 1
+  sed -n 's/=true$//p' <<<"$lines" | sort -u
+}
 # The areas that build each output (stdin; base-autofix.sh's outputs). A file built from several
 # areas names them all; one this list doesn't know is "unknown", which never lands on a moved tip.
 output_areas() {
@@ -184,24 +188,33 @@ for ((attempt = 1; attempt <= attempts; attempt++)); do
         exit 1
       }
       newer_settings="$(grep . <<<"$newer_settings" | sort -u || true)"
-      settings_moved="$(git diff --name-only --no-renames "$settings_from" "$tip" | input_areas | grep -x settings)" || {
-        [[ $? == 1 ]] || { echo "::error::cannot read what ${settings_from:0:12}..${tip:0:12} changed, so nothing lands over it" >&2; exit 1; }
+      # Each step fails closed on its own: a failed diff or area read never reads as "nothing moved".
+      settings_changed="$(git diff --name-only --no-renames "$settings_from" "$tip")" || {
+        echo "::error::cannot read what ${settings_from:0:12}..${tip:0:12} changed, so the settings exports made at ${settings_from:0:12} do not land" >&2
+        exit 1
       }
-      moved_areas="$( { grep -vx settings <<<"$moved_areas" || true; printf '%s\n' "$settings_moved"; } | grep . | sort -u || true)"
+      settings_areas="$(input_areas <<<"$settings_changed")" || {
+        echo "::error::cannot read the input areas ${settings_from:0:12}..${tip:0:12} changed, so the settings exports made at ${settings_from:0:12} do not land" >&2
+        exit 1
+      }
+      moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
+      if grep -qx settings <<<"$settings_areas"; then moved_areas+=$'\n'settings; fi
+      moved_areas="$(grep . <<<"$moved_areas" | sort -u || true)"
       todo="$( { printf '%s\n' "$repaired"; git diff --name-only --no-renames "$settings_from" "$repair" -- "${settings_exports[@]}"; } | grep . | sort -u)"
     fi
     [[ -z "$settings_unproven" ]] || moved_areas="$(printf '%s\nsettings\n' "$moved_areas" | grep . | sort -u)"
     # Exports this repair holds that would wait, while the tip's own stamp is current: someone
-    # else regenerated them, so they are dropped and nothing waits for them.
-    if grep -qxF settings <<<"$moved_areas" \
+    # else regenerated them, so they are dropped and nothing waits for them. Not after a bad
+    # SETTINGS_MADE_AT: that is a workflow defect, so they wait and the run fails with an error.
+    if [[ -n "$settings_unproven" ]]; then
+      echo "::error::$settings_unproven; they wait." >&2
+    elif grep -qxF settings <<<"$moved_areas" \
       || [[ -n "$(comm -12 <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo" | sort -u) <(printf '%s\n' "$newer_settings"))" ]]; then
       if grep -q . <(while IFS= read -r path; do is_settings_export "$path" && echo "$path"; done <<<"$todo") \
         && python3 scripts/ci/defaults_guard.py check-stamp --ref "$tip" >/dev/null 2>&1; then
         echo "The settings exports are already current on ${tip:0:12} (defaults_guard.py check-stamp); dropping them from this repair."
         todo="$(while IFS= read -r path; do [[ -z "$path" ]] || is_settings_export "$path" || echo "$path"; done <<<"$todo")"
         moved_areas="$(grep -vx settings <<<"$moved_areas" || true)"
-      elif [[ -n "$settings_unproven" ]]; then
-        echo "::warning::$settings_unproven; they wait." >&2
       fi
     fi
     held_set=""

@@ -238,6 +238,9 @@ jobs:
         id: settings
         if: needs.action-areas.outputs.settings == 'true'
         continue-on-error: true
+        # Below the job's 60 so a slow run fails only this step, and the upload of the action
+        # exports (and of any settings export it finished) still runs.
+        timeout-minutes: 40
         env:
           CMUX_STRINGS_BEST_EFFORT: "1"
           CMUX_BASE_AUTOFIX_SETTINGS_PREPARE: scripts/cmux-next/build-web-bundles.sh
