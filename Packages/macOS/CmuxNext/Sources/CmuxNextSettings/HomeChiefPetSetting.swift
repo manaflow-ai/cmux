@@ -3,8 +3,8 @@ public import CmuxNextActions
 /// `home.chiefPetEnabled` in cmux.json: the Chief pet, a small Chief that floats over every app,
 /// pops up agent events and takes a quick reply (CmuxNextFloating's `ChiefPetController`). Off by
 /// default; the person or an agent turns it on (Settings > Home > Chief Pet, View > Show Chief Pet, the
-/// palette's Show Chief Pet and Message the Chief, the empty Chief conversation, `cmux settings set`),
-/// and the person can hide it again the same way.
+/// palette's Show Chief Pet, the empty Chief conversation, `cmux settings set`), and the person can
+/// hide it again the same way. Message the Chief shows it for one message without turning it on.
 /// `home.chiefPetMascot` picks its character among the Chief Dock's nine pixel mascots.
 public nonisolated struct HomeChiefPetSetting {
     public nonisolated init() {}
@@ -36,7 +36,7 @@ extension HomeChiefPetSetting {
     /// The toggle's title while the pet shows.
     public static var hideTitle: String { SettingsText.text("chiefPet.hide", "Hide Chief Pet") }
 
-    /// `toggles` is shared with Message the Chief, so each run reads and waits for the other's write.
+    /// `toggles` is shared with Message the Chief, which waits for the toggle's write.
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
                                 unavailable: String) {
         bind(into: registry, settings: settings, unavailable: unavailable, toggles: ChiefPetToggles())
@@ -74,25 +74,26 @@ extension HomeChiefPetSetting {
 
 extension HomeChiefPetSetting {
     /// Message the Chief (`home.messageChiefPet`; the palette, and a shortcut a person can bind): the
-    /// pet with its reply box open. Off, it turns `home.chiefPetEnabled` on as the person first, then
-    /// `summon` runs once the write has landed; on, `summon` runs at once. Person-only, like the
-    /// toggle: an agent cannot put a box that takes the keys over every app (it turns the pet on
-    /// with `cmux settings set`, which opens no box).
+    /// pet with its reply box open. It never writes `home.chiefPetEnabled`: `summon` gets the value that
+    /// applies, and with the pet off the App shows it for this message only (`ChiefPetController.summon`),
+    /// so a person who never chose the pet does not keep it. Person-only, like the toggle: an agent
+    /// cannot put a box that takes the keys over every app.
     public static let messageAction: ActionID = "home.messageChiefPet"
     /// Message the Chief from Any App: its system-wide key (Ctrl-Opt-Cmd-C). Enabled only while the pet is
     /// on, so GlobalHotKeyService registers it only then (`ActionRegistry.globalHotKeys`); with the pet off
     /// the key stays with other apps.
     public static let messageFromAnyAppAction: ActionID = "home.messageChiefFromAnyApp"
 
+    /// `summon(petOn)`: `petOn` is `home.chiefPetEnabled` once any toggle in flight has landed.
     @MainActor public func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                       unavailable: String, summon: @escaping @MainActor () -> Void) {
+                                       unavailable: String, summon: @escaping @MainActor (_ petOn: Bool) -> Void) {
         bindMessage(into: registry, settings: settings, unavailable: unavailable, toggles: ChiefPetToggles(), summon: summon)
     }
 
-    /// With the toggle's `toggles`: a run while Show / Hide Chief Pet's write is in flight reads the value
-    /// that write lands, and its own write goes after it, so the newest command wins.
+    /// With the toggle's `toggles`: a run while Show / Hide Chief Pet's write is in flight waits for it and
+    /// summons with the value it lands.
     @MainActor func bindMessage(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                unavailable: String, toggles: ChiefPetToggles, summon: @escaping @MainActor () -> Void) {
+                                unavailable: String, toggles: ChiefPetToggles, summon: @escaping @MainActor (_ petOn: Bool) -> Void) {
         let message: @MainActor (ActionInvocation) -> Void = { invocation in
             // The control socket refuses a person-only action first; an in-app run from elsewhere stops here,
             // with the settings layer's own words for a user-only key.
@@ -100,23 +101,13 @@ extension HomeChiefPetSetting {
                 return registry.refuse(SettingUserOnly(key: Self.configPath.joined(separator: "."), writer: SettingWriter(invocation.origin)).description)
             }
             guard let settings = settings() else { return registry.refuse(unavailable) }
-            let enabled = toggles.pending ?? settings.snapshot.homeChiefPetEnabled
-            guard !enabled || toggles.pending != nil else { return summon() }
-            let previous = toggles.last
-            if !enabled { toggles.pending = true }
-            // task-owner: one write after the toggle's in-flight one (or just a wait for it); ends with the reload, then the summon
+            guard toggles.pending != nil, let previous = toggles.last else { return summon(settings.snapshot.homeChiefPetEnabled) }
+            // task-owner: a wait for the toggle's in-flight write; ends with the summon
             let work = ActionWork { @MainActor in
-                _ = await previous?.value
-                if !enabled {
-                    defer { if toggles.pending == true { toggles.pending = nil } }
-                    do { try await settings.setSetting(at: Self.configPath, to: .bool(true), by: .user) } catch {
-                        return ActionWorkFailure(refusal: .unavailable, reason: String(describing: error))
-                    }
-                }
-                summon()
+                _ = await previous.value
+                summon(settings.snapshot.homeChiefPetEnabled)
                 return nil
             }
-            if !enabled { toggles.last = work }
             registry.track(work)
         }
         registry.bind(Self.messageAction, invoke: message)
@@ -138,7 +129,7 @@ public nonisolated struct HomeSettingActions {
 
     /// `summonChiefPet`: the pet with its reply box open (Message the Chief), the App's `ChiefPetController.summon`.
     @MainActor public func bind(into registry: ActionRegistry, settings: @escaping @MainActor () -> SettingsController?,
-                                unavailable: String, summonChiefPet: @escaping @MainActor () -> Void) {
+                                unavailable: String, summonChiefPet: @escaping @MainActor (_ petOn: Bool) -> Void) {
         HomeChannelsSetting().bind(into: registry, settings: settings, unavailable: unavailable)
         let toggles = ChiefPetToggles()
         HomeChiefPetSetting().bind(into: registry, settings: settings, unavailable: unavailable, toggles: toggles)

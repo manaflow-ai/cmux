@@ -35,8 +35,9 @@ public final class ChiefPetController {
     private(set) var mascot = ChiefPetMascot.initial
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false
-    /// Message the Chief ran while the pet was off: the reply box opens once the setting shows it.
-    private(set) var summoned = false
+    /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
+    /// and goes when its reply box closes; the setting turning on keeps it.
+    private(set) var transient = false
 
     public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
@@ -73,32 +74,29 @@ public final class ChiefPetController {
     func sync(_ on: Bool) {
         isOn = on
         if on {
+            transient = false
             panelOnce().present()
             render(animated: false)
-            if summoned {
-                summoned = false
-                openReply()
-            }
         } else {
-            summoned = false
             // Turned off, it forgets what it showed: a later show starts from new arrivals.
-            closeReply()
             feed.clear()
             expiries.values.forEach { $0.cancel() }
             expiries.removeAll()
+            // A message summoned with the setting off (or turning off) keeps its box until it closes.
+            if transient, replyPanel?.isVisible == true { return render(animated: false) }
+            transient = false
+            closeReply()
             render(animated: false)
             panel?.dismiss()
         }
     }
 
-    /// Message the Chief (`home.messageChiefPet`): the pet with its reply box open, now while it shows,
-    /// else as soon as `home.chiefPetEnabled` turns it on (the action writes that first). An open box
-    /// stays open.
-    public func summon() {
-        guard isOn, let panel else {
-            summoned = true
-            return
-        }
+    /// Message the Chief (`home.messageChiefPet`): the pet with its reply box open, at once. `petOn` is
+    /// `home.chiefPetEnabled` as the action read it; off, the pet shows for this message only and goes
+    /// again when the box closes, so the setting stays as the person left it. An open box stays open.
+    public func summon(petOn: Bool) {
+        if !petOn || !isOn { transient = true }
+        let panel = panelOnce()
         // On but ordered out (the app hidden): it comes back now, not on some later sync.
         if !panel.isVisible { panel.present() }
         openReply()

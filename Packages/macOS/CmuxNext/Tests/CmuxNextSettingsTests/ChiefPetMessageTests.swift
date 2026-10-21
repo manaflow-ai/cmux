@@ -4,13 +4,14 @@ import CmuxNextDesign
 import Foundation
 import Testing
 
-/// Message the Chief (`home.messageChiefPet`, the palette and a bindable, unbound shortcut): turns the
-/// pet on as the person when it is off, then summons it with its reply box open. Person-only like
-/// Show Chief Pet: an agent can neither turn the pet on nor put a box that takes the keys over every app.
+/// Message the Chief (`home.messageChiefPet`, the palette and a bindable, unbound shortcut): summons the
+/// pet with its reply box open and never writes `home.chiefPetEnabled`; the summon gets the value that
+/// applies (off: the App shows the pet for this message only). Person-only like Show Chief Pet: an agent
+/// cannot put a box that takes the keys over every app.
 @MainActor @Suite(.serialized) struct ChiefPetMessageTests {
     @MainActor final class Summons {
-        var count = 0
-        var enabledThen: [Bool] = []
+        var count: Int { petOn.count }
+        var petOn: [Bool] = []
     }
 
     static func make() throws -> (ActionRegistry, SettingsController, URL, Summons) {
@@ -22,10 +23,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         let registry = ActionRegistry.standard()
         let summons = Summons()
-        HomeChiefPetSetting().bindMessage(into: registry, settings: { settings }, unavailable: "not ready") {
-            summons.count += 1
-            summons.enabledThen.append(settings.snapshot.homeChiefPetEnabled)
-        }
+        HomeChiefPetSetting().bindMessage(into: registry, settings: { settings }, unavailable: "not ready") { summons.petOn.append($0) }
         return (registry, settings, home, summons)
     }
 
@@ -55,7 +53,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: home) }
         await settings.reload()
         #expect(await Self.run(registry).isEmpty)
-        #expect(summons.count == 1)
+        #expect(summons.petOn == [false], "summoned once, told the pet is off")
         #expect(settings.snapshot.homeChiefPetEnabled == false)
         let stored = try String(contentsOf: home.appending(path: "cmux-next.json"), encoding: .utf8)
         #expect(!stored.contains("chiefPetEnabled"), "nothing written: \(stored)")
@@ -67,11 +65,11 @@ import Testing
         await settings.reload()
         try await settings.setSetting(at: HomeChiefPetSetting.configPath, to: .bool(true), by: SettingWriter(.user))
         #expect(await Self.run(registry).isEmpty)
-        #expect(summons.count == 1)
+        #expect(summons.petOn == [true])
         #expect(settings.snapshot.homeChiefPetEnabled)
     }
 
-    @Test func aRunRightAfterHideChiefPetWaitsForItAndTurnsThePetBackOn() async throws {
+    @Test func aRunRightAfterHideChiefPetWaitsForItAndLeavesThePetOff() async throws {
         let home = FileManager.default.temporaryDirectory.appending(path: "cn-chief-pet-message-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: home, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: home) }
@@ -85,10 +83,7 @@ import Testing
         let summons = Summons()
         let toggles = ChiefPetToggles()
         HomeChiefPetSetting().bind(into: registry, settings: { settings }, unavailable: "not ready", toggles: toggles)
-        HomeChiefPetSetting().bindMessage(into: registry, settings: { settings }, unavailable: "not ready", toggles: toggles) {
-            summons.count += 1
-            summons.enabledThen.append(settings.snapshot.homeChiefPetEnabled)
-        }
+        HomeChiefPetSetting().bindMessage(into: registry, settings: { settings }, unavailable: "not ready", toggles: toggles) { summons.petOn.append($0) }
         var failures: [ActionWorkFailure] = []
         let work = registry.capturingWork {
             _ = registry.perform(HomeChiefPetSetting.toggleAction, invocation: ActionInvocation(origin: .user))
@@ -96,8 +91,8 @@ import Testing
         }
         for task in work { if let failure = await task.value { failures.append(failure) } }
         #expect(failures.isEmpty)
-        #expect(settings.snapshot.homeChiefPetEnabled, "the newer command, Message the Chief, wins")
-        #expect(summons.enabledThen == [true], "summoned once, after both writes landed")
+        #expect(settings.snapshot.homeChiefPetEnabled == false, "Hide Chief Pet's write stands; Message the Chief writes nothing")
+        #expect(summons.petOn == [false], "summoned once, after Hide Chief Pet's write landed")
     }
 
     @Test func anAgentCannotSummonThePet() async throws {
