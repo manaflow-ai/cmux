@@ -632,16 +632,23 @@ jobs:
           DEV_DAILY_SHA: ${{ inputs.dev_daily_sha }}
           SAME_TREE_SHA: ${{ inputs.same_tree_sha }}
           GH_TOKEN: ${{ github.token }}
+          # The labels at the push. A re-run keeps that event, so it reads them
+          # live: adding full-ci or dev-build and re-running routes on them.
+          EVENT_LABELS: ${{ join(github.event.pull_request.labels.*.name, ',') }}
         run: |
           set -euo pipefail
           changed="$RUNNER_TEMP/changed-files.txt"
           labels=""
           if [[ "$EVENT_NAME" == pull_request ]]; then
             git diff --no-renames --name-only HEAD^1 HEAD > "$changed"
-            labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
-              echo "::warning::could not read the pull request labels; routing on its paths only"
-              labels=""
-            }
+            if [[ "$GITHUB_RUN_ATTEMPT" == 1 ]]; then
+              labels="$EVENT_LABELS"
+            else
+              labels="$(gh api "repos/$GITHUB_REPOSITORY/issues/$PR_NUMBER/labels" --jq '[.[].name] | join(",")' 2>/dev/null)" || {
+                echo "::warning::could not read the pull request labels; routing on its paths only"
+                labels=""
+              }
+            fi
           else
             : > "$changed"
           fi
