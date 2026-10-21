@@ -41,5 +41,18 @@ export default agentPaneEntry({
         summary(3, { status: "completed", durationMs: 12_000, toolCount: 0 }),
       ]),
     },
+    "failover-refused": {
+      note: "A restricted chat hit its usage limit; its fallback cannot run restricted, so the chat stayed and the limit error stands.",
+      snapshot: chat([
+        user("Keep going on the refactor", 4),
+        row("failover", 4, { failover: { from: "claude", to: "codex", refused: "restricted" } }),
+        summary(4, {
+          status: "failed",
+          durationMs: 2_000,
+          toolCount: 0,
+          error: "You've reached your usage limit (can't switch to codex in a folder you haven't trusted)",
+        }),
+      ]),
+    },
   },
 });

@@ -185,6 +185,20 @@ fn frozen_program(program: &str, cwd: &Path) -> Result<String, String> {
     Ok(found.to_string_lossy().into_owned())
 }
 
+/// Refuses `mode` for a restricted chat unless it asks (`MODES`): `Hub::set_mode` and the
+/// mode config option of `Hub::set_config`, whoever asks.
+pub(crate) fn refuse_mode(meta: &SessionMeta, mode: Option<&str>) -> Result<(), RpcError> {
+    match mode {
+        _ if !meta.restricted => Ok(()),
+        Some(mode) if MODES.contains(&mode) => Ok(()),
+        mode => Err(RpcError::invalid_params(format!(
+            "restricted.widening: a restricted chat runs in Normal or Plan, not {}; trust the folder first",
+            mode.unwrap_or("that mode")
+        ))
+        .with_data(json!({"reason": "restricted.widening"}))),
+    }
+}
+
 /// Why a request would widen what a restricted chat runs without asking, or Ok.
 pub(crate) fn refuse_widening(meta: &SessionMeta, m: &str, params: &Value) -> Result<(), RpcError> {
     if !meta.restricted {
@@ -330,6 +344,55 @@ impl Hub {
         });
     }
 
+    /// A restricted chat's start refused for `why`, recorded in its log.
+    fn refuse_start(&self, session: &Session, why: String) -> RpcError {
+        self.append(session, "mux", "restricted_refused", json!({"error": why}));
+        RpcError::new(-32000, format!("restricted chat refused: {why}"))
+            .with_data(json!({"reason": "restricted.refused"}))
+    }
+
+    /// Refuses to start `profile` for a restricted chat unless it is Claude Code, whose
+    /// command line `restricted_plan` builds: any other harness would start with the folder's
+    /// own config, and the trust gate lets a restricted chat's prompts through.
+    pub(super) fn refuse_unrestricted_start(
+        &self,
+        session: &Session,
+        profile: &HarnessProfile,
+    ) -> Result<(), RpcError> {
+        if !session.meta().restricted || supports(profile) {
+            return Ok(());
+        }
+        Err(self.refuse_start(session, "only Claude Code runs as a restricted chat".into()))
+    }
+
+    /// The turn error of a restricted chat whose fallback `to` cannot run restricted, or None
+    /// when the turn may move to `to`. The limit `error` stands, with why the chat stayed; the
+    /// chat's log gets a `failover_refused` record (`{from, to, reason, error, turnId}`), which
+    /// the pane draws where the failover note would be.
+    pub(super) async fn refuse_failover(
+        &self,
+        session: &Session,
+        to: &str,
+        error: &RpcError,
+        turn_id: &str,
+    ) -> Option<RpcError> {
+        let meta = session.meta();
+        if !meta.restricted || self.config.read().await.harnesses.get(to).is_some_and(supports) {
+            return None;
+        }
+        tracing::info!(session = %session.id, to, "failover refused: the fallback cannot run restricted");
+        self.append(
+            session,
+            "mux",
+            "failover_refused",
+            json!({"from": meta.harness, "to": to, "reason": "restricted", "error": error.message, "turnId": turn_id}),
+        );
+        let mut refused = error.clone();
+        refused.message =
+            format!("{} (can't switch to {to} in a folder you haven't trusted)", error.message);
+        Some(refused)
+    }
+
     /// `plan` and `profile` for this spawn: a restricted chat's restricted command line and
     /// env (above); any other session's are unchanged.
     pub(super) fn restricted_plan<'p>(
@@ -344,14 +407,8 @@ impl Hub {
         if !meta.restricted || meta.remote_origin {
             return Ok((plan, profile));
         }
-        let refused = |why: String| {
-            self.append(session, "mux", "restricted_refused", json!({"error": why}));
-            RpcError::new(-32000, format!("restricted chat refused: {why}"))
-                .with_data(json!({"reason": "restricted.refused"}))
-        };
-        if !supports(&profile) {
-            return Err(refused("only Claude Code runs as a restricted chat".into()));
-        }
+        let refused = |why: String| self.refuse_start(session, why);
+        self.refuse_unrestricted_start(session, &profile)?;
         let mut plan = command_line(&profile.argv, plan).map_err(refused)?;
         plan.program = frozen_program(&plan.program, &meta.cwd).map_err(refused)?;
         let mut profile = profile.into_owned();
@@ -534,8 +591,13 @@ mod tests {
             refused.data.as_ref().and_then(|d| d.get("reason")).and_then(Value::as_str),
             Some("restricted.widening")
         );
+        // Hub::set_mode and the mode config option of Hub::set_config, whoever asks.
+        assert!(refuse_mode(&r, Some("plan")).is_ok());
+        assert!(refuse_mode(&r, Some("bypassPermissions")).is_err());
+        assert!(refuse_mode(&r, None).is_err(), "a mode that is not a string");
         // A chat that is not restricted is not this check's.
         let free = meta(false);
+        assert!(refuse_mode(&free, Some("bypassPermissions")).is_ok());
         assert!(
             refuse_widening(&free, method::SESSION_SET_MODE, &json!({"modeId": "auto"})).is_ok()
         );
