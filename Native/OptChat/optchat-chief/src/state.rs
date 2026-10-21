@@ -430,6 +430,10 @@ pub struct QueuedLaunch {
     pub effort: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub floor: Option<String>,
+    /// The harness it starts on (a subagent moved off a harness whose
+    /// account hit a usage limit); None: the engine of now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub harness: Option<String>,
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]

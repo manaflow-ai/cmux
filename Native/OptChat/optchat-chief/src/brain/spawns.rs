@@ -613,6 +613,9 @@ impl Brain {
         // A network stop always waits on the probe (off this thread); it
         // returns at once when the endpoint answers.
         let decision = decide(&kind, attempts, &policy, false);
+        if let Decision::Move { reason } = &decision {
+            return Some(self.plan_move(id, reason, attempts));
+        }
         let note = chief_note(&decision)?;
         self.trace.emit(
             "subagent.auto_resume",
@@ -649,6 +652,8 @@ impl Brain {
                 });
                 Some((note, true))
             }
+            // Planned above (plan_move).
+            Decision::Move { .. } => None,
             Decision::WaitOnline { reason, attempt } => {
                 if let Some(sub) = self.state.sub_mut(id) {
                     sub.resume_attempts = attempt;
@@ -675,6 +680,180 @@ impl Brain {
                     });
                 });
                 Some((note, true))
+            }
+        }
+    }
+
+    /// Subagent `id` stopped because its account hit a usage limit
+    /// (`reason`): it continues in a new session on the harness the Chief's
+    /// next turn takes, when that is another one and it was not just moved
+    /// (the note is quiet then); else the stop is reported as it is.
+    fn plan_move(&mut self, id: &str, reason: &str, attempts: u32) -> (String, bool) {
+        let (session, peer) = self
+            .state
+            .sub(id)
+            .map(|(_, s)| (s.session_id.clone(), s.peer.clone()))
+            .unwrap_or_default();
+        let from = session
+            .as_deref()
+            .and_then(|sid| self.session_summary(sid))
+            .map(|s| s.harness);
+        let to = self.next_engine().0.harness;
+        let target = from
+            .clone()
+            .filter(|from| peer.is_none() && attempts == 0 && !from.is_empty() && *from != to);
+        self.trace.emit(
+            "subagent.auto_move",
+            json!({"id": id, "from": from, "to": to, "moved": target.is_some(), "attempts": attempts}),
+        );
+        let Some(from) = target else {
+            if let Some(sub) = self.state.sub_mut(id) {
+                sub.resume_attempts = 0;
+            }
+            let why = if peer.is_some() {
+                "it runs on a cloud peer".to_owned()
+            } else if attempts > 0 {
+                "it was already moved once".to_owned()
+            } else if from.as_deref().is_none_or(str::is_empty) {
+                "its harness is not known".to_owned()
+            } else {
+                format!("the Chief's own turns run on {to} too")
+            };
+            // WARN: the error journal (`cmux errors`) harvests host.log lines by level word.
+            (self.log)(&format!(
+                "WARN subagent {id}: usage limit, not moved ({why}): {reason}"
+            ));
+            return (
+                format!(
+                    "stopped: its account hit a usage limit ({reason}). It was not moved to another harness ({why}); switch the Chief's engine (`chief engine --harness ...`) and tell it to continue."
+                ),
+                false,
+            );
+        };
+        let attempt = attempts + 1;
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.resume_attempts = attempt;
+        }
+        (self.log)(&format!(
+            "WARN subagent {id}: its account on {from} hit a usage limit; continuing it on {to}"
+        ));
+        let _ = self.tx.send(super::Input::AutoMove {
+            id: id.to_owned(),
+            attempt,
+            harness: to.clone(),
+        });
+        (
+            format!(
+                "stopped: its account on {from} hit a usage limit, so it continues in a new session on {to}."
+            ),
+            true,
+        )
+    }
+
+    /// The summary of acpmux session `id`: the one the brain follows, else
+    /// acpmux's.
+    fn session_summary(&self, id: &str) -> Option<SessionSummary> {
+        self.sessions
+            .get(id)
+            .cloned()
+            .or_else(|| self.agents.session(id).ok().flatten())
+    }
+
+    /// The engine of a subagent that starts on `harness`: the next turn's
+    /// model and effort when it is that turn's harness.
+    fn engine_on(&self, harness: &str) -> crate::subagents::SpawnEngine {
+        let next = self.next_engine().0;
+        let same = next.harness == harness;
+        let family = self.family_of(harness);
+        crate::subagents::SpawnEngine {
+            harness: harness.to_owned(),
+            model: next.model.filter(|_| same),
+            effort: next.effort.filter(|_| same),
+            other_family: (family != self.family_of(&self.settings.harness)).then_some(family),
+        }
+    }
+
+    /// A move of `id` is due (`Input::AutoMove`): its earlier session's chat
+    /// is saved to a file, and it is queued again with its task, that file
+    /// and the new harness; the queue starts it in a new session.
+    pub(super) fn auto_move_due(&mut self, id: &str, attempt: u32, harness: &str) {
+        let Some((_, sub)) = self.state.sub(id) else {
+            return;
+        };
+        let current = sub.resume_attempts == attempt
+            && !sub.cancelled
+            && !sub.paused
+            && matches!(sub.status, SubStatus::Done | SubStatus::Reported);
+        if !current {
+            self.trace.emit(
+                "subagent.auto_move.skip",
+                json!({"id": id, "attempt": attempt, "status": format!("{:?}", sub.status)}),
+            );
+            return;
+        }
+        let (task, session, policy) =
+            (sub.task.clone(), sub.session_id.clone(), sub.policy.clone());
+        let summary = session.as_deref().and_then(|s| self.session_summary(s));
+        let from = summary
+            .as_ref()
+            .map_or("another harness", |s| s.harness.as_str())
+            .to_owned();
+        let cwd = summary
+            .as_ref()
+            .map(|s| s.cwd.clone())
+            .filter(|c| !c.is_empty());
+        let transcript = session.as_deref().and_then(|s| self.save_transcript(id, s));
+        let launch = crate::state::QueuedLaunch {
+            task: crate::auto_resume::move_prompt(&task, &from, transcript.as_deref()),
+            cwd,
+            effort: None,
+            floor: policy,
+            harness: Some(harness.to_owned()),
+        };
+        if let Some(sub) = self.state.sub_mut(id) {
+            sub.status = SubStatus::Queued;
+            sub.queued_launch = Some(launch);
+            sub.session_id = None;
+            sub.floor = 0;
+            sub.report = None;
+            sub.stopped = false;
+        }
+        self.save();
+        self.trace.emit(
+            "subagent.auto_move.queued",
+            json!({"id": id, "attempt": attempt, "from": from, "to": harness}),
+        );
+        self.start_queued();
+    }
+
+    /// Subagent `id`'s whole chat in acpmux session `session`, in a file
+    /// beside the turn sessions' directory; None when it could not be read
+    /// or written (logged).
+    fn save_transcript(&self, id: &str, session: &str) -> Option<std::path::PathBuf> {
+        let events = match self.agents.events(session, 0) {
+            Ok(events) => events,
+            Err(e) => {
+                (self.log)(&format!("subagent {id}: reading its chat to move it: {e}"));
+                return None;
+            }
+        };
+        let text = crate::agent_chat::render(&crate::agent_chat::entries(&events));
+        let dir = self
+            .settings
+            .session_dir
+            .parent()
+            .unwrap_or(&self.settings.session_dir)
+            .join("moved");
+        let path = dir.join(format!("{id}-{}.md", now_ms()));
+        let written = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, text));
+        match written {
+            Ok(()) => Some(path),
+            Err(e) => {
+                (self.log)(&format!(
+                    "subagent {id}: saving its chat to {}: {e}",
+                    path.display()
+                ));
+                None
             }
         }
     }
@@ -1495,7 +1674,10 @@ impl Brain {
                     extra: (!s.inbox.is_empty()).then(|| inbox_text(&s.inbox)),
                 });
             let Some(mut queued) = next else { return };
-            queued.engine = self.spawn_engine();
+            queued.engine = match queued.launch.as_ref().and_then(|l| l.harness.as_deref()) {
+                Some(harness) => Some(self.engine_on(harness)),
+                None => self.spawn_engine(),
+            };
             let id = queued.id.clone();
             let sent = self
                 .sub_starter

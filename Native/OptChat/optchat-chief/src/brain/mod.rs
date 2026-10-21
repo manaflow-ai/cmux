@@ -172,6 +172,13 @@ pub enum Input {
         after_network: bool,
         online: bool,
     },
+    /// Subagent `id`, whose account hit a usage limit, continues in a new
+    /// session on `harness` (auto_resume.rs `Decision::Move`).
+    AutoMove {
+        id: String,
+        attempt: u32,
+        harness: String,
+    },
     /// The acpmux session of subagent `id` (`zoom("a<N>")`), None when
     /// there is no such subagent or it has none yet.
     SubSession {
@@ -1091,6 +1098,11 @@ impl Brain {
                 after_network,
                 online,
             } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
+            Input::AutoMove {
+                id,
+                attempt,
+                harness,
+            } => self.auto_move_due(&id, attempt, &harness),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }
