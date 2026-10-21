@@ -51,9 +51,9 @@ function boundName(fn: ts.FunctionLikeDeclaration): string | undefined {
   return undefined;
 }
 
-/** A layout read directly in `fn`'s body (nested functions are their own callbacks); writes such as
- *  `scroller.scrollTop = 0` are not reads. */
-function readsLayout(fn: ts.Node): boolean {
+/** A layout read directly in `fn`'s body (nested functions are their own callbacks), from position
+ *  `after` on; writes such as `scroller.scrollTop = 0` are not reads. */
+function readsLayout(fn: ts.Node, after = -1): boolean {
   let found = false;
   const visit = (node: ts.Node) => {
     if (found || (node !== fn && isFunction(node))) return;
@@ -69,7 +69,7 @@ function readsLayout(fn: ts.Node): boolean {
         parent.left === node &&
         parent.operatorToken.kind >= ts.SyntaxKind.FirstAssignment &&
         parent.operatorToken.kind <= ts.SyntaxKind.LastAssignment;
-      if (!written) found = true;
+      if (!written && node.pos >= after) found = true;
     }
     ts.forEachChild(node, visit);
   };
@@ -134,7 +134,8 @@ export function checkFrameReadsSource(file: string, text: string): string[] {
           if (owner && boundName(owner))
             flag(node, `awaits a frame in ${boundName(owner)}(), so its caller reads before the frame paints`);
           // `await new Promise(...)` then a read: the read runs in a microtask of the frame's callbacks.
-          else if (owner && ts.isAwaitExpression(promise.parent) && readsLayout(owner))
+          // A read before the wait is of the frame before.
+          else if (owner && ts.isAwaitExpression(promise.parent) && readsLayout(owner, promise.parent.end))
             flag(node, "awaits a frame and then reads layout before the frame paints");
         }
       } else if (callback && isFunction(callback) && readsLayout(callback)) {

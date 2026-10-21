@@ -53,6 +53,12 @@ test("a frame awaiter is named, named or awaited before a read; a wait the test 
   shown = true;
 });`),
   ).toEqual([]);
+  expect(
+    check(`await page.evaluate(async () => {
+  scroller.scrollTop = scroller.scrollHeight - scroller.clientHeight;
+  await new Promise((resolve) => requestAnimationFrame(resolve));
+});`),
+  ).toEqual([]);
 });
 
 test("the painted-frame helpers pass, and a read in a frame callback can say why", () => {
