@@ -1954,82 +1954,120 @@ pre.cv-math-source {
   outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
   outline-offset: 1px;
 }
-/* Another agent's message (IncomingMessageCard.tsx): one quiet line, "Received message from
-   <sender> ›", as Claude desktop draws it. The sender is a link to its chat; › opens the message
-   under the line. No box on hover: the name's underline and the chevron brighten. */
+/* Another agent's message (IncomingMessageCard.tsx): one line at the left, drawn as a tool row
+   draws (its mark in the icon column, 26px, the rows' font), so it reads among them, never at the
+   person's side. The row is a user row (`.acpmux-user` aligns its bubble to the end): the message
+   takes the row's whole width. */
+.cv-incoming {
+  flex: 1;
+  min-width: 0;
+}
 .cv-received {
   display: flex;
   flex-direction: column;
   min-width: 0;
   margin: 2px 0;
+  font-family: var(--cv-font);
+  font-size: var(--cv-font-size);
+  letter-spacing: var(--cv-tracking, 0.045px);
+  -webkit-font-smoothing: antialiased;
 }
 /* Clear of the row's Copy button (28 px at its top right, which takes the pointer even while
-   hidden), so a long sender name ends in an ellipsis before › instead of under it. */
+   hidden), so a long preview ends in an ellipsis before it instead of under it. */
 .cv-received__line {
   display: flex;
   align-items: center;
+  gap: 8px;
   min-width: 0;
   height: 26px;
   padding-right: 28px;
   color: var(--cv-text-dim);
-  font-size: var(--text-control);
-  white-space: pre;
+  white-space: nowrap;
   user-select: none;
+}
+.cv-received__icon {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  margin-right: -1.5px;
 }
 .cv-received__name,
 .cv-received__toggle {
   all: unset;
   cursor: pointer;
 }
+/* The sender as a chip: the theme's text at a low strength over glass, the accent's ring on
+   hover and focus (Leo 2026-10-20: glass, never a solid fill). */
 .cv-received__name {
-  min-width: 0;
+  flex: none;
+  max-width: 40%;
   overflow: hidden;
   text-overflow: ellipsis;
+  box-sizing: border-box;
+  height: 20px;
+  padding: 0 7px;
+  border-radius: 6px;
+  line-height: 20px;
+  font-size: var(--text-control);
   color: var(--cv-text);
-  text-decoration: underline;
-  text-decoration-color: color-mix(in srgb, var(--cv-text) 35%, transparent);
-  text-underline-offset: 3px;
+  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 10%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
 }
 .cv-received__name.is-plain {
-  text-decoration: none;
+  cursor: pointer;
 }
 button.cv-received__name:hover,
 button.cv-received__name:focus-visible {
-  text-decoration-color: currentColor;
+  background: color-mix(in srgb, var(--agent-accent) 16%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--agent-accent) 55%, transparent);
 }
+/* The preview and its chevron: the rest of the line, one line cut with an ellipsis. */
 .cv-received__toggle {
   display: inline-flex;
-  flex: none;
+  flex: 1;
   align-items: center;
-  justify-content: center;
-  width: 18px;
+  gap: 4px;
+  min-width: 0;
   height: 26px;
-  margin-left: 2px;
+}
+.cv-received__preview {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-received__toggle > .cv-rotor {
+  flex: none;
 }
 .cv-received__toggle:hover,
-.cv-received__toggle:focus-visible,
-.cv-received__text:hover ~ .cv-received__toggle {
+.cv-received__toggle:focus-visible {
   color: var(--cv-text);
 }
-.cv-received__text {
-  cursor: pointer;
+.cv-received__toggle:focus-visible {
+  outline: 1.5px solid color-mix(in srgb, var(--agent-accent) 55%, transparent);
+  outline-offset: 1px;
+  border-radius: 4px;
 }
-/* The message, opened: under the line, set off by a hairline rather than a card. */
+/* The message, opened: a compact glass card under the line, in from the icon column, its text
+   as Markdown. */
 .cv-received__body {
-  margin: 2px 0 6px 1px;
-  padding-left: 12px;
-  box-shadow: inset 1px 0 0 color-mix(in srgb, var(--cv-text) 16%, transparent);
-  color: var(--cv-text-muted);
-  font-size: var(--text-control);
-  line-height: 19px;
-  white-space: pre-wrap;
+  box-sizing: border-box;
+  margin: 4px 0 6px 22px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--agent-text, var(--cv-text)) 7%, transparent);
+  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  color: var(--cv-text);
+  line-height: var(--cv-line-height);
   overflow-wrap: anywhere;
   user-select: text;
   -webkit-user-select: text;
 }
 /* Details under an opened message: the prompt as the agent got it, closed until asked for. */
 .cv-received__details {
-  margin: 0 0 6px 13px;
+  margin: 0 0 6px 22px;
 }
 .cv-received__more {
   all: unset;
@@ -2049,7 +2087,7 @@ button.cv-received__name:focus-visible {
 .cv-received > .cv-message__images {
   justify-content: flex-start;
   max-width: none;
-  margin: 2px 0 6px;
+  margin: 2px 0 6px 22px;
 }
 .cv-received__details > .cv-tool-output {
   margin: 2px 0 0;

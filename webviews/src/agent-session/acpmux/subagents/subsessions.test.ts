@@ -124,3 +124,27 @@ test("the store follows sub-sessions only, and tells its readers only when one's
   expect(calls).toBe(3);
   expect(store.get("a")).toBeUndefined();
 });
+
+test("another agent's message finds its sender's chat by name, and that chat's harness", () => {
+  const store = new SubsessionStore();
+  let notified = 0;
+  store.subscribe(() => notified++);
+  store.set([
+    summary("old", { name: "coord-deputy", tags: ["archived"], harness: "codex" }),
+    summary("deputy", { name: "coord-deputy", harness: "claude" }),
+    summary("child", { startedBy: "chat", shortName: "tests", harness: "codex" }),
+  ]);
+  // A live chat's name before an archived one's; a sub-session by its short name too.
+  expect(store.find("coord-deputy")).toBe("deputy");
+  expect(store.find(" tests ")).toBe("child");
+  expect(store.find("nobody")).toBeUndefined();
+  expect(store.harness("deputy")).toBe("claude");
+  expect(notified).toBe(1);
+  // The same list again changes nothing.
+  store.set([
+    summary("old", { name: "coord-deputy", tags: ["archived"], harness: "codex" }),
+    summary("deputy", { name: "coord-deputy", harness: "claude" }),
+    summary("child", { startedBy: "chat", shortName: "tests", harness: "codex" }),
+  ]);
+  expect(notified).toBe(1);
+});
