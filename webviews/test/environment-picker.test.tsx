@@ -215,7 +215,7 @@ test("each remote machine shows whether it is connected, read again as the list 
   expect(refreshes).toBe(1);
   const states = machineRows().map((row) => {
     const mark = row.querySelector(".acpmux-env-status");
-    return mark ? [mark.getAttribute("data-connected"), mark.getAttribute("aria-label")] : null;
+    return mark ? [mark.getAttribute("data-connected"), mark.textContent] : null;
   });
   expect(states).toEqual([
     null,
@@ -289,7 +289,7 @@ test("the search field filters by name and section, keeping each machine's short
   await openPicker();
   await type("cloud");
   const shown = machineRows();
-  expect(shown.map((row) => rowText(row))).toEqual(["cloud-1⌥⌘3", "build-cloud⌥⌘4"]);
+  expect(shown.map((row) => rowText(row))).toEqual([`cloud-1${t("composer.envNotConnected")}⌥⌘3`, "build-cloud⌥⌘4"]);
   expect(newRows()).toHaveLength(2);
 });
 
