@@ -302,7 +302,9 @@ impl Peer {
         // A request that times out, or whose caller stops waiting, takes its
         // entry with it rather than leaving it until the connection drops.
         let _forget = ForgetPending { pending: self.pending.clone(), key: Some(key) };
-        if self.out.send(Message::request(id, m, params).to_line()).await.is_err() {
+        // One frame larger than the peer reads with would drop the link and every chat on it.
+        let line = Message::request(id, m, params).bounded_line().map_err(RpcError::too_large)?;
+        if self.out.send(line).await.is_err() {
             return Err(RpcError::internal(format!("peer {} connection closed", self.name)));
         }
         match tokio::time::timeout(Duration::from_secs(600), rx).await {
@@ -315,8 +317,9 @@ impl Peer {
     }
 
     pub async fn notify(&self, m: &str, params: Value) -> Result<(), RpcError> {
+        let line = Message::notification(m, params).bounded_line().map_err(RpcError::too_large)?;
         self.out
-            .send(Message::notification(m, params).to_line())
+            .send(line)
             .await
             .map_err(|_| RpcError::internal(format!("peer {} connection closed", self.name)))
     }
