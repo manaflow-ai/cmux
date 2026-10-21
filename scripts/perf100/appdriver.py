@@ -177,11 +177,38 @@ class App:
                             return tab
         return None
 
-    def send_text(self, text: str, surface: str | None = None) -> bool:
-        """Types `text` into a terminal through the app (`cmux send`; the focused one by default)."""
-        argv = [self.cli, "--socket", self.socket, "send"] + (["--surface", surface] if surface else []) + [text]
+    def send_text(self, text: str, surface: str | None = None) -> str | None:
+        """Types `text` into a terminal through the app (`cmux send`; the focused tab by default).
+        Returns None on success, else the CLI's error."""
+        surface = surface or (self.topology().get("focus") or {}).get("tab")
+        if not surface:
+            return "no focused tab"
+        argv = [self.cli, "--socket", self.socket, "send", "--surface", surface, "--", text]
         out = subprocess.run(argv, capture_output=True, text=True, timeout=60, env=self._cli_env())
-        return out.returncode == 0
+        return None if out.returncode == 0 else (out.stderr or out.stdout).strip()[:300] or f"exit {out.returncode}"
+
+    def tabs(self, kind: str | None = None, workspace: str | None = None) -> list[dict]:
+        topo = self.topology()
+        ws_id = workspace or (topo.get("focus") or {}).get("workspace")
+        out = []
+        for ws in topo.get("workspaces", []):
+            if ws_id and ws.get("id") != ws_id:
+                continue
+            for screen in ws.get("screens", []):
+                for pane in screen.get("panes", []):
+                    out.extend(t for t in pane.get("tabs", []) if kind is None or t.get("kind") == kind)
+        return out
+
+    def focus_tab(self, tab_id: str) -> dict:
+        return self.rpc.call("action.run", {"action": "palette.goToTab", "target": {"kind": "tab", "id": tab_id}})
+
+    def focus_terminal(self) -> str | None:
+        """Shows the focused workspace's first terminal tab; returns its id."""
+        terminals = self.tabs("terminal")
+        if not terminals:
+            return None
+        self.focus_tab(terminals[0]["id"])
+        return terminals[0]["id"]
 
     def _cli_env(self) -> dict:
         return {"HOME": self.home, "TMPDIR": self.tmp + "/", "PATH": "/usr/bin:/bin:/usr/sbin:/sbin",

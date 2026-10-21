@@ -60,10 +60,13 @@ def _fifo_release(paths: list[str], timeout: float):
 
 
 def _key_latency(app: appdriver.App, run: runlib.Run, samples: int, rng: random.Random, name: str):
+    if app.focus_terminal() is None:
+        run.note(f"{name}: no terminal tab in the focused workspace")
     values = []
     for _ in range(samples):
         marker = "".join(rng.choice("qwzx") for _ in range(4))
-        ms = app.key_echo_ms(marker, timeout=10)
+        app.focus_terminal()
+    ms = app.key_echo_ms(marker, timeout=10)
         if ms is not None:
             values.append(ms)
     run.latency(name, values)
@@ -151,11 +154,13 @@ def s0(args, run, rng):
         app.act("newSurface", focus=True)  # shown once, as Cmd-T does, so its terminal starts
     for i in range(args.agent_tuis):
         app.act("newSurface", focus=True)
-        app.send_text(f"exec {_python()} {os.path.join(FIXTURES, 'idle_tui.py')} {rng.randrange(1000)}\n")
+        error = app.send_text(f"exec {_python()} {os.path.join(FIXTURES, 'idle_tui.py')} {rng.randrange(1000)}\\n")
+        if error:
+            run.note(f"S0: idle agent TUI {i}: {error}")
     for url in urls[: args.tabs]:
         # focus: a background browser tab does not load until it is shown (xbench, bench_memory).
         app.act("openBrowser.chromium", focus=True, url=url)
-    app.act("selectSurfaceByNumber", focus=True, index=1)  # rest on the first terminal, as a user would
+    app.focus_terminal()  # rest on the first terminal, as a user would
     _idle_window(run, app, "idle", args.idle, args.settle,
                  per=[("terminal", args.terminals + args.agent_tuis, ("tui",)), ("tab", args.tabs, ("browser",))])
     _key_latency(app, run, args.latency_samples, rng, "keystroke_to_glyph")
@@ -183,9 +188,10 @@ def s1(args, run, rng):
             fifos.append(fifo)
             gos.append(go)
             # The shell waits on its own go FIFO, so every flood starts together.
-            command = f"read _ < '{go}'; LC_ALL=C yes | head -c {size}; printf done > '{fifo}'\n"
-            if not app.send_text(command):
-                run.note(f"{phase}: send to terminal {i} failed")
+            command = f"read _ < '{go}'; LC_ALL=C yes | head -c {size}; printf done > '{fifo}'\\n"
+            error = app.send_text(command)
+            if error:
+                run.note(f"{phase}: send to terminal {i}: {error}")
         window = procstat.Tracker(app.discover, interval=0.5).start()
         t0 = time.monotonic()
         _fifo_release(gos, timeout=60)
@@ -369,6 +375,7 @@ def s4(args, run, rng):
     for key in ("first_window_frame_committed", "first_terminal_surface_created"):
         if key in launch:
             run.metric(f"cold.{key}_ms", round(launch[key], 1))
+    app.focus_terminal()
     ms = app.key_echo_ms("".join(rng.choice("qwzx") for _ in range(4)), timeout=60)
     run.metric("cold.launch_to_interactive_ms", round((time.monotonic() - t0) * 1000, 1) if ms is not None else None)
     run.data.setdefault("latency", {})["launch_to_interactive"] = {"cold_ms": run.data["metrics"].get("cold.launch_to_interactive_ms")}
@@ -387,6 +394,7 @@ def s4(args, run, rng):
     t0 = time.monotonic()
     app.launch()
     app.wait_first_terminal()
+    app.focus_terminal()
     ms = app.key_echo_ms("".join(rng.choice("qwzx") for _ in range(4)), timeout=120)
     interactive = (time.monotonic() - t0) * 1000 if ms is not None else None
     restored = None
