@@ -164,7 +164,7 @@ final class HomeProjection: @preconcurrency ChatIntents {
               typing: homeStore.typists(in: conversation),
               hasOlder: homeStore.hasOlderMessages(in: conversation), streams: timeline.streams)
         // The line closes on the frame after the one that shows the reply in the bubble's place (cx-zz30r, cx-06vn1).
-        if let activity = live?.activity { liveLine.show(activity) } else { liveLine.hide(after: controller) }
+        if let activity = live?.activity { liveLine.show(activity, thought: live?.thought) } else { liveLine.hide(after: controller) }
         revealIfLoaded()
         refreshThreadHeader()
     }
