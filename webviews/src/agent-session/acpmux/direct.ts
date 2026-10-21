@@ -2538,6 +2538,28 @@ export class AcpmuxDirectClient {
             failover: { from: msg.from, to: msg.to },
           });
         }
+      } else if (event.kind === "policy_unenforced") {
+        // The chat's policy is narrower than approve-all and its harness has no mode that asks
+        // (`hub/policy_mode.rs`): its agent runs without the asks the policy would answer.
+        if (typeof msg.policy === "string") {
+          const id = `policy-unenforced-${event.seq}`;
+          const harness = this.summary?.harness;
+          // acpmux's English reason is only a hint for a chat whose family the pane does not know.
+          const opencode =
+            this.summary?.family === "opencode" ||
+            (!this.summary?.family && typeof msg.reason === "string" && msg.reason.startsWith("opencode"));
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "policyUnenforced",
+            policyUnenforced: {
+              policy: msg.policy,
+              ...(typeof harness === "string" && harness ? { harness } : {}),
+              why: opencode ? "ownSettings" : "noAskingMode",
+            },
+          });
+        }
       } else if (event.kind === "session_offer") {
         // Off by default: off, an offer draws nothing (offer/offersShown.ts).
         const offer = offersShown() ? sessionOffer(msg) : undefined;
