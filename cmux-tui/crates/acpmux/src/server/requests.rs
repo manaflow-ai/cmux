@@ -969,6 +969,10 @@ async fn dispatch_request(
         | method::MUX_ROUTE_DEFAULT_SET
         | method::MUX_CHAT_ROUTE_SET => super::routes::handle(hub, conn.origin, m, &params).await,
         method::ACP_TRUST_GET | method::ACP_TRUST_SET => {
+            // Recorded here, not on a peer: only a folder that exists here (`remote_guard.rs`).
+            if m == method::ACP_TRUST_SET && conn.origin != Origin::Local {
+                super::remote_guard::local_trust_folder(&params).await?;
+            }
             super::trust_gate::answer(hub, m, &params).await
         }
         method::MUX_SET_RULES => {

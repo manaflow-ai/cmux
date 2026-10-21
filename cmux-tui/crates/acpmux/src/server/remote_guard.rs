@@ -13,7 +13,9 @@
 //! - A folder field (`cwd`, `additionalDirectories`) of `session/new`,
 //!   `session/fork`, `session/load`, `session/resume` and `acp.trust.set`
 //!   must be an absolute path to an existing directory; the request goes on
-//!   with the canonical path (symlinks resolved, no `..`).
+//!   with the canonical path (symlinks resolved, no `..`). An `acp.trust.set`
+//!   for a peer's session names the peer's folder: it goes on to that peer
+//!   unchanged, and the peer's own guard checks the folder there.
 //! - A session method acpmux does not handle itself is not passed to the
 //!   harness (`requests.rs` catch-all), so no harness extension method can
 //!   take caller params that spawn or read. LocalApp may pass
@@ -241,14 +243,25 @@ pub(super) async fn check(
             .with_data(serde_json::json!({"reason": "remote.adopt_refused"})));
         }
     }
-    let folders = matches!(
-        m,
-        method::SESSION_NEW
-            | method::SESSION_FORK
-            | method::SESSION_LOAD
-            | method::SESSION_RESUME
-            | method::ACP_TRUST_SET
-    );
+    // The pane's Trust for a chat on a peer names a folder on that peer, which this machine
+    // may not have: the set is forwarded whole (`peer_forward.rs`), and the peer, which serves
+    // it as Peer, checks the folder on its own disk. Only its spelling is checked here.
+    let peers_folder = m == method::ACP_TRUST_SET && names_a_peers_session(hub, params);
+    if peers_folder
+        && let Some(cwd) = params.get("cwd").filter(|v| !v.is_null())
+        && !cwd.as_str().is_some_and(|c| Path::new(c).is_absolute())
+    {
+        return Err(folder_refused("cwd"));
+    }
+    let folders = !peers_folder
+        && matches!(
+            m,
+            method::SESSION_NEW
+                | method::SESSION_FORK
+                | method::SESSION_LOAD
+                | method::SESSION_RESUME
+                | method::ACP_TRUST_SET
+        );
     if folders {
         // A Web folder must also sit inside a root (`web_roots`); LocalApp
         // keeps the native relay's pane roots (no daemon root check).
@@ -312,6 +325,26 @@ pub(super) async fn check(
         web_starts_asking(hub, control_of(origin, auth, params), m, params).await?;
     }
     Ok(())
+}
+
+/// Whether the request's session lives on a peer: what `peer_forward::forward` forwards an
+/// `acp.trust.*` request on. A session this daemon holds, an unknown key or none is not one.
+fn names_a_peers_session(hub: &crate::hub::Hub, params: &Value) -> bool {
+    super::session_key(params)
+        .is_ok_and(|key| hub.resolve(key).is_err() && hub.resolve_remote(key).is_some())
+}
+
+/// The folder an `acp.trust.set` from a connection that is not the unix socket records on this
+/// daemon: one `check` made canonical, or none. `check` passes a peer's folder on unchecked for
+/// the peer to judge; if that peer's session is gone before the forward, the set lands here and
+/// is refused rather than recorded unchecked.
+pub(super) async fn local_trust_folder(params: &Value) -> Result<(), RpcError> {
+    let Some(cwd) = params.get("cwd").filter(|v| !v.is_null()) else { return Ok(()) };
+    let cwd = cwd.as_str().ok_or_else(|| folder_refused("cwd"))?;
+    match canonical_dir(cwd).await {
+        Some(canonical) if canonical == cwd => Ok(()),
+        _ => Err(folder_refused("cwd")),
+    }
 }
 
 /// A remote connection may stop only a session that was created by a remote
