@@ -284,7 +284,11 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         .unwrap_err();
     assert!(refused.message.contains("Mac app"), "{}", refused.message);
     assert_eq!(app.summary(&parent).await["pendingPermissions"], 1);
-    // A remote browser may not allow it even as the person.
+    // A remote browser may not allow it even as the person: this chat is a
+    // Claude session the Mac started (family claude), which no remote device
+    // controls (D13, `local_claude_refusal`), so that refusal comes first.
+    // `trust.web_cannot_answer` itself is covered where the Web may control
+    // the chat (`local_app_trust_gate.rs`).
     let web = hub
         .respond_permission(
             &session,
@@ -297,7 +301,12 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         )
         .await
         .unwrap_err();
-    assert!(web.message.contains("trust.web_cannot_answer"), "{}", web.message);
+    assert_eq!(
+        web.data.as_ref().and_then(|d| d.get("reason")),
+        Some(&json!("remote.local_claude_session")),
+        "{}",
+        web.message
+    );
 
     // Trust: the start goes on by itself and the folder stays trusted.
     hub.respond_permission(

@@ -107,14 +107,19 @@ impl super::Hub {
 }
 
 /// A name a folder holds as one plain file (the app's `AgentPaneUpload.isFileName`): 1 to 255
-/// UTF-8 bytes, not a dot file (nor `.` or `..`), no `/` (nor `\` or `:` on Windows, where a
-/// drive prefix such as `C:x` replaces the folder it is joined to), one plain path component, and
-/// no control or bidirectional formatting character.
+/// UTF-8 bytes, not a dot file (nor `.` or `..`), no `/`, one plain path component, and no control
+/// or bidirectional formatting character. On Windows also no `\` or `:` (a drive prefix such as
+/// `C:x` replaces the folder it is joined to) and no device name (`windows_device_name`).
 pub fn is_file_name(name: &str) -> bool {
+    is_file_name_for(name, cfg!(windows))
+}
+
+/// `is_file_name` with Windows' rules when `windows`.
+fn is_file_name_for(name: &str, windows: bool) -> bool {
     if !(1..=255).contains(&name.len())
         || name.starts_with('.')
         || name.contains('/')
-        || (cfg!(windows) && (name.contains('\\') || name.contains(':')))
+        || (windows && (name.contains('\\') || name.contains(':') || windows_device_name(name)))
     {
         return false;
     }
@@ -132,6 +137,27 @@ pub fn is_file_name(name: &str) -> bool {
             || v == 0x200e
             || v == 0x200f
     })
+}
+
+/// A name Windows does not keep as its own file in a folder: a device (`CON`, `PRN`, `AUX`, `NUL`,
+/// `COM1`-`COM9`, `LPT1`-`LPT9` and their superscript-digit forms, `CONIN$`, `CONOUT$`) with any
+/// extension, in any case, and a name that ends in a dot or a space, which Windows drops.
+/// https://learn.microsoft.com/windows/win32/fileio/naming-a-file#naming-conventions
+fn windows_device_name(name: &str) -> bool {
+    if name.ends_with(['.', ' ']) {
+        return true;
+    }
+    let stem = name.split('.').next().unwrap_or(name).trim_end_matches(' ').to_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") {
+        return true;
+    }
+    let mut chars = stem.chars();
+    let head: String = chars.by_ref().take(3).collect();
+    matches!(head.as_str(), "COM" | "LPT")
+        && matches!(
+            (chars.next(), chars.next()),
+            (Some('1'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None)
+        )
 }
 
 fn too_large() -> RpcError {
@@ -248,6 +274,34 @@ mod tests {
             for bad in ["C:evil.txt", "a.txt:stream", "a\\b"] {
                 assert!(!is_file_name(bad), "{bad:?}");
             }
+        }
+    }
+
+    #[test]
+    fn a_windows_device_name_is_no_file_name_on_windows() {
+        // Windows opens these as devices in any folder (`dir\CON` is the console), and drops a
+        // trailing dot or space, so the write would not land in the upload's own file.
+        for bad in [
+            "CON",
+            "con.txt",
+            "NUL",
+            "nul.tar.gz",
+            "AUX",
+            "PRN",
+            "COM1",
+            "lpt9.log",
+            "COM\u{b9}",
+            "CONIN$",
+            "a.",
+            "a ",
+        ] {
+            assert!(!is_file_name_for(bad, true), "{bad:?}");
+            assert!(is_file_name_for(bad, false), "{bad:?}");
+        }
+        for good in
+            ["CONSOLE.txt", "COM10", "COM0", "nullable.rs", "aux_data.csv", "LPT", "report.pdf"]
+        {
+            assert!(is_file_name_for(good, true), "{good:?}");
         }
     }
 

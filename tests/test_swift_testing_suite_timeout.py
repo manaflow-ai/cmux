@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import os
 import pathlib
@@ -70,6 +71,45 @@ def install_stub_sampler(bin_dir: pathlib.Path) -> None:
 WAIT_FOR_EVENT_SECONDS = 30
 
 
+# The runner calls scripts/ci/swiftpm-binary-module-guard.sh before its build:
+# `swift package resolve`, then `swift --version` for the binary-module digest.
+# The fakes below predate it and act out only the build, list and test calls, so
+# a wrapper answers those two and hands every other call to the test's fake. A
+# fake that hung on every non-list call hung the resolve (the 180 s deadline), and
+# one that exited non-zero made the guard purge the warm .build the test set up.
+FAKE_SWIFT_VERSION = "Swift version 6.2 (cmux test fake)"
+FAKE_SWIFT_WRAPPER = (
+    "#!/usr/bin/env bash\n"
+    f"if [ \"$1\" = --version ]; then echo '{FAKE_SWIFT_VERSION}'; exit 0; fi\n"
+    "if [ \"$1\" = package ] && [ \"$2\" = resolve ]; then exit 0; fi\n"
+    "exec \"$(dirname \"$0\")/.fake-swift/swift\" \"$@\"\n"
+)
+
+
+def fake_swift_impl(path: pathlib.Path) -> pathlib.Path:
+    """Where write_fake_swift keeps the test's own fake for the `swift` at path."""
+    return path.parent / ".fake-swift" / "swift"
+
+
+def write_fake_swift(path: pathlib.Path, body: str, encoding: str = "utf-8") -> None:
+    impl = fake_swift_impl(path)
+    impl.parent.mkdir(parents=True, exist_ok=True)
+    impl.write_text(body, encoding=encoding)
+    impl.chmod(0o755)
+    path.write_text(FAKE_SWIFT_WRAPPER, encoding="utf-8")
+    path.chmod(0o755)
+
+
+def keep_warm_build(package: pathlib.Path) -> None:
+    """Stamp the package's .build with the fake toolchain's binary-module digest
+    (no binary targets: the digest of `swift --version` alone), as a warm slot
+    whose headers did not change has it, so the guard keeps the test's outputs."""
+    stamp = package / ".build" / ".cmux-binary-module-inputs"
+    stamp.parent.mkdir(parents=True, exist_ok=True)
+    digest = hashlib.sha256((FAKE_SWIFT_VERSION + "\n").encode()).hexdigest()
+    stamp.write_text(digest + "\n", encoding="utf-8")
+
+
 def overlapped_in_order(lines: list[str], first: str, second: str) -> bool:
     """Whether two "start NAME" / "end NAME" spans in one event log overlap:
     each one started before the other ended."""
@@ -89,10 +129,11 @@ class SettingsExportCatalogTests(unittest.TestCase):
         bundle.mkdir(parents=True)
         (bundle / "Localizable.xcstrings").write_text("Show Tips")
         (bundle / "Localizable.strings").write_text("Show Tips")
+        keep_warm_build(package)
         bin_dir = root / "bin"
         bin_dir.mkdir()
         fake_swift = bin_dir / "swift"
-        fake_swift.write_text(
+        write_fake_swift(fake_swift, 
             "#!/usr/bin/env python3\n"
             "import os, pathlib, sys\n"
             "args = sys.argv[1:]\n"
@@ -223,7 +264,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
 
             fake_swift = temp / "bin" / "swift"
             fake_swift.parent.mkdir()
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 f"root={repo}\n"
                 "[ -f \"$root/vendor/dep/Package.swift\" ] || { echo \"error: $root/vendor/dep/Package.swift doesn't exist\" >&2; exit 1; }\n"
@@ -246,7 +287,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             with self.subTest(output=output), tempfile.TemporaryDirectory() as temp_dir:
                 temp = pathlib.Path(temp_dir)
                 fake_swift = temp / "swift"
-                fake_swift.write_text(
+                write_fake_swift(fake_swift, 
                     "#!/usr/bin/env python3\n"
                     "import sys\n"
                     "if sys.argv[1:3] == ['test', 'list']:\n"
@@ -267,7 +308,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             temp = pathlib.Path(temp_dir)
             calls = temp / "calls.txt"
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 "printf '%s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
                 "if [[ \"$*\" == *\"test list\"* ]]; then\n"
@@ -300,7 +341,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = pathlib.Path(temp_dir)
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env python3\n"
                 "import re, sys\n"
                 "tests = ['ExampleTests.PassingSuite/testOne()', "
@@ -333,7 +374,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             calls = temp / "calls.txt"
             attempts = temp / "attempts.txt"
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 "printf '%s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
                 "if [[ \"$*\" == *\"test list\"* ]]; then\n"
@@ -373,7 +414,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temp_dir:
             temp = pathlib.Path(temp_dir)
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 "if [[ \"$*\" == *\"test list\"* ]]; then\n"
                 "  echo 'ExampleTests.HangingSuite/testNeverFinishes()'\n"
@@ -404,7 +445,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             temp = pathlib.Path(temp_dir)
             calls = temp / "calls.txt"
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 "printf '%s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
                 "if [[ \"$*\" == *\"test list\"* ]]; then\n"
@@ -451,7 +492,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             temp = pathlib.Path(temp_dir)
             calls = temp / "calls.txt"
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
                 "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
@@ -508,7 +549,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             temp = pathlib.Path(temp_dir)
             calls = temp / "calls.txt"
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
                 "printf 'key=%s path=%s\\n' \"${CMUX_TUI_TREE_KEY:-}\" \"${CMUX_NEXT_TUI_TREE_PATH:-}\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
@@ -570,7 +611,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
             temp = pathlib.Path(temp_dir)
             calls = temp / "calls.txt"
             fake_swift = temp / "swift"
-            fake_swift.write_text(
+            write_fake_swift(fake_swift, 
                 "#!/usr/bin/env bash\n"
                 "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
                 "if [[ \"$*\" == *\"test list\"* ]]; then echo 'ExampleTests.Suite/testOne()'; exit 0; fi\n"
@@ -614,7 +655,7 @@ class SwiftTestingSuiteTimeoutTests(unittest.TestCase):
         # write) tells whether suites overlapped. A body can wait_for('start',
         # 'OtherSuite') to make an overlap certain instead of likely.
         fake_swift = temp / "swift"
-        fake_swift.write_text(
+        write_fake_swift(fake_swift, 
             "#!/usr/bin/env python3\n"
             "import os, sys, time\n"
             "args = sys.argv[1:]\n"
@@ -989,9 +1030,9 @@ class DirectBundleSuiteTests(unittest.TestCase):
                xctests: list[str] | None = None, swift_tests: list[str] | None = None) -> tuple[pathlib.Path, dict[str, str]]:
         bin_dir = temp / "bin"
         bin_dir.mkdir()
-        for name, body in (("swift", FAKE_DIRECT_SWIFT), ("xcrun", FAKE_DIRECT_XCRUN)):
-            (bin_dir / name).write_text(body, encoding="utf-8")
-            (bin_dir / name).chmod(0o755)
+        write_fake_swift(bin_dir / "swift", FAKE_DIRECT_SWIFT)
+        (bin_dir / "xcrun").write_text(FAKE_DIRECT_XCRUN, encoding="utf-8")
+        (bin_dir / "xcrun").chmod(0o755)
         # The runner's `python3` is this interpreter. /usr/bin/python3 on macOS
         # is an xcrun shim that exports the real SDK's SDKROOT, which the
         # runner then keeps over the fake xcrun's SDK (cmux-lawrence-2).
@@ -1014,6 +1055,7 @@ class DirectBundleSuiteTests(unittest.TestCase):
         bundle = package / ".build" / "arm64-apple-macosx" / "debug" / "ExamplePackageTests.xctest"
         (bundle / "Contents" / "MacOS").mkdir(parents=True)
         (bundle / "Contents" / "MacOS" / "ExamplePackageTests").write_text("", encoding="utf-8")
+        keep_warm_build(package)
         env = os.environ.copy()
         env["PATH"] = f"{bin_dir}:{env['PATH']}"
         env["CMUX_SWIFT_TEST_DIRECT"] = "1"
@@ -1145,7 +1187,7 @@ class DirectBundleSuiteTests(unittest.TestCase):
             self.assertEqual(self._direct_calls(temp), [], completed.stdout)
 
             compile_catalogs.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
-            swift = temp / "bin" / "swift"
+            swift = fake_swift_impl(temp / "bin" / "swift")
             swift.write_text(
                 swift.read_text(encoding="utf-8").replace(
                     'if args[:2] == ["test", "list"]:',
@@ -1267,7 +1309,8 @@ class DirectBundleSuiteTests(unittest.TestCase):
                     env["CMUX_SWIFT_TEST_DIRECT"] = direct
                     if direct == "0":
                         # The fallback runs the suites through the fake swift.
-                        (temp / "bin" / "swift").write_text(
+                        write_fake_swift(
+                            temp / "bin" / "swift",
                             "#!/usr/bin/env bash\n"
                             "printf 'swift %s\\n' \"$*\" >> \"$CMUX_SWIFT_TEST_CALLS\"\n"
                             "if [[ \"$*\" == *\"test list\"* ]]; then echo 'Example.StSuite/one()'; exit 0; fi\n"
