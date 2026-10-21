@@ -63,8 +63,10 @@ public nonisolated struct UpdateFeedCard: Sendable, Equatable {
     /// "1.0.0-nightly.3947430561301" reads "nightly 3947430", as the Update Ready card; any other
     /// version reads as itself.
     public static func readable(_ version: String) -> String {
-        guard let range = version.range(of: "-nightly."), version[range.upperBound...].allSatisfy(\.isNumber) else { return version }
-        return "nightly " + String(version[range.upperBound...].prefix(7))
+        guard let range = version.range(of: "-nightly.") else { return version }
+        let build = version[range.upperBound...]
+        guard !build.isEmpty, build.allSatisfy(\.isNumber) else { return version }
+        return "nightly " + String(build.prefix(7))
     }
 
     /// The card's text: where it came from, the top changes as bullets and how many more.
