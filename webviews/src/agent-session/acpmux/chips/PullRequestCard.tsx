@@ -134,10 +134,11 @@ function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate
   const rows = read?.checkList ?? [];
   const failed = rows.filter((check) => check.state === "failed").length || 0;
   const failing = failed || checks.total - checks.passed;
-  // The rows carry the same truth per check, so either half of a host's answer is enough; the
-  // clamp keeps the line arithmetic honest when `failing` fell back to the summed difference.
+  // The host's own count, because it counts the whole rollup while `checkList` is truncated; the
+  // rows are the fallback for a host that marks them without counting them. Clamped, so the line
+  // stays arithmetically honest whatever the two halves say.
   const marked = rows.filter((check) => check.state === "failed" && check.onBase === true).length;
-  const onBase = Math.min(Math.max(marked, checks.failingOnBase ?? 0), failing);
+  const onBase = Math.min(checks.failingOnBase ?? marked, failing);
   return (
     <div
       className="acpmux-pr-card__checks"

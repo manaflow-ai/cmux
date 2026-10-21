@@ -335,10 +335,14 @@ public final class AgentReplyPullRequests {
         return task
     }
 
+    /// Reads one link the same way ``register(_:)`` reads a reply's: the batched GraphQL read with
+    /// a batch of one, not `gh pr view <url>`. It is the same single call to GitHub, and it is the
+    /// only one of the two that reads the base branch's checks — a card refreshed through
+    /// `gh pr view` would quietly lose "also red on base" sixty seconds after it gained it. A link
+    /// on another host (GitHub Enterprise) still falls back to `gh pr view` inside that read.
     private func perform(_ url: URL) async {
-        let pullRequest = await reader.read(url: url)
-        record(pullRequest, for: url)
-        trim()
+        let answers = await reader.read(urls: [url.absoluteString])
+        absorb(answers, for: [url])
     }
 
     /// What a batched read answered. A URL GitHub did not answer for (offline, timed out, rate

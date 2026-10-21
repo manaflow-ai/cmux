@@ -215,14 +215,32 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         return (workflow ?? "", id)
     }
 
+    /// A check's identity across two commits: the workflow it belongs to, and its name.
+    ///
+    /// The name alone is not enough. Job labels repeat across workflows — this repository has
+    /// `test`, `web`, `build`, `check` and `comment` in several — so matching `test` of one
+    /// workflow against `test` of another would excuse a red the pull request does cause. A
+    /// context that belongs to no run (a commit status, or a `gh pr view` answer, which does not
+    /// read runs) identifies by its name alone, and so matches only another context with no run.
+    static func identity(_ check: [String: Any]) -> String {
+        "\(runOf(check)?.workflow ?? "")\u{0}\(name(check))"
+    }
+
     /// `rollup` with the contexts of every run that a newer run of the same workflow replaced
-    /// dropped.
+    /// dropped. Read the warning before using it on anything but a base branch's tip.
     ///
     /// A commit's rollup still lists the checks of a run the concurrency group cancelled when a
     /// newer run of that workflow started on the same commit, and those read as failures
     /// (``outcome(_:)`` has no CANCELLED case on purpose: a cancellation a person asked for is a
     /// red). Keeping only each workflow's highest run id is what tells the two apart. A context
     /// with no run cannot have been superseded, so it stays.
+    ///
+    /// It is a one-way measure, which is why only ``failing(_:)`` uses it. Two runs of one
+    /// workflow on one commit are not always a supersession: a workflow with both a `push` and a
+    /// `pull_request` trigger whose concurrency groups differ runs twice and both runs stand, and
+    /// a dispatched or rescued re-run outranks the run it stands beside without cancelling it.
+    /// Dropping the older of those on a base tip can only fail to excuse a red, which is the safe
+    /// direction; doing it to a pull request's own rollup would drop a red it does cause.
     static func latestRuns(_ rollup: [[String: Any]]) -> [[String: Any]] {
         var newest: [String: Int] = [:]
         for check in rollup {
@@ -236,30 +254,33 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
         }
     }
 
-    /// The names of the checks that a commit's own newest runs report as failed.
+    /// The ``identity(_:)`` of every check that a commit's own newest runs report as failed.
     ///
     /// Used for the base branch's tip, to tell a reader which of a pull request's reds it did not
     /// cause. A cancelled run is never evidence, even when it is the newest: it reached no verdict,
-    /// so a check whose only base run was cancelled stays the pull request's own red. Erring this
-    /// way can only ever fail to excuse a red, never excuse one wrongly.
+    /// so a check whose only base run was cancelled stays the pull request's own red. Nor is one
+    /// still running. Every judgement here errs the same way — it can fail to excuse a red, never
+    /// excuse one wrongly — because a reader sent to a log that was already red loses minutes,
+    /// while a reader told a red is not theirs when it is ships it.
     static func failing(_ rollup: [[String: Any]]) -> Set<String> {
         Set(latestRuns(rollup).lazy
             .filter { outcome($0) == "failed" && conclusionOf($0) != "CANCELLED" }
-            .map(name))
+            .map(identity))
     }
 
     /// Each check run or commit status with its outcome, failed first; links only when https. A
-    /// failing check named in `failingOnBase` is marked as the base branch's red, not this pull
-    /// request's.
+    /// failing check whose ``identity(_:)`` is in `failingOnBase` is marked as the base branch's
+    /// red, not this pull request's. Every context of `rollup` is counted: a pull request's own
+    /// rollup is read exactly as GitHub reports it (see ``latestRuns(_:)``).
     static func checkList(_ rollup: [[String: Any]], failingOnBase: Set<String> = []) -> [Check] {
         let order = ["failed": 0, "pending": 1, "passed": 2]
-        let list = latestRuns(rollup).map { check in
+        let list = rollup.map { check in
             let link = (check["detailsUrl"] as? String) ?? (check["targetUrl"] as? String)
             let state = outcome(check)
             return Check(name: name(check),
                          state: state,
                          url: link.flatMap { $0.hasPrefix("https://") && !$0.contains(where: \.isWhitespace) ? $0 : nil },
-                         onBase: state == "failed" && failingOnBase.contains(name(check)))
+                         onBase: state == "failed" && failingOnBase.contains(identity(check)))
         }
         let sorted = list.enumerated().sorted { (order[$0.element.state] ?? 3, $0.offset) < (order[$1.element.state] ?? 3, $1.offset) }
         return sorted.prefix(maximumChecks).map(\.element)
@@ -268,10 +289,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// A check run (`status`, `conclusion`) or a commit status (`state`), each as passed, failed or
     /// still running, with the failures the base branch's tip shares counted out.
     static func checks(_ rollup: [[String: Any]], failingOnBase: Set<String> = []) -> Checks {
-        let latest = latestRuns(rollup)
-        let outcomes = latest.map(outcome)
+        let outcomes = rollup.map(outcome)
         let state = outcomes.isEmpty ? "none" : outcomes.contains("failed") ? "failing" : outcomes.contains("pending") ? "pending" : "passing"
-        let base = failingOnBase.isEmpty ? 0 : latest.filter { outcome($0) == "failed" && failingOnBase.contains(name($0)) }.count
+        let base = failingOnBase.isEmpty ? 0 : rollup.filter { outcome($0) == "failed" && failingOnBase.contains(identity($0)) }.count
         return Checks(state: state, passed: outcomes.filter { $0 == "passed" }.count, total: outcomes.count,
                       failingOnBase: base)
     }

@@ -45,7 +45,8 @@ struct AgentPaneBaseRedsTests {
             Self.run("Verify / scripts", "FAILURE", workflow: 1, run: 101),
             Self.run("web / lint", "SUCCESS", workflow: 2, run: 300),
         ]
-        #expect(AgentPanePullRequest.failing(base) == ["Verify / scripts"])
+        #expect(AgentPanePullRequest.failing(base)
+            == [AgentPanePullRequest.identity(Self.run("Verify / scripts", "FAILURE", workflow: 1, run: 101))])
         let head = [
             Self.run("Verify / scripts", "FAILURE", workflow: 1, run: 200),
             Self.run("web / lint", "FAILURE", workflow: 2, run: 400),
@@ -70,7 +71,7 @@ struct AgentPaneBaseRedsTests {
     /// base never ran at all is the pull request's own.
     @Test func statusContextsAndUnknownChecksReadAsThemselves() {
         let base = [Self.status("ci/legacy", "FAILURE"), Self.status("ci/other", "SUCCESS")]
-        #expect(AgentPanePullRequest.failing(base) == ["ci/legacy"])
+        #expect(AgentPanePullRequest.failing(base) == [AgentPanePullRequest.identity(Self.status("ci/legacy", "FAILURE"))])
         let head = [Self.status("ci/legacy", "FAILURE"), Self.run("only here", "FAILURE", workflow: 9, run: 1)]
         let list = AgentPanePullRequest.checkList(head, failingOnBase: AgentPanePullRequest.failing(base))
         let byName = Dictionary(uniqueKeysWithValues: list.map { ($0.name, $0.onBase) })
@@ -78,15 +79,47 @@ struct AgentPaneBaseRedsTests {
         #expect(byName["only here"] == false)
     }
 
-    /// The head's own superseded runs are dropped the same way, so the card does not count a
-    /// cancelled run's checks as failures of the head either.
-    @Test func theHeadsOwnSupersededRunIsDroppedToo() {
+    /// A pull request's own rollup is counted whole, because two runs of one workflow on one
+    /// commit are not always a supersession: a workflow with both a `push` and a `pull_request`
+    /// trigger whose concurrency groups differ runs twice on the same head, and a dispatched or
+    /// rescued re-run outranks the run beside it without cancelling it. Keeping only the newest
+    /// would make the card say "2 of 2 checks passed" about a commit GitHub shows as red.
+    @Test func aSecondLiveRunOfOneWorkflowKeepsItsRed() {
         let head = [
-            Self.run("Verify / scripts", "CANCELLED", workflow: 1, run: 200),
-            Self.run("Verify / scripts", "SUCCESS", workflow: 1, run: 201),
+            Self.run("mux bun test", "FAILURE", workflow: 1, run: 200),
+            Self.run("mux bun test", "SUCCESS", workflow: 1, run: 201),
         ]
-        #expect(AgentPanePullRequest.checks(head) == .init(state: "passing", passed: 1, total: 1))
-        #expect(AgentPanePullRequest.checkList(head, failingOnBase: []).map(\.state) == ["passed"])
+        #expect(AgentPanePullRequest.checks(head) == .init(state: "failing", passed: 1, total: 2))
+        #expect(AgentPanePullRequest.checkList(head, failingOnBase: []).map(\.state) == ["failed", "passed"])
+    }
+
+    /// The same name in another workflow is another check. Job labels repeat across workflows, so
+    /// a base red called `test` must not excuse a head red called `test` that is a different job.
+    @Test func aRedOfAnotherWorkflowWithTheSameNameIsNotExcused() {
+        let base = AgentPanePullRequest.failing([Self.run("test", "FAILURE", workflow: 5, run: 10)])
+        let head = [Self.run("test", "FAILURE", workflow: 6, run: 20), Self.run("test", "FAILURE", workflow: 5, run: 21)]
+        #expect(AgentPanePullRequest.checkList(head, failingOnBase: base).map(\.onBase) == [false, true],
+                "only the red of the workflow the base failed")
+        #expect(AgentPanePullRequest.checks(head, failingOnBase: base).failingOnBase == 1)
+    }
+
+    /// A check that passes on the head is never marked, however red the base is: the mark says
+    /// "this red is not yours", and there is no red to say it about.
+    @Test func aPassingHeadCheckIsNeverMarked() {
+        let base = AgentPanePullRequest.failing([Self.run("Verify / scripts", "FAILURE", workflow: 1, run: 10)])
+        let head = [Self.run("Verify / scripts", "SUCCESS", workflow: 1, run: 20)]
+        #expect(AgentPanePullRequest.checkList(head, failingOnBase: base).map(\.onBase) == [false])
+        #expect(AgentPanePullRequest.checks(head, failingOnBase: base).failingOnBase == 0)
+    }
+
+    /// A base check still running is no evidence either: it has not failed yet, and a pull request
+    /// does not wait on another commit's verdict to own its red.
+    @Test func aBaseCheckStillRunningIsNoEvidence() {
+        let base = [Self.run("Verify / scripts", "", workflow: 1, run: 10, status: "IN_PROGRESS")]
+        #expect(AgentPanePullRequest.failing(base).isEmpty)
+        let list = AgentPanePullRequest.checkList([Self.run("Verify / scripts", "FAILURE", workflow: 1, run: 20)],
+                                                  failingOnBase: AgentPanePullRequest.failing(base))
+        #expect(list.first?.onBase == false)
     }
 
     /// A rollup with no run ids at all (a `gh pr view`, which does not read them) is left alone:

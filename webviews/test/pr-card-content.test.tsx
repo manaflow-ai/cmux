@@ -286,3 +286,21 @@ test("a host that claims nothing about the base draws the card it always did", a
     "99 of 100 checks passed, 1 failing, 1 also red on base",
   );
 });
+
+test("a host that marks rows without counting them is still read", async () => {
+  // The count is the host's own and covers the whole rollup, which is why it wins; the rows are
+  // what a host that only marks them leaves, and the card reads those rather than nothing.
+  const { body } = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 98, total: 100 },
+      checkList: [
+        { name: "cmux-next generated files", state: "failed", onBase: true },
+        { name: "web lint (fast)", state: "failed" },
+      ],
+    }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(body.querySelector(".acpmux-pr-card__checks")?.textContent).toBe(
+    "98 of 100 checks passed, 2 failing, 1 also red on base",
+  );
+});
