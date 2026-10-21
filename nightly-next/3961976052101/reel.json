@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "3961976052101",
+  "notes": "notes/3961976052101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23435,
+      "title": "fix(cmux-next): provide app page text direction",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23411,
+      "title": "acpmux: each session gets its own temporary folder (~/.cache/acpmux/sessions/<session id>/tmp)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23443,
+      "title": "gallery health: allowlist agent-pane.transcript#codex-turn-run-open, broken since #23081",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23405,
+      "title": "worktrees: keep cmux's worktree root in ~/.cmux/worktrees.noindex on macOS so Spotlight skips it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23269,
+      "title": "Keep the sidebar resize band out of debug.layers divider areas",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
