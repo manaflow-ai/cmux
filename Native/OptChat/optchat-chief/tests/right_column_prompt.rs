@@ -139,3 +139,31 @@ fn the_chief_prompt_shows_done_work_in_the_right_column() {
     assert!(flat.contains("ends with a <show> block"), "no show block");
     assert!(flat.contains("show.afterReport"), "no setting named");
 }
+
+/// 2026-10-20: Chief subagents ran `git fetch origin feat-cmux-next` and
+/// `git log --all` in the shared main checkout ~/Projects/cmux on the
+/// person's Mac; on its partial clone each one fetched ~378k objects, the
+/// Mac's biggest load that night. Every agent works in its own worktree and
+/// reads remote state through the GitHub API.
+#[test]
+fn every_agent_prompt_keeps_git_off_the_shared_checkout() {
+    for (name, text) in prompts() {
+        let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains("in your own worktree"),
+            "{name}: no own-worktree rule"
+        );
+        assert!(
+            flat.contains("never in a repository's main checkout"),
+            "{name}: no main-checkout rule"
+        );
+        assert!(
+            flat.contains("gh pr view"),
+            "{name}: no GitHub API for remote state"
+        );
+        assert!(
+            flat.contains("never run `git log --all`"),
+            "{name}: no whole-history rule"
+        );
+    }
+}

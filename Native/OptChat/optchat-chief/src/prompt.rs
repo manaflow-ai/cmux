@@ -188,7 +188,13 @@ macro_rules! home_rule {
   Never close or rename the user's workspaces to group them.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks. A subagent's
+  push, never force; no pull requests unless the user asks. Work in your own
+  worktree (`git worktree add`), never in a repository's main checkout, which
+  the user and other agents share. Read remote state (a branch's head, a pull
+  request's checks, whether it merged) with `gh api` or `gh pr view`, not
+  `git fetch`; fetch only the one branch you rebase on, and never run `git
+  log --all` or `git rev-list --all`: on a partial clone each downloads
+  hundreds of thousands of objects. Tell each subagent the same. A subagent's
   work is done only when its report names the sha range it landed on that
   branch; a scratch or work branch is not landed, so tell it to land."
     };
@@ -469,7 +475,13 @@ report.
   workspaces to group them.
 - Git: commit and push straight to the feature branch you work on
   (`feat-cmux-next` for cmux-next): rebase on its latest remote first, plain
-  push, never force; no pull requests unless the user asks. Work is landed
+  push, never force; no pull requests unless the user asks. Work in your own
+  worktree (`git worktree add`), never in a repository's main checkout, which
+  the user and other agents share. Read remote state (a branch's head, a pull
+  request's checks, whether it merged) with `gh api` or `gh pr view`, not
+  `git fetch`; fetch only the one branch you rebase on, and never run `git
+  log --all` or `git rev-list --all`: on a partial clone each downloads
+  hundreds of thousands of objects. Work is landed
   only when its commits are on that branch's remote: a scratch, work or red
   branch is not landed. Your report gives the sha range you landed on it
   (`OLD..NEW`), or says that nothing landed and why. Never push with
