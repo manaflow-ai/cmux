@@ -21,9 +21,13 @@ use std::time::Duration;
 /// The param that asks a daemon for its own harnesses, without its peers'.
 pub(crate) const LOCAL_ONLY: &str = "localOnly";
 
-/// How long one peer may take to list its harnesses; a slow peer only
-/// leaves its rows out.
-const PEER_BUDGET: Duration = Duration::from_secs(10);
+/// How long the peers together may take to list their harnesses (they are
+/// asked at once); a peer that is not done by then only leaves its rows out.
+const PEERS_BUDGET: Duration = Duration::from_secs(10);
+
+/// The reply field that says the peers' harnesses were left out because
+/// this daemon was already asking its peers (a remote asker in a cycle).
+pub(crate) const PEERS_OMITTED: &str = "peersOmitted";
 
 /// Whether a request from `origin` with `params` may ask the peers, given
 /// that `in_flight` replies are asking them now.
@@ -43,16 +47,27 @@ impl Drop for InFlight<'_> {
 }
 
 pub(super) async fn add_peer_harnesses(hub: &Hub, origin: Origin, params: &Value, cat: &mut Value) {
-    if !asks_peers(origin, params, hub.models_fanouts.load(Ordering::SeqCst)) {
+    if !asks_peers(origin, params, 0) {
         return;
     }
-    hub.models_fanouts.fetch_add(1, Ordering::SeqCst);
+    // Counted before the check, so two askers that arrive together cannot
+    // both see none in flight; the guard undoes it on every path.
+    let in_flight = hub.models_fanouts.fetch_add(1, Ordering::SeqCst);
     let _in_flight = InFlight(&hub.models_fanouts);
-    for peer in hub.connected_peers() {
-        let asked = peer.request("_acpmux/models", json!({LOCAL_ONLY: true}));
-        let Ok(Ok(remote)) = tokio::time::timeout(PEER_BUDGET, asked).await else { continue };
+    if !asks_peers(origin, params, in_flight) {
+        cat[PEERS_OMITTED] = Value::Bool(true);
+        return;
+    }
+    let deadline = tokio::time::Instant::now() + PEERS_BUDGET;
+    let peers = hub.connected_peers();
+    let replies = futures::future::join_all(peers.iter().map(|peer| {
+        tokio::time::timeout_at(deadline, peer.request("_acpmux/models", json!({LOCAL_ONLY: true})))
+    }))
+    .await;
+    let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) else { return };
+    for (peer, reply) in peers.iter().zip(replies) {
+        let Ok(Ok(remote)) = reply else { continue };
         let Some(hs) = remote.get("harnesses").and_then(Value::as_array) else { continue };
-        let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) else { return };
         for h in hs {
             // An older peer may still have added its own peers' rows.
             if h.get("peer").is_some() {

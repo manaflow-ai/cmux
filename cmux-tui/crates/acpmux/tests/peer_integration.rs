@@ -1461,6 +1461,9 @@ async fn legacy_models_peer(a_port: u16) -> u16 {
                                 if let Ok(Message::Response { result: Some(r), .. }) =
                                     Message::parse(&t)
                                 {
+                                    if r.get("peersOmitted") == Some(&json!(true)) {
+                                        rows.push(json!({"harness": "saw-omitted", "models": []}));
+                                    }
                                     for mut h in
                                         r["harnesses"].as_array().cloned().unwrap_or_default()
                                     {
@@ -1503,6 +1506,11 @@ async fn a_legacy_peer_that_asks_back_cannot_loop_models() {
     let names = model_harnesses(&ca.call("_acpmux/models", json!({})).await.unwrap());
     assert!(names.contains(&"fake".to_owned()), "{names:?}");
     assert!(names.contains(&"old/old-agent".to_owned()), "{names:?}");
+    // A answered the legacy peer's ask-back from its own catalog, and said so.
+    assert!(names.contains(&"old/saw-omitted".to_owned()), "{names:?}");
     assert!(!names.iter().any(|n| n.starts_with("old/a/")), "{names:?}");
+    // The top-level asker got every peer; only the nested ask was cut short.
+    let again = ca.call("_acpmux/models", json!({})).await.unwrap();
+    assert_eq!(again.get("peersOmitted"), None, "{again}");
     assert_eq!(a.models_fanouts.load(std::sync::atomic::Ordering::SeqCst), 0);
 }
