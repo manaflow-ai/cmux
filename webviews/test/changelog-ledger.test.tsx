@@ -106,7 +106,9 @@ test("a Ledger row shows its whole description, with its picture beside the text
   dom.window.document.body.append(root);
   await act(async () => {
     mountChangelogPage(root, new MockChangelogProvider(notes as never) as never);
-    await new Promise((resolve) => setTimeout(resolve, 20));
+    // Yield until the notes load and the row renders: a condition, not a fixed delay.
+    for (let turn = 0; turn < 200 && !root.querySelector(".cl-has-media"); turn++)
+      await new Promise((resolve) => setTimeout(resolve, 0));
   });
   const row = root.querySelector<HTMLElement>(".cll .cl-group li.cl-has-media")!;
   expect(row.querySelector(".cl-row-title")?.textContent).toBe("Bands");
