@@ -526,6 +526,9 @@ final class SessionScrollbackCheckpointCoordinator {
     private var deferredUntil: [UUID: TimeInterval] = [:]
     /// Panels that may have a checkpoint file; nil until the store's files are known.
     private(set) var checkpointedPanelIds: Set<UUID>?
+    /// Panels seeded before the startup listing arrived; the listing may not
+    /// include their files yet.
+    private var seededBeforeListing: Set<UUID> = []
     private(set) var isCheckpointInFlight = false
 
     init(
@@ -542,14 +545,19 @@ final class SessionScrollbackCheckpointCoordinator {
     /// checkpoints, listed off the main thread), so later plans can skip
     /// eligibility for terminals without a file.
     func noteExistingCheckpoints(_ panelIds: Set<UUID>) {
-        checkpointedPanelIds = (checkpointedPanelIds ?? []).union(panelIds)
+        checkpointedPanelIds = (checkpointedPanelIds ?? []).union(panelIds).union(seededBeforeListing)
+        seededBeforeListing = []
     }
 
     /// Writes already-known scrollback (a just-restored session) as checkpoints
     /// without a VT export, so a crash before the next checkpoint keeps it.
     func seed(_ seeds: [Seed]) {
         guard !seeds.isEmpty else { return }
-        checkpointedPanelIds?.formUnion(seeds.map(\.panelId))
+        if checkpointedPanelIds == nil {
+            seededBeforeListing.formUnion(seeds.map(\.panelId))
+        } else {
+            checkpointedPanelIds?.formUnion(seeds.map(\.panelId))
+        }
         let capturedAt = environment.wallClock()
         environment.persist(SessionScrollbackCheckpointWriteBatch(
             captures: seeds.map { seed in
@@ -626,6 +634,9 @@ final class SessionScrollbackCheckpointCoordinator {
                 capture.discard()
                 activity.markPending(surfaceID: capture.surfaceId)
             }
+            // The planned removals were not written: keep those files known
+            // so the next checkpoint removes them.
+            checkpointedPanelIds?.formUnion(plan.removals)
             isCheckpointInFlight = false
             return
         }
