@@ -145,7 +145,10 @@ await requireBrowserLane("glass-lens.test.ts", async () => {
         expect(await canvases(page)).toBe(0);
         // Linux WebKit's headless compositor leaves WebGL out of screenshots (CI, 2026-10-21: the
         // lens drew, the pixels matched plain): there the state above is the check.
-        if (name === "webkit" && process.platform === "linux") return void (await page.close());
+        if (name === "webkit" && process.platform === "linux") {
+          await page.close();
+          return;
+        }
         const plain = await row(page);
         // Inside the left rim band the sample comes from up to 18 px further in: the stripes move.
         expect(meanDifference(lens, plain, BOX.x + 1, BOX.x + 24)).toBeGreaterThan(40);
