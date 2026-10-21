@@ -30461,6 +30461,34 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "guiOnly",
+      "cli_name" : "action sidebar-chat-toggle-pin",
+      "context_menu" : "liveInput",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "sidebar.chat.togglePin",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "liveInput",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Pin or Unpin Chat",
+      "title_key" : "action.sidebar.chat.togglePin",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "sidebar add-item",
       "context_menu" : "offered",
@@ -30713,34 +30741,6 @@
       "palette_suggested" : null,
       "title" : "Move Section to Scrolling Area",
       "title_key" : "action.sidebar.section.moveToScrolling",
-      "title_table" : "SidebarSectionActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "sidebar move-section-bottom",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "sidebarSection"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "sidebar.section.moveToBottom",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.sidebar",
-        "order" : 107,
-        "title" : "Sidebar",
-        "title_key" : "category.sidebar",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Move Section to Bottom",
-      "title_key" : "action.sidebar.section.moveToBottom",
       "title_table" : "SidebarSectionActions"
     },
     {
@@ -33678,6 +33678,118 @@
       "title" : "Palette: Close Item's Object",
       "title_key" : "action.paletteKey.closeItem",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import list",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.list",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Import Suggestions",
+      "title_key" : "action.import.list",
+      "title_table" : "ImportActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import card",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.card",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Press an Import Card's Button",
+      "title_key" : "action.import.card",
+      "title_table" : "ImportActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import suggest",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.suggest",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Suggest Importing a Site's Cookies",
+      "title_key" : "action.import.suggest",
+      "title_table" : "ImportActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.open",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import from Other Apps…",
+      "title_key" : "action.import.open",
+      "title_table" : "ImportActions"
     }
   ],
   "context_menu_rules" : [
@@ -39130,19 +39242,6 @@
               "id" : "sidebar.section.moveToScrolling",
               "kind" : "action",
               "order" : 1,
-              "visible_when" : {
-                "debug_only" : false,
-                "feature" : null,
-                "requires" : [
-
-                ]
-              }
-            },
-            {
-              "enabled_when" : "can_perform",
-              "id" : "sidebar.section.moveToBottom",
-              "kind" : "action",
-              "order" : 2,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
