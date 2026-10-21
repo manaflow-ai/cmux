@@ -18,11 +18,14 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import subprocess
 import sys
 import tempfile
 import textwrap
 import unittest
 from pathlib import Path
+
+import git_fixture_env  # noqa: F401  (disables git auto maintenance)
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts" / "ci"))
@@ -192,6 +195,43 @@ class PullRequestLanes(unittest.TestCase):
         self.assertTrue(any("exemption 2 needs a reason" in error for error in errors), errors)
         self.assertTrue(any("tests/test_gone.py does not exist" in error for error in errors), errors)
         self.assertTrue(any(error.startswith("tests/test_a.py: a pull request into") for error in errors), errors)
+
+
+class OnlyWhatThePullRequestAdds(unittest.TestCase):
+    """feat-cmux-next takes direct-pushed main syncs (18, 10 and 2 new tests in the last three) that skip pull
+    request checks. A test the base already leaves unrun is a warning; only one this change leaves unrun fails."""
+
+    def git(self, root: Path, *args: str) -> str:
+        return subprocess.run(
+            ["git", "-c", "user.name=t", "-c", "user.email=t@example.com", "-c", "commit.gpgsign=false", *args],
+            cwd=root, check=True, text=True, capture_output=True,
+        ).stdout.strip()
+
+    def test_a_base_gap_warns_and_a_new_one_fails(self):
+        tree = Tree(["tests/test_old.py"], {"next.yml": FEAT_PULL_REQUEST + "jobs:\n" + job("true")})
+        self.addCleanup(tree.close)
+        root = tree.root
+        self.git(root, "init", "--quiet", "-b", "feat-cmux-next")
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "base")
+        base = self.git(root, "rev-parse", "HEAD")
+        (root / "tests" / "test_new.py").write_text("", encoding="utf-8")
+        with (root / "tests" / "test-execution.toml").open("a", encoding="utf-8") as registry:
+            registry.write('\n[[test]]\npath = "tests/test_new.py"\nlane = "linux-guard"\n')
+        self.git(root, "add", "-A")
+        self.git(root, "commit", "--quiet", "-m", "head")
+
+        errors, warnings = validator.pr_lane_findings(root, BRANCH, base)
+        self.assertEqual([error.split(":", 1)[0] for error in errors], ["tests/test_new.py"], errors)
+        self.assertTrue(any(warning.startswith("tests/test_old.py:") for warning in warnings), warnings)
+        self.assertFalse(any(warning.startswith("tests/test_new.py:") for warning in warnings), warnings)
+
+    def test_without_a_base_every_gap_fails(self):
+        tree = Tree(["tests/test_old.py"], {})
+        self.addCleanup(tree.close)
+        errors, warnings = validator.pr_lane_findings(tree.root, BRANCH, "")
+        self.assertEqual([error.split(":", 1)[0] for error in errors], ["tests/test_old.py"], errors)
+        self.assertEqual(warnings, [])
 
 
 class ThisTree(unittest.TestCase):
