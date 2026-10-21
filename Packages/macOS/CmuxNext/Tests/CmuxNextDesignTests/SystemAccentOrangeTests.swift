@@ -106,7 +106,8 @@ import Testing
             }.first
         }
         var input = ThemeInput(background: try #require(value("background")), foreground: try #require(value("foreground")))
-        input.accentColor = try #require(value("# cmux-accent"), "\(name) names its accent")
+        let accent: ThemeRGB = try #require(value("# cmux-accent"), "\(name) names its accent")
+        input.accentColor = accent
         let scope = ThemeScope(level: .room)
         scope.setOverride(ThemeSpec(name), input: input, animated: false)
         return scope

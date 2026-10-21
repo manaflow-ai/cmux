@@ -37,6 +37,20 @@
   --acpmux-menu-press: color-mix(in srgb, var(--agent-text) 20%, var(--acpmux-base));
 }
 
+/* A solid card blurs nothing it can show (glass is never opaque, accent-glass-invariants.test.ts):
+   the blur is only for the see-through glass below. */
+:root:not([data-cmux-see-through]) .acpmux-composer-box,
+:root[data-reduce-transparency] .acpmux-composer-box {
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .acpmux-composer-box {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+  }
+}
+
 /* Over art or a see-through window (data-cmux-see-through, desktop.ts) the composer is glass, like
    iOS's (Leo 2026-10-18, replacing the solid surface of 10-14): its surface at 60% so the art shows
    through the window's tint, and a top-lit rim. The prompt is primary text, which the window's tint

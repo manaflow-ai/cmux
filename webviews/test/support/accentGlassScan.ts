@@ -148,6 +148,8 @@ export function scanStage({ focusedOnly, orangeAllowed }: { focusedOnly: boolean
   }
 
   for (const element of elements) {
+    // A theme's preview ball paints that theme's own palette, not an accent of the page.
+    if (element.closest("[data-theme-ball]")) continue;
     const style = getComputedStyle(element);
     if (!visible(element, style)) continue;
     const selected = element.matches(SELECTED);
