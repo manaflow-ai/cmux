@@ -92,7 +92,12 @@ fn claude_tool_hooks_keep_the_turn_state_true() {
     titles.sort();
     assert_eq!(
         titles,
-        ["Claude asked a question", "Claude finished", "Claude needs approval", "Claude needs approval"],
+        [
+            "Claude asked a question",
+            "Claude finished",
+            "Claude needs approval",
+            "Claude needs approval"
+        ],
         "the waits and the turn's end notify; tool hooks never do"
     );
 }

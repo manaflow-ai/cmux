@@ -51,7 +51,11 @@ impl Mux {
         // waits for its terminal (or a restart) keeps it in the retry queue, in journal order,
         // as the roster folds them.
         if resume_candidate
-            && self.workspace_registry.lock().unwrap().agent_hook_pending_before(&terminal_id, sequence)?
+            && self
+                .workspace_registry
+                .lock()
+                .unwrap()
+                .agent_hook_pending_before(&terminal_id, sequence)?
         {
             return Err(anyhow::Error::new(AgentHookTerminalUnavailable)
                 .context(format!("terminal {terminal_id} has earlier agent hooks to project")));
@@ -60,13 +64,13 @@ impl Mux {
         // before the terminal lookup. The decision is taken again under the fence lock below.
         if resume_candidate
             && crate::journal_reducers::hook_event_state(
-            &ingress.kind,
-            native_event,
-            tool,
-            observed_at_ms,
-            self.agent_hook_fences.lock().unwrap().get(&terminal_id),
-        )
-        .is_none()
+                &ingress.kind,
+                native_event,
+                tool,
+                observed_at_ms,
+                self.agent_hook_fences.lock().unwrap().get(&terminal_id),
+            )
+            .is_none()
         {
             return Ok(());
         }
