@@ -1844,9 +1844,6 @@ export class AcpmuxDirectClient {
         this.queuedSends.add(id);
         this.promptAccepts.get(id)?.();
       }
-    } else if (event.kind === "turn_error") {
-      // The Send now's own turn failed before it was recorded: it never ran.
-      if (this.awaiting !== undefined) this.dropContinuation(this.awaiting);
     } else if (event.kind === "queue_removed" || event.kind === "dequeued" || event.kind === "prompt_refused") {
       const id = String(msg.promptId ?? "");
       this.queue = this.queue.filter((entry) => entry.id !== id);
@@ -2711,8 +2708,10 @@ export class AcpmuxDirectClient {
     } catch (error) {
       this.promptAccepts.delete(promptId);
       // A Send now refused at dispatch answers its sender with the refusal (a remote acpmux sends the
-      // pane no prompt_refused record): the turn it ended reads as ended.
-      if (promptId === this.awaiting) {
+      // pane no prompt_refused record): the turn it ended reads as ended. A transport error (a
+      // closed socket fails every request with `native.*`) is no refusal: acpmux still runs it.
+      const code = (error as { code?: unknown } | null)?.code;
+      if (promptId === this.awaiting && !String(code ?? "").startsWith("native.")) {
         this.dropContinuation(promptId);
         this.emit();
       }
@@ -2727,7 +2726,6 @@ export class AcpmuxDirectClient {
         this.optimisticPromptRows.set(promptId, rowId);
         this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
       }
-      const code = (error as { code?: unknown } | null)?.code;
       const refused = typeof code === "string" && code.startsWith("transport.");
       // acpmux holds every prompt while the folder's trust question is open (`trust_gate.rs`), and
       // a sender that holds its prompt (`accepted`) keeps every refused one: the prompt never
