@@ -362,3 +362,26 @@ test("a queued image acpmux has no bytes for reads as missing, one being read as
   await act(async () => finish(undefined));
   expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "missing" }]);
 });
+
+test("a paused queue names its error and says nothing sends after this turn", async () => {
+  const container = installDom();
+  const said = (key: string, values?: Record<string, unknown>) => (values ? `${key} ${JSON.stringify(values)}` : key);
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={queue}
+        chat="c"
+        paused
+        pausedError="agent process closed"
+        t={said}
+        onChange={async () => true}
+      />,
+    );
+  });
+  const note = container.querySelector(".acpmux-queue-paused")!;
+  expect(note.textContent).toContain("agent process closed");
+  expect(container.textContent).not.toContain("composer.queueAfterTurn");
+  // Resume stays: it runs the held prompts again.
+  expect(note.querySelector(".acpmux-queue-resume")).not.toBeNull();
+});
