@@ -1,3 +1,4 @@
+import { translate } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import type { AttachTicket, RunArtifact, RunAttempt, RunBoardSnapshot } from "./model";
 export type { AttachTicket } from "./model";
@@ -156,7 +157,7 @@ function attachTicketFromResponse(value: unknown, intent: AttachTicketIntent): R
   const sessionId = stringValue(nested.sessionId) ?? stringValue(nested.session_id) ?? intent.sessionId;
   const cursor = stringValue(nested.cursor) ?? intent.cursor;
   if (!ticket || !runId || !attemptId || !sessionId || !cursor) {
-    throw new RunApiHttpError(502, "Run attach returned an invalid ticket", "run_attach_invalid");
+    throw new RunApiHttpError(502, translate("runBoard.error.attachInvalidTicket"), "run_attach_invalid");
   }
   const expiresAt = nested.expiresAt ?? nested.expires_at;
   const expiresAtUnix = nested.expiresAtUnix ?? nested.expires_at_unix;
@@ -415,6 +416,7 @@ function appendEventRow(attempt: RunAttempt, event: RunApiEvent): RunAttempt {
   const text = eventText(event);
   if (!text) return attempt;
   const at = event.createdAt ? Date.parse(event.createdAt) : Date.now();
+  const title = translate("runBoard.agentOutput");
   const row: AcpmuxRow =
     event.kind === "attempt.output"
       ? {
@@ -425,8 +427,8 @@ function appendEventRow(attempt: RunAttempt, event: RunApiEvent): RunAttempt {
           items: [
             {
               kind: "tool",
-              text: "Agent output",
-              tool: { id: event.id, title: "Agent output", kind: "execute", status: "completed", output: text },
+              text: title,
+              tool: { id: event.id, title, kind: "execute", status: "completed", output: text },
             },
           ],
         }
@@ -519,11 +521,11 @@ export class RunBoardApiSession {
         return events;
       }
       if (result.nextCursor === cursor)
-        throw new RunApiHttpError(409, "event cursor did not advance", "run_cursor_gap");
+        throw new RunApiHttpError(409, translate("runBoard.error.cursorStalled"), "run_cursor_gap");
       cursor = result.nextCursor;
       this.transportCursor = cursor;
     }
-    throw new RunApiHttpError(409, "event replay exceeded the page limit", "run_cursor_gap");
+    throw new RunApiHttpError(409, translate("runBoard.error.replayPageLimit"), "run_cursor_gap");
   }
 
   async snapshotAndReplay(): Promise<RunBoardSnapshot> {
