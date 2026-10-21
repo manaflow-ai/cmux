@@ -35254,127 +35254,127 @@
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "كيف تظهر علامات تبويب الأجزاء الأخرى أخفت عندما يميّز «الجزء النشط» علامات التبويب: «تلاشٍ» يخفتها، و«نغمي» يخفض درجة نصها، و«هادئ» يزيل خلفية العلامة المحددة."
+            "value": "كيف تظهر علامات تبويب الأجزاء الأخرى أخفت عندما يميّز «الجزء النشط» علامات التبويب: «تلاشٍ» يخفتها، و«نغمي» يخفض درجة نصها، و«هادئ» يُبقي خلفية خافتة للعلامة المحددة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kako kartice ostalih okna izgledaju blaže kada Fokusirano okno označava kartice: Izblijedi ih prigušuje, Tonski snižava ton teksta, Tiho uklanja pozadinu odabrane kartice."
+            "value": "Kako kartice ostalih okna izgledaju blaže kada Fokusirano okno označava kartice: Izblijedi ih prigušuje, Tonski snižava ton teksta, Tiho ostavlja samo blagu pozadinu odabrane kartice."
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan de andre ruders faner tegnes mere afdæmpet, når Fokuseret rude markerer faner: Ton ud dæmper dem, Tonal sænker tekstens niveau, Stille fjerner den valgte fanes baggrund."
+            "value": "Hvordan de andre ruders faner tegnes mere afdæmpet, når Fokuseret rude markerer faner: Ton ud dæmper dem, Tonal sænker tekstens niveau, Stille beholder kun en svag baggrund på den valgte fane."
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Wie die Tabs der anderen Bereiche dezenter erscheinen, wenn „Fokussierter Bereich“ Tabs markiert: Verblassen dimmt sie, Tonal stuft den Text ab, Ruhig entfernt den Hintergrund des ausgewählten Tabs."
+            "value": "Wie die Tabs der anderen Bereiche dezenter erscheinen, wenn „Fokussierter Bereich“ Tabs markiert: Verblassen dimmt sie, Tonal stuft den Text ab, Ruhig lässt dem ausgewählten Tab nur einen schwachen Hintergrund."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
+            "value": "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cómo se atenúan las pestañas de los demás paneles cuando Panel con foco marca pestañas: Desvanecer las atenúa, Tonal baja el tono del texto, Discreto quita el fondo de la pestaña seleccionada."
+            "value": "Cómo se atenúan las pestañas de los demás paneles cuando Panel con foco marca pestañas: Desvanecer las atenúa, Tonal baja el tono del texto, Discreto deja solo un fondo tenue en la pestaña seleccionada."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Comment les onglets des autres volets s’atténuent quand Volet actif marque les onglets : Estomper les assombrit, Tonal abaisse le ton du texte, Discret retire le fond de l’onglet sélectionné."
+            "value": "Comment les onglets des autres volets s’atténuent quand Volet actif marque les onglets : Estomper les assombrit, Tonal abaisse le ton du texte, Discret ne garde qu’un fond léger sur l’onglet sélectionné."
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Come le schede degli altri riquadri appaiono più tenui quando Riquadro attivo segna le schede: Dissolvi le attenua, Tonale abbassa il tono del testo, Discreto toglie lo sfondo della scheda selezionata."
+            "value": "Come le schede degli altri riquadri appaiono più tenui quando Riquadro attivo segna le schede: Dissolvi le attenua, Tonale abbassa il tono del testo, Discreto lascia solo uno sfondo tenue alla scheda selezionata."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "「フォーカス中のペイン」がタブで示すとき、他のペインのタブを控えめに表示する方法。フェードは淡くし、トーンは文字の階調を下げ、クワイエットは選択中タブの背景をなくします。"
+            "value": "「フォーカス中のペイン」がタブで示すとき、他のペインのタブを控えめに表示する方法。フェードは淡くし、トーンは文字の階調を下げ、クワイエットは選択中タブの背景をごく淡く残します。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "របៀបដែលផ្ទាំងនៃផ្ទាំងរងផ្សេងទៀតបង្ហាញស្រាលជាង នៅពេល «ផ្ទាំងរងដែលផ្តោត» សម្គាល់ផ្ទាំង៖ ស្រអាប់ធ្វើឲ្យស្រាល ពណ៌ថ្នាក់បន្ថយកម្រិតអក្សរ ស្ងាត់ដកផ្ទៃខាងក្រោយនៃផ្ទាំងដែលបានជ្រើស។"
+            "value": "របៀបដែលផ្ទាំងនៃផ្ទាំងរងផ្សេងទៀតបង្ហាញស្រាលជាង នៅពេល «ផ្ទាំងរងដែលផ្តោត» សម្គាល់ផ្ទាំង៖ ស្រអាប់ធ្វើឲ្យស្រាល ពណ៌ថ្នាក់បន្ថយកម្រិតអក្សរ ស្ងាត់ទុកតែផ្ទៃខាងក្រោយស្រាលៗនៃផ្ទាំងដែលបានជ្រើស។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "포커스된 창 설정이 탭으로 표시할 때 다른 창의 탭을 더 흐리게 그리는 방식입니다. 페이드는 흐리게 하고, 톤은 글자 단계를 낮추며, 차분은 선택된 탭의 배경을 없앱니다."
+            "value": "포커스된 창 설정이 탭으로 표시할 때 다른 창의 탭을 더 흐리게 그리는 방식입니다. 페이드는 흐리게 하고, 톤은 글자 단계를 낮추며, 차분은 선택된 탭의 배경을 아주 옅게만 남깁니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hvordan fanene i de andre rutene tegnes mer dempet når Fokusert rute markerer faner: Ton ut demper dem, Tonal senker tekstens nivå, Stille fjerner bakgrunnen til den valgte fanen."
+            "value": "Hvordan fanene i de andre rutene tegnes mer dempet når Fokusert rute markerer faner: Ton ut demper dem, Tonal senker tekstens nivå, Stille beholder bare en svak bakgrunn på den valgte fanen."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Jak karty pozostałych paneli są przyciemnione, gdy Aktywny panel oznacza karty: Wygaszanie je przyciemnia, Tonalny obniża ton tekstu, Cichy usuwa tło zaznaczonej karty."
+            "value": "Jak karty pozostałych paneli są przyciemnione, gdy Aktywny panel oznacza karty: Wygaszanie je przyciemnia, Tonalny obniża ton tekstu, Cichy zostawia zaznaczonej karcie tylko słabe tło."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Como as abas dos outros painéis ficam mais discretas quando Painel em foco marca as abas: Esmaecer as atenua, Tonal reduz o tom do texto, Discreto remove o fundo da aba selecionada."
+            "value": "Como as abas dos outros painéis ficam mais discretas quando Painel em foco marca as abas: Esmaecer as atenua, Tonal reduz o tom do texto, Discreto deixa só um fundo suave na aba selecionada."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Как вкладки других панелей выглядят приглушённее, когда «Активная панель» отмечает вкладки: «Затухание» приглушает их, «Тональный» понижает тон текста, «Тихий» убирает фон выбранной вкладки."
+            "value": "Как вкладки других панелей выглядят приглушённее, когда «Активная панель» отмечает вкладки: «Затухание» приглушает их, «Тональный» понижает тон текста, «Тихий» оставляет выбранной вкладке лишь слабый фон."
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "วิธีที่แท็บของบานอื่นแสดงจางลงเมื่อ บานที่โฟกัส ทำเครื่องหมายด้วยแท็บ: จางลง ทำให้หรี่ลง โทน ลดระดับสีตัวอักษร เงียบ เอาพื้นหลังของแท็บที่เลือกออก"
+            "value": "วิธีที่แท็บของบานอื่นแสดงจางลงเมื่อ บานที่โฟกัส ทำเครื่องหมายด้วยแท็บ: จางลง ทำให้หรี่ลง โทน ลดระดับสีตัวอักษร เงียบ เหลือพื้นหลังจางๆ ของแท็บที่เลือกไว้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Odaklanan bölme sekmeleri işaretlediğinde diğer bölmelerin sekmelerinin nasıl daha sönük çizileceği: Soluk onları kısar, Tonal yazının tonunu düşürür, Sessiz seçili sekmenin arka planını kaldırır."
+            "value": "Odaklanan bölme sekmeleri işaretlediğinde diğer bölmelerin sekmelerinin nasıl daha sönük çizileceği: Soluk onları kısar, Tonal yazının tonunu düşürür, Sessiz seçili sekmede yalnızca soluk bir arka plan bırakır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Як вкладки інших панелей виглядають приглушеніше, коли «Активна панель» позначає вкладки: «Згасання» приглушує їх, «Тональний» знижує тон тексту, «Тихий» прибирає тло вибраної вкладки."
+            "value": "Як вкладки інших панелей виглядають приглушеніше, коли «Активна панель» позначає вкладки: «Згасання» приглушує їх, «Тональний» знижує тон тексту, «Тихий» залишає вибраній вкладці лише слабке тло."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cách các thẻ của những ngăn khác hiển thị nhạt hơn khi Ngăn đang chọn đánh dấu bằng thẻ: Mờ dần làm chúng nhạt đi, Sắc độ hạ tông chữ, Yên lặng bỏ nền của thẻ đang chọn."
+            "value": "Cách các thẻ của những ngăn khác hiển thị nhạt hơn khi Ngăn đang chọn đánh dấu bằng thẻ: Mờ dần làm chúng nhạt đi, Sắc độ hạ tông chữ, Yên lặng chỉ giữ nền mờ cho thẻ đang chọn."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "当“聚焦窗格”用标签页标记时，其他窗格的标签页如何变淡：渐隐会调暗它们，色阶会降低文字层级，安静会去掉选中标签页的底色。"
+            "value": "当“聚焦窗格”用标签页标记时，其他窗格的标签页如何变淡：渐隐会调暗它们，色阶会降低文字层级，安静只为选中标签页保留很淡的底色。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "當「聚焦窗格」以分頁標示時，其他窗格的分頁如何變淡：淡化會調暗它們，色階會降低文字層級，安靜會移除所選分頁的底色。"
+            "value": "當「聚焦窗格」以分頁標示時，其他窗格的分頁如何變淡：淡化會調暗它們，色階會降低文字層級，安靜只為所選分頁保留很淡的底色。"
           }
         }
       }
