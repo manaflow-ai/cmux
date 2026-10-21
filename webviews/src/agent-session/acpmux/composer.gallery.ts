@@ -553,6 +553,27 @@ export default agentPaneEntry({
         await new Promise((resolve) => setTimeout(resolve, 300));
       },
     },
+    // Leo (2026-10-21), as in Claude: a huge paste is a chip with its first words and line count,
+    // the prompt as typed; a click puts it back in the prompt, × removes it (pastedText.ts).
+    "text-pasted": {
+      note: "A 40-line paste: a Pasted text chip (first words, Pasted text · 40 lines) over the typed prompt, × on hover.",
+      ready: { draft: "Why does the build fail?" },
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const data = new view.DataTransfer();
+        const log = Array.from(
+          { length: 40 },
+          (_, index) => `[build] step ${index + 1}: compiling module ${index + 1}`,
+        );
+        data.setData("text/plain", log.join("\n"));
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: data });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pasted"));
+        await ctx.hover({ selector: ".acpmux-attachment-pasted" });
+      },
+    },
     "quick-image-attached": {
       note: "Quick Composer: clicking a pasted image thumbnail opens the same image viewer as a full chat.",
       ready: { surface: "quick" },
