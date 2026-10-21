@@ -62,4 +62,15 @@ struct BrowserTabOpenersCloseFocusTests {
         // Tab 3 shows in another pane: 4 inherits nothing from this pane, 2 keeps 1.
         #expect(openers.relations(among: [tabs[0], tabs[1], tabs[3]]) == [tabs[1].id: tabs[0].id])
     }
+
+    /// The apply that picks a closed tab's successor no longer lists it (TabCloseOverlay); the
+    /// pane's previous apply did, also before the first close in that pane.
+    @Test func aPanesFirstCloseStillSeesTheClosedTabsOpener() async throws {
+        let openers = BrowserTabOpeners()
+        let tabs = ([1, 2, 3] as [SurfaceID]).map { TabModel(TabSnapshot(surface: $0, kind: .browser)) }
+        _ = openers.closeRelations(among: [tabs[0], tabs[2]], pane: "p")
+        try await Self.open(2, from: 1, openers, order: [1, 3])
+        _ = openers.closeRelations(among: tabs, pane: "p")
+        #expect(openers.closeRelations(among: [tabs[0], tabs[2]], pane: "p")() == [tabs[1].id: tabs[0].id])
+    }
 }

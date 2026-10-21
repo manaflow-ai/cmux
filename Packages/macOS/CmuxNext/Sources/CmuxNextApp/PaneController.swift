@@ -271,12 +271,12 @@ final class PaneController: SurfacePresenter, PresentablePane {
             pendingSelectTab = nil
             selectNew = true
         }
-        // Members of a collapsed group are hidden: a closed selected tab's
-        // successor skips them while a shown tab survives (close-focus.md).
+        // Members of a collapsed group are hidden: a closed selected tab's successor skips them while a shown tab survives (close-focus.md).
         let collapsed = Set(snapshot.groups.filter(\.isCollapsed).map(\.id))
         let hidden = Set(snapshot.items.filter { $0.groupID.map(collapsed.contains) ?? false }.map(\.id.rawValue))
         let selected = state?.selection.resolve(pane: paneKey, tabs: snapshot.items.map(\.id.rawValue),
-                                                defaultIndex: snapshot.defaultIndex, hidden: hidden) { services.cache.pageRequests.openers.relations(among: pane.tabs, pane: paneKey) }
+                                                defaultIndex: snapshot.defaultIndex, hidden: hidden,
+                                                openers: services.cache.pageRequests.openers.closeRelations(among: pane.tabs, pane: paneKey))
         setStripSelection(selected.map { StripTabID($0) })
         let selectedID = stripModel.selectedID
         if selectNew {

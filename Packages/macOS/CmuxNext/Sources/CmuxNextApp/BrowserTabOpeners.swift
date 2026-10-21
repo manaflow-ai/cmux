@@ -28,8 +28,8 @@ import CmuxNextDesign
 final class BrowserTabOpeners {
     /// Each link tab's opener, by surface.
     private(set) var openerOf: [SurfaceID: SurfaceID] = [:]
-    /// Each pane's tabs at its last `relations(among:pane:)`, by pane key.
-    private var lastTabs: [String: [TabModel]] = [:]
+    /// Each pane's tabs (surface, tab id) at its last apply (`closeRelations`), by pane key.
+    private var lastTabs: [String: [(SurfaceID, String)]] = [:]
     /// The placement each opener's next one waits for.
     private var queue: [SurfaceID: Task<SurfaceID, any Error>] = [:]
     /// A page's new tab exists (child, opener): the browser host reports it
@@ -123,17 +123,23 @@ final class BrowserTabOpeners {
     /// one this client is closing), for the close successor
     /// (`FocusAfterClose.tab`). Nothing is changed.
     func relations(among tabs: [TabModel]) -> [String: String] {
-        let id = Dictionary(tabs.map { ($0.surface, $0.id) }) { first, _ in first }
-        return FocusAfterClose.liveOpeners(openerOf, among: tabs.map(\.surface)).reduce(into: [:]) { if let c = id[$1.key], let o = id[$1.value] { $0[c] = o } }
+        relations(among: tabs.map { ($0.surface, $0.id) })
     }
 
-    /// `relations(among:)` for pane `key`'s close successor, also over the tabs its last call saw: a
-    /// tab this client just closed is out of the pane's tabs (TabCloseOverlay) by the next apply, and
-    /// its opener picks the successor.
-    func relations(among tabs: [TabModel], pane key: String) -> [String: String] {
-        let before = lastTabs[key] ?? []
-        lastTabs[key] = tabs
-        return relations(among: before + tabs)
+    private func relations(among tabs: [(SurfaceID, String)]) -> [String: String] {
+        let id = Dictionary(tabs) { first, _ in first }
+        return FocusAfterClose.liveOpeners(openerOf, among: tabs.map(\.0)).reduce(into: [:]) { if let c = id[$1.key], let o = id[$1.value] { $0[c] = o } }
+    }
+
+    /// Pane `key`'s relations for its close successor (`TabSelectionMemory.resolve`'s `openers`),
+    /// over its `tabs` and the ones its previous apply saw: a tab this client just closed is out of
+    /// the pane's tabs (TabCloseOverlay) by the apply that picks the successor, and its opener picks
+    /// it. Call on every apply, so the first close in a pane has its tabs too; read only on a close.
+    func closeRelations(among tabs: [TabModel], pane key: String) -> () -> [String: String] {
+        let now = tabs.map { ($0.surface, $0.id) }
+        let seen = (lastTabs[key] ?? []) + now
+        lastTabs[key] = now.isEmpty ? nil : now
+        return { [weak self] in self?.relations(among: seen) ?? [:] }
     }
 
     func forgetAll() {
