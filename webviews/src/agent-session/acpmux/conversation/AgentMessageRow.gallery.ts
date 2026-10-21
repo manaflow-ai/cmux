@@ -1,6 +1,6 @@
 // l10n-allow-file: gallery fixtures (sample messages between agents), not shipped UI.
 // Messages between agents as the shared one-line row (AgentMessageRow.tsx): this agent's sends
-// (MessageCard.tsx: Claude Code's SendMessage, tell-coordinator, cmux send) collapsed to "Sent to
+// (MessageCard.tsx: Claude Code's SendMessage, acpmux_send, tell-coordinator, cmux send) collapsed to "Sent to
 // <name>" and the message's first line, opened to the whole message and how far it got; and a
 // message another agent sent this chat (IncomingMessageCard.tsx) beside them.
 import { agentPaneEntry } from "../../../gallery/format";
@@ -44,6 +44,48 @@ const sends = () =>
     ),
   ]);
 
+// acpmux_send (acpmux_mcp.rs) as Claude Code and Codex name it, and the shell send it replaces.
+const lanes = () =>
+  chat([
+    user("Ask lane-a to rebase, tell the reviewer on huge-blue, and ping lane-b.", 3),
+    activity(
+      [
+        tool("mcp__cmux__acpmux_send", "other", "completed", {
+          inputSummary: JSON.stringify({
+            to: "lane-a",
+            text: "Rebase on feat-cmux-next.\nThen push and report the head.",
+          }),
+          output: "Sent to lane-a: steered into its running turn: it reads it at its next tool step (promptId 4f1c9e).",
+        }),
+      ],
+      2.9,
+    ),
+    activity(
+      [
+        tool("cmux", "other", "completed", {
+          inputSummary: JSON.stringify({
+            server: "cmux",
+            tool: "acpmux_send",
+            arguments: { to: "huge-blue/reviewer", text: "#23377 is ready for review at dce64b66.", steer: false },
+          }),
+          output:
+            "Sent to huge-blue/reviewer: queued behind its running turn: it reads it when that turn ends (promptId 81ab07).",
+        }),
+      ],
+      2.8,
+    ),
+    activity(
+      [
+        tool("Run", "execute", "completed", {
+          command:
+            "printf 'CI is green on #23377.\\nMerge when your review passes.' | timeout 60 acpmux send --no-wait lane-b -",
+          output: "",
+        }),
+      ],
+      2.7,
+    ),
+  ]);
+
 const both = () =>
   chat([
     user("Split the grid fix into its own chat and report back", 9),
@@ -73,6 +115,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/conversation/AgentMessageRow.tsx",
     "agent-session/acpmux/conversation/MessageCard.tsx",
+    "agent-session/acpmux/conversation/agentMessages.ts",
   ],
   variants: {
     sent: {
@@ -86,6 +129,10 @@ export default agentPaneEntry({
         await ctx.click({ selector: ".cv-agentmsg__toggle" });
         await ctx.waitFor(() => ctx.document.querySelector(".cv-agentmsg__card"));
       },
+    },
+    lanes: {
+      note: "acpmux_send to a lane and to a session on a peer (host/name), and `acpmux send --no-wait` fed by printf under timeout: the same collapsed line, never an MCP or shell row.",
+      snapshot: lanes(),
     },
     "both-directions": {
       note: "A message this agent sent and the answer another agent sent back, one line each at the transcript's left.",

@@ -59,7 +59,12 @@ test("acpmux send in a shell, fed by printf and under timeout", () => {
     text: "first line\nsecond line",
   });
   expect(
-    agentMessage({ id: "t1", title: "Run", status: "completed", command: 'acpmux send --no-wait --steer lane-b "Stop and rebase."' }),
+    agentMessage({
+      id: "t1",
+      title: "Run",
+      status: "completed",
+      command: 'acpmux send --no-wait --steer lane-b "Stop and rebase."',
+    }),
   ).toEqual({ channel: "agent", to: "lane-b", text: "Stop and rebase." });
   // A send that waits for the reply is a conversation, not a message: the command row keeps it.
   expect(
