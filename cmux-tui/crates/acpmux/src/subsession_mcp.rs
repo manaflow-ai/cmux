@@ -88,13 +88,13 @@ fn tools() -> Value {
         },
         {
             "name": "send_message",
-            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working sub-session it goes into its running turn by default: the agent reads it at its next tool step, without stopping its work (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which). deliver: after_turn queues it behind the running turn instead, interrupt stops the turn first. A message to your parent waits for its turn to end. The receiver's chat shows it came from you.",
+            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it queues behind the running turn by default, and the result says where it waits. deliver: next_step puts it into the running turn instead, read at the agent's next tool step (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which); interrupt stops the turn first. A sub-session never interrupts its parent. The receiver's chat shows it came from you.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
-                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default to a sub-session): into its running turn, read at its next tool step. after_turn (default to your parent): queued behind the running turn. interrupt: stop the running turn, then run this."},
+                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "after_turn (default): queued behind the running turn. next_step: into the running turn, read at its next tool step (use it when the receiver must change course now). interrupt: stop the running turn, then run this."},
                     "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."}
                 },
                 "required": ["sessionId", "text"]

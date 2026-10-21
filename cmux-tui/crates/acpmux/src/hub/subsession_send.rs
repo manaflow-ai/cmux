@@ -30,10 +30,10 @@ impl Hub {
         // A child reports to its parent; it never stops the parent's turn.
         let to_parent =
             caller.meta().subsession.as_ref().is_some_and(|l| l.started_by == target.id);
-        // A parent's word reaches a working child at its next step; a
-        // child's report waits for its parent's turn to end.
-        let deliver =
-            deliver.unwrap_or(if to_parent { Delivery::AfterTurn } else { Delivery::NextStep });
+        // A message waits for the receiver's turn to end unless the sender
+        // asks for its next step: a steered prompt can cancel the tool call
+        // the agent is running (coordinator lane, 2026-10-20).
+        let deliver = deliver.unwrap_or(Delivery::AfterTurn);
         if deliver == Delivery::Interrupt && to_parent {
             return Err(RpcError::invalid_params(
                 "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
@@ -56,6 +56,7 @@ pub enum Delivery {
     /// takes no prompt mid-turn gets it when the turn ends instead.
     NextStep,
     /// Queued behind the running turn: the agent reads it when the turn ends.
+    /// The default.
     AfterTurn,
     /// Stops the running turn first, then runs it.
     Interrupt,
@@ -63,7 +64,7 @@ pub enum Delivery {
 
 impl Delivery {
     /// `deliver` (`next_step`, `after_turn`, `interrupt`) or the older
-    /// `interrupt: true`; None leaves the default to the sender's place.
+    /// `interrupt: true`; None is the default, `AfterTurn`.
     pub fn parse(deliver: Option<&str>, interrupt: bool) -> Result<Option<Self>, RpcError> {
         let named = match deliver {
             None => None,

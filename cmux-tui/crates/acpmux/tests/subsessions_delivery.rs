@@ -158,17 +158,18 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
     assert_eq!(row["state"], "working", "{row}");
     assert_eq!(row["doing"], "Fix the queue · Run cargo test", "{row}");
 
-    // A message goes into its running turn by default.
-    let sent = p.ok(SEND, json!({"sessionId": s, "text": "also check the docs"})).await;
-    assert_eq!(sent["delivery"], "next_step", "{sent}");
-    assert_eq!(sent["queued"], false, "{sent}");
-    assert_eq!(sent["steering"], true, "{sent}");
-    // after_turn queues it, and says where it waits.
-    let sent =
-        p.ok(SEND, json!({"sessionId": s, "text": "echo after", "deliver": "after_turn"})).await;
+    // A message queues behind its running turn by default, and says where it waits.
+    let sent = p.ok(SEND, json!({"sessionId": s, "text": "echo after"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");
     assert_eq!(sent["position"], 1, "{sent}");
     assert_eq!(sent["queueLength"], 1, "{sent}");
+    assert_eq!(sent["steering"], true, "{sent}");
+    // next_step puts it into the running turn instead.
+    let sent = p
+        .ok(SEND, json!({"sessionId": s, "text": "also check the docs", "deliver": "next_step"}))
+        .await;
+    assert_eq!(sent["delivery"], "next_step", "{sent}");
+    assert_eq!(sent["queued"], false, "{sent}");
     let row = p.ok(GET, json!({"sessionId": s})).await;
     assert_eq!(row["queued"], 1, "{row}");
     // A contradictory request is refused.
@@ -198,7 +199,8 @@ async fn a_parent_reaches_a_working_child_and_reads_what_it_does() {
         .unwrap()
         .to_owned();
     p.doing(&q).await;
-    let sent = p.ok(SEND, json!({"sessionId": q, "text": "echo later"})).await;
+    let sent =
+        p.ok(SEND, json!({"sessionId": q, "text": "echo later", "deliver": "next_step"})).await;
     assert_eq!(sent["delivery"], "queued", "{sent}");
     assert_eq!(sent["steering"], false, "{sent}");
     assert_eq!(sent["queueLength"], 1, "{sent}");
