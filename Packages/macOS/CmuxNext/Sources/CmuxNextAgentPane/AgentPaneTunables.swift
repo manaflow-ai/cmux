@@ -372,7 +372,7 @@ public nonisolated struct AgentPaneTunables {
             harnessSwitchInStartedChat.descriptor,
             liveThoughtViewport.descriptor,
             modelMenu.descriptor,
-            newTabPicksFollowLinks.descriptor,
+            pagesFollowLinkPlacement.descriptor,
             newTabPrivateChatLists.descriptor,
             newTabStyleSwitch.descriptor,
             newTabWidgets.descriptor,
