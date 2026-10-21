@@ -136,7 +136,8 @@ export function changedByTools(
 /// Whether a tool call's `path` is checkpoint `file` of the repository at `root`, more strictly than
 /// `changedByTools`: under the root, the same path from it (docs/notes.txt is not notes.txt); outside
 /// it, the same path from the root's own folder, so /tmp/repo/notes.txt is a repository at
-/// /private/tmp/repo's notes.txt and ~/code/x/a.ts is x's a.ts, but /elsewhere/notes.txt is not.
+/// /private/tmp/repo's notes.txt and ~/code/x/a.ts is x's a.ts, but /elsewhere/notes.txt is not. A
+/// listed file outside the repository (a /tmp file, named from another folder) is only its own path.
 export function namesCheckpointFile(
   path: string,
   file: Pick<TurnFile, "path" | "displayPath">,
@@ -145,6 +146,7 @@ export function namesCheckpointFile(
   if (path === file.path) return true;
   const top = root?.replace(/\/+$/, "");
   if (top === undefined) return changedByTools(file, [{ path }]);
+  if (file.path.startsWith("/") && !file.path.startsWith(`${top}/`)) return false;
   if (path.startsWith(`${top}/`)) return path.slice(top.length + 1) === file.displayPath;
   return path.endsWith(`/${top.slice(top.lastIndexOf("/") + 1)}/${file.displayPath}`);
 }

@@ -102,8 +102,9 @@ function Card({
   const undoState = useUndoState(row.id);
   // Those list unless a listed file is that path. Once the checkpoint loads, its files are the
   // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs, and a
-  // failed call's, which no checkpoint file covers unless a later call changed that same file
-  // (`namesCheckpointFile`: /tmp/x is /private/tmp/x, but docs/x is not x).
+  // failed call's, which no checkpoint file covers unless a later call changed that same file: a
+  // call that succeeded on the same path lists wherever its file lists, and any other path is that
+  // file only by `namesCheckpointFile` (/tmp/x is /private/tmp/x, but docs/x is not x).
   const plain =
     counts.files === toolFiles
       ? labels.filter(({ path }) => !path || !files.some((file) => file.path === path))
@@ -115,7 +116,13 @@ function Card({
           ),
           ...labels.filter(
             ({ path, failed }) =>
-              failed && (!path || !files.some((file) => namesCheckpointFile(path, file, counts.root))),
+              failed &&
+              (!path ||
+                !(
+                  toolFiles.some((file) => file.path === path) ||
+                  pathsOnly.includes(path) ||
+                  files.some((file) => namesCheckpointFile(path, file, counts.root))
+                )),
           ),
         ];
   const entries: { key: string; file?: TurnFile; path?: string; failed?: true }[] = [
