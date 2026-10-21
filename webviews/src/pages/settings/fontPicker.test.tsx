@@ -78,9 +78,16 @@ describe("FontPicker", () => {
     expect(ops(page!.provider, "cmux.settings.set")).toEqual([{ key: "terminal.fontFamily", value: "Berkeley Mono" }]);
     const button = rowElement(page!.container, "terminal.fontFamily").querySelector<HTMLElement>("[data-font-picker]")!;
     expect(button.textContent).toContain("Berkeley Mono");
-    // The button ignores a press right after the list closed (the press that closed it).
-    await new Promise((done) => setTimeout(done, 450));
-    await click(button);
+    // The button ignores a press right after the list closed (the press that closed it), so the
+    // clock moves past that guard before the press.
+    const now = performance.now;
+    const later = now.call(performance) + 1000;
+    performance.now = () => later;
+    try {
+      await click(button);
+    } finally {
+      performance.now = now;
+    }
     const first = document.querySelector("[data-font-option]");
     expect(first?.getAttribute("data-font-option")).toBe("Berkeley Mono");
   });
