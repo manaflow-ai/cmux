@@ -22,7 +22,7 @@ struct FullAccessModeRuleTests {
                    "Auto Approve", "dangerously_skip_permissions", "skip-permissions"] {
             #expect(AgentPaneModeConfirmation.isFullAccess(id), "\(id)")
         }
-        for id in ["default", "agent", "ask", "read-only", "plan", "acceptEdits"] {
+        for id in ["default", "agent", "ask", "read-only", "plan", "acceptEdits", "full-auto", "fullscreen", "full-context"] {
             #expect(!AgentPaneModeConfirmation.isFullAccess(id), "\(id)")
         }
     }

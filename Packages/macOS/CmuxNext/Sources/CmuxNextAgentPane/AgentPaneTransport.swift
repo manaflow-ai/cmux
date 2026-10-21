@@ -57,6 +57,8 @@ import CmuxNextCompat
     public let gestures: AgentPaneUserGestures
     /// This Mac's acpmux socket from the last handshake (the agent CLI card's update and restart).
     var acpmuxSocket: String?
+    /// The acpmux that serves ``acpmuxSocket``, for a background process's terminal (``AgentPaneProcessViewer``).
+    var acpmuxExecutable: URL?
     /// The permission options the daemon sent, to tell an allow from a deny.
     public let permissionOptions = AcpmuxPermissionOptions()
     /// The sessions this pane started or shows.
@@ -69,17 +71,21 @@ import CmuxNextCompat
     /// that machine's, so this Mac's folder rule does not read them (that machine's acpmux checks
     /// its own folder trust, cx-k21v).
     private(set) var remoteWire = false
-    /// A remote wire's `session/new` took the person's send gesture (connection, uptime): the
-    /// first `session/prompt` on that connection goes with it, however long the start took.
-    var remoteStartCredit: (connection: Int, at: TimeInterval)?
+    /// A `session/new` took the person's send gesture: the first `session/prompt` on that
+    /// connection goes with it within ``startCreditLifetime``. On another machine the start needs
+    /// that gesture; on this Mac it needs none but carries one it finds.
+    var startCredit = AgentPaneGestureCredit()
     /// A trusting `acp.trust.set` on a remote wire took the person's Trust click: it also allows
     /// one `session/new` on that connection (the start the trust question held, cx-1bhjj).
-    var remoteTrustCredit: (connection: Int, at: TimeInterval)?
+    var remoteTrustCredit = AgentPaneGestureCredit()
+    /// A folder pick took the person's gesture (``grantPicked(_:)``): the next `session/new` on this
+    /// Mac on that connection carries it as its own (``startCredit``). Nothing else spends it.
+    var pickCredit = AgentPaneGestureCredit()
     /// Home folders of the chat's machine the person chose by Use Home Folder (cx-1bhjj): only
     /// these may be trusted or started in there. Never this Mac's roots (``addedRoots``).
     public internal(set) var remoteHomeChosen: Set<String> = []
-    /// How long a remote start's gesture waits for its first prompt (the start may take 75 s).
-    static let remoteStartCreditLifetime: TimeInterval = 120
+    /// How long a start's gesture waits for its first prompt (the start may take 75 s).
+    static let startCreditLifetime: TimeInterval = 120
     /// Told when an allow went to another daemon run without the person's proof: that daemon
     /// holds no key of this app for that run, so it refuses the allow.
     public var onRemoteApprovalsOff: (@MainActor (AgentPaneRemoteApprovals?) -> Void)?
@@ -101,6 +107,15 @@ import CmuxNextCompat
     /// Makes `folder` (canonical) a root: the user's answer to a folder question (`workspace.useFolder`).
     func grant(_ folder: String) {
         if !addedRoots.contains(folder) { addedRoots.append(folder) }
+    }
+
+    /// `folder` the person's gesture picked (`workspace.useFolder`): made a root, and the gesture it
+    /// spent goes on to the chat that starts there (``pickCredit``), then its first prompt. The New
+    /// Tab page asks for the folder in the same turn as the Send, so the pick took the Send's only
+    /// gesture and the chat's first prompt was refused ("Not sent. Press Retry to send it.").
+    func grantPicked(_ folder: String) {
+        grant(folder)
+        if socket != nil { pickCredit.give(connection: current, at: gestures.uptime) }
     }
     /// Whether the daemon's asking table (acpmux `web_modes.rs`) lists `mode` for the session's
     /// family: true or false, nil when it cannot tell (which needs the confirmation, fail closed).
@@ -174,7 +189,8 @@ import CmuxNextCompat
         remoteApprovals = connection.remote?.approvals
         remoteWire = connection.remote != nil
         if !remoteWire { remoteHomeChosen = [] }
-        remoteStartCredit = nil
+        startCredit.clear()
+        pickCredit.clear()
         decisions.reset()
         sentFirst = false
         let ids = AcpmuxRequestIds()
@@ -265,6 +281,12 @@ import CmuxNextCompat
                   case .string(let option)? = intent.params["optionId"], sessions.contains(session),
                   permissionOptions.isKnownAllow(permissionId: permission, optionId: option),
                   gestures.hasFreshAnswerGesture else { return nil }
+        }
+        // A prompt held for the folder trust answer right after a new chat's start: the start took
+        // the send's gesture, and its credit becomes the prompt's ticket (the ticket outlives it).
+        if intent.method == "session/prompt", !gestures.isAvailable,
+           let fresh = startCredit.take(connection: current, now: gestures.uptime, lifetime: Self.startCreditLifetime) {
+            return fresh ? gestures.reserve(connection: current, intent: intent, paid: true) : nil
         }
         return gestures.reserve(connection: current, intent: intent)
     }

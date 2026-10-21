@@ -213,12 +213,97 @@ html[data-scrollers="legacy"] ::-webkit-scrollbar-thumb:active {
 }
 `;
 
-/** Installs the root rules, the Monaco rule and the wheel marks once per document. */
+/** The attribute of a scrollable card (hover cards, the update card's popover): the shared
+    super-thin card scroller and the edge fades below. Add it to the card's scroll container and
+    call `installScrollEdges` on it. */
+export const CARD_SCROLL_ATTRIBUTE = "data-cmux-card-scroll";
+/** On a card scroller while content lies above its top edge or below its bottom edge. */
+export const MORE_ABOVE_ATTRIBUTE = "data-cmux-more-above";
+export const MORE_BELOW_ATTRIBUTE = "data-cmux-more-below";
+
+/** Which edges of a scroller have content past them (a half pixel of slack for zoomed pages). */
+export function scrollEdges(box: { scrollTop: number; clientHeight: number; scrollHeight: number }): {
+  above: boolean;
+  below: boolean;
+} {
+  return { above: box.scrollTop > 0.5, below: box.scrollTop + box.clientHeight < box.scrollHeight - 0.5 };
+}
+
+/**
+ * Keeps `MORE_ABOVE_ATTRIBUTE` and `MORE_BELOW_ATTRIBUTE` on `element` current: now, on every
+ * scroll and whenever it or its content changes size. The fades they turn on have no transition:
+ * they show and hide at once, so Reduce Motion and the Motion setting have nothing to still.
+ * Returns the stop function.
+ */
+export function installScrollEdges(element: HTMLElement): () => void {
+  const update = () => {
+    const edges = scrollEdges(element);
+    element.toggleAttribute(MORE_ABOVE_ATTRIBUTE, edges.above);
+    element.toggleAttribute(MORE_BELOW_ATTRIBUTE, edges.below);
+  };
+  update();
+  element.addEventListener("scroll", update, { passive: true });
+  const Observer = element.ownerDocument.defaultView?.ResizeObserver;
+  const observer = Observer ? new Observer(update) : null;
+  if (observer) {
+    observer.observe(element);
+    for (const child of element.children) observer.observe(child);
+  }
+  return () => {
+    element.removeEventListener("scroll", update);
+    observer?.disconnect();
+  };
+}
+
+/**
+ * The card scroller (every scrollable card, 2026-10-20): a 3 px thumb on no track, hidden at rest
+ * and shown while the card scrolls or its thumb is under the pointer, whatever the macOS setting
+ * (the native twin is CardScroller.swift). An edge with more content past it fades out over
+ * `--cmux-card-fade`; the scroller's own column never fades.
+ */
+export const CARD_SCROLLER_CSS = `
+[${CARD_SCROLL_ATTRIBUTE}] {
+  --cmux-card-fade: 28px;
+  --cmux-card-scroller: 7px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+[${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar { width: var(--cmux-card-scroller); height: var(--cmux-card-scroller); background: transparent; }
+[${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-track,
+[${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-corner { background: transparent; }
+[${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-thumb {
+  border: 2px solid transparent;
+  border-radius: var(--cmux-card-scroller);
+  background: transparent padding-box;
+}
+[${CARD_SCROLL_ATTRIBUTE}][${SCROLLING_ATTRIBUTE}]::-webkit-scrollbar-thumb,
+[${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-thumb:hover,
+[${CARD_SCROLL_ATTRIBUTE}]::-webkit-scrollbar-thumb:active {
+  background-color: var(--cmux-scroller-thumb);
+}
+[${CARD_SCROLL_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
+  --cmux-card-mask: linear-gradient(to bottom, #000 calc(100% - var(--cmux-card-fade)), transparent);
+}
+[${CARD_SCROLL_ATTRIBUTE}][${MORE_ABOVE_ATTRIBUTE}] {
+  --cmux-card-mask: linear-gradient(to bottom, transparent, #000 var(--cmux-card-fade));
+}
+[${CARD_SCROLL_ATTRIBUTE}][${MORE_ABOVE_ATTRIBUTE}][${MORE_BELOW_ATTRIBUTE}] {
+  --cmux-card-mask: linear-gradient(to bottom, transparent, #000 var(--cmux-card-fade), #000 calc(100% - var(--cmux-card-fade)), transparent);
+}
+[${CARD_SCROLL_ATTRIBUTE}]:is([${MORE_ABOVE_ATTRIBUTE}], [${MORE_BELOW_ATTRIBUTE}]) {
+  -webkit-mask: var(--cmux-card-mask) left top / calc(100% - var(--cmux-card-scroller)) 100% no-repeat,
+    linear-gradient(#000, #000) right top / var(--cmux-card-scroller) 100% no-repeat;
+  mask: var(--cmux-card-mask) left top / calc(100% - var(--cmux-card-scroller)) 100% no-repeat,
+    linear-gradient(#000, #000) right top / var(--cmux-card-scroller) 100% no-repeat;
+}
+`;
+
+/** Installs the root rules, the card scroller, the Monaco rule and the wheel marks once per document. */
 export function installScrollers(document: Document, timers: ScrollTimers = defaultTimers): void {
   if (!document.getElementById("cmux-scrollers")) {
     const style = document.createElement("style");
     style.id = "cmux-scrollers";
-    style.textContent = SCROLLER_ROOT_CSS + MONACO_SCROLLER_CSS;
+    style.textContent = SCROLLER_ROOT_CSS + CARD_SCROLLER_CSS + MONACO_SCROLLER_CSS;
     (document.head ?? document.documentElement).appendChild(style);
   }
   installScrollingMarks(document, timers);

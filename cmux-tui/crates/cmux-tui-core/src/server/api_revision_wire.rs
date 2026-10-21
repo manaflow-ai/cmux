@@ -20,7 +20,7 @@
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::{Arc, LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex, PoisonError};
 
 use cmux_api_compat::handshake::{RevisionHello, Translator, negotiate};
 use cmux_api_compat::{Compat, Schema};
@@ -41,13 +41,24 @@ const PENDING_LIMIT: usize = 4096;
 /// The compiled-in revision history. Immutable data, built once.
 pub(super) static API_COMPAT: LazyLock<Compat> = LazyLock::new(|| {
     let schema = Schema::from_json(include_bytes!("../../../../spec/api-compat.json"))
-        .expect("spec/api-compat.json is validated by api-compat-check");
-    Compat::new(schema).expect("validated schema")
+        .expect("spec/api-compat.json is validated by api-compat-check"); // crash-allow: compiled-in bytes that api-compat-check validates in CI
+    Compat::new(schema).expect("validated schema") // crash-allow: the same compiled-in schema
 });
 
 /// The `identify` fields.
 pub(super) fn identify_fields() -> (u32, u32) {
     (API_COMPAT.current(), API_COMPAT.schema().base)
+}
+
+/// The refusal a too-old client reads: why, its release, and the exact
+/// command for how it was installed (plans/cmux-next/tui-tester-rollout.md #4).
+pub(super) fn too_old_text(why: &str, version: Option<&str>, install: Option<&str>) -> String {
+    let release = version.map_or_else(String::new, |version| format!(" (cmux {version})"));
+    format!(
+        "this client{release} is too old for this cmux-tui daemon (cmux {}): {why}. To fix it, {}",
+        crate::release::DISTRIBUTION_VERSION,
+        crate::release::update_hint_for(install)
+    )
 }
 
 /// What one connection negotiated.
@@ -124,7 +135,7 @@ impl NegotiatedRevision {
         let Ok(peek) = serde_json::from_str::<Peek>(message) else { return Cow::Borrowed(message) };
         let Some(cmd) = peek.cmd else { return Cow::Borrowed(message) };
         if let Some(id) = &peek.id {
-            let mut pending = self.pending.lock().unwrap();
+            let mut pending = self.pending.lock().unwrap_or_else(PoisonError::into_inner);
             if pending.len() >= PENDING_LIMIT {
                 pending.clear();
             }
@@ -147,7 +158,8 @@ impl NegotiatedRevision {
             return Some(format!("event:{event}"));
         }
         let id = peek.id?;
-        let cmd = self.pending.lock().unwrap().remove(&id.to_string())?;
+        let cmd =
+            self.pending.lock().unwrap_or_else(PoisonError::into_inner).remove(&id.to_string())?;
         Some(format!("response:{cmd}"))
     }
 

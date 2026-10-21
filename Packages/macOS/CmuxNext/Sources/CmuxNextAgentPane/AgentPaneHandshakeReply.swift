@@ -74,6 +74,7 @@ enum AgentPaneHandshakeReply {
             // The connection stays here; the reply never encodes it.
             model.pendingConnection = handshake.connection
             model.transport.acpmuxSocket = handshake.connection?.remote == nil ? handshake.connection?.socketPath : nil
+            model.transport.acpmuxExecutable = handshake.connection?.remote == nil ? handshake.connection?.executable : nil
             handshake.connection = nil
             return AgentPaneReply.handshake(handshake)
         } catch {

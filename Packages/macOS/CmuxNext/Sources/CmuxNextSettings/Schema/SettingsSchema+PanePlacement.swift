@@ -3,9 +3,9 @@ public import CmuxNextDesign
 /// Where new panes open (`CmuxConfigSnapshot+PanePlacement`), in the General
 /// section's Columns group.
 nonisolated enum PanePlacementSettingsSchema {
-    /// Agents may change both: layout choices, like `layout.dockColumnMode`.
+    /// Agents may change all three: layout choices, like `layout.dockColumnMode`.
     static var agentSettableKeys: Set<String> {
-        [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath]
+        [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath, LinkPlacement.configPath]
             .reduce(into: []) { $0.insert($1.joined(separator: ".")) }
     }
 
@@ -31,6 +31,19 @@ nonisolated enum PanePlacementSettingsSchema {
                                         "With Split Automatically, new browsers also get their own pane instead of a tab."),
                 kind: .toggle, default: .bool(CmuxConfigSnapshot.tileBrowsersFallback),
                 keywords: ["browser", "tile", "split", "pane", "tab"]
+            ),
+            SettingDescriptor(
+                LinkPlacement.configPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.linkPlacement", "Open Links and Files"),
+                help: SettingsText.keyed("settings.layout.linkPlacement.help",
+                                        "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."),
+                kind: .choice([
+                    SettingChoice(LinkPlacement.splitRight.rawValue, SettingsText.keyed("settings.choice.linkPlacementSplitRight", "Split Right")),
+                    SettingChoice(LinkPlacement.newColumn.rawValue, SettingsText.keyed("settings.choice.linkPlacementNewColumn", "New Column on the Right")),
+                    SettingChoice(LinkPlacement.samePane.rawValue, SettingsText.keyed("settings.choice.linkPlacementSamePane", "Tab in the Same Pane")),
+                ]),
+                default: .string(LinkPlacement.fallback.rawValue),
+                keywords: ["link", "url", "path", "file", "open", "split", "right", "column", "pane", "tab"]
             ),
         ]
     }

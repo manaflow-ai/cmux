@@ -43,11 +43,13 @@ export function AppearanceBar() {
   return (
     <div
       className="appearance-bar"
+      // ui-allow: names the floating Undo, Redo and Reset row for VoiceOver; each control is its own Tab stop.
       role="toolbar"
       aria-label={t("settingsPage.history.toolbar")}
       data-appearance-bar=""
     >
       {pending ? (
+        // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline confirm in the bar's row; a fieldset would bring its own box
         <span className="appearance-bar-confirm" role="group">
           <span className="appearance-bar-question">
             {pending === "opened"

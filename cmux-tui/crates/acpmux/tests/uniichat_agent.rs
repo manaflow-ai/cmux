@@ -2,10 +2,15 @@
 //! over stdio against a fake server that speaks UniiChat's wire protocol
 //! (View.ts wire 2: a WebSocket `/ws` and the `say` act's POST `/api/act`).
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use futures_util::{SinkExt, StreamExt};
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader, Write};
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -231,7 +236,7 @@ fn home(port: u16, token: Option<&str>) -> TempHome {
 impl Agent {
     fn start(port: u16, token: Option<&str>) -> Agent {
         let home = home(port, token);
-        let mut child = Command::new(env!("CARGO_BIN_EXE_acpmux"))
+        let mut child = daemon_env::acpmux(&home.0)
             .arg("uniichat-agent")
             .arg("--url")
             .arg(format!("http://127.0.0.1:{port}"))

@@ -80,7 +80,7 @@ impl Hub {
         }
         // The store the resuming harness reads: its spawn env's home, else
         // the daemon's, else a store the chat index holds the chat in. The
-        // store walk, the record read and the process table are blocking I/O.
+        // store walk, the record read and the holder check are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
         let (fam, id, check) =
@@ -88,19 +88,22 @@ impl Hub {
         let ((found, store), live) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
+            // The holder the harness records in the store that holds the chat; one that has
+            // exited does not count (hq#2569 item 7).
             let live = check
-                .then(|| {
-                    let procs = crate::adopt_live::processes();
-                    if fam == "opencode" {
-                        return crate::adopt_live::named_use(&id, &procs);
+                .then(|| match fam.as_str() {
+                    "opencode" => {
+                        crate::adopt_live::named_use(&id, &crate::adopt_live::processes())
                     }
-                    crate::adopt_live::live_use(
-                        &id,
-                        &found.file,
-                        found.cwd.as_deref(),
-                        &procs,
-                        std::time::SystemTime::now(),
-                    )
+                    "claude" => {
+                        let root = store.clone().unwrap_or_else(|| homes.claude.clone());
+                        crate::adopt_live::holder(&fam, &id, &root)
+                    }
+                    "codex" => {
+                        let root = store.clone().unwrap_or_else(|| homes.codex.clone());
+                        crate::adopt_live::holder(&fam, &id, &root)
+                    }
+                    _ => None,
                 })
                 .flatten();
             Ok::<_, String>(((found, store), live))

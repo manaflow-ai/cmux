@@ -27,6 +27,13 @@ public struct GitHubCLIClient: GitHubFeedAPI {
         )
     }
 
+    public func assignedWork(etag: String?) async throws -> GitHubAPIResponse<[GitHubReviewRequest]> {
+        try await request(
+            path: "search/issues", fields: ["q": "is:open assignee:@me archived:false", "per_page": "50"],
+            etag: etag, listKey: "items"
+        )
+    }
+
     private func request<Value: Decodable & Sendable>(
         path: String, fields: [String: String], etag: String?, listKey: String? = nil
     ) async throws -> GitHubAPIResponse<[Value]> {

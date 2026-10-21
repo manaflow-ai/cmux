@@ -5,7 +5,7 @@
 // with its progress where the work is (board principle 6) and a remove button on hover or focus.
 import { createContext, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { Dialog } from "../../ui/Dialog";
-import { DialogButton } from "../../ui/DialogButton";
+import { DialogButton, keyedIconProps } from "../../ui/DialogButton";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { AttachmentService, attachmentClass, formatBytes, type UploadProgress } from "./attachmentService";
@@ -327,7 +327,7 @@ function Lightbox({
             <button
               type="button"
               className="hc-lightbox-step prev"
-              aria-label={strings.t("lightbox.previous")}
+              {...keyedIconProps(strings.t("lightbox.previous"), "left")}
               onClick={() => step(-1)}
             >
               <HomeIcon name="chevronLeft" />
@@ -338,7 +338,7 @@ function Lightbox({
             <button
               type="button"
               className="hc-lightbox-step next"
-              aria-label={strings.t("lightbox.next")}
+              {...keyedIconProps(strings.t("lightbox.next"), "right")}
               onClick={() => step(1)}
             >
               <HomeIcon name="chevronRight" />

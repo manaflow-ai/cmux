@@ -507,7 +507,7 @@ impl Hub {
             return Err(refused(
                 "subsessions.depth_limit",
                 format!(
-                    "start_session refused: depth limit reached. This session is at depth {} and may start sessions only down to depth {} (source: {}). Do the work in this session instead, or ask for a deeper limit: the user can raise it (Settings > Agents > Sub-sessions > Deepest Nesting, or this session's limits in its sidebar), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                    "start_session refused: depth limit reached. This session is at depth {} and may start sessions only down to depth {} (source: {}). Do the work in this session instead, or ask for a deeper limit: the user can raise it (Settings > Agents > Sub-sessions > Deepest Nesting), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                     depth - 1,
                     limits.max_depth,
                     limits.max_depth_source.as_str()
@@ -521,7 +521,7 @@ impl Hub {
                 return Err(refused(
                     "subsessions.width_limit",
                     format!(
-                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session, or this session's limits in its sidebar), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                         limits.max_children,
                         limits.max_children_source.as_str()
                     ),
@@ -612,6 +612,8 @@ impl Hub {
         {
             let mut m = probe.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.permission_rules = pm.permission_rules.clone();
+            // Titled by its name, else by its prompt and then a generated title (`titles.rs`).
+            super::titles::title_subsession(&mut m, req.name.as_deref());
             for row in &pm.tools.off {
                 if !m.tools.off.contains(row) {
                     m.tools.off.push(row.clone());
@@ -621,9 +623,14 @@ impl Hub {
         self.save_meta(&probe);
         let cm = probe.meta();
         let same_family = crate::web_modes::family_of(&cm) == crate::web_modes::family_of(pm);
-        let mode = if same_family {
+        // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
+        // starts as a cross-family child would, at the person's start level, which is not full access.
+        let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
+            && !super::start_mode::full_access_allowed();
+        let inherit = same_family && !capped;
+        let mode = if inherit {
             parent_mode.clone()
-        } else if parent_full {
+        } else if parent_full || capped {
             self.start_mode(&probe).await
         } else {
             None
@@ -632,7 +639,7 @@ impl Hub {
             let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
             // The inherit rule (or the person's default under a full-access
             // parent) grants it; a refusal ends the new session.
-            if same_family {
+            if inherit {
                 self.start_in_mode(false, Some(&parent.id), &params, &probe, false).await?;
             } else if let Err(e) = self.set_mode(&probe, &mode).await {
                 tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);

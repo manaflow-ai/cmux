@@ -19,7 +19,7 @@ public nonisolated enum AgentPaneModeConfirmation: Equatable, Sendable, CustomSt
 
     /// The markers of cmux-tui/spec/full-access-modes.json, which acpmux applies too
     /// (FullAccessModeRuleTests keeps the two the same).
-    static let fullAccessMarkers = ["bypass", "full", "yolo", "dangerous", "autoapprove", "skippermissions"]
+    static let fullAccessMarkers = ["bypass", "fullaccess", "yolo", "dangerous", "autoapprove", "skippermissions"]
 
     /// A mode or option value that skips approvals (bypass permissions, full access, yolo), by the
     /// rule acpmux enforces: lowercased, without `-`, `_` or spaces, it contains a marker.

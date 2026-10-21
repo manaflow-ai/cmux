@@ -7,6 +7,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import type { Play, PlayContext } from "../../gallery/play";
 import { activity, assistant, chat, CWD, noChat, session, summary, tool, user } from "../../gallery/fixtures/acpmux";
+import { setComposerSettings } from "./composerSettings";
 
 const controls = {
   model: "claude-opus-5-5",
@@ -345,6 +346,49 @@ export default agentPaneEntry({
         style.textContent = ".nt-screen, .nt-screen * { letter-spacing: 0.5px; }";
         ctx.document.head.append(style);
         const view = ctx.document.defaultView!;
+        await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+        await check(ctx);
+      },
+    },
+    // The split puts the chips under the box, so the rows above no longer squeeze chips beside the
+    // mic. These two keep that single-row case measured: New Tab's Default template (the second dot,
+    // the existing composer with its chips in the box, with Linux's wider type as above), and the
+    // chat composer with the plain footer turned off.
+    "new-tab-default": {
+      note: "New Tab's Default template: the chips, the mic and Send in the box's one row, letters spaced as Linux's fonts set them.",
+      ready: {
+        newTab: { layout: "b", kind: "agent", cwd: CWD, home: "/Users/you", lastAgent: "claude", template: "default" },
+        newSession: true,
+      },
+      snapshot: noChat([session({ sessionId: "older", title: "Add retry with exponential backoff to the uploader" })], {
+        summary: { sessionId: "", cwd: CWD, harness: "claude", ...controls },
+      }),
+      play: async (ctx) => {
+        if (!ctx.document.querySelector(".nt-box .nt-pickers .acpmux-model"))
+          throw new Error("the Default template's chips are not in its box");
+        const style = ctx.document.createElement("style");
+        style.textContent = ".nt-screen, .nt-screen * { letter-spacing: 0.5px; }";
+        ctx.document.head.append(style);
+        const view = ctx.document.defaultView!;
+        await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
+        await check(ctx);
+      },
+    },
+    "controls-single-row": {
+      note: "The chat composer with the plain footer off: every chip, the bolt, the mic and Send in one row.",
+      snapshot: withControls(chat(finished)),
+      play: async (ctx) => {
+        // Each variant loads its own page, so the setting stays off for the stage's own checks too.
+        setComposerSettings({ plainFooter: false });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".acpmux-composer-foot") === null &&
+            ctx.document.querySelector(".acpmux-composer-bar .acpmux-model") !== null,
+        );
+        // The swap is a layout change of its own (the quiet row goes, the box's row takes the chips,
+        // the transcript's inset follows): let it settle before the step that measures shifts.
+        const view = ctx.document.defaultView!;
+        await new Promise((done) => view.setTimeout(done, 600));
         await new Promise((done) => view.requestAnimationFrame(() => view.requestAnimationFrame(done)));
         await check(ctx);
       },
