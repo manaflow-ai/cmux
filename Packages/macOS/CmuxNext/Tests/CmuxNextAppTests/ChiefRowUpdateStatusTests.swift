@@ -15,7 +15,8 @@ struct ChiefRowUpdateStatusTests {
     /// A server on this Mac whose daemon serves every required capability and no optional one.
     static func olderServer(_ reach: ServerReach) throws -> (ServerMachineSession, MachineRegistry) {
         let machines = MachineRegistry(local: DaemonService())
-        let session = ServerMachineSession(reach: reach, binary: nil, paths: .init(root: URL(fileURLWithPath: "/private/tmp/cn-chief-row-unused")),
+        let session = ServerMachineSession(reach: reach, binary: nil,
+                                           paths: .init(root: URL(fileURLWithPath: "/private/tmp/cn-chief-row-unused")),
                                            environment: { [:] }, localIdentity: { nil })
         let list = DaemonCapabilities.shared.required.map { "\"\($0)\"" }.joined(separator: ",")
         let json = #"{"app":"cmux-tui","protocol":1,"session":"cmux-chief-abcd1234","generation":"g1","capabilities":["# + list + "]}"
@@ -37,8 +38,18 @@ struct ChiefRowUpdateStatusTests {
     }
 
     @Test func aServerOnThisMacWithAnOlderDaemonSaysNoUpdate() throws {
-        let reach = try ServerReach(hostID: "host_chiefrow01", installID: "inst_chiefrow01", name: "Mini", route: .unix("/private/tmp/cn-chief-row-2.sock"))
+        let reach = try ServerReach(hostID: "host_minirow01", installID: "inst_minirow02", name: "Mini",
+                                    route: .unix("/private/tmp/cn-chief-row-2.sock"))
+        #expect(!reach.isLocalChief)
         let (server, machines) = try Self.olderServer(reach)
         #expect(server.sidebarMachine(machines: machines).status == .connected)
+    }
+
+    /// An overlay server is another machine: its older daemon still says Update available.
+    @Test func anOverlayServerWithAnOlderDaemonKeepsItsStatus() throws {
+        let reach = try ServerReach(hostID: "host_minirow03", installID: "inst_minirow04", name: "Mini",
+                                    route: .overlay(linkSocket: "/private/tmp/cn-chief-row-3.sock"))
+        let (server, machines) = try Self.olderServer(reach)
+        #expect(server.sidebarMachine(machines: machines).status == .updateAvailable)
     }
 }
