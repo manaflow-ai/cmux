@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApp
+import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
@@ -37,9 +38,13 @@ import Testing
                       exists: @escaping @MainActor () -> Bool = { true }) -> WorkspaceCloseFlow {
         WorkspaceCloseFlow(
             hide: { log.steps.append("hide"); return closing.begin(id, among: [id, "other"]) },
-            question: { log.steps.append("ask process-info"); return await pending.question() },
+            confirm: {
+                log.steps.append("ask process-info")
+                guard await pending.question() != nil else { return true }
+                log.steps.append("question")
+                return closes
+            },
             exists: exists,
-            ask: { _ in log.steps.append("question"); return closes },
             send: { _ in
                 log.steps.append("send")
                 return Task { @MainActor in
@@ -109,6 +114,13 @@ import Testing
         #expect(log.steps == ["hide", "send"])
         _ = await work.value
         #expect(log.steps == ["hide", "send"])
+    }
+
+    @Test func theLateQuestionIsNotConfirmedByReturn() {
+        var late = Self.running
+        late.returnConfirms = false
+        #expect(DestructiveConfirmation.spec(late).defaultButton == nil)
+        #expect(DestructiveConfirmation.spec(Self.running).defaultButton?.id == DestructiveConfirmation.confirmID)
     }
 
     @Test func aWorkspaceClosedElsewhereDuringTheQuestionIsNotSentAgain() async throws {

@@ -67,7 +67,7 @@ import Testing
         let closed = Closed()
         let gate = Gate()
         let create = Task { @MainActor in
-            try await lanes.create(Self.key("flight"), window: "w", close: { closed.keys.append($0) }) {
+            try await lanes.create(Self.key("flight"), window: "w", close: { closed.keys.append($0) }, settle: { { false } }) {
                 await gate.wait()
                 return "flight"
             }
@@ -86,14 +86,14 @@ import Testing
         let lanes = WorkspaceLanes()
         let gate = Gate()
         let first = Task { @MainActor in
-            try await lanes.create(Self.key("first"), window: "w", close: { _ in }) {
+            try await lanes.create(Self.key("first"), window: "w", close: { _ in }, settle: { { false } }) {
                 await gate.wait()
                 return "first"
             }
         }
         while !gate.isWaiting { await Task.yield() }
         let second = Task { @MainActor in
-            try await lanes.create(Self.key("second"), window: "w", close: { _ in }) { "second" }
+            try await lanes.create(Self.key("second"), window: "w", close: { _ in }, settle: { { false } }) { "second" }
         }
         while lanes.outstandingCreates(in: "w") < 2 { await Task.yield() }
         // The newest (not started) is taken: it never runs.

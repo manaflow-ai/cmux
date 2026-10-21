@@ -141,7 +141,7 @@ extension AppActions {
         let window = services.windows.active?.state.id
         let lanes = WorkspaceLanes.shared
         if invocation.target == nil, invocation["workspace"] == nil, let window,
-           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }) { return }
+           lanes.closeNewestCreate(in: window, listed: { services.workspace(id: $0) != nil }, taken: PendingWorkspaceRows.shared.remove) { return }
         guard let workspace = scope(services, invocation).workspace, let key = workspace.key,
               !ClosingWorkspaces.shared.ids.contains(workspace.id), !WorkspaceCloseFlow.running.contains(workspace.id)
         else { return } // a second press during the close sends nothing
@@ -161,20 +161,17 @@ extension AppActions {
                 selected.afterPress = controller?.state.workspaceID
                 return hidden
             },
-            question: {
-                var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn)
-                prompt?.returnConfirms = false
-                return prompt
-            },
-            // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
-            exists: { services.workspace(id: id) != nil },
-            // On the window that lists the workspace, above its pages (the overlay host), not the active one.
-            ask: { prompt in
-                await withCheckedContinuation { answer in
+            // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
+            confirm: {
+                guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return true }
+                prompt.returnConfirms = false
+                return await withCheckedContinuation { answer in
                     DestructiveConfirmation.present(prompt, in: controller?.window ?? services.windows.active?.window,
                                                     settings: services.settings) { answer.resume(returning: $0) }
                 }
             },
+            // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
+            exists: { services.workspace(id: id) != nil },
             send: { hidden in
                 lanes.run(in: window) {
                     let failure = await daemon.failure("close-workspace") { connection in
