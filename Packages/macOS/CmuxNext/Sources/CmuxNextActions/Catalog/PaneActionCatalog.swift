@@ -173,7 +173,7 @@ nonisolated enum PaneActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "palette.swapWithSession",
-                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap With Session…", bundle: .module),
+                title: String(localized: "action.palette.swapWithSession", defaultValue: "Swap with Session…", bundle: .module),
                 keywords: ["swap", "exchange"], category: .pane, symbol: "arrow.left.arrow.right",
                 surfaces: [.palette, .contextMenu], arguments: [CatalogArgument.panePane], targets: [.pane],
                 cliName: "pane swap-with-session"
