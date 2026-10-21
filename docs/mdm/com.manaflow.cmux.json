@@ -3082,6 +3082,12 @@
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
     },
+    "sessions.promptSuggestions" : {
+      "default" : false,
+      "description" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.",
+      "title" : "Suggest Follow-Up Tasks",
+      "type" : "boolean"
+    },
     "sessions.resumeAgents" : {
       "default" : true,
       "description" : "Terminal agents reopen their session after a crash or restart.",
@@ -4021,6 +4027,12 @@
       "title" : "Swap Cmd-T and Cmd-N",
       "type" : "boolean"
     },
+    "tabs.terminalFirst" : {
+      "default" : false,
+      "description" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.",
+      "title" : "New Tabs and Splits Open a Terminal",
+      "type" : "boolean"
+    },
     "tabs.toolbarButtons" : {
       "default" : [
 
@@ -4288,7 +4300,7 @@
       "type" : "boolean"
     },
     "workspaces.newPlacement" : {
-      "default" : "top",
+      "default" : "afterCurrent",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",
