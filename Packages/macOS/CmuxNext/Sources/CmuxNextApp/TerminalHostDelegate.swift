@@ -131,7 +131,7 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
                 target: request.tab, arguments: ["url": .string(url.absoluteString)]))
             return
         }
-        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id)
+        LinkRouter.shared.open(url, otherTarget: request.other, explicit: request.option, source: request.tab?.id, cmdClick: true)
     }
 
     /// Every surface's links go through ``LinkRouter`` (cx-ir3z4), wired here once: a Chief
@@ -145,11 +145,11 @@ final class TerminalHostDelegate: TerminalSessionDelegate {
         router.appLink = { [weak services] url in services.map { CmuxAppLinks.open(url, services: $0) } ?? false }
         // A click in a chat or page view opens beside the pane showing it (not the focused pane).
         router.sourceTab = { [weak services] view in services?.linkOpener.source(containing: view)?.currentTabKey }
-        router.openInCmux = { [weak services] url, background, source in
+        router.openInCmux = { [weak services] url, background, source, cmdClick in
             guard let services else { return }
-            // Beside the source pane (`layout.linkPlacement`, LinkOpener), never in its place.
+            // A tab of the source pane; a terminal's Cmd-click where `layout.linkPlacement` says (LinkOpener).
             guard let pane = services.linkOpener.source(tab: source) else { services.externalOpen.perform(.browserTab(url)); return }
-            services.linkOpener.openWeb(url, from: pane, background: background, cmdClick: true)
+            services.linkOpener.openWeb(url, from: pane, background: background, cmdClick: cmdClick)
         }
     }
 
