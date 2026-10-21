@@ -55,10 +55,11 @@
   --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
   --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
   /* A message's hover row fades as Claude Code desktop's (--cds-message-actions-reveal-*): in after
-     100ms over 120ms, out at once over 60ms, both on its snap curve. */
-  --cv-actions-in: 120ms;
+     100ms over 120ms, out at once (Claude's 60ms is off the motion scale: its quick 80ms), both on
+     Claude's snap curve. */
+  --cv-actions-in: var(--cmux-motion-micro, 120ms);
   --cv-actions-in-delay: 100ms;
-  --cv-actions-out: 60ms;
+  --cv-actions-out: var(--cmux-motion-quick, 80ms);
   --cv-actions-ease: cubic-bezier(0.32, 0.72, 0, 1);
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
@@ -618,6 +619,10 @@
   line-height: var(--cv-meta-row);
   font-variant-numeric: tabular-nums;
   white-space: nowrap;
+}
+/* At the end of another agent's message line its age comes straight before Copy. */
+.cv-received-actions .cv-user__time {
+  padding-inline-end: 6px;
 }
 .cv-user__dot {
   padding-inline: 4px;

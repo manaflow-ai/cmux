@@ -22,6 +22,7 @@ export function relativeTime(at: number, now: number, locale?: string): string {
   if (age < 60) {
     const words = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
     // English says "just now" (Claude's words); other languages their own word for now.
+    // l10n-allow: English only by design (Claude's wording); every other language gets Intl's own word.
     return words.resolvedOptions().locale.toLowerCase().startsWith("en") ? "just now" : words.format(0, "second");
   }
   const [unit, size] = UNITS.find(([, length]) => age >= length) ?? ["minute", 60];

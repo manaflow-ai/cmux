@@ -102,7 +102,8 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           <MessageTime at={row.at} className="cv-user__time" />
           <MessageDot />
           <MessageCopy text={row.text ?? text} />
-          <PromptRetry rowId={row.id} prompt={resend} />
+          {/* Not while it is still on its way: a second send would duplicate it. */}
+          {!row.pending && row.delivery?.state !== "sending" && <PromptRetry rowId={row.id} prompt={resend} />}
           {forkThrough !== undefined && <ForkButton onFork={() => fork!(forkThrough)} />}
           {through !== undefined && (
             <button
