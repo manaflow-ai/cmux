@@ -535,6 +535,10 @@ class FeatWriterCase(unittest.TestCase):
         self.addCleanup(patched.stop)
 
 
+def publish_module():
+    return load_script("media_publish_privacy_test", ROOT / "scripts/cmux-next/media/publish.py")
+
+
 class TourPublisherTests(FeatWriterCase):
     """scripts/cmux-next/media/publish.py (cmux-next-media.yml's "Post the tour media")."""
 
@@ -545,10 +549,10 @@ class TourPublisherTests(FeatWriterCase):
             (directory / "shots" / name).write_bytes(PNG + (b"LEAK" if name == leak_in else b""))
         step = {"index": 1, "title": "Open", "status": "ok", "shot": "shots/01-open.png",
                 "windows": [{"id": 7, "kind": "panel", "shot": "shots/01-open--w7.png"}]}
-        return directory, {"title": "Agent pane", "steps": [step], "frames": []}
+        return directory, {"title": "Agent pane", "steps": [publish_module().clean_step(step)], "frames": []}
 
     def publish(self, leak_in: str) -> str:
-        publish = load_script("media_publish_privacy_test", ROOT / "scripts/cmux-next/media/publish.py")
+        publish = publish_module()
         directory, manifest = self.tour(leak_in)
         scratch = self.root / "scratch"
         scratch.mkdir()
@@ -699,6 +703,13 @@ class FeatWorkflowTests(unittest.TestCase):
     NEEDED = ("scripts/ci/pr_media_privacy.py", "scripts/ci/pr_media_ocr.swift", "scripts/pr-media.py")
 
     @staticmethod
+    def runs_a_writer(run: str, script: str | None = None) -> bool:
+        """The step runs the writer (python3 <script>), not merely names it (`[ -f <script> ]`)."""
+        scripts = [script] if script else ["scripts/pr-media.py", "scripts/cmux-next/media/publish.py",
+                                           "scripts/cmux-next/media/reel.py"]
+        return any(re.search(r"\bpython3?\s+(?:-\S+\s+)*\S*" + re.escape(name), run) for name in scripts)
+
+    @staticmethod
     def covers(sparse: str, path: str) -> bool:
         for line in (line.strip().rstrip("/") for line in sparse.splitlines()):
             if line and (path == line or path.startswith(line + "/")):
@@ -716,7 +727,7 @@ class FeatWorkflowTests(unittest.TestCase):
                     sparse = checkouts[0].get("with", {}).get("sparse-checkout", "")
                     for path in (*self.NEEDED, script):
                         self.assertTrue(self.covers(sparse, path), f"{workflow} {job_id} does not check out {path}")
-                    uploads = [step for step in steps if script in str(step.get("run", ""))]
+                    uploads = [step for step in steps if self.runs_a_writer(str(step.get("run", "")), script)]
                     self.assertTrue(uploads, f"{workflow} {job_id} no longer runs {script}")
                     for step in uploads:
                         env = step.get("env", {})
@@ -724,13 +735,12 @@ class FeatWorkflowTests(unittest.TestCase):
                         self.assertEqual(env.get("PR_MEDIA_AGENT_AUTHORS"), "${{ vars.PR_MEDIA_AGENT_AUTHORS }}")
 
     def test_no_other_step_runs_a_writer_without_the_terms(self) -> None:
-        writers = ("scripts/pr-media.py", "scripts/cmux-next/media/publish.py", "media/reel.py")
         for workflow in sorted((ROOT / ".github/workflows").glob("*.yml")):
             loaded = yaml.safe_load(workflow.read_text(encoding="utf-8")) or {}
             for job_id, job in (loaded.get("jobs") or {}).items():
                 for step in job.get("steps") or []:
                     run = str(step.get("run", ""))
-                    if not any(writer in run for writer in writers):
+                    if not self.runs_a_writer(run):
                         continue
                     if "media/reel.py" in run and "--publish" not in run:
                         continue
