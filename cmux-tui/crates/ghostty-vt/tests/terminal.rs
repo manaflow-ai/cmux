@@ -1334,3 +1334,50 @@ fn resize_audit_cell_pixel_only_resize_keeps_the_history_epoch() {
     term.resize(12, 4, 9, 18).unwrap();
     assert_ne!(term.history_epoch(), epoch, "a grid resize reflows the history");
 }
+
+/// The screen text with trailing blanks and trailing empty rows removed.
+fn trimmed_text(term: &mut Terminal) -> String {
+    let text = term.plain_text().unwrap();
+    let lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    let end = lines.iter().rposition(|line| !line.is_empty()).map_or(0, |i| i + 1);
+    lines[..end].join("\n")
+}
+
+/// manaflow-ai/cmux#21341: a Powerlevel10k "lean, 2 lines" prompt under
+/// Ghostty's zsh integration. Each narrowing step must let zsh's SIGWINCH
+/// redraw replace the whole prompt, not leave a copy of line 1 above it.
+/// libghostty-vt clears a prompt on resize only after the shell opts in
+/// with `133;A;redraw=1` (the C API defaults to no redraw), so the prompt
+/// here opts in.
+#[test]
+fn resize_narrowing_a_padded_two_line_prompt_leaves_no_copy_of_line_one() {
+    // zsh draws the prompt: line 1 padded close to the width, then line 2.
+    // p10k owns PS1, so the integration marks it again at zle-line-init
+    // with 133;P;k=i and 133;B, on line 2.
+    fn prompt(line_one: &str) -> Vec<u8> {
+        format!(
+            "\x1b]133;A;cl=line;redraw=1\x07{line_one}\r\n> \x1b]133;B\x07\x1b]133;P;k=i\x07\x1b]133;B\x07"
+        )
+        .into_bytes()
+    }
+    // zsh's redraw after SIGWINCH: it knows the prompt had two rows, so it
+    // moves up one row, erases below and draws the prompt for the new width.
+    fn redraw(line_one: &str) -> Vec<u8> {
+        let mut out = b"\r\x1b[1A\x1b[J".to_vec();
+        out.extend(prompt(line_one));
+        out
+    }
+
+    let mut term = Terminal::new(10, 6, 1000, Callbacks::default()).unwrap();
+    term.vt_write(b"out\r\n");
+    term.vt_write(&prompt("abcdefghi"));
+    for (cols, line_one) in [(8u16, "abcdefg"), (6, "abcde")] {
+        term.resize(cols, 6, 8, 16).unwrap();
+        term.vt_write(&redraw(line_one));
+        assert_eq!(
+            trimmed_text(&mut term),
+            format!("out\n{line_one}\n>"),
+            "after narrowing to {cols} columns"
+        );
+    }
+}

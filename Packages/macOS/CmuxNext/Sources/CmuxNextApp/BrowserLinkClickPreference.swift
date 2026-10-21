@@ -11,6 +11,7 @@ extension BrowserLinkClickMapping {
             case .currentTab: .currentTab
             case .backgroundTab: .backgroundTab
             case .foregroundTab: .foregroundTab
+            case .linkPlacement: .linkPlacement
             case .newWindow: .newWindow
             case .download: .download
             }

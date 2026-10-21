@@ -13,8 +13,9 @@ import Foundation
 /// to text contrast over the code card (the elevated surface): terminals
 /// tolerate a dim yellow on white that code text can't.
 enum AgentPaneTheme {
-    /// `motion` leaves out live resize: the page keeps these tokens after a drag ends.
-    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = MotionPolicy(speed: Motion.speed, reduceMotion: Motion.reduceMotion),
+    /// `motion` is the web category's policy without live resize: the page keeps these tokens
+    /// after a drag ends.
+    static func values(_ tokens: ThemeTokens, motion: MotionPolicy = Motion.web.policyIgnoringLiveResize,
                        surface: SurfaceKind = .agentPane) -> [String: any Sendable] {
         AgentPaneTunables.followCodexToolRuns()
         let page = pageColor(tokens, surface: surface)
@@ -71,6 +72,8 @@ enum AgentPaneTheme {
             // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
             // loops and draws a shape per state (`data-status-indicators`).
             "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
+            // How agent work shows on the transcript's running rows (`data-working-look`).
+            "workingLook": StatusWorkingLook.tunable.value.rawValue,
         ]
     }
 

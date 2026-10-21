@@ -32,8 +32,11 @@ pub const ANSWER_WAIT: Duration = Duration::from_secs(10);
 #[derive(Default)]
 pub struct Interrupt {
     wanted: AtomicBool,
-    /// The turn has a remote origin and no auto-approve: the native engine
-    /// refuses its local effects (README "Remote-origin messages").
+    /// The owner stopped the turn: cancel at once, even while a tool call
+    /// waits (`request_hard`), never only at the next tool boundary.
+    hard: AtomicBool,
+    /// The turn carries another person's text: the native engine refuses
+    /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
@@ -66,6 +69,18 @@ impl Interrupt {
         }
     }
 
+    /// `request`, and the runner does not wait for a running tool call:
+    /// the owner's stop. A call that waits for an approval never ran; one
+    /// that runs is cut, as the owner asked.
+    pub fn request_hard(&self) {
+        self.hard.store(true, Ordering::SeqCst);
+        self.request();
+    }
+
+    pub fn is_hard(&self) -> bool {
+        self.hard.load(Ordering::SeqCst)
+    }
+
     pub fn is_set(&self) -> bool {
         self.wanted.load(Ordering::SeqCst)
     }
@@ -94,7 +109,7 @@ impl Interrupt {
         true
     }
 
-    /// Sets whether the turn's local effects need an approval.
+    /// Sets whether the turn's local effects are refused.
     pub fn set_gate(&self, on: bool) {
         self.gate.store(on, Ordering::SeqCst);
     }
@@ -106,6 +121,7 @@ impl Interrupt {
     /// The queued messages were delivered (native engine).
     pub fn clear(&self) {
         self.wanted.store(false, Ordering::SeqCst);
+        self.hard.store(false, Ordering::SeqCst);
     }
 
     fn wake_with(&self, tx: Option<Sender<TurnSignal>>) {
@@ -603,7 +619,9 @@ pub fn run_with_drafts(
         {
             log(&format!("turn {}: {e}", start.key));
         }
-        let stopping = interrupt.is_set() && fold.ended().is_none() && !fold.tool_running();
+        let stopping = interrupt.is_set()
+            && fold.ended().is_none()
+            && (interrupt.is_hard() || !fold.tool_running());
         if stopping && last_cancel.is_none_or(|t| t.elapsed() >= CANCEL_RESEND) {
             if last_cancel.is_none() {
                 log(&format!(
@@ -617,9 +635,11 @@ pub fn run_with_drafts(
             last_cancel = Some(Instant::now());
         }
         let resend = last_cancel.filter(|_| stopping).map(|t| t + CANCEL_RESEND);
+        // A turn that waits on a permission request is idle too: its
+        // running tool is not at work, and nobody may ever answer.
         let idle_at = start
             .idle_limit
-            .filter(|_| !fold.tool_running() && last_cancel.is_none())
+            .filter(|_| (!fold.tool_running() || fold.awaits_permission()) && last_cancel.is_none())
             .map(|limit| last_event + limit);
         if idle_at.is_some_and(|at| Instant::now() >= at) {
             answered = true;
@@ -826,9 +846,15 @@ pub fn run_with_drafts(
     }
     // The run's end: what is left of its steps, its use and cost.
     send_run(
+        // A turn cut by a lost acpmux link (an update relaunch) runs again
+        // on the resume note: its run ends stopped, never "failed" with the
+        // link's error (user 2026-10-20 "every time i update cmux").
         crate::run::ended(
-            error.as_deref().or(moved.as_deref()),
-            cancelled,
+            error
+                .as_deref()
+                .filter(|_| orphan.is_none())
+                .or(moved.as_deref()),
+            cancelled || orphan.is_some(),
             totals.map(|(u, _)| u),
             cost,
             requests.last().and_then(|r| r.model.as_deref()),

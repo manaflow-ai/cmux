@@ -167,8 +167,8 @@ impl Mux {
                 // `pinned-dock-alone-v1`: a split right of Home's dock alone is a new column
                 // beside it, as wide as a link Home opens there (`workspace.open_url`).
                 let beside_lone_dock = direction == "right"
-                    && self.with_state(|state| crate::mux::pane_in_lone_pinned_column(state, pane));
-                let width = beside_lone_dock.then_some(crate::mux::LONE_DOCK_NEIGHBOR_WIDTH);
+                    && self.with_state(|state| pane_in_lone_pinned_column(state, pane));
+                let width = beside_lone_dock.then_some(LONE_DOCK_NEIGHBOR_WIDTH);
                 self.split_browser_pane_with_fields_as(actor, pane, direction, width, fields, size)
             }
         };

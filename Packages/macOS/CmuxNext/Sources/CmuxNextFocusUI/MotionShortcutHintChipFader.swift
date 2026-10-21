@@ -10,13 +10,13 @@ public struct MotionShortcutHintChipFader: ShortcutHintChipFading {
     public init() {}
 
     public func fadeIn(_ chips: [NSView], in overlay: NSView) {
-        Motion.animate(.fadeIn, in: overlay) {
+        Motion.overlays.animate(.fadeIn, in: overlay) {
             for chip in chips { chip.animator().alphaValue = 1 }
         }
     }
 
     public func fadeOut(_ chips: [NSView], in overlay: NSView, completion: @escaping @MainActor @Sendable () -> Void) {
-        Motion.animate(.fadeOut, in: overlay, {
+        Motion.overlays.animate(.fadeOut, in: overlay, {
             for chip in chips { chip.animator().alphaValue = 0 }
         }, completion: completion)
     }

@@ -51,8 +51,8 @@ public nonisolated enum TabTunables {
     public static let titleCloseSpacing = points("titleCloseSpacing", "Title to close", help: "Gap between a tab's title and its close button.") { Metrics.space2 }
     public static let titleFadeWidth = points("titleFadeWidth", "Title fade", help: "Length of the fade that clips a long title.") { Metrics.space6 + Metrics.space2 }
     public static let badgeSize = points("badgeSize", "Badge size", help: "Diameter of the unread / status dot.") { Metrics.space3 }
-    public static let closeMinContentsWidth = points("closeMinContentsWidth", "Close button threshold", help: "Contents width from which a hovered inactive tab shows its x (Chromium: 68).",
-                                                     range: 0...200) { 4 * Metrics.space6 + Metrics.space2 }
+    public static let closeMinContentsWidth = points("closeMinContentsWidth", "Close button threshold", help: "Contents width from which a hovered inactive tab shows its x (Helium: 56; Chromium: 68).",
+                                                     range: 0...200) { 3 * Metrics.space6 + Metrics.space4 }
     public static let titleMinVisibleWidth = points("titleMinVisibleWidth", "Shortest title", help: "Narrowest title fragment worth showing after the icon.") { Metrics.space5 }
     public static let scrollFadeWidth = points("scrollFadeWidth", "Strip scroll fade", help: "Length of the fade on a scrolled strip edge (also the drag autoscroll zone).") { Metrics.space6 + Metrics.space4 }
     public static let groupChipPadding = points("groupChipPadding", "Group chip padding", help: "Horizontal padding inside a tab group chip.") { Metrics.space3 }

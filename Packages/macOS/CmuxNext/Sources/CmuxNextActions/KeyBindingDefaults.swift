@@ -5,8 +5,8 @@ public import AppKit
 ///
 /// The Chrome tab keys (`tabSwitching`, Leo 2026-10-12: "chrome/chatgpt/claude has them all
 /// the same") select sidebar items, what Chrome calls tabs, from any focus:
-/// - Cmd-Opt-Right, Ctrl-PageDown: the next item;
-/// - Cmd-Opt-Left, Ctrl-PageUp: the previous item;
+/// - Ctrl-PageDown, Ctrl-Cmd-]: the next item;
+/// - Ctrl-PageUp, Ctrl-Cmd-[: the previous item;
 /// - Cmd-1 to Cmd-8 the nth item, Cmd-9 the last (`sidebar.cmd9`).
 /// Ctrl-Tab / Ctrl-Shift-Tab and Cmd-Shift-] / [ cycle the focused pane's tabs instead
 /// (`nextSurface` / `prevSurface`; Leo 2026-10-12: as a workspace switch they got
@@ -19,10 +19,13 @@ public import AppKit
 ///
 /// - Ctrl-Cmd arrows are aliases for the pane-resize actions (Ghostty's
 ///   `resize_split` defaults); their catalog keys are Ctrl-Shift H/J/K/L.
-/// - Ctrl-Cmd J/K are aliases for focus down/up, whose catalog keys are
-///   Cmd-Opt Down/Up (PANE-FOCUS-RESIZE-KEYS-AND-GHOSTTY-KEYBINDS); focus
-///   left/right have Ctrl-Cmd H/L as their catalog keys, since Cmd-Opt
-///   Left/Right are Chrome tab keys.
+/// - Ctrl-Cmd H/J/K/L are aliases for pane focus, whose catalog keys are
+///   the Cmd-Opt arrows (Ghostty's `goto_split`). Cmd-Opt-Left / Right are not
+///   Chrome tab keys here (Lawrence 2026-10-20: "Command+Option+Arrow key needs
+///   to be the original shortcut, which is the ghostty one"; 2f3e1f95983 had
+///   made them sidebar keys). Ghostty's default split keys are reserved
+///   (schemas/keybindings/ghostty-reserved-keys.json, GhosttyReservedKeysTests):
+///   change one only with the user's explicit OK.
 public nonisolated struct KeyBindingDefaults {
     public nonisolated init() {}
     static let right = String(Character(UnicodeScalar(UInt32(NSRightArrowFunctionKey)) ?? UnicodeScalar(0)))
@@ -47,7 +50,6 @@ public nonisolated struct KeyBindingDefaults {
         return [
             bind("\t", [.control], "nextSurface"), bind("\t", [.control, .shift], "prevSurface"),
             bind("]", [.command, .shift], "nextSurface"), bind("[", [.command, .shift], "prevSurface"),
-            bind(right, [.command, .option], "nextSidebarTab"), bind(left, [.command, .option], "prevSidebarTab"),
             bind(pageDown, [.control], "nextSidebarTab"), bind(pageUp, [.control], "prevSidebarTab"),
             bind("]", [.control, .command], "nextSidebarTab"), bind("[", [.control, .command], "prevSidebarTab"),
         ] + (1...9).map { bind(String($0), [.command], "selectWorkspaceByNumber", String($0)) }
@@ -85,6 +87,8 @@ public nonisolated struct KeyBindingDefaults {
     public static let scopedDefaults: [KeyBinding] = [
         KeyBinding(keys: [Shortcut("k", modifiers: [.command])], command: "agentPane.searchChats",
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
+        // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
+        KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
     ]
 
     /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.
@@ -108,6 +112,8 @@ public nonisolated struct KeyBindingDefaults {
     /// catalog Cmd-Opt arrow; they disappear when a user overrides or
     /// unbinds that action.
     public static let paneFocusAliases: [KeyBinding] = [
+        KeyBinding(keys: [Shortcut("h", modifiers: [.control, .command])], command: "focusLeft"),
+        KeyBinding(keys: [Shortcut("l", modifiers: [.control, .command])], command: "focusRight"),
         KeyBinding(keys: [Shortcut("j", modifiers: [.control, .command])], command: "focusDown"),
         KeyBinding(keys: [Shortcut("k", modifiers: [.control, .command])], command: "focusUp"),
     ]
@@ -168,6 +174,35 @@ public nonisolated struct KeyBindingDefaults {
         "increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
         "groupSelectedWorkspaces", "toggleChecklistItemComplete",
     ]
+
+    /// Actions whose default key an agent chat or a web page also uses: their default binding
+    /// applies everywhere but there (`notWebContent`), so the page's own handler gets the key.
+    /// Cmd-Return steers a running agent turn in the composer (Composer.tsx) and submits forms
+    /// on many sites; the checklist toggle took it first and refused "no todo items".
+    public static let yieldsToWebContent: Set<ActionID> = ["toggleChecklistItemComplete"]
+
+    /// Not an agent chat (`agent`, the acpmux page) and not a web page (`page`).
+    public static let notWebContent = WhenClause.and([
+        .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("page")),
+    ])
+
+    /// The keys a focused text field or composer uses itself (Leo, 2026-10-20): Return sends and
+    /// its Command, Shift and Option forms steer, add a line or send another way; Esc cancels or
+    /// stops a turn; ↑ recalls a prompt or a queued one. A default binding on one of them steps
+    /// aside while text input has the keyboard (`notTextInput`), so the field gets the key, unless
+    /// its action is scoped to a surface (`requires`: the omnibar's Cmd-Return, the file explorer's
+    /// Return).
+    /// The checklist toggle took Cmd-Return from the chat composer and refused "no todo items".
+    public static let textInputKeys: Set<Shortcut> = [
+        Shortcut(Shortcut.returnKey, modifiers: []), Shortcut(Shortcut.returnKey, modifiers: [.command]),
+        Shortcut(Shortcut.returnKey, modifiers: [.shift]), Shortcut(Shortcut.returnKey, modifiers: [.option]),
+        Shortcut(Shortcut.escapeKey, modifiers: []), Shortcut(Shortcut.upArrowKey, modifiers: []),
+    ]
+
+    /// No text field, page editor or terminal TextBox has the keyboard.
+    public static let notTextInput = WhenClause.and([
+        .not(.has(KeyContext.textInputFocus)), .not(.has("textBoxFocused")),
+    ])
 
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific

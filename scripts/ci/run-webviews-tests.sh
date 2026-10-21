@@ -11,6 +11,9 @@
 # with a `// cmux-web-test-timeout: SECONDS` header line.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
+# CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
+# of every file, for focused runs (scripts/ci/car_guards.py). A name the git index does not list
+# is an error, so a stale selection never passes by running nothing.
 # CMUX_WEB_TEST_SHARD / CMUX_WEB_TEST_SHARD_COUNT: optional one-based shard selector (for example
 # 1/2 or 2/2). Sharding happens after the git-index file list is built, so every shard keeps the
 # same per-file process and Vite-cache isolation rules while covering a disjoint deterministic set.
@@ -23,8 +26,9 @@
 # editor-page timed out the same way beside ui-a11y and text-field-focus. So one file per Vite
 # config runs first, alone, and warms that config's cache (CMUX_VITE_CACHE_DIR, which the dev
 # configs read); the rest then run CMUX_WEB_TEST_DEV_JOBS at once (default a quarter of the jobs), each
-# on its own copy of its config's warm cache. A config whose warming file fails keeps its other
-# files one at a time on a cold cache each.
+# on its own copy of its config's warm cache. A warming file that fails leaves no trustworthy
+# cache, so the config's next file warms a fresh one, up to CMUX_WEB_TEST_WARM_ATTEMPTS files
+# (default 3); a config none of them warms keeps its other files one at a time on a cold cache each.
 #
 # Run from webviews/ (CI, local dev) it tests what is there. Run from anywhere else in the
 # checkout (a cmux-ci step starts at the checkout root) it first makes the web bundles
@@ -123,6 +127,15 @@ case "$(git rev-parse --show-prefix)" in
     bun install --frozen-lockfile
     ;;
 esac
+# A fleet cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1, requireBrowserLane.ts) needs
+# the engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
+# cache, one directory per Playwright version, so a host downloads each once. GitHub Actions
+# installs its own (cmux-next-web-bundles.yml).
+if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
+  playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2> /dev/null || echo unknown)"
+  export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
+  ./node_modules/.bin/playwright install --only-shell chromium webkit
+fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
 default_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"
@@ -136,6 +149,22 @@ trap 'rm -rf "$results"' EXIT
 # bun test's default file names, from the git index so the list is the same everywhere.
 git ls-files -z -- '*.test.ts' '*.test.tsx' '*.test.js' '*.test.jsx' '*.test.mjs' \
   '*_test.ts' '*_test.tsx' '*.spec.ts' '*.spec.tsx' '*_spec.ts' '*_spec.tsx' > "$results/files"
+if [ -n "${CMUX_WEB_TEST_FILES:-}" ]; then
+  python3 - "$results/files" <<'PY'
+import os
+import pathlib
+import sys
+
+path = pathlib.Path(sys.argv[1])
+listed = [item.decode() for item in path.read_bytes().split(b"\0") if item]
+wanted = [line.strip() for line in os.environ["CMUX_WEB_TEST_FILES"].splitlines() if line.strip()]
+missing = [name for name in wanted if name not in listed]
+if missing:
+    sys.exit("error: CMUX_WEB_TEST_FILES names files that are not webviews test files: " + ", ".join(missing))
+keep = [name for name in listed if name in set(wanted)]
+path.write_bytes(b"".join(name.encode() + b"\0" for name in keep))
+PY
+fi
 shard="${CMUX_WEB_TEST_SHARD:-}"
 shard_count="${CMUX_WEB_TEST_SHARD_COUNT:-}"
 if [ -n "$shard" ] || [ -n "$shard_count" ]; then
@@ -185,31 +214,41 @@ vite_config() {
   else echo default
   fi
 }
-# One file per config warms its cache, alone; the others wait for it.
+# One file per config warms its cache, alone; the others wait for it. A warming file that fails
+# hands warming to the config's next file, on a fresh cache: one red pane file once sent every
+# other pane file one at a time onto a cold cache, 7 minutes of a 13-minute shard (job 118973285057).
+warm_attempts="${CMUX_WEB_TEST_WARM_ATTEMPTS:-3}"
+[[ "$warm_attempts" =~ ^[1-9][0-9]*$ ]] || warm_attempts=3
 vite="$results/vite"
-warmed=" "
+: > "$results/warmed"
+: > "$results/warm-tries"
 : > "$results/dev-rest"
 while IFS= read -r -d '' file; do
   config="$(vite_config "$file")"
-  case "$warmed" in
-    *" $config "*) printf '%s\0%s\0' "$config" "$file" >> "$results/dev-rest" ;;
-    *)
-      warmed="$warmed$config "
-      printf '%s %s\n' "$config" "$file" >> "$results/warmers"
-      bash "$self" --one "$file" "$results" "$timeout_seconds" "$vite/seed-$config"
-      ;;
-  esac
+  tried="$(grep -cxF "$config" "$results/warm-tries" || true)"
+  if grep -q "^$config " "$results/warmed" || [ "$tried" -ge "$warm_attempts" ]; then
+    printf '%s\0%s\0' "$config" "$file" >> "$results/dev-rest"
+    continue
+  fi
+  echo "$config" >> "$results/warm-tries"
+  seed="$vite/seed-$config-$((tried + 1))"
+  bash "$self" --one "$file" "$results" "$timeout_seconds" "$seed"
+  if grep -qxF "PASS $file $results/$(printf '%s' "$file" | tr '/' '_').log" "$results/summary"; then
+    printf '%s %s\n' "$config" "$seed" >> "$results/warmed"
+  else
+    rm -rf "$seed" || true
+  fi
 done < "$results/serial"
-# The rest copy their config's warm cache and run at once; a config whose warming file did not
-# pass has no trustworthy cache, so its files run one at a time, each on a cold cache of its own.
+# The rest copy their config's warm cache and run at once; a config no file warmed has no
+# trustworthy cache, so its files run one at a time, each on a cold cache of its own.
 : > "$results/dev-warm"
 : > "$results/dev-cold"
 index=0
 while IFS= read -r -d '' config && IFS= read -r -d '' file; do
   index=$((index + 1))
-  warmer="$(sed -n "s/^$config //p" "$results/warmers")"
-  if grep -qxF "PASS $warmer $results/$(printf '%s' "$warmer" | tr '/' '_').log" "$results/summary"; then
-    printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$vite/seed-$config" >> "$results/dev-warm"
+  seed="$(sed -n "s/^$config //p" "$results/warmed")"
+  if [ -n "$seed" ]; then
+    printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$seed" >> "$results/dev-warm"
   else
     printf '%s\0%s\0%s\0' "$file" "$vite/$index" "$vite/none" >> "$results/dev-cold"
   fi

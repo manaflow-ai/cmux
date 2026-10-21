@@ -141,6 +141,8 @@ pub struct Owner {
     pub uploads: Vec<(String, DerivedImage, String, u32, u32)>,
     /// The owner lacks `link-preview-v1` (an older daemon).
     pub no_link_previews: bool,
+    /// Every run record summary the brain appended (`run_append`'s run).
+    pub runs: Vec<Value>,
 }
 
 /// One side conversation as the fake owner keeps it.
@@ -411,6 +413,8 @@ impl ConversationPort for FakeDaemon {
                 let seq = owner.messages.len() as u64 + 1;
                 let mut m = message(seq, "agent_mux", "");
                 m.parts = parts.clone();
+                // The owner keeps the sender's client_msg_id (a voice rides in it).
+                m.client_msg_id = key.to_owned();
                 owner.messages.push(m.clone());
                 Ok(Some(Change::Message { message: m }))
             }
@@ -420,6 +424,11 @@ impl ConversationPort for FakeDaemon {
 
     fn typing(&mut self, _: &str, on: bool) -> Result<(), OpError> {
         self.0.lock().unwrap().typing.push(on);
+        Ok(())
+    }
+
+    fn run_append(&mut self, _: &str, run: Value, _: Vec<Value>) -> Result<(), OpError> {
+        self.0.lock().unwrap().runs.push(run);
         Ok(())
     }
 
@@ -511,6 +520,9 @@ pub struct Agents {
     pub events_error: Option<String>,
     /// Sessions whose turn was cancelled, in order.
     pub cancels: Vec<String>,
+    /// Sessions whose running background processes were ended
+    /// (`_acpmux/process/kill` of each), in order.
+    pub killed_processes: Vec<String>,
     /// Queued prompts taken out (`_acpmux/queue_remove`): (session, prompt id).
     pub removed_queued: Vec<(String, String)>,
     /// The next prompt's answer (default `{"stopReason": "end_turn"}`), used once.
@@ -536,6 +548,10 @@ pub struct Agents {
     pub session_errors: BTreeMap<String, String>,
     /// The next `new_session` calls fail with these texts, one each, in order.
     pub session_errors_once: std::collections::VecDeque<String>,
+    /// The next `start_prompt` calls fail with these texts, one each, in
+    /// order (acpmux refused the prompt: the harness died, the socket
+    /// dropped).
+    pub prompt_errors_once: std::collections::VecDeque<String>,
     /// Each session's turn signals, for `push_events`.
     pub signals: BTreeMap<String, Sender<TurnSignal>>,
     /// The `_acpmux/harnesses` answer; None: `catalog()` (claude-sr and
@@ -544,10 +560,18 @@ pub struct Agents {
     /// The harness acpmux reports a new session on (`session`); None: the
     /// one the spec asked for.
     pub session_harness: Option<String>,
+    /// The status `session` reports per session id; without one, `idle`
+    /// once the session's last turn answered or lost its link, else `running`.
+    pub session_status: BTreeMap<String, String>,
+    /// Sessions whose last turn answered or lost its link.
+    pub turn_over: std::collections::BTreeSet<String>,
     /// Every folder the host trusted (`acp.trust.set`, level trusted).
     pub trusted: Vec<std::path::PathBuf>,
     /// Every permission answer: (session, permission id, option id).
     pub responses: Vec<(String, String, Option<String>)>,
+    /// Allows are refused as acpmux refuses them from anyone but the
+    /// person's app; a deny or a cancel still counts.
+    pub refuse_allows: bool,
     /// Every `_acpmux/prewarm` hint: (harness, preset, cwd).
     pub prewarms: Vec<(String, Option<String>, std::path::PathBuf)>,
     /// Every `set_mode`: (session, mode id, prompts sent before it).
@@ -743,17 +767,22 @@ impl AgentPort for FakeAgents {
         prompt_id: &str,
         signals: Sender<TurnSignal>,
     ) -> Result<(), String> {
+        if let Some(e) = self.inner.lock().unwrap().prompt_errors_once.pop_front() {
+            return Err(e);
+        }
         let turn = {
             let mut inner = self.inner.lock().unwrap();
             inner.prompts.push(blocks.clone());
             inner.prompt_ids.push(prompt_id.to_owned());
             inner.prompt_sessions.push(session.to_owned());
             inner.signals.insert(session.to_owned(), signals.clone());
+            inner.turn_over.remove(session);
             inner.prompts.len() - 1
         };
         self.changed.notify_all();
         self.append_events(session, (self.script)(turn, &blocks));
         let me = self.me.upgrade().expect("alive");
+        let session = session.to_owned();
         std::thread::spawn(move || {
             {
                 let mut inner = me.inner.lock().unwrap();
@@ -777,7 +806,11 @@ impl AgentPort for FakeAgents {
             if let Some(delay) = delay {
                 std::thread::sleep(delay);
             }
-            me.inner.lock().unwrap().answered_turns += 1;
+            {
+                let mut inner = me.inner.lock().unwrap();
+                inner.answered_turns += 1;
+                inner.turn_over.insert(session.clone());
+            }
             me.changed.notify_all();
             if lose {
                 let _ = signals.send(TurnSignal::Lost);
@@ -843,8 +876,17 @@ impl AgentPort for FakeAgents {
             .session_harness
             .clone()
             .unwrap_or_else(|| spec.harness.clone());
+        let status = inner.session_status.get(id).cloned().unwrap_or_else(|| {
+            if inner.turn_over.contains(id) {
+                "idle"
+            } else {
+                "running"
+            }
+            .into()
+        });
         Ok(Some(serde_json::from_value(json!({
-            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": "running",
+            "sessionId": id, "name": spec.name, "harness": harness, "cwd": spec.cwd, "status": status,
+            "tags": spec.tags,
         })).unwrap()))
     }
 
@@ -870,11 +912,16 @@ impl AgentPort for FakeAgents {
         permission: &str,
         option: Option<&str>,
     ) -> Result<(), String> {
-        self.inner.lock().unwrap().responses.push((
+        let mut inner = self.inner.lock().unwrap();
+        if inner.refuse_allows && option.is_some_and(|o| o.starts_with("allow")) {
+            return Err("approve this on the Mac app: allowing a permission is accepted only from the cmux app, never from the CLI, a script or an agent".into());
+        }
+        inner.responses.push((
             session.to_owned(),
             permission.to_owned(),
             option.map(str::to_owned),
         ));
+        drop(inner);
         Ok(())
     }
 
@@ -949,6 +996,15 @@ impl AgentPort for FakeAgents {
             .removed_queued
             .push((session.to_owned(), prompt_id.to_owned()));
         Ok(true)
+    }
+
+    fn kill_processes(&self, session: &str) -> Result<usize, String> {
+        self.inner
+            .lock()
+            .unwrap()
+            .killed_processes
+            .push(session.to_owned());
+        Ok(1)
     }
 
     fn cancel(&self, session: &str) -> Result<(), String> {

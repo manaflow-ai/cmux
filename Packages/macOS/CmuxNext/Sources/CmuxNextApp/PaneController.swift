@@ -190,10 +190,11 @@ final class PaneController: SurfacePresenter, PresentablePane {
     private func tabItem(_ tab: TabModel) -> StripTabItem {
         let fallback = Strings.untitledTerminal
         // Terminals on another machine carry its name; browsers always run here.
-        let machine = daemon.isLocal ? nil : services.machines.machineBadge(daemon.machineID)
+        let machine = daemon.isLocal ? nil : services.machines.tabBadge(daemon.machineID)
         let ownWorkspace = workspace?.workspace ?? daemon.store.workspace(containing: pane.handle)
         // The one title rule (`TabTitleResolver`), shared with the sidebar and the closed-tab toasts.
-        let titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
+        var titles = TabTitleResolver(services: services, workspace: ownWorkspace?.handle)
+        if tab.agentSession != nil { titles.workspaceName = ownWorkspace?.displayName }
         // A new tab page is "New Tab", with the new-tab icon, until it
         // becomes a chat (then the chat's title and icon).
         let isNewTabPage = titles.isNewTabPage(tab)
@@ -379,9 +380,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
         DebugTabSwitch.mark(self, "view")
-        // Terminals come in on their first frame (`LaunchSettle`); other
-        // content (a page, an agent) is ready once shown.
-        if let content, !content.isTerminal { LaunchReveal.shared.markReady(.pane) }
+        // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
+        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
+        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { LaunchReveal.shared.markReady(.pane) }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }

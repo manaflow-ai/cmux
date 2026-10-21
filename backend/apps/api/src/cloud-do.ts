@@ -90,10 +90,11 @@ export class CloudDO extends CloudIdle {
    * token is hashed here, so the committed op, its event and the ledger never see it. Any token
    * problem is one auth.forbidden; an object nobody created answers the same without being created.
    */
-  /** TeamDO's member-only read for `user` (tests replace it). */
+  /** TeamDO's fresh resource-membership read for `user` (tests replace it). */
   creatorIsMember = async (team: string, user: string): Promise<boolean> => {
-    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { readOp(e: string, p: Principal, op: string, params: unknown): Promise<{ ok: boolean }> }
-    return (await stub.readOp(team, { identity: `session:${user}`, kind: "session", user, team }, "team.members.list", { limit: 1 })).ok
+    const stub = this.env.TEAM_DO.get(this.env.TEAM_DO.idFromName(team)) as unknown as { memberRole(e: string, u: string): Promise<string | null> }
+    const role = await stub.memberRole(team, user)
+    return roleHas(role ?? undefined, "team.resources")
   }
 
   async bindMachine(entity: string, body: unknown): Promise<BindReply> {
@@ -227,6 +228,11 @@ export class CloudDO extends CloudIdle {
     const row = this.bind(entity).rows.get<MachineRow>(TABLE_MACHINE, machine)?.row
     if (!row) return { ok: false, refusal: "not_found" }
     if (!user || row.creator !== user) return { ok: false, refusal: "forbidden" }
+    if (entity !== personalTeamIdFor(user)) {
+      const started = Date.now()
+      const member = await this.creatorIsMember(entity, user).catch(() => false)
+      if (!member || (this.leftAt.get(user) ?? -1) >= started) return { ok: false, refusal: "forbidden" }
+    }
     if (row.status !== "running") return { ok: false, refusal: "not_running" }
     const driver = await Promise.resolve().then(() => this.driverFor(row)).catch(() => null)
     if (!driver) return { ok: false, refusal: "provider_failed" }

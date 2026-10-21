@@ -128,6 +128,8 @@ struct Conn {
     stdin: ChildStdin,
     lines: Receiver<String>,
     stderr: Arc<Mutex<String>>,
+    /// Closes when the stderr reader has read the child's last line.
+    stderr_done: Receiver<()>,
     workspace: Value,
     /// When the current call's budget runs out, and the budget.
     deadline: Instant,
@@ -236,7 +238,9 @@ impl Relay {
         });
         let stderr = Arc::new(Mutex::new(String::new()));
         let kept = stderr.clone();
+        let (stderr_tx, stderr_done) = std::sync::mpsc::channel::<()>();
         std::thread::spawn(move || {
+            let _done = stderr_tx;
             for line in BufReader::new(stderr_pipe).lines() {
                 let Ok(line) = line else { break };
                 if let Ok(mut text) = kept.lock() {
@@ -258,6 +262,7 @@ impl Relay {
             stdin,
             lines,
             stderr,
+            stderr_done,
             workspace: Value::Null,
             deadline,
             budget: self.budget,
@@ -342,7 +347,12 @@ impl Conn {
     fn request(&mut self, request: &Value, timeout: Duration) -> Result<Value, String> {
         writeln!(self.stdin, "{request}")
             .and_then(|()| self.stdin.flush())
-            .map_err(|e| format!("cmux remote rpc: {e}{}", self.why()))?;
+            .map_err(|e| {
+                // A child that exits before it reads the request breaks the
+                // pipe; its stderr still says why.
+                self.end();
+                format!("cmux remote rpc: {e}{}", self.why())
+            })?;
         let left = self.deadline.saturating_duration_since(Instant::now());
         match self.lines.recv_timeout(timeout.min(left)) {
             Ok(line) => serde_json::from_str(&line)
@@ -356,14 +366,19 @@ impl Conn {
                 timeout.as_secs()
             )),
             Err(RecvTimeoutError::Disconnected) => {
-                // Let the stderr reader catch the reason. The child has
-                // closed stdout; kill bounds the wait if it lingers.
-                std::thread::sleep(Duration::from_millis(50));
-                let _ = self.child.kill();
-                let _ = self.child.wait();
+                self.end();
                 Err(format!("cmux remote rpc ended{}", self.why()))
             }
         }
+    }
+
+    /// Ends the child and lets the stderr reader catch its reason. Kill
+    /// bounds a child that lingers; the timeout bounds a grandchild that
+    /// keeps stderr open.
+    fn end(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        let _ = self.stderr_done.recv_timeout(Duration::from_secs(1));
     }
 
     fn why(&self) -> String {

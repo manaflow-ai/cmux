@@ -116,7 +116,7 @@ impl HostedReader {
         if let (Some(journal_target), Some(journal_output)) =
             (journal_target.take(), journal_output)
         {
-            pty.journal_output_if_open(journal_target, journal_output);
+            pty.record_output(journal_target, &journal_output);
         }
         drop(journal_update.take());
         surface.publish_pending_directory();

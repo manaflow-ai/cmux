@@ -13363,6 +13363,137 @@
         }
       }
     },
+    "handlers.refusal.agentLinksOff": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "agent links are turned off in this build"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Links sind in diesem Build ausgeschaltet"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "les liens d’agent sont désactivés dans cette version"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "روابط الوكلاء معطّلة في هذا الإصدار"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "los enlaces de agente están desactivados en esta compilación"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本已關閉代理程式連結"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此版本已关闭智能体链接"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 빌드에서는 에이전트 링크가 꺼져 있음"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このビルドではエージェントリンクがオフになっています"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "linkovi agenata su isključeni u ovoj verziji"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "agentlinks er slået fra i denne version"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "i link degli agenti sono disattivati in questa build"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "តំណភ្នាក់ងារត្រូវបានបិទនៅក្នុងកំណែនេះ"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "agentlenker er slått av i denne versjonen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "linki agentów są wyłączone w tej wersji"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "os links de agente estão desativados nesta versão"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ссылки на агентов отключены в этой сборке"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ลิงก์เอเจนต์ถูกปิดในบิลด์นี้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ajan bağlantıları bu sürümde kapalı"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "посилання на агентів вимкнено в цій збірці"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "liên kết tác tử đã bị tắt trong bản dựng này"
+          }
+        }
+      }
+    },
     "handlers.refusal.linkItemNotFound": {
       "extractionState": "manual",
       "localizations": {
@@ -25156,6 +25287,137 @@
         }
       }
     },
+    "handlers.refusal.agentTabRunsOnHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this session runs on %@: open it without a host, or from that machine's workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションは %@ で実行されています: ホストを指定せずに開くか、そのマシンのワークスペースから開いてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الجلسة على %@: افتحها بدون مضيف، أو من مساحة عمل ذلك الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ova sesija radi na %@: otvorite je bez hosta ili iz radnog prostora te mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne session kører på %@: åbn den uden en vært, eller fra den maskines arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diese Sitzung läuft auf %@: öffne sie ohne Host oder aus dem Arbeitsbereich dieser Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta sesión se ejecuta en %@: ábrela sin host o desde el espacio de trabajo de esa máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cette session s'exécute sur %@ : ouvrez-la sans hôte, ou depuis l'espace de travail de cette machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questa sessione è in esecuzione su %@: aprila senza host o dall'area di lavoro di quella macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គនេះដំណើរការលើ %@៖ បើកវាដោយគ្មានម៉ាស៊ីនមេ ឬពីកន្លែងធ្វើការរបស់ម៉ាស៊ីននោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 세션은 %@에서 실행 중입니다: 호스트 없이 열거나 해당 머신의 워크스페이스에서 여세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne økten kjører på %@: åpne den uten vert, eller fra arbeidsområdet til den maskinen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ta sesja działa na %@: otwórz ją bez hosta lub z obszaru roboczego tej maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta sessão é executada em %@: abra-a sem um host ou a partir do espaço de trabalho dessa máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этот сеанс работает на %@: откройте его без указания хоста или из рабочего пространства этой машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชันนี้ทำงานบน %@: เปิดโดยไม่ระบุโฮสต์ หรือเปิดจากเวิร์กสเปซของเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu oturum %@ üzerinde çalışıyor: ana makine belirtmeden veya o makinenin çalışma alanından açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей сеанс працює на %@: відкрийте його без хоста або з робочого простору тієї машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "phiên này chạy trên %@: hãy mở mà không chỉ định máy chủ, hoặc từ không gian làm việc của máy đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此会话运行在 %@ 上：请不指定主机打开，或从该机器的工作区打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作階段在 %@ 上執行：請不指定主機開啟，或從該機器的工作區開啟"
+          }
+        }
+      }
+    },
     "handlers.refusal.unknownLocalhostChoice": {
       "extractionState": "manual",
       "localizations": {
@@ -27251,6 +27513,270 @@
           }
         }
       }
+    },
+    "handlers.refusal.homeReplyNoSelection": {
+      "comment": "Refusal: home.replyToSelection ran with no text selected in one message of a shown Home conversation.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Select text in one message of a Home conversation to reply to it."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "حدد نصًا في رسالة واحدة من محادثة في الصفحة الرئيسية للرد عليه."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Odaberite tekst u jednoj poruci razgovora na Početnoj da biste odgovorili na njega."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Markér tekst i én besked i en Hjem-samtale for at svare på den."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wähle Text in einer Nachricht einer Home-Unterhaltung aus, um darauf zu antworten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecciona texto en un mensaje de una conversación de Inicio para responder a él."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sélectionnez du texte dans un message d’une conversation de l’accueil pour y répondre."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Seleziona del testo in un messaggio di una conversazione Home per rispondere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "返信するには、ホームの会話の1つのメッセージ内のテキストを選択してください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ជ្រើសរើសអត្ថបទក្នុងសារមួយនៃការសន្ទនាទំព័រដើម ដើម្បីឆ្លើយតបទៅវា។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "답장하려면 홈 대화의 메시지 하나에서 텍스트를 선택하세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Marker tekst i én melding i en Hjem-samtale for å svare på den."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Zaznacz tekst w jednej wiadomości rozmowy na stronie głównej, aby na niego odpowiedzieć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Selecione um texto em uma mensagem de uma conversa do Início para responder a ele."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выделите текст в одном сообщении беседы на главной, чтобы ответить на него."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลือกข้อความในข้อความเดียวของการสนทนาในหน้าหลักเพื่อตอบกลับ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yanıtlamak için Ana Sayfa sohbetindeki bir mesajda metin seçin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Виділіть текст в одному повідомленні розмови на головній, щоб відповісти на нього."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chọn văn bản trong một tin nhắn của cuộc trò chuyện Trang chủ để trả lời."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主页对话的一条消息中选择文本以回复。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "在主頁對話的一則訊息中選取文字以回覆。"
+          }
+        }
+      }
+    },
+    "handlers.refusal.homeQuoteNoHome": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Open a Home conversation to quote in chat."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "افتح محادثة في الرئيسية للاقتباس في الدردشة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otvorite razgovor u Početnoj da citirate u razgovoru."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åbn en samtale i Hjem for at citere i chatten."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Öffne eine Unterhaltung in „Home“, um im Chat zu zitieren."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abre una conversación de Inicio para citar en el chat."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ouvrez une conversation de l’Accueil pour citer dans le chat."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Apri una conversazione di Home per citare nella chat."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "チャットで引用するには、ホームの会話を開いてください。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បើកការសន្ទនាក្នុងទំព័រដើម ដើម្បីដកស្រង់ក្នុងការជជែក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "채팅에 인용하려면 홈 대화를 여세요."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Åpne en samtale i Hjem for å sitere i chatten."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Otwórz rozmowę w Home, aby zacytować w czacie."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Abra uma conversa do Início para citar no chat."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Откройте разговор в «Домой», чтобы процитировать в чате."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เปิดการสนทนาในหน้าหลักเพื่ออ้างอิงในแชท"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sohbette alıntılamak için Ana Sayfa'da bir konuşma açın."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Відкрийте розмову в «Домівці», щоб цитувати в чаті."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mở một cuộc trò chuyện trong Trang chủ để trích dẫn trong chat."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打开一个主页对话以在聊天中引用。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "打開一個首頁對話以在聊天中引用。"
+          }
+        }
+      },
+      "comment": "Refusal: a viewer quote found no Home conversation to land in."
     }
   },
   "version": "1.0"

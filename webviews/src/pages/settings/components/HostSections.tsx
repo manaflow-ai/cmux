@@ -84,7 +84,12 @@ export function MachinesSection({ title }: { title: string }) {
       </div>
       <div className="host-footer">
         {/* The Add Server card, as the palette opens it; the page passes no code, so it never approves. */}
-        <button type="button" className="button" data-add-server="" onClick={() => void store.runAction("server.addServer")}>
+        <button
+          type="button"
+          className="button"
+          data-add-server=""
+          onClick={() => void store.runAction("server.addServer")}
+        >
           {t("action.server.addServer")}
         </button>
       </div>

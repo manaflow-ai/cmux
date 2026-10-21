@@ -26,7 +26,6 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
         type="button"
         className="cv-tool cv-bgtask"
         data-state={state}
-        title={t("bgTask.showOutput")}
         onClick={() => void openProcessTerminal(task.toolCallId)}
       >
         <span className="cv-tool__icon">

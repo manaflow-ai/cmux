@@ -203,6 +203,8 @@ final class KeyRouter: BrowserKeyRouting {
             cancelChord()
             return true
         }
+        // Browser focus mode: Esc Esc leaves it (the first Escape still reaches the page).
+        if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
@@ -258,7 +260,8 @@ final class KeyRouter: BrowserKeyRouting {
     /// A bare key in a page that owns bare keys (KeyRouter+BareKeys): a sequence step, else its binding.
     func dispatchBare(_ event: NSEvent, in window: NSWindow, controller: WindowController, context: KeyContext, facts: Facts) -> Bool {
         if let consumed = routeChord(event, in: window, controller: controller, context: context, facts: facts) { return consumed }
-        guard let winner = bareKeyWinner(event, context: context) else { return false }
+        // `routesBareKey` checked the key is bare and the page owns bare keys.
+        guard let winner = resolve(event, context: context) else { return false }
         decided.add(event)
         run(Candidate(id: winner.command, tier: registry.keyTier(for: winner.command), source: .registry(argument: winner.argument),
                       arguments: winner.arguments), context: context, window: controller.state.id)
@@ -319,6 +322,8 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
+    var focusModeEscape = BrowserFocusModeEscapeExit()
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).

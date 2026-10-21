@@ -57,7 +57,6 @@ public final class PaneToolbarView: NSView {
         moreButton.longPressOpensMenu = false
         moreButton.setAccessibilityLabel(Strings.paneMore)
         moreButton.setAccessibilityIdentifier("cmux.pane.more")
-        moreButton.themedToolTip = Strings.paneMore
         moreButton.pressMenu = { [weak self] in self?.moreMenu?() }
         // "…" stays shown while its menu is up: the pointer leaves the corner for the menu.
         let present = moreButton.presentMenu
@@ -165,7 +164,7 @@ public final class PaneToolbarView: NSView {
         let side = TitlebarBandButton.side
         let inset = Self.edgeInset(height: bounds.height)
         let slot = max(0, bounds.width - inset - side)
-        let x = revealed || !Motion.animatesMovement ? slot : slot - Self.moreSlide
+        let x = revealed || !Motion.tabs.animatesMovement ? slot : slot - Self.moreSlide
         return NSRect(x: x, y: inset, width: side, height: side)
     }
 
@@ -176,11 +175,11 @@ public final class PaneToolbarView: NSView {
     private func slideMore(revealed: Bool) {
         let target = moreFrame(revealed: revealed)
         guard moreButton.frame != target else { return }
-        guard Motion.animatesMovement, window != nil else {
+        guard Motion.tabs.animatesMovement, window != nil else {
             moreButton.frame = target
             return
         }
-        Motion.animate(.hover, in: self) { moreButton.animator().frame = target }
+        Motion.feedback.animate(.hover, in: self) { moreButton.animator().frame = target }
     }
 
     /// The buttons' gap above them in a bar `height` tall, which is also the "…" button's gap to

@@ -367,6 +367,56 @@ fn queued_chief_tells_are_flushed_as_an_interrupt_on_reconnect() {
     assert!(!prompts[1].contains("low priority"), "{prompts:?}");
 }
 
+/// acp-chief-issues.md #10: a tell to a running subagent whose steer is
+/// refused (acpmux: "the session has no running turn that its agent can
+/// steer", 25 times on 2026-10-19) interrupts the turn and goes as its next
+/// prompt; when that prompt fails, the message was only logged and lost. It
+/// must stay in the subagent's inbox and go with a later prompt.
+#[test]
+fn a_tell_whose_steer_and_prompt_both_fail_is_kept_and_delivered_later() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    let a = sp.clone();
+    let spawned = run(&mut h, move || a.spawn(vec!["long task".into()], None)).unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    wait_for(&mut h, |h| !sub_prompts(h).is_empty());
+    {
+        let mut inner = h.agents.inner.lock().unwrap();
+        inner.steering = false;
+        inner
+            .prompt_errors_once
+            .push_back("session/prompt: agent process closed".into());
+    }
+    let a = sp.clone();
+    let told = run(&mut h, move || a.tell("a1", "use the staging branch")).unwrap();
+    assert!(told.starts_with("outcome:"), "{told}");
+    settle(&mut h);
+    // Its turn ends (acpmux reports its session idle): the kept message is
+    // its next prompt.
+    h.agents.release();
+    std::thread::sleep(Duration::from_millis(100));
+    let session = h
+        .brain
+        .state()
+        .sub("a1")
+        .and_then(|(_, s)| s.session_id.clone())
+        .expect("a1 has a session");
+    let idle: cmux_chief::acp::SessionSummary = serde_json::from_value(serde_json::json!({
+        "sessionId": session, "name": "optchat-sub-h0me-a1", "status": "idle", "harness": "claude",
+    }))
+    .unwrap();
+    h.brain.step(optchat_chief::brain::Input::from(
+        optchat_chief::acpmux::AgentEvent::SessionChanged(idle),
+    ));
+    wait_for(&mut h, |h| {
+        sub_prompts(h)
+            .iter()
+            .skip(1)
+            .any(|p| p.contains("use the staging branch"))
+    });
+}
+
 #[test]
 fn keyed_tells_and_cancels_are_idempotent() {
     let mut h = Harness::new(default_script());
@@ -398,6 +448,8 @@ fn keyed_tells_and_cancels_are_idempotent() {
     let first = run(&mut h, cancel(&sp)).unwrap();
     assert!(first.starts_with("outcome: done."), "{first}");
     assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);
+    // Its background shells end with the turn.
+    assert_eq!(h.agents.inner.lock().unwrap().killed_processes.len(), 1);
     let second = run(&mut h, cancel(&sp)).unwrap();
     assert!(second.starts_with("outcome: noop."), "{second}");
     assert_eq!(h.agents.inner.lock().unwrap().cancels.len(), 1);

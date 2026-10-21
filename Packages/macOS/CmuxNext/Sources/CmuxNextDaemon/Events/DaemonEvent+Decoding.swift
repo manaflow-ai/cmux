@@ -42,9 +42,9 @@ extension DaemonEvent {
             case "tab-renamed": return .tabRenamed(try d(TabDelta.self))
             case "tab-changed": return .tabChanged(try d(TabDelta.self))
             case "tree-changed": return .treeChanged(transaction: try d(EventPayload.TransactionField.self).clientTransactionID)
-            // Personal state (`profiles-v1`) changed: the snapshot refetches
-            // `list-personal` with the tree, like saved tab groups.
-            case "personal-changed": return .treeChanged(transaction: nil)
+            // Personal state (`profiles-v1`) changed: the store refetches
+            // `list-personal` alone (a group fold must not refetch the tree).
+            case "personal-changed": return .personalChanged
             case "layout-changed":
                 let e = try d(EventPayload.ScreenField.self)
                 // `layout-delta-v1`: the screen's layout fields, flat. A

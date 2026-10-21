@@ -22,6 +22,9 @@ final class SidebarListView: NSView {
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
     var groups: [GroupID: SidebarGroup] = [:]
+    /// Each group and the groups under it, in document order (`reload`): a section lists a subgroup
+    /// after its parent, not inside it, so a parent's card reads its members through this.
+    var groupSubtrees: [GroupID: [GroupID]] = [:]
     var sections: [SectionID: SidebarSection] = [:]
     /// The sections the list draws in their own arrangement (tiles, a grid, a line, item rows) on the sidebar document.
     var blocks: SidebarListBlocks? {
@@ -145,6 +148,8 @@ final class SidebarListView: NSView {
         groupEditing.wire()
         // A row content change configures its one row (SidebarRowIndex), never reloads the list.
         model.onRowsPatched = { [weak self] rows in self?.patchRows(rows) }
+        // A group's fold splices that group's rows (SidebarListView+Fold), never reloads the list.
+        model.onGroupFolded = { [weak self] group in self?.foldGroup(group) }
         // A close's successor is the next row drawn here (FocusAfterClose.workspace).
         model.drawnWorkspaceOrder = { [weak self] in self?.visibleWorkspaceOrder ?? [] }
         // A refused change: a settling drop lets go and the rows spring back.
@@ -180,7 +185,7 @@ final class SidebarListView: NSView {
             // once self is gone (touching the lazy property here would create one).
             if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
             if let faviconObserver { NotificationCenter.default.removeObserver(faviconObserver) }
-            for observer in settleObservers { NotificationCenter.default.removeObserver(observer) }
+            for observer in settleObservers + focusObservers { NotificationCenter.default.removeObserver(observer) }
         }
     }
     // MARK: - Window occlusion
@@ -188,6 +193,7 @@ final class SidebarListView: NSView {
     private var occlusionObserver: (any NSObjectProtocol)?
     private var faviconObserver: (any NSObjectProtocol)?
     private var settleObservers: [any NSObjectProtocol] = []
+    private var focusObservers: [any NSObjectProtocol] = []
     override func viewWillMove(toWindow newWindow: NSWindow?) {
         super.viewWillMove(toWindow: newWindow)
         // Off screen a card's landing never completes: it ends now (its held rows show, the reloads stop adopting).
@@ -203,10 +209,21 @@ final class SidebarListView: NSView {
         let center = NotificationCenter.default
         if let occlusionObserver { center.removeObserver(occlusionObserver) }
         observedWindow = window
+        // A gesture ends when its window or the app loses focus (`pointerFocusLost`). Off screen no card can land:
+        // a drag ends in place (`abandonDrag`, its rows shown again).
+        for observer in focusObservers { center.removeObserver(observer) }
+        focusObservers = window == nil ? [] : observeFocusLoss(of: window)
+        if window == nil {
+            if let drag { abandonDrag(drag) }
+            press = nil
+        }
         // queue: .main (inline for AppKit's post on main); a selector into this main-actor view trapped off main.
         occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
         } }
+        // The rows read the window when they moved in; the list's own reading starts them all from
+        // the same state, not each from whatever its window said a moment earlier.
+        if window != nil { windowOcclusionChanged() }
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
@@ -261,7 +278,20 @@ final class SidebarListView: NSView {
         guard drag == nil, let window else { return setHovered(nil) }
         let point = convert(windowPoint ?? window.convertPoint(fromScreen: hoverCards.currentPointer()), from: nil)
         guard visibleRect.contains(point) else { return setHovered(nil) }
-        setHovered(displayed.row(at: point.y)?.key)
+        setHovered(hoverHit(at: point)?.key)
+    }
+    /// The row the pointer at `point` hovers (`SidebarLayout.hoverRow`). The
+    /// hover pill sits inside the drawn fill: `Metrics.space1` in from its top
+    /// and bottom, corners rounded `Metrics.space1` more (Leo 2026-10-19).
+    func hoverHit(at point: CGPoint) -> SidebarRow? {
+        displayed.hoverRow(at: point, current: hoveredKey, frame: frame(for:),
+                           cornerRadius: SidebarStyle.rowCornerRadius + Metrics.space1, inset: Metrics.space1)
+    }
+    /// The row a click at `point` acts on: the hovered row when the pointer
+    /// hovers one, so a click never lands on a row other than the lit one;
+    /// otherwise the row whose tile holds `point` (clicks split the gap).
+    func clickHit(at point: CGPoint) -> SidebarRow? {
+        hoverHit(at: point) ?? displayed.row(at: point.y)
     }
     func setHovered(_ key: SidebarRowKey?) {
         guard key != hoveredKey else { return }

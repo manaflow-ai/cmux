@@ -6,14 +6,13 @@ import CmuxNextCompat
 import Testing
 
 @Suite(.serialized) struct ControlSocketServerTests {
-    func makeServer(_ mode: ControlAccessMode, path: String = temporarySocketPath(), trustedAncestor: pid_t = getpid(), password: String? = nil) throws -> ControlSocketServer {
+    func makeServer(_ mode: ControlAccessMode, path: String = temporarySocketPath(), trustedAncestor: pid_t = getpid()) throws -> ControlSocketServer {
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         router.updateCatalog(sampleCatalog())
         let server = ControlSocketServer(
             configuration: .init(
                 path: path,
                 accessMode: mode,
-                passwordVerifier: password.map { expected in { @Sendable in $0 == expected } },
                 trustedAncestor: trustedAncestor
             ),
             router: router
@@ -23,7 +22,7 @@ import Testing
     }
 
     @Test func servesV1AndV2Lines() throws {
-        let server = try makeServer(.allowAll)
+        let server = try makeServer(.automation)
         defer { server.stop() }
         let client = try LineClient(path: server.configuration.path)
         #expect(client.send("ping") == "PONG")
@@ -32,7 +31,7 @@ import Testing
         #expect(identify["id"] == "t1")
         #expect(identify["result"]?["app"] == "cmux-next")
         #expect(identify["result"]?["socket_path"] == .string(server.configuration.path))
-        #expect(identify["result"]?["access_mode"] == "allowAll")
+        #expect(identify["result"]?["access_mode"] == "automation")
         let run = try client.call("action.run", ["action": "tab-group create", "args": ["name": "X", "color": "green"], "wait": false])
         #expect(run["ok"] == true)
         // The CLI's capability and automation envelopes are unwrapped.
@@ -47,12 +46,12 @@ import Testing
     }
 
     @Test func socketFilePermissionsFollowTheMode() throws {
-        for (mode, expected) in [(ControlAccessMode.cmuxOnly, mode_t(0o600)), (.allowAll, 0o666)] {
+        for mode in [ControlAccessMode.cmuxOnly, .automation] {
             let server = try makeServer(mode)
             defer { server.stop() }
             var info = stat()
             #expect(lstat(server.configuration.path, &info) == 0)
-            #expect(info.st_mode & 0o777 == expected, "\(mode)")
+            #expect(info.st_mode & 0o777 == 0o600, "\(mode)")
         }
     }
 
@@ -70,26 +69,10 @@ import Testing
         #expect(client.readLine() == "")
     }
 
-    @Test func passwordModeRequiresLogin() throws {
-        let server = try makeServer(.password, password: "hunter2")
-        defer { server.stop() }
-        let client = try LineClient(path: server.configuration.path)
-        let blocked = try client.call("action.list")
-        #expect(blocked["error"]?["code"] == "auth_required")
-        #expect(client.send("auth nope") == "ERROR: Invalid password")
-        #expect(client.send("auth hunter2") == "OK: Authenticated")
-        #expect(try client.call("action.list")["ok"] == true)
-
-        let v2 = try LineClient(path: server.configuration.path)
-        #expect(try v2.call("auth.login", ["password": "bad"])["error"]?["code"] == "auth_failed")
-        #expect(try v2.call("auth.login", ["password": "hunter2"])["ok"] == true)
-        #expect(try v2.call("system.ping")["ok"] == true)
-    }
-
     @Test func neverStealsALiveSocketButReclaimsStaleOnes() throws {
         let path = temporarySocketPath()
-        let first = try makeServer(.allowAll, path: path)
-        #expect(throws: ControlSocketServer.StartError.addressInUse(path)) { _ = try makeServer(.allowAll, path: path) }
+        let first = try makeServer(.automation, path: path)
+        #expect(throws: ControlSocketServer.StartError.addressInUse(path)) { _ = try makeServer(.automation, path: path) }
         #expect(try LineClient(path: path).send("ping") == "PONG")
         first.stop()
         #expect(access(path, F_OK) != 0, "stop removes the socket it created")
@@ -106,7 +89,7 @@ import Testing
             $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(stale, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) }
         }
         close(stale)
-        let second = try makeServer(.allowAll, path: path)
+        let second = try makeServer(.automation, path: path)
         defer { second.stop() }
         #expect(try LineClient(path: path).send("ping") == "PONG")
 
@@ -114,11 +97,11 @@ import Testing
         let regular = temporarySocketPath()
         FileManager.default.createFile(atPath: regular, contents: Data("keep".utf8))
         defer { unlink(regular) }
-        #expect(throws: ControlSocketServer.StartError.pathOccupied(regular)) { _ = try makeServer(.allowAll, path: regular) }
+        #expect(throws: ControlSocketServer.StartError.pathOccupied(regular)) { _ = try makeServer(.automation, path: regular) }
     }
 
     @Test func halfClosedClientStillGetsItsResponse() throws {
-        let server = try makeServer(.allowAll)
+        let server = try makeServer(.automation)
         defer { server.stop() }
         let client = try LineClient(path: server.configuration.path)
         let line = Array(#"{"id":1,"method":"action.list"}"#.utf8) + [0x0A]
@@ -146,7 +129,7 @@ import Testing
         let calls = Atomic<Int>(0)
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let server = ControlSocketServer(
-            configuration: .init(path: temporarySocketPath(), accessMode: .allowAll),
+            configuration: .init(path: temporarySocketPath(), accessMode: .automation),
             router: router,
             accept: { _ in
                 calls.add(1, ordering: .relaxed)
@@ -189,7 +172,7 @@ import Testing
         return lstat(path, &info) == 0 ? info.st_mode & 0o777 : nil
     }
 
-    @Test(arguments: [ControlAccessMode.cmuxOnly, .allowAll])
+    @Test(arguments: [ControlAccessMode.cmuxOnly, .automation])
     func aFileCreatedWhileTheSocketBindsKeepsItsNormalMode(_ mode: ControlAccessMode) throws {
         let probe = "/tmp/cnc-probe-\(UUID().uuidString.prefix(8).lowercased())"
         let expected = try #require(Self.createdMode(probe), "the reference file could not be created")
@@ -245,7 +228,7 @@ import Testing
 
     @Test func aDeletedSocketFileComesBackWithItsMode() async throws {
         let path = temporarySocketPath()
-        let server = try makeServer(.allowAll, path: path)
+        let server = try makeServer(.automation, path: path)
         defer { server.stop() }
         let open = try LineClient(path: path)
         #expect(open.send("ping") == "PONG")
@@ -255,7 +238,7 @@ import Testing
         var info = stat()
         #expect(lstat(path, &info) == 0)
         #expect(info.st_mode & S_IFMT == S_IFSOCK)
-        #expect(info.st_mode & 0o777 == ControlAccessMode.allowAll.filePermissions)
+        #expect(info.st_mode & 0o777 == ControlAccessMode.automation.filePermissions)
         #expect(open.send("ping") == "PONG", "a connection open across the delete keeps working")
 
         // Deleted again: restored again.
@@ -270,7 +253,7 @@ import Testing
     /// connect reaches the server and the socket file is the server's own.
     @Test func restartBindsTheListenerAgainAtItsPath() throws {
         let path = temporarySocketPath()
-        let server = try makeServer(.allowAll, path: path)
+        let server = try makeServer(.automation, path: path)
         defer { server.stop() }
         #expect(try LineClient(path: path).send("ping") == "PONG")
         var before = stat()
@@ -282,7 +265,7 @@ import Testing
         var after = stat()
         #expect(lstat(path, &after) == 0)
         #expect(after.st_mode & S_IFMT == S_IFSOCK)
-        #expect(after.st_mode & 0o777 == ControlAccessMode.allowAll.filePermissions)
+        #expect(after.st_mode & 0o777 == ControlAccessMode.automation.filePermissions)
         #expect(after.st_ino != before.st_ino, "the socket file was not bound again")
         #expect(try LineClient(path: path).send("ping") == "PONG", "a new connect does not reach the restarted server")
         server.stop()
@@ -310,7 +293,7 @@ import Testing
 
     @Test func aPathAnotherServerTookIsLeftAlone() async throws {
         let path = temporarySocketPath()
-        let first = try makeServer(.allowAll, path: path)
+        let first = try makeServer(.automation, path: path)
         defer { first.stop() }
         // Another server's socket replaces the file in one rename, so there is
         // no moment with nothing at the path for the first server to fill.
@@ -334,7 +317,7 @@ import Testing
         let box = Mutex<ControlSocketServer?>(nil)
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let server = ControlSocketServer(
-            configuration: .init(path: path, accessMode: .allowAll),
+            configuration: .init(path: path, accessMode: .automation),
             router: router,
             accept: { Darwin.accept($0, nil, nil) },
             bind: { descriptor, address, length in
@@ -370,7 +353,7 @@ import Testing
         let failing = Mutex(true)
         let router = ControlRouter(identity: testIdentity(), executor: RecordingExecutor(), configuration: .loadTolerant)
         let server = ControlSocketServer(
-            configuration: .init(path: path, accessMode: .allowAll),
+            configuration: .init(path: path, accessMode: .automation),
             router: router,
             accept: { Darwin.accept($0, nil, nil) },
             bind: { descriptor, address, length in
