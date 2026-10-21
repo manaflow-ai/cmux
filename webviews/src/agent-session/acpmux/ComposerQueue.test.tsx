@@ -72,7 +72,11 @@ test("every queued row shows Edit, Remove and Send now, each with its tooltip", 
   for (const entry of queue) {
     const buttons = actions(container, entry.id);
     expect(buttons.map((b) => b.dataset.action)).toEqual(["edit", "remove", "send"]);
-    expect(buttons.map((b) => b.title)).toEqual(["composer.queueEdit", "composer.queueRemove", "composer.queueSendNow"]);
+    expect(buttons.map((b) => b.title)).toEqual([
+      "composer.queueEdit",
+      "composer.queueRemove",
+      "composer.queueSendNow",
+    ]);
     for (const b of buttons) expect(b.getAttribute("aria-label")).toBe(b.title);
   }
 });
@@ -121,9 +125,7 @@ test("a held ⌘↩ on a row sends that row once and keeps focus on it", async (
   const row = container.querySelector<HTMLElement>('[data-prompt-id="p-1"]')!;
   row.focus();
   const press = (repeat: boolean) =>
-    row.dispatchEvent(
-      new dom!.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, repeat, bubbles: true }),
-    );
+    row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Enter", metaKey: true, repeat, bubbles: true }));
   await act(async () => {
     press(false);
     press(true);
