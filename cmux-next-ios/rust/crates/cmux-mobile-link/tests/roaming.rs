@@ -46,8 +46,9 @@ enum Change {
     /// a new allocation.
     TurnStream,
     /// Its network starts dropping UDP to the TURN server (`TestTurn`
-    /// blocks it), and it roams: the new allocation must use TLS.
-    UdpBlocked(std::sync::Arc<TestTurn>),
+    /// blocks it), and it roams: the new allocation must use TLS. With a
+    /// delay, UDP to the server comes back that much later.
+    UdpBlocked(std::sync::Arc<TestTurn>, Option<Duration>),
 }
 
 /// Stream through an echo channel, take the phone's network away at 1 s
@@ -183,8 +184,14 @@ async fn stream_across(
             assert_eq!(wireguard::simulate_turn_loss(Some(&session_id), true), 1);
             None
         }
-        Change::UdpBlocked(turn) => {
+        Change::UdpBlocked(turn, unblock) => {
             turn.set_udp_blocked(true);
+            if let Some(delay) = unblock {
+                tokio::spawn(async move {
+                    tokio::time::sleep(delay).await;
+                    turn.set_udp_blocked(false);
+                });
+            }
             assert_eq!(wireguard::simulate_network_loss(Some(&session_id), true), 1);
             let session_id = session_id.clone();
             Some(tokio::spawn(async move { wireguard::roam_session(&session_id, true).await }))
@@ -355,7 +362,7 @@ async fn wireguard_roams_from_turn_udp_to_turn_tls() {
     let run = stream_across(
         phone,
         options(),
-        Change::UdpBlocked(std::sync::Arc::clone(&turn)),
+        Change::UdpBlocked(std::sync::Arc::clone(&turn), None),
         Duration::from_secs(4),
     )
     .await;
@@ -366,6 +373,28 @@ async fn wireguard_roams_from_turn_udp_to_turn_tls() {
     // The UDP attempt waits out its stagger before TLS starts.
     assert!(run.stall < Duration::from_secs(3), "stalled {:?}", run.stall);
     assert!(names(&run).contains(&"roam_turn_tls_allocated"), "{:?}", run.marks);
+}
+
+/// Relay only through TURN over UDP, and the new network drops UDP to the
+/// TURN server for 3 s: the roam's own allocation times out. The session
+/// keeps asking for one, and once the server answers the stream goes on
+/// through it (it does not wait for the next network change).
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn wireguard_takes_the_turn_allocation_its_roam_missed() {
+    let turn = std::sync::Arc::new(TestTurn::start().await);
+    let phone = DialOptions { relay_only: true, ice_servers: vec![turn.udp_only()], ..options() };
+    let run = stream_across(
+        phone,
+        options(),
+        Change::UdpBlocked(std::sync::Arc::clone(&turn), Some(Duration::from_secs(3))),
+        Duration::from_secs(8),
+    )
+    .await;
+    eprintln!("missed roam allocation: {run:?}");
+    assert_eq!(run.before, LinkPath::Turn);
+    assert_eq!(run.after, LinkPath::Turn);
+    assert_eq!(run.mac_after, Some(LinkPath::Turn));
+    assert!(!names(&run).contains(&"roam_turn_allocated"), "the roam was meant to miss: {:?}", run.marks);
 }
 
 /// The TLS stream to the TURN server dies (a middlebox resets it) without
