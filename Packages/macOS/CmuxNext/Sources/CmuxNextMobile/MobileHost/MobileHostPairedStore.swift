@@ -30,6 +30,8 @@ public final class MobileHostPairedStore: Sendable {
     }
 
     /// The signed-in user's list; nil (signed out) allows no phone. The same user keeps the list as is.
+    /// Only the iPhone host calls this, from its account (``IPhoneHostService/accountChanged(_:)``):
+    /// one owner decides whose list it is, and the Iroh link reads it.
     public func load(userID: String?) {
         reload { $0.userID = userID }
     }
@@ -45,10 +47,13 @@ public final class MobileHostPairedStore: Sendable {
         current?.devices.contains { $0.id == id && $0.transport == transport } ?? false
     }
 
-    /// Edits the list and writes it. Throws, changing nothing, while signed out or when it cannot be written.
-    public func change(_ edit: (inout MobileHostPairedDevices) -> Void) throws {
+    /// Edits the list and writes it. Throws, changing nothing, while signed out, when the list is no
+    /// longer `user`'s (a question answered after a user switch), or when it cannot be written.
+    public func change(for user: String? = nil, _ edit: (inout MobileHostPairedDevices) -> Void) throws {
         let (change, observers) = try state.withLock { state in
-            guard let file = state.file, var next = state.list else { throw CocoaError(.userCancelled) }
+            guard let file = state.file, var next = state.list, user.map({ $0 == next.userID }) ?? true else {
+                throw CocoaError(.userCancelled)
+            }
             let before = next.devices
             edit(&next)
             try file.save(next)
