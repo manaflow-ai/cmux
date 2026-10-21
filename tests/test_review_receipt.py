@@ -34,12 +34,24 @@ def pr(comments=(), reviews=(), head=HEAD):
     return {"headRefOid": head, "comments": {"nodes": list(comments)}, "reviews": {"nodes": list(reviews)}}
 
 
-SHIP = f"Review (subagent, correctness first): SHIP at {HEAD[:12]}"
+SHIP = f"Review (subagent, correctness first): SHIP at {HEAD}"
 
 
 class ReceiptRules(unittest.TestCase):
     def test_a_ship_receipt_comment_naming_the_head_passes(self):
         self.assertIn("SHIP", receipt.receipt(pr([comment(SHIP)]), HEAD))
+
+    def test_a_ship_must_name_the_full_head(self):
+        # cmux#22762 merged at 3a97b47e on a receipt that named 0b4c5bf3: a prefix is too easy to misread or
+        # reuse, so a SHIP names all 40 characters of the head (Leo, 2026-10-21).
+        for short in (HEAD[:7], HEAD[:12], HEAD[:39]):
+            with self.subTest(short=short):
+                self.assertEqual(receipt.receipt(pr([comment(f"Review (subagent): SHIP at {short}")]), HEAD), "")
+        self.assertIn("SHIP", receipt.receipt(pr([comment(f"Review (subagent): SHIP at {HEAD}")]), HEAD))
+        self.assertEqual(receipt.receipt(pr([comment(f"Review (subagent): SHIP at {HEAD}0")]), HEAD), "")
+        # A wait verdict still counts when it names the head by a prefix: refusing more is safe.
+        later_block = comment(f"Review (subagent): BLOCK at {HEAD[:12]}", at="2026-10-21T06:00:00Z")
+        self.assertEqual(receipt.receipt(pr([comment(SHIP), later_block]), HEAD), "")
 
     def test_no_receipt_refuses(self):
         self.assertEqual(receipt.receipt(pr([comment("Addressed review findings: nothing blocking")]), HEAD), "")
@@ -219,7 +231,7 @@ class Command(unittest.TestCase):
     def test_no_receipt_refuses_with_the_comment_to_post(self):
         status, _, err = self.run_main(pr())
         self.assertEqual(status, 1)
-        self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD[:12]}", err)
+        self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD}", err)
         # A base merge makes a new head, which needs its own receipt.
         self.assertIn("merge-main.sh", err)
         self.assertIn("update-branch", err)
