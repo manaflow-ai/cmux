@@ -21,10 +21,8 @@ enum RemoteGroupHandlers {
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }
             if let text = invocation["destination"]?.stringValue { return try make(text) }
-            CloudPresenter.askText(RemoteStrings.newGroupTitle, initial: "", button: RemoteStrings.connect, in: CloudHandlers.window(context)) { text in
-                guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                do { try make(text) } catch { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-            }
+            // The host as a Cmd-Shift-P step; Return runs this again with it.
+            registry.ask("remote.newGroup", invocation, ActionArgumentAsk(argument: "destination"))
         }
         // Back to rows of the one list; the host stays connected and its workspaces stay.
         registry.bind("remote.removeGroup", run: { invocation in

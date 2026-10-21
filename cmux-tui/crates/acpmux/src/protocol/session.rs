@@ -64,6 +64,10 @@ pub struct SessionSummary {
     pub moving: bool,
     /// The agent takes a prompt mid-turn.
     pub steering: bool,
+    /// `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+    /// harness is Claude Code (claude-stdio), whatever the harness's name.
+    /// Clients offer Ctrl-B from this, not from `harness`.
+    pub backgrounds_work: bool,
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,
