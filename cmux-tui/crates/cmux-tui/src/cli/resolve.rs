@@ -397,8 +397,7 @@ fn caller_scopes(
     for (index, scope) in CALLER_SCOPES.into_iter().enumerate() {
         let Some(selector) = &selectors[index] else { continue };
         let own = path.get(scope).and_then(Value::as_str);
-        let follows =
-            selector == "current" && current && on_caller_path && index >= deepest_named;
+        let follows = selector == "current" && current && on_caller_path && index >= deepest_named;
         if selector == "caller" || follows {
             let Some(own) = own else {
                 if explicit {
