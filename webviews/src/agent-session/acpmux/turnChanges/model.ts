@@ -8,7 +8,7 @@
 // the previous edit's newText. An edit sent as a fragment (Claude's Edit sends old_string and
 // new_string) breaks that chain unless the fragment is the whole file, which the host's exact
 // compare then proves. Never git, never the agent.
-import type { AcpmuxFileDiff, AcpmuxRow } from "../model";
+import { pathKey, type AcpmuxFileDiff, type AcpmuxRow } from "../model";
 
 /// What Undo can do for one file.
 export type FileUndo =
@@ -22,7 +22,8 @@ export type FileUndo =
 export type EditedFile = { path: string; added: number; removed: number; undo: FileUndo };
 export type TurnChanges = { turnId: string; files: EditedFile[] };
 
-/// The tool-call diffs of `rows` per path, in order. A failed tool call wrote nothing.
+/// The tool-call diffs of `rows` per file (model.ts `pathKey`: its canonical path, else its path), in
+/// order. A failed tool call wrote nothing.
 export function diffsByPath(rows: readonly AcpmuxRow[]): Map<string, AcpmuxFileDiff[]> {
   const byPath = new Map<string, AcpmuxFileDiff[]>();
   for (const row of rows) {
@@ -30,7 +31,7 @@ export function diffsByPath(rows: readonly AcpmuxRow[]): Map<string, AcpmuxFileD
     for (const item of row.items ?? []) {
       const tool = item.tool;
       if (!tool || tool.status === "failed") continue;
-      for (const diff of tool.diffs ?? []) byPath.set(diff.path, [...(byPath.get(diff.path) ?? []), diff]);
+      for (const diff of tool.diffs ?? []) byPath.set(pathKey(diff), [...(byPath.get(pathKey(diff)) ?? []), diff]);
     }
   }
   return byPath;
@@ -52,11 +53,12 @@ export function fileUndo(diffs: readonly AcpmuxFileDiff[]): FileUndo {
   return { kind: "revert", before: first.oldText, after: last.newText };
 }
 
-/// The card's files: `counts` (the display's paths and line counts) with each file's Undo.
+/// The card's files: `counts` (the display's paths and line counts) with each file's Undo. Undo
+/// names each file by `path`, the agent's spelling, never the canonical path it is matched by.
 export function turnChanges(
   turnId: string,
   rows: readonly AcpmuxRow[],
-  counts: readonly { path: string; additions: number; deletions: number }[],
+  counts: readonly { path: string; canonical?: string; additions: number; deletions: number }[],
 ): TurnChanges {
   const byPath = diffsByPath(rows);
   return {
@@ -65,7 +67,7 @@ export function turnChanges(
       path: file.path,
       added: file.additions,
       removed: file.deletions,
-      undo: fileUndo(byPath.get(file.path) ?? []),
+      undo: fileUndo(byPath.get(pathKey(file)) ?? []),
     })),
   };
 }

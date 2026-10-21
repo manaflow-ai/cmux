@@ -1,6 +1,7 @@
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
+  AcpmuxLocation,
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
@@ -456,8 +457,31 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
       newText: item.newText,
       line: lines.get(item.path),
       ...(item.fragment === true || item._meta?.acpmux?.fragment === true ? { fragment: true as const } : {}),
+      ...canonicalOf(item),
     }));
   return diffs.length ? diffs : undefined;
+}
+
+/// The canonical path acpmux recorded beside an item's path (hub/tool_paths.rs), as `canonical`:
+/// a `diff` item's or location's `_meta.acpmux.canonicalPath`, or a diff this page placed again.
+function canonicalOf(item: any): { canonical?: string } {
+  const canonical = item?._meta?.acpmux?.canonicalPath ?? item?.canonical;
+  return typeof canonical === "string" && canonical ? { canonical } : {};
+}
+
+/// A call's locations with their canonical paths read (`canonicalOf`).
+function readLocations(locations: any): AcpmuxLocation[] | undefined {
+  if (!Array.isArray(locations)) return undefined;
+  return locations.map((location: any) =>
+    location && typeof location === "object" ? { ...location, ...canonicalOf(location) } : location,
+  );
+}
+
+/// The input's file and the canonical path acpmux recorded for it on the update (`_meta.acpmux`).
+function inputPath(update: any): { path: string; canonical: string } | undefined {
+  const path = update.rawInput?.file_path;
+  const { canonical } = canonicalOf(update);
+  return typeof path === "string" && canonical ? { path, canonical } : undefined;
 }
 
 /// Claude Code's result for a Write that made a new file ("File created successfully at: …"). An
@@ -470,10 +494,10 @@ const CREATED_RESULT = /^\s*File created successfully at\b/;
 /// diff against, so it stays a path without counts. Each is marked `fragment` (the page never saw the
 /// file around it, so Undo, turnChanges/model.ts `fileUndo`, never writes a file back from these)
 /// and `fromInput` (a later input replaces them).
-export function inputDiffs(rawInput: any, result?: string): AcpmuxFileDiff[] | undefined {
+export function inputDiffs(rawInput: any, result?: string, canonical?: string): AcpmuxFileDiff[] | undefined {
   const path = rawInput?.file_path;
   if (typeof path !== "string" || !path) return undefined;
-  const mark = { fragment: true as const, fromInput: true as const };
+  const mark = { fragment: true as const, fromInput: true as const, ...(canonical ? { canonical } : {}) };
   if (typeof rawInput.content === "string")
     return result !== undefined && CREATED_RESULT.test(result)
       ? [{ path, newText: rawInput.content, ...mark }]
@@ -522,10 +546,11 @@ export function mergeToolItem(
   const status = String(update.status ?? before?.status ?? "in_progress");
   const ended = status === "completed" || status === "failed";
   const kind = update.kind ?? before?.kind;
+  const locations = readLocations(update.locations) ?? before?.locations;
+  // The input's file, from the update that carries the input.
+  const input = update.rawInput ? inputPath(update) : before?.inputPath;
   const placed =
-    update.content === undefined
-      ? placeDiffs(before?.diffs, update.locations)
-      : toolDiffs(update.content, Array.isArray(update.locations) ? update.locations : before?.locations);
+    update.content === undefined ? placeDiffs(before?.diffs, update.locations) : toolDiffs(update.content, locations);
   // An edit whose content names no `diff` (Claude Code's Edit, whose result is plain text) still
   // changed its file: its input has the change, read again from the latest input. A failed one
   // changed nothing. A `diff` in the content always wins over the input.
@@ -535,7 +560,7 @@ export function mergeToolItem(
     diffs =
       status === "failed"
         ? undefined
-        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result) ?? placed);
+        : (inputDiffs(update.rawInput ?? storedInput(before?.inputSummary), result, input?.canonical) ?? placed);
   }
   return {
     kind: "tool",
@@ -555,7 +580,8 @@ export function mergeToolItem(
       endedAt: before?.endedAt ?? (ended ? at : undefined),
       // A shell that went to the background stays there as its call's result comes in.
       ...(before?.background ? { background: before.background } : {}),
-      locations: Array.isArray(update.locations) ? update.locations : before?.locations,
+      locations,
+      ...(input ? { inputPath: input } : {}),
       images: update.content === undefined ? before?.images : imagesFromContent(update.content),
       diffs,
     },
