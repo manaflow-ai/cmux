@@ -732,6 +732,9 @@ export class AcpmuxDirectClient {
   /// The steers the agent has not read yet, by row (the reply that was streaming when one went
   /// still streams above it; a later message means the agent read them).
   private waitingSteers: { rowId: string; promptId?: string }[] = [];
+  /// Each steer's row by its promptId. A steer that reaches the agent as its turn ends runs as the
+  /// next prompt with the same promptId, recorded again: that prompt's row replaces the steer's.
+  private steerRows = new Map<string, string>();
   /// Prompts sent now to an agent that cannot steer (acpmux `queue_order` `next`): each stops the
   /// turn and runs next, so its row reads as sent now.
   private sentNow = new Set<string>();
@@ -1096,6 +1099,7 @@ export class AcpmuxDirectClient {
     this.optimisticPromptAttachments.clear();
     this.queuedSends.clear();
     this.waitingSteers = [];
+    this.steerRows.clear();
     this.sentNow.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
@@ -1753,6 +1757,7 @@ export class AcpmuxDirectClient {
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
     this.waitingSteers = [];
+    this.steerRows.clear();
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
@@ -2092,10 +2097,18 @@ export class AcpmuxDirectClient {
         // Its queued line, if the result waited, gives way to this prompt's.
         if (received) this.rows.delete(`received-${received.offerId}`);
         if (received) this.receivedOffers.add(received.offerId);
+        // The steer this prompt is (its turn ended first) was never read: its row gives way to this one.
+        const steered = msg.steer !== true && promptId ? this.steerRows.get(promptId) : undefined;
+        if (promptId && steered) {
+          this.rows.delete(steered);
+          this.steerRows.delete(promptId);
+          this.waitingSteers = this.waitingSteers.filter((waiting) => waiting.rowId !== steered);
+        }
         // A newer prompt means any steer before it was read; a second steer can come in the same step.
         if (msg.steer !== true) this.landSteer();
         const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
         if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
+        if (steer === "waiting" && promptId) this.steerRows.set(promptId, `user-${event.seq}`);
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
