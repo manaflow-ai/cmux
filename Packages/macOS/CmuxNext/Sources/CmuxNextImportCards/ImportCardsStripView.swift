@@ -63,6 +63,7 @@ public final class ImportCardsStripView: NSView {
         header.addArrangedSubview(titleLabel)
         header.addArrangedSubview(NSView())
         header.addArrangedSubview(showAll)
+        ColumnTopOverlays.shared.register(self)
         follow()
     }
 
@@ -72,6 +73,13 @@ public final class ImportCardsStripView: NSView {
     public override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         drawn.map(draw)
+    }
+
+    /// The column's first-run panel starts below the strip, so a new height moves it.
+    public override func setFrameSize(_ newSize: NSSize) {
+        let resized = newSize.height != frame.height
+        super.setFrameSize(newSize)
+        if resized { ColumnTopOverlays.shared.changed() }
     }
 
     private func follow() {
@@ -88,6 +96,7 @@ public final class ImportCardsStripView: NSView {
         drawn = list
         stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
         isHidden = list.cards.isEmpty
+        defer { ColumnTopOverlays.shared.changed() }
         guard !list.cards.isEmpty else { return }
         performWithTheme {
             titleLabel.textColor = Palette.textSecondary
@@ -140,7 +149,8 @@ final class ImportCardView: NSView {
     }
 
     private func build() {
-        let surface = CardSurfaceView(cornerRadius: Metrics.space3)
+        // Opaque: the strip floats over the conversation, which must not show through the card.
+        let surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: .alwaysOpaque)
         surface.translatesAutoresizingMaskIntoConstraints = false
         addSubview(surface)
         let (primaryText, secondaryText, tertiaryText) = performWithTheme { (Palette.textPrimary, Palette.textSecondary, Palette.textTertiary) }
