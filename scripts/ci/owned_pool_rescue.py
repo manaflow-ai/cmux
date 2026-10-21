@@ -158,19 +158,27 @@ id) is never cancelled because a newer push run exists; a refused job's failed
 jobs are still re-run when no newer push run covers the branch.
 
 Nightly builds (NIGHTLY_WORKFLOW_PATH) are watched like a side lane: there is
-no picker, and attempt 1 of a push or schedule run on main puts
-build-nightly-app on vars.CI_SEED_TRUSTED_POOL, the trusted owned pool
-(glaeda-trusted-<class>-xcode-<version>, TRUSTED_LABEL), while every later
-attempt takes Blacksmith. The trusted minis also seed DerivedData on every
-push, so the job may wait behind a seed: its budget adds one QUEUE_ROUND_SECONDS
-round. A stuck job gets the run cancelled and its failed and cancelled jobs
-re-run; a refused one waits for the run to finish (the signing job is skipped
-behind it) and then gets its failed jobs re-run. The run is not a pull request,
-so in place of a head it checks for a newer nightly run on main that has not
-finished: nightly.yml's concurrency group holds that run pending behind this
-one, and a re-run would join the group and cancel it. With one, a stuck run is
-cancelled and not re-run (so the newer run starts), and a refused one is left
-as it is; the newer run builds main's newer HEAD.
+no picker, and attempt 1 of a push or schedule run on main (or a push on
+nightly-next) puts build-nightly-app on a trusted owned pool
+(glaeda-trusted-<class>-xcode-<version>, TRUSTED_LABEL) together with one
+runner's own label (vars.CI_NIGHTLY_TRUSTED_RUNNER or
+vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER, `glaeda-runner-<name>`), while every later
+attempt takes Blacksmith. That runner is reserved for the build
+(reserved_runner()): a wait for it is never stuck, queued or in its setup,
+because it ends when that runner finishes what it holds, and a Blacksmith
+re-run of a nightly waited an hour or more (runs 39318999424, 39320477722,
+39329116254, 2026-10-19). Only a refusal is acted on. A nightly job with no
+runner label of its own gets the configured budget (CI_OWNED_POOL_RESCUE_SECONDS)
+like a side lane. A refused job waits for the run to finish (the signing job is
+skipped behind it) and then gets its failed jobs re-run. The run is not a pull
+request, so before any re-run it checks whether its commit is superseded on its
+branch (pull_moved()): a newer nightly run that waits pending behind this one in
+nightly.yml's concurrency group, which a re-run would join and cancel, or a
+newer push run on the branch, not cancelled, once the branch head has moved past
+this run's commit. A superseded run is never re-run; the newer run builds the
+newer head. A superseded run that has not finished (a refusal at the watch's
+end, or a stuck job with no reserved runner) is cancelled, not re-run, so the
+newer run starts; a build waiting on its reserved runner never gets that far.
 
 A job stuck with no runner is not rescued while another job of its run is
 running on a persistent runner, whatever the workflow: the rescue cancels the
@@ -178,6 +186,15 @@ whole run, which would move that job to Blacksmith too (#16463). The stuck
 job waits until that job ends, and if the watch ends first, it stays queued
 for the mini that frees up. A refused job, or one held in setup at the
 watch's end, is still acted on as described above, running siblings or not.
+
+On a pull request run, a stuck or held job is not rescued either once
+another job of its attempt has failed on its own (decided_failures(): not a
+refusal, not a runner that ran no step): the run is already red, and a
+re-run repeats that failure while the stuck job loses its place in the
+queue. It stays queued for the minis, and a failure that was really a
+Blacksmith machine fault needs a person's re-run. A refusal is still re-run.
+Main, nightly and push runs keep the rescue, since a stuck one holds its
+concurrency group.
 
 A job's wait is measured from the later of its `created_at` and the first
 time the watcher saw it queued, so a job record created before its `needs`
@@ -249,7 +266,8 @@ from pathlib import Path
 from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from pr_runner_pool import MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, parse_queue_rounds, persistent  # noqa: E402
+from pr_runner_pool import (  # noqa: E402
+    MAX_QUEUE_ROUNDS, QUEUE_ROUND_MINUTES, RUNNER_LABEL_PREFIX, parse_queue_rounds, persistent)
 import ui_tests_dispatch  # noqa: E402
 
 CI_WORKFLOW_PATH = ".github/workflows/ci.yml"
@@ -455,6 +473,20 @@ def job_pool(job: Mapping[str, Any]) -> str | None:
     return None
 
 
+def reserved_runner(job: Mapping[str, Any]) -> str | None:
+    """The one runner a job asked for by its own label (`glaeda-runner-<name>`), if any.
+
+    Only honoured for a nightly build (assess(reserved=True)): nightly.yml names the runner kept for it
+    (vars.CI_NIGHTLY_TRUSTED_RUNNER, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER) beside the trusted pool, so the
+    wait ends when that runner finishes what it holds. A pull request's compile admission also names a warm
+    runner, but only as a preference the rescue may override (pr_runner_pool.py's warm affinity).
+    """
+    for label in job.get("labels") or []:
+        if str(label).startswith(RUNNER_LABEL_PREFIX):
+            return str(label)
+    return None
+
+
 def waiting_for_runner(job: Mapping[str, Any]) -> bool:
     return job.get("status") == "queued" and not job.get("runner_name")
 
@@ -572,6 +604,15 @@ class Look:
     waiting: bool = False  # a persistent-pool job has no runner yet
 
 
+def decided_failures(jobs: Sequence[Mapping[str, Any]], attempt_started: dt.datetime | None = None) -> list[str]:
+    """Names of this attempt's jobs that failed on their own: not a fleet refusal (refused()), not a
+    job whose runner never ran a step (a lost runner, owned or not) and not one carried from an
+    earlier attempt. Such a failure has already made the run red."""
+    return sorted(str(job.get("name") or job.get("id")) for job in jobs
+                  if job.get("status") == "completed" and job.get("conclusion") == "failure"
+                  and job.get("steps") and not refused(job) and not carried(job, attempt_started))
+
+
 def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
                  deadline: dt.datetime | None) -> float:
     """SETUP_WAIT_SECONDS, cut so a job that entered setup late is still judged before the watch ends (as
@@ -584,13 +625,24 @@ def setup_budget(job: Mapping[str, Any], now: dt.datetime, budget_seconds: int,
 
 def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_seconds: int,
            first_seen: Mapping[Any, dt.datetime] | None = None, deadline: dt.datetime | None = None,
-           floor_seconds: int | None = None, allow_running_rescue: bool = False) -> Look:
-    """One look at the jobs of a run on a persistent pool (each job's budget: job_budget())."""
+           floor_seconds: int | None = None, allow_running_rescue: bool = False,
+           leave_decided: bool = False, attempt_started_at: dt.datetime | None = None,
+           reserved: bool = False) -> Look:
+    """One look at the jobs of a run on a persistent pool (each job's budget: job_budget()).
+
+    With `leave_decided` (a pull request run), a stuck or held job is left queued once another job of
+    the attempt has failed on its own (decided_failures()). With `reserved` (a nightly build), a job
+    waiting for the one runner it names (reserved_runner()) is never stuck or held: only a refusal of
+    it is acted on.
+    """
     seen = first_seen or {}
     waiting = [job for job in jobs if job_pool(job) and waiting_for_runner(job)]
     budgets = {id(job): job_budget(job, budget_seconds, deadline=deadline, floor_seconds=floor_seconds,
                                    first_seen=seen.get(job.get("id"))) for job in waiting}
-    stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]]
+    kept = [job for job in jobs if reserved and job_pool(job) and reserved_runner(job)
+            and (waiting_for_runner(job) or in_setup(job))]
+    stuck = [job for job in waiting if queued_seconds(job, now, seen.get(job.get("id"))) >= budgets[id(job)]
+             and not any(job is other for other in kept)]
     names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck))
     # Rescuing normally cancels the whole run, so a job already running on a
     # persistent runner would die with the stuck one and move to Blacksmith
@@ -599,19 +651,25 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     # when another side job is still running. Manual reruns stay minis-first
     # through attempt 2; the bot's next rerun is the overflow.
     on_mini = [job for job in jobs if job_pool(job) and job.get("status") == "in_progress" and not in_setup(job)]
-    if stuck and (allow_running_rescue or not on_mini):
+    # A job that failed on its own (not refused by the fleet) has already made the run red. Cancelling
+    # and re-running it repeats that failure and puts the stuck job at the back of the same queue
+    # (feat-cmux-next, 2026-10-20: 33 of 44 cmux-next pull request runs reached attempt 2 or 3, each
+    # failing `checks` again), so the stuck job stays queued for the minis instead.
+    decided = decided_failures(jobs, attempt_started_at) if leave_decided else []
+    if stuck and not decided and (allow_running_rescue or not on_mini):
         suffix = (" while another owned job is running; overflowing the queued side jobs"
                   if on_mini else " with no runner")
         return Look("rescue", f"{names} queued on {job_pool(stuck[0])} for at least "
                               f"{min(budgets[id(job)] for job in stuck)}s{suffix}")
     settling = [job for job in jobs if job_pool(job) and in_setup(job)]
-    held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)]
+    held = [job for job in settling if setup_seconds(job, now) >= setup_budget(job, now, budget_seconds, deadline)
+            and not any(job is other for other in kept)]
     # Cancelling the run would kill siblings still running (run 36198335113 lost five
     # shards that way to a refusal), so a job held in setup waits for them, as a
     # refusal does, until the watch is about to end.
     running = [job for job in jobs if job.get("status") == "in_progress" and not in_setup(job)]
     closing = deadline is not None and now >= deadline - dt.timedelta(seconds=END_MARGIN_SECONDS)
-    if held and (not running or closing):
+    if held and not decided and (not running or closing):
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in held))
         return Look("rescue", f"{names} waited in {job_pool(held[0])}'s runner setup for capacity for at least "
                               f"{SETUP_WAIT_SECONDS}s")
@@ -619,6 +677,14 @@ def assess(jobs: Sequence[Mapping[str, Any]], *, now: dt.datetime, budget_second
     if turned_away:
         names = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in turned_away))
         return Look("refused", f"{names} refused by {job_pool(turned_away[0])} at job start or Xcode selection")
+    if (stuck or held) and decided:
+        waits = ", ".join(sorted(str(job.get("name") or job.get("id")) for job in stuck + held))
+        return Look("watch", f"{waits} waiting on {job_pool((stuck or held)[0])}, but {', '.join(decided)} "
+                             "already failed, so a re-run would repeat that failure; leaving it queued",
+                    waiting=True)
+    if kept:
+        held_for = ", ".join(sorted(f"{job.get('name') or job.get('id')} ({reserved_runner(job)})" for job in kept))
+        return Look("watch", f"{held_for} waiting for the runner reserved for it; never moved", waiting=True)
     if stuck:
         return Look("watch", f"{names} queued on {job_pool(stuck[0])} with no runner, but "
                              f"{len(on_mini)} job(s) of the run are running on a persistent runner", waiting=True)
@@ -1023,7 +1089,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     first_seen.setdefault(job.get("id"), seen_at)
             look = assess(jobs, now=seen_at, budget_seconds=budget_seconds, first_seen=first_seen,
                           deadline=deadline, floor_seconds=floor_seconds,
-                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH)
+                          allow_running_rescue=target.path == CMUX_NEXT_WORKFLOW_PATH,
+                          # Main, nightly and push runs keep the rescue: a stuck one holds its
+                          # concurrency group, and rescue() cancels it once its head has moved.
+                          leave_decided=bool(target.pr_number) and not (
+                              target.main or target.nightly or target.push_branch),
+                          attempt_started_at=target.attempt_started_at,
+                          reserved=target.nightly)
             if look.action == "refused" and not finished and seen_at < deadline and not target.main:
                 # GitHub re-runs no job of a run still in progress (403 "already
                 # running", for one job or the failed ones), and cancelling
@@ -1056,6 +1128,13 @@ def watch(api: GitHub, target: Target, *, budget_seconds: int,
                     # A side lane's jobs are all created by now, and none can be refused any more.
                     return "stop", "the fleet accepted the side-lane jobs"
         if now() >= deadline:
+            if target.nightly:
+                # Never moved (assess(reserved=True)); say so, without claiming why it did not start.
+                for job in jobs:
+                    runner = reserved_runner(job)
+                    if runner and job_pool(job) and (waiting_for_runner(job) or in_setup(job)):
+                        log(f"::warning::{job.get('name') or job.get('id')} was still waiting for its reserved "
+                            f"runner {runner} at the watch limit")
             return "stop", "watch limit reached"
         sleep(interval)
 
@@ -1101,9 +1180,21 @@ def pull_moved(api: GitHub, target: Target, sleep: Callable[[float], None],
         # nightly.yml's concurrency group never cancels in progress: a newer
         # run waits behind this one, and a re-run of this one would join the
         # group and cancel that pending run. Leave the revision to it.
-        newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, target.push_branch or MAIN_BRANCH), sleep, log)
+        branch = target.push_branch or MAIN_BRANCH
+        newer = read(lambda: api.newer_unfinished_runs(target.path, target.run_id, branch), sleep, log)
         if newer:
-            return f"a newer nightly run on {target.push_branch or MAIN_BRANCH} ({newer[0]}) has not finished and builds instead"
+            return f"a newer nightly run on {branch} ({newer[0]}) has not finished and builds instead"
+        # Not pending does not mean not superseded: a nightly-next push run is
+        # never pending at the workflow level (its builds share a job-level
+        # slot), and a newer main push may already be running or done. Once the
+        # branch has moved past this commit and a newer push run covers it, a
+        # re-run would only build (and publish) an older head on Blacksmith.
+        pushes = read(lambda: api.newer_push_runs(target.path, target.run_id, branch), sleep, log)
+        if pushes:
+            head = read(lambda: api.branch_head(branch), sleep, log)
+            if head and head != target.head_sha:
+                return (f"{branch} has moved on to {head[:12]}, and its newer push run ({pushes[-1]}) "
+                        "builds it instead")
         return ""
     if target.push_branch:
         # Not the branch head: a head commit outside the workflow's paths has no
@@ -1321,11 +1412,9 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
         subject += " (side lane)"
     # ci.yml's, test-ios.yml's and test-e2e.yml's pickers queue on purpose, within the queue
     # rounds: their owned jobs may wait up to the pool's expected wait (see the docstring).
+    # A nightly build's wait for its reserved runner is never stuck (reserved_runner()), so it needs no
+    # allowance here; a nightly job without one gets the configured budget like any side lane.
     queue_extra = queue_seconds(queue_rounds) if target.path in QUEUEING_WORKFLOW_PATHS else 0
-    if target.nightly:
-        # The trusted minis seed DerivedData on every push to main, as this run
-        # starts: let the app build wait one round behind a seed.
-        queue_extra = QUEUE_ROUND_SECONDS
     log(f"watching run {target.run_id} of {subject} (budget {effective_seconds + queue_extra}s"
         + (f": {effective_seconds}s past the {queue_extra}s an owned job may expect to wait)" if queue_extra else ")"))
     # A rescue may run past the watch deadline, within the job's own timeout,
