@@ -56,6 +56,9 @@ public nonisolated enum ChiefHostStop {
 
     @concurrent public static func endChiefSessions(home: ChiefHome, bundledBin: URL?) async {
         _ = await stop(home: home)
+        // On the app's own acpmux the Chief's sessions end with the app's (QuitAgents): ending
+        // that daemon here would end the person's chats too.
+        guard !home.usesAppAcpmux else { return }
         let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBin,
                                                     environment: ["ACPMUX_HOME": home.acpmuxHome.path])
         // The daemon exits (Quit Everything's own end); the Chief's sessions stay on disk.

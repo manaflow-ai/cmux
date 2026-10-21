@@ -59,9 +59,19 @@ public nonisolated struct HomeTunables {
         help: "Tables in the Chief's replies break out of the bubble as full-width cards, and assignment tables (who does what) show as a plan card with owner chips, live states and pull requests. Off keeps tables as text in the bubble.",
         default: true, code: "HomeTunables.richTables")
 
+    /// NIGHTLY's Chief runs its turns and subagents on the app's own acpmux (`~/.acpmux`), the one
+    /// daemon the person's chats, the CLI and peers use, so its subagents show beside the person's
+    /// sessions (Leo 2026-10-20: one acpmux per machine). On, the old Chief daemon of its own
+    /// (`~/.cmux/chief/default/acpmux`) comes back. DEV builds always keep their own. Read when
+    /// the Chief host starts, so a change applies at the next relaunch.
+    public static let chiefOwnAcpmux = Tunable<Bool>.toggle(
+        "home.chief.ownAcpmux", section, "Chief runs its own acpmux",
+        help: "The Chief runs its turns and subagents on an acpmux daemon of its own instead of this app's. Applies after a relaunch.",
+        default: false, code: "HomeTunables.chiefOwnAcpmux")
+
     public static var all: [TunableDescriptor] {
         [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, launchIntoHome.descriptor,
-         turnProgress.descriptor, richTables.descriptor]
+         turnProgress.descriptor, richTables.descriptor, chiefOwnAcpmux.descriptor]
     }
 }
 
