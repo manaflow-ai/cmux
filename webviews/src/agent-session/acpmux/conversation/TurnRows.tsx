@@ -86,10 +86,11 @@ function groupNode(group: ToolGroup, index: number, rowId: string, live: boolean
   }
 }
 
-/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). In an
-/// ended turn's open "Worked for", a run of two or more entries folds under one summary line
-/// (toolRunSummary.ts); a run that is one group already has its line. A live turn lists each,
-/// unless the Codex-style runs (Debug toggle) settle it (`settled`) or show its newest entry (`inFlight`).
+/// A run of tool calls and thoughts between two pieces of text, in groups (toolGroups.ts). Each
+/// group and call keeps its own line, in a live turn and in an ended turn's open "Worked for"
+/// alike, so the work stays readable without a click. Only the Codex-style runs (Debug toggle)
+/// fold a run of two or more entries under one summary line (`foldRun`, toolRunSummary.ts) or
+/// show its newest entry alone (`inFlight`); a run that is one group already has its line.
 export function shouldFoldToolRun(
   row: AcpmuxRow,
   groups: readonly ToolGroup[],
@@ -98,7 +99,7 @@ export function shouldFoldToolRun(
   // Coordination cards stay visible beside tool calls so a settled run never hides the
   // agent-to-agent receipt inside the generic tool summary.
   return (
-    row.settled === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
+    row.foldRun === true && groups.length > 1 && !groups.some((group) => group.type === "message") && isFoldedRun(items)
   );
 }
 export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: string }) {

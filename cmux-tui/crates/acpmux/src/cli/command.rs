@@ -135,10 +135,14 @@ pub enum Command {
         session: String,
         /// Prompt text. Reads stdin when omitted or "-".
         prompt: Vec<String>,
-        /// Interrupt the running turn with this message when the agent supports steering.
-        #[arg(long)]
+        /// Send this message into the running turn when the agent supports steering; else it
+        /// queues behind the turn (the default).
+        #[arg(long, conflicts_with = "no_steer")]
         steer: bool,
-        /// Return as soon as the prompt is queued.
+        /// Queue behind the running turn (the default today; keeps queueing if that changes).
+        #[arg(long)]
+        no_steer: bool,
+        /// Return as soon as the prompt is steered in or queued.
         #[arg(long)]
         no_wait: bool,
         /// Do not stream; print only the final assistant text.
