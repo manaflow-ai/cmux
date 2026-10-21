@@ -16,6 +16,12 @@ struct ChiefSettingsPageTests {
         for key in Self.chiefRows { #expect(rows.contains(key), "\(key) is on the Chief page") }
     }
 
+    /// Leo's list: the Chief page ends with Diagnostics (whether the Chief runs, a Check per backend).
+    @Test func chiefEndsWithDiagnostics() throws {
+        let chief = try #require(SettingsPageLayout().categories().first { $0.spec.id == "chief" })
+        #expect(chief.spec.trail.last == .chiefDiagnostics)
+    }
+
     @Test func agentsNoLongerHoldsTheChief() throws {
         let agents = try #require(SettingsPageLayout().categories().first { $0.spec.id == "agents" })
         let rows = agents.groups.flatMap(\.rows)

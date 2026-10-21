@@ -62,6 +62,8 @@ export type MockOptions = {
   museumArt?: MuseumArtResult[];
   /** Workspaces with a background of their own, or following the app's (`value` null). */
   workspaceBackgrounds?: WorkspaceBackground[];
+  /** `cmux.chief.backend.doctor`'s answer by harness id; a harness not named here answers. */
+  chiefDoctor?: Record<string, { ok: boolean; steps: Params[] }>;
 };
 
 export const mockDomains: Domains = {
@@ -164,6 +166,7 @@ export class MockSettingsProvider {
     this.diagnostics = options.diagnostics ?? [];
     this.domains = options.domains === undefined ? mockDomains : options.domains;
     this.failing = options.failing ?? {};
+    this.chiefDoctor = options.chiefDoctor ?? {};
     this.connected = options.connected ?? true;
     if (options.settingsFile !== undefined) this.host = { ...this.host, settings_file: options.settingsFile };
     this.importable = options.importable ?? null;
@@ -277,7 +280,8 @@ export class MockSettingsProvider {
           ],
         },
       }),
-      "cmux.chief.backend.doctor": () => ({ ok: true, steps: [{ name: "prompt", ok: true }] }),
+      "cmux.chief.backend.doctor": (params) =>
+        this.chiefDoctor[params.id as string] ?? { ok: true, steps: [{ name: "prompt", ok: true }] },
       "cmux.settings.theme.set": (params) => {
         const { level, spec } = params as { level: string; spec: string | null };
         const theme = this.host.theme!;
@@ -499,6 +503,9 @@ export class MockSettingsProvider {
   channels: ChannelsState | null = mockChannels;
   /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
   chiefAvatars = new Map<string, Params>();
+
+  /** `cmux.chief.backend.doctor` answers by harness id (MockOptions.chiefDoctor). */
+  readonly chiefDoctor: Record<string, { ok: boolean; steps: Params[] }>;
 
   /** The Chief records the host's page relay lists (`chief.profile.list`). */
   chiefs: Params[] = [
