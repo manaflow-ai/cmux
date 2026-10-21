@@ -101,6 +101,13 @@ extension UpdateController {
         set { driver.feedOverride = newValue }
     }
 
+    /// The release ring (`updates.channel`) whose appcast items are offered; the next check
+    /// uses it. Only the cmux-next feed has rings.
+    public var ring: UpdateRing {
+        get { driver.ring }
+        set { driver.ring = newValue }
+    }
+
     /// Builds at or below this `sparkle:version` are not offered (the build a rollback left).
     public var skipsBuildsThrough: String? {
         get { driver.skipsBuildsThrough }

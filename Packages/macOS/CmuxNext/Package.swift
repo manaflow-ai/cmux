@@ -398,7 +398,7 @@ let package = Package(
         ),
         .target(
             name: "CmuxNextBrowserImport",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             // browser-sources.json: the one browser source registry (decision
             // BOOKMARKS-IMPORT-EVERY-BROWSER I1).
             resources: [
@@ -817,11 +817,15 @@ let package = Package(
             dependencies: ["CmuxNextChiefMemory"],
             swiftSettings: uiSwiftSettings
         ),
-        // The acpmux watch feed (turn states and lanes), the sidebar's top items (Lanes, cx-v9k2f) and its Chief item.
+        // The acpmux watch feed (turn states and lanes), the sidebar's top items (Lanes, cx-v9k2f), its Chief item
+        // and the Chief's tools in the docked Home's tab row.
         .target(
             name: "CmuxNextAgentLanes",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextHomeEngine",
-                           "CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextHome",
+                           "CmuxNextHomeEngine", "CmuxNextSidebar", "CmuxNextWakeups"],
+            resources: [
+                .process("Resources"),
+            ],
             swiftSettings: uiSwiftSettings
         ),
         // App platform (plans/cmux-next/app-platform.md): the cmux-app.json
