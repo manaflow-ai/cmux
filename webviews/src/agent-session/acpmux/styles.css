@@ -812,3 +812,4 @@ fieldset.acpmux-question[hidden]{display:none}
 .acpmux-display-check { grid-template-columns: auto 1fr; }
 .acpmux-display-reset { justify-self: end; font: inherit; color: var(--agent-muted); background: none; border: 0; padding: 2px 4px; border-radius: 6px; cursor: default; }
 .acpmux-display-reset:hover { background: color-mix(in srgb, var(--agent-text) 8%, transparent); }
+.acpmux-trust-ask[data-asking]{color:var(--agent-text);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--agent-accent) 45%,transparent)}.acpmux-trust-ask-action.acpmux-trust-ask-primary{background:color-mix(in srgb,var(--agent-accent) 14%,transparent);font-weight:500}.acpmux-trust-ask-action.acpmux-trust-ask-primary:hover{background:color-mix(in srgb,var(--agent-accent) 22%,transparent)}
