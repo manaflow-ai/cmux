@@ -7,7 +7,14 @@ import { act } from "react";
 import type { Root } from "react-dom/client";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "IS_REACT_ACT_ENVIRONMENT", "HTMLElement", "getComputedStyle"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "IS_REACT_ACT_ENVIRONMENT",
+  "HTMLElement",
+  "getComputedStyle",
+] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 let root: Root | undefined;
 let doc: Document;
