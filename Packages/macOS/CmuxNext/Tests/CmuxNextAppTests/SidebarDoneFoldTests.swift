@@ -1,4 +1,5 @@
-import CmuxNextDesign
+import AppKit
+@testable import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
 import Testing
@@ -110,5 +111,29 @@ import Testing
 
     @Test func theRowSaysHowManyAreDone() {
         #expect(Strings.doneFold(3).contains("3"))
+    }
+
+    /// A Done workspace chosen from elsewhere (the palette, Cmd-number, the socket) shows in its place: the selection
+    /// patch hands over to a layout instead of selecting a row the list does not draw.
+    @Test func aDoneWorkspaceSelectedElsewhereShows() throws {
+        TunableStore.shared.activate(file: nil)
+        TunableStore.shared.register(SidebarTunables.all)
+        TunableStore.shared.set(SidebarTunables.doneFold.key, .bool(true))
+        defer { TunableStore.shared.set(SidebarTunables.doneFold.key, nil) }
+        let model = SidebarModel(sections: Self.sections(), activeWorkspaceID: WorkspaceID("a"))
+        let sidebar = SidebarView(model: model, design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 240, height: 600)
+        let window = NSWindow(contentRect: sidebar.frame, styleMask: [.titled], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(sidebar)
+        sidebar.layoutSubtreeIfNeeded()
+        let list = sidebar.list
+        list.reload(animated: false)
+        try #require(list.displayed.row(for: .doneFold(Self.looseFold)) != nil, "the list draws no Done row")
+        #expect(list.displayed.row(for: Self.w("b")) == nil)
+        model.activeWorkspaceID = WorkspaceID("b")
+        #expect(!list.patchSelection(from: .workspace(WorkspaceID("a")), oldSelection: []), "the patch selected a row the list does not draw")
+        list.reload(animated: false)
+        #expect(list.displayed.row(for: Self.w("b")) != nil)
     }
 }
