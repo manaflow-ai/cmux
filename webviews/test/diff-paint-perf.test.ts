@@ -9,14 +9,18 @@
 //   - `huge`: one generated 1,000,000-line bundle (about 60 MB of patch) ahead of 50 small files.
 //
 // For each it reads, every frame from the moment the harness's patch is ready (`patch-ready`):
-//   - FIRST_ROW_MS: the first diff row is drawn inside the viewer (plain text or highlighted);
-//   - FIRST_HIGHLIGHT_MS: the first row is drawn with syntax colors.
-// Before this test (feat-cmux-next 7a4b464b375, the same production build on huge-blue's Chromium)
-// a first row took 1,180 to 1,330 ms on `mixed` and 6,190 to 6,740 ms on `huge`: the stream
-// re-flattened the whole buffered patch for every 256 KB chunk of one big file, the highlight
-// pool started only with the first files, and rows drew only once every worker had compiled
-// Shiki's WASM. The budgets are the dev server's numbers measured on huge-blue (the PR lists
-// them) times three, for a slower CI runner; a regression to the old behavior misses them.
+//   - firstRow: the first diff row is drawn inside the viewer (plain text or highlighted);
+//   - firstHighlight: the first row is drawn with syntax colors.
+// And on `mixed` the first row must draw while most of the patch is still streaming (FIRST_ROW_SHARE
+// of the time to the last file), which holds on any machine speed.
+//
+// This file's own numbers on huge-blue (dev server, best of two runs), feat-cmux-next 7a4b464b375
+// then this change: `mixed` first row 1,129 -> 456 ms, first highlight 1,414 -> 1,086 ms, first row
+// at 78% -> 21% of the stream; `huge` first row 5,896 -> 1,149 ms, first highlight 5,959 ->
+// 1,366 ms. Before, the stream re-flattened the whole buffered patch for every 256 KB chunk of one
+// big file, the highlight pool started only with the first files, and rows drew only once every
+// worker had compiled Shiki's WASM. The budgets are about three times the new numbers, for a slower
+// CI runner; the old behavior misses the `huge` budgets, the share and the plain-rows check.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
@@ -40,9 +44,11 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
   const webviews = path.resolve(import.meta.dir, "..");
   /// Budgets from the patch being ready (see the header).
   const BUDGETS = {
-    mixed: { firstRow: 1_500, firstHighlight: 3_000 },
+    mixed: { firstRow: 1_500, firstHighlight: 3_300 },
     huge: { firstRow: 3_500, firstHighlight: 4_500 },
   } as const;
+  /// `mixed`: the first row draws before this share of the time the last file streams in.
+  const FIRST_ROW_SHARE = 0.6;
   const RUNS = 2;
 
   let server: ChildProcess | null = null;
@@ -153,6 +159,9 @@ await requireBrowserLane("diff-paint-perf.test.ts", async () => {
       expect(runs.map((run) => run.plainBeforeWorkers)).toEqual(runs.map(() => "drawn"));
       expect(best("firstRow")).toBeLessThan(budget.firstRow);
       expect(best("firstHighlight")).toBeLessThan(budget.firstHighlight);
+      if (fixture === "mixed") {
+        expect(Math.min(...runs.map((run) => run.firstRow / run.complete))).toBeLessThan(FIRST_ROW_SHARE);
+      }
     });
   }
 });
