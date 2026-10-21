@@ -106,7 +106,11 @@ public nonisolated struct SettingsPageLayout: Sendable {
         // How this Mac updates (docs/release-rings.md in hq).
         CategorySpec(
             id: "updates", title: SettingsText.keyed("settings.category.updates", "Updates"), symbol: "icloud.and.arrow.down",
-            groups: [group("settings.group.updates")]),
+            groups: [
+                group("settings.group.updates"),
+                GroupSpec(keys: ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"],
+                          title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
+            ]),
         CategorySpec(
             id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
             // appearance.theme and appearance.appTheme are drawn by the theme
