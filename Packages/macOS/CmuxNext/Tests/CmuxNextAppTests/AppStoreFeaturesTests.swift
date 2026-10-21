@@ -319,6 +319,37 @@ import Testing
         #expect(model.featureListings.map(\.id) == ["chief.pet"], "the key is searchable")
     }
 
+    /// Discover lists cmux's own features under the apps, one section per category (Leo,
+    /// 2026-10-21: "WHY IS THERE STILL NOTHING IN THE APP STORE?"): an app category chip shows
+    /// only apps, a feature category chip only that section.
+    @Test func discoverListsEveryLandedFeatureByCategory() async throws {
+        let (settings, home) = try await Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let model = AppStoreModel(client: AppsClient(transport: FeaturesOfflineAppsTransport()))
+        #expect(model.discoverFeatureSections.isEmpty, "a store without settings lists no features")
+        let bridge = SettingsAppFeatures(settings: { settings })
+        model.features = bridge
+
+        let sections = model.discoverFeatureSections
+        #expect(sections.flatMap(\.features) == AppFeature.Category.allCases.flatMap { category in
+            AppFeature.catalog.filter { bridge.isAvailable($0) && $0.category == category }
+        }, "every landed feature, once, grouped by category in catalog order")
+        #expect(sections.map(\.category) == model.featureCategories)
+        #expect(sections.allSatisfy { section in section.features.allSatisfy { $0.category == section.category } })
+        #expect(model.discoverShowsListings)
+
+        model.featureCategory = .backgrounds
+        #expect(model.discoverFeatureSections.map(\.category) == [.backgrounds])
+        #expect(!model.discoverShowsListings, "a feature chip shows only its section")
+
+        model.featureCategory = nil
+        model.category = "tools"
+        #expect(model.discoverFeatureSections.isEmpty, "an app chip shows only apps")
+        model.category = nil
+        model.query = "chief pet"
+        #expect(model.discoverFeatureSections.flatMap(\.features).map(\.id) == ["chief.pet"], "the search filters the sections")
+    }
+
     /// `cmux action run appStore.show --arg tab=features` (the tour, an agent, the palette).
     @Test func appStoreShowOpensANamedTab() {
         #expect(AppStoreModel.Tab(argument: "features") == .features)
