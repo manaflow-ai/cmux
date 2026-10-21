@@ -32,8 +32,12 @@ export type PromptBlock =
 
 /** Anthropic's per-image limit. */
 export const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
-/** The longest side an image over MAX_IMAGE_BYTES is scaled to (AgentPaneCapture.maxSide). */
-export const MAX_IMAGE_SIDE = 2560;
+/** The longest side an attached image keeps: the models scale anything larger down to about this
+ * anyway, so more pixels only grow the prompt (a six-screenshot prompt passed acpmux's 16 MiB frame
+ * limit and reset the chat's connection, 2026-10-20). */
+export const MAX_IMAGE_SIDE = 2000;
+/** The bytes one attached image may have: past this it is re-encoded (as JPEG) or scaled down. */
+export const IMAGE_BUDGET_BYTES = 1536 * 1024;
 /** Keep PDF prompts bounded while leaving room for the rest of the request. */
 export const MAX_DOCUMENT_BYTES = 20 * 1024 * 1024;
 /** A text file this large is already a lot of prompt. */
@@ -87,25 +91,25 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   }
   if (IMAGE_TYPES.has(file.type)) {
     if (!allowImages) return { name, reason: "imagesUnsupported" };
-    if (file.size > MAX_IMAGE_BYTES) {
-      const fitted = await fitImage(file);
-      if (!fitted) return { name, reason: "tooLarge" };
+    const fitted = await fitImage(file);
+    // An image the engine cannot decode or scale goes as it is when the API takes it.
+    if (fitted === "fits" || (fitted === undefined && file.size <= MAX_IMAGE_BYTES))
       return {
         id,
         kind: "image",
-        name: name.replace(/(\.[^./]*)?$/, fitted.mimeType === "image/jpeg" ? ".jpg" : ".png"),
-        mimeType: fitted.mimeType,
-        size: fitted.bytes.length,
-        data: base64(fitted.bytes),
+        name,
+        mimeType: file.type,
+        size: file.size,
+        data: base64(new Uint8Array(await file.arrayBuffer())),
       };
-    }
+    if (!fitted) return { name, reason: "tooLarge" };
     return {
       id,
       kind: "image",
-      name,
-      mimeType: file.type,
-      size: file.size,
-      data: base64(new Uint8Array(await file.arrayBuffer())),
+      name: name.replace(/(\.[^./]*)?$/, fitted.mimeType === "image/jpeg" ? ".jpg" : ".png"),
+      mimeType: fitted.mimeType,
+      size: fitted.bytes.length,
+      data: base64(fitted.bytes),
     };
   }
   if (file.size > MAX_TEXT_BYTES) return { name, reason: "tooLarge" };
@@ -114,42 +118,61 @@ export async function readAttachment(file: File, allowImages: boolean): Promise<
   return { id, kind: "text", name, mimeType: file.type || "text/plain", size: file.size, text };
 }
 
-/// The most bytes a scaled image may have: its base64, which is what the API measures, then fits
-/// MAX_IMAGE_BYTES.
-const FITTED_IMAGE_BYTES = Math.floor((MAX_IMAGE_BYTES * 3) / 4);
+/// The steps an image that does not fit takes, in order: its longest side, then the JPEG quality.
+/// A PNG source tries PNG at each side first (a screenshot's text stays sharp). The last step is
+/// far under MAX_IMAGE_BYTES for any real picture, so an image is not refused for its size.
+const FIT_STEPS = [
+  { side: MAX_IMAGE_SIDE, quality: 0.9 },
+  { side: MAX_IMAGE_SIDE, quality: 0.8 },
+  { side: 1600, quality: 0.8 },
+  { side: 1200, quality: 0.75 },
+  { side: 800, quality: 0.7 },
+] as const;
 
-/// An image over MAX_IMAGE_BYTES scaled to MAX_IMAGE_SIDE as PNG, else as JPEG (on white, which
-/// has no alpha), as the host fits a screenshot (AgentPaneCapture.fit), so a pasted Retina
-/// screenshot attaches instead of being refused. A JPEG source skips the PNG try; an animated GIF
-/// or WebP keeps its first frame. Undefined when the engine cannot decode or scale the image, or
-/// no encoding fits.
-async function fitImage(file: Blob): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | undefined> {
+/// An image whose longest side is over MAX_IMAGE_SIDE or whose bytes are over IMAGE_BUDGET_BYTES,
+/// scaled and re-encoded by FIT_STEPS until it is under the budget: as PNG when that fits, else as
+/// JPEG (on white, which has no alpha). A JPEG source skips the PNG tries; an animated GIF or WebP
+/// keeps its first frame. "fits" for an image that is already within both bounds (an animated GIF
+/// stays animated); undefined when the engine cannot decode or scale it.
+async function fitImage(
+  file: Blob,
+): Promise<{ mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array } | "fits" | undefined> {
   if (typeof createImageBitmap !== "function" || typeof OffscreenCanvas !== "function") return undefined;
   let bitmap: ImageBitmap | undefined;
   try {
     bitmap = await createImageBitmap(file);
-    const scale = Math.min(1, MAX_IMAGE_SIDE / Math.max(bitmap.width, bitmap.height, 1));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-    if (file.type !== "image/jpeg") {
-      const canvas = new OffscreenCanvas(width, height);
-      const context = canvas.getContext("2d");
+    const longest = Math.max(bitmap.width, bitmap.height, 1);
+    if (longest <= MAX_IMAGE_SIDE && file.size <= IMAGE_BUDGET_BYTES) return "fits";
+    let last: Blob | undefined;
+    let triedPng = 0;
+    for (const step of FIT_STEPS) {
+      const scale = Math.min(1, step.side / longest);
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      if (file.type !== "image/jpeg" && triedPng !== width) {
+        triedPng = width;
+        const canvas = new OffscreenCanvas(width, height);
+        const context = canvas.getContext("2d");
+        if (!context) return undefined;
+        context.drawImage(bitmap, 0, 0, width, height);
+        const png = await canvas.convertToBlob({ type: "image/png" });
+        if (png.size <= IMAGE_BUDGET_BYTES)
+          return { mimeType: "image/png", bytes: new Uint8Array(await png.arrayBuffer()) };
+      }
+      const flat = new OffscreenCanvas(width, height);
+      const context = flat.getContext("2d");
       if (!context) return undefined;
+      context.fillStyle = "#fff";
+      context.fillRect(0, 0, width, height);
       context.drawImage(bitmap, 0, 0, width, height);
-      const png = await canvas.convertToBlob({ type: "image/png" });
-      if (png.size <= FITTED_IMAGE_BYTES)
-        return { mimeType: "image/png", bytes: new Uint8Array(await png.arrayBuffer()) };
+      last = await flat.convertToBlob({ type: "image/jpeg", quality: step.quality });
+      if (last.size <= IMAGE_BUDGET_BYTES)
+        return { mimeType: "image/jpeg", bytes: new Uint8Array(await last.arrayBuffer()) };
     }
-    const flat = new OffscreenCanvas(width, height);
-    const context = flat.getContext("2d");
-    if (!context) return undefined;
-    context.fillStyle = "#fff";
-    context.fillRect(0, 0, width, height);
-    context.drawImage(bitmap, 0, 0, width, height);
-    const jpeg = await flat.convertToBlob({ type: "image/jpeg", quality: 0.85 });
-    if (jpeg.size <= FITTED_IMAGE_BYTES)
-      return { mimeType: "image/jpeg", bytes: new Uint8Array(await jpeg.arrayBuffer()) };
-    return undefined;
+    // Past every step (noise no encoder shrinks): the smallest try, which the API still takes.
+    return last && Math.ceil(last.size / 3) * 4 <= MAX_IMAGE_BYTES
+      ? { mimeType: "image/jpeg", bytes: new Uint8Array(await last.arrayBuffer()) }
+      : undefined;
   } catch {
     return undefined;
   } finally {

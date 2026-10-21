@@ -20,11 +20,11 @@ extension NSMenu {
         return self
     }
 
-    private func themeRows(in scope: ThemeScope, session: ThemedMenuSession) {
+    fileprivate func themeRows(in scope: ThemeScope, session: ThemedMenuSession) {
         // Arrow keys move the highlight without AppKit redrawing view rows: the relay does, and
         // passes every call on to the delegate the menu had (a choices submenu's coordinator).
         if !(delegate is ThemedMenuHighlightRelay) {
-            let relay = ThemedMenuHighlightRelay(forward: delegate)
+            let relay = ThemedMenuHighlightRelay(forward: delegate, scope: scope, session: session)
             session.keep(relay)
             delegate = relay
         }
@@ -40,6 +40,30 @@ extension NSMenu {
             }
         }
     }
+}
+
+extension NSMenu {
+    /// Runs `body` once a row chosen in this themed menu has run. A themed row runs its item after
+    /// the menu's tracking loop ends (`ThemedMenuRowView.activate`), so code that follows `popUp`
+    /// and settles the menu's outcome (a page menu that ends a dismissed request) waits for it.
+    /// The menu stays alive until then.
+    public func afterThemedRowRuns(_ body: @escaping @MainActor () -> Void) {
+        let step = ThemedMenuAfterRun { [self] in
+            _ = self
+            body()
+        }
+        RunLoop.main.perform(#selector(ThemedMenuAfterRun.run), target: step, argument: nil,
+                             order: ThemedMenuRowView.pendingRunOrder + 1, modes: [.default])
+    }
+}
+
+/// `afterThemedRowRuns`'s step: the run loop keeps its target until it runs.
+final class ThemedMenuAfterRun: NSObject {
+    private let body: @MainActor () -> Void
+
+    init(_ body: @escaping @MainActor () -> Void) { self.body = body }
+
+    @objc func run() { body() }
 }
 
 /// One opening of a themed menu, shared by its submenus: its action runs at most once.
@@ -89,9 +113,14 @@ final class ThemedMenuDispatch: NSObject, NSMenuItemValidation {
 /// forwards to the menu's previous delegate, which keeps its own behavior.
 final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
     private weak var forward: (any NSMenuDelegate)?
+    private let scope: ThemeScope
+    /// The session keeps this relay, so it outlives it; weak only to make no cycle.
+    private weak var session: ThemedMenuSession?
 
-    init(forward: (any NSMenuDelegate)?) {
+    init(forward: (any NSMenuDelegate)?, scope: ThemeScope, session: ThemedMenuSession) {
         self.forward = forward
+        self.scope = scope
+        self.session = session
     }
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) {
@@ -103,5 +132,9 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
 
     func menuWillOpen(_ menu: NSMenu) { forward?.menuWillOpen?(menu) }
     func menuDidClose(_ menu: NSMenu) { forward?.menuDidClose?(menu) }
-    func menuNeedsUpdate(_ menu: NSMenu) { forward?.menuNeedsUpdate?(menu) }
+    /// A submenu filled as it opens (Open With ▸) themes the rows its delegate just added.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        forward?.menuNeedsUpdate?(menu)
+        if let session { menu.themeRows(in: scope, session: session) }
+    }
 }

@@ -122,7 +122,7 @@ struct OmnibarChromeParityTests {
         for keystroke in 1...20 {
             let typed = String(repeating: "e", count: keystroke)
             let rows = (0..<4).map { BrowserSuggestion(kind: .history, title: "\(typed) \($0)", detail: "", url: url, score: 1) }
-            panel.show(rows, highlighted: 0, below: bar, pane: window.contentView!, in: window)
+            panel.show(rows, highlighted: 0, at: bar, pane: window.contentView!, in: window)
             #expect(panel.rowViews.count == 4)
             #expect(panel.rowViews.first?.accessibilityLabel() == "\(typed) 0")
         }
