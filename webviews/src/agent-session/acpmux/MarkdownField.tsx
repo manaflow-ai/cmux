@@ -92,6 +92,10 @@ export type MarkdownFieldProps = {
   onBeforeInput?(data: string, state: { empty: boolean; composing: boolean }): boolean;
   /// Enter (with `cmd` for Cmd-Enter) that `onKeyDown` did not take; unset, Enter is the editor's.
   onSubmit?(markdown: string, modifiers: { cmd: boolean }): void;
+  /// A new paragraph or line the browser inserts on its own, not from a key the field handled: the
+  /// Return an input method or Dictation passes on (keyCode 229, which every key handler leaves to
+  /// it). Set, the field never adds that line and this runs instead, as Return would.
+  onReturnInput?(): void;
   /// The user's first edit (the new tab's `newTab.touched`).
   onFirstInput?(): void;
   /// The surface's own key handling, which runs before the editor's keys (the omnibar word rules).
@@ -210,6 +214,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
     onCompositionChange,
     onBeforeInput,
     onSubmit,
+    onReturnInput,
     onFirstInput,
     plugins = [],
     multiline = true,
@@ -225,8 +230,26 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   const remark = useRef<RemarkParser | undefined>(undefined);
   // The markdown the field last emitted or applied; a different `value` comes from outside.
   const known = useRef(value);
-  const latest = useRef({ onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput });
-  latest.current = { onChange, onCaret, onKeyDown, onCompositionChange, onBeforeInput, onSubmit, onFirstInput };
+  const latest = useRef({
+    onChange,
+    onCaret,
+    onKeyDown,
+    onCompositionChange,
+    onBeforeInput,
+    onSubmit,
+    onReturnInput,
+    onFirstInput,
+  });
+  latest.current = {
+    onChange,
+    onCaret,
+    onKeyDown,
+    onCompositionChange,
+    onBeforeInput,
+    onSubmit,
+    onReturnInput,
+    onFirstInput,
+  };
   const composing = useRef(false);
   const touched = useRef(false);
   // Focus asked for before the editor exists is applied once it does.
@@ -273,6 +296,16 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                   return true;
                 }
                 return false;
+              },
+              // Shift-Return's line comes from the keymap (a transaction), never from this input.
+              beforeinput: (_view, event) => {
+                const returnInput = latest.current.onReturnInput;
+                const input = event as InputEvent;
+                if (!returnInput || (input.inputType !== "insertParagraph" && input.inputType !== "insertLineBreak"))
+                  return false;
+                event.preventDefault();
+                returnInput();
+                return true;
               },
               compositionstart: () => {
                 composing.current = true;
