@@ -26,6 +26,16 @@ export type AcpmuxBackgroundTask = {
   reason?: string;
 };
 
+/// A shell call's life in the background, on the call that started it (direct.ts
+/// `markBackgroundCall`): running there, then how it ended and when (epoch ms). Its "Ran" row draws
+/// it (conversation/BackgroundMark.tsx); a separate background task row is only for a shell whose
+/// call is not in the transcript.
+export type AcpmuxBackgroundState = {
+  state: "running" | AcpmuxBackgroundTask["state"];
+  reason?: string;
+  endedAt?: number;
+};
+
 /// A compaction of the chat's context (acpmux `compaction`): running, then how it ended. `reason`
 /// is a wrapper's ("account_switch": subrouter compacted before moving the chat to another account).
 export type AcpmuxCompaction = {
@@ -245,6 +255,8 @@ export type AcpmuxActivity = {
     locations?: { path: string; line?: number }[];
     /// Images the call returned (ACP `image` content blocks), as data URLs.
     images?: string[];
+    /// A shell that went on in the background: running there, then how it ended.
+    background?: AcpmuxBackgroundState;
   };
 };
 
@@ -678,8 +690,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number, beforeFooter = false, 
     );
   // A paused agent pair: its sentence over the held count and Resume; resumed, one line.
   if (row.kind === "agentPair") return row.agentPair?.resumed ? 37 : 37 + 24;
-  // A session start: its facts line, and the compaction note under it until it is dismissed.
-  if (row.kind === "sessionStart") return 37 + 44;
+  // A session start: its facts line, and the compaction note's one line under it until it is
+  // dismissed (conversation/SessionStartNote.tsx); either opens below when asked.
+  if (row.kind === "sessionStart") return 37 + 26;
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
   // A turn's footer: its meta line, then the turn gap (the message gap for the chat's last one).
