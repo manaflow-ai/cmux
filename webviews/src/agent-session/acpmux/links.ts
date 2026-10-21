@@ -79,21 +79,31 @@ export function scrollToRow(rowId: string, root: ParentNode = document): boolean
 
 /// Marks row `rowId` once the transcript draws it, which is not the frame it was asked for: the
 /// transcript virtualizes its rows, so a row far from the view scrolls first and mounts after.
-/// Gives up quietly when it never mounts, leaving the view where the scroll put it.
+/// Gives up quietly when it never mounts, leaving the view where the scroll put it. Returns the
+/// way to stop waiting: a later reveal, or a reader who scrolled on, must not be pulled back to
+/// this row minutes later.
 function markWhenDrawn(
   rowId: string,
   root: ParentNode,
   { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS }: { waitMs?: number; pollMs?: number } = {},
-): void {
+): () => void {
   const deadline = Date.now() + waitMs;
+  let timer: ReturnType<typeof setTimeout> | undefined;
   const tick = () => {
+    timer = undefined;
     if (scrollToRow(rowId, root) || Date.now() >= deadline) return;
-    setTimeout(tick, pollMs);
+    timer = setTimeout(tick, pollMs);
   };
   tick();
+  return () => {
+    if (timer !== undefined) clearTimeout(timer);
+    timer = undefined;
+  };
 }
 
 let pendingReveal: (() => void) | undefined;
+/// The wait for a revealed row to be drawn, which outlives the reveal that asked for it.
+let pendingMark: (() => void) | undefined;
 
 /// Runs `attempt` now, then every `pollMs` until it succeeds or `waitMs` passes, giving up quietly.
 /// A later reveal replaces a pending one. Resolves whether it scrolled.
@@ -102,6 +112,9 @@ function revealWhenShown(
   { waitMs = REVEAL_WAIT_MS, pollMs = REVEAL_POLL_MS }: { waitMs?: number; pollMs?: number } = {},
 ): Promise<boolean> {
   pendingReveal?.();
+  // An earlier reveal's row may still be waiting to be drawn; this one is the reader's now.
+  pendingMark?.();
+  pendingMark = undefined;
   return new Promise((resolve) => {
     const deadline = Date.now() + waitMs;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -148,7 +161,15 @@ export function revealMessageWhenShown(
   return revealWhenShown(() => {
     const rowId = show(messageId);
     if (rowId === undefined) return false;
-    markWhenDrawn(rowId, root, options);
+    pendingMark = markWhenDrawn(rowId, root, options);
     return true;
   }, options);
+}
+
+/// Stops a reveal and any row it is still waiting to be drawn (a new session in the pane, or a
+/// reader who moved on).
+export function cancelReveal(): void {
+  pendingReveal?.();
+  pendingMark?.();
+  pendingMark = undefined;
 }

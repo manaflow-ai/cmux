@@ -93,6 +93,23 @@ describe("revealing one message", () => {
     expect(scrolled).toEqual(["assistant-2"]);
   });
 
+  test("a later reveal stops the earlier one's row from pulling the view back", async () => {
+    const { root, scrolled, document } = transcript(["user-1"]);
+
+    expect(await revealMessageWhenShown("msg_01", () => "assistant-1", root, { waitMs: 300, pollMs: 10 })).toBe(true);
+    expect(await revealMessageWhenShown("msg_02", () => "user-1", root, { waitMs: 300, pollMs: 10 })).toBe(true);
+    expect(scrolled).toEqual(["user-1"]);
+
+    // The first link's row is drawn after the reader has already been taken to the second's.
+    const body = document.body as unknown as { innerHTML: string };
+    body.innerHTML += '<div data-row-id="assistant-1">row</div>';
+    const late = document.querySelector('[data-row-id="assistant-1"]');
+    (late as unknown as { scrollIntoView: () => void }).scrollIntoView = () => scrolled.push("assistant-1");
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(scrolled).toEqual(["user-1"]);
+  });
+
   test("gives up quietly when the message never arrives", async () => {
     const { root, scrolled } = transcript(["assistant-2"]);
 

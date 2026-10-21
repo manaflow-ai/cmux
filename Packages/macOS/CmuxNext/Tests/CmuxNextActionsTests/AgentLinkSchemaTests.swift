@@ -44,6 +44,7 @@ struct AgentLinkSchemaTests {
     static func fields(of link: DeepLink) -> [String: String]? {
         guard case .agent(let harness, let session) = link.target else { return nil }
         var fields = ["harness": harness, "session": session]
+        if let machine = link.machine { fields["machine"] = machine }
         if let host = link.hostHint { fields["host"] = host }
         if let name = link.nameHint { fields["name"] = name }
         if let message = link.message { fields["message"] = message }
