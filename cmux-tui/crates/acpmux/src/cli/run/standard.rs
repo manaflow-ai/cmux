@@ -315,13 +315,22 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
+            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out || args.ephemeral);
+            // Checked before the session exists, so a bad value leaves none behind.
+            let on_permission = OnPermission::parse(&args.on_permission)?;
+            // The daemon purges an ephemeral session when this connection ends
+            // (`server/ephemeral.rs`), however the CLI exits: killed during the
+            // turn, by a caller's timeout, or a lost connection. The kill after
+            // the reply below stays the normal path.
+            if one_shot && args.ephemeral {
+                meta["ephemeral"] = json!(true);
+            }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             p["cwd"] = json!(cwd);
             let v = client.request(method::SESSION_NEW, p).await?;
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             let name =
                 v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
-            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out || args.ephemeral);
             if json_out && !one_shot {
                 let info = client
                     .request(method::MUX_INFO, json!({"sessionId": id}))
@@ -337,7 +346,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
-                        on_permission: OnPermission::parse(&args.on_permission)?,
+                        on_permission,
                         stall_secs: args.stall,
                         retries: args.retries,
                     };
@@ -363,7 +372,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 let opts = CollectOpts {
                     timeout: args.timeout,
-                    on_permission: OnPermission::parse(&args.on_permission)?,
+                    on_permission,
                     stall_secs: args.stall,
                     retries: args.retries,
                 };
