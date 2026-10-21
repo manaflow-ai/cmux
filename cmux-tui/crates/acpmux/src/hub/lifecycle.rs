@@ -381,6 +381,8 @@ impl Hub {
         }
 
         self.record_spawn_inputs(session, profile).await;
+        let moves = super::processes::backgrounds_work(profile.kind);
+        session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         self.fresh_agent(session, profile.preset_digest.clone());
         // A pooled session claimed for this id (`pool/`): its host already
