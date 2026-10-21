@@ -189,6 +189,8 @@ export type AcpmuxRow = {
   /// the step it is on ends), then `landed`; `stopped` was sent now to an agent that cannot steer,
   /// which stopped the turn and ran it next.
   steer?: "waiting" | "landed" | "stopped";
+  /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
+  steerPromptId?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
