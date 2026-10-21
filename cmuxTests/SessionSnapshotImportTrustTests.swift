@@ -681,6 +681,55 @@ struct SessionSnapshotImportTrustTests {
         #expect(report.sanitizedScrollbackCount == 1)
     }
 
+    @Test("imported scrollback is bounded before replay")
+    func importedScrollbackIsTruncated() throws {
+        let original = String(repeating: "x", count: SessionPersistencePolicy.maxScrollbackCharactersPerTerminal + 10)
+        let terminal = SessionTerminalPanelSnapshot(scrollback: original)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            Self.snapshot(terminal: terminal),
+            source: Self.fileImport
+        )
+
+        let scrollback = try #require(
+            restored.windows.first?.tabManager.workspaces.first?.panels.first?.terminal?.scrollback
+        )
+        #expect(scrollback.count == SessionPersistencePolicy.maxScrollbackCharactersPerTerminal)
+        #expect(report.truncatedScrollbackCount == 1)
+    }
+
+    @Test("imported panel fan-out has a global budget")
+    func importedPanelFanOutIsBoundedGlobally() throws {
+        let panel = Self.panel(terminal: SessionTerminalPanelSnapshot())
+        var workspace = SessionWorkspaceSnapshot(
+            processTitle: "Terminal",
+            customTitle: "Imported",
+            customColor: nil,
+            isPinned: false,
+            currentDirectory: "/tmp/project",
+            focusedPanelId: panel.id,
+            layout: .pane(SessionPaneLayoutSnapshot(panelIds: [panel.id], selectedPanelId: panel.id)),
+            panels: Array(repeating: panel, count: SessionPersistencePolicy.maxPanelsPerSnapshot + 1),
+            statusEntries: [],
+            logEntries: [],
+            progress: nil,
+            gitBranch: nil
+        )
+        var original = Self.finish(workspace: &workspace, workspaceHasRemote: false)
+        original.windows[0].tabManager.workspaces = Array(repeating: workspace, count: 9)
+
+        let (restored, report) = SessionSnapshotImportTrust.snapshotForRestore(
+            original,
+            source: Self.fileImport
+        )
+
+        #expect(
+            restored.windows.first?.tabManager.workspaces.reduce(0) { $0 + $1.panels.count }
+                == SessionPersistencePolicy.maxPanelsPerSnapshot
+        )
+        #expect(report.droppedPanelCount == 512)
+    }
+
     @Test("plain scrollback with SGR color is unchanged")
     func plainScrollbackIsUnchanged() {
         let text = "$ ls\n\u{1B}[34mdir\u{1B}[0m\tfile\r\n"

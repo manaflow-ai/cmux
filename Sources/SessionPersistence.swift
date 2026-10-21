@@ -38,6 +38,11 @@ enum SessionPersistencePolicy {
     static let maxWindowsPerSnapshot: Int = 12
     static let maxWorkspacesPerWindow: Int = 128
     static let maxPanelsPerWorkspace: Int = 512
+    /// A snapshot may contain many workspaces and docks. Keep the total number
+    /// of panel models bounded as well as each individual container so an
+    /// imported file cannot multiply the per-container limits into a restore
+    /// swarm.
+    static let maxPanelsPerSnapshot: Int = 4_096
     static let maxScrollbackLinesPerTerminal: Int = 4000
     static let maxScrollbackCharactersPerTerminal: Int = 400_000
 

@@ -17,6 +17,13 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
     var sanitizedBrowserPanelCount = 0
     /// Terminals whose scrollback had terminal control strings removed.
     var sanitizedScrollbackCount = 0
+    /// Terminals whose imported scrollback exceeded the replay budget and was
+    /// truncated to the newest bounded suffix.
+    var truncatedScrollbackCount = 0
+    /// Windows, workspaces, or panels removed by the structural import caps.
+    var droppedWindowCount = 0
+    var droppedWorkspaceCount = 0
+    var droppedPanelCount = 0
     /// Terminals whose text box draft attachments were dropped.
     var droppedDraftAttachmentCount = 0
 }
@@ -95,8 +102,12 @@ enum SessionSnapshotImportTrust {
         var report = SessionSnapshotImportTrustReport()
         var sanitized = snapshot
         let builtIns = builtInRegistrationsByID
+        var remainingPanelBudget = SessionPersistencePolicy.maxPanelsPerSnapshot
         func sanitize(_ panels: [SessionPanelSnapshot]) -> [SessionPanelSnapshot] {
-            panels.map {
+            let keptCount = min(panels.count, remainingPanelBudget)
+            report.droppedPanelCount += panels.count - keptCount
+            remainingPanelBudget -= keptCount
+            return panels.prefix(keptCount).map {
                 sanitizedPanel($0, builtIns: builtIns, isExistingDirectory: isExistingDirectory, report: &report)
             }
         }
@@ -104,12 +115,16 @@ enum SessionSnapshotImportTrust {
         // used when writing snapshots before constructing any restore models;
         // otherwise a valid but huge file can create an unbounded number of
         // terminal/bootstrap surfaces before runtime pacing takes effect.
-        sanitized.windows = Array(sanitized.windows.prefix(SessionPersistencePolicy.maxWindowsPerSnapshot))
+        let keptWindowCount = min(sanitized.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
+        report.droppedWindowCount += sanitized.windows.count - keptWindowCount
+        sanitized.windows = Array(sanitized.windows.prefix(keptWindowCount))
         for windowIndex in sanitized.windows.indices {
             var window = sanitized.windows[windowIndex]
+            let originalWorkspaceCount = window.tabManager.workspaces.count
             window.tabManager.workspaces = Array(
                 window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
             )
+            report.droppedWorkspaceCount += originalWorkspaceCount - window.tabManager.workspaces.count
             for workspaceIndex in window.tabManager.workspaces.indices {
                 var workspace = window.tabManager.workspaces[workspaceIndex]
                 if workspace.remote != nil || workspace.cloudVM != nil
@@ -238,7 +253,11 @@ enum SessionSnapshotImportTrust {
             if stripped != scrollback {
                 report.sanitizedScrollbackCount += 1
             }
-            terminal.scrollback = stripped
+            let bounded = SessionPersistencePolicy.truncatedScrollback(stripped)
+            if bounded != stripped {
+                report.truncatedScrollbackCount += 1
+            }
+            terminal.scrollback = bounded
         }
 
         if let draft = terminal.textBoxDraft {
