@@ -264,10 +264,7 @@ extension SidebarListViewComponents {
         if let source = drag.tileSource { drag.tileRegion?.docSpentPress = source.item } // the tile's press drags nothing more
         suppressed = drag.hiddenKeys
         reload(animated: true, adopt: true) // the gap closes and the source slot opens on the drag's spring
-        // A tile's press may never release (a press on the list ended the drag, and the release goes there):
-        // the tile the drag hid shows when the card lands in its slot, not only on that release.
-        let region = drag.tileSource == nil ? nil : drag.tileRegion
-        land(drag) { [weak region] in region?.endDocPress() }
+        land(drag) { [weak region = drag.tileSource == nil ? nil : drag.tileRegion] in region?.endDocPress() } // a list press eats the tile's release
     }
     /// Flies the lifted view to its row's current frame (or `slot`, the
     /// band slot of a pin drop), then swaps it out and runs `then`.
