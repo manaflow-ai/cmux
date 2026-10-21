@@ -1766,7 +1766,7 @@ jobs:
           echo "fetched $BUILD_SHA in $((SECONDS - started)) s"
           git -c core.hooksPath=/dev/null checkout -q --force --detach "$BUILD_SHA"
           git update-ref refs/remotes/origin/nightly-warm-base "$BUILD_SHA"
-          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cnx-ios/rust/target/
+          git clean -ffdxq -e /cmux-tui/target/ -e /Native/OptChat/optchat-chief/target/ -e /cmux-next-ios/rust/target/
           git reset -q --hard "$BUILD_SHA"
           git submodule sync -q --recursive
           git -c protocol.version=2 -c core.hooksPath=/dev/null submodule update --init --force --depth=1 --recursive
@@ -1911,7 +1911,7 @@ jobs:
           workspaces: |
             cmux-tui -> target/acpmux-app
             Native/OptChat/optchat-chief -> target/app
-            cnx-ios/rust -> target/cnx-hostd-app
+            cmux-next-ios/rust -> target/cmux-mobile-host-app
           shared-key: nightly-next-rust-helpers
           cache-all-crates: true
 
@@ -1982,20 +1982,20 @@ jobs:
           # The built-in full uBlock Origin must be in every nightly-next build (bundle-ublock.sh).
           echo "CMUX_NEXT_REQUIRE_UBLOCK=1" >> "$GITHUB_ENV"
 
-      # The cmux cnx iPhone host (cnx-ios/rust/crates/cnx-hostd), which
-      # Settings > Mobile runs: the Release build's "Bundle cnx-hostd" phase
+      # The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which
+      # Settings > Mobile runs: the Release build's "Bundle cmux-mobile-host" phase
       # copies it to Resources/bin, and sign-cmux-bundle-helpers.sh signs it
       # with the app's Developer ID, hardened runtime and the helper
       # entitlements before notarization, like every Mach-O there.
-      - name: Build the cnx iPhone host (cmux-next)
+      - name: Build the cmux-next iPhone host (cmux-mobile-host)
         if: needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
           if [[ "$NIGHTLY_FAST_BUILD" == "true" ]]; then archs=arm64; else archs=arm64,x86_64; fi
-          hostd_bin="$RUNNER_TEMP/cmux-next-cnx-hostd/cnx-hostd"
-          CMUX_NEXT_CNX_HOSTD_ARCHS="$archs" scripts/cmux-next/build-cnx-hostd.sh --output "$hostd_bin"
-          echo "CMUX_NEXT_CNX_HOSTD_BIN=$hostd_bin" >> "$GITHUB_ENV"
-          echo "CMUX_NEXT_REQUIRE_CNX_HOSTD=1" >> "$GITHUB_ENV"
+          hostd_bin="$RUNNER_TEMP/cmux-next-mobile-host/cmux-mobile-host"
+          CMUX_NEXT_MOBILE_HOST_ARCHS="$archs" scripts/cmux-next/build-mobile-host.sh --output "$hostd_bin"
+          echo "CMUX_NEXT_MOBILE_HOST_BIN=$hostd_bin" >> "$GITHUB_ENV"
+          echo "CMUX_NEXT_REQUIRE_MOBILE_HOST=1" >> "$GITHUB_ENV"
 
       # A fast branch dogfood build only needs the arm64 client that is bundled
       # in this macOS app. Building it here avoids waiting for the full
@@ -2273,7 +2273,7 @@ jobs:
         if: always() && inputs.nightly_next_unsigned_run == '' && runner.environment == 'self-hosted' && needs.decide.outputs.track == 'nightly-next'
         run: |
           set -euo pipefail
-          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cnx-ios/rust/target)
+          dirs=(cmux-tui/target Native/OptChat/optchat-chief/target cmux-next-ios/rust/target)
           kib=0
           for d in "${dirs[@]}"; do
             [ -d "$d" ] && kib=$((kib + $(du -sk "$d" | awk '{print $1}')))
@@ -2412,6 +2412,40 @@ jobs:
             echo "::warning title=No Chromium engine::The CEF artifact was not readable (secrets CMUX_CEF_R2_*); this build ships the browser as unavailable."
           fi
 
+      - name: Upload dSYMs to Sentry
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
+        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
+        # workflow over an older build_sha checkout without the script.
+        continue-on-error: true
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: manaflow
+          SENTRY_PROJECT: cmuxterm-macos
+        # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
+        # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host; acpmux is
+        # linked into cmux-tui), when the build step above made them.
+        # It runs in the background while the unsigned app and the kept dSYMs upload (it held
+        # this serialized warm slot 38-39 s after them in runs 39509829525, 39519824930); "Finish
+        # the dSYM upload to Sentry" waits for it. The FIFO write blocks until that step reads
+        # it, so the status is never lost and nothing polls.
+        run: |
+          set -uo pipefail
+          paths=(build-universal/Build/Products/Release/)
+          for dsym in cmux-tui/target/aarch64-apple-darwin/release/cmux-tui.dSYM \
+                      cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM; do
+            [ -d "$dsym" ] && paths+=("$dsym")
+          done
+          state="$RUNNER_TEMP/sentry-dsyms"
+          rm -rf "$state"
+          mkdir -p "$state"
+          mkfifo "$state/status.fifo"
+          (
+            status=0
+            ./scripts/upload-sentry-dsyms.sh "${paths[@]}" || status=$?
+            echo "$status" >"$state/status.fifo"
+          ) >"$state/upload.log" 2>&1 </dev/null &
+          echo "dSYM upload to Sentry started (PID $!)"
+
       - name: Archive unsigned nightly app
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
         run: |
@@ -2434,27 +2468,6 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-      - name: Upload dSYMs to Sentry
-        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
-        # A missing or broken uploader never blocks a publish either: run 37568319518 ran this
-        # workflow over an older build_sha checkout without the script.
-        continue-on-error: true
-        env:
-          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
-          SENTRY_ORG: manaflow
-          SENTRY_PROJECT: cmuxterm-macos
-        # Retried, and only a warning when Sentry stays down: a nightly is never lost to symbolication.
-        # The fast build also uploads the Rust client's dSYMs (cmux-tui, cmux-tui-host; acpmux is
-        # linked into cmux-tui), when the build step above made them.
-        run: |
-          set -uo pipefail
-          paths=(build-universal/Build/Products/Release/)
-          for dsym in cmux-tui/target/aarch64-apple-darwin/release/cmux-tui.dSYM \
-                      cmux-tui/target/aarch64-apple-darwin/release/cmux-tui-host.dSYM; do
-            [ -d "$dsym" ] && paths+=("$dsym")
-          done
-          ./scripts/upload-sentry-dsyms.sh "${paths[@]}"
-
       # The dSYMs of every nightly-next build, kept 90 days next to the build: a crash or hang
       # report symbolicates from here when the Sentry download is not available (2026-10-10:
       # a read with a scoped token got 403 for nightly 38005665577; the upload above works).
@@ -2468,6 +2481,19 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           compression-level: 6
+
+      - name: Finish the dSYM upload to Sentry
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.build_only != 'true')
+        continue-on-error: true
+        run: |
+          set -uo pipefail
+          state="$RUNNER_TEMP/sentry-dsyms"
+          [ -p "$state/status.fifo" ] || { echo "the dSYM upload to Sentry was never started" >&2; exit 1; }
+          status=""
+          read -r status <"$state/status.fifo" || true
+          cat "$state/upload.log"
+          rm -rf "$state"
+          [ "$status" = 0 ] || { echo "the dSYM upload to Sentry failed (status ${status:-none})" >&2; exit 1; }
 
   # Runs beside build-nightly-app. Deepening the shallow clone to find the
   # newest published cmux-tui commit took 1.5 to 11 minutes after the Xcode
@@ -2770,11 +2796,33 @@ jobs:
       # Computer Use helper, cmux-symbols.bin), which is the bundle that ships.
       # The password-reader proof reads symbols with nm, which the strip
       # removes, so it stays right after the compile in build-nightly-app.
+      # The scan reads every file of the bundle (93-121 s in runs 39508830200,
+      # 39509829525, 39519824930), so it runs in the background on an APFS
+      # clone of the bundle as it is here, while the steps below change the
+      # original; "Finish the browser-data import proof" waits for it before
+      # the prepared app is uploaded. The FIFO write blocks until that step
+      # reads it, so the status is never lost and nothing polls.
       - name: Prove the browser-data import is compiled out (cx-f58x notary test)
         if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
         run: |
           set -euo pipefail
-          scripts/ci/check-browser-data-import-absent.sh "build-universal/Build/Products/Release/cmux.app"
+          state="$RUNNER_TEMP/browser-data-proof"
+          rm -rf "$state"
+          mkdir -p "$state/snapshot"
+          # clonefile(2) is instant on APFS; ditto is the copy elsewhere.
+          app="build-universal/Build/Products/Release/cmux.app"
+          if ! cp -cR "$app" "$state/snapshot/cmux.app" 2>"$state/clone.err"; then
+            echo "cp -c failed ($(head -c 200 "$state/clone.err")); copying with ditto"
+            rm -rf "$state/snapshot/cmux.app"
+            ditto "$app" "$state/snapshot/cmux.app"
+          fi
+          mkfifo "$state/status.fifo"
+          (
+            status=0
+            scripts/ci/check-browser-data-import-absent.sh "$state/snapshot/cmux.app" || status=$?
+            echo "$status" >"$state/status.fifo"
+          ) >"$state/proof.log" 2>&1 </dev/null &
+          echo "browser-data import proof started on a clone of the bundle (PID $!)"
 
 
       - name: Inject universal Ghostty CLI helper
@@ -2907,7 +2955,7 @@ jobs:
           done
           # The cmux-next nightly carries the OptChat Chief with the app's slices.
           if [[ "$CHANNEL_RELEASE_TAG" == "nightly-next" ]]; then
-            for helper in optchat-chief cnx-hostd; do
+            for helper in optchat-chief cmux-mobile-host; do
               binary="$APP/Contents/Resources/bin/$helper"
               [ -x "$binary" ] || { echo "nightly-next is missing bin/$helper" >&2; exit 1; }
               archs="$(lipo -archs "$binary")"
@@ -2959,6 +3007,22 @@ jobs:
           digest="$(shasum -a 256 prepared-app-handoff/cmux-prepared-app.tar.gz | awk '{print $1}')"
           [[ "$digest" =~ ^[0-9a-f]{64}$ ]] || { echo "no sha256 for the prepared app" >&2; exit 1; }
           echo "::notice title=nightly-prepared-app::variant=${NIGHTLY_VARIANT} artifact=${PREPARED_APP_ARTIFACT} sha256=${digest} publish=${NIGHTLY_SHOULD_PUBLISH} fast=${NIGHTLY_FAST_BUILD}"
+
+      - name: Finish the browser-data import proof
+        if: inputs.nightly_next_unsigned_run == '' && (needs.decide.outputs.notary_test_browser_data == 'true')
+        run: |
+          set -euo pipefail
+          state="$RUNNER_TEMP/browser-data-proof"
+          [ -p "$state/status.fifo" ] || { echo "the browser-data import proof was never started" >&2; exit 1; }
+          status=""
+          read -r status <"$state/status.fifo" || true
+          cat "$state/proof.log"
+          rm -rf "$state"
+          case "$status" in
+            0) ;;
+            "") echo "the browser-data import proof ended without a status" >&2; exit 1 ;;
+            *) echo "the browser-data import proof failed (status $status)" >&2; exit 1 ;;
+          esac
 
       - name: Upload prepared app for signing
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -6403,74 +6467,18 @@ jobs:
           name: cmux-nightly-variant-${{ matrix.variant }}
           path: nightly-delta/input
 
-      - name: Fetch one previous track archive
+      - name: Generate deltas and revised appcast
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          python3 scripts/ci/fetch-previous-nightly-dmgs.py \
-            --repo manaflow-ai/cmux \
-            --release-tag "$CHANNEL_RELEASE_TAG" \
-            --name-prefix "${CHANNEL_DMG_PREFIX}-" \
-            --variant "$NIGHTLY_VARIANT" \
-            --exclude-build "$NIGHTLY_BUILD" \
-            --count 1 \
-            --out nightly-delta/previous
-
-      - name: Generate one from-version delta and revised appcast
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p nightly-delta/output
-          dmg="nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg"
           feed="appcast.xml"
           if [ "$NIGHTLY_VARIANT" != "universal" ]; then
             feed="appcast-${NIGHTLY_VARIANT}.xml"
           fi
-          test -s "$dmg"
-          if ! compgen -G 'nightly-delta/previous/*.dmg' >/dev/null; then
-            echo "No previous $NIGHTLY_VARIANT archive; retaining the full-only appcast"
-            cp "nightly-delta/input/$feed" "nightly-delta/output/$feed"
-            exit 0
-          fi
-          SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
-          export SPARKLE_PRIVATE_KEY
-          SPARKLE_PUBLIC_KEY="$(
-            printf '%s' "$SPARKLE_PRIVATE_KEY" |
-              env -u SPARKLE_PRIVATE_KEY \
-                -u SHARED_SPARKLE_PRIVATE_KEY \
-                -u NIGHTLY_SPARKLE_PRIVATE_KEY \
-                -u NEXT_SPARKLE_PRIVATE_KEY \
-                swift scripts/derive_sparkle_public_key.swift --stdin
-          )"
-          export SPARKLE_PUBLIC_KEY
-          ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
-            nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
-          # The full feed's item for this DMG already carries the bundle's
-          # macOS floor (appcast_minimum_system_version.py floor); keep it.
-          SPARKLE_MINIMUM_SYSTEM_VERSION="$(python3 - "nightly-delta/input/$feed" "$(basename "$dmg")" <<'PY'
-          import re, sys
-          feed, archive = sys.argv[1], sys.argv[2]
-          for item in re.findall(r"<item>.*?</item>", open(feed, encoding="utf-8").read(), re.S):
-              if archive in item:
-                  m = re.search(r"<sparkle:minimumSystemVersion>\s*([^<]*?)\s*</sparkle:minimumSystemVersion>", item)
-                  if m:
-                      print(m.group(1))
-                      sys.exit(0)
-          sys.exit(f"no sparkle:minimumSystemVersion for {archive} in {feed}")
-          PY
-          )"
-          export SPARKLE_MINIMUM_SYSTEM_VERSION
-          SPARKLE_PREVIOUS_ARCHIVES_DIR=nightly-delta/previous \
-          SPARKLE_MAXIMUM_DELTAS=1 \
-          SPARKLE_DELTA_NAME_PREFIX="${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-" \
-            ./scripts/sparkle_generate_appcast.sh \
-              "$dmg" "$CHANNEL_RELEASE_TAG" "nightly-delta/output/$feed"
-          # generate_appcast rewrites the items; keep the full feed's changelog
-          # <description> for this build (cx-lntk).
-          python3 scripts/ci/appcast_carry_description.py \
-            "nightly-delta/input/$feed" "nightly-delta/output/$feed" "$NIGHTLY_BUILD"
+          ./scripts/ci/generate-nightly-deltas.sh \
+            "nightly-delta/input/${CHANNEL_DMG_PREFIX}-${NIGHTLY_VARIANT}-${NIGHTLY_BUILD}.dmg" \
+            "nightly-delta/input/$feed" nightly-delta/output
           ls -l nightly-delta/output
 
       - name: Upload delta result
@@ -6874,7 +6882,9 @@ jobs:
     continue-on-error: true
     runs-on: ubuntu-24.04
     timeout-minutes: 30
-    # contents: write reaches the pr-media branch through scripts/pr-media.py.
+    # contents: write reaches the pr-media branch through scripts/pr-media.py,
+    # whose privacy check (scripts/ci/pr_media_privacy.py) refuses any private
+    # name in this bot's folder before the first upload.
     permissions:
       contents: write
     steps:
@@ -6900,6 +6910,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           NIGHTLY_BUILD: ${{ needs.build-nightly-app.outputs.daemon_build }}
+          # Built-in fleet patterns only: the private names are a secret, which a
+          # dispatchable job may read only in an environment. main's
+          # pr-media-privacy.yml scans the push with them and removes a bot's hit.
+          PR_MEDIA_AGENT_AUTHORS: ${{ vars.PR_MEDIA_AGENT_AUTHORS }}
         run: |
           set -euo pipefail
           # The notes this run signed and published, checked against the content key.

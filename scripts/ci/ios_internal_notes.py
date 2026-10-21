@@ -43,9 +43,12 @@ UNKNOWN_BASE_COMMITS = 200
 GRAPHQL_BATCH = 25
 BUILD_WORKFLOWS = ("ios-internal-nightly.yml", "cnx-ios-testflight.yml")  # the builder, then the retired manual lane
 
-# The iPhone app's sources besides the local packages cnx-ios/CnxKit/Package.swift names.
-# Builder files (workflows, scripts) change no app behavior and are left out.
+# The iPhone app's sources besides the local packages cmux-next-ios/CmuxMobileKit/Package.swift
+# names. `cnx-ios/` is the same app before the 2026-10-20 rename: a range that spans the rename
+# still lists its older commits. Builder files (workflows, scripts) change no app behavior and are
+# left out.
 APP_PREFIXES = (
+    "cmux-next-ios/",
     "cnx-ios/",
     "AppIcon.icon/",
     "cmux-tui/crates/cmux-wg/",
@@ -223,7 +226,7 @@ def subject_entry(subject: str) -> Entry | None:
     return Entry(OTHER, _clean(s)) if s else None
 
 
-NOT_IN_APP = re.compile(r"(^|/)[\w.-]*Tests?/|Tests?\.swift$|(^|/)tests?/|^cnx-ios/(?:scripts|verify|docs)/|\.md$")
+NOT_IN_APP = re.compile(r"(^|/)[\w.-]*Tests?/|Tests?\.swift$|(^|/)tests?/|^(?:cmux-next-ios|cnx-ios)/(?:scripts|verify|docs)/|\.md$")
 
 
 def only_tests(files: list[str]) -> bool:
@@ -383,7 +386,7 @@ def resolve(repo: str, ref: str | None) -> str | None:
 
 def app_prefixes(repo: str, sha: str) -> tuple[str, ...]:
     try:
-        package = _git(repo, "show", f"{sha}:cnx-ios/CnxKit/Package.swift")
+        package = _git(repo, "show", f"{sha}:{builder().PACKAGE_SWIFT}")
     except subprocess.CalledProcessError:
         package = ""
     return APP_PREFIXES + tuple(builder().package_paths(package))
@@ -391,7 +394,7 @@ def app_prefixes(repo: str, sha: str) -> tuple[str, ...]:
 
 def app_version(repo: str, sha: str) -> str | None:
     try:
-        return builder().marketing_version(_git(repo, "show", f"{sha}:cnx-ios/project.yml"))
+        return builder().marketing_version(_git(repo, "show", f"{sha}:{builder().PROJECT_YML}"))
     except (subprocess.CalledProcessError, ValueError):
         return None
 

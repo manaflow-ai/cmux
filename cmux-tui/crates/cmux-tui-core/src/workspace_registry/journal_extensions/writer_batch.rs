@@ -122,15 +122,16 @@ impl RegistryConnection {
         let terminal_ids = events
             .iter()
             .filter_map(|event| match *event {
-                crate::journal_ingress::JournalIngressEvent::TerminalOutput {
-                    terminal_id, ..
-                }
-                | crate::journal_ingress::JournalIngressEvent::TerminalResize {
+                crate::journal_ingress::JournalIngressEvent::TerminalResize {
                     terminal_id, ..
                 }
                 | crate::journal_ingress::JournalIngressEvent::TerminalOutputGap {
                     terminal_id,
                     ..
+                } => Some(terminal_id.as_str().to_string()),
+                #[cfg(test)]
+                crate::journal_ingress::JournalIngressEvent::TerminalOutput {
+                    terminal_id, ..
                 } => Some(terminal_id.as_str().to_string()),
                 crate::journal_ingress::JournalIngressEvent::Frontend { .. }
                 | crate::journal_ingress::JournalIngressEvent::Producer { .. }
@@ -149,6 +150,7 @@ impl RegistryConnection {
             subjects.extend(expanded_by_terminal.remove(&terminal_id).unwrap_or_default());
             subjects_by_terminal.insert(terminal_id, subjects.into_iter().collect::<Vec<_>>());
         }
+        #[cfg_attr(not(test), allow(unused_mut))]
         let mut terminal_offsets = HashMap::<(&str, &str), u64>::new();
         let mut commits = Vec::with_capacity(events.len());
         for event in events {
@@ -384,6 +386,8 @@ impl RegistryConnection {
             }
             let (terminal_id, generation, occurred_at_ms, kind, class, payload, content) =
                 match *event {
+                    // Test-only: shipped builds never journal output.
+                    #[cfg(test)]
                     crate::journal_ingress::JournalIngressEvent::TerminalOutput {
                         terminal_id,
                         generation,

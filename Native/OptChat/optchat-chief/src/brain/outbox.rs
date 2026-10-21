@@ -81,7 +81,7 @@ impl Brain {
                         self.last_agent_send = Some(now_ms());
                     }
                     if let Some(cmux_conversation::Change::Message { message }) = change {
-                        self.note_posted(&conversation, &message);
+                        self.note_posted(&conversation, &key, &message);
                         self.sent(&key, &message.id);
                     }
                 }

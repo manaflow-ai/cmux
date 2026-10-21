@@ -99,13 +99,14 @@ export function ChatHeaderTools({
   onMenuOpen,
   expand,
   onExpanded,
+  pullRequestChip,
   onMergePullRequest,
   folder,
   readStatus,
   statusKey,
   onApplyWorktree,
   onRemoveWorktree,
-  sessionRail,
+  inspector,
 }: {
   /// Terminal and Browser run their split with the quick action's mode: the App opens it, or for
   /// `toggle` closes the split this button opened when it is still there.
@@ -137,9 +138,11 @@ export function ChatHeaderTools({
   menu: () => ChatMenuItem[];
   /// Runs before the menu opens; the menu shows once it settles.
   onMenuOpen?: () => Promise<unknown>;
-  /// A row with children to show open (the palette's Continue in…); `onExpanded` clears it.
+  /// A row with children to show open (the palette's Continue In…); `onExpanded` clears it.
   expand?: string;
   onExpanded?: () => void;
+  /// The pull request chip (default on); a subagent's own pane draws none: the pull request is the chat's.
+  pullRequestChip?: boolean;
   /// Merge on the PR chip (cx-ncc.77.4): merges that pull request; rejects with why not.
   onMergePullRequest?: (pullRequest: { number: number; url: string }) => Promise<MergeResult>;
   /// The chat's folder on this Mac and its `git.status`: a worktree chat's branch shows (cx-lyqio.3b),
@@ -151,8 +154,9 @@ export function ChatHeaderTools({
   onApplyWorktree?: (key: string) => Promise<unknown>;
   /// Remove on the worktree pill (cx-lyqio.5): `git.worktree.remove` for the chat's session.
   onRemoveWorktree?: (key: string, discard: boolean) => Promise<unknown>;
-  /// The session side rail's toggle (Debug Settings `agent.sessionRail`, summary/SessionRail.tsx), before the summary.
-  sessionRail?: ReactNode;
+  /// The Inspector's toggle (Debug Settings `agent.inspector`, inspector/ChatInspector.tsx): the
+  /// header's last, top-right button, as Claude Code desktop's panel toggle is.
+  inspector?: ReactNode;
 }) {
   const t = useT();
   const terminalKey = useShortcut(HEADER_ACTIONS.terminal);
@@ -173,6 +177,7 @@ export function ChatHeaderTools({
   const target = useRef<QuickActionId>(undefined);
   const [menuTarget, setMenuTarget] = useState<QuickActionId>();
   // The quick actions without a button, at the top of "...": each while it would show as a button.
+  // Changes is listed there with its button too.
   // Built when "..." reads its rows, after the App's tab state refresh (onMenuOpen): the props of this
   // render, and the lit splits as the App last pushed them.
   const live = useRef({
@@ -216,7 +221,8 @@ export function ChatHeaderTools({
     const { lit } = headerState();
     const shownIds = new Set(actions.map((action) => action.id));
     const folded: ChatMenuItem[] = [];
-    if (onChanges && !shownIds.has("changes") && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
+    // Changes stays in "..." beside its button, as in the Codex and Claude apps' chat menus (hq#2569 item 4).
+    if (onChanges && (hasChanges || lit.includes(HEADER_ACTIONS.changes)))
       folded.push({
         key: "quick-changes",
         label: t("header.changes"),
@@ -393,7 +399,9 @@ export function ChatHeaderTools({
   return (
     <div className="acpmux-header-tools" onPointerEnter={onPointerEnter}>
       {worktree && <WorktreePill worktree={worktree} onApply={onApplyWorktree} onRemove={onRemoveWorktree} />}
-      {pullRequest && <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />}
+      {pullRequest && pullRequestChip !== false && (
+        <PullRequestChip pullRequest={pullRequest} onMerge={onMergePullRequest} />
+      )}
       {buttons ? (
         <div className="acpmux-header-tool-group acpmux-header-tool-group-actions">
           {onCustomize ? (
@@ -423,7 +431,6 @@ export function ChatHeaderTools({
       ) : null}
       {buttons ? <hr className="acpmux-header-separator" aria-orientation="vertical" /> : null}
       <div className="acpmux-header-tool-group acpmux-header-tool-group-meta">
-        {sessionRail}
         {summary}
         <ChatMenu
           items={rows}
@@ -432,6 +439,7 @@ export function ChatHeaderTools({
           expand={expand}
           onExpanded={onExpanded}
         />
+        {inspector}
       </div>
     </div>
   );
@@ -542,7 +550,7 @@ function ChatMenu({
   const t = useT();
   const [open, setOpen] = useState(false);
   const [rows, setRows] = useState<ChatMenuItem[]>([]);
-  // Set when the palette asks for one row's children (Continue in…): the menu lists only those.
+  // Set when the palette asks for one row's children (Continue In…): the menu lists only those.
   const [only, setOnly] = useState<string>();
   const opening = useRef(0);
   const show = (row?: string) => {
@@ -577,7 +585,7 @@ function ChatMenu({
   const children = focused && focused !== "separator" ? focused.children : undefined;
   return (
     <Menu open={open} onOpenChange={onOpenChange}>
-      <MenuButton className="acpmux-header-tool" label={label} title={label} disabled={disabled}>
+      <MenuButton className="acpmux-header-tool" label={label} disabled={disabled}>
         <Icon name="action.more" size={15} />
       </MenuButton>
       <MenuPopup className="acpmux-chat-menu-popover" align="end">

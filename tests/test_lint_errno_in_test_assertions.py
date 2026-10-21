@@ -29,7 +29,7 @@ SPEC.loader.exec_module(LINT)
 
 
 def lines(source: str) -> list:
-    findings = LINT.scan_source(textwrap.dedent(source), "ios/cmuxUITests/Fixture.swift")
+    findings = LINT.scan_source(textwrap.dedent(source), "ios/CmuxiOS/Tests/CmuxHomeUITests/Fixture.swift")
     return [(finding.line, finding.macro) for finding in findings]
 
 
@@ -249,20 +249,51 @@ class CommandLine(unittest.TestCase):
         status, stdout, _ = self.run_lint(
             {
                 "Packages/macOS/Pkg/Sources/Pkg/Probe.swift": "#expect(errno == EAGAIN)\n",
-                "ios/cmuxUITests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
+                "ios/CmuxiOS/Sources/CmuxHome/Probe.swift": "#expect(errno == EAGAIN)\n",
+                "ios/CmuxiOS/Tests/CmuxHomeUITests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
             }
         )
         self.assertEqual(status, 0)
         self.assertIn("1 Swift test files", stdout)
 
-    def test_scans_the_ui_test_sources(self) -> None:
-        for path in ("ios/cmuxUITests/ProbeTests.swift",):
+    def test_scans_the_ios_test_sources(self) -> None:
+        for path in (
+            "ios/CmuxiOS/Tests/CmuxHomeUITests/ProbeTests.swift",
+            "ios/CmuxiOS/Tests/CmuxiOSTerminalTests/ProbeTests.swift",
+            "ios/cmuxUITests/ProbeTests.swift",
+            "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/ProbeTests.swift",
+            "cmux-next-ios/UITests/ProbeUITests.swift",
+        ):
             with self.subTest(path=path):
                 status, _, stderr = self.run_lint(
                     {path: "#expect(read(fd, &byte, 1) == -1)\n#expect(errno == EAGAIN)\n"}
                 )
                 self.assertEqual(status, 1)
                 self.assertIn(f"{path}:2", stderr)
+
+    def test_a_test_target_outside_the_scanned_roots_fails(self) -> None:
+        # Review of #23095: cmux-next-ios's tests were never scanned. Every
+        # Swift file that imports a test framework must sit under a scanned
+        # root or an excluded one, so a new test target cannot be skipped.
+        for framework in ("Testing", "XCTest"):
+            with self.subTest(framework=framework):
+                status, _, stderr = self.run_lint(
+                    {"new-app/Tests/NewAppTests/ProbeTests.swift": f"import {framework}\nlet e = errno\n"}
+                )
+                self.assertEqual(status, 1)
+                self.assertIn("new-app/Tests/NewAppTests/ProbeTests.swift", stderr)
+                self.assertIn("TEST_ROOTS", stderr)
+
+    def test_vendored_and_ios_tests_are_scanned_and_sources_are_not(self) -> None:
+        status, stdout, stderr = self.run_lint(
+            {
+                "vendor/sdk/Tests/SDKTests/VendorTests.swift": "import XCTest\n",
+                "new-app/Sources/App/Main.swift": "import Foundation\n",
+                "cmux-next-ios/CmuxMobileKit/Tests/CmuxMobileLiveTests/LiveTests.swift": "import Testing\n",
+            }
+        )
+        self.assertEqual(status, 0, stderr)
+        self.assertIn("2 Swift test files", stdout)
 
 
 if __name__ == "__main__":

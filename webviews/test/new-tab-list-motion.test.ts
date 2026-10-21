@@ -7,8 +7,9 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -26,7 +27,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
   let browser: Browser | undefined;
   // The gallery stands in for the app's Reduce Motion (its media and its motion tokens) by `reducedMotion=1`.
   const url = (variant: string, reduced = false) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.new-tab&variant=${variant}${reduced ? "&reducedMotion=1" : ""}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.new-tab", { variant, reducedMotion: reduced ? 1 : undefined })}`;
 
   async function ready(page: Page) {
     for (;;) {
@@ -46,13 +47,8 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
-    // The first load can run Vite's dependency optimizer and reload mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 900, height: 700 } });
-    await warm.goto(url("recently-closed"));
-    await ready(warm);
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.new-tab", { browser, params: { variant: "recently-closed" } });
   });
   afterAll(async () => {
     await browser?.close();
@@ -63,6 +59,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
    * CSS transitions), so a short fade that ends before the test reads is still counted. */
   async function recordingPage() {
     const page = await browser!.newPage({ viewport: { width: 900, height: 700 } });
+    await installPaintedFrames(page);
     await page.addInitScript(() => {
       type Started = { target: Element; properties: string[] };
       const started: Started[] = [];
@@ -91,6 +88,19 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     await ready(page);
     await page.locator(".nt-screen").first().waitFor();
     return page;
+  }
+
+  /** Once the rows' motion so far has started (a painted frame after they drew) and run out. */
+  async function rowsSettle(page: Page) {
+    await page.evaluate(async () => {
+      await window.cmuxPaintFrame();
+      await Promise.all(
+        document
+          .getAnimations()
+          .filter((animation) => Number.isFinite(Number(animation.effect?.getComputedTiming().endTime)))
+          .map((animation) => animation.finished.catch(() => undefined)),
+      );
+    });
   }
 
   /** Forgets the motion started so far. */
@@ -139,7 +149,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     const page = await open(false);
     try {
       await closed(page, ["a", "b", "c", "d"]);
-      await page.waitForTimeout(400); // the first rows settle
+      await rowsSettle(page);
       await forget(page);
       await closed(page, ["e", "a", "b", "c", "d"]);
       expect(await motion(page)).toEqual({
@@ -158,7 +168,7 @@ await requireBrowserLane("new-tab-list-motion.test.ts", async () => {
     const page = await open(true);
     try {
       await closed(page, ["a", "b", "c", "d"]);
-      await page.waitForTimeout(400); // the first rows settle
+      await rowsSettle(page);
       await forget(page);
       await closed(page, ["e", "a", "b", "c", "d"]);
       expect(await motion(page)).toEqual({

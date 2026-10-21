@@ -10,6 +10,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -181,6 +182,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
 
   test("a chat switch draws the old chat, then the new one, never a frame in between", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
@@ -189,7 +191,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       const frames: { at: number; chip: string; old: boolean; fresh: boolean; text: string }[] = [];
       (window as unknown as { switchFrames: typeof frames }).switchFrames = frames;
       const start = performance.now();
-      const sample = () => {
+      window.cmuxAfterPaint(() => {
         const text = document.body.innerText;
         frames.push({
           at: performance.now() - start,
@@ -198,9 +200,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           fresh: text.includes("Docs updated."),
           text: text.slice(0, 160).replace(/\s+/g, " "),
         });
-        if (performance.now() - start < 1500) requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
+        return performance.now() - start < 1500;
+      });
       const actions = (window as { cmuxAcpmuxActions?: Record<string, (params: object) => Promise<unknown>> })
         .cmuxAcpmuxActions;
       void actions?.["chat.select"]?.({ sessionId: "0190a000-0000-7000-8000-0000000000f2" });
@@ -232,8 +233,51 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
     expect(between).toEqual([]);
   });
 
+  // Leo 2026-10-20 ("the rendering is just not great on the first frame"): a chat shown for the
+  // first time (a workspace not opened yet, a page rebuilt after hibernation) reported its first
+  // paint as soon as the host answered the handshake, before acpmux attached it. The app faded in
+  // an empty transcript, then the rows, title and the access chip's mode popped in. From the
+  // report on, every frame draws the chat whole.
+  test("a chat's first open reports its first paint once it draws whole", async () => {
+    const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
+    const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
+    await page.addInitScript((selector) => {
+      const frames: { at: number; painted: boolean; whole: boolean; text: string }[] = [];
+      (window as unknown as { openFrames: typeof frames }).openFrames = frames;
+      window.cmuxAfterPaint(() => {
+        const text = document.body?.innerText ?? "";
+        frames.push({
+          at: performance.now(),
+          painted: (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt !== undefined,
+          whole: text.includes("Retry added.") && document.querySelector(selector)?.textContent === "Full access",
+          text: text.slice(0, 160).replace(/\s+/g, " "),
+        });
+        return performance.now() < 20_000;
+      });
+    }, CHIP);
+    await page.goto(url(A.listed.sessionId));
+    await page.getByText("Retry added.").waitFor();
+    await page.waitForFunction(() => (window as { cmuxDevPaintedAt?: number }).cmuxDevPaintedAt !== undefined);
+    const frames = await page.evaluate(
+      () =>
+        (window as unknown as { openFrames: { at: number; painted: boolean; whole: boolean; text: string }[] })
+          .openFrames,
+    );
+    await page.close();
+    const shown = frames.filter((frame) => frame.painted);
+    const broken = shown.filter((frame) => !frame.whole);
+    console.log(
+      `open-frames: ${shown.length} frames after the first paint report, ${broken.length} not whole` +
+        (broken.length ? ` (first: ${JSON.stringify(broken[0])})` : ""),
+    );
+    expect(shown.length).toBeGreaterThan(0);
+    expect(broken).toEqual([]);
+  });
+
   test("a reconnect keeps the chat on screen until the chat is read again", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
+    await installPaintedFrames(page);
     await page.goto(url(A.listed.sessionId));
     await page.getByText("Retry added.").waitFor();
     const CHIP = ".acpmux-access-trigger .acpmux-mode-text";
@@ -242,7 +286,7 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
       const frames: { at: number; chip: string; old: boolean; text: string }[] = [];
       (window as unknown as { reconnectFrames: typeof frames }).reconnectFrames = frames;
       const start = performance.now();
-      const sample = () => {
+      window.cmuxAfterPaint(() => {
         const text = document.body.innerText;
         frames.push({
           at: performance.now() - start,
@@ -250,9 +294,8 @@ await requireBrowserLane("agent-pane-switch-frames.test.ts", async () => {
           old: text.includes("Retry added."),
           text: text.slice(0, 160).replace(/\s+/g, " "),
         });
-        if (performance.now() - start < 2000) requestAnimationFrame(sample);
-      };
-      requestAnimationFrame(sample);
+        return performance.now() - start < 2000;
+      });
     }, CHIP);
     // acpmux restarts: the pane's socket drops and it connects again.
     const before = attaches;

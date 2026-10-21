@@ -21,6 +21,7 @@ from concurrent.futures import ThreadPoolExecutor
 import hashlib
 import http.client
 import io
+import shutil
 from pathlib import Path
 import subprocess
 import sys
@@ -84,6 +85,9 @@ def fetch_crate(cache: Path, package: dict) -> None:
         raise SystemExit(f"fetch_crates: {name} {version}: downloaded sha256 {digest} differs from Cargo.lock {package.get('checksum')}")
     dest.parent.mkdir(parents=True, exist_ok=True)
     partial = dest.with_name(dest.name + ".partial")
+    # A cache kept between runs (nightly-next's trusted worker) can hold the
+    # leftover of an interrupted extract; start it over.
+    shutil.rmtree(partial, ignore_errors=True)
     with tarfile.open(fileobj=io.BytesIO(data)) as archive:
         archive.extractall(partial, filter="data")
     (partial / f"{name}-{version}").rename(dest)
@@ -93,9 +97,16 @@ def fetch_crate(cache: Path, package: dict) -> None:
 def fetch_git(cache: Path, source: str) -> None:
     dest, url, rev = git_dir(cache, source)
     if dest.is_dir():
-        return
+        # The directory is named by rev[:7]; a kept cache may hold another
+        # revision with that prefix. Use it only when it is this one.
+        kept = subprocess.run(["git", "-C", str(dest), "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        if kept == rev:
+            return
+        shutil.rmtree(dest)
     partial = dest.with_name(dest.name + ".partial")
-    partial.mkdir(parents=True, exist_ok=True)
+    # An interrupted fetch or checkout (a stale index.lock) must not fail every later run.
+    shutil.rmtree(partial, ignore_errors=True)
+    partial.mkdir(parents=True)
     git = ["git", "-C", str(partial)]
     subprocess.run([*git, "init", "-q"], check=True)
     retry(f"git fetch {url} {rev}", lambda: subprocess.run([*git, "fetch", "-q", "--depth", "1", url, rev], check=True))

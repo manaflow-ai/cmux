@@ -58,6 +58,23 @@ public actor MacInstallIdentity {
         return try await client.installToken()
     }
 
+    /// A fresh token for one backend team, using this install's existing signer and grant.
+    /// The personal client stays bound to its own scope; team refusals never rotate its key.
+    public func installToken(team: String) async throws -> String {
+        guard let client, let stackUser = user else { throw Failure.signedOut }
+        let bound = generation
+        _ = try await client.installToken()
+        guard bound == generation, user == stackUser,
+              let record = await client.currentRecord, let environment = await client.environment else { throw Failure.signedOut }
+        let scoped = InstallAuthClient(
+            transport: transport, signer: store.signer(for: stackUser), sessionToken: nil, stackUser: stackUser,
+            deviceName: deviceName, clientVersion: clientVersion, record: record,
+            profile: .mac, team: team, expectedEnvironment: environment)
+        let token = try await scoped.installToken()
+        guard bound == generation, user == stackUser, await client.currentRecord == record else { throw Failure.signedOut }
+        return token
+    }
+
     /// The owner refused the current token (401): the next call mints again.
     public func invalidate() async { await client?.invalidate() }
 

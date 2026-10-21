@@ -29,9 +29,9 @@ const HELP: &str = "Usage: cmux agents doctor [--json]\n\nReports whether this m
 pub(super) const STATUS_METHOD: &str = "computer_use.status";
 /// The MCP server name cmux uses for computer use, and its binary.
 const CUA_SERVER: &str = "cmux-cua";
-const ACCESSIBILITY_URL: &str =
+pub(super) const ACCESSIBILITY_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility";
-const SCREEN_RECORDING_URL: &str =
+pub(super) const SCREEN_RECORDING_URL: &str =
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -557,7 +557,7 @@ fn parse_version(text: &str) -> Option<(u64, u64, u64)> {
 // MARK: Harnesses
 
 /// The first executable `name` in `path` (the `PATH` value), as a shell finds it.
-fn on_path(path: Option<&OsStr>, name: &str) -> Option<PathBuf> {
+pub(super) fn on_path(path: Option<&OsStr>, name: &str) -> Option<PathBuf> {
     std::env::split_paths(path?)
         .filter(|dir| !dir.as_os_str().is_empty())
         .map(|dir| dir.join(name))
@@ -652,7 +652,7 @@ fn is_cua(name: &str, command: Option<&str>) -> bool {
         })
 }
 
-fn read_text(path: &Path) -> Result<Option<String>, String> {
+pub(super) fn read_text(path: &Path) -> Result<Option<String>, String> {
     match std::fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
@@ -661,7 +661,7 @@ fn read_text(path: &Path) -> Result<Option<String>, String> {
 }
 
 /// A JSON config, `None` when the file does not exist.
-fn read_json(path: &Path) -> Result<Option<Value>, String> {
+pub(super) fn read_json(path: &Path) -> Result<Option<Value>, String> {
     read_text(path)?
         .map(|text| serde_json::from_str::<Value>(&text).map_err(|error| error.to_string()))
         .transpose()
@@ -776,7 +776,7 @@ fn codex_cua(environment: &Environment) -> Wiring {
 
 /// A TOML parse error without the excerpt of the file that `Display`
 /// prints: that line may hold a key. Its message and line only.
-fn toml_error(text: &str, error: &toml::de::Error) -> String {
+pub(super) fn toml_error(text: &str, error: &toml::de::Error) -> String {
     let message = error.message().trim();
     match error.span() {
         Some(span) => {

@@ -8,9 +8,19 @@
 //! acpmux's own per-folder record (`<home>/trust.json`); level `unknown`
 //! clears it, so each agent's own level answers again.
 //!
+//! A folder in a git repository (`repository`) with no decision of its own takes its linked
+//! worktree's decision, else its repository's, and that answers it as its own would (before
+//! each agent's level): "Trust this repo" answers every worktree of it once, Not now holds in
+//! every one, and a worktree cmux makes for a chat is never asked about again.
+//! Nothing else is inherited: a decision for a plain folder covers that folder alone, and a
+//! repository at or above home (or with home unknown) is never answered as a whole.
+//!
 //! A folder the app made for a new chat (agent-home, `made_by_cmux`) is
 //! trusted by construction when acpmux has no record for it: nobody is asked.
-//! This one rule serves `get` and the trust gate (`session_level`) alike.
+//! A folder under the person's project roots, or in a repository whose remotes are all the
+//! person's own organizations, is trusted the same way (`trust_auto.rs`, switchable in Settings);
+//! an explicit "Don't trust" or an agent's own untrusted level still wins.
+//! These rules serve `get` and the trust gate (`session_level`) alike.
 
 use std::collections::BTreeMap;
 use std::io::Read;
@@ -167,26 +177,133 @@ fn read_record(path: &Path) -> Result<BTreeMap<String, String>, Failure> {
     }
 }
 
-/// `acp.trust.get {cwd}` → `{cwd, level, harnesses: {claude, codex}, decided}`.
+/// The git repository that holds a folder: its main working tree's root, and for a linked
+/// worktree that worktree's own root.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Repository {
+    pub root: PathBuf,
+    /// The linked worktree's root; None in the main working tree.
+    pub worktree: Option<PathBuf>,
+}
+
+/// The repository holding `cwd` (canonical), from what git wrote: a `.git` folder, or a linked
+/// worktree's `.git` file whose gitdir is `<repository>/.git/worktrees/<name>`, names the file
+/// back (`<gitdir>/gitdir`) and has a `commondir` resolving to that same `.git`. Everything
+/// checked lives in the repository's own `.git`, so a `.git` file written by hand to point at a
+/// trusted repository (or at a gitdir of its own whose `commondir` names one) proves nothing,
+/// and neither does a submodule's (no `commondir`) or a bare repository's worktree. Relative
+/// paths (`worktree.useRelativePaths`) resolve against the file that holds them.
+pub fn repository(cwd: &Path) -> Option<Repository> {
+    for folder in cwd.ancestors() {
+        let dot_git = folder.join(".git");
+        let Ok(meta) = std::fs::symlink_metadata(&dot_git) else { continue };
+        if meta.is_dir() {
+            return Some(Repository { root: folder.to_path_buf(), worktree: None });
+        }
+        if !meta.is_file() {
+            return None;
+        }
+        let text = std::fs::read_to_string(&dot_git).ok()?;
+        let gitdir =
+            std::fs::canonicalize(folder.join(text.trim().strip_prefix("gitdir:")?.trim())).ok()?;
+        let back = std::fs::read_to_string(gitdir.join("gitdir")).ok()?;
+        if std::fs::canonicalize(gitdir.join(back.trim())).ok()?
+            != std::fs::canonicalize(&dot_git).ok()?
+        {
+            return None;
+        }
+        let common = std::fs::read_to_string(gitdir.join("commondir")).ok()?;
+        let common = std::fs::canonicalize(gitdir.join(common.trim())).ok()?;
+        if common.file_name()? != ".git" || gitdir.parent()? != common.join("worktrees") {
+            return None;
+        }
+        let root = common.parent()?.to_path_buf();
+        return Some(Repository { root, worktree: Some(folder.to_path_buf()) });
+    }
+    None
+}
+
+/// Whether a repository at `root` may be answered as a whole: never the home folder or above
+/// it (a dotfiles repository at home holds every folder in it), and never with home unknown.
+fn answerable_whole(root: &Path, home: Option<&Path>) -> bool {
+    home.is_some_and(|home| !home.starts_with(root))
+}
+
+/// acpmux's decision for `cwd` and the folder it was made for: the folder's own; else its
+/// linked worktree's, else its repository's (`answerable_whole`). A person made each of them
+/// in cmux for this folder or the repository holding it, so it answers before any agent's own
+/// level, which may come from any folder above.
+fn decision(
+    record: &BTreeMap<String, String>,
+    cwd: &str,
+    repo: Option<&Repository>,
+    home: Option<&Path>,
+) -> Option<(String, Level)> {
+    let at = |folder: &Path| {
+        let folder = folder.to_str()?;
+        Some((folder.to_owned(), Level::parse(record.get(folder)?)?))
+    };
+    at(Path::new(cwd)).or_else(|| {
+        let repo = repo.filter(|repo| answerable_whole(&repo.root, home))?;
+        repo.worktree.as_deref().and_then(at).or_else(|| at(&repo.root))
+    })
+}
+
+/// `acp.trust.get {cwd}` → `{cwd, level, harnesses: {claude, codex}, decided, via?, repo?}`.
 pub fn get(paths: &Paths, cwd: &str) -> Result<Value, Failure> {
+    let home = dirs::home_dir().and_then(|home| std::fs::canonicalize(home).ok());
+    get_at(paths, cwd, home.as_deref())
+}
+
+/// `get` with the home folder named (tests use their own).
+fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failure> {
     let cwd = normalize_cwd(cwd).map_err(Failure::Invalid)?;
     let claude =
         claude_level(&std::fs::read_to_string(&paths.claude_json).unwrap_or_default(), &cwd);
     let codex =
         codex_level(&std::fs::read_to_string(&paths.codex_config).unwrap_or_default(), &cwd);
-    let decided = read_record(&paths.record)?.get(&cwd).and_then(|level| Level::parse(level));
+    let repo = repository(Path::new(&cwd));
+    let found = decision(&read_record(&paths.record)?, &cwd, repo.as_ref(), home);
+    let decided = found.as_ref().map(|(_, level)| *level);
+    // The folder the decision was made for, when it is not this one: Undo forgets it there.
+    let via = found.map(|(folder, _)| folder).filter(|folder| *folder != cwd);
+    // The repository the pane offers to trust as a whole.
+    let repo = repo.filter(|repo| answerable_whole(&repo.root, home));
     let agent_home = paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
-    // acpmux's own decision answers first; then a folder cmux made for a chat (trusted by
-    // construction); then the stricter of the agents' levels.
-    let level =
-        decided.unwrap_or_else(|| if agent_home { Level::Trusted } else { claude.stricter(codex) });
+    // The person's own folders (project roots, own organizations) need no question, unless an
+    // agent already holds the folder as untrusted: the rule widens an unknown, never a refusal.
+    let auto = (decided.is_none() && !agent_home && claude.stricter(codex) != Level::Untrusted)
+        .then(|| crate::trust_auto::AutoTrust::current().reason(&cwd))
+        .flatten();
+    // acpmux's own decision answers first; then a folder cmux made for a chat or one of the
+    // person's own (trusted by construction); then the stricter of the agents' levels.
+    let level = decided.unwrap_or_else(|| {
+        if agent_home || auto.is_some() { Level::Trusted } else { claude.stricter(codex) }
+    });
     Ok(json!({
         "cwd": cwd,
         "level": level.as_str(),
         "harnesses": {"claude": claude.as_str(), "codex": codex.as_str()},
-        // acpmux answered (its record, or its agent-home rule): `level` holds for every agent.
-        "decided": decided.is_some() || agent_home,
+        // acpmux answered (its record, its agent-home rule, or an auto-trust rule): `level`
+        // holds for every agent.
+        "decided": decided.is_some() || agent_home || auto.is_some(),
+        // Why no question was asked (`root` or `org`); absent otherwise.
+        "auto": auto.as_ref().map(crate::trust_auto::Reason::label),
+        // The folder acpmux's decision was made for (a worktree's root, or its repository).
+        "via": via,
+        // The repository holding the folder: what "Trust this repo" records.
+        "repo": repo.map(|repo| json!({
+            "root": repo.root.to_string_lossy(),
+            "worktree": repo.worktree.is_some(),
+        })),
     }))
+}
+
+/// The person's own decision for `cwd` in acpmux's record, or None: never an
+/// agent's level, and never the agent-home rule.
+pub fn person_decision(paths: &Paths, cwd: &str) -> Result<Option<Level>, Failure> {
+    let cwd = normalize_cwd(cwd).map_err(Failure::Invalid)?;
+    Ok(read_record(&paths.record)?.get(&cwd).and_then(|level| Level::parse(level)))
 }
 
 /// Whether `cwd` (normalized: canonical when it exists) is an agent-home folder the app made: a
@@ -207,25 +324,82 @@ fn made_by_cmux(root: &Path, cwd: &str) -> bool {
     canonical && folder && marker
 }
 
+/// A folder's trust for a session of one agent, read once: with the auto-trust rules
+/// (`trust_auto.rs`) and without them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionTrust {
+    /// The folder's record key (`normalize_cwd`).
+    pub cwd: String,
+    /// The level the app's pane goes by ([`session_level`]): an auto-trust rule answers.
+    pub level: Level,
+    /// The level without the auto-trust rules ([`web_session_level`]): acpmux's record (a
+    /// person's answer), a folder cmux made for a chat, or the agent's own level.
+    pub decided: Level,
+}
+
+impl SessionTrust {
+    /// Trusted by an auto-trust rule alone: no person (nor cmux) decided it.
+    pub fn by_rule_only(&self) -> bool {
+        self.level == Level::Trusted && self.decided != Level::Trusted
+    }
+}
+
+/// The folder's level for a session of the agent `family`, with and without the auto-trust
+/// rules (see [`session_level`]).
+pub fn session_trust(paths: &Paths, cwd: &str, family: &str) -> Result<SessionTrust, Failure> {
+    let reply = get(paths, cwd)?;
+    Ok(SessionTrust {
+        cwd: reply["cwd"].as_str().unwrap_or_default().to_owned(),
+        level: level_in(&reply, family, true),
+        decided: level_in(&reply, family, false),
+    })
+}
+
 /// The folder's level for a session of the agent `family`: acpmux's own
 /// decision first; without one, that agent's own level (Claude Code's or
 /// Codex's), or the stricter of both for any other agent. The pane reads the
 /// same rule from `get` (`decided`, `harnesses`), so its question and the
 /// trust gate (`server/trust_gate.rs`) agree.
 pub fn session_level(paths: &Paths, cwd: &str, family: &str) -> Result<(String, Level), Failure> {
-    let reply = get(paths, cwd)?;
-    let cwd = reply["cwd"].as_str().unwrap_or_default().to_owned();
-    let level_at =
-        |pointer: &str| reply.pointer(pointer).and_then(Value::as_str).and_then(Level::parse);
-    let level = if reply["decided"].as_bool() == Some(true) {
-        level_at("/level")
-    } else {
-        match family {
-            "claude" | "codex" => level_at(&format!("/harnesses/{family}")),
-            _ => level_at("/level"),
-        }
+    session_trust(paths, cwd, family).map(|t| (t.cwd, t.level))
+}
+
+/// `session_level` for a Web client (or a peer forwarding for one): an auto-trust rule
+/// (`trust_auto.rs`) is no answer here. A Web client cannot answer the question itself, so a
+/// folder it starts in needs a decision a person made: in the app, the CLI, or an agent's own.
+pub fn web_session_level(
+    paths: &Paths,
+    cwd: &str,
+    family: &str,
+) -> Result<(String, Level), Failure> {
+    session_trust(paths, cwd, family).map(|t| (t.cwd, t.decided))
+}
+
+/// The level `get`'s `reply` gives an agent of `family`; `auto_answers`: whether an auto-trust
+/// rule counts.
+fn level_in(reply: &Value, family: &str, auto_answers: bool) -> Level {
+    let level_at = |pointer: &str| {
+        reply
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .and_then(Level::parse)
+            .unwrap_or(Level::Unknown)
     };
-    Ok((cwd, level.unwrap_or(Level::Unknown)))
+    let agent = |name: &str| level_at(&format!("/harnesses/{name}"));
+    if !auto_answers && reply["auto"].is_string() {
+        // Without the rule nothing decided: each agent's own level answers.
+        return match family {
+            "claude" | "codex" => agent(family),
+            _ => agent("claude").stricter(agent("codex")),
+        };
+    }
+    if reply["decided"].as_bool() == Some(true) {
+        return level_at("/level");
+    }
+    match family {
+        "claude" | "codex" => agent(family),
+        _ => level_at("/level"),
+    }
 }
 
 /// `acp.trust.set {cwd, level}`: records the decision; `unknown` forgets it.
@@ -276,6 +450,215 @@ mod security_tests {
         let error =
             get(&paths, &cwd.to_string_lossy()).expect_err("a linked trust decision loaded");
         assert!(matches!(error, Failure::Record(_)), "{error:?}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
+
+#[cfg(all(test, unix))]
+mod scope_tests {
+    use super::*;
+
+    /// A scratch folder (canonical) with `home/` in it and the trust files under `state/`.
+    fn scratch(tag: &str) -> (PathBuf, Paths) {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-trust-scope-{tag}-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        std::fs::create_dir_all(root.join("home")).unwrap();
+        std::fs::create_dir_all(root.join("state")).unwrap();
+        let root = std::fs::canonicalize(root).unwrap();
+        let paths = Paths {
+            claude_json: root.join("state/claude.json"),
+            codex_config: root.join("state/config.toml"),
+            record: root.join("state/trust.json"),
+            agent_home: None,
+        };
+        (root, paths)
+    }
+
+    /// A repository at `main` and a linked worktree of it at `tree`, laid out as git writes them.
+    fn repo_with_worktree(main: &Path, tree: &Path) {
+        std::fs::create_dir_all(main.join("src")).unwrap();
+        let gitdir = main.join(".git/worktrees/w");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::create_dir_all(tree.join("src")).unwrap();
+        std::fs::write(tree.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+        std::fs::write(gitdir.join("gitdir"), format!("{}\n", tree.join(".git").display()))
+            .unwrap();
+        std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+    }
+
+    fn read(paths: &Paths, cwd: &Path, home: &Path) -> Value {
+        get_at(paths, &cwd.to_string_lossy(), Some(home)).unwrap()
+    }
+
+    #[test]
+    fn a_worktree_of_a_trusted_repo_is_trusted_with_no_question() {
+        let (root, paths) = scratch("worktree");
+        let home = root.join("home");
+        let main = home.join("Projects/app");
+        let tree = home.join(".cmux/worktrees/app/fix-retry");
+        repo_with_worktree(&main, &tree);
+        // Unknown until the repository is trusted, and the reply names the repository to trust.
+        let before = read(&paths, &tree.join("src"), &home);
+        assert_eq!(before["level"], "unknown", "{before}");
+        assert_eq!(before["repo"]["root"], main.to_string_lossy().as_ref(), "{before}");
+        assert_eq!(before["repo"]["worktree"], true, "{before}");
+        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
+        for folder in [tree.clone(), tree.join("src"), main.join("src")] {
+            let reply = read(&paths, &folder, &home);
+            assert_eq!(reply["level"], "trusted", "{folder:?}: {reply}");
+            assert_eq!(reply["decided"], true, "{folder:?}: {reply}");
+            assert_eq!(reply["via"], main.to_string_lossy().as_ref(), "{folder:?}: {reply}");
+        }
+        // The worktree's own answer wins over its repository's, and Undo there brings it back.
+        set(&paths, &tree.to_string_lossy(), "untrusted").unwrap();
+        assert_eq!(read(&paths, &tree.join("src"), &home)["level"], "untrusted");
+        set(&paths, &tree.to_string_lossy(), "unknown").unwrap();
+        assert_eq!(read(&paths, &tree.join("src"), &home)["level"], "trusted");
+        // Forgetting the repository's answer asks again everywhere.
+        set(&paths, &main.to_string_lossy(), "unknown").unwrap();
+        assert_eq!(read(&paths, &tree, &home)["level"], "unknown");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_git_file_that_its_repository_does_not_name_back_inherits_nothing() {
+        let (root, paths) = scratch("forged");
+        let home = root.join("home");
+        let main = home.join("Projects/app");
+        let tree = home.join("elsewhere/tree");
+        repo_with_worktree(&main, &tree);
+        // Somebody's own folder points its .git file at the trusted repository's worktree entry.
+        let forged = home.join("downloads/forged");
+        std::fs::create_dir_all(&forged).unwrap();
+        std::fs::write(
+            forged.join(".git"),
+            format!("gitdir: {}\n", main.join(".git/worktrees/w").display()),
+        )
+        .unwrap();
+        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
+        let reply = read(&paths, &forged, &home);
+        assert_eq!(reply["level"], "unknown", "{reply}");
+        assert!(reply["repo"].is_null(), "{reply}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_git_file_with_its_own_gitdir_naming_a_trusted_repository_inherits_nothing() {
+        let (root, paths) = scratch("own-gitdir");
+        let home = root.join("home");
+        let main = home.join("Projects/app");
+        std::fs::create_dir_all(main.join(".git")).unwrap();
+        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
+        // An extracted archive: its .git file names a gitdir of its own that names the file back
+        // and whose commondir is the trusted repository's .git.
+        let forged = home.join("Downloads/forged");
+        std::fs::create_dir_all(forged.join("meta")).unwrap();
+        std::fs::write(forged.join(".git"), "gitdir: meta\n").unwrap();
+        std::fs::write(forged.join("meta/gitdir"), format!("{}\n", forged.join(".git").display()))
+            .unwrap();
+        std::fs::write(forged.join("meta/commondir"), format!("{}\n", main.join(".git").display()))
+            .unwrap();
+        let reply = read(&paths, &forged, &home);
+        assert_eq!(reply["level"], "unknown", "{reply}");
+        assert!(reply["via"].is_null(), "{reply}");
+        assert!(reply["repo"].is_null(), "{reply}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_worktree_git_wrote_with_relative_paths_inherits_too() {
+        let (root, paths) = scratch("relative");
+        let home = root.join("home");
+        let main = home.join("Projects/app");
+        let tree = home.join("Projects/app-fix");
+        let gitdir = main.join(".git/worktrees/app-fix");
+        std::fs::create_dir_all(&gitdir).unwrap();
+        std::fs::create_dir_all(&tree).unwrap();
+        // As `git -c worktree.useRelativePaths=true worktree add` writes them.
+        std::fs::write(tree.join(".git"), "gitdir: ../app/.git/worktrees/app-fix\n").unwrap();
+        std::fs::write(gitdir.join("gitdir"), "../../../../app-fix/.git\n").unwrap();
+        std::fs::write(gitdir.join("commondir"), "../..\n").unwrap();
+        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
+        let reply = read(&paths, &tree, &home);
+        assert_eq!(reply["level"], "trusted", "{reply}");
+        assert_eq!(reply["via"], main.to_string_lossy().as_ref(), "{reply}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_decision_for_a_plain_folder_covers_only_that_folder() {
+        let (root, paths) = scratch("plain");
+        let home = root.join("home");
+        let project = home.join("Projects/notes");
+        std::fs::create_dir_all(project.join("2026/october")).unwrap();
+        set(&paths, &project.to_string_lossy(), "trusted").unwrap();
+        assert_eq!(read(&paths, &project, &home)["level"], "trusted");
+        let inside = read(&paths, &project.join("2026/october"), &home);
+        assert_eq!(inside["level"], "unknown", "{inside}");
+        assert!(inside["via"].is_null(), "{inside}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_repository_answer_holds_over_agents_levels_from_folders_above() {
+        let (root, paths) = scratch("agent-above");
+        let home = root.join("home");
+        let main = home.join("Projects/app");
+        let tree = home.join(".cmux/worktrees/app/fix-retry");
+        repo_with_worktree(&main, &tree);
+        // Claude Code trusts every folder under home; Not now on the repository still holds in
+        // its worktrees, and no auto-trust rule answers over it.
+        std::fs::write(
+            &paths.claude_json,
+            format!(
+                r#"{{"projects": {{"{}": {{"hasTrustDialogAccepted": true}}}}}}"#,
+                home.display()
+            ),
+        )
+        .unwrap();
+        set(&paths, &main.to_string_lossy(), "untrusted").unwrap();
+        let reply = read(&paths, &tree, &home);
+        assert_eq!(reply["level"], "untrusted", "{reply}");
+        assert_eq!(reply["decided"], true, "{reply}");
+        assert!(reply["auto"].is_null(), "{reply}");
+        // Codex holds home untrusted; Trust repo answers the worktree for every agent.
+        std::fs::write(&paths.claude_json, "").unwrap();
+        std::fs::write(
+            &paths.codex_config,
+            format!("[projects.\"{}\"]\ntrust_level = \"untrusted\"\n", home.display()),
+        )
+        .unwrap();
+        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
+        let reply = read(&paths, &tree, &home);
+        assert_eq!(reply["level"], "trusted", "{reply}");
+        assert_eq!(reply["decided"], true, "{reply}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn no_home_folder_no_repository_answer() {
+        let (root, paths) = scratch("no-home");
+        let main = root.join("home/Projects/app");
+        let tree = root.join("home/.cmux/worktrees/app/fix-retry");
+        repo_with_worktree(&main, &tree);
+        set(&paths, &main.to_string_lossy(), "trusted").unwrap();
+        let reply = get_at(&paths, &tree.to_string_lossy(), None).unwrap();
+        assert_eq!(reply["level"], "unknown", "{reply}");
+        assert!(reply["repo"].is_null(), "{reply}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_repository_at_home_is_never_offered_as_a_whole() {
+        let (root, paths) = scratch("dotfiles");
+        let home = root.join("home");
+        std::fs::create_dir_all(home.join(".git")).unwrap();
+        std::fs::create_dir_all(home.join("scratch")).unwrap();
+        let reply = read(&paths, &home.join("scratch"), &home);
+        assert!(reply["repo"].is_null(), "{reply}");
         let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -2,7 +2,8 @@
 // everything in menus): Changes (while the chat has changes), Terminal and Browser (which opens the
 // chat's page, Leo 2026-10-20), then Sources and "...". [+] New tab, Files and Split Down fold into the top of "...", and
 // run with the toggle mode as their buttons did. A quick action the person shows in the header
-// (layout.json) leaves "..." again.
+// (layout.json) leaves "..." again, except Changes: while the chat has changes, "..." lists it too, as
+// the Codex and Claude apps' chat menus do (hq#2569 item 4).
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -89,17 +90,20 @@ test("the header shows Changes, Terminal and Browser; New tab, Files and Split D
   render();
   expect(shown()).toEqual(["changes", "terminal", "browser"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["New tab", "Files", "Split Down", "Rename"]);
+  expect(labels()).toEqual(["Changes", "New tab", "Files", "Split Down", "Rename"]);
   const rows = () => [...doc.querySelectorAll<HTMLElement>(".acpmux-chat-menu-popover .acpmux-chat-menu-item")];
-  await act(async () => rows()[2].click());
+  await act(async () => rows()[3].click());
   expect(runs).toEqual(["splitDown:toggle"]);
+  await act(async () => void openPicker("Chat actions"));
+  await act(async () => rows()[0].click());
+  expect(runs).toEqual(["splitDown:toggle", "changes:toggle"]);
 
   // Shown in the header again: its button is back and "..." no longer lists it.
   act(() => configureQuickActions({ quickActions: ["changes", "terminal", "browser", "splitDown"] }));
   render();
   expect(shown()).toEqual(["changes", "terminal", "browser", "splitDown"]);
   await act(async () => void openPicker("Chat actions"));
-  expect(labels()).toEqual(["New tab", "Files", "Rename"]);
+  expect(labels()).toEqual(["Changes", "New tab", "Files", "Rename"]);
   act(() => root?.unmount());
   root = undefined;
   configureQuickActions({});

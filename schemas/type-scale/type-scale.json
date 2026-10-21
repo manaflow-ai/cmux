@@ -10,6 +10,7 @@
   ],
   "weights": [
     { "name": "regular", "weight": 400, "for": "everything by default" },
-    { "name": "emphasis", "weight": 600, "for": "titles, headings, selected or unread rows, group labels" }
+    { "name": "emphasis", "weight": 600, "for": "titles, headings, selected or unread rows, group labels" },
+    { "name": "strong", "weight": 700, "for": "monogram initials drawn in an avatar circle" }
   ]
 }

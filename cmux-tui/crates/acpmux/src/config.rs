@@ -773,11 +773,16 @@ pub struct Config {
     /// the cmux app, and for hermetic tests.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_permission_mode: Option<String>,
-    /// `lastPermissionMode`, `lastPermissionModeSetting`: the level of the latest mode pick
-    /// from the app pane, and the cmux setting then (`hub/start_mode.rs` `start_level`).
+    /// `lastPermissionMode`, `lastPermissionModeChange`: the level of the latest mode pick
+    /// from the app pane, and how many changes to the cmux setting acpmux had counted then,
+    /// in which count (`hub/start_mode_state.rs`; `hub/start_mode.rs` `start_level`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub last_permission_mode: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub last_permission_mode_change: Option<PermissionModeChange>,
+    /// `lastPermissionModeSetting`: an older build's record beside a pick (the setting's value
+    /// then). Read once to upgrade the pick (`Hub::start_level`), never written.
+    #[serde(default, skip_serializing)]
     pub last_permission_mode_setting: Option<String>,
     /// `composerMaxRows`: most rows the TUI composer grows to before it
     /// scrolls. Env `ACPMUX_COMPOSER_ROWS` overrides. Default 12.
@@ -794,6 +799,14 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// `silentTurnMs`: how long a turn may go with no sign of its model at work
+    /// (no message, thought, tool call, plan, request or model harness line;
+    /// the agent's own bookkeeping does not count) before the chat logs
+    /// `turn_silent`, so a client can say the model has not answered
+    /// (`hub/silent_turn.rs`).
+    /// Default 90000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silent_turn_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
@@ -900,6 +913,14 @@ impl Config {
     /// `agentStartTimeoutMs`, or its 90 s default.
     pub fn agent_start_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
+    }
+
+    /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
+    pub fn silent_turn(&self) -> Option<std::time::Duration> {
+        match self.silent_turn_ms.unwrap_or(90_000) {
+            0 => None,
+            ms => Some(std::time::Duration::from_millis(ms)),
+        }
     }
 
     /// Family of a configured profile.
@@ -1163,6 +1184,17 @@ impl Config {
     }
 }
 
+/// `lastPermissionModeChange`: where acpmux's count of changes to the cmux
+/// setting `agents.defaultPermissionMode` stood at a mode pick
+/// (`hub/start_mode_state.rs`). `epoch` names the count: a count started
+/// again (its state file lost) has another, so an older pick never matches it.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PermissionModeChange {
+    pub epoch: String,
+    pub changes: u64,
+}
+
 fn is_default_kind(k: &HarnessKind) -> bool {
     *k == HarnessKind::Acp
 }
@@ -1231,7 +1263,7 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_coderouter_route,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
 mod peer;

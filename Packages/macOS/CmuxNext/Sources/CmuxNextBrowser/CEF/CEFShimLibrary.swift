@@ -66,6 +66,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let find: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, Int32, Int32, Int32) -> Void
     let stopFinding: @convention(c) (Int32, Int32) -> Void
     let close: @convention(c) (Int32) -> Void
+    /// A person's close: 1 closes now, 0 runs beforeunload first (`CEFTab+UserClose`).
+    let tryClose: @convention(c) (Int32) -> Int32
+    /// Answers BEFORE_UNLOAD_DIALOG (token, 1 = Leave).
+    let beforeUnloadReply: @convention(c) (Int32, Int32) -> Int32
     let devToolsCall: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// Raw DevTools protocol (`CEFDevToolsRawMessage`): watch a browser's
     /// events, send a message with an id from 2^30 (1 sent, 0 gone, -1 refused).
@@ -198,6 +202,12 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let pageSchemeAdd: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same for reserved (`cmux.`) ids only: the first-party path (`CEFPageSchemes`).
     let pageSchemeAddFirstParty: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The same with the page's dynamic prefixes (newline-separated), which the page host answers,
+    /// and the file `/` serves (NULL = index.html).
+    let pageSchemeAddFirstPartyDynamic: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
+                                                        UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
+    let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
 
     // Extension UI the app draws (fork API 12; no-ops and 0/NULL before).
     let setNewTabPageURL: @convention(c) (UnsafePointer<CChar>?) -> Void
@@ -237,19 +247,24 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         guard let handle = dlopen(url.path, RTLD_NOW | RTLD_LOCAL) else {
             throw .open(String(cString: dlerror()))
         }
-        let resolver = Resolver(handle: handle)
-        let library = try CEFShimLibrary(resolver)
+        let library = try CEFShimLibrary(Resolver { dlsym(handle, $0) })
         try checkABI(expected: expected, found: library.abiIDFn().map { String(cString: $0) })
         return library
     }
 
+    /// Each function by symbol name: `dlsym` on the opened shim, or a test's stand-ins (`resolving`).
     private struct Resolver {
-        let handle: UnsafeMutableRawPointer
+        let symbol: (String) -> UnsafeMutableRawPointer?
 
         func callAsFunction<T>(_ name: String) throws(LoadError) -> T {
-            guard let symbol = dlsym(handle, name) else { throw .missingSymbol(name) }
+            guard let symbol = symbol(name) else { throw .missingSymbol(name) }
             return unsafeBitCast(symbol, to: T.self)
         }
+    }
+
+    /// The functions `symbol` gives by name, with no shim loaded (a test's spy shim).
+    static func resolving(_ symbol: @escaping (String) -> UnsafeMutableRawPointer?) throws(LoadError) -> CEFShimLibrary {
+        try CEFShimLibrary(Resolver(symbol: symbol))
     }
 
     private init(_ r: Resolver) throws(LoadError) {
@@ -282,6 +297,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         find = try r("cmux_shim_find")
         stopFinding = try r("cmux_shim_stop_finding")
         close = try r("cmux_shim_close")
+        tryClose = try r("cmux_shim_try_close")
+        beforeUnloadReply = try r("cmux_shim_before_unload_reply")
         devToolsCall = try r("cmux_shim_devtools_call")
         devToolsWatchEvents = try r("cmux_shim_devtools_watch_events")
         devToolsSend = try r("cmux_shim_devtools_send")
@@ -364,6 +381,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         bookmarksSync = try r("cmux_shim_bookmarks_sync")
         pageSchemeAdd = try r("cmux_shim_page_scheme_add")
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
+        pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
+        pageResourceRespond = try r("cmux_shim_page_resource_respond")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")
         installPromptReply = try r("cmux_shim_install_prompt_reply")

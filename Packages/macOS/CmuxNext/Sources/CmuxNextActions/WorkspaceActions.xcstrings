@@ -269,13 +269,13 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Clear Workspace Icon"
+            "value": "Remove Workspace Icon"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "مسح أيقونة مساحة العمل"
+            "state": "translated",
+            "value": "إزالة أيقونة مساحة العمل"
           }
         },
         "bs": {
@@ -286,8 +286,8 @@
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Ryd ikon for arbejdsområde"
+            "state": "translated",
+            "value": "Fjern ikon for arbejdsområde"
           }
         },
         "de": {
@@ -304,8 +304,8 @@
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Effacer l’icône de l’espace de travail"
+            "state": "translated",
+            "value": "Supprimer l’icône de l’espace de travail"
           }
         },
         "it": {
@@ -316,20 +316,20 @@
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ワークスペースのアイコンを消去"
+            "state": "translated",
+            "value": "ワークスペースのアイコンを削除"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "សម្អាតរូបតំណាងកន្លែងធ្វើការ"
+            "state": "translated",
+            "value": "ដករូបតំណាងកន្លែងធ្វើការចេញ"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "작업 공간 아이콘 지우기"
+            "state": "translated",
+            "value": "작업 공간 아이콘 제거"
           }
         },
         "nb": {
@@ -340,14 +340,14 @@
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Wyczyść ikonę obszaru roboczego"
+            "state": "translated",
+            "value": "Usuń ikonę obszaru roboczego"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Limpar ícone do espaço de trabalho"
+            "state": "translated",
+            "value": "Remover ícone do espaço de trabalho"
           }
         },
         "ru": {
@@ -358,14 +358,14 @@
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ล้างไอคอนพื้นที่ทำงาน"
+            "state": "translated",
+            "value": "ลบไอคอนพื้นที่ทำงาน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Çalışma alanı simgesini temizle"
+            "state": "translated",
+            "value": "Çalışma alanı simgesini kaldır"
           }
         },
         "uk": {
@@ -382,14 +382,14 @@
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "清除工作区图标"
+            "state": "translated",
+            "value": "移除工作区图标"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "清除工作區圖示"
+            "state": "translated",
+            "value": "移除工作區圖示"
           }
         }
       }
@@ -924,7 +924,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Merge Workspace into…"
+            "value": "Merge Workspace Into…"
           }
         },
         "ar": {

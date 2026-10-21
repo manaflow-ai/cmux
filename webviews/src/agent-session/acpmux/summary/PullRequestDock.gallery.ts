@@ -50,5 +50,22 @@ export default agentPaneEntry({
         summary(2, { status: "completed", durationMs: 74_000, toolCount: 4 }),
       ]),
     },
+    "long-title": {
+      note: "A long title uses the composer's width and is cut off only at the column's edge.",
+      snapshot: chat([
+        user("Open a PR for the rulebook change", 4),
+        activity(
+          [
+            create(
+              "rulebook: reviewed PRs merge right away; the label is the fallback when the owner cannot merge, and base reds never block a merge",
+              634,
+            ),
+          ],
+          3,
+        ),
+        assistant("Opened #634.", 2),
+        summary(2, { status: "completed", durationMs: 21_000, toolCount: 1 }),
+      ]),
+    },
   },
 });

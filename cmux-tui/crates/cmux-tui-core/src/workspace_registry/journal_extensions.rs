@@ -777,11 +777,16 @@ pub(crate) fn validate_journal_hook_manifest(manifest: &JournalHookManifest) -> 
             !regex.pattern.is_empty() && regex.pattern.len() <= 1024,
             "hook regex must contain 1 to 1024 UTF-8 bytes"
         );
+        // A new hook on terminal output would never fire: output is not in
+        // the session journal (output_store.rs). Hooks stored before keep
+        // matching the output records of older registries.
         anyhow::ensure!(
-            matches!(
-                regex.field.as_str(),
-                "kind" | "subjects" | "payload" | "record" | "terminal_output"
-            ),
+            regex.field != "terminal_output",
+            "hook regex field terminal_output is retired: terminal output is not in the session \
+             journal; wait with terminal.wait or read with terminal.output_read"
+        );
+        anyhow::ensure!(
+            matches!(regex.field.as_str(), "kind" | "subjects" | "payload" | "record"),
             "hook regex field is invalid"
         );
         regex::bytes::RegexBuilder::new(&regex.pattern)

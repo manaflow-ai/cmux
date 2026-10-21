@@ -63,7 +63,7 @@ extension BrowserProfileService {
         let registry = services.registry
         let close: @MainActor (SurfaceID) -> Void = { _ in
             guard closingOriginal else { return }
-            registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: originalID)))
+            registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: originalID), origin: .script)) // replaced: never asks
         }
         if let controller = services.paneController(for: pane) {
             controller.newBrowserTab(url: URL(string: url), inherited: tab.browserEngine, profile: profile, notice: notice, then: close)

@@ -41,6 +41,11 @@ final class WorkspaceHoverCardTimelineView: NSView {
         addSubview(scrollView)
         let height = scrollView.heightAnchor.constraint(equalToConstant: 0)
         heightConstraint = height
+        // Just below required: the document is sized by frame from a fitting height measured
+        // before it has its width, so a taller real layout (wrapped rows) conflicted with that
+        // frame on each layout pass while the card showed (204 conflicts in 3 h, up to 46 a second).
+        let documentBottom = rowsStack.bottomAnchor.constraint(equalTo: document.bottomAnchor)
+        documentBottom.priority = .init(999)
         NSLayoutConstraint.activate([
             header.topAnchor.constraint(equalTo: topAnchor),
             header.leadingAnchor.constraint(equalTo: leadingAnchor),
@@ -53,7 +58,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
             rowsStack.topAnchor.constraint(equalTo: document.topAnchor),
             rowsStack.leadingAnchor.constraint(equalTo: document.leadingAnchor),
             rowsStack.trailingAnchor.constraint(equalTo: document.trailingAnchor),
-            rowsStack.bottomAnchor.constraint(equalTo: document.bottomAnchor),
+            documentBottom,
         ])
     }
 
@@ -132,7 +137,7 @@ final class WorkspaceHoverCardTimelineView: NSView {
         for (index, row) in rows.enumerated() {
             let entry = index < entries.count ? entries[index] : nil
             row.time.textColor = Palette.textSecondary
-            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.accent : Palette.textSecondary
+            row.icon.contentTintColor = entry?.kind == .waiting ? Palette.litGlyph : Palette.textSecondary
             // What the person said reads in the primary ink, what happened in the secondary.
             row.text.textColor = entry?.kind == .prompt ? Palette.textPrimary : Palette.textSecondary
         }

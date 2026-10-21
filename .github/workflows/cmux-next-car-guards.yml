@@ -105,6 +105,24 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
+      # The guards come from this workflow's commit: a car's tree may predate them (run
+      # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
+      # (prepush, godfiles) and tests still run from the car's checkout, --root .
+      - name: Check out the guard tools
+        id: tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .car-guard-tools
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Keep the tools out of the car's tree
+        run: |
+          echo /.car-guard-tools/ >> .git/info/exclude
+          echo "CAR_GUARD_TOOLS=$GITHUB_WORKSPACE/.car-guard-tools" >> "$GITHUB_ENV"
+
       - name: The car's range
         id: range
         env:
@@ -126,7 +144,7 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$PRIOR" > "$RUNNER_TEMP/prior.json"
-          python3 scripts/ci/car_guards.py plan --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
+          python3 "$CAR_GUARD_TOOLS/scripts/ci/car_guards.py" plan --root . --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
             --prior "$RUNNER_TEMP/prior.json" > "$RUNNER_TEMP/plan.json"
           python3 - "$RUNNER_TEMP/plan.json" >> "$GITHUB_OUTPUT" <<'EOF'
           import json, sys
@@ -164,6 +182,24 @@ jobs:
           ref: ${{ needs.plan.outputs.head }}
           fetch-depth: 0
           filter: blob:none
+
+      # The guards come from this workflow's commit: a car's tree may predate them (run
+      # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
+      # (prepush, godfiles) and tests still run from the car's checkout, --root .
+      - name: Check out the guard tools
+        id: tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .car-guard-tools
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Keep the tools out of the car's tree
+        run: |
+          echo /.car-guard-tools/ >> .git/info/exclude
+          echo "CAR_GUARD_TOOLS=$GITHUB_WORKSPACE/.car-guard-tools" >> "$GITHUB_ENV"
 
       # The workflow-guard tests' modules, pinned as ci-guards.yml installs them.
       - name: Prepare the focused python tests' modules
@@ -223,7 +259,7 @@ jobs:
           set -euo pipefail
           printf '%s' "$PRIOR" > "$RUNNER_TEMP/prior.json"
           set +e
-          python3 scripts/ci/car_guards.py run --where linux --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
+          python3 "$CAR_GUARD_TOOLS/scripts/ci/car_guards.py" run --root . --where linux --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
             --prior "$RUNNER_TEMP/prior.json" --receipt "$RUNNER_TEMP/car-guards.json" > /dev/null
           code=$?
           echo "status=$(case $code in 0) echo pass ;; 1) echo fail ;; *) echo error ;; esac)" >> "$GITHUB_OUTPUT"
@@ -255,6 +291,24 @@ jobs:
           ref: ${{ needs.plan.outputs.head }}
           fetch-depth: 0
           filter: blob:none
+
+      # The guards come from this workflow's commit: a car's tree may predate them (run
+      # 39528757300 on f3ecea5 had no scripts/ci/car_guards.py). The car's own guards
+      # (prepush, godfiles) and tests still run from the car's checkout, --root .
+      - name: Check out the guard tools
+        id: tools
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          ref: ${{ github.sha }}
+          path: .car-guard-tools
+          sparse-checkout: scripts/ci
+          sparse-checkout-cone-mode: true
+
+      - name: Keep the tools out of the car's tree
+        run: |
+          echo /.car-guard-tools/ >> .git/info/exclude
+          echo "CAR_GUARD_TOOLS=$GITHUB_WORKSPACE/.car-guard-tools" >> "$GITHUB_ENV"
 
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
@@ -291,7 +345,7 @@ jobs:
           set -euo pipefail
           printf '%s' "$PRIOR" > "$RUNNER_TEMP/prior.json"
           set +e
-          python3 scripts/ci/car_guards.py run --where mac --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
+          python3 "$CAR_GUARD_TOOLS/scripts/ci/car_guards.py" run --root . --where mac --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
             --prior "$RUNNER_TEMP/prior.json" --receipt "$RUNNER_TEMP/car-guards.json" > /dev/null
           code=$?
           echo "status=$(case $code in 0) echo pass ;; 1) echo fail ;; *) echo error ;; esac)" >> "$GITHUB_OUTPUT"

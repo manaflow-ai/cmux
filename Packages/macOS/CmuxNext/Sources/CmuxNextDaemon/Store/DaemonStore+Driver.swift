@@ -56,6 +56,16 @@ final class EventInbox: Sendable {
         case .connected, .disconnected, .daemonShutdown, .sessionState:
             // Session state: not in the snapshot the collapse refetches.
             state.events.append(envelope)
+        case .terminalRegistryChanged:
+            // Only an invalidation: keep the newest from each original control
+            // connection. A replacement source must not inherit the old stamp.
+            state.events.removeAll {
+                if case .terminalRegistryChanged = $0.event {
+                    return $0.sourceID == envelope.sourceID && $0.connectionSerial == envelope.connectionSerial
+                }
+                return false
+            }
+            state.events.append(envelope)
         case .agentChanged(let status):
             // Agent state is not in the snapshot either (cx-ag5.6.8). Each event is the whole state
             // of one surface, so a collapsed inbox keeps only the newest one per surface.

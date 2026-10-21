@@ -154,6 +154,7 @@ impl Brain {
     pub(super) fn taint_approval(&mut self, items: &[Queued]) {
         if items.iter().any(Queued::requires_approval) {
             self.turn_ask = true;
+            self.last_turn_ask = true;
             self.interrupt.set_gate(true);
         }
     }

@@ -175,7 +175,7 @@ test("an agent that cannot steer queues on both keys; nothing stops the turn", a
   expect(await press(started({ isWorking: true }), true)).toEqual([false]);
   await render(started({ isWorking: true }));
   expect(shown()).toBe("Queue a follow-up");
-  expect(host.querySelector(".acpmux-steer")).toBeNull();
+  expect(host.querySelector(".acpmux-steer-now")).toBeNull();
 });
 
 test("the Quick Composer, whose ⌘Return opens the window, names Return alone", async () => {
@@ -224,17 +224,17 @@ test("with only an attachment staged, Return steers it and ⌘Return queues it",
 
 test("an idle chat keeps the usual placeholder", async () => {
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe("Type / for commands");
   await render(steering({ isWorking: true }));
   expect(shown()).toBe("↵ steer · ⌘↵ queue");
   // The turn ended: back to the idle placeholder.
   await render(started({ rows: [user("Add retries", 1), summary(1, { status: "completed" })] }));
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe("Type / for commands");
 });
 
 test("a running turn whose composer cannot send keeps the usual placeholder", async () => {
   await render(started({ isWorking: true }), {});
-  expect(shown()).toBe("Do anything");
+  expect(shown()).toBe("Type / for commands");
 });
 
 // Leo's nightly (d5829ff): a dictated prompt, the agent working with three prompts queued, and

@@ -70,7 +70,8 @@ final class SidebarRows {
             shown.isCollapsed = fold.collapsed
             sections[s].nodes[n] = .group(shown)
         }
-        model.setSections(model.priorityOrdering ? SidebarPriority().reordered(sections) : sections)
+        // Manual order only (Leo 2026-10-20): a row state shows as a badge; attention order is the Priority view's.
+        model.setSections(sections)
     }
 
     /// Row content of listed workspaces changed (`SidebarRowFeed`): written in place, or shown again when it moves rows.

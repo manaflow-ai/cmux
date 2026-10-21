@@ -54,6 +54,22 @@ enum CmuxStrings {
     static var removeAttachment: String {
         String(localized: "home.compose.removeAttachment", defaultValue: "Remove Attachment", table: "CmuxHome", bundle: .module)
     }
+    /// The mic button in the message box at rest (its help and accessibility label).
+    static var dictate: String {
+        String(localized: "home.compose.dictate", defaultValue: "Dictate", table: "CmuxHome", bundle: .module)
+    }
+    /// The mic button while it records (a click stops and keeps the words).
+    static var stopDictation: String {
+        String(localized: "home.compose.stopDictation", defaultValue: "Stop Dictation", table: "CmuxHome", bundle: .module)
+    }
+    /// The return-key button beside the waveform while dictating: stop and keep the words.
+    static var finishDictation: String {
+        String(localized: "home.compose.finishDictation", defaultValue: "Finish Dictation", table: "CmuxHome", bundle: .module)
+    }
+    /// The empty message box while dictating, before any words arrive.
+    static var listening: String {
+        String(localized: "home.compose.listening", defaultValue: "Listening…", table: "CmuxHome", bundle: .module)
+    }
     /// The compose field's send button (its help and accessibility label).
     static var send: String {
         String(localized: "home.compose.send", defaultValue: "Send", table: "CmuxHome", bundle: .module)
@@ -139,5 +155,40 @@ enum CmuxStrings {
     static func failedLabel(_ status: DeliveryStatus?) -> String {
         if case .failed(let reason) = status, reason == mayHaveBeenDeliveredReason { return mayNotHaveBeenDelivered }
         return notDelivered
+    }
+
+    // MARK: The Chief's plan card (HomeTableRowProvider.swift)
+
+    /// The card's header: "Plan · 6 steps", or "Plan · 6 steps, 3 active" while some still run.
+    static func planHeader(steps: Int, active: Int) -> String {
+        if active == 0 {
+            return String(format: String(localized: "home.plan.steps", defaultValue: "Plan · %lld steps", table: "CmuxHome", bundle: .module), steps)
+        }
+        return String(format: String(localized: "home.plan.stepsActive", defaultValue: "Plan · %1$lld steps, %2$lld active", table: "CmuxHome", bundle: .module),
+                      steps, active)
+    }
+
+    /// A step's state pill.
+    static func planState(_ state: ChiefPlanStep.State) -> String {
+        switch state {
+        case .working: String(localized: "home.plan.state.working", defaultValue: "Working", table: "CmuxHome", bundle: .module)
+        case .needsInput: String(localized: "home.plan.state.needsInput", defaultValue: "Needs You", table: "CmuxHome", bundle: .module)
+        case .waitingOnCI: String(localized: "home.plan.state.waitingOnCI", defaultValue: "Waiting on CI", table: "CmuxHome", bundle: .module)
+        case .ciFailed: String(localized: "home.plan.state.ciFailed", defaultValue: "CI Failed", table: "CmuxHome", bundle: .module)
+        case .inReview: String(localized: "home.plan.state.inReview", defaultValue: "In Review", table: "CmuxHome", bundle: .module)
+        case .landed: String(localized: "home.plan.state.landed", defaultValue: "Landed", table: "CmuxHome", bundle: .module)
+        case .done: String(localized: "home.plan.state.done", defaultValue: "Done", table: "CmuxHome", bundle: .module)
+        case .failed: String(localized: "home.plan.state.failed", defaultValue: "Failed", table: "CmuxHome", bundle: .module)
+        }
+    }
+
+    /// The card's click menu: the owner's chat ("Open a12's Chat").
+    static func planOpenOwner(_ owner: String) -> String {
+        String(format: String(localized: "home.plan.openOwner", defaultValue: "Open %@’s Chat", table: "CmuxHome", bundle: .module), owner)
+    }
+
+    /// The card's click menu: a link ("Open #22590", "Open github.com").
+    static func planOpenLink(_ name: String) -> String {
+        String(format: String(localized: "home.plan.openLink", defaultValue: "Open %@", table: "CmuxHome", bundle: .module), name)
     }
 }

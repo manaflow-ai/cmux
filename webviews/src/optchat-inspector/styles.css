@@ -94,6 +94,7 @@ table { border-collapse: collapse; width: 100%; }
 th, td { text-align: left; padding: 4px 6px; border-bottom: 1px solid var(--line); vertical-align: top; }
 tbody tr { cursor: pointer; }
 tbody tr:hover { background: var(--shade); }
-.latency { display: inline-block; height: 8px; background: var(--view); border-radius: 2px; vertical-align: middle; }
+/* One series, so the theme accent: --view is a warning/danger mix that read as an alarm color. */
+.latency { display: inline-block; height: 8px; background: var(--accent); border-radius: 2px; vertical-align: middle; }
 progress { width: 100%; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; animation: none !important; } }

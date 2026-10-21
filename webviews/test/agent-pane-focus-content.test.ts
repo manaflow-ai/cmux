@@ -3,7 +3,10 @@
 // text, Cmd-Opt-Arrow, a tab switch, a relaunch) the host sends `focusContent` on the page's
 // command stream (`cmux.page.command`), as it does for every page. With nothing focused in the
 // chat, that must put the keyboard in the composer's prompt; a focused field or a text selection
-// elsewhere in the chat keeps it.
+// elsewhere in the chat keeps it. A click is the reader's own placement, though (Leo 2026-10-20, as
+// in Claude desktop: "clicking outside the composer blurs it and the caret disappears"): the
+// focusContent a click raises, which reaches the page just before or just after the press, leaves a
+// press outside the composer unfocused, and Escape in an idle composer blurs it.
 //
 // The real agent pane (vite.config.acpmux-pane.mjs) with a stand-in page host (`cmuxPage`, the
 // shared bridge) that answers every call and subscription and lets the test push events, plus the
@@ -45,9 +48,18 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     await vite?.close();
   });
 
-  /// A chat on the stand-in page host, its composer shown and nothing in the page focused.
+  /// Past an activation's claim: it waits ACTIVATION_SETTLE_MS (120 ms) and drops itself within
+  /// PRESS_WINDOW_MS (400 ms) of a press (composerFocus.ts).
+  const PAST_CLAIM_MS = 500;
+  /// Runs the page's clock past any claim waiting to settle: a claim still to come has run after it.
+  const pastClaim = (page: Page) => page.clock.runFor(PAST_CLAIM_MS);
+
+  /// A chat on the stand-in page host, its composer shown and nothing in the page focused. The
+  /// page's timers run on Playwright's clock, so a test moves past a claim's settle rather than
+  /// waiting it out.
   async function chat(): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width: 900, height: 640 } });
+    await page.clock.install();
     await page.addInitScript(() => {
       const w = window as unknown as Record<string, unknown>;
       // The shared page bridge (pageClient.ts BridgePageClient): `{t: "call"|"sub"}` envelopes
@@ -91,9 +103,15 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     await page.locator(".acpmux-composer-prompt [contenteditable]").waitFor();
-    // The composer's own idle claim (first paint, the ready event) runs first, then the pane loses
-    // the keyboard: nothing in the page has focus, as when WebKit restores no element.
-    await page.waitForTimeout(300);
+    // The composer's own idle claim (first paint, the ready event) runs first, and any activation's
+    // claim with it, then the pane loses the keyboard: nothing in the page has focus, as when WebKit
+    // restores no element.
+    await page.waitForFunction(
+      () => document.querySelector(".acpmux-composer-prompt [contenteditable]")?.contains(document.activeElement),
+      null,
+      { timeout: 5_000 },
+    );
+    await pastClaim(page);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     expect(await promptFocused(page)).toBe(false);
     return page;
@@ -128,6 +146,43 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
     await page.close();
   });
 
+  /// Focuses the prompt as a click in it does.
+  const focusPrompt = async (page: Page) => {
+    await page.locator(".acpmux-composer-prompt [contenteditable]").click();
+    expect(await promptFocused(page)).toBe(true);
+  };
+  /// A press on the chat's empty background, above the composer (not a control, not text).
+  const pressBackground = async (page: Page) => {
+    const box = (await page.locator(".acpmux-composer-box").boundingBox())!;
+    await page.mouse.click(box.x + box.width / 2, Math.max(8, box.y - 120));
+  };
+
+  // The two signals a click into the pane raises in WebKit, each reaching the page after the
+  // press: the host's focusContent (becomeFirstResponder) and the window's focus event.
+  for (const signal of ["focusContent", "window focus"] as const)
+    test(`a click outside the composer blurs it, with the click's ${signal} after the press`, async () => {
+      const page = await chat();
+      await focusPrompt(page);
+      await pressBackground(page);
+      if (signal === "focusContent") expect(await focusContent(page)).toBe(true);
+      else await page.evaluate(() => window.dispatchEvent(new FocusEvent("focus")));
+      await pastClaim(page);
+      expect(await promptFocused(page)).toBe(false);
+      // A printed key still goes into the composer: the pane keeps the keyboard.
+      await page.keyboard.type("x");
+      expect(await promptFocused(page)).toBe(true);
+      await page.close();
+    });
+
+  test("Escape in an idle composer blurs it, and it stays blurred", async () => {
+    const page = await chat();
+    await focusPrompt(page);
+    await page.keyboard.press("Escape");
+    await pastClaim(page);
+    expect(await promptFocused(page)).toBe(false);
+    await page.close();
+  });
+
   test("focusContent keeps a focused field in the chat", async () => {
     const page = await chat();
     await page.evaluate(() => {
@@ -137,7 +192,7 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
       field.focus();
     });
     expect(await focusContent(page)).toBe(true);
-    await page.waitForTimeout(200);
+    await pastClaim(page);
     expect(await page.evaluate(() => document.activeElement?.id)).toBe("other-field");
     await page.close();
   });
@@ -158,7 +213,7 @@ await requireBrowserLane("agent-pane-focus-content.test.ts", async () => {
       selection.addRange(range);
     });
     expect(await focusContent(page)).toBe(true);
-    await page.waitForTimeout(200);
+    await pastClaim(page);
     expect(await promptFocused(page)).toBe(false);
     expect(await page.evaluate(() => document.getSelection()?.toString())).toBe("copy this line");
     await page.close();

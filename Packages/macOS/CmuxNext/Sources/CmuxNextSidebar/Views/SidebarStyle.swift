@@ -6,6 +6,9 @@ import CmuxNextIcons
 /// (`Metrics`, `Typography`). Hierarchy comes from weight and gray level.
 enum SidebarStyle {
     static var horizontalInset: CGFloat { SidebarDensityTokens.horizontalInset }
+    /// How much shorter than the list's inset a row ends on the right: the row's pill stops
+    /// before the sidebar's edge (Leo 2026-10-20: "trim the pill's right side").
+    static var rowTrailingTrim: CGFloat { Metrics.space4 }
     static var rowCornerRadius: CGFloat { SidebarDensityTokens.rowCornerRadius }
     /// A listed tab's icon, sized to its caption-size title.
     static var tabIconSize: CGFloat { .iconRowSize(forLabelPointSize: subtitleFont.pointSize) }
@@ -64,6 +67,16 @@ enum SidebarStyle {
     /// Length of the fade that ends a clipped row title (no ellipsis).
     static var titleFadeWidth: CGFloat { Metrics.space6 }
     static var subtitleFont: NSFont { Typography.caption }
+    /// One detail line under a row's title (the folder, branch or agent line), as its label lays it out.
+    static var detailLineHeight: CGFloat {
+        let font = subtitleFont
+        if let detailLine, detailLine.font == font { return detailLine.height }
+        let height = ceil(NSLayoutManager().defaultLineHeight(for: font))
+        detailLine = (font, height)
+        return height
+    }
+    /// `detailLineHeight` for the last caption font: every row layout and render state reads it.
+    private static var detailLine: (font: NSFont, height: CGFloat)?
     /// Where a workspace title without a custom icon starts: rows draw no
     /// default icon (WORKSPACE-ROWS-NO-DEFAULT-ICON). Group headers start
     /// their name here too.

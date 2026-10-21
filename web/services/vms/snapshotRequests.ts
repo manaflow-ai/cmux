@@ -15,7 +15,7 @@ export type SnapshotRequestBegin =
 
 export type SnapshotRequestOutcome =
   | { readonly kind: "succeeded"; readonly snapshot: SnapshotRef }
-  | { readonly kind: "failed" };
+  | { readonly kind: "rejected" };
 
 export type BeginSnapshotRequestInput = {
   /** `cloud_vms.id` of the machine (not the provider id). */
@@ -124,9 +124,10 @@ export function finishSnapshotRequest(input: FinishSnapshotRequestInput): Effect
     const db = cloudDb();
     const table = cloudVmSnapshotRequests;
     const match = and(eq(table.vmId, input.vmId), eq(table.idempotencyKey, input.idempotencyKey), eq(table.status, "pending"));
-    if (input.outcome.kind === "failed") {
-      // A transport error or timeout does not prove that the provider failed
-      // to create the snapshot. Keep the pending fence until VM deletion.
+    if (input.outcome.kind === "rejected") {
+      // Only a definitive provider refusal reaches this branch. Transport
+      // errors and timeouts never call finish, so their pending fence remains.
+      await db.delete(table).where(match);
       return;
     }
     const snapshot = input.outcome.snapshot;

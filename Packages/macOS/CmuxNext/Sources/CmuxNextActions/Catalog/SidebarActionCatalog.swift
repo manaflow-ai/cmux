@@ -38,14 +38,14 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.switchRightSidebarToFiles", defaultValue: "Show Files", bundle: .module),
                 keywords: ["right sidebar", "explorer"],
                 category: .sidebar, symbol: "doc.text", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-files"
+                cliName: "sidebar show-files"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFind",
                 title: String(localized: "action.switchRightSidebarToFind", defaultValue: "Show Find", bundle: .module),
                 keywords: ["right sidebar", "search"],
                 category: .sidebar, symbol: "text.magnifyingglass", surfaces: [.palette, .keyboard],
-                requires: [.rightSidebarFocused], cliName: "sidebar show-find"
+                cliName: "sidebar show-find"
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToSessions",
@@ -56,7 +56,7 @@ nonisolated enum SidebarActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "switchRightSidebarToFeed",
-                title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed", bundle: .module),
+                title: String(localized: "action.switchRightSidebarToFeed", defaultValue: "Show Feed in Right Sidebar", bundle: .module),
                 keywords: ["right sidebar", "activity"],
                 category: .sidebar, symbol: "dot.radiowaves.left.and.right", surfaces: [.palette, .keyboard],
                 cliName: "sidebar show-feed"

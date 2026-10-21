@@ -46,6 +46,24 @@ extension BrowserExtensionActionHosting {
 }
 
 
+/// Tabs whose page runs its `beforeunload` before a person closes the tab
+/// (Chrome: "Leave site?"). The tab and its view stay until the engine
+/// closes the page, which then asks for its tab's close (`.close`); when the
+/// person stays, nothing closes. Automation closes and quit never ask.
+public protocol BrowserUserClosing: AnyObject {
+    /// Starts a person's close. False: nothing can refuse it, close the tab
+    /// now. True: the page decides; the caller keeps the tab.
+    func beginUserClose() -> Bool
+}
+
+extension BrowserTab {
+    /// ``BrowserUserClosing/beginUserClose()`` for a page that can refuse a
+    /// person's close; false (close now) for every other page.
+    public func pageDecidesUserClose() -> Bool {
+        (self as? any BrowserUserClosing)?.beginUserClose() ?? false
+    }
+}
+
 /// Tabs whose engine reports a hung page and lets the user choose ("Page
 /// unresponsive": Wait or Exit page).
 public protocol BrowserHangAnswering: AnyObject {

@@ -84,13 +84,22 @@ fn tapback_name(t: Tapback) -> &'static str {
     }
 }
 
+/// The Chief's message in a voice (the desk's receipt): an aside that does
+/// not move the Chief's reply off its message, so threading skips it.
+fn aside(message: &Message) -> bool {
+    crate::voice::of(&message.client_msg_id).is_some()
+}
+
 impl Brain {
     /// Records a message of the Chief conversation as it is handled: the
     /// newest seq, and for a user message its seq and, when it is itself a
     /// thread reply, its root (saved, so a later report still finds it).
     pub(super) fn note_main_message(&mut self, message: &Message) {
-        self.newest_seq = self.newest_seq.max(message.seq);
-        if message.author == self.settings.membership.participant {
+        let own = message.author == self.settings.membership.participant;
+        if !(own && aside(message)) {
+            self.newest_seq = self.newest_seq.max(message.seq);
+        }
+        if own {
             return;
         }
         self.message_seqs.insert(message.id.clone(), message.seq);
@@ -99,9 +108,12 @@ impl Brain {
         }
     }
 
-    /// A message the Chief posted in its conversation (the owner's answer).
-    pub(super) fn note_posted(&mut self, conversation: &str, message: &Message) {
-        if self.state.conversation.as_deref() == Some(conversation) {
+    /// A message the Chief posted in its conversation under `key` (the
+    /// owner's answer).
+    pub(super) fn note_posted(&mut self, conversation: &str, key: &str, message: &Message) {
+        if self.state.conversation.as_deref() == Some(conversation)
+            && crate::voice::of(key).is_none()
+        {
             self.newest_seq = self.newest_seq.max(message.seq);
         }
     }
@@ -129,7 +141,9 @@ impl Brain {
             ReplyThreads::Auto => {
                 // Right under its message, as in iMessage: no thread.
                 let waiting = self.state.outbox.iter().any(|e| {
-                    e.conversation == conversation && matches!(e.op, Op::MessageSend { .. })
+                    e.conversation == conversation
+                        && matches!(e.op, Op::MessageSend { .. })
+                        && crate::voice::of(&e.idempotency_key).is_none()
                 });
                 let adjacent = !waiting
                     && self

@@ -47,7 +47,7 @@ public final class BrowserFitFrameView: NSView {
             field.font = .systemFont(ofSize: TypeScale.caption)
             field.lineBreakMode = .byTruncatingTail
         }
-        label.toolTip = Strings.explain
+        label.themedToolTip = Strings.explain
         for button in [choose, off] {
             button.isBordered = false
             button.target = self

@@ -32,6 +32,7 @@ import {
   isBlockingAccountDeletionTombstone,
 } from "../account/deletionLock";
 import type { ProviderId } from "./drivers";
+import { cloudRemoteAuthMode, type CloudRemoteAuthMode } from "./clientGrant";
 import { allocateVmSlug } from "./vmNaming";
 import {
   beginSnapshotRequest,
@@ -739,6 +740,13 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly provider: ProviderId;
     readonly snapshotId: string;
   }) => Effect.Effect<VmResourceReservation | null, VmDatabaseError>;
+  /** Authentication mode captured with an owned snapshot. */
+  readonly ownedSnapshotRemoteAuthMode?: (input: {
+    readonly userId: string;
+    readonly billingTeamId?: string | null;
+    readonly provider: ProviderId;
+    readonly snapshotId: string;
+  }) => Effect.Effect<CloudRemoteAuthMode, VmDatabaseError>;
   readonly findUserVm: (input: {
     readonly userId: string;
     readonly billingTeamId?: string | null;
@@ -801,6 +809,10 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
   readonly activeAccessLeasesForUser?: (userId: string) => Effect.Effect<CloudVmAccessLeaseRow[], VmDatabaseError>;
   readonly markLeasesRevoked: (ids: readonly string[]) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvent: (input: VmUsageEventInput) => Effect.Effect<void, VmDatabaseError>;
+  /** Insert one snapshot-created event once across concurrent succeeded replays. */
+  readonly recordSnapshotUsageEventIfMissing?: (
+    input: VmUsageEventInput & { readonly vmId: string },
+  ) => Effect.Effect<void, VmDatabaseError>;
   readonly recordUsageEvents: (inputs: readonly VmUsageEventInput[]) => Effect.Effect<void, VmDatabaseError>;
 };
 
@@ -4078,6 +4090,29 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
       };
     }),
 
+  ownedSnapshotRemoteAuthMode: (input) =>
+    dbEffect("ownedSnapshotRemoteAuthMode", async () => {
+      const db = cloudDb();
+      const [event] = await db
+        .select({
+          metadata: cloudVmUsageEvents.metadata,
+          sourceMetadata: cloudVms.providerMetadata,
+        })
+        .from(cloudVmUsageEvents)
+        .leftJoin(cloudVms, eq(cloudVmUsageEvents.vmId, cloudVms.id))
+        .where(
+          and(
+            accountUsageScopeWhere({ userId: input.userId, billingTeamId: input.billingTeamId }),
+            eq(cloudVmUsageEvents.provider, input.provider),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${input.snapshotId}`,
+          ),
+        )
+        .orderBy(desc(cloudVmUsageEvents.createdAt), desc(cloudVmUsageEvents.id))
+        .limit(1);
+      return cloudRemoteAuthMode(event?.metadata, cloudRemoteAuthMode(event?.sourceMetadata));
+    }),
+
   findUserVm: (input) =>
     dbEffect("findUserVm", async () => {
       const db = cloudDb();
@@ -4394,6 +4429,37 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         provider: input.provider,
         imageId: input.imageId,
         metadata: input.metadata ?? {},
+      });
+    }),
+  recordSnapshotUsageEventIfMissing: (input) =>
+    dbEffect("recordSnapshotUsageEventIfMissing", async () => {
+      const snapshotId = input.metadata?.snapshotId;
+      if (typeof snapshotId !== "string" || !snapshotId) {
+        throw new Error("snapshot usage event requires snapshotId");
+      }
+      const db = cloudDb();
+      await db.transaction(async (tx) => {
+        await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${`vm-snapshot-event:${input.vmId}:${snapshotId}`}, 0))`);
+        const [existing] = await tx
+          .select({ id: cloudVmUsageEvents.id })
+          .from(cloudVmUsageEvents)
+          .where(and(
+            eq(cloudVmUsageEvents.vmId, input.vmId),
+            eq(cloudVmUsageEvents.eventType, "vm.snapshot.created"),
+            sql`${cloudVmUsageEvents.metadata}->>'snapshotId' = ${snapshotId}`,
+          ))
+          .limit(1);
+        if (existing) return;
+        await tx.insert(cloudVmUsageEvents).values({
+          userId: input.userId,
+          billingTeamId: input.billingTeamId ?? null,
+          billingPlanId: input.billingPlanId ?? null,
+          vmId: input.vmId,
+          eventType: input.eventType,
+          provider: input.provider,
+          imageId: input.imageId,
+          metadata: input.metadata ?? {},
+        });
       });
     }),
   recordUsageEvents: (inputs) =>

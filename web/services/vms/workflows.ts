@@ -128,6 +128,7 @@ import { listTeamMemberIdsWithTimeout, type VmTeamDirectory } from "./teamDirect
 import { detachNetworkTunnels } from "./teamNetworkAccess";
 import { isProviderDeletionConfirmed, isProviderIdentityNotFoundError, isProviderNotFoundError } from "./providerErrors";
 import { withVmReadDeadline, type VmReadDeadline } from "./routeDeadline";
+import { CLOUD_REMOTE_AUTH_METADATA_KEY, cloudRemoteAuthMode } from "./clientGrant";
 import { VmProviderGateway, VmProviderGatewayLive, type VmProviderGatewayShape } from "./providerGateway";
 import { isProviderCreateCleanupError } from "./drivers/providerCreateCleanup";
 import {
@@ -1238,6 +1239,8 @@ type CreateVmInput = {
   readonly networkPolicy?: NetworkPolicy;
   /** "latest" opts the machine into coding-agent updates on attach; absent keeps the image's pins. */
   readonly agentUpdates?: VmAgentUpdatesSetting;
+  /** Trusted provider metadata copied from an owned source machine/snapshot. */
+  readonly providerMetadata?: Readonly<Record<string, unknown>>;
   /** Set only when the requesting client routes team networks. */
   readonly teamDirectory?: VmTeamDirectory;
   readonly timing?: VmTimingSink;
@@ -1414,7 +1417,7 @@ export function createVm(input: CreateVmInput): Effect.Effect<VmEntry, VmWorkflo
         // blocking post-create rename on current backends.
         displayName: create.vm.displayName ?? create.vm.slug ?? undefined,
         promptIdentity: vmPromptIdentity(create.vm),
-        providerMetadata: create.vm.providerMetadata,
+        providerMetadata: { ...create.vm.providerMetadata, ...(input.providerMetadata ?? {}) },
         homeVolume: input.perMachineHome
           ? homeVolumeTemplateForUser(input.userId)
           : input.persistentHome
@@ -2088,6 +2091,20 @@ function afterResponseOrNow<E>(
 
 export const VM_SNAPSHOT_LIMIT = 10;
 
+/** Whether a provider response proves that no snapshot was created. */
+function snapshotProviderDefinitelyRejected(error: VmProviderOperationError): boolean {
+  let cause: unknown = error.cause;
+  for (let depth = 0; depth < 3; depth += 1) {
+    if (!cause || typeof cause !== "object") return false;
+    const status = (cause as { status?: unknown }).status;
+    if (typeof status === "number" && Number.isInteger(status)) {
+      return status >= 400 && status < 500 && status !== 408;
+    }
+    cause = (cause as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 export function snapshotVm(input: {
   readonly userId: string;
   readonly billingTeamId?: string | null;
@@ -2135,7 +2152,7 @@ export function snapshotVm(input: {
         )
         : null;
       const snapshotReservation = snapshotResourceReservation(vm.providerMetadata, snapshotStats);
-      yield* repo.recordUsageEvent({
+      const event = {
         userId: vm.userId,
         billingTeamId: vm.billingTeamId,
         billingPlanId: vm.billingPlanId,
@@ -2150,8 +2167,12 @@ export function snapshotVm(input: {
           vcpus: snapshotReservation.vcpus,
           memoryMb: snapshotReservation.memoryMb,
           diskMb: snapshotReservation.diskMb,
+          [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(vm.providerMetadata),
         },
-      });
+      };
+      yield* repo.recordSnapshotUsageEventIfMissing
+        ? repo.recordSnapshotUsageEventIfMissing(event)
+        : repo.recordUsageEvent(event);
     });
     if (key) {
       if (!repo.beginSnapshotRequest || !repo.finishSnapshotRequest) {
@@ -2174,17 +2195,31 @@ export function snapshotVm(input: {
       }
     }
     const finish = repo.finishSnapshotRequest;
-    const takeSnapshot: Effect.Effect<SnapshotRef, VmProviderOperationError | VmOperationUnsupportedError> = providers.snapshot
-      ? providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name)
-      : Effect.fail(new VmOperationUnsupportedError({
+    const releaseRejectedKey = key && finish
+      ? Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "rejected" } })).pipe(
+        Effect.retry({ times: 2 }),
+      )
+      : Effect.void;
+    if (!providers.snapshot) {
+      yield* releaseRejectedKey;
+      return yield* Effect.fail(new VmOperationUnsupportedError({
         provider: vm.provider,
         operation: "snapshot",
       }));
-    const snapshot = yield* measureVmEffect(input.timing, "provider_snapshot", takeSnapshot);
+    }
+    const takeSnapshot = providers.snapshot(vm.provider, vm.providerVmId ?? input.providerVmId, input.name);
+    const snapshot = yield* measureVmEffect(
+      input.timing,
+      "provider_snapshot",
+      Effect.tapError(takeSnapshot, (error) => snapshotProviderDefinitelyRejected(error) ? releaseRejectedKey : Effect.void),
+    );
     if (key && finish) {
-      // The snapshot exists now. A failed write leaves a permanent pending
-      // fence; retries cannot duplicate the ambiguous provider result.
-      yield* Effect.ignore(finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } }));
+      // Persist the provider result before the ownership event. Retrying a
+      // transient write prevents one snapshot from counting as both a pending
+      // request and a created snapshot.
+      yield* Effect.suspend(() => finish({ vmId: vm.id, idempotencyKey: key, outcome: { kind: "succeeded", snapshot } })).pipe(
+        Effect.retry({ times: 2 }),
+      );
     }
     const recordCreated = recordSnapshotCreated(snapshot);
     // Idempotent requests must durably record ownership before returning. A
@@ -2588,6 +2623,14 @@ export function restoreVm(input: {
       yield* requireGoShape(input.billingPlanId, snapshotReservation);
       yield* requireMemoryPlan(input.billingPlanId, snapshotReservation?.memoryMb ?? null, snapshotReservation?.vcpus ?? null);
     }
+    const snapshotRemoteAuthMode = repo.ownedSnapshotRemoteAuthMode
+      ? yield* repo.ownedSnapshotRemoteAuthMode({
+        userId: input.userId,
+        billingTeamId: input.billingTeamId,
+        provider: input.provider,
+        snapshotId: input.snapshotId,
+      })
+      : "trusted-carrier";
     return yield* createVm({
       userId: input.userId,
       billingCustomerType: input.billingCustomerType,
@@ -2600,6 +2643,7 @@ export function restoreVm(input: {
       ...(resourceReservation ? { memoryMb: resourceReservation.memoryMb } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "restore",
+      providerMetadata: { [CLOUD_REMOTE_AUTH_METADATA_KEY]: snapshotRemoteAuthMode },
       ...(resourceReservation ? { resourceReservation } : {}),
       modelPlane: input.modelPlane,
       teamDirectory: input.teamDirectory,
@@ -2940,7 +2984,11 @@ export function forkVm(input: {
             providerVmId: handle.providerVmId,
             image: source.imageId,
             imageVersion: source.imageVersion,
-            providerMetadata: handle.providerMetadata ?? source.providerMetadata,
+            providerMetadata: {
+              ...source.providerMetadata,
+              ...(handle.providerMetadata ?? {}),
+              [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+            },
           }),
         );
       }).pipe(
@@ -3021,6 +3069,9 @@ export function forkVm(input: {
       ...(sourceReservation ? { resourceReservation: sourceReservation } : {}),
       idempotencyKey: input.idempotencyKey,
       origin: "fork",
+      providerMetadata: {
+        [CLOUD_REMOTE_AUTH_METADATA_KEY]: cloudRemoteAuthMode(source.providerMetadata),
+      },
       modelPlane: input.modelPlane,
       ...(sourceNetworkPolicy ? { networkPolicy: sourceNetworkPolicy } : {}),
       agentUpdates: vmAgentUpdatesFromRow(source),
@@ -5456,7 +5507,7 @@ export function openVmCmuxRemote(input: {
       tokenHash: hashToken(endpoint.token),
       expiresAt: new Date(endpoint.expiresAtUnix * 1000),
       transport: "cmux-remote",
-      metadata: { session: endpoint.session, invited: false, trustedCarrier: endpoint.trustedCarrier },
+      metadata: { session: endpoint.session, invited: endpoint.invitation != null, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(
       Effect.catchAll((err) => {
         const cleanup = providers.revokeEndpointLeases
@@ -5473,7 +5524,7 @@ export function openVmCmuxRemote(input: {
       eventType: "vm.attach",
       provider: vm.provider,
       imageId: vm.imageId,
-      metadata: { transport: "cmux-remote", invited: false, trustedCarrier: endpoint.trustedCarrier },
+      metadata: { transport: "cmux-remote", invited: endpoint.invitation != null, trustedCarrier: endpoint.trustedCarrier },
     }).pipe(Effect.catchAll(() => Effect.void));
     // Only an opted-in machine pays this exec; the default attach stays exec-free.
     if (vmAgentUpdatesFromRow(vm) === "latest") {

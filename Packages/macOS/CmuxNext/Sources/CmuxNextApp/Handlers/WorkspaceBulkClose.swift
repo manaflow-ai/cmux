@@ -24,7 +24,22 @@ enum WorkspaceBulkClose {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         for id in ids { registry.bind(id, run: { invocation in try close(id, invocation, context) }) }
+        // On the bottom or top row, with only Home left, or alone in its group the close has
+        // nothing to close: the row is disabled with the reason and every run is refused with it.
+        for (id, none) in nothingToClose {
+            context.setTargetReason(id) { invocation in
+                ((try? plan(id, invocation, context))?.0.isEmpty ?? false) ? none() : nil
+            }
+        }
     }
+
+    /// The closes that can find nothing to close, and what they say then.
+    static let nothingToClose: [(ActionID, @MainActor () -> String)] = [
+        ("palette.closeOtherWorkspaces", { RefusalStrings.noOtherWorkspacesToClose }),
+        ("palette.closeWorkspacesBelow", { RefusalStrings.noWorkspacesBelowToClose }),
+        ("palette.closeWorkspacesAbove", { RefusalStrings.noWorkspacesAboveToClose }),
+        ("workspace.closeOthersInGroup", { RefusalStrings.noOtherWorkspacesInGroupToClose }),
+    ]
 
     /// What a run of `id` closes, and the window that stays open to show its
     /// undo toast (nil when none does).
@@ -51,14 +66,28 @@ enum WorkspaceBulkClose {
             let target = try context.workspace(invocation).model
             let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
             let order = owner?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? context.sidebarOrder.map(\.id)
-            guard let index = order.firstIndex(of: target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
-            closing = id == "palette.closeOtherWorkspaces" ? order.filter { $0 != target.id }
-                : id == "palette.closeWorkspacesBelow" ? Array(order[(index + 1)...]) : Array(order[..<index])
+            guard order.contains(target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
+            // A person's run on one of several selected rows keeps the whole selection, as Chrome's
+            // Close Other Tabs and Close Tabs Below do: the rows outside it, below its last, above its first.
+            let kept = try WindowMembershipHandlers.rowTargets(invocation, context).map(\.id)
+            closing = keeping(Set(kept), id: id, order: order)
         }
         // The store's home workspace never closes (`home_not_closable`, HomeRules), and a
         // workspace with no key cannot (WorkspaceClose): they neither count nor leave.
         let members = closing.compactMap { context.services.machines.workspace(id: $0) }.filter { $0.0.key != nil && !HomeRules.isHome($0.0) }
         return (members, survivor(closing: members.map(\.0.id), context))
+    }
+
+    /// What Close Other Workspaces, Close Workspaces Below and Close Workspaces Above (`id`)
+    /// close of `order` (a sidebar's rows) around the rows `kept`: every other row, the rows
+    /// below the last kept one, or the rows above the first.
+    nonisolated static func keeping(_ kept: Set<String>, id: ActionID, order: [String]) -> [String] {
+        guard let first = order.firstIndex(where: kept.contains), let last = order.lastIndex(where: kept.contains) else { return [] }
+        switch id {
+        case "palette.closeOtherWorkspaces": return order.filter { !kept.contains($0) }
+        case "palette.closeWorkspacesBelow": return Array(order[(last + 1)...])
+        default: return Array(order[..<first])
+        }
     }
 
     /// An open window that keeps a workspace after `closing` closes (the
@@ -74,12 +103,13 @@ enum WorkspaceBulkClose {
 
     static func close(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let (members, window) = try plan(id, invocation, context)
+        if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
         let services = context.services
         let names = members.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
         var groups: [(String?, [String])] = [(nil, names)]
         if id == "workspaceGroup.closeOthers" {
-            // Each group closes as Close All Workspaces in Group does (an unpinned group goes);
+            // Each group closes as Close Workspaces in Group does (an unpinned group goes);
             // Undo reopens each group's workspaces, then its record.
             let (sidebar, others) = try otherGroups(invocation, context)
             groups = others.map { group in

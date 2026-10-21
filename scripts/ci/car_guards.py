@@ -126,14 +126,14 @@ def entries(root: Path, base: str, head: str, where: str, the_plan: dict, skip: 
         if web:
             out.append({"name": "web", "kind": "web", "cwd": "webviews",
                         "env": {"CMUX_WEB_TEST_FILES": "\n".join(web)},
-                        "cmd": ["bash", "../scripts/ci/run-webviews-tests.sh"]})
+                        "cmd": ["bash", str(HERE / "run-webviews-tests.sh")]})
         # A Native/ workspace has no PR job to reuse.
         for crate in the_plan["native"]:
             out.append({"name": f"native:{crate['manifest']}", "kind": "cargo",
                         "cmd": ["cargo", "test", "--locked", "--manifest-path", crate["manifest"]]})
         if "cargo" not in skip and the_plan["cargo"]["changed"]:
             out.append({"name": "cargo", "kind": "cargo", "cwd": "cmux-tui",
-                        "cmd": [sys.executable, "-I", "../scripts/ci/cargo_affected.py", "--root", "..",
+                        "cmd": [sys.executable, "-I", str(HERE / "cargo_affected.py"), "--root", "..",
                                 "--base", base, "--head", head, "--", "cargo", "test", "--locked"]})
     elif where == "mac" and "swift" not in skip:
         packages: dict[str, list[str]] = {}
