@@ -1,5 +1,4 @@
 import AppKit
-@testable import CmuxNextApp
 import CmuxNextDesign
 @testable import CmuxNextTerminal
 import Testing
@@ -27,7 +26,7 @@ import Testing
     static func saved(_ frames: [String: NSImage]) async throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appending(path: "terminal-launch-frames-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
-        await TerminalLaunchFrames(directory: directory).save(frames)
+        await TerminalLaunchFrames(directory: directory).save(images: frames)
         return directory
     }
 
