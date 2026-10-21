@@ -1276,7 +1276,7 @@ jobs:
             python3 tests/test_cmux_next_prepush_gate.py
             # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
             python3 tests/test_base_merge_warning.py
-            # The fast tier's reuse key follows exactly what its entries read (CI_NEXT_JOB_REUSE).
+            # A changed tree, workflow file or toolchain never reuses a fast-tier pass (CI_NEXT_JOB_REUSE).
             python3 tests/test_job_input_fingerprint.py
             # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
             python3 tests/test_merge_compile_guard.py
@@ -2065,10 +2065,11 @@ jobs:
         run: ./scripts/select-ci-xcode.sh
 
       # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
-      # steps below skip and the summary names the run that passed. The inputs
-      # (scripts/ci/job_input_fingerprint.py) are what the entries read, this job's
-      # definition and the toolchain; a source it cannot follow gives no key. Not on a
-      # fork pull request, which could record a pass of its own under any key.
+      # steps below skip and the summary names the run that passed. The key
+      # (scripts/ci/job_input_fingerprint.py) is the commit's full tree hash, this
+      # workflow file's blob hash and the toolchain below; a missing toolchain value
+      # gives no key. Not on a fork pull request, which could record a pass of its
+      # own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
         if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
@@ -2076,8 +2077,11 @@ jobs:
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
             --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
-            --extra "macos=$(sw_vers -productVersion | cut -d. -f1)" \
-            --extra "arch=$(uname -m)" >> "$GITHUB_OUTPUT"
+            --extra "macos=$(sw_vers -productVersion)" \
+            --extra "macos_build=$(sw_vers -buildVersion)" \
+            --extra "arch=$(uname -m)" \
+            --extra "pool=${{ contains(runner.name, '-glaeda') && 'owned' || startsWith(runner.name, 'blacksmith-') && 'blacksmith' || runner.environment == 'github-hosted' && 'hosted' || runner.name }}" \
+            --extra "image=${ImageOS:-}${ImageVersion:+-$ImageVersion}" >> "$GITHUB_OUTPUT"
 
       - name: Look for a pass on the same inputs
         id: reuse
@@ -2216,18 +2220,40 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # clang (bindgen's libclang), Zig and Rust come before the reuse key, which
+      # names their versions.
+      - name: Install Linux build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang libclang-dev pkg-config
+
+      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        run: bash scripts/ci/init-submodule.sh ghostty-next
+
+      - name: Install zig
+        run: ./scripts/install-zig-ci.sh
+
+      - name: Set up pinned cmux-tui Rust
+        uses: ./.github/actions/setup-cmux-tui-rust
+
       # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
-      # steps below skip and the summary names the run that passed. The inputs
-      # (scripts/ci/job_input_fingerprint.py) are what the entries read, this job's
-      # definition and the toolchain; a source it cannot follow gives no key. Not on a
-      # fork pull request, which could record a pass of its own under any key.
+      # steps below skip and the summary names the run that passed. The key
+      # (scripts/ci/job_input_fingerprint.py) is the commit's full tree hash, this
+      # workflow file's blob hash and the toolchain below; a missing toolchain value
+      # gives no key. Not on a fork pull request, which could record a pass of its
+      # own under any key.
       - name: Fingerprint this job's inputs
         id: reuse-key
         if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
         continue-on-error: true
         run: |
           python3 -I scripts/ci/job_input_fingerprint.py fast-tier-cargo \
-            --extra "runner=${{ runner.os }}-${{ runner.arch }}" >> "$GITHUB_OUTPUT"
+            --extra "runner=${{ runner.os }}-${{ runner.arch }}" \
+            --extra "rustc=$(rustc -Vv | tr '\n' ' ')" \
+            --extra "cargo=$(cargo -V)" \
+            --extra "zig=$("${CMUX_ZIG:-zig}" version)" \
+            --extra "clang=$(clang --version | head -1)" \
+            --extra "image=${ImageOS:-}${ImageVersion:+-$ImageVersion}" >> "$GITHUB_OUTPUT"
 
       - name: Look for a pass on the same inputs
         id: reuse
@@ -2247,24 +2273,6 @@ jobs:
           sha="$(sed -n 2p .ci-job-pass/pass.txt)"
           echo "::notice title=cmux-next fast tier (cargo) reused::$run_url passed on the same inputs (${sha:0:12})"
           echo "Reused $run_url: it passed on \`${sha:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
-
-      - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
-        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
-        run: bash scripts/ci/init-submodule.sh ghostty-next
-
-      - name: Install Linux build dependencies
-        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y clang libclang-dev pkg-config
-
-      - name: Install zig
-        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
-        run: ./scripts/install-zig-ci.sh
-
-      - name: Set up pinned cmux-tui Rust
-        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
-        uses: ./.github/actions/setup-cmux-tui-rust
 
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
       # Only a feat-cmux-next push saves this build cache; a pull request reads the base

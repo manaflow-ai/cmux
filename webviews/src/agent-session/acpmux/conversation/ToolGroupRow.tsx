@@ -32,19 +32,23 @@ function groupIcon(kind: ToolGroupKind): ReactNode {
 export const GROUP_TAIL = 5;
 
 /// Commands, reads and searches open by default, one row per call, as the Codex and Claude Code
-/// desktop apps list them; edits stay closed, since each opens to its whole diff. The glyph turns
-/// while any call runs.
+/// desktop apps list them; edits stay closed, since each opens to its whole diff. A finished run
+/// that is this one group (`folded`: text followed it) stays closed too, one summary line between
+/// the paragraphs ("Ran 3 commands"), as the Codex app folds finished work. The glyph turns while
+/// any call runs.
 export function ToolGroupRow({
   kind,
   items,
   disclosureKey,
+  folded = false,
 }: {
   kind: ToolGroupKind;
   items: readonly AcpmuxActivity[];
   disclosureKey: string;
+  folded?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits");
+  const [open, setOpen] = useTranscriptDisclosure(disclosureKey, kind !== "edits" && !folded);
   const [all, setAll] = useTranscriptDisclosure(`${disclosureKey}:all`);
   const fold = useFold(open);
   const hidden = kind === "edits" || all ? 0 : Math.max(0, items.length - GROUP_TAIL);
