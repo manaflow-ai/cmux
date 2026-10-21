@@ -65,4 +65,19 @@ import Testing
         #expect(try markRead(.done))
         #expect(try markRead(.failed))
     }
+
+    /// The row's menu and the palette hide Mark as Read where the button greys
+    /// (`SidebarPriorityEntry.canMarkRead` on `AgentPriorityChats.entry`): a Red CI chat has none.
+    @Test func theRowMenuLeavesMarkAsReadOutOnRedCI() {
+        #expect(!SidebarPriorityEntry(id: "chat", title: "Chat", state: .ciFailing).canMarkRead)
+        #expect(SidebarPriorityEntry(id: "chat", title: "Chat", state: .done).canMarkRead)
+        let store = AgentLaneStore()
+        store.lanes["red"] = Self.lane("red", .idle)
+        store.lanes["broke"] = Self.lane("broke", .failed)
+        let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store],
+                                       checksFailing: { $0.id == "red" }) { _, _ in }
+        #expect(chats.entry("red")?.state == .ciFailing)
+        #expect(chats.entry("red")?.canMarkRead == false)
+        #expect(chats.entry("broke")?.canMarkRead == true)
+    }
 }
