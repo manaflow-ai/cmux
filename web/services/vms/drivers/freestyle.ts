@@ -18,6 +18,7 @@ import { FreestyleResourceStatsReader } from "./freestyleResourceStatsReader";
 import { freestyleHealthInventory } from "./freestyleHealthInventory";
 import { announceFreestyleNetwork } from "./freestyleNetworkAnnouncement";
 import { freestyleRequestFetch } from "./freestyleRequestTiming";
+import { isProviderMachineGone } from "../providerErrors";
 import { currentVmRequestContext } from "../requestContext";
 import {
   ProviderError,
@@ -702,7 +703,7 @@ function isNotFound(err: unknown): boolean {
  * endpoint) must not produce one.
  */
 function isMachineGone(err: unknown): boolean {
-  return err instanceof FreestyleApiError && err.status === 404 && err.code === "NOT_FOUND";
+  return err instanceof FreestyleApiError && isProviderMachineGone(err);
 }
 
 /**

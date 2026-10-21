@@ -4205,8 +4205,8 @@ describe("VM Effect workflows", () => {
           : Effect.fail(new Error("stop after recovery reservation check") as never);
       },
     } as unknown as VmRepositoryShape;
-    const deleted = new Error("VM_DELETED: provider VM is gone");
-    deleted.name = "VmDeletedError";
+    // Freestyle's explicit answer; a message alone is not proof the machine is gone.
+    const deleted = Object.assign(new Error("VM_DELETED: provider VM is gone"), { status: 404, code: "VM_DELETED" });
     const provider: VmProviderGatewayShape = {
       ...unusedProviderGateway(),
       getStatus: () => {
@@ -6154,10 +6154,10 @@ describe("VM Effect workflows", () => {
       getStatus: () =>
         Effect.suspend(() => {
           statusCalls += 1;
-          const deleted = new Error(
+          // Freestyle's explicit answer; a message alone is not proof the machine is gone.
+          const deleted = Object.assign(new Error(
             "VM_DELETED: Vm provider-vm-provider-deleted-old is marked as deleted but still exists in the database",
-          );
-          deleted.name = "VmDeletedError";
+          ), { status: 404, code: "VM_DELETED" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",

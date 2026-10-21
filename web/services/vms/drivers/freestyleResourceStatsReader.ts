@@ -2,6 +2,7 @@ import { Cache, Clock, Effect } from "effect";
 import type { Freestyle } from "freestyle";
 import { guestResourceSampleCommand } from "../guestResourceReporter";
 import { parseVmResourceUsage, VM_RESOURCE_USAGE_MIN_INTERVAL_MS } from "../resourceUsage";
+import { isProviderMachineGone } from "../providerErrors";
 import type { VMResourceStatsResult } from "./types";
 
 const PROBE_TIMEOUT_MS = 5_000;
@@ -50,7 +51,7 @@ export class FreestyleResourceStatsReader {
       // gateway or a moved endpoint is an unavailable sample.
       if (response.status === 404) {
         const body: unknown = await response.json().catch(() => null);
-        if (body && typeof body === "object" && "code" in body && body.code === "NOT_FOUND") {
+        if (isProviderMachineGone({ status: 404, code: body && typeof body === "object" && "code" in body ? body.code : undefined })) {
           throw new FreestyleResourceStatsNotFoundError();
         }
         return null;
