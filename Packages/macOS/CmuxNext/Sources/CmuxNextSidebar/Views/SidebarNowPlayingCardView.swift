@@ -231,9 +231,11 @@ final class SidebarNowPlayingCardView: NSView {
         controlsDivider.frame = NSRect(x: x, y: y + Metrics.space2, width: line, height: max(0, play - 2 * Metrics.space2))
         x += line + Metrics.space3
         pictureInPictureButton.frame = NSRect(x: x, y: controlY, width: control, height: control).integral
-        let levelsSize = SidebarNowPlayingLevels.size
-        levels.frame = NSRect(x: b.width - pad - levelsSize.width, y: y + (play - levelsSize.height) / 2,
-                              width: levelsSize.width, height: levelsSize.height).integral
+        let levelsSize = SidebarNowPlayingLevels.size, levelsX = b.width - pad - levelsSize.width
+        // A narrow sidebar drops the bars rather than draw them over the last control.
+        let controlsEnd = (pictureInPictureButton.isHidden ? nextButton : pictureInPictureButton).frame.maxX + gap
+        levels.frame = levelsX < controlsEnd ? .zero
+            : NSRect(x: levelsX, y: y + (play - levelsSize.height) / 2, width: levelsSize.width, height: levelsSize.height).integral
         let close = Self.closeSide
         closeButton.frame = NSRect(x: b.width - Metrics.space1 - close, y: Metrics.space1, width: close, height: close).integral
     }

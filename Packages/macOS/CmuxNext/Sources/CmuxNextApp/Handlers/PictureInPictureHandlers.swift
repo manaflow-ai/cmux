@@ -17,52 +17,67 @@ enum PictureInPictureHandlers {
 
     static func bind(into registry: ActionRegistry, context ctx: AppActionContext) {
         let cache = ctx.services.cache
-        registry.bind(actionID, invoke: { invocation in
-            guard let page = page(ctx, invocation) else { return }
-            // task-owner: one page script; its answer only picks a refusal for the person.
-            Task { @MainActor in
+        registry.bind(actionID, invoke: { [weak registry] invocation in
+            guard let registry, let page = page(ctx, invocation) else { return }
+            let work = Task { @MainActor () -> String? in
                 switch await page.togglePictureInPicture() {
-                case .noVideo?: ctx.refuse(PictureInPictureStrings.noVideo)
-                case .unsupported?: ctx.refuse(PictureInPictureStrings.unsupported)
-                case .entered?, .exited?, nil: break
+                case .noVideo?: PictureInPictureStrings.noVideo
+                case .unsupported?: PictureInPictureStrings.unsupported
+                case .entered?, .exited?, nil: nil
                 }
+            }
+            // task-owner: a palette or menu run nobody waits on shows a refusal; a CLI or MCP run returns it.
+            if registry.isCapturingWork {
+                registry.track(Task { await work.value.map { ActionWorkFailure(refusal: .unavailable, reason: $0) } })
+            } else {
+                Task { [weak registry] in if let why = await work.value { registry?.refuse(why) } }
             }
         })
         // A tab's menu offers it on a page that plays (or played) a video; the media card's menu
         // (no target) while the card shows a tab's video.
         ActionTargetVisibility.hide(actionID, in: registry) { invocation in
-            guard let target = invocation.target else {
-                let card: any NowPlayingSource = cache.pageRequests.nowPlayingCard.source ?? cache.pageRequests.sidebarSources
-                return card.nowPlaying?.canPictureInPicture != true
-            }
+            guard let target = invocation.target else { return card(cache)?.canPictureInPicture != true }
             return target.kind == .tab && cache.existingBrowser(target.id)?.tab.state.media?.isVideo != true
         }
         // On a floating video the row reads as what it does.
         ActionTargetTitles.set(actionID, in: registry) { invocation in
-            guard let target = invocation.target, target.kind == .tab,
+            guard let target = invocation.target else {
+                return card(cache)?.isPictureInPicture == true ? PictureInPictureStrings.exit : nil
+            }
+            guard target.kind == .tab,
                   cache.existingBrowser(target.id)?.tab.state.media?.isPictureInPicture == true else { return nil }
             return PictureInPictureStrings.exit
         }
     }
 
-    /// The page it acts on: the named tab's; else the focused tab's when it
-    /// shows a video; else the tab whose video plays (the one the media
-    /// card shows, in any workspace); else the focused tab's, whose script
-    /// may still find a video that never played.
+    /// The argument the media card's menu passes: the row acts on the tab the card shows.
+    static let cardArgument = "nowPlayingCard"
+
+    /// What the media card shows now.
+    private static func card(_ cache: TabContentCache) -> SidebarNowPlaying? {
+        let source: any NowPlayingSource = cache.pageRequests.nowPlayingCard.source ?? cache.pageRequests.sidebarSources
+        return source.nowPlaying
+    }
+
+    /// The page it acts on: the named tab's; from the media card's menu, the
+    /// tab the card shows; else the focused tab's when it shows a video; else
+    /// the tab whose video plays (the one the media card shows, in any
+    /// workspace); else the focused tab's, whose script may still find a
+    /// video that never played.
     private static func page(_ ctx: AppActionContext, _ invocation: ActionInvocation) -> (any BrowserTab)? {
         let cache = ctx.services.cache
         if invocation.target?.kind == .tab || invocation["tab"]?.targetValue != nil {
             guard let (tab, _) = ctx.daemonTab(invocation) else { return nil }
             return cache.existingBrowser(tab.id)?.tab ?? ctx.refuse(PictureInPictureStrings.needsPage)
         }
+        let shown = cache.pageRequests.sidebarNowPlaying.shownTab.flatMap { playing in
+            cache.browsers.values.first(where: { $0.tab.id == playing })?.tab
+        }.flatMap { $0.state.media?.isVideo == true ? $0 : nil }
+        if invocation[cardArgument]?.boolValue == true { return shown ?? ctx.refuse(PictureInPictureStrings.noVideo) }
         let selected = ctx.services.windows.active?.focusedPane?.stripModel.selectedID
         let focused = selected.flatMap { cache.existingBrowser($0.rawValue)?.tab }
         if let focused, focused.state.media?.isVideo == true { return focused }
-        if let playing = cache.pageRequests.sidebarNowPlaying.shownTab,
-           let page = cache.browsers.values.first(where: { $0.tab.id == playing })?.tab, page.state.media?.isVideo == true {
-            return page
-        }
-        return focused ?? ctx.refuse(PictureInPictureStrings.noVideo)
+        return shown ?? focused ?? ctx.refuse(PictureInPictureStrings.noVideo)
     }
 }
 

@@ -20,7 +20,7 @@ nonisolated enum NowPlayingCardActionCatalog: ActionCatalogGroup {
                 keywords: ["pip", "picture in picture", "video", "float", "floating", "pop out", "always on top", "media", "tab"],
                 category: .tab, symbol: "pip", surfaces: [.palette, .contextMenu], targets: [.tab], cliName: "media picture-in-picture",
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [
-                    ContextMenuPlacement(.tab, .identity, 206, folder: .options),
+                    ContextMenuPlacement(.tab, .identity, 211, folder: .options),
                     ContextMenuPlacement(.nowPlayingCard, .navigate, 10),
                 ])
             ),

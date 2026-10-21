@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextActions
 @testable import CmuxNextApp
 import CmuxNextBridge
@@ -10,7 +11,7 @@ import Testing
 /// toggle runs in the page's world (the user gesture `requestPictureInPicture` needs) and says what
 /// it did, the media card's source floats the tab it shows and names its site, a floating page is
 /// never frozen or hibernated, and one action backs the tab menu, the card's menu, the palette,
-/// the shortcut, the CLI and MCP.
+/// a key bound to it, the CLI and MCP.
 @MainActor struct PictureInPictureTests {
     static func tab() -> MockBrowserTab {
         MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://www.youtube.com/watch?v=1")))
@@ -64,6 +65,25 @@ import Testing
         let probe = await PageProbe.run(tab)
         #expect(probe.playingMedia, "a page whose video floats would freeze")
         #expect(probe.exemption(pressure: .critical) != nil, "a page whose video floats would hibernate")
+    }
+
+    @Test func aTabsMenuOffersItOnAVideoAndReadsAsExitWhileItFloats() throws {
+        _ = NSApplication.shared
+        let services = AppServices(environment: AppEnvironment.current([:]))
+        AppActions.bind(services)
+        let tab = Self.tab(), key = "video"
+        services.cache.install(tab, for: key)
+        defer { services.cache.browsers[key] = nil }
+        func row() -> NSMenuItem? {
+            func all(_ items: [NSMenuItem]) -> [NSMenuItem] { items.flatMap { [$0] + ($0.submenu.map { all($0.items) } ?? []) } }
+            let menu = services.registry.makeContextMenu(for: .tab, target: ActionTargetRef(kind: .tab, id: key), implied: .browserFocused)
+            return all(menu.items).first { ActionRegistry.menuRun(of: $0)?.id == PictureInPictureHandlers.actionID }
+        }
+        #expect(row() == nil, "a page with no video offers Picture in Picture")
+        tab.simulate(.mediaChanged(BrowserMediaState(title: "Clip", isPlaying: true, isVideo: true)))
+        #expect(try #require(row(), "a page playing a video leaves Picture in Picture out").title == "Picture in Picture")
+        tab.simulate(.mediaChanged(BrowserMediaState(title: "Clip", isPlaying: true, isVideo: true, isPictureInPicture: true)))
+        #expect(row()?.title == PictureInPictureStrings.exit, "the row of a floating video does not read as Exit")
     }
 
     @Test func oneActionBacksEveryEntrypoint() throws {
