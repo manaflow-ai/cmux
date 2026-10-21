@@ -101,9 +101,14 @@ impl Hub {
                 tracing::warn!("save config failed: {e}");
             }
         }
-        // A saved peer takes the name over from a lease (`peer_lease.rs`).
-        self.forget_lease(name);
-        let mut settled = self.start_peer(name, &pc);
+        let mut settled = {
+            // A saved peer takes the name over from a lease (`peer_lease.rs`),
+            // under the lease lock so no notice of the leased peer finds the
+            // name unleased first (lock order: `peer_leases`, then `peers`).
+            let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+            leases.remove(name);
+            self.start_peer(name, &pc)
+        };
         if wait {
             let _ = tokio::time::timeout(PEER_SETTLE_BUDGET, settled.changed()).await;
         }
@@ -169,6 +174,9 @@ impl Hub {
     }
 
     pub fn peers(&self) -> Vec<Value> {
+        // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
+        let leased: std::collections::HashSet<String> =
+            self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
         let mut v: Vec<Value> = self
             .peers
             .lock()
@@ -184,7 +192,7 @@ impl Hub {
                         .filter(|r| r.peer == p.name)
                         .count()
                 );
-                if self.is_leased(&p.name) {
+                if leased.contains(&p.name) {
                     s["leased"] = Value::Bool(true);
                 }
                 s

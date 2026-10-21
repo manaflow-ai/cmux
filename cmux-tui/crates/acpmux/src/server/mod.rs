@@ -123,7 +123,12 @@ impl Conn {
     pub(super) fn hold_peer_lease(&self, hub: &Hub, lease: crate::hub::PeerLease) {
         let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
         match leases.as_mut() {
-            Some(held) => held.push(lease),
+            Some(held) => {
+                // A renewal supersedes the earlier lease of its name, whose
+                // end would be a no-op (another generation holds the name).
+                held.retain(|old| old.name != lease.name);
+                held.push(lease);
+            }
             None => {
                 drop(leases);
                 hub.end_peer_lease(&lease);

@@ -20,7 +20,7 @@
 //!    forward on `127.0.0.1:0` here (`LocalPortForward`).
 //! 5. Through the forward, the VM acpmux's `_acpmux/status` must report
 //!    `personKey: true`: a VM daemon started without the person key is
-//!    skipped.
+//!    skipped for the rest of this link (the next link checks again).
 //! 6. `_acpmux/peer_lease` on this Mac's acpmux, over a unix socket
 //!    connection this bridge keeps open: the peer lasts as long as that
 //!    connection (acpmux `hub/peer_lease.rs`), so it is never saved and a
@@ -30,6 +30,9 @@
 //! changes at each start, so a peer that its VM serves as `remote` (Web)
 //! instead of `peer`, or that keeps failing to connect, gets its tokens read
 //! again and the lease renewed when they changed.
+//!
+//! The peer is named `cloud-<machine name>`; two links to VMs of the same
+//! name would take the name from each other.
 
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
@@ -53,6 +56,8 @@ const RENEW_EVERY: Duration = Duration::from_secs(15);
 const RENEW_AFTER_ATTEMPTS: u64 = 3;
 /// The budget of the status probe through the forward.
 const PROBE_BUDGET: Duration = Duration::from_secs(15);
+/// The budget of one request to this Mac's acpmux while checking the lease.
+const CALL_BUDGET: Duration = Duration::from_secs(15);
 /// Most bytes read of one VM file.
 const MAX_FILE_BYTES: u32 = 1 << 20;
 const AREA: &str = "acpmux-peer";
@@ -105,6 +110,14 @@ enum Failure {
     Retry(String),
 }
 
+impl std::fmt::Display for Failure {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Stop(why) | Self::Retry(why) => formatter.write_str(why),
+        }
+    }
+}
+
 async fn run(
     multiplexer: Arc<ServiceMultiplexer>,
     machine_socket: PathBuf,
@@ -149,11 +162,22 @@ async fn run(
 }
 
 /// The VM acpmux's dashboard token and peer token, as read from its home.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 struct Tokens {
     token: String,
     peer_token: Option<String>,
     port: u16,
+}
+
+impl std::fmt::Debug for Tokens {
+    /// Never the tokens themselves.
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("Tokens")
+            .field("port", &self.port)
+            .field("peer_token", &self.peer_token.is_some())
+            .finish_non_exhaustive()
+    }
 }
 
 /// A lease in force.
@@ -212,7 +236,7 @@ impl Live {
             Ok(_) => return Err(Failure::Retry("unexpected create-route response".into())),
             Err(e) => return Err(Failure::Retry(format!("create route: {}", e.message))),
         };
-        let listen: SocketAddr = "127.0.0.1:0".parse().expect("loopback address is valid");
+        let listen = SocketAddr::from(([127, 0, 0, 1], 0));
         let forward = match LocalPortForward::bind(multiplexer.clone(), route, listen).await {
             Ok(forward) => forward,
             Err(e) => {
@@ -270,11 +294,11 @@ impl Live {
         if self.acpmux.is_closed() {
             return Err("this Mac's acpmux closed the connection".into());
         }
-        let peers = self
-            .acpmux
-            .request("_acpmux/peers", json!({}))
-            .await
-            .map_err(|e| format!("_acpmux/peers: {e:#}"))?;
+        let peers =
+            tokio::time::timeout(CALL_BUDGET, self.acpmux.request("_acpmux/peers", json!({})))
+                .await
+                .map_err(|_| format!("_acpmux/peers: no answer in {}s", CALL_BUDGET.as_secs()))?
+                .map_err(|e| format!("_acpmux/peers: {e:#}"))?;
         let ours = peers["peers"]
             .as_array()
             .and_then(|all| all.iter().find(|p| p["name"] == self.name.as_str()));
@@ -286,7 +310,7 @@ impl Live {
         }
         let fresh = read_tokens(&self.workspace_client, &self.acpmux_home)
             .await
-            .map_err(|failure| format!("{failure:?}"))?;
+            .map_err(|failure| failure.to_string())?;
         if fresh.port != self.tokens.port {
             return Err("the machine's acpmux moved to another port".into());
         }
@@ -301,11 +325,10 @@ impl Live {
         // Closing the unix connection ends the lease on this Mac's acpmux.
         drop(self.acpmux);
         self.forward.shutdown().await;
+        // The opened workspaces stay: the daemon keeps them per connection,
+        // shared with anything else on this link, and the next open of the
+        // same folder gets the same one back.
         close_route(&self.workspace_client, self.route).await;
-        let workspace = WorkspaceRequest::CloseWorkspace { workspace: self.acpmux_home };
-        let _ =
-            tokio::time::timeout(Duration::from_secs(5), self.workspace_client.request(workspace))
-                .await;
     }
 }
 
@@ -351,9 +374,7 @@ async fn read_file(
 /// `/etc/cmux/vm-kind`, trimmed; None when it cannot be read.
 async fn read_vm_kind(client: &WorkspaceClient) -> Option<String> {
     let etc = open_workspace(client, VM_ETC).await.ok()?;
-    let bytes = read_file(client, &etc, VM_KIND_FILE).await;
-    let _ = client.request(WorkspaceRequest::CloseWorkspace { workspace: etc }).await;
-    let text = String::from_utf8(bytes?).ok()?;
+    let text = String::from_utf8(read_file(client, &etc, VM_KIND_FILE).await?).ok()?;
     Some(text.trim().to_owned())
 }
 
@@ -361,10 +382,7 @@ async fn read_vm_kind(client: &WorkspaceClient) -> Option<String> {
 /// "not found" (fail closed).
 async fn team_files_present(client: &WorkspaceClient) -> bool {
     match open_workspace(client, TEAM_FILES_ROOT).await {
-        Ok(workspace) => {
-            let _ = client.request(WorkspaceRequest::CloseWorkspace { workspace }).await;
-            true
-        }
+        Ok(_) => true,
         Err(code) => code != "not-found",
     }
 }

@@ -8,7 +8,9 @@
 //! bound the port would receive the VM's dashboard and peer tokens. So a
 //! lease is never written to config.json, leaves no last-known sessions on
 //! disk (`peer_cache.rs`), and stops with its connection
-//! (`server/peer_lease.rs`).
+//! (`Conn::end_peer_leases` in `server/mod.rs`).
+//!
+//! Lock order: `peer_leases`, then `peers`; never the other way round.
 
 use super::*;
 
@@ -64,18 +66,21 @@ impl Hub {
     /// End `lease`: stop its peer and drop its rows, unless the name now
     /// belongs to another peer. Idempotent.
     pub fn end_peer_lease(&self, lease: &PeerLease) {
-        {
+        // Both under the lease lock, the peer first: a notice of the peer
+        // finds it leased or gone, never unleased (`save_peer_cache`).
+        let peer = {
             let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+            let peer = {
+                let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
+                match peers.get(&lease.name) {
+                    Some(p) if p.generation == lease.generation => peers.remove(&lease.name),
+                    _ => None,
+                }
+            };
             if leases.get(&lease.name) == Some(&lease.generation) {
                 leases.remove(&lease.name);
             }
-        }
-        let peer = {
-            let mut peers = self.peers.lock().unwrap_or_else(|e| e.into_inner());
-            match peers.get(&lease.name) {
-                Some(p) if p.generation == lease.generation => peers.remove(&lease.name),
-                _ => None,
-            }
+            peer
         };
         let Some(peer) = peer else { return };
         peer.stop();
@@ -146,6 +151,38 @@ mod tests {
         assert!(hub.peers().is_empty());
         // Idempotent.
         hub.end_peer_lease(&new);
+    }
+
+    /// Leasing and listing peers at once never deadlock: `peers()` reads the
+    /// leases before it locks the peers, the order `lease_peer` takes them in.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn leasing_while_listing_peers_never_deadlocks() {
+        let hub = hub();
+        let cfg = crate::config::Config::default();
+        let lister = {
+            let hub = hub.clone();
+            tokio::task::spawn_blocking(move || {
+                for _ in 0..2_000 {
+                    let _ = hub.peers();
+                }
+            })
+        };
+        let leaser = {
+            let hub = hub.clone();
+            let runtime = tokio::runtime::Handle::current();
+            tokio::task::spawn_blocking(move || {
+                let _entered = runtime.enter();
+                for _ in 0..2_000 {
+                    let (lease, _) =
+                        hub.lease_peer("vm", "ws://127.0.0.1:1", "t".into(), None, &cfg).unwrap();
+                    hub.end_peer_lease(&lease);
+                }
+            })
+        };
+        let both = async { (lister.await.unwrap(), leaser.await.unwrap()) };
+        tokio::time::timeout(std::time::Duration::from_secs(60), both)
+            .await
+            .expect("leasing and listing peers deadlocked");
     }
 
     /// A leased peer's sessions are listed but never saved as last-known

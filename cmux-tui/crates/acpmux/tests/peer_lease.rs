@@ -89,6 +89,17 @@ impl C {
             }
         }
     }
+
+    /// Close the connection and wait until the daemon finished with it: its
+    /// end (every lease it held ended) comes before its last reply sender
+    /// drops.
+    async fn close(self) {
+        let C { tx, mut rx, .. } = self;
+        drop(tx);
+        tokio::time::timeout(Duration::from_secs(20), async { while rx.recv().await.is_some() {} })
+            .await
+            .expect("the daemon never finished with the closed connection");
+    }
 }
 
 /// B: a hub with one session, serving WebSocket with dashboard token `tok`
@@ -107,22 +118,14 @@ async fn serving_b(tag: &str) -> (Arc<Hub>, u16, String) {
     let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
         "_meta": {"acpmux": {"name": "vm-one"}}});
     cb.call(method::SESSION_NEW, new).await.unwrap();
+    // The listener read its token at start; the folder is not needed again.
+    let _ = std::fs::remove_dir_all(&home);
     (b, port, peer_token)
 }
 
 fn lease(port: u16, peer_token: &str) -> Value {
     json!({"name": "cloud-vm", "url": format!("ws://127.0.0.1:{port}"), "token": "tok",
         "peerToken": peer_token, "wait": true})
-}
-
-async fn wait_for(what: &str, mut done: impl FnMut() -> bool) {
-    for _ in 0..200 {
-        if done() {
-            return;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
-    panic!("timed out waiting for {what}");
 }
 
 #[tokio::test]
@@ -145,7 +148,7 @@ async fn a_leased_peers_sessions_are_listed_and_served_as_a_peer() {
 }
 
 #[tokio::test]
-async fn a_lease_never_changes_config_json_and_ends_with_its_connection() {
+async fn a_peer_lease_never_changes_config_json_and_ends_with_its_connection() {
     let (_b, port, peer_token) = serving_b("close").await;
     let dir = scratch("close-a");
     let mut cfg = config();
@@ -165,14 +168,15 @@ async fn a_lease_never_changes_config_json_and_ends_with_its_connection() {
         a.all_session_summaries()
     );
 
-    // Another connection's lifetime does not hold the lease.
+    // Another connection's close does not end the lease.
     let mut other = C::new(&a, Origin::Local);
     other.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
-    drop(other);
+    other.close().await;
+    assert_eq!(a.peers().len(), 1, "{:?}", a.peers());
 
     // The leasing connection closes: the peer and its rows go with it.
-    drop(ca);
-    wait_for("the lease to end", || a.peers().is_empty()).await;
+    ca.close().await;
+    assert!(a.peers().is_empty(), "{:?}", a.peers());
     assert!(!a.is_leased("cloud-vm"));
     assert!(
         !a.all_session_summaries().iter().any(|s| s["peer"] == "cloud-vm"),
@@ -180,10 +184,11 @@ async fn a_lease_never_changes_config_json_and_ends_with_its_connection() {
         a.all_session_summaries()
     );
     assert_eq!(std::fs::read(dir.join("config.json")).unwrap(), before, "ending saved config");
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
-async fn a_renewed_lease_survives_the_first_connection() {
+async fn a_renewed_peer_lease_survives_the_first_connection() {
     let (_b, port, peer_token) = serving_b("renew").await;
     let a = hub(config());
     let mut first = C::new(&a, Origin::Local);
@@ -192,15 +197,14 @@ async fn a_renewed_lease_survives_the_first_connection() {
     let mut second = C::new(&a, Origin::Local);
     second.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
     second.call("_acpmux/peer_lease", lease(port, &peer_token)).await.unwrap();
-    drop(first);
-    // The first connection's close runs; the second's peer stays.
-    let mut probe = C::new(&a, Origin::Local);
-    probe.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
+    // The first connection's lease was superseded: its close leaves the
+    // second's peer running.
+    first.close().await;
     assert_eq!(a.peers().len(), 1, "{:?}", a.peers());
+    assert_eq!(a.peers()[0]["connected"], true, "{:?}", a.peers());
     assert!(a.is_leased("cloud-vm"));
-    drop(second);
-    wait_for("the renewed lease to end", || a.peers().is_empty()).await;
+    second.close().await;
+    assert!(a.peers().is_empty(), "{:?}", a.peers());
 }
 
 #[tokio::test]

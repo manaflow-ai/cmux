@@ -688,7 +688,7 @@ async fn dispatch_request(
         // A peer that lasts as long as this connection (`hub/peer_lease.rs`):
         // the unix socket only (`remote_guard.rs`).
         "_acpmux/peer_lease" => {
-            let text = |k: &str| str_param(&params, k).map(str::to_owned);
+            let text = |k: &str| str_param(&params, k).filter(|v| !v.is_empty()).map(str::to_owned);
             let required = |k: &str| {
                 text(k).ok_or_else(|| RpcError::invalid_params(format!("{k} is required")))
             };
