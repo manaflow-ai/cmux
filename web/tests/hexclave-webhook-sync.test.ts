@@ -337,6 +337,40 @@ describe("Hexclave mirror reconcile", () => {
     expect(inbox.rows.has("msg_remove_seat_retry")).toBe(false);
   });
 
+  test("a concurrent membership re-add waits for an older revoke to settle", async () => {
+    let releaseRevoke!: () => void;
+    let markRevokeStarted!: () => void;
+    const revokeStarted = new Promise<void>((resolve) => { markRevokeStarted = resolve; });
+    const revokeReleased = new Promise<void>((resolve) => { releaseRevoke = resolve; });
+    const { hexclave, mirror, sync } = harness({
+      sync: {
+        revokeTeamMemberAccess: async () => {
+          markRevokeStarted();
+          await revokeReleased;
+        },
+      },
+    });
+    seed(hexclave);
+    await applyHexclaveWebhookEvent({ type: "user.created", data: serverUser() }, sync);
+    hexclave.removeMember(TEAM_ID, USER_ID);
+
+    const removal = applyHexclaveWebhookEvent({ type: "user.updated", data: serverUser() }, sync);
+    await revokeStarted;
+    hexclave.addMember(TEAM_ID, USER_ID);
+    let readdSettled = false;
+    const readd = applyHexclaveWebhookEvent({
+      type: "team_membership.created",
+      data: { team_id: TEAM_ID, user_id: USER_ID },
+    }, sync).then(() => { readdSettled = true; });
+    for (let turn = 0; turn < 50 && !readdSettled; turn += 1) await Promise.resolve();
+
+    const settledBeforeRelease = readdSettled;
+    releaseRevoke();
+    await Promise.all([removal, readd]);
+    expect(settledBeforeRelease).toBe(false);
+    expect(mirror.teamIdsFor(USER_ID)).toEqual([TEAM_ID]);
+  });
+
   test("every event type reconciles from Hexclave, not from its payload", async () => {
     for (const type of hexclaveWebhookEventTypes) {
       const { hexclave, mirror, post } = harness();
