@@ -231,7 +231,7 @@ def local_names(home: Path) -> list[str]:
             if done.returncode == 0:
                 names.append(done.stdout.strip())
     return [name for name in dict.fromkeys(name.strip() for name in names)
-            if len(name) >= 3 and name.casefold() not in COMMON_NAMES]
+            if len(name) >= MIN_TERM_LENGTH and name.casefold() not in COMMON_NAMES]
 
 
 def load_private_terms(env: Mapping[str, str] = os.environ) -> tuple[list[str], str]:

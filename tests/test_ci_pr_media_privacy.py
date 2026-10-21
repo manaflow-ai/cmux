@@ -519,7 +519,9 @@ class WriterInventoryTests(unittest.TestCase):
     """
 
     MEDIA = re.compile(r"pr-media|MEDIA_BRANCH")
-    DIRECT = re.compile(r"""\bPUT\b|\bgit\b[^\n]{0,80}\bpush\b|"push",""")
+    # A contents PUT in any spelling, a push (also across a line continuation),
+    # a ref update or a GraphQL commit.
+    DIRECT = re.compile(r"""\bPUT\b|(?i:-xput\b|\.put\(|--method[\s"',=]+put\b)|\bgit\b(?:[^\n]|\\\n){0,120}?\bpush\b|"push",|git/refs|createCommitOnBranch""")
     VIA_TOOL = re.compile(r"put_file\(|pr-media\.py")
     # Writes with its own PUT or push, after check_privacy()/check_upload().
     CHECKS_ITSELF = {"scripts/pr-media.py", "dogfood/fuzz/cmuxfuzz/triage.py"}
@@ -533,30 +535,35 @@ class WriterInventoryTests(unittest.TestCase):
     NOT_WRITERS = {"scripts/ci/workflow_guard_groups.py"}
     SKIP_SUFFIXES = (".md", ".json", ".xcstrings", ".txt", ".png", ".gif", ".mp4", ".webp", ".jpg", ".svg")
 
-    def writers(self) -> dict[str, str]:
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.found = cls.scan()
+
+    @classmethod
+    def scan(cls) -> dict[str, str]:
         tracked = subprocess.run(["git", "ls-files", "-z"], cwd=ROOT, capture_output=True, text=True,
                                  check=True).stdout.split("\0")
         found = {}
         for path in tracked:
-            if not path or path.startswith(("tests/", "docs/")) or path.endswith(self.SKIP_SUFFIXES):
+            if not path or path.startswith(("tests/", "docs/")) or path.endswith(cls.SKIP_SUFFIXES):
                 continue
             try:
                 text = (ROOT / path).read_text(encoding="utf-8")
             except (OSError, UnicodeDecodeError):
                 continue
-            if self.MEDIA.search(text) and (self.DIRECT.search(text) or self.VIA_TOOL.search(text)):
+            if cls.MEDIA.search(text) and (cls.DIRECT.search(text) or cls.VIA_TOOL.search(text)):
                 found[path] = text
         return found
 
     def test_every_writer_is_listed(self) -> None:
         listed = self.CHECKS_ITSELF | self.THROUGH_PR_MEDIA_PY | self.REMOVES_ONLY | self.NOT_WRITERS
-        found = set(self.writers())
+        found = set(self.found)
         self.assertEqual(found - listed, set(), "a new pr-media writer: run pr_media_privacy.check_upload "
                                                 "before it pushes (or upload with scripts/pr-media.py), then list it here")
         self.assertEqual(listed - found, set(), "a listed writer no longer writes; drop it from the list")
 
     def test_a_writer_never_bypasses_the_check(self) -> None:
-        found = self.writers()
+        found = self.found
         for path in sorted(self.CHECKS_ITSELF):
             with self.subTest(path=path):
                 self.assertIn("pr_media_privacy", found[path])
@@ -564,6 +571,14 @@ class WriterInventoryTests(unittest.TestCase):
         for path in sorted(self.THROUGH_PR_MEDIA_PY):
             with self.subTest(path=path):
                 self.assertIsNone(self.DIRECT.search(found[path]), f"{path} writes without scripts/pr-media.py")
+
+    def test_the_writer_patterns_catch_common_upload_shapes(self) -> None:
+        for line in ('gh api -X PUT "repos/o/r/contents/x"', "curl -XPUT https://api.github.com/x",
+                     "requests.put(url, json=body)", "gh api --method put x", "git -C media \\\n  push origin HEAD",
+                     '["git", "push", "origin"]', "gh api -X PATCH repos/o/r/git/refs/heads/x",
+                     "mutation { createCommitOnBranch(input: $i) { commit { oid } } }"):
+            with self.subTest(line=line):
+                self.assertIsNotNone(self.DIRECT.search(line))
 
 
 class WorkflowTests(unittest.TestCase):
