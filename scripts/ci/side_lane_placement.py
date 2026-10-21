@@ -191,6 +191,17 @@ def session_route_label(label: str, runners: Sequence[Mapping[str, Any]] | None)
     return _live_role_label(label, runners, pool.session_label) or gui_route_label(label, runners)
 
 
+def route_want(env: Mapping[str, str]) -> int:
+    """How many jobs take the `runner` output: CASCADE_RUNS when the workflow sets it, else JOBS.
+
+    JOBS also names the GUI and session jobs, which take gui_runner or
+    session_runner, so counting it would ask the own class for more idle
+    runners than the run uses there.
+    """
+    runs = env.get("CASCADE_RUNS")
+    return len((runs if runs is not None else env.get("JOBS") or "").split())
+
+
 def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
            ) -> tuple[tuple[str, ...], tuple[str, ...], str]:
     """(owned jobs, fallback jobs, why); ((), (), why) decides nothing and keeps today's route."""
@@ -205,7 +216,7 @@ def decide(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None,
         return (), (), f"owned runners could not be read live; the jobs keep `{label}`"
     # The jobs take the compatible side label with the most room (side_route()), so idle runners
     # are counted where they go.
-    route = side_route(label, runners, len(jobs)) or label
+    route = side_route(label, runners, route_want(env)) or label
     owned = pool.idle_placement(runners, route, jobs)
     # A busy fleet is a queue, not an instantaneous Blacksmith decision. The
     # rescue moves a job only after the side queue budget has elapsed.
@@ -230,7 +241,7 @@ def main(env: Mapping[str, str] = os.environ) -> int:
             print(f"::warning title=side-lane placement::could not list runners ({error})")
     owned, fallback, why = decide(env, runners)
     label = (env.get("SIDE_LABEL") or "").strip()
-    route = route_label(label, runners, len((env.get("JOBS") or "").split()))
+    route = route_label(label, runners, route_want(env))
     gui_route = gui_route_label(label, runners)
     session_route = session_route_label(label, runners)
     if route and route != label:
