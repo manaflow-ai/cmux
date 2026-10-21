@@ -85,6 +85,7 @@ extension UpdaterService {
 
     /// Feeds ``indicatorPhase`` to the gate when it moved.
     func syncFlowPhase() {
+        dropStaleStagedUpdate()
         let phase = indicatorPhase
         guard phase != flow.phase else { return }
         if userCheckRunning, phase != .checking { userCheckRunning = false }

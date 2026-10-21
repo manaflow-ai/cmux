@@ -39,6 +39,20 @@ extension UpdaterService {
         return version != identity.shortVersion
     }
 
+    /// Ends the install session of a staged update that is not newer
+    /// (``offersStagedUpdate(version:)``) instead of only hiding it: left
+    /// open, Sparkle installs that build again when the app quits, and Check
+    /// for Updates is ignored behind it. This replies Skip to Sparkle's held
+    /// ready prompt, which cancels the installer and records no skipped
+    /// version, so the next check runs normally. Sparkle's own silent driver
+    /// hands over only an install block, but it stages only builds newer than
+    /// `CFBundleVersion`, so there is nothing to cancel there (a no-op).
+    func dropStaleStagedUpdate() {
+        guard case .ready(let version) = sourcePhase, !offersStagedUpdate(version: version) else { return }
+        log.append("staged update \(version ?? "of unknown version") is not newer than build \(identity.build): cancelling its installer")
+        cancelStaged()
+    }
+
     /// The note beside the circle timed out (up to date clears itself).
     public func dismissIndicatorNote() {
         // Sparkle's error is what the open sheet shows; a probe's sheet reads
