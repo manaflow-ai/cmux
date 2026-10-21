@@ -45,6 +45,16 @@ sys.modules["required_status_checks"] = _required_status_checks
 _SPEC.loader.exec_module(_required_status_checks)
 # A hung job wastes runners whether or not its check is required.
 ALWAYS_BOUNDED = ("ci-status", "web-validation", "Web complexity")
+# pull_request workflows that end a superseded run themselves instead of with a
+# concurrency group, and why a group would be wrong there.
+OWN_SUPERSESSION = {
+    # Its pull_request and push runs only debounce: each waits for quiet and
+    # exits 0 once it sees a newer event's run (next_batch.py `superseded`),
+    # within its 15-minute timeout. A workflow-level group would also hold the
+    # dispatch modes, and the batch controller waits on the regen and build runs
+    # it dispatches into this same workflow.
+    "cmux-next-batch.yml": "debounce runs supersede themselves",
+}
 # Every context whose workflows must be bounded. Tests patch this name.
 REQUIRED_CONTEXTS = tuple(dict.fromkeys((*_required_status_checks.REQUIRED_CHECKS, *ALWAYS_BOUNDED)))
 
@@ -158,7 +168,7 @@ def main() -> int:
         # the workflow's call. repair-nightly-appcast-content-types.yml sets
         # cancel-in-progress: false on purpose because it writes to R2, and
         # serializing is as good an answer as cancelling.
-        if not workflow.get("concurrency"):
+        if not workflow.get("concurrency") and path.name not in OWN_SUPERSESSION:
             failures.append(
                 f"{path.relative_to(ROOT)} runs on pull_request with no "
                 "concurrency group, so every push leaves the superseded run "

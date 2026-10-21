@@ -616,6 +616,22 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate published cmux-tui manifests carry acpmux
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_tui_latest_acpmux.py
+
+      - name: Validate feat-cmux-next pushes run the web and cmux-next checks
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_web_base_push.py
+
+      - name: Validate the cmux-next web-bundle cache contract
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_cmux_next_web_bundle_cache.py
+
+      - name: Validate the nightly builder
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_nightly_builder.py
+
       - name: Validate shallow complexity comparison fetching
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_fetch_complexity_base.py

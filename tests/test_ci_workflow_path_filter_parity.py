@@ -22,24 +22,22 @@ WORKFLOWS = ROOT / ".github/workflows"
 # error, so a synced workflow cannot keep a stale exemption.
 EXEMPTIONS: dict[str, str] = {
     "web-complexity.yml": "pull requests must not self-queue the contributor-side candidate job",
+    # #21504 (Leo) admits every cmux-next product and CI input on pull requests
+    # (Packages/macOS/**, tests/**, .github/workflows/**, ...) and lets the router
+    # pick the tier; base pushes keep the narrower product list plus the nightly
+    # release inputs that must earn a Release compile before promotion.
+    "cmux-next.yml": "pull requests admit every product and CI input (#21504); base pushes "
+    "keep the product list plus the nightly release inputs",
+    # Pushes run only on codex/vm-api-cloud-* work branches and take backend/**
+    # whole, which contains each backend path the pull_request list names.
+    "cmux-vm-cloud.yml": "push covers backend/** on codex/vm-api-cloud-* branches; pull requests "
+    "name the cloud-VM API files inside it",
 }
 
 # name -> (filter, push-only patterns, why). A narrower exemption: only these
 # patterns may appear on push without pull_request. Any other difference in the
 # workflow, including any path guarded only on pull requests, still fails.
-PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {
-    # #17114 (21710d9ef90): pull requests route packages outside CmuxNext to
-    # the generic workflow's focused package tests; base pushes keep the full
-    # side suite for every package. test_ci_change_areas.py's
-    # test_cmux_next_does_not_run_full_suite_for_unrelated_packages pins the
-    # pull-request side.
-    "cmux-next.yml": (
-        "paths",
-        frozenset({"Packages/macOS/**"}),
-        "base pushes keep full side coverage for every package; pull requests send "
-        "packages outside CmuxNext to the focused package lane",
-    ),
-}
+PUSH_ONLY_PATTERNS: dict[str, tuple[str, frozenset[str], str]] = {}
 
 FILTERS = ("paths", "paths-ignore")
 
@@ -74,6 +72,10 @@ def divergence(path):
 
     differences = {}
     for name in FILTERS:
+        # A push with no such filter runs for every file, so it guards all the
+        # pull request does (test-ios.yml builds on every feat-cmux-next push).
+        if name not in push:
+            continue
         push_patterns = push.get(name) or []
         pull_request_patterns = pull_request.get(name) or []
         on_push = set(push_patterns)
@@ -188,7 +190,15 @@ def test_every_push_only_pattern_is_still_needed():
 
 def test_push_only_allowance_still_catches_pull_request_only_paths():
     """An allowed push-only pattern hides nothing else in the same workflow."""
-    _, allowed, _ = PUSH_ONLY_PATTERNS["cmux-next.yml"]
+    allowed = frozenset({"Packages/macOS/**"})
+    PUSH_ONLY_PATTERNS["cmux-next.yml"] = ("paths", allowed, "fixture")
+    try:
+        check_push_only_allowance(allowed)
+    finally:
+        del PUSH_ONLY_PATTERNS["cmux-next.yml"]
+
+
+def check_push_only_allowance(allowed):
     shared = ["App/**", "Packages/macOS/CmuxNext/**"]
     with TemporaryDirectory() as directory:
         path = Path(directory) / "workflow.yml"
@@ -229,10 +239,12 @@ def test_filter_pattern_order():
             ("paths", ["docs/**", "tests/**"], ["tests/**", "docs/**"], {}),
             ("paths-ignore", ["docs/**", "tests/**"], ["tests/**", "docs/**"], {}),
             ("paths", ["src/**"], ["tests/**"], {"paths": (["src/**"], ["tests/**"])}),
+            ("paths", None, ["tests/**"], {}),
+            ("paths", ["src/**"], None, {"paths": (["src/**"], [])}),
         ):
             path.write_text(yaml.safe_dump({"on": {
-                "push": {filter_name: push},
-                "pull_request": {filter_name: pull_request},
+                "push": {"branches": ["main"]} if push is None else {filter_name: push},
+                "pull_request": {"branches": ["main"]} if pull_request is None else {filter_name: pull_request},
             }}), encoding="utf-8")
             assert divergence(path) == expected, (filter_name, push, pull_request)
     assert "patterns differ in order or repetition" in describe(

@@ -118,6 +118,9 @@ IGNORED_JOB_LEVEL_KEYS = frozenset({
     "timeout-minutes",
     "permissions",
     "outputs",
+    # Which deployment environment's credentials the job may read (118e52e14907);
+    # like permissions, it grants access and changes no product byte.
+    "environment",
 })
 
 # Product recipe projection is fail-closed: every named admission step is part
