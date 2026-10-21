@@ -1,7 +1,7 @@
 // Session rows keep their 30px geometry while a latest-reply preview floats in the shared popup
 // layer. The same card is available to pointer hover and keyboard focus, and missing previews stay
 // absent.
-import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
@@ -54,6 +54,7 @@ beforeAll(() => {
 });
 
 afterEach(() => {
+  jest.useRealTimers();
   act(() => root?.unmount());
   root = undefined;
 });
@@ -99,14 +100,18 @@ async function sidebar(
   return host.querySelector<HTMLElement>(".acpmux-session-row")!;
 }
 
-const wait = (ms: number) => act(async () => void (await new Promise((resolve) => setTimeout(resolve, ms))));
+/// Runs the hover delays on a fake clock (`jest.useFakeTimers()` first), never on the wall clock.
+const wait = (ms: number) => act(async () => void jest.advanceTimersByTime(ms));
 
 test("session preview appears after hover and includes status and placement", async () => {
   const row = await sidebar("The payment form needs a final pass.");
+  jest.useFakeTimers();
   await act(async () => {
     row.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true }));
   });
-  await wait(1_050);
+  await wait(HOVER_INTENT.cardDwell - 1);
+  expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
+  await wait(51);
   const card = document.querySelector<HTMLElement>(".acpmux-session-preview");
   expect(card?.textContent).toContain("The payment form needs a final pass.");
   expect(card?.textContent).toContain("Working");
@@ -139,6 +144,7 @@ test("session preview appears immediately on focus and stays absent without prev
 
 test("the preview remains readable while the pointer crosses from its row into the card", async () => {
   const row = await sidebar("A reply that remains readable inside its hover card.");
+  jest.useFakeTimers();
   await act(async () => row.dispatchEvent(new window.MouseEvent("pointerover", { bubbles: true })));
   await wait(HOVER_INTENT.cardDwell + 50);
   const card = document.querySelector<HTMLElement>(".acpmux-session-preview")!;
@@ -167,6 +173,7 @@ test("turning preview features off removes the focused card and prevents hover c
   );
 
   const disabledRow = await sidebar("A reply behind the preview setting.", false);
+  jest.useFakeTimers();
   expect(document.querySelector(".acpmux-session-preview") === null).toBe(true);
   expect(disabledRow.getAttribute("aria-describedby")).toBeNull();
   await act(async () => {
