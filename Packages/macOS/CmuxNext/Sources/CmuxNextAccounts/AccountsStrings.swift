@@ -37,6 +37,12 @@ enum AccountsStrings {
         String(format: text("accounts.source", "From %@"), label)
     }
 
+    static func note(_ note: DetectionNote) -> String {
+        switch note {
+        case .savedAPIKey: text("accounts.detail.savedAPIKey", "API key")
+        }
+    }
+
     /// Get Key for a key page, Sign In when nothing was found, else Re-authenticate.
     static func reauthTitle(_ row: AccountRowState) -> String {
         if case .page = row.provider.reauthPlan { return getKey }

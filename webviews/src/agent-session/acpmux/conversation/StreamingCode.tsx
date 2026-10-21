@@ -11,6 +11,7 @@ import { CodeBrackets } from "./icons";
 import { useT } from "../i18n";
 import { menuPartRef } from "./menuParts";
 import { isAgentMotionOff } from "../../shared/motion";
+import { entranceAllowed } from "../../shared/pageReveal";
 
 /// An open fence: the card's chrome over plain lines.
 export function PlainCode({ code, lang, open = false }: { code: string; lang: string; open?: boolean }) {
@@ -48,6 +49,9 @@ const HANDOFF_LIMIT_MS = 1_000;
 export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
   const [stage, setStage] = useState<"plain" | "fading" | "done">("plain");
   const ref = useRef<HTMLDivElement>(null);
+  // A fence that closed while the chat was hidden (or as it shows again) hands over without the
+  // fade: nobody watched it close (shared/pageReveal.ts).
+  const [closedAway] = useState(() => !entranceAllowed());
   useLayoutEffect(() => {
     if (stage !== "plain") return;
     let frame = 0;
@@ -61,13 +65,18 @@ export function CodeHandoff({ code, lang }: { code: string; lang: string }) {
       if (host?.shadowRoot?.querySelector("[data-line]") || performance.now() - started > HANDOFF_LIMIT_MS)
         // Under Reduce Motion nothing fades: the highlighted card replaces the plain one at once.
         setStage(
-          isAgentMotionOff() || window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ? "done" : "fading",
+          isAgentMotionOff() ||
+            closedAway ||
+            !entranceAllowed() ||
+            window.matchMedia?.("(prefers-reduced-motion: reduce)").matches
+            ? "done"
+            : "fading",
         );
       else frame = requestAnimationFrame(check);
     };
     check();
     return () => cancelAnimationFrame(frame);
-  }, [stage]);
+  }, [stage, closedAway]);
   // `ui.animationSpeed: off` removes CSS animations globally, so a card already fading never gets
   // its animationend event. Finish when the setting turns off mid-fade (the root's
   // data-agent-motion changes), so the plain card does not stay mounted under the highlighted one.

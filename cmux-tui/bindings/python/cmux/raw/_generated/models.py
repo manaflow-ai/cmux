@@ -3972,6 +3972,12 @@ class PaneNeighborRequest:
 
 
 @dataclass(frozen=True)
+class ParkTabsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/park-tabs/request'
+    surfaces: List[TabRef]
+
+
+@dataclass(frozen=True)
 class PasteImageRequest:
     __cmux_schema_path__: ClassVar[str] = 'commands/paste-image/request'
     surface: Id
@@ -6287,6 +6293,7 @@ __all__ = [
     'PageCredentialRequest',
     'PairingResponseRequest',
     'PaneNeighborRequest',
+    'ParkTabsRequest',
     'PasteImageRequest',
     'PasteImageResult',
     'PinWorkspaceRequest',

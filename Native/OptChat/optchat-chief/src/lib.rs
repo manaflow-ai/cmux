@@ -58,6 +58,7 @@ pub mod show;
 pub mod single_flight;
 pub mod skills;
 pub mod state;
+pub mod sub_watch;
 pub mod subagents;
 pub mod tools;
 pub mod trace;

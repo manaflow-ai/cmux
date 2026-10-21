@@ -372,6 +372,15 @@ pub struct SubRecord {
     /// The stuck note of this run was sent.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub stuck_noted: bool,
+    /// Its task as spawned (the start, for `control status`).
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub task: String,
+    /// Automatic continues of a silent run (sub_watch.rs) in this run.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub auto_continues: u32,
+    /// When the last automatic continue was sent (ms since the epoch).
+    #[serde(default, skip_serializing_if = "is_zero_u64")]
+    pub continued_ms: u64,
     /// Its session exists but its first prompt (view and task) is not sent
     /// yet: tells wait in the inbox so they never arrive before the task.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]

@@ -2186,6 +2186,19 @@
       "fr": "Reviewed native UI spelling, established developer terminology, or the named macOS Dock component; an explicit translated entry remains required."
     }
   },
+  "settingsWindow.backdropPicker.video": {
+    "source": "Video",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling: German writes Video as English does; an explicit translated entry remains required."
+    }
+  },
+  "home.engine.effort.minimal": {
+    "source": "Minimal",
+    "identityLocales": {
+      "de": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required.",
+      "fr": "Reviewed native UI spelling: German and French write this effort level the same way; an explicit translated entry remains required."
+    }
+  },
   "settings.automation.kiro.notificationLevel.minimal": {
     "source": "Minimal",
     "identityLocales": {

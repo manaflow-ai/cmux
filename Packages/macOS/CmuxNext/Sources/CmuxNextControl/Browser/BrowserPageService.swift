@@ -13,6 +13,9 @@ public struct BrowserPageService: Sendable {
     let passkeys: BrowserPasskeyRequests?
     /// `browser.agentMouse.*` as it is now, read per click.
     let agentMouse: @Sendable () async -> AgentMouseSetting.Value
+    /// Test-only seam for the direct pixel-capture contract. Production leaves this false because
+    /// only cmux-browser-host has the cross-session secret masker required before agent captures.
+    let allowsUnsafeCapture: Bool
 
     /// - Parameters:
     ///   - engine: runs page operations in the app's tabs.
@@ -22,15 +25,17 @@ public struct BrowserPageService: Sendable {
     ///     (hosts without settings) uses the defaults, human motion with a 350 ms cap.
     public init(engine: any BrowserPageEngine, passkeys: BrowserPasskeyRequests? = nil,
                 agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil) {
-        self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse)
+        self.init(engine: engine, leases: BrowserTabLeases(), passkeys: passkeys, agentMouse: agentMouse,
+                  allowsUnsafeCapture: false)
     }
 
     init(engine: any BrowserPageEngine, leases: BrowserTabLeases, passkeys: BrowserPasskeyRequests? = nil,
-         agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil) {
+         agentMouse: (@Sendable () async -> AgentMouseSetting.Value)? = nil, allowsUnsafeCapture: Bool = false) {
         self.engine = engine
         self.leases = leases
         self.passkeys = passkeys
         self.agentMouse = agentMouse ?? { AgentMouseSetting().fallback }
+        self.allowsUnsafeCapture = allowsUnsafeCapture
     }
 
     public func install(on router: ControlRouter) {

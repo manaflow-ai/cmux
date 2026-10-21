@@ -177,6 +177,8 @@ impl Hub {
                             "session name {n:?} is taken"
                         )));
                     }
+                    // Named by the person: no generated title (`titles.rs`).
+                    meta.title_source = Some(super::titles::NAMED.to_owned());
                     n
                 }
                 // A pooled harness was started under its name: keep it.
@@ -375,7 +377,7 @@ impl Hub {
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
             match self.adopt_pooled(session, pooled).await {
-                Ok(child) => return Ok(child),
+                Ok(child) => return Ok(self.keep_account_home(session, profile, child)),
                 // Not promotable: it was ended; start cold below.
                 Err(e) => tracing::warn!(session = %session.id, "pooled session not taken: {e:#}"),
             }
@@ -388,7 +390,7 @@ impl Hub {
         // own bounds: they serve agents that may be mid-turn.
         let budget = self.config.read().await.agent_start_timeout();
         match tokio::time::timeout(budget, self.cold_start(session, profile)).await {
-            Ok(result) => result,
+            Ok(result) => result.map(|child| self.keep_account_home(session, profile, child)),
             Err(_) => {
                 self.abandon_cold_start(session, budget).await;
                 Err(RpcError::deadline_exceeded("agent_start", budget))
@@ -612,6 +614,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap();
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
 
         if is_claude {
@@ -672,7 +675,7 @@ impl Hub {
                 let res = child
                     .request(
                         method::SESSION_LOAD,
-                        self.acp_params(&session.id, &meta, profile, Some(&sid)),
+                        self.acp_params(&session.id, &meta, profile, Some(&sid), &child),
                     )
                     .await;
                 session.loading.store(false, Ordering::SeqCst);
@@ -695,7 +698,10 @@ impl Hub {
         if !loaded {
             let had_history = session.meta().agent_session_id.is_some();
             let res = match child
-                .request(method::SESSION_NEW, self.acp_params(&session.id, &meta, profile, None))
+                .request(
+                    method::SESSION_NEW,
+                    self.acp_params(&session.id, &meta, profile, None, &child),
+                )
                 .await
             {
                 Ok(v) => v,

@@ -20,6 +20,9 @@ use crate::fold::TurnFold;
 use crate::state::{SpawnRecord, SpawnRef, SubRecord, SubStatus};
 use crate::subagents::{PROMPT_PREFIX, SpawnPlan};
 
+/// Characters of a task kept for `control status`.
+const TASK_KEPT: usize = 600;
+
 fn busy(status: SessionStatus) -> bool {
     matches!(status, SessionStatus::Running | SessionStatus::Waiting)
 }
@@ -77,8 +80,12 @@ impl Brain {
             .count()
     }
 
-    /// B4: pauses each cloud peer's VM after `cloud_idle` with no live
-    /// subagent on it, once (the tick runs every minute).
+    /// B4: pauses each cloud peer's VM after `cloud_idle`
+    /// (`cloud.autoPauseIdleSeconds`, 60 s) with no live subagent on it,
+    /// once; [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it. A subagent
+    /// mid-turn (running, a tool, a prompt, a pending tell) is live, so its
+    /// VM never pauses; the pool tool also refuses while a turn or a
+    /// background process runs on the VM, and that pause is tried again.
     pub(super) fn cloud_tick(&mut self) {
         let Some(vms) = self.cloud_vms.clone() else {
             return;
@@ -107,17 +114,70 @@ impl Brain {
             }
             self.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
-            (self.log)(&format!("cloud: pausing {peer} (no live cloud subagent)"));
+            (self.log)(&format!(
+                "cloud: pausing {peer} (no live cloud subagent for {} s)",
+                self.cloud_idle.as_secs()
+            ));
             let vms = vms.clone();
             let log = self.log.clone();
+            let tx = self.tx.clone();
             // The pool tool takes seconds: off the brain thread.
             let _ = std::thread::Builder::new()
                 .name("cloud-pause".into())
                 .spawn(move || {
-                    if let Err(e) = vms.pause(&peer) {
-                        log(&format!("cloud: pause {peer}: {e}"));
+                    let began = std::time::Instant::now();
+                    match vms.pause(&peer) {
+                        Ok(()) => log(&format!(
+                            "cloud: paused {peer} in {} ms",
+                            began.elapsed().as_millis()
+                        )),
+                        Err(e) => {
+                            log(&format!("cloud: pause {peer}: {e}"));
+                            let _ = tx.send(super::Input::CloudPauseFailed { peer });
+                        }
                     }
                 });
+        }
+    }
+
+    /// The pool tool refused or failed to pause `peer`: it is not paused,
+    /// and its idle time starts again.
+    pub(super) fn cloud_pause_failed(&mut self, peer: &str) {
+        self.cloud_paused.remove(peer);
+        self.cloud_idle_since.remove(peer);
+    }
+
+    /// The host stops: each cloud VM with no live subagent pauses now, on
+    /// this thread (the process exits next); one with a subagent mid-turn
+    /// keeps running, and its report waits in acpmux for the next host.
+    pub(super) fn cloud_shutdown(&mut self) {
+        let Some(vms) = self.cloud_vms.clone() else {
+            return;
+        };
+        let mut peers: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter_map(|s| s.peer.clone())
+            .collect();
+        peers.sort_unstable();
+        peers.dedup();
+        for peer in peers {
+            if self.live_on(&peer) > 0 || self.cloud_paused.contains(&peer) {
+                continue;
+            }
+            let began = std::time::Instant::now();
+            match vms.pause(&peer) {
+                Ok(()) => {
+                    self.cloud_paused.insert(peer.clone());
+                    (self.log)(&format!(
+                        "cloud: host stops: paused {peer} in {} ms",
+                        began.elapsed().as_millis()
+                    ));
+                }
+                Err(e) => (self.log)(&format!("cloud: host stops: pause {peer}: {e}")),
+            }
         }
     }
 
@@ -177,6 +237,7 @@ impl Brain {
                     SubRecord {
                         id: id.clone(),
                         title: crate::workspaces::name(id, task),
+                        task: task.chars().take(TASK_KEPT).collect(),
                         run_ms: now_ms(),
                         status,
                         peer: peer.clone(),
@@ -328,6 +389,8 @@ impl Brain {
                     sub.status = SubStatus::Running;
                     sub.run_ms = now_ms();
                     sub.stuck_noted = false;
+                    sub.auto_continues = 0;
+                    sub.continued_ms = 0;
                 }
                 self.save();
                 self.mark_workspace(&id, false);
@@ -364,14 +427,15 @@ impl Brain {
             }
         };
         let (replies, last_end, cancelled) = ended_replies(&events);
-        // Idle before its prompt started (a new session is ready first).
+        // Idle before its prompt started (a new session is ready first); the
+        // tick settles one that stays idle with no turn end (#7).
         let Some(last_end) = last_end else { return };
         self.trace_sub_events(id, &events, floor);
         let report = report_of(&replies, cancelled);
         self.sub_done(id, report, cancelled, Some(last_end), Some(&events));
     }
 
-    fn sub_done(
+    pub(super) fn sub_done(
         &mut self,
         id: &str,
         report: String,
@@ -417,13 +481,32 @@ impl Brain {
         } else {
             self.plan_auto_resume(id, &report, stopped)
         };
-        let (report, stopped) = match planned {
+        let resuming = planned.is_some();
+        let (mut report, mut stopped) = match planned {
             Some((note, quiet)) => (note, quiet),
             None => (report, stopped),
         };
+        if let Some(events) = events {
+            let mut watch = crate::sub_watch::Watch::after(0);
+            for e in events {
+                watch.apply(e);
+            }
+            // #13: a stopped run says where it stopped.
+            if report.starts_with("(stopped by the user)") {
+                let state = watch.summary(self.now()).join("\n");
+                report = format!("{report}\n{state}");
+            }
+            // #20: a short acknowledgement of a Chief message starts no turn.
+            if !resuming && !stopped && watch.told_by_chief() && crate::sub_watch::is_ack(&report) {
+                stopped = true;
+                self.trace.emit("subagent.ack_quiet", json!({"id": id}));
+            }
+        }
         let run_ms = if let Some(sub) = self.state.sub_mut(id) {
             sub.status = SubStatus::Done;
             sub.awaiting_task = false;
+            sub.auto_continues = 0;
+            sub.continued_ms = 0;
             sub.report = Some(report.clone());
             sub.stopped = stopped;
             if let Some(floor) = floor {
@@ -526,7 +609,8 @@ impl Brain {
             "subagent.auto_resume",
             json!({"id": id, "kind": format!("{kind:?}"), "attempts": attempts, "decision": format!("{decision:?}")}),
         );
-        (self.log)(&format!("subagent {id}: {note}"));
+        // WARN: the error journal (`cmux errors`) harvests host.log lines by level word.
+        (self.log)(&format!("WARN subagent {id}: {note}"));
         match decision {
             Decision::Report { .. } => {
                 if let Some(sub) = self.state.sub_mut(id) {
@@ -818,8 +902,13 @@ impl Brain {
             && let Some(peer) = peer.filter(|p| self.cloud_paused.contains(p))
             && let Some(vms) = self.cloud_vms.clone()
         {
+            let began = std::time::Instant::now();
             vms.resume(&peer)
                 .map_err(|e| format!("{id}'s cloud VM {peer} did not resume: {e}"))?;
+            (self.log)(&format!(
+                "cloud: resumed {peer} for a tell to {id} in {} ms",
+                began.elapsed().as_millis()
+            ));
             self.cloud_paused.remove(&peer);
             self.cloud_idle_since.remove(&peer);
         }

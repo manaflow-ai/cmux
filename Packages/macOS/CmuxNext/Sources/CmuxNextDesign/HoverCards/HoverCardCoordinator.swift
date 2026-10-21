@@ -49,6 +49,12 @@ public final class HoverCardCoordinator {
     private var eventPointer: (point: CGPoint, mouse: CGPoint)?
     /// The pointer at the last move, the safe triangle's apex for the next.
     private var lastPointer: CGPoint?
+    /// The escape slot beside the row of the last `.besideRow` card, that row's target, and the
+    /// row's frame and source when the slot was taken (`HoverCardEscapeGeometry`): the pointer in
+    /// it gives that row no card, so moving into the slot dismisses the card and moving on inside
+    /// it never brings the card back. Kept after the card hides until the pointer leaves the
+    /// slot, or the row moves (a scroll).
+    private var escape: (slot: CGRect, target: HoverTargetID, anchor: CGRect, source: WeakSource)?
 
     /// The pointer now: the last pointer event's location while the real
     /// mouse has not moved since (the same point for real events; the
@@ -155,12 +161,14 @@ public final class HoverCardCoordinator {
         // so the window under it hit-tests): it holds the card.
         let onCard = card?.contains(now) == true
         pointerWasOnCard = onCard
+        let escaped = escapeTarget(at: now)
         // A held mouse button (a press, a drag, a selection) gives no target a card, as in Chrome.
-        let hit = onCard || mouseButtonDown() ? nil : hitTest()
+        let hit = onCard || mouseButtonDown() ? nil : hitTest(escaping: escaped)
         // On the card, or between a source's targets: a card that hides on leave waits (on the
         // card it stays while the pointer rests there; Lawrence 2026-10-19: the card touches its
-        // tab, and moving onto it must not dismiss it).
-        let bridging = hit == nil && !mouseButtonDown() && (onCard || bridges(at: now))
+        // tab, and moving onto it must not dismiss it). The escape slot beside a row bridges
+        // nothing: the card goes on this move (Leo 2026-10-20).
+        let bridging = hit == nil && !mouseButtonDown() && (onCard || (escaped == nil && bridges(at: now)))
         send(.hit(hit?.target, moved: true, aiming: aiming, bridging: bridging))
     }
 
@@ -192,7 +200,7 @@ public final class HoverCardCoordinator {
             guard let window, window.frame.contains(currentPointer()) else { return }
         }
         let onCard = pointerIsOnCard()
-        let hit = onCard ? nil : hitTest()
+        let hit = onCard ? nil : hitTest(escaping: escapeTarget(at: currentPointer()))
         // Content moving under a pointer resting on the card keeps the card.
         send(.hit(hit?.target, moved: false, bridging: onCard))
         // A pinned card whose target went away (closed while not hovered).
@@ -222,7 +230,7 @@ public final class HoverCardCoordinator {
         send(.unsuppress(reason))
         guard !mouseButtonDown() else { return }
         let onCard = pointerIsOnCard()
-        send(.hit(onCard ? nil : hitTest()?.target, moved: false, bridging: onCard))
+        send(.hit(onCard ? nil : hitTest(escaping: escapeTarget(at: currentPointer()))?.target, moved: false, bridging: onCard))
     }
 
     public func targetRemoved(_ id: HoverTargetID) {
@@ -299,6 +307,11 @@ public final class HoverCardCoordinator {
             self.panel = panel
             panel.present(body: body.view, anchor: anchor, placement: body.placement, parent: parent,
                           themeAnchor: body.themeAnchor, sliding: sliding, applyTheme: body.applyTheme)
+            // A hover card whose row's escape slot already holds the pointer (it rested in the
+            // sidebar's margin beside the row) goes at once: the slot never shows its row's card.
+            if case .shown(let shown) = machine.phase, shown.id == target.id, escapeTarget(at: currentPointer()) == target.id {
+                send(.hit(nil, moved: false))
+            }
         case .hide:
             // The machine's own card: an owner's card in the window stays.
             guard owned == nil else { return }
@@ -403,6 +416,30 @@ public final class HoverCardCoordinator {
     private func followShownTarget() {
         guard let id = machine.shownTarget?.id, let anchor = owners[id]?.source?.hoverCardAnchor(for: id) else { return }
         panel?.follow(anchor)
+    }
+
+    /// The row whose escape slot holds `point`, if any. While a `.besideRow` card shows, the
+    /// slot is that card's; after it hides, the last one lasts until the pointer leaves it.
+    private func escapeTarget(at point: CGPoint) -> HoverTargetID? {
+        if let shown = machine.shownTarget, let panel, panel.isShowingCard {
+            escape = panel.escapeGeometry.flatMap { geometry in
+                owners[shown.id].map { (slot: geometry.escapeSlot, target: shown.id, anchor: geometry.anchor, source: $0) }
+            }
+        }
+        guard let escape else { return nil }
+        guard escape.slot.contains(point), escape.source.source?.hoverCardAnchor(for: escape.target) == escape.anchor else {
+            self.escape = nil
+            return nil
+        }
+        return escape.target
+    }
+
+    /// The target under the pointer now, from the sources of the window on top at that point;
+    /// never `escaping`, the row whose escape slot the pointer is in (the slot can lie in the
+    /// sidebar's margin, where the row's own hit test still finds it).
+    private func hitTest(escaping: HoverTargetID?) -> HoverCardHit? {
+        guard let hit = hitTest(), hit.target.id != escaping else { return nil }
+        return hit
     }
 
     /// The target under the pointer now, from the sources of the window

@@ -56,6 +56,10 @@ import PackageDescription
 // restore into a full resend.
 // Since 43ffe4171 narrowing a padded multi-line prompt (Powerlevel10k
 // "lean, 2 lines") lets zsh redraw it without a copy of line 1 (#21341).
+// Since 5555f4220 the zsh and fish integration marks ask for prompt redraw
+// (redraw=1), so daemon terminals (libghostty-vt, redraw off by default)
+// clear the prompt on resize too; the app already did. 493a8871b adds the
+// unused C API option GHOSTTY_TERMINAL_OPT_SHELL_REDRAWS_PROMPT.
 //
 // A pin change is one reviewed commit that changes the URL and the checksum
 // together (the zip's sha256, also in the release's SHA256SUMS). Never pin
@@ -80,8 +84,8 @@ let package = Package(
         ),
         .binaryTarget(
             name: "GhosttyNextKit",
-            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-43ffe4171491e0c390023e0398182923eeeeed9e-apple-v6/GhosttyNextKit.xcframework.zip",
-            checksum: "a3e64e0f74ab041b63637ed2ef089efb91c5fd93be42c408fbf406727307fed4"
+            url: "https://github.com/manaflow-ai/ghostty-next/releases/download/xcframework-5555f4220a862b9e2897cf54a5c85d2b273c8475-apple-v6/GhosttyNextKit.xcframework.zip",
+            checksum: "f0958acf6eb826f419d2ab8e16505f796dc2e30975b82ff92cbaf79c9f654289"
         ),
     ]
 )
