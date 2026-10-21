@@ -392,6 +392,24 @@ mod tests {
     }
 
     #[test]
+    fn a_terminal_created_with_a_command_needs_the_execute_scope() {
+        let table = ScopeTable::get();
+        let write = grant(&["workspace:write"]);
+        let execute = grant(&["workspace:write", "workspace:execute"]);
+        for op in ["tab.create_terminal", "pane.create", "screen.create", "pane.split"] {
+            let plain = json!({ "pane": "current", "direction": "right" });
+            assert!(matches!(table.check(op, &plain, &write), Decision::Allow(_)), "{op}");
+            for command in [json!({ "argv": ["sh"] }), json!({ "shell": "true" })] {
+                assert!(
+                    matches!(table.check(op, &command, &write), Decision::ScopeMissing(_)),
+                    "{op} ran a command without workspace:execute"
+                );
+                assert!(matches!(table.check(op, &command, &execute), Decision::Allow(_)), "{op}");
+            }
+        }
+    }
+
+    #[test]
     fn gesture_tokens_are_per_app_single_use_for_mutations_and_expire() {
         let mut gestures = Gestures::default();
         let now = Instant::now();
