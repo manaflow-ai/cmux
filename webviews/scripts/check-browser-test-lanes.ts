@@ -100,7 +100,6 @@ export function checkDevServerWarmSource(file: string, text: string): string[] {
  */
 export const EVERY_ENTRY_PENDING = new Map<string, string>([
   // Files other lanes' open PRs change.
-  ["test/suggestion-lists-float.test.ts", "#22795 (directional-motion) changes this file"],
   ["test/transcript-thought.test.ts", "#23084 (thought-rows) changes this file"],
 ]);
 
