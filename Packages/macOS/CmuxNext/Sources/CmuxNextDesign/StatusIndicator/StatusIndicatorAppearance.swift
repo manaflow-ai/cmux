@@ -32,12 +32,16 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
     /// The static look draws shapes instead of the Static set's glyphs
     /// (Debug Settings `status.static.shapes`).
     public var staticShapes: Bool
+    /// How agent work shows (Debug Settings `status.working`).
+    public var workingLook: StatusWorkingLook
+    /// Lowest opacity of the working dot's breath.
+    public var breathLow: Double { 0.3 }
 
     public init(settings: StatusIndicatorSettings = StatusIndicatorSettings(), styleOverride: StatusIndicatorStyle? = nil,
                 arcLength: Double = 0.72, trackOpacity: Double = 0.22, dotScale: Double = 0.5, pulseLow: Double = 0.35,
                 nativeSteps: Int = 8, animatesLoops: Bool = true, spinnerPeriod: Double? = nil, pulsePeriod: Double? = nil,
                 terminalFontFamily: String? = nil, iconSet: StatusIconSet = .current, reduceMotion: Bool = false,
-                staticShapes: Bool = false) {
+                staticShapes: Bool = false, workingLook: StatusWorkingLook = .spinner) {
         self.settings = settings
         self.styleOverride = styleOverride
         self.arcLength = arcLength
@@ -52,6 +56,7 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
         self.iconSet = iconSet
         self.reduceMotion = reduceMotion
         self.staticShapes = staticShapes
+        self.workingLook = workingLook
     }
 
     /// The static look (cx-sya4n): the setting says static, or Reduce Motion
@@ -81,7 +86,8 @@ public nonisolated struct StatusIndicatorConfig: Hashable, Sendable {
             terminalFontFamily: DesignSettings.shared.terminalFontFamily,
             iconSet: StatusIconSet.tunable.value,
             reduceMotion: Motion.reduceMotion,
-            staticShapes: StatusIndicatorPlan.staticShapes.value)
+            staticShapes: StatusIndicatorPlan.staticShapes.value,
+            workingLook: StatusWorkingLook.tunable.value)
     }
 }
 

@@ -60,6 +60,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case flash
     /// Unmeasured progress: a segment crosses its track once.
     case sweep
+    /// Agent work's dot, one breath (bright, dim and back; `StatusWorkingLook.breathe`).
+    case breath
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -79,6 +81,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         case .pulse: Self.shortestFlashCycle
         case .flash: Self.shortestFlashCycle * 2
         case .sweep: Self.shortestFlashCycle
+        // A breath is calm: never quicker than one a second.
+        case .breath: Self.shortestFlashCycle * 2
         }
     }
 }

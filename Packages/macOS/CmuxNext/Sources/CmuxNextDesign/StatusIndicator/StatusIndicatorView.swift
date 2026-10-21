@@ -90,7 +90,8 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         if ignoresScaleSetting { config.settings.scale = 1 }
         let animates = window != nil && isWindowVisible && config.animatesLoops
         let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
-                                            isStatic: config.isStatic, staticShapes: config.staticShapes)
+                                            isStatic: config.isStatic, staticShapes: config.staticShapes,
+                                            working: config.workingLook)
         let showed = showsGlyph
         nameState()
         indicator.apply(plan, config: config)

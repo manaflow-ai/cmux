@@ -199,8 +199,17 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** Open-ended ring used as the "working" spinner. `cv-spinner` turns it (conversation.css). */
-export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIconProps) => (
+/** The running mark of a transcript row. Agent work (the default) draws the working look the
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
+ * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
+ * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
+export const Spinner = ({
+  size = 16,
+  className,
+  style,
+  strokeWidth = 1.5,
+  loading = false,
+}: CvIconProps & { loading?: boolean }) => (
   <svg
     className={className ? `cv-spinner ${className}` : "cv-spinner"}
     style={style}
@@ -209,8 +218,16 @@ export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIc
     viewBox="0 0 16 16"
     fill="none"
     aria-hidden="true"
+    data-working={loading ? undefined : ""}
   >
-    <path d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    <path
+      className="cv-spinner__arc"
+      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
+    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
 
