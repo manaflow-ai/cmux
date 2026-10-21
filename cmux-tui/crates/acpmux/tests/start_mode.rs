@@ -440,6 +440,7 @@ fn folder_profile(dir: &Path) -> (PathBuf, acpmux::config::folder_profiles::Fold
             codex_config: dir.join("records").join("config.toml"),
             record: dir.join("records").join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         },
     };
     (repo, gate)
