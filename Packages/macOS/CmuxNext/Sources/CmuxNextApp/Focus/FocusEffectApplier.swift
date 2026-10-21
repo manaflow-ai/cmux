@@ -88,7 +88,14 @@ final class FocusEffectApplier: FocusEffectApplying {
         controller.services.newTabSpares.paneLayoutDidChange(in: window)
         switch resolved {
         case .terminal(let pane, let tab):
-            guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else { return }
+            guard case .terminal(let entry)? = presented(pane: pane, tab: tab) else {
+                // Its surface comes on a later frame (a tab this window never showed; `contentPresented`
+                // re-applies). Another pane's terminal must not keep the keyboard meanwhile: its next
+                // replay swaps in a fresh surface that takes the keyboard back, and focus followed it
+                // there (Switch to tab from the New Tab page landed on the workspace's old pane).
+                resignPaneResponder(in: window)
+                return
+            }
             blurChildWindowPage()
             let view = entry.session.surfaceView
             if window.firstResponder !== view { window.makeFirstResponder(view) }
@@ -112,6 +119,8 @@ final class FocusEffectApplier: FocusEffectApplying {
             }
         case .agentPage(let pane, let tab):
             guard case .agent(let view)? = presented(pane: pane, tab: tab) else { return }
+            // An agent page in Chromium shows in a child window: it takes the keys like a Chromium page.
+            if let page = TabContent.agent(view).childWindowTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
         case .page(let pane, let tab):
@@ -236,6 +245,7 @@ final class FocusEffectApplier: FocusEffectApplying {
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
         case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
+        case .agentPage(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
         default: reclaimKeyFromPageWindow()
         }
     }
@@ -407,6 +417,12 @@ final class FocusEffectApplier: FocusEffectApplying {
         if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
         // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
         if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
+        // The same rule as `KeyRouter.keyContext`: a phone tab has the keyboard (the Simulator shortcuts).
+        if services.keyRouter.focusesPhone(in: controller) { next.insert(.simulatorFocused) }
+        // The same rule as `KeyRouter.keyContext`: the right sidebar's file explorer has the keyboard.
+        if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
+        // The Files tree follows the focused terminal's folder.
+        services.fileExplorers.focusChanged(in: controller)
         if registry.context != next { registry.context = next }
     }
 

@@ -34,6 +34,11 @@ pub struct QueuedPrompt {
     pub(super) held: bool,
     /// Sent now (`put_next`): a turn that fails as it stops does not hold it.
     pub(super) sent_now: bool,
+    /// Set when it went in with an earlier agent message's turn (`digest.rs`): its waiting task
+    /// answers with that turn, or waits again when that turn failed (`requeue_joined`).
+    pub(super) joined: Arc<StdMutex<Option<super::digest::Joined>>>,
+    /// Put back once after a failed turn of agent messages (`requeue_joined`): not again.
+    pub(super) requeued: bool,
 }
 
 /// A queued prompt and the rules it runs under.
@@ -44,6 +49,9 @@ pub(super) struct PromptRun {
     pub(super) trust_gate: bool,
     /// Who sent it (`prompt_provenance.rs`); an edit drops it.
     pub(super) provenance: Option<Value>,
+    /// Another agent's name when it is that agent's message, `None` when it is the person's
+    /// (`digest.rs`); an edit makes it the person's.
+    pub(super) agent: Option<String>,
 }
 
 /// A prompt asking for its turn (`queue_slot`).
@@ -58,6 +66,8 @@ pub(super) struct Slot<'a> {
     /// queue and the running turn stops.
     pub(super) interrupt: bool,
     pub(super) provenance: Option<&'a Value>,
+    /// Another agent's name when it is that agent's message (`digest.rs`).
+    pub(super) agent: Option<&'a str>,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -95,35 +105,46 @@ impl Hub {
         p: Slot<'_>,
         accept: &mut impl FnMut(Value),
     ) -> Result<(String, bool, tokio::sync::MutexGuard<'a, ()>, Arc<PromptRun>), Answer> {
+        // Claimed under the queue lock, as `restore_queue` takes them: a turn of agent messages
+        // joins only a restored prompt its task claimed (`digest.rs` `take_joined`).
         let restored = {
+            let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let mut ids =
                 session.restored.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let i = ids.iter().position(|(id, _)| id == p.prompt_id);
-            i.map(|i| ids.remove(i).1)
+            i.map(|i| {
+                let turn_id = ids.remove(i).1;
+                let q = queue.iter().find(|q| q.turn_id == turn_id);
+                (turn_id, q.map(|q| (q.withdraw.clone(), q.joined.clone())))
+            })
         };
         let (turn_id, withdraw) = match restored {
             // Queued already, unless `remove_queued` withdrew it meanwhile: then it never runs.
-            Some(turn_id) => {
-                let queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                match queue.iter().find(|q| q.turn_id == turn_id) {
-                    Some(q) => (turn_id, Some(q.withdraw.clone())),
-                    None => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
-                }
-            }
+            Some((turn_id, Some(waits))) => (turn_id, Some(waits)),
+            Some((turn_id, None)) => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
             // A chat being moved takes no prompt: its new daemon does (`transfer_out.rs`).
             None if session.moving().is_some() => return Err(Err(moving_error())),
+            // A watched chat takes no prompt until it is taken over (`watch.rs`).
+            None if session.meta().watching.is_some() => {
+                return Err(Err(super::watch::read_only()));
+            }
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
+                // Another agent's message never overtakes the ones a failed turn held: they run
+                // again and it waits behind them, to go in with them (`digest.rs`).
+                if p.agent.is_some() {
+                    self.release_held_agent_messages(session);
+                }
                 // Prompts a failed turn holds (`pause_queue`) do not hold up a new one.
                 let held = session.queue().iter().filter(|q| q.held).count() as u64;
                 let waiting = session.turn().is_some() || session.queued() > held;
                 let position = session.queued.fetch_add(1, Ordering::SeqCst) + 1;
                 let withdraw = waiting.then(|| {
-                    let withdraw = self.enqueue(session, &p, position, &turn_id);
+                    let waits = self.enqueue(session, &p, position, &turn_id);
                     accept(
                         json!({"sessionId": session.id, "promptId": p.prompt_id, "turnId": turn_id, "queued": true, "position": position}),
                     );
-                    withdraw
+                    waits
                 });
                 (turn_id, withdraw)
             }
@@ -140,9 +161,11 @@ impl Hub {
                 control: p.control,
                 trust_gate: p.trust_gate,
                 provenance: p.provenance.cloned(),
+                agent: p.agent.map(str::to_owned),
             };
             return Ok((turn_id, false, guard, Arc::new(run)));
         };
+        let (withdraw, joined) = withdraw;
         // A steer the agent cannot take goes next, and stops the turn that runs now.
         if p.interrupt {
             let running = session.turn().map(|t| t.turn_id);
@@ -153,18 +176,32 @@ impl Hub {
             }
         }
         // A queued prompt `remove_queued` withdraws answers at once, not when the turn ends.
-        let guard = match self.queue_turn(session, &turn_id, &withdraw).await {
-            Wait::Turn(guard) => guard,
-            Wait::Withdrawn => return Err(Ok(withdrawn_reply(p.prompt_id, &turn_id))),
-            Wait::Steer => {
-                let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
-                let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
-                // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
-                if let Err(e) = &answer {
-                    let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
-                    self.append(session, "mux", "prompt_refused", msg);
+        let guard = loop {
+            match self.queue_turn(session, &turn_id, &withdraw).await {
+                Wait::Turn(guard) => break guard,
+                // Gone in with an earlier agent message's turn (`digest.rs`): that turn's answer.
+                // A failed one put it back in the queue (`requeue_joined`): it waits again.
+                Wait::Withdrawn => {
+                    let went_in = joined.lock().unwrap_or_else(|e| e.into_inner()).clone();
+                    let answer = match went_in {
+                        Some(went_in) => super::digest::joined_reply(&went_in, p.prompt_id).await,
+                        None => Ok(withdrawn_reply(p.prompt_id, &turn_id)),
+                    };
+                    if session.queue().iter().any(|q| q.turn_id == turn_id) {
+                        continue;
+                    }
+                    return Err(answer);
                 }
-                return Err(answer);
+                Wait::Steer => {
+                    let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
+                    let answer = self.steer_queued(session, run, p.client, p.prompt_id).await;
+                    // Refused: logged, so a restart does not queue it again (`lost_start.rs`).
+                    if let Err(e) = &answer {
+                        let msg = json!({"promptId": p.prompt_id, "turnId": turn_id, "client": p.client, "error": e.message, "data": e.data});
+                        self.append(session, "mux", "prompt_refused", msg);
+                    }
+                    return Err(answer);
+                }
             }
         };
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
@@ -188,6 +225,7 @@ impl Hub {
             trust_gate,
             interrupt: true,
             provenance,
+            agent: run.agent.clone(),
             ..Default::default()
         };
         Box::pin(self.run_prompt(session, run.blocks.clone(), client, true, opts)).await
@@ -204,18 +242,26 @@ impl Hub {
     }
 
     /// Puts a prompt that waits for the running turn in the queue and tells every client right
-    /// away. The returned `Notify` fires when `remove_queued` withdraws it.
+    /// away. The returned `Notify` fires when `remove_queued` withdraws it or it joins an earlier
+    /// agent message's turn (then `joined` is set, `digest.rs`).
     fn enqueue(
         &self,
         session: &Arc<Session>,
         p: &Slot<'_>,
         position: u64,
         turn_id: &str,
-    ) -> Arc<Notify> {
+    ) -> (Arc<Notify>, Arc<StdMutex<Option<super::digest::Joined>>>) {
         let withdraw = Arc::new(Notify::new());
+        let joined = Arc::new(StdMutex::new(None));
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
-        let at = queue.iter().position(|q| q.held).unwrap_or(queue.len());
+        // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
+        // the person's own and a prompt sent now.
+        let at = match p.agent {
+            Some(_) => queue.iter().position(|q| q.held),
+            None => queue.iter().position(|q| q.held || (q.run.agent.is_some() && !q.sent_now)),
+        };
+        let at = at.unwrap_or(queue.len());
         queue.insert(
             at,
             QueuedPrompt {
@@ -230,26 +276,33 @@ impl Hub {
                     control: p.control,
                     trust_gate: p.trust_gate,
                     provenance: p.provenance.cloned(),
+                    agent: p.agent.map(str::to_owned),
                 }),
                 restored: false,
                 resume: false,
                 steer: false,
                 held: false,
                 sent_now: false,
+                joined: joined.clone(),
+                requeued: false,
             },
         );
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
         let ahead = at + 1 < queue.len();
         drop(queue);
-        // `prompt`, `control`, `trustGate` and the provenance let a new daemon run it
-        // (`restore_queues`).
+        // `prompt`, `control`, `trustGate`, the provenance and the sending agent let a new daemon
+        // run it (`restore_queues`).
         let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
+        if let Some(agent) = p.agent {
+            queued["fromAgent"] = json!(agent);
+        }
         // Its images are kept now and named, so its row shows them before it runs
         // (`prompt_images.rs`).
         let images = super::prompt_images::keep(p.blocks);
         if !images.is_empty() {
             queued["images"] = Value::Array(images);
         }
+        super::session::mark_pasted(&mut queued, p.blocks);
         self.append(
             session,
             "mux",
@@ -264,7 +317,7 @@ impl Hub {
                 json!({"promptId": p.prompt_id, "order": order}),
             );
         }
-        withdraw
+        (withdraw, joined)
     }
 
     /// Waits until the queued prompt `turn_id` is at the head of the queue and no other turn
@@ -574,13 +627,21 @@ impl Hub {
                             {
                                 meta.remove("provenance");
                             }
+                            // The person's now (`digest.rs`).
+                            if let Some(fields) = q.msg.as_object_mut() {
+                                fields.remove("fromAgent");
+                            }
                         }
                     }
                     "queue_paused" => {
                         let ids = e.msg.get("held").and_then(Value::as_array);
                         held.extend(ids.into_iter().flatten().cloned());
                     }
-                    "queue_resumed" => held.clear(),
+                    // `resume_held` names the prompts it resumed; `resume_queue` resumes them all.
+                    "queue_resumed" => match e.msg.get("promptIds").and_then(Value::as_array) {
+                        Some(ids) => held.retain(|id| !ids.contains(id)),
+                        None => held.clear(),
+                    },
                     "queue_order" => {
                         // Sent now (`put_next`): no longer held.
                         if e.msg.get("next") == Some(&Value::Bool(true)) {
@@ -627,6 +688,9 @@ impl Hub {
             let control = Control::from_recorded(e.msg.get("control").and_then(Value::as_str));
             let trust_gate = e.msg.get("trustGate").and_then(Value::as_bool).unwrap_or(false);
             let provenance = e.msg.pointer("/_meta/provenance").filter(|p| p.is_object()).cloned();
+            // A record from before `fromAgent` names an agent by its provenance (`digest.rs`).
+            let from_agent = e.msg.get("fromAgent").and_then(Value::as_str);
+            let agent = super::digest::agent_sender(provenance.as_ref(), from_agent);
             restored.push((prompt_id.clone(), turn_id.clone()));
             queue.push(QueuedPrompt {
                 prompt_id: prompt_id.clone(),
@@ -635,12 +699,14 @@ impl Hub {
                 preview: short_text(&text, 200),
                 queued_at: e.at,
                 withdraw: Arc::new(Notify::new()),
-                run: Arc::new(PromptRun { blocks, control, trust_gate, provenance }),
+                run: Arc::new(PromptRun { blocks, control, trust_gate, provenance, agent }),
                 restored: true,
                 resume: true,
                 steer: false,
                 held: held.iter().any(|id| id.as_str() == Some(&prompt_id)),
                 sent_now: false,
+                joined: Arc::new(StdMutex::new(None)),
+                requeued: e.msg.get("requeued") == Some(&Value::Bool(true)),
             });
             session.queued.fetch_add(1, Ordering::SeqCst);
             ledger.push_back((prompt_id, Arc::new(tokio::sync::watch::channel(None).0)));
@@ -671,6 +737,7 @@ impl Hub {
                         prompt_id: Some(q.prompt_id.clone()),
                         control: q.run.control,
                         trust_gate: q.run.trust_gate,
+                        agent: q.run.agent.clone(),
                         ..PromptOptions::default()
                     };
                     let blocks = q.run.blocks.clone();
@@ -682,12 +749,15 @@ impl Hub {
                     }
                     prompt_ledger::prune(&mut ledger);
                     drop(ledger);
-                    // Refused before its turn (its harness is gone): it leaves the queue, so the
-                    // prompts behind it still run.
+                    // Refused before its turn (its harness is gone, or it may not start under
+                    // the chat's control): it leaves the queue, so the prompts behind it still
+                    // run, and its `prompt_refused` says why, so it never just disappears.
                     if let Err(e) = result
                         && hub.remove_queued(&session, &q.prompt_id)
                     {
                         tracing::warn!(session = %session.id, prompt = %q.prompt_id, "restored prompt refused: {}", e.message);
+                        let msg = json!({"promptId": q.prompt_id, "turnId": q.turn_id, "client": q.client, "error": e.message, "data": e.data});
+                        hub.append(&session, "mux", "prompt_refused", msg);
                     }
                 });
             }

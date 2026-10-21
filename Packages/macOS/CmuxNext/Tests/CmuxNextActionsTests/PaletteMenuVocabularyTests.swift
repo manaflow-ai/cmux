@@ -60,6 +60,31 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// The same rule outside the Phone family, for the rows the palette audit found wrong. Each of
+    /// the first list has a required argument the palette collects before it runs (a time range and
+    /// profile, a history entry, an app, a team, a host address, a Priority chat). Cloud Diagnostics
+    /// shows its result in a toast and Edit Group Config opens cmux-next.json, as Open cmux-next.json
+    /// does: neither asks, so neither ends in "…".
+    @Test func auditedTitlesEndInAnEllipsisExactlyWhenTheyAsk() throws {
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let asking: [ActionID] = ["palette.browserClearHistory", "history.open", "app.hide", "app.unhide",
+                                  "openTeamPicker", "remote.openBrowserTab",
+                                  // The Priority row actions ask which chat (a hover button or the row's menu names it).
+                                  "sidebar.priority.markRead", "sidebar.priority.togglePin", "sidebar.priority.snooze"]
+        for id in asking {
+            let descriptor = try #require(byID[id], "\(id)")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(asks, "\(id) no longer asks for input")
+            #expect(descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): asks for input, so it ends in …")
+        }
+        for id: ActionID in ["cloudDiagnostics", "workspaceGroup.editConfig"] {
+            let descriptor = try #require(byID[id], "\(id)")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(!asks, "\(id) now asks for input")
+            #expect(!descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): acts at once, so no …")
+        }
+    }
+
     /// A renamed row still answers the word it used to start with.
     @Test func renamedRowsKeepTheirOldWord() throws {
         let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
@@ -68,6 +93,20 @@ struct PaletteMenuVocabularyTests {
             #expect(try #require(byID[id]).keywords.contains("clear"), "\(id)")
         }
         #expect(try #require(byID["toggleFocusedWorkspaceGroupCollapsed"]).keywords.contains("toggle"))
+    }
+
+    /// The palette shows a group close out of context, so its title names the group's noun. The
+    /// context menus may keep "Close Group": there the right-clicked row names it.
+    @Test func groupCloseTitlesNameTheirNoun() throws {
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let titles: [ActionID: String] = [
+            "tabGroup.close": "Close Tab Group",
+            "screenGroup.close": "Close Screen Group",
+            "workspaceGroup.closeWorkspaces": "Close Workspaces in Group",
+        ]
+        for (id, title) in titles {
+            #expect(try #require(byID[id], "\(id)").title == title, "\(id)")
+        }
     }
 
     /// One name per command: no two palette or menu bar actions share a name unless one is a

@@ -8,7 +8,7 @@ import os
 /// notifications, so the page's own connect, replay and reconnect logic runs unchanged.
 ///
 /// Only the chat's own session is served: `initialize`, `_acpmux/status`, `_acpmux/watch` (that
-/// one session), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
+/// one session and the chats it started there, `agent-session-children-v1`, read-only), `_acpmux/attach`, `_acpmux/events`, `_acpmux/detach`, `session/prompt` (text
 /// blocks only), `session/cancel`, `_acpmux/permission_respond` and the folder trust question
 /// (`acp.trust.get`/`acp.trust.set`, through the daemon's `agent-session-trust`, cx-1bhjj; the
 /// relay already holds a set that trusts to the person's fresh gesture). Every other method, and any
@@ -203,8 +203,11 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
 
     // MARK: Pages
 
-    /// `_acpmux/watch` lists only this session (an attach of one record gives its summary);
-    /// `_acpmux/attach` subscribes (again: the daemon only pages); `_acpmux/events` pages.
+    /// `_acpmux/watch` lists this session (an attach of one record gives its summary) and the
+    /// chats it started on that machine (the daemon's `agent-session-children`, which only ever
+    /// names this session's descendants; none from an older daemon), so the chat's Subagents
+    /// summary shows them; `_acpmux/attach` subscribes (again: the daemon only pages);
+    /// `_acpmux/events` pages.
     private func page(_ method: String, _ page: AgentSessionPage, client: any AgentSessionRemoteClient) async throws -> Data {
         if method == "_acpmux/events" { return Self.withMore(try await client.events(page)) }
         let result = try await client.attach(page) { [weak self] event in self?.pushed(event) }
@@ -212,7 +215,24 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
         let summary = object["session"] as? [String: Any]
         if let resolved = summary?["sessionId"] as? String { state.withLock { $0.resolved = resolved } }
         guard method == "_acpmux/watch" else { return result }
-        return Self.json(["sessions": summary.map { [$0] } ?? []])
+        let listed = (try? await client.children()).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let children = (listed?["sessions"] as? [[String: Any]] ?? []).filter { child in
+            (child["sessionId"] as? String).map { !names($0) } ?? false
+        }
+        Self.noteLinks(children)
+        return Self.json(["sessions": (summary.map { [$0] } ?? []) + children])
+    }
+
+    /// The parents of the children the daemon listed or changed, for the sidebar's session tree
+    /// and the Subagents rows' open (``RemoteAgentSessionLinks``).
+    private static func noteLinks(_ summaries: [[String: Any]]) {
+        guard !summaries.isEmpty, JSONSerialization.isValidJSONObject(summaries),
+              let data = try? JSONSerialization.data(withJSONObject: summaries) else { return }
+        // task-owner: one main-actor note of what the daemon answered; nothing waits on it
+        Task { @MainActor in
+            let copy = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] ?? []
+            RemoteAgentSessionLinks.shared.note(copy)
+        }
     }
 
     /// acpmux answers `hasMore`; the page's replay loop reads `more`, so both are set.
@@ -243,6 +263,12 @@ public nonisolated final class RemoteAcpmuxWire: AcpmuxPaneWire {
             notify("_acpmux/permission_pending", request)
         case .changed(let data):
             guard let change = try? JSONSerialization.jsonObject(with: data) else { return }
+            // A child's change (the daemon streams only this session's descendants): a new child
+            // joins the chat's Subagents summary and the sidebar's tree.
+            if let changed = change as? [String: Any], let session = changed["session"] as? [String: Any],
+               let id = changed["sessionId"] as? String, !names(id) {
+                Self.noteLinks([session])
+            }
             notify("_acpmux/session_changed", change)
         case .closed(let reason):
             Self.logger.info("remote agent attachment ended reason=\(reason, privacy: .public)")

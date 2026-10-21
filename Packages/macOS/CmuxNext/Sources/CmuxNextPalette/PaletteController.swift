@@ -119,7 +119,12 @@ public final class PaletteController {
             // the CLI) it switches to it; without one it opens the page.
             registry.bind("goToWorkspace", invoke: { [weak self] invocation in
                 if let workspace = invocation["workspace"]?.targetValue?.id ?? invocation["workspace"]?.stringValue {
-                    self?.sources.workspaces?.selectWorkspace(id: workspace)
+                    guard let self, let source = self.sources.workspaces else { return }
+                    // An id that names no workspace is refused, never a silent success.
+                    guard source.workspaces.contains(where: { $0.id == workspace }) else {
+                        return self.registry.refuseNotFound(PaletteStrings.workspaceNotFound(workspace))
+                    }
+                    source.selectWorkspace(id: workspace)
                 } else if self?.show(scope: PaletteScopeID.workspaces) != true {
                     // Cmd-P lists only what is open: workspaces, then their groups, panes and tabs.
                     self?.show(.workspaces)

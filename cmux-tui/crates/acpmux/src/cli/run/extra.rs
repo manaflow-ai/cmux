@@ -402,8 +402,38 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Setup { host, name, port } => {
                     return crate::cli::hosts::setup(client, &host, name, port, json_out).await;
                 }
-                PeerCmd::Update { name, all } => {
-                    return crate::cli::hosts::update(client, name, all, json_out).await;
+                PeerCmd::Update { name, all, binary_dir, if_idle } => {
+                    let opts = crate::cli::hosts::UpdateOptions { binary_dir, if_idle };
+                    return crate::cli::hosts::update(client, name, all, opts, json_out).await;
+                }
+                PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
+                    let plan = crate::cli::host_enroll::Plan {
+                        name: name.unwrap_or_else(|| crate::cli::hosts::short_name(&host)),
+                        host,
+                        port: crate::peer::SSH_PEER_PORT,
+                        harnesses,
+                        remote_binary,
+                        reverse,
+                    };
+                    return crate::cli::host_enroll::run(client, plan, true, json_out).await;
+                }
+                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
+                    let peers = client.request("_acpmux/peers", json!({})).await?;
+                    let list =
+                        peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
+                    let (name, host, port) = crate::cli::host_enroll::pick_target(&list, &target);
+                    let plan = crate::cli::host_enroll::Plan {
+                        name,
+                        host,
+                        port,
+                        harnesses,
+                        remote_binary,
+                        reverse,
+                    };
+                    return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
+                }
+                PeerCmd::Candidates { probe } => {
+                    return crate::cli::host_candidates::run(&client, probe, json_out).await;
                 }
                 PeerCmd::Ticket(cmd) => {
                     return crate::cli::pairing::ticket(client, cmd, json_out).await;

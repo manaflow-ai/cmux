@@ -300,7 +300,7 @@ impl Hub {
                 return Ok(());
             }
         };
-        self.adopt_caller_token(&session.id, caller_token);
+        let proven = self.adopt_caller_token(&session.id, caller_token);
         // A fork through an adopted agent asks for the list it started with
         // (`spawn.rs` decides it at session/new for a spawned one).
         let meta = session.meta();
@@ -341,6 +341,7 @@ impl Hub {
         // previous daemon's to answer.
         work.requests.retain(|(_, _, _, h)| h.is_none_or(|h| h <= resume_after));
         self.recover_work(session, &child, work).await;
+        self.restart_unproven(session, proven);
         self.save_meta(session);
         Ok(())
     }
@@ -609,13 +610,14 @@ impl Hub {
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at: now_ms(),
                         client,
+                        masked_preview: crate::secret_scan::mask(&prompt),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),
                         turn_seq,
-                        // Who prompted, as `turn_started` recorded it; an
-                        // older record without it counts as Web.
+                        // Who prompted (`turn_started`); an older record without it is Web.
                         control,
+                        doing: Default::default(),
                     });
                     session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
                     // A Web turn in flight in an agent the sandbox did not
@@ -650,8 +652,9 @@ impl Hub {
                             (None, Some(rx)) => turn_answer(rx, steer_answers).await,
                             (None, None) => Err(RpcError::internal("agent answer lost")),
                         };
-                        let _ =
-                            hub.finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq).await;
+                        let _ = hub
+                            .finish_turn(&s, &c, result, &prompt_id, &turn_id, turn_seq, None)
+                            .await;
                         // A recovered turn is not continued (`auto_resume.rs`); settle its mark.
                         hub.schedule_auto_resume(&s, &turn_id, None);
                         // A route switch or an update asked for a restart
@@ -732,6 +735,8 @@ impl Hub {
         session.permissions.lock().unwrap().pending.insert(
             permission_id.clone(),
             PendingPermission {
+                // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
+                ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
                 request: request.clone(),
                 reply: tx,
                 decision_nonce: decision_nonce.clone(),
