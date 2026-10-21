@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
@@ -86,10 +86,17 @@ test("URL chips expose a safe hover card with a browser Open action", async () =
     // Not `browser.open`, which the host takes only for a turn's local preview page.
     { method: "browser.openIn", params: { url: "https://github.com/manaflow-ai/cmux/pull/21180", browserId: "cmux" } },
   ]);
-  await act(async () => {
-    card.querySelector<HTMLButtonElement>("button")!.blur();
-    await new Promise((resolve) => setTimeout(resolve, 240));
-  });
+  // Focus leaving: the card goes after its grace, on a fake clock.
+  const { HOVER_INTENT } = await import("../src/ui/hoverIntent");
+  jest.useFakeTimers();
+  try {
+    await act(async () => card.querySelector<HTMLButtonElement>("button")!.blur());
+    await act(async () => void jest.advanceTimersByTime(HOVER_INTENT.cardGrace - 1));
+    expect(rootElement.querySelector(".cv-link-preview")).not.toBeNull();
+    await act(async () => void jest.advanceTimersByTime(41));
+  } finally {
+    jest.useRealTimers();
+  }
   expect(rootElement.querySelector(".cv-link-preview")).toBeNull();
   await act(async () => root.unmount());
   setChipHost(undefined);
