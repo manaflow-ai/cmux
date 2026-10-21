@@ -81,8 +81,11 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    login command.
 3. `machine SSH_TARGET [--name NAME]` (this change). It reads the peers
    from the running acpmux daemon (or acpmux's config without one; it never
-   starts a daemon to check) and matches the peer by name, or without
-   `--name` by ssh host:
+   starts a daemon to check) and matches the peer by `--name`, or without
+   it by ssh host. Without `--name`, a default name (the host's first
+   label) that already names a peer elsewhere is `needs_user`
+   (`user_action.kind` `name`) and nothing runs: moving that peer would
+   drop it, and a `ws://` peer's token with no undo.
    - connected and on this build: `ok`, nothing runs, not even ssh;
    - connected on another build: `cmux acp host update NAME`, `changed`,
      `undo` null (`undo_note`: the old binary is not kept);

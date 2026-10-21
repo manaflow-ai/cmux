@@ -63673,127 +63673,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Close All Workspaces in Group"
+            "value": "Close Workspaces in Group"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "グループ内のすべてのワークスペースを閉じる"
+            "value": "グループ内のワークスペースを閉じる"
           }
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "إغلاق كل مساحات العمل في المجموعة"
+            "state": "translated",
+            "value": "إغلاق مساحات العمل في المجموعة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zatvori sve radne prostore u grupi"
+            "state": "translated",
+            "value": "Zatvori radne prostore u grupi"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Luk alle arbejdsområder i gruppe"
+            "state": "translated",
+            "value": "Luk arbejdsområder i gruppe"
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Alle Arbeitsbereiche der Gruppe schließen"
+            "state": "translated",
+            "value": "Arbeitsbereiche der Gruppe schließen"
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Cerrar todos los espacios de trabajo del grupo"
+            "state": "translated",
+            "value": "Cerrar espacios de trabajo del grupo"
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fermer tous les espaces du groupe"
+            "state": "translated",
+            "value": "Fermer les espaces du groupe"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Chiudi tutte le aree di lavoro del gruppo"
+            "state": "translated",
+            "value": "Chiudi le aree di lavoro del gruppo"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "បិទកន្លែងធ្វើការទាំងអស់ក្នុងក្រុម"
+            "state": "translated",
+            "value": "បិទកន្លែងធ្វើការក្នុងក្រុម"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "그룹의 모든 작업 공간 닫기"
+            "state": "translated",
+            "value": "그룹의 작업 공간 닫기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Lukk alle arbeidsområder i gruppen"
+            "state": "translated",
+            "value": "Lukk arbeidsområder i gruppen"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Zamknij wszystkie przestrzenie w grupie"
+            "state": "translated",
+            "value": "Zamknij przestrzenie w grupie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Fechar Todas as Áreas de Trabalho do Grupo"
+            "state": "translated",
+            "value": "Fechar Áreas de Trabalho do Grupo"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрыть все пространства в группе"
+            "state": "translated",
+            "value": "Закрыть пространства в группе"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "ปิดทุกเวิร์กสเปซในกลุ่ม"
+            "state": "translated",
+            "value": "ปิดเวิร์กสเปซในกลุ่ม"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Gruptaki Tüm Çalışma Alanlarını Kapat"
+            "state": "translated",
+            "value": "Gruptaki Çalışma Alanlarını Kapat"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Закрити всі робочі області групи"
+            "state": "translated",
+            "value": "Закрити робочі області групи"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đóng tất cả không gian làm việc trong nhóm"
+            "state": "translated",
+            "value": "Đóng không gian làm việc trong nhóm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "关闭组中所有工作区"
+            "state": "translated",
+            "value": "关闭组中的工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "關閉群組中所有工作區"
+            "state": "translated",
+            "value": "關閉群組中的工作區"
           }
         }
       }
