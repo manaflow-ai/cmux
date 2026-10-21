@@ -60,6 +60,7 @@ import { useComposerSettings } from "./composerSettings";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
+import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -190,6 +191,8 @@ type Props = {
   /// A new chat's typed text, before it has a session (acpmux keeps a session's draft): the host
   /// keeps it with the tab, so a relaunch opens the chat with it (cx-z5vd).
   onUnsentDraft?(text: string): void;
+  /// Where the host keeps the chat's unsent chips, so they come back when the chat shows again.
+  keptAttachments?: KeptAttachments;
   /// Reads a transcript chosen by the cmux-owned `/import` command.
   onImportFile?(file: File): void | Promise<void>;
   /// Searches the session's files; the + menu offers Search files only when set.
@@ -265,6 +268,7 @@ export function Composer({
   onEdit,
   onCmuxCommand,
   onUnsentDraft,
+  keptAttachments,
   onImportFile,
   searchFiles,
   capture,
@@ -503,6 +507,8 @@ export function Composer({
     setCaret(initial.length);
     pendingCaret.current = initial.length;
   }, [sessionId, text, draft]);
+  // The chat's own chips come back with its prompt; a switch carries the ones held (keptAttachments.ts).
+  useKeptAttachments(sessionId, attachments, setAttachments, keptAttachments, () => carryPrompt.current);
   // After the session effect, so a switch that ends with its session change still carries.
   useEffect(() => {
     if (!switching) carryPrompt.current = false;
@@ -1470,6 +1476,7 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
+                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"
