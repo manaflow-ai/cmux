@@ -227,7 +227,7 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
         const error = body as { error?: string; message?: string };
         throw new RunApiHttpError(
           response.status,
-          error.message ?? `Run snapshot failed (${response.status})`,
+          error.message ?? translate("runBoard.error.snapshotFailed", { status: response.status }),
           error.error,
         );
       }
@@ -244,7 +244,7 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
         const error = body as { error?: string; message?: string };
         throw new RunApiHttpError(
           response.status,
-          error.message ?? `Run events failed (${response.status})`,
+          error.message ?? translate("runBoard.error.eventsFailed", { status: response.status }),
           error.error,
         );
       }
@@ -264,7 +264,7 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
         const error = body as { error?: string; code?: string; message?: string };
         throw new RunApiHttpError(
           response.status,
-          error.message ?? `Run attach failed (${response.status})`,
+          error.message ?? translate("runBoard.error.attachFailed", { status: response.status }),
           error.code ?? error.error,
         );
       }
@@ -280,7 +280,7 @@ export function createRunApiClient(options: RunApiClientOptions = {}): RunApiCli
         const error = redeemedBody as { error?: string; code?: string; message?: string };
         throw new RunApiHttpError(
           redeemedResponse.status,
-          error.message ?? `Run attach redemption failed (${redeemedResponse.status})`,
+          error.message ?? translate("runBoard.error.attachRedeemFailed", { status: redeemedResponse.status }),
           error.code ?? error.error,
         );
       }
