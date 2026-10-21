@@ -54,7 +54,8 @@ INTERNAL_TYPES = {"ci", "test", "tests", "refactor", "docs", "doc", "chore", "st
 # Scopes of fix/feat commits that are about the pipeline or plumbing, not the app.
 INTERNAL_SCOPES = {"ci", "nightly", "fleet", "release", "build", "tests", "test", "gallery", "crash", "lint", "docs",
                    "feat-cmux-next", "browser-parity", "first-party-apps", "browser-automation", "automation", "daemon",
-                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps"}
+                   "protocol", "sdk", "cmux-tui", "app-ffi", "backend", "nightly-next", "e2e", "harness", "deps",
+                   "acpmux", "cmux-git", "cmux-tui-core"}
 # Subject words that mark internal work even without a type.
 INTERNAL_WORDS = re.compile(
     r"\b(red|unit tests?|tests?|godfile|crash ratchet|baseline|index_subscript|int_conversion|lint|repin|re-pin|pin|"
@@ -102,7 +103,8 @@ def summary_entry(subject):
     while (label := LABEL.match(text)):
         words = [w for w in label["area"].lower().split() if w not in PRODUCT_WORDS]
         scopes = [s.strip() for s in (label["scope"] or "").lower().split(",") if s.strip()]
-        if any(INTERNAL_AREA_SHAPE.match(w) for w in words + scopes):
+        # "acpmux test: …", "sidebar ci: …": a label that names test or CI work is internal too.
+        if any(INTERNAL_AREA_SHAPE.match(w) or w in INTERNAL_TYPES for w in words + scopes):
             return None
         text = label["rest"]
     text = AREA_PREFIX.sub("", text)

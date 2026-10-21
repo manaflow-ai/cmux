@@ -51,6 +51,9 @@ const INTERNAL_SCOPES = new Set([
   "e2e",
   "harness",
   "deps",
+  "acpmux",
+  "cmux-git",
+  "cmux-tui-core",
 ]);
 /** Subject words that mark internal work even without a type. */
 const INTERNAL_WORDS = new RegExp(
@@ -139,7 +142,9 @@ export function readableChange(subject: string): ReadableChange {
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean);
-    if ([...words, ...scopes].some((w) => INTERNAL_AREA_SHAPE.test(w))) return internal(label.rest!);
+    // "acpmux test: …", "sidebar ci: …": a label that names test or CI work is internal too.
+    if ([...words, ...scopes].some((w) => INTERNAL_AREA_SHAPE.test(w) || INTERNAL_TYPES.has(w)))
+      return internal(label.rest!);
     text = label.rest!;
   }
   text = strip(text.replace(AREA_PREFIX, ""));
