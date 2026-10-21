@@ -10,9 +10,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt, ReadBuf};
 use super::native_token_tests::owned_receiver;
 use super::*;
 
-struct Observed {
-    stream: tokio::io::DuplexStream,
-    first_read: Option<tokio::sync::oneshot::Sender<()>>,
+pub(super) struct Observed {
+    pub(super) stream: tokio::io::DuplexStream,
+    pub(super) first_read: Option<tokio::sync::oneshot::Sender<()>>,
 }
 impl AsyncRead for Observed {
     fn poll_read(

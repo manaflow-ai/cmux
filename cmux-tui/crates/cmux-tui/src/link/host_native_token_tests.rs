@@ -10,10 +10,22 @@ fn receiver() -> Box<dyn TokenVerifier> {
 
 pub(super) fn owned_receiver(lease_ms: u64) -> cmux_link::native_token::NativeTokenVerifier {
     use cmux_link::native_token::*;
+    let now = ReceiverTime { unix_ms: 1_792_000_010_000, monotonic: std::time::Instant::now() };
+    let (keys, policy) = owned_policy(lease_ms, now.monotonic);
+    let verifier = NativeTokenVerifier::new(keys, move || Some(now), 16).unwrap();
+    verifier.replace_authority(policy).unwrap();
+    verifier
+}
+
+pub(super) fn owned_policy(
+    lease_ms: u64,
+    active: std::time::Instant,
+) -> (cmux_link::keyset::Keyset, cmux_link::native_token::NativePolicy) {
+    use cmux_link::native_token::*;
     let f: Value =
         serde_json::from_str(include_str!("../../../../../schemas/link-token/native.json"))
             .unwrap();
-    let now = ReceiverTime { unix_ms: 1_792_000_010_000, monotonic: std::time::Instant::now() };
+    let now = ReceiverTime { unix_ms: 1_792_000_010_000, monotonic: active };
     let keys = cmux_link::keyset::Keyset {
         version: "0000000000000001".into(),
         keys: [(
@@ -22,9 +34,9 @@ pub(super) fn owned_receiver(lease_ms: u64) -> cmux_link::native_token::NativeTo
         )]
         .into(),
     };
-    let verifier = NativeTokenVerifier::new(keys, move || Some(now), 16).unwrap();
-    verifier
-        .replace_authority(NativePolicy {
+    (
+        keys,
+        NativePolicy {
             issuer: f["claims"]["iss"].as_str().unwrap().into(),
             host: f["claims"]["aud"].as_str().unwrap().into(),
             epoch: 4,
@@ -38,9 +50,8 @@ pub(super) fn owned_receiver(lease_ms: u64) -> cmux_link::native_token::NativeTo
                 binding: serde_json::from_value(f["claims"]["network"].clone()).unwrap(),
                 services: vec![Service::Daemon, Service::Ssh],
             }],
-        })
-        .unwrap();
-    verifier
+        },
+    )
 }
 
 #[tokio::test]
