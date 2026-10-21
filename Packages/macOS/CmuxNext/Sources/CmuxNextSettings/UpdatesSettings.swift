@@ -16,6 +16,8 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
     /// Previous builds kept for rollback (`cmux update rollback`).
     public var keepPreviousVersions = Int(UpdatesSettings.keepPreviousVersionsDefault)
     public var meteredNetwork = UpdatesSettings.meteredNetworkDefault
+    /// Update Everything also updates paired servers' agent CLIs (never their cmux); off by default.
+    public var updateEverythingServers = UpdatesSettings.updateEverythingServersDefault
     /// The bottom-left "cmux Updated!" card after an update
     /// (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.
     public var showWhatsNew = UpdatesSettings.showWhatsNewDefault
@@ -37,6 +39,7 @@ public nonisolated struct UpdatesSettings: Sendable, Equatable {
         }
         if let value = reader.choice("meteredNetwork", UpdatesMeteredSetting.self) { settings.meteredNetwork = value }
         if let value = reader.number("keepPreviousVersions", range: keepPreviousVersionsRange) { settings.keepPreviousVersions = Int(value) }
+        if let value = reader.bool("updateEverythingServers") { settings.updateEverythingServers = value }
         if let value = reader.bool("showWhatsNew") { settings.showWhatsNew = value }
         diagnostics = reader.diagnostics
         return settings
