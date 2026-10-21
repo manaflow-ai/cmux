@@ -121,8 +121,8 @@ public final class AgentPaneView: NSView {
         let webView: WKWebView
         if pageHost, case .bundled(let index) = source {
             let provider = AgentPageProvider { [weak model] _ in model }
-            // Needs you reads this Mac's acpmux only for a chat on this Mac, never another machine's.
-            provider.servesLocalChat = { [weak model] in model?.readsThisMacsAcpmux ?? false }
+            // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
+            provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
             guard let page = AgentPanePageHost.makePage(root: index.deletingLastPathComponent(), provider: provider, renderRate: renderRate)
             else { return nil }
             self.page = page

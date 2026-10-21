@@ -38,8 +38,6 @@ final class AgentPageChats {
         chats.openInTerminal = { [weak opener] key in opener?.openInTerminal(key) }
         chats.openHere = { [weak opener] key, page in opener?.open(key, replacing: page) }
         guard let environment else { return }
-        // The Needs you list's reads of each chat's open requests (`chat.asks.pending`).
-        AgentPanePendingAsks.shared = AgentPanePendingAsks(environment: environment)
         chats.page = { query in
             // One bounded page (<= AgentPaneChatsQuery.maximumLimit rows), read and decoded off the main actor.
             guard var page = try? await environment.chatsPage(query) else { return nil }

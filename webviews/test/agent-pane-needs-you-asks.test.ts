@@ -69,6 +69,50 @@ test("an answer elsewhere rereads the chat, and the read's list wins", async () 
   expect(asks.list()[0]!.permission.turnId).toBe("t3");
 });
 
+test("an ask answered in a Chief chat leaves when the host's reread (the pane's own daemon) lists fewer", async () => {
+  // The host reads the pane's own acpmux; for a Chief pane that is the Chief home's daemon, which
+  // holds the chat, so the reread answers its smaller list instead of null (PR #22646 review).
+  const daemon: Record<string, PendingEntry[]> = {
+    chief: [
+      { permissionId: "c1", request: {}, turnId: "t1" },
+      { permissionId: "c2", request: {}, turnId: "t2" },
+    ],
+  };
+  const read = pendingReader(
+    () => true,
+    async (_op, params) => {
+      const entries = daemon[String(params.sessionId)];
+      return entries ? { pending: entries } : null;
+    },
+    async () => {
+      throw new Error("Refused by the cmux host");
+    },
+  );
+  const asks = new AskTracker(read, parse, () => {}, () => 1000);
+  asks.pending({ sessionId: "chief", permissionId: "c1" });
+  asks.pending({ sessionId: "chief", permissionId: "c2" });
+  expect(ids(asks)).toEqual(["c1", "c2"]);
+  daemon.chief = [{ permissionId: "c2", request: {}, turnId: "t2" }];
+  asks.session({ sessionId: "chief", pendingPermissions: 1 }, "permission_decision");
+  await settle();
+  expect(ids(asks)).toEqual(["c2"]);
+  // A host that answers null for the chat (a read of the wrong daemon) would keep what the page holds.
+  const stale = new AskTracker(
+    pendingReader(
+      () => true,
+      async () => null,
+      async () => undefined,
+    ),
+    parse,
+    () => {},
+    () => 1000,
+  );
+  stale.pending({ sessionId: "chief", permissionId: "c1" });
+  stale.session({ sessionId: "chief", pendingPermissions: 1 }, "permission_decision");
+  await settle();
+  expect(ids(stale)).toEqual(["c1"]);
+});
+
 test("a chat is read once per reported count, not on every summary change", () => {
   const { asks, reads } = tracker();
   asks.pending({ sessionId: "s1", permissionId: "p1" });
