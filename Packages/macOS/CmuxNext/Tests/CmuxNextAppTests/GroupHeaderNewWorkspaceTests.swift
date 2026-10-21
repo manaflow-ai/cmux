@@ -111,13 +111,24 @@ struct GroupHeaderNewWorkspaceTests {
         let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
 
         // A group of the launch workspace, as Group Workspace makes it.
+        var refusals: [String] = []
+        let observer = services.registry.refusalObserver
+        services.registry.refusalObserver = { reason, quiet in refusals.append(reason); observer?(reason, quiet) }
+        let docBefore = Self.docReport(WorkspaceGroupID(rawValue: "-"), sidebar)
         _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(arguments: ["name": .string("plus-group")]))
         await Self.wait(within: .seconds(30)) {
             personal.groups.first { $0.name == "plus-group" }.map { Self.headerID(of: $0.id, in: sidebar) != nil } ?? false
         }
         let group = try #require(personal.groups.first { $0.name == "plus-group" })
+        var daemonDoc = "?"
+        if let connection = services.daemon.connection,
+           let data = try? await DaemonSidebarDocRemote(connection: { connection }, serves: { true }).get(),
+           let records = try? SidebarDocRecords(document: data) {
+            daemonDoc = records.items.values.map { "\($0.id)@\($0.section)/\($0.parent ?? "-")" }.sorted().joined(separator: " ")
+        }
         // The id the window's sidebar lists the group under (the document's `itm_g_<id>`).
-        let header = try #require(Self.headerID(of: group.id, in: sidebar), Comment(rawValue: Self.docReport(group.id, sidebar)))
+        let header = try #require(Self.headerID(of: group.id, in: sidebar), Comment(rawValue: Self.docReport(group.id, sidebar)
+            + " | before: \(docBefore) | daemon doc: \(daemonDoc) | refusals: \(refusals)"))
         let before = Set(store.workspaces.map(\.id))
 
         // A person's New Workspace in Group, by the group's own id (the CLI's and MCP's target).
