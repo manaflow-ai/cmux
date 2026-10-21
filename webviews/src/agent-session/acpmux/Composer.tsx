@@ -5,7 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { MAX_ATTACHMENTS, type AttachmentError, type ComposerAttachment } from "./attachments";
+import {
+  MAX_ATTACHMENTS,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -48,7 +54,6 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
-import { useDictationListening } from "./dictation";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -182,6 +187,8 @@ type Props = {
   permissionAccess?: ComposerPermissionAccess;
   /// Buttons before Send, such as the dictation mic.
   accessory?: React.ReactNode;
+  /// A dictation session is waiting for words: the empty prompt reads "Listening…" in italic.
+  dictating?: boolean;
   /// Also receives the prompt field's handle, for dictation, which writes into it as typing does.
   prompt?: React.RefObject<MarkdownFieldHandle | null>;
   /// Receives the composer's handle, which puts a prompt a harness switch held back (its text
@@ -212,6 +219,9 @@ type Props = {
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
   upload?(files: File[]): Promise<UploadResult>;
+  /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
+  /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
+  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -271,6 +281,7 @@ export function Composer({
   leading,
   permissionAccess,
   accessory,
+  dictating = false,
   prompt,
   onEdit,
   onCmuxCommand,
@@ -280,6 +291,7 @@ export function Composer({
   searchFiles,
   capture,
   upload,
+  localPaths,
   onProject,
   projectChoices,
   onBrowseProject,
@@ -407,6 +419,7 @@ export function Composer({
           ? { uploads: true }
           : undefined,
     ...(upload ? { upload } : {}),
+    ...(localPaths ? { localPaths } : {}),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
@@ -1097,8 +1110,6 @@ export function Composer({
   // mid-turn and Esc hints still win, since they say what a key does now.
   const placeholderText =
     placeholder && placeholderKey === COMPOSER_LABELS.placeholder ? placeholder : t(placeholderKey);
-  // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
-  const dictating = useDictationListening();
   // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
   // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
   const cwd = snapshot.summary?.cwd;
@@ -1517,7 +1528,8 @@ export function Composer({
             ) : (
               <Picker
                 label={t(COMPOSER_LABELS.add)}
-                tooltip={t(capture && allowImages ? "composer.addTooltip" : "composer.addTooltipNoCapture")}
+                // Codex's short tooltip (Leo, 2026-10-21): "Add files and more", not the menu's list.
+                tooltip={t("composer.addTooltip")}
                 className="acpmux-composer-plus"
                 button={<PlusIcon />}
                 align="start"

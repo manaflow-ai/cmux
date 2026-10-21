@@ -50,6 +50,9 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     public static let offerToolsKey = "ACPMUX_OFFER_TOOLS"
     /// acpmux `hub::agent_pairs::GUARD_ENV`: `0` turns the agent message runaway guard off.
     public static let agentPairGuardKey = "ACPMUX_AGENT_PAIR_GUARD"
+    /// acpmux `config::chief_builtins::CHIEF_MUX_HOME_ENV`: the Chief home whose built-in presets
+    /// this daemon fills, in the daemon's own environment (NIGHTLY's app daemon runs its Chief).
+    public static let chiefMuxHomeKey = "ACPMUX_CHIEF_MUX_HOME"
     /// acpmux `hub::agent_pairs::MAX_MESSAGES_ENV` and `WINDOW_ENV`.
     public static let agentPairCapKey = "ACPMUX_AGENT_PAIR_MAX_MESSAGES"
     public static let agentPairWindowKey = "ACPMUX_AGENT_PAIR_WINDOW_SECS"

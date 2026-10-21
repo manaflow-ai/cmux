@@ -90,10 +90,7 @@ extension PaneHandlers {
                 ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
                 return
             }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(RefusalStrings.noWindowForRename) else { return }
-            RenamePrompt.run(title: HandlerStrings.renamePaneTitle, initial: pane.name ?? "", in: window) { name in
-                ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
-            }
+            ctx.services.registry.ask("renamePane", invocation, ActionArgumentAsk(argument: "name", initialText: pane.name ?? ""))
         })
         registry.bind("triggerFlash", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
