@@ -745,7 +745,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       await page.close();
     });
 
-    test("another agent's message keeps its images and a steer's read state", async () => {
+    test("another agent's message keeps its images and shows no steer line", async () => {
       const page = await openChat({
         offered: [],
         experiment: "off",
@@ -763,7 +763,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-message__images").count()).toBe(1);
-      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(1);
+      // "Steered · the agent read it" is for the person's own prompts, not a message to the agent.
+      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(0);
       await page.close();
     });
   });

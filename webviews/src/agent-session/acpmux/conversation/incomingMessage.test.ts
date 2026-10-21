@@ -149,3 +149,24 @@ test("numeric entities decode", () => {
   );
   expect(message?.kind === "message" && message.message.text).toBe("\u00a9 \u{1F600} &#0;");
 });
+
+// Lanes report with `acpmux send` (Leo 2026-10-20: these drew as his own prompt bubbles). The
+// client marks them; a lane names itself first.
+test("a prompt acpmux send delivered is a message from the lane it names", () => {
+  const sent = { client: "acpmux-cli#01a15c" };
+  expect(incomingPrompt("[app-store-features] Took the key.\nMore.", sent)).toEqual({
+    kind: "message",
+    message: { name: "app-store-features", text: "Took the key.\nMore.", raw: "Took the key.\nMore." },
+  });
+  expect(incomingPrompt("lane-launcher: started. #22721 is merged.", { client: "acpmux-peer" })).toEqual({
+    kind: "message",
+    message: { name: "lane-launcher", text: "started. #22721 is merged.", raw: "started. #22721 is merged." },
+  });
+  // Untagged, or a word that is not a lane's name: from the command itself.
+  expect(incomingPrompt("Note: the build is green", sent)).toEqual({
+    kind: "message",
+    message: { name: "acpmux send", text: "Note: the build is green", raw: "Note: the build is green" },
+  });
+  // The pane's own prompts stay the person's.
+  expect(incomingPrompt("[wip] fix it", { client: "cmux-react-agent-pane" })).toBeUndefined();
+});
