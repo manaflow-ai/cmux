@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextControl
@@ -395,6 +396,7 @@ final class CloudService {
     }
 
     func signOut() async {
+        AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
         // signed-out branch above, after auth.signOut).
         link.beginEnding()

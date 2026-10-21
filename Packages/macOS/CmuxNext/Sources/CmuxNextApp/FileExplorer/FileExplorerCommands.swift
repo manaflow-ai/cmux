@@ -1,14 +1,77 @@
 import CmuxNextFiles
+import CmuxNextFilesUI
 import Foundation
 
 /// The seven file explorer actions on the explorer's selection (classic's
 /// FileExplorerKeyboardShortcuts and its context menu). Open Selection
 /// expands or collapses a folder and opens a file in cmux when cmux shows its
 /// kind, else in its default app, as classic's Return and double-click did.
+/// New File, New Folder, Rename and Move to Trash (the explorer's menu) change
+/// the folder through ``FileOperating`` and list it again.
 @MainActor
 struct FileExplorerCommands {
     let model: FileExplorerModel
     let effects: any FileExplorerEffects
+    var files: any FileOperating = FileOperator(namer: FileNamer(copyWord: FilesPaneView.copyWord, aliasWord: FilesPaneView.aliasWord))
+
+    /// Makes an empty "untitled" file (numbered when taken) where the selection is and selects it.
+    @discardableResult
+    func newFile() async throws -> URL {
+        let folder = await targetFolder()
+        let file = try await Self.makeFile(in: folder, named: FileExplorerStrings.untitledFile)
+        await model.reload()
+        model.selection = file.standardizedFileURL
+        return file
+    }
+
+    /// Makes an "untitled folder" (numbered when taken) where the selection is and selects it.
+    @discardableResult
+    func newFolder() async throws -> URL {
+        let folder = await targetFolder()
+        let made = try await files.newFolder(in: folder, named: FileExplorerStrings.untitledFolder)
+        await model.reload()
+        model.selection = made.standardizedFileURL
+        return made
+    }
+
+    /// Renames `item` to `name` in its folder and keeps it selected.
+    @discardableResult
+    func rename(_ item: URL, to name: String) async throws -> URL {
+        let renamed = try await files.rename(item, to: name)
+        await model.reload()
+        model.selection = renamed.standardizedFileURL
+        return renamed
+    }
+
+    /// Moves the selected item to the Trash.
+    func moveToTrash() async throws {
+        let row = try selected()
+        _ = try await files.trash([row.url])
+        model.selection = nil
+        await model.reload()
+    }
+
+    /// Where a new item goes: in the selected folder (expanded to show it), else beside the
+    /// selected item, else in the root.
+    private func targetFolder() async -> URL {
+        guard let row = model.selectedRow else { return model.root ?? FileManager.default.homeDirectoryForCurrentUser }
+        if row.isFolder {
+            await model.expand(row.url)
+            return row.url
+        }
+        return row.url.deletingLastPathComponent()
+    }
+
+    /// An empty file under the first free name from `name` ("untitled 2"); never replaces an item.
+    @concurrent private static func makeFile(in folder: URL, named name: String) async throws -> URL {
+        let taken = Set((try? FileManager.default.contentsOfDirectory(atPath: folder.path)) ?? [])
+        let free = FileNamer().freeName(for: name, style: .number, taken: taken)
+        let file = folder.appendingPathComponent(free)
+        let descriptor = Darwin.open(file.path, O_WRONLY | O_CREAT | O_EXCL, 0o644)
+        guard descriptor >= 0 else { throw FileBrowserError.failed(String(cString: strerror(errno))) }
+        Darwin.close(descriptor)
+        return file
+    }
 
     /// Return and Cmd-Down (Finder's Open): a folder expands or collapses, a file opens.
     func openSelection() async throws {

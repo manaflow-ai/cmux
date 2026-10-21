@@ -3,8 +3,8 @@
 //! session for such a page: it refuses with `browser_rendered_by_app` and
 //! names the page's tab. The CLI then runs the verb through the app's own
 //! `browser.page.*` method for that tab, the path `cmux browser tab_… <verb>`
-//! takes. A verb the app has no method for (raw mouse, wheel, text) keeps the
-//! daemon's refusal, which names the `cmux browser tab_…` verbs to use.
+//! takes, including raw mouse, wheel, text and key input
+//! (`browser.page.mouse|wheel|insert_text|key`).
 #![cfg(unix)]
 
 use std::io::{BufRead, BufReader, Write};
@@ -62,25 +62,72 @@ fn history_verbs_activate_and_a_key_press_on_an_app_drawn_browser_run_through_th
 }
 
 #[test]
-fn raw_mouse_input_on_an_app_drawn_browser_names_the_tab_verbs_instead() {
-    let run = run(&[
-        "browser",
-        BROWSER,
-        "mouse",
-        "--kind",
-        "move",
-        "--x-px",
-        "1",
-        "--y-px",
-        "2",
-        "--pointer-frame-seq",
-        "1",
-    ]);
-    assert!(!run.output.status.success(), "raw mouse has no app method");
-    assert!(run.app.is_empty(), "{:?}", run.app);
-    let stderr = run.stderr();
-    assert!(stderr.contains(TAB), "the refusal names the tab to use: {stderr}");
-    assert!(!stderr.contains("still starting"), "{stderr}");
+fn raw_mouse_wheel_text_and_key_input_on_an_app_drawn_browser_run_through_the_app() {
+    let cases: [(&[&str], &str, Value); 5] = [
+        (
+            &[
+                "mouse",
+                "--kind",
+                "down",
+                "--x-px",
+                "10",
+                "--y-px",
+                "20",
+                "--pointer-frame-seq",
+                "1",
+                "--button",
+                "left",
+                "--click-count",
+                "1",
+            ],
+            "browser.page.mouse",
+            json!({"tab": TAB, "kind": "down", "x": 10.0, "y": 20.0, "button": "left",
+                "click_count": 1}),
+        ),
+        (
+            &["mouse", "--kind", "move", "--x-px", "1", "--y-px", "2", "--pointer-frame-seq", "1"],
+            "browser.page.mouse",
+            json!({"tab": TAB, "kind": "move", "x": 1.0, "y": 2.0}),
+        ),
+        (
+            &[
+                "wheel",
+                "--delta-x",
+                "0",
+                "--delta-y",
+                "120",
+                "--x-px",
+                "5",
+                "--y-px",
+                "6",
+                "--pointer-frame-seq",
+                "1",
+            ],
+            "browser.page.wheel",
+            json!({"tab": TAB, "x": 5.0, "y": 6.0, "dx": 0.0, "dy": 120.0}),
+        ),
+        (
+            &["text", "--text", "hello"],
+            "browser.page.insert_text",
+            json!({"tab": TAB, "text": "hello"}),
+        ),
+        (
+            &["key", "--key", "k", "--kind", "down", "--modifiers", "meta"],
+            "browser.page.key",
+            json!({"tab": TAB, "key": "k", "kind": "down", "modifiers": ["meta"]}),
+        ),
+    ];
+    for (verb, method, expected) in cases {
+        let mut args = vec!["--json", "browser", BROWSER];
+        args.extend_from_slice(verb);
+        let run = run(&args);
+        assert!(run.output.status.success(), "{verb:?}: {}", run.stderr());
+        let [call] = run.app.as_slice() else { panic!("{verb:?}: one app call: {:?}", run.app) };
+        assert_eq!(call["method"], method, "{verb:?}: {call}");
+        for (key, value) in expected.as_object().unwrap() {
+            assert_eq!(&call["params"][key], value, "{verb:?}: {call}");
+        }
+    }
 }
 
 struct Finished {
