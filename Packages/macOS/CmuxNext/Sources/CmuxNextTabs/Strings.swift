@@ -19,6 +19,9 @@ enum Strings {
         String(localized: "tabs.ax.theme", defaultValue: "theme \(name)", bundle: .module)
     }
     static var axPlayingAudio: String { String(localized: "tabs.ax.playingAudio", defaultValue: "Playing audio", bundle: .module) }
+    /// The speaker button's tooltip and VoiceOver action (Chrome's wording).
+    static var muteTab: String { String(localized: "tabs.audio.mute", defaultValue: "Mute tab", bundle: .module) }
+    static var unmuteTab: String { String(localized: "tabs.audio.unmute", defaultValue: "Unmute tab", bundle: .module) }
     static var axMuted: String { String(localized: "tabs.ax.muted", defaultValue: "Muted", bundle: .module) }
     static var axPinned: String { String(localized: "tabs.ax.pinned", defaultValue: "Pinned", bundle: .module) }
     static var axUnread: String { String(localized: "tabs.ax.unread", defaultValue: "Unread", bundle: .module) }

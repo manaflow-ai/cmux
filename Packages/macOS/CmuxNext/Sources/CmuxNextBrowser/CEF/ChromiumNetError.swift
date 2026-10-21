@@ -8,6 +8,8 @@ import Foundation
 /// name (ERR_NAME_NOT_RESOLVED), as Chrome's page does.
 nonisolated struct ChromiumNetError {
     static let domain = "net"
+    /// ERR_BLOCKED_BY_ADMINISTRATOR: an organization's URLBlocklist policy refused the page.
+    static let blockedByAdministrator = -22
     /// ERR_CERT_* (net_error_list.h: -200 to -299).
     static let certificateCodes = -299 ... -200
     /// Certificate errors Chrome lets a person proceed past on any host
@@ -29,6 +31,7 @@ nonisolated struct ChromiumNetError {
         case -102: Strings.netErrorRefused
         case -7, -118: Strings.netErrorTimedOut
         case -106: Strings.netErrorOffline
+        case Self.blockedByAdministrator: Strings.netErrorBlockedByAdministrator
         case Self.certificateCodes: Strings.netErrorCertificate
         default: Strings.netErrorGeneric
         }

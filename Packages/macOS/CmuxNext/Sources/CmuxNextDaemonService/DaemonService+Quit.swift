@@ -76,9 +76,11 @@ extension DaemonService {
     /// that does not restart kept tabs, draws as dead. Observation-tracked (`keptTabRestarts`,
     /// the tab's own fields).
     public func restartsKeptTab(_ tab: TabModel) -> Bool {
-        guard tab.relaunch != nil else { return false }
+        guard let relaunch = tab.relaunch else { return false }
         // The daemon took the restart, then the new shell's launch failed: the tab is dead again.
         if tab.dead, tab.end?.reason == .restartFailed { return false }
+        // A parked tab starts when its workspace is shown (`wakeParkedTabs`).
+        if relaunch.onShow { return supports(DaemonCapabilities.shared.tabRestartKeptLayout) }
         switch keptTabRestarts {
         case .none: return false
         case .expected: return true

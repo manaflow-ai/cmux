@@ -1,4 +1,4 @@
-import { errorMessage } from "./transportErrors";
+import { errorMessage, isHostRefusal } from "./transportErrors";
 import type { ComposerAttachment } from "./attachments";
 import { agentName } from "./agents";
 import { harnessProfiles, type HarnessProfiles } from "./harnessProfiles";
@@ -563,15 +563,16 @@ export class HarnessSwitch {
     if (model) applied.push(port.setModel(model).catch((error) => this.refused(model, error)));
     // A pick the host refuses (a transport refusal) says so; any other refusal stays quiet, as before.
     const pickRefused = (error: unknown) => {
-      const code = (error as { code?: unknown } | undefined)?.code;
-      if (typeof code === "string" && code.startsWith("transport.")) this.handlers.notice?.(errorMessage(error));
+      if (isHostRefusal(error)) this.handlers.notice?.(errorMessage(error));
     };
     const ticket = (key: string) => intent.tickets.get(key) ?? Promise.resolve(undefined);
+    // A held mode the agent refuses always says so: a company-managed Mac's Claude Code settings can
+    // disable a mode, and the chat would otherwise run on another one with no reason given.
     if (mode)
       applied.push(
         ticket("mode")
           .then((t) => port.setMode(mode, t))
-          .catch(pickRefused),
+          .catch((error) => this.handlers.notice?.(t("switch.modeFailed", { mode, reason: errorText(error) || "?" }))),
       );
     for (const [configId, value] of Object.entries(options))
       applied.push(

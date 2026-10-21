@@ -331,6 +331,8 @@ export interface Env {
   readonly HOME_ADDRESS_KEY?: string
   /** Secret: the Sentry project DSN for the Cloud Home health check-ins (home-health.ts); absent = log only. */
   readonly SENTRY_DSN?: string
+  /** Secret, staging or development only: `open`, `send` or `read` fails that Cloud Home probe step (the alert drill, home-health.ts); production ignores it. */
+  readonly HOME_HEALTH_FAULT?: string
   /** Private R2 bucket of Home attachments (objects `home/v1/<conversation>/<sha256>/<upload id>`); no public access. */
   readonly HOME_ATTACHMENTS?: R2Bucket
   /** Secret: HMAC key of attachment upload slots and download URLs (at least 32 characters); unset = attachments off. */

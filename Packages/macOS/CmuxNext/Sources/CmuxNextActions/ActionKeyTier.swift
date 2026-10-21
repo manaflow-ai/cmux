@@ -42,18 +42,25 @@ public nonisolated enum ActionKeyTier: Int, Comparable, CaseIterable, Sendable {
 
     /// Navigation actions that need a content context to be available
     /// (Cmd-L needs a selected browser tab) but still beat text fields.
-    static let navigationActions: Set<ActionID> = ["focusBrowserAddressBar"]
+    static let navigationActions: Set<ActionID> = ["focusBrowserAddressBar", "browser.focusSearch"]
+
+    /// Content actions that need no focus fact to be listed: the web
+    /// inspector chords (Cmd-Opt-I, Cmd-Opt-J, Cmd-Opt-C) act on any focused
+    /// web view, and a text field keeps them.
+    static let contentActions: Set<ActionID> = ["toggleBrowserDeveloperTools", "showBrowserJavaScriptConsole", "inspectBrowserElement"]
 
     /// Context facts that mean "this action acts on focused content".
     static let contentContexts: ActionContext = [
         .terminalFocused, .browserFocused, .simulatorFocused, .diffViewerFocused, .filePreviewFocused, .codeEditorFocused,
         .markdownFocused, .rightSidebarFocused, .fileExplorerFocused, .textBoxFocused, .paletteOpen, .agentPaneFocused,
+        .webViewFocused,
     ]
 
     /// The catalog default for `descriptor`.
     static func defaultTier(for descriptor: ActionDescriptor) -> ActionKeyTier {
         if systemActions.contains(descriptor.id) { return .system }
         if navigationActions.contains(descriptor.id) { return .navigation }
+        if contentActions.contains(descriptor.id) { return .content }
         if !descriptor.requires.isDisjoint(with: contentContexts) { return .content }
         return .navigation
     }

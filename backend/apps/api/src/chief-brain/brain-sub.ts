@@ -39,6 +39,7 @@ export function spawnHost(b: ChiefBrainDO) {
     turn: () => (b.turnId && b.turnConversation ? { run: b.turnId, conversation: b.turnConversation } : undefined),
     config: () => b.config(),
     isChild: () => b.childOf() !== null,
+    effectsAuthorized: () => b.effectsAuthorized(),
     enqueue: (items: ReadonlyArray<ChildStart>) => b.settingsOf(items[0]!.agent).spawnEnqueue(items[0]!.agent, items[0]!.owner, [...items]) as Promise<{ running: number; waiting: number }>,
     changed: (conversation: string) => {
       b.subsChanged(conversation)
@@ -77,7 +78,7 @@ export async function spawnStart(b: ChiefBrainDO, s: ChildStart): Promise<{ ende
     // Before the lifecycle starts: the harness opens with the child's tools and prompt.
     b.doCtx.storage.transactionSync(() => {
       writeConfig(b.sql, { spawn: JSON.stringify(s), agent: s.agent, owner: s.owner, enabled: "1", model: s.model, effort: s.effort, display_name: s.display_name })
-      b.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, status, model, started, input) VALUES (?, ?, ?, 'spawn', NULL, 0, 'running', ?, ?, ?) ON CONFLICT (id) DO NOTHING`, id, s.conversation, s.parent_run, s.model, Date.now(), JSON.stringify(childInput(s)))
+      b.sql.exec(`INSERT INTO cb_turn (id, conversation, trigger_message, trigger_kind, trigger_thread_root, last_seq, effect_authorized, status, model, started, input) VALUES (?, ?, ?, 'spawn', NULL, 0, 1, 'running', ?, ?, ?) ON CONFLICT (id) DO NOTHING`, id, s.conversation, s.parent_run, s.model, Date.now(), JSON.stringify(childInput(s)))
     })
     b.child = undefined
   }

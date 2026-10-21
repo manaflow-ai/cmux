@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextFileGrid
+import CmuxNextFiles
 import CmuxNextScreenshots
 import CmuxNextSettings
 import Foundation
@@ -13,10 +14,12 @@ import Observation
 /// the folders again (off the main actor) and updates each open page.
 @MainActor
 final class ScreenshotsPageService {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
-    private let workspace = AppFileGridWorkspace()
+    private let workspace = AppScreenshotsWorkspace()
+    /// Drops, renames and trashes go through the Files pane's operations.
+    private let files = FileOperator()
     private let detector = ScreenshotSourceDetector(environment: SystemScreenshotEnvironment())
     /// Open pages by tab key.
     private var pages: [String: ScreenshotsPageTab] = [:]
@@ -35,6 +38,7 @@ final class ScreenshotsPageService {
     /// - Parameter focus: select the tab (a person's run); off, an agent or the
     ///   CLI opens it in the background and keeps the person's focus.
     func open(focus: Bool) {
+        guard let services else { return }
         guard let window = services.windows.active else { return services.registry.refuse(RefusalStrings.noWindowOpen) }
         for pane in window.content?.panes.values.map({ $0 }) ?? [] {
             if let tab = pane.pane.tabs.first(where: { ScreenshotsPageAddress.matches($0.url.flatMap(URL.init(string:))) }) {
@@ -49,7 +53,7 @@ final class ScreenshotsPageService {
     func makePage(key: String, engine: BrowserEngineKind, profile: BrowserProfileID) -> ScreenshotsPageTab {
         let model = ScreenshotsModel()
         let page = ScreenshotsPageTab(id: BrowserTabID(rawValue: key), engine: engine, profile: profile, model: model,
-                                      cache: thumbnails, workspace: workspace)
+                                      cache: thumbnails, workspace: workspace, files: files)
         page.onClose = { [weak self] in self?.pages.removeValue(forKey: key) }
         pages[key] = page
         followSettings()
@@ -63,12 +67,12 @@ final class ScreenshotsPageService {
     }
 
     private func settings() -> ScreenshotsSettings {
-        services.settings?.snapshot.screenshots ?? ScreenshotsSettings()
+        services?.settings?.snapshot.screenshots ?? ScreenshotsSettings()
     }
 
     /// Re-arms on each `screenshots.*` change for as long as the service lives.
     private func followSettings() {
-        guard !followsSettings, let settings = services.settings else { return }
+        guard !followsSettings, let settings = services?.settings else { return }
         followsSettings = true
         withObservationTracking {
             _ = settings.snapshot.screenshots

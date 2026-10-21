@@ -49,7 +49,7 @@ export function parseSpan(hash: string): UpdateSpan | undefined {
 export function parseDesign(hash: string): ChangelogDesign {
   const query = hash.replace(/^#\/?/, "").replace(/^\?/, "");
   const design = new URLSearchParams(query).get("design");
-  return design === "rail" || design === "digest" ? design : "journal";
+  return design === "journal" || design === "rail" || design === "digest" ? design : "ledger";
 }
 
 /** Orders release versions (`1.2.3`, `1.0.0-nightly.42`): numbers first, a prerelease before its release. */
