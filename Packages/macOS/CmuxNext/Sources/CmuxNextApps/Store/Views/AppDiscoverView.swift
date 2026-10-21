@@ -14,6 +14,22 @@ struct AppDiscoverView: View {
             HStack(spacing: 0) {
                 VStack(spacing: 0) {
                     chips
+                    ScrollView { LazyVStack(spacing: 2) { rows(showsInstall: false) }.padding(Metrics.space3).thinScrollers() }
+                }
+                .frame(width: 320)
+                Rectangle().fill(colors.separator).frame(width: Borders.width(1))
+                if let listing = model.selectedListing ?? model.listings.first {
+                    AppListingDetailView(model: model, listing: listing).id(listing.id)
+                } else {
+                    empty(AppsStrings.selectApp)
+                }
+            }
+        case .grid, .list:
+            if let listing = model.selectedListing {
+                AppListingDetailView(model: model, listing: listing, showsBack: true).id(listing.id)
+            } else {
+                VStack(spacing: 0) {
+                    chips
                     ScrollView {
                         VStack(alignment: .leading, spacing: Metrics.space5) {
                             if let open = model.onOpenApp, model.query.isEmpty, model.category == nil, model.discoverShowsListings {
