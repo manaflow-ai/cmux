@@ -11,12 +11,18 @@ import Testing
     private let local = "install:3f2a", chief = "chief:2e448bc2"
 
     @Test func anotherMachinesHostIsRefusedAsAnotherMachine() {
-        #expect(AgentTabStore.hostRefusal("cmux16", localHost: local, chiefHost: chief) == RefusalStrings.agentTabMachineMismatch)
+        #expect(AgentTabStore.hostRefusal("cmux16", localHost: local, chiefHost: chief, daemonIsLocal: true) == RefusalStrings.agentTabMachineMismatch)
     }
 
     @Test func noHostThisMacsHostAndTheChiefHomeOpen() {
-        #expect(AgentTabStore.hostRefusal(nil, localHost: local, chiefHost: chief) == nil)
-        #expect(AgentTabStore.hostRefusal(local, localHost: local, chiefHost: chief) == nil)
-        #expect(AgentTabStore.hostRefusal(chief, localHost: local, chiefHost: chief) == nil)
+        #expect(AgentTabStore.hostRefusal(nil, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
+        #expect(AgentTabStore.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
+        #expect(AgentTabStore.hostRefusal(chief, localHost: local, chiefHost: chief, daemonIsLocal: true) == nil)
+    }
+
+    /// This Mac's session never opens in a pane of another machine (cx-k21v).
+    @Test func thisMacsHostInAnotherMachinesPaneIsRefused() {
+        #expect(AgentTabStore.hostRefusal(local, localHost: local, chiefHost: chief, daemonIsLocal: false)
+            == RefusalStrings.agentTabMachineMismatch)
     }
 }
