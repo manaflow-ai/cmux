@@ -201,7 +201,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
           model: left(".acpmux-model"),
           effort: left(".acpmux-effort"),
           access: left(".acpmux-access"),
-          send: left(".acpmux-send"),
+          // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20); the mic is the
+          // trailing control of this empty new chat.
+          mic: left(".acpmux-mic"),
         };
       });
       await page.close();
@@ -211,7 +213,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const arrived = await controls("reported");
     expect(loading.placeholders).toBe(0);
     expect(arrived.placeholders).toBe(0);
-    for (const name of ["plus", "model", "effort", "access", "send"] as const) {
+    for (const name of ["plus", "model", "effort", "access", "mic"] as const) {
       expect(loading[name]).toBeDefined();
       expect(Math.abs(loading[name]! - arrived[name]!)).toBeLessThanOrEqual(1);
     }
@@ -332,6 +334,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       prompt: rect(
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
+      // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
+      // prompt, so the box's columns are the + glyph's 16 px box and the last action's glyph: the
+      // mic in this empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
+      trailGlyph: rect(
+        [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
+      ),
       strip: rect(strip),
       folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
       branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
@@ -371,9 +380,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const prompt = marks.prompt!;
       const folderIcon = marks.folderIcon!;
       const branchChevron = marks.branchChevron!;
-      // A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's ink ends 4 px inside.
-      expect(Math.abs(folderIcon.left + 1.5 - prompt.left)).toBeLessThanOrEqual(2);
-      expect(Math.abs(branchChevron.right - 4 - prompt.right)).toBeLessThanOrEqual(2);
+      // The marks sit over the box's content edges: the prompt's, or + and the last action's
+      // (the mic at rest) where they stand beside it. A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's
+      // ink ends 4 px inside.
+      const lead = marks.plusGlyph?.left ?? prompt.left;
+      const trail = marks.trailGlyph?.right ?? prompt.right;
+      expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
+      expect(Math.abs(branchChevron.right - 4 - trail)).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
       expect(marks.computerLabelShown).toBe(width > 460);
