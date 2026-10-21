@@ -72,6 +72,10 @@ public final class AgentPaneView: NSView {
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
     /// shown after a change paints its first frame in the new colors (cx-8w027.12).
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
+    /// The wallpaper still the old host's page lenses (the page host's ``PageWebView`` has its own).
+    private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
+        self?.evaluateScript($0)
+    }
     private var uiScaleObservation: Task<Void, Never>?
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
@@ -280,6 +284,7 @@ public final class AgentPaneView: NSView {
             return
         }
         webView.pageZoom = Double(DesignSettings.shared.uiScale) * zoom
+        glassFeed.refresh() // the zoom moves the art's rect in CSS px
         webView.evaluateJavaScript(DesignSettings.shared.interfaceScaleScript, completionHandler: nil)
     }
 
@@ -427,9 +432,12 @@ public final class AgentPaneView: NSView {
             deliveredThemeEvent = event
             pageEvents.publish(event)
         } else {
-            guard let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript else { return }
-            deliveredThemeScript = script
-            evaluateScript(script)
+            if let script = AgentPaneTheme.script(tokens, surface: surface), force || script != deliveredThemeScript {
+                deliveredThemeScript = script
+                evaluateScript(script)
+            }
+            // After the theme, which sets `data-glass`; a forced push is a new document or its handshake.
+            glassFeed.refresh(newDocument: force)
         }
     }
 

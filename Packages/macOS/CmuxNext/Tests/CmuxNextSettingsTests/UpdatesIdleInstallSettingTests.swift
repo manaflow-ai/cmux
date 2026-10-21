@@ -36,8 +36,8 @@ struct UpdatesIdleInstallSettingTests {
     }
 
     @Test func bothRowsShowOnTheUpdatesAdvancedCard() throws {
-        let general = try #require(SettingsPageLayout().categories().first { $0.spec.id == "general" })
-        let card = try #require(general.groups.first { $0.rows.contains("updates.idleInstallMaxWaitSeconds") })
+        let updates = try #require(SettingsPageLayout().categories().first { $0.spec.id == "updates" })
+        let card = try #require(updates.groups.first { $0.rows.contains("updates.idleInstallMaxWaitSeconds") })
         #expect(card.rows == ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"])
         #expect(card.title.key == "settings.pageGroup.updatesAdvanced")
     }

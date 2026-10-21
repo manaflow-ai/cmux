@@ -14,6 +14,12 @@ public final class AgentActivityHostView: NSView {
     /// Activity events can arrive as a batch, and serializing the full projection for every
     /// element makes the main actor and WebKit do redundant work while the page is catching up.
     private var statePushScheduled = false
+    /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme.
+    private lazy var glassFeed = GlassBackdropFeed(host: webView, zoom: { [webView] in webView.pageZoom * webView.magnification }) { [weak self] in
+        self?.webView.evaluateJavaScript($0, completionHandler: nil)
+    }
+    /// Pushes the theme again on every repaint of this view's scope (the glass mode included).
+    private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
 
     /// Makes an Activity web view for a model and its native data source.
     public init(model: AgentActivityModel, source: any AgentActivitySource) {
@@ -75,11 +81,15 @@ public final class AgentActivityHostView: NSView {
     /// Gives the page this view's scope colors when they changed; `reload` after a navigation,
     /// whose new document has only the document-start colors.
     fileprivate func applyTheme(reload: Bool = false) {
+        themeFollower.rebind()
         if reload { appliedTheme = nil }
         let theme = Self.theme(themeScope)
-        guard theme.payloadJSON != appliedTheme else { return }
-        appliedTheme = theme.payloadJSON
-        webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
+        if theme.payloadJSON != appliedTheme {
+            appliedTheme = theme.payloadJSON
+            webView.evaluateJavaScript(theme.applyScript, completionHandler: nil)
+        }
+        // After the theme, which sets `data-glass`; a reload is a new document with no still yet.
+        glassFeed.refresh(newDocument: reload)
     }
 
     private static func theme(_ scope: ThemeScope) -> WebTheme {
