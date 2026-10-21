@@ -122,8 +122,9 @@ final class SidebarFooterBand {
             (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
         } else {
             let footer = host.footer.frame
-            // An empty band: the footer row, or the sidebar's bottom when the footer has no height.
-            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.footerHeight / 2)
+            // An empty band: the footer row, or above the bottom inset when the footer has no height.
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - SidebarStyle.footerHeight / 2)
         }
         button.frame = NSRect(x: x, y: (midY - side / 2).rounded(), width: side, height: side)
         return button.frame.maxX
