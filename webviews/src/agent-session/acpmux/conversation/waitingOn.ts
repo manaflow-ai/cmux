@@ -2,13 +2,15 @@
 // question, a permission ask, a secret or a question card above the composer. The running turn's
 // line says so ("Waiting for you: trust this folder?") instead of "Thinking" or a ticking clock,
 // so nobody waits on an agent that waits on them (Leo, 2026-10-21: "Thinking" that never ends while
-// the trust question sat out of sight).
+// the trust question sat out of sight). With no ask open, a turn whose model has said nothing
+// since its prompt past acpmux's `silentTurnMs` (direct.ts `silentTurn`) says "No response from the
+// model yet", so a stalled model is not "Thinking" forever.
 import { createContext } from "react";
 import type { FolderTrustAsk } from "../useFolderTrustAsk";
 import type { StringKey } from "../i18n";
 import type { PermissionGroupState } from "../permissions/protocol";
 
-export type WaitingOn = "trust" | "trustRemote" | "permission" | "secret" | "question";
+export type WaitingOn = "trust" | "trustRemote" | "permission" | "secret" | "question" | "model";
 
 export const WaitingOnContext = createContext<WaitingOn | undefined>(undefined);
 
@@ -19,15 +21,18 @@ export const WAITING_LABEL: Record<WaitingOn, StringKey> = {
   permission: "turn.waiting.permission",
   secret: "turn.waiting.secret",
   question: "turn.waiting.question",
+  model: "turn.waiting.model",
 };
 
 /// The first ask the person must answer, in the order the bottom stack shows them: the trust
-/// question holds every other ask (useFolderTrustAsk.ts `holdsAsks`), so it comes first.
+/// question holds every other ask (useFolderTrustAsk.ts `holdsAsks`), so it comes first. A model
+/// that has said nothing comes after every ask: what the person can answer goes first.
 export function waitingOn(asks: {
   trust?: FolderTrustAsk;
   permission: boolean;
   secret: boolean;
   question: boolean;
+  model?: boolean;
 }): WaitingOn | undefined {
   const trust = asks.trust?.state;
   if (trust === "ask" || trust === "failed") return "trust";
@@ -35,6 +40,7 @@ export function waitingOn(asks: {
   if (asks.permission) return "permission";
   if (asks.secret) return "secret";
   if (asks.question) return "question";
+  if (asks.model) return "model";
   return undefined;
 }
 
@@ -53,6 +59,8 @@ export function chatWaitsOn(chat: {
   permissionGroups?: readonly { state: PermissionGroupState }[];
   secret: boolean;
   cards: readonly { state: string }[];
+  /// The running turn's model has said nothing since its prompt (`AcpmuxSnapshot.silentTurn`).
+  silent?: boolean;
 }): WaitingOn | undefined {
   const shown = !chat.holdsAsks;
   return waitingOn({
@@ -63,5 +71,6 @@ export function chatWaitsOn(chat: {
         (chat.permissionGroups ?? []).some((group) => group.state === "pending" || group.state === "collecting")),
     secret: shown && !chat.trustBlocks && chat.secret,
     question: shown && chat.cards.some((card) => card.state === "ask"),
+    model: chat.isWorking && chat.silent === true,
   });
 }

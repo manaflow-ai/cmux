@@ -11,6 +11,7 @@ Behaviour per prompt text:
   "deaf-to-cancel" -> streams "running", ignores session/cancel, answers end_turn after 20 s
   "answer-then-exit" -> answers, then the agent exits between turns
   "gate: <p>"  -> streams before-gate, waits for a write to FIFO <p>, then after-gate
+  "work-gate: <p>" -> a plan step in progress and a running tool call, then as "gate:"
   image blocks -> the echo ends with " image:<sha256 of its bytes>" for each
   anything     -> echoes the text as one agent_message_chunk
 
@@ -401,6 +402,22 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate":"agent_message_chunk", "content":{"type":"text", "text":json.dumps(choices)}})
         send({"jsonrpc":"2.0", "id":rid, "result":{"stopReason":"end_turn"}})
         return
+    # "work-gate: PATH [| TITLE]" reports a plan step in progress and a running
+    # tool call (TITLE, else "Run cargo test"), then blocks on the FIFO at PATH
+    # (as "gate:") and ends.
+    if text.startswith("work-gate:"):
+        path, _, title = text[len("work-gate:"):].partition(" | ")
+        update(sid, {"sessionUpdate": "plan", "entries": [
+            {"content": "Read the brief", "status": "completed", "priority": "high"},
+            {"content": "Fix the queue", "status": "in_progress", "priority": "high"}]})
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "wg-1", "title": title.strip() or "Run cargo test",
+                     "kind": "execute", "status": "in_progress"})
+        with open(path.strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "wg-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
@@ -435,6 +452,53 @@ def handle_prompt(rid, params):
         answers = res.get("_meta", {}).get("updatedInput", {}).get("answers")
         update(sid, {"sessionUpdate": "agent_message_chunk",
                      "content": {"type": "text", "text": f"chose {chosen} {json.dumps(answers, sort_keys=True)}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "tool-question: TOOL KIND" asks to run tool TOOL (`_meta.claude.tool`)
+    # whose input also holds `questions`, with one allow option of KIND: a
+    # question by its input's shape alone, or (AskUserQuestion with
+    # allow_always) one that offers only a lasting allow.
+    if text.startswith("tool-question:"):
+        tool, kind = text[14:].split()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "tq1", "title": tool, "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build",
+                                          "questions": [{"question": "ok?", "options": [{"label": "yes"}]}]},
+                             "_meta": {"claude": {"tool": tool}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": kind},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "meta-question: Q" asks to run a command with its own
+    # `_meta.acpmux.question` asking Q: no tool name, no `questions` input.
+    if text.startswith("meta-question:"):
+        q = text[14:].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "mq1", "title": "run", "kind": "execute", "status": "pending",
+                             "rawInput": {"command": "rm -rf build"},
+                             "_meta": {"acpmux": {"question": {"harness": "claude", "agent": "Claude Code", "items": [
+                                 {"id": "q0", "prompt": q, "options": [{"id": "yes", "label": "yes"}],
+                                  "multiSelect": False, "allowsOther": True}]}}}},
+                "options": [
+                    {"optionId": "go", "name": "Go", "kind": "allow_once"},
+                    {"optionId": "no", "name": "No", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "xai-question: Q" asks Q the way Grok does (`_x.ai/ask_user_question`)
@@ -602,6 +666,11 @@ def handle_prompt(rid, params):
     if text.startswith("limit:"):
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
         return
+    # "big-output:N" answers with one message of N MiB: one update too large for a frame.
+    if text.startswith("big-output:"):
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "z" * (int(text[11:]) << 20)}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("fail-after-update:"):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "partial "}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "simulated internal error after output"}})
@@ -682,6 +751,12 @@ def handle_prompt(rid, params):
         msg = text[14:].strip()
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": msg}})
         send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32000, "message": msg}})
+        return
+    # "mute" says nothing for 2 s, then answers: a model that stalls (`hub/silent_turn.rs`).
+    if text == "mute":
+        time.sleep(2)
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "late"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
     # "hang" starts a turn that never ends: a busy agent.
     if text == "hang":

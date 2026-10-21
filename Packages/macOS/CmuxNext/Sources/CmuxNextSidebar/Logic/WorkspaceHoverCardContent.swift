@@ -199,7 +199,9 @@ struct WorkspaceHoverCardContent: Equatable {
             // that is not connected says how, in its color, under it.
             let own = ownIcon(remote.icon)
             let tone = connectionTone(remote.status)
-            facts.append(Fact(icon: hostIcon(remote), text: remote.name, mark: own.mark, image: own.image, kind: "machine",
+            // The Chief's subagent workspaces say who started them here, not on their row.
+            let name = remote.id.isLocalChief ? Strings.startedByChief : remote.name
+            facts.append(Fact(icon: hostIcon(remote), text: name, mark: own.mark, image: own.image, kind: "machine",
                               accessory: .dot(tone)))
             if let word = connectionWord(remote.status) {
                 facts.append(Fact(icon: .statusDisconnected, text: word, kind: "machineStatus", ink: tone))

@@ -58,8 +58,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onPickAttachments: () -> Void = {}
     /// A paste or a drop; true when taken.
     var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
-    /// While dragging, types only.
+    /// Whether a paste would be taken, types only.
     var acceptsAttachmentDrag: (NSPasteboard) -> Bool = { _ in false }
+    /// A drop on the field; true when taken. Nil takes it as a paste.
+    var onAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// While dragging over the field, types only. Nil answers as for a paste.
+    var acceptsAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// The field became or stopped being the target of a drag the host takes.
+    var onAttachmentDropTarget: (Bool) -> Void = { _ in }
     /// The store refused a send's attachment before logging it; the draft is back.
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
@@ -130,7 +136,8 @@ final class HomeProjection: @preconcurrency ChatIntents {
         liveLine.onTick = { [weak self] in self?.turnPopover?.refresh() }
         liveLine.onClose = { [weak self] in self?.turnPopover?.close() }
         video.controller = controller
-        media.onReady = { [weak self] _ in self?.refreshAttachments() }
+        // A finished picture redraws only the rows that show it (not every attachment row shown).
+        media.onReady = { [weak self] hash in self?.refreshAttachments(only: hash) }
     }
 
     func start() {
@@ -509,9 +516,10 @@ final class HomeProjection: @preconcurrency ChatIntents {
     /// HomeStore's progress and HomeMedia's pictures change no transcript
     /// content, so they reach MessagesLab's message without a transition
     /// (`.cmuxSetAttachment`, the row redraws in place).
-    func refreshAttachments() {
+    /// `only`: just the items that show this hash (its picture became ready).
+    func refreshAttachments(only hash: String? = nil) {
         guard !stopped, let store = controller.store else { return }
-        for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty {
+        for item in shown where !item.isRetracted && !item.attachmentHashes.isEmpty && (hash.map(item.attachmentHashes.contains) ?? true) {
             for (hash, files) in item.localAttachments { media.useLocal(files, for: hash) }
             let id = HomeMapping.id(item, aliases: aliases)
             guard let message = store.state.message(id) else { continue }
@@ -592,6 +600,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
+    func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }
     func statusLineClicked(_ rect: CGRect, in view: NSView) {
         let popover = turnPopover ?? {
             let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }

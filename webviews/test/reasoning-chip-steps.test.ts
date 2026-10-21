@@ -11,6 +11,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 
 await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
@@ -54,7 +55,9 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
     });
     await page.locator(".acpmux-chips .acpmux-model .acpmux-model-detail").first().waitFor({ state: "attached" });
     await page.evaluate(() => document.fonts.ready);
-    await page.waitForTimeout(200);
+    // The row lays out again with the loaded fonts: two painted frames later it has.
+    await installPaintedFrames(page);
+    await page.evaluate(() => window.cmuxPaintFrame().then(() => window.cmuxPaintFrame()));
     return page;
   };
 

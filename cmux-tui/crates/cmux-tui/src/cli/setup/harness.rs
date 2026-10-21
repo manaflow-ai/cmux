@@ -9,9 +9,11 @@
 //! login files). A sign-in that evidence leaves unknown on an ACP harness
 //! is asked of the harness itself, as `cmux harness login ID --status`
 //! does (`initialize` and `session/new` in a private temp folder), never
-//! with a prompt turn: `cmux harness doctor` stays the deep check. Whether
-//! it is outdated comes from the newest version the daemon last read (its
-//! saved copy), so setup asks no registry itself.
+//! with a prompt turn: `cmux harness doctor` stays the deep check. Setup
+//! reads no keychain itself, as the check does not, and does not ask one
+//! whose sign-in may be there (`keychain_sign_in`). Whether it is outdated
+//! comes from the newest version the daemon last read (its saved copy), so
+//! setup asks no registry itself.
 //!
 //! Installing a CLI and signing in are the person's, and an update has no
 //! undo, so this task writes nothing: each harness is `ok` or `needs_user`,
@@ -140,6 +142,7 @@ fn found(cfg: &Config) -> BTreeSet<String> {
 /// harness not set up yet is checked as it would run, and its docs say how
 /// to install it.
 fn shipped(id: &str) -> Option<(HarnessProfile, ProfileMeta)> {
+    // By its id only: an alias (`claude-code`) is not a harness id.
     let (_, text) = acpmux::cli::harness::EXAMPLES.iter().find(|(name, _)| *name == id)?;
     let path = PathBuf::from(format!("{id}.toml"));
     let (_, profile, meta, _) =
@@ -165,13 +168,24 @@ async fn health(cfg: &Config, ids: &BTreeSet<String>) -> Vec<HarnessHealth> {
 }
 
 /// The harness's own answer to an unknown sign-in. None while agent
-/// launches are off, and none for a harness without ACP sign-in (Claude
-/// Code's adapter, a terminal harness): those stay unknown.
+/// launches are off, and none for a harness without ACP sign-in (a
+/// terminal harness): those stay unknown, with the reason. An unknown the
+/// check explained (a provider credential that is not set) stays as it
+/// said, and a harness whose sign-in may be in the login keychain is not
+/// asked: setup reads no keychain itself, as the check does not (cx-hh0vu).
 async fn ask(cfg: &Config, mut row: HarnessHealth) -> HarnessHealth {
-    if row.auth != Auth::Unknown
-        || row.path.is_none()
-        || acpmux::launch_policy::agent_launch_disabled()
-    {
+    if row.auth != Auth::Unknown || row.auth_detail.is_some() || row.path.is_none() {
+        return row;
+    }
+    if acpmux::launch_policy::agent_launch_disabled() {
+        row.auth_detail = Some("agent launches are off, so setup did not ask the harness".into());
+        return row;
+    }
+    let Some(profile) = cfg.harnesses.get(&row.id) else { return row };
+    if let Some(why) = acpmux::harness_health::keychain_sign_in(&row.id, profile) {
+        row.auth_detail = Some(format!(
+            "the sign-in may be in the login keychain ({why}), which setup does not read"
+        ));
         return row;
     }
     match harness_login::auth_state(cfg, &row.id, ASK_TIMEOUT).await {
@@ -183,7 +197,7 @@ async fn ask(cfg: &Config, mut row: HarnessHealth) -> HarnessHealth {
             row.auth = Auth::SignedOut;
             row.auth_detail = Some(message);
         }
-        Ok(AuthState::NotAcp { .. }) => {}
+        Ok(AuthState::NotAcp { hint }) => row.auth_detail = Some(hint),
         Err(error) => row.auth_detail = Some(format!("{error:#}")),
     }
     row

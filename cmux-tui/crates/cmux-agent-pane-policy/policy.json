@@ -73,7 +73,7 @@
     "_acpmux/bookmark_set": {"params": ["sessionId", "seq", "bookmarked"], "acpmux": []},
     "_acpmux/btw": {"params": ["sessionId", "question", "model"], "acpmux": []},
     "_acpmux/queue_remove": {"params": ["sessionId", "promptId"], "acpmux": []},
-    "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "index"], "acpmux": []},
+    "_acpmux/queue_edit": {"params": ["sessionId", "promptId", "op", "text", "images", "index"], "acpmux": []},
     "_acpmux/permission_respond": {"params": ["sessionId", "permissionId", "optionId", "answers", "_meta"], "acpmux": []},
     "_acpmux/handoff_prepare": {"params": ["sessionId", "harness", "handoffKey"], "acpmux": []},
     "_acpmux/handoff_get": {"params": ["sessionId", "handoffId"], "acpmux": []},

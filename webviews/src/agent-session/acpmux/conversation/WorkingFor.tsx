@@ -8,7 +8,9 @@
 // commands that have not ended (the process registry's and the transcript's,
 // inspector/processes.ts `backgroundCommands`) and chats the agent started that are running. Each count opens what it
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
-// the label nor the rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
+// the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
+// the tray above the composer is the count, and App.tsx counts nothing here. Before them, as Claude
+// desktop's line does, it says the turn's tokens so far
 // ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
 // ends, the "Worked for" disclosure takes its place. While the turn waits on the person (an ask
 // above the composer, waitingOn.ts), the line says so in place of the time and the call: the clock
@@ -20,7 +22,6 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
-import type { BackgroundCounts } from "./backgroundWork";
 import { TerminalSquare } from "./icons";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
 import { formatDuration } from "./turns";
@@ -40,10 +41,6 @@ export type WorkingCounts = {
   openSessions: () => void;
   /// The turn's tokens so far (snapshot `turnTokens`), when the harness reports them.
   tokens?: number;
-  /// What still runs between turns, and what opens it: the "Running in background" row at the
-  /// transcript's end counts it (BackgroundWorkRow.tsx).
-  background?: BackgroundCounts;
-  openBackground?: () => void;
 };
 
 /// "2.1M tokens": the running turn's tokens, compact in the pane's language.

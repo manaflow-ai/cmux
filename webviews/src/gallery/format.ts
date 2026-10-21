@@ -79,6 +79,16 @@ export type ChipHostFixture = {
   projectIcons?: Record<string, string>;
   /** `project.icon` answers' `glyph`: a project folder's language or framework (projectIcon.ts). */
   projectGlyphs?: Record<string, string>;
+  /** `pr.inspect` answers, by pull request address: the pull request card's own fixture. */
+  pullRequests?: Record<string, PullRequestFixture>;
+};
+
+/** One `pr.inspect` answer: what the host has for a pull request, and how old it is. */
+export type PullRequestFixture = {
+  pullRequest: Record<string, unknown> | null;
+  /** Seconds since 1970; left out when the host has never had an answer. */
+  fetchedAt?: number;
+  reading?: boolean;
 };
 
 /** One step of an experiment's scripted interaction (the compare view replays them in sync). */
@@ -161,6 +171,9 @@ export type AgentPaneVariant = VariantBase & {
   /** The in-session status toggle (Debug Settings `agent.sessionStatus`, off by default) on, as the
    *  app's `sessionStatus` push sends it: the live plan card and the recap card. */
   sessionStatus?: boolean;
+  /** `<html data-*>` attributes the app sets at document start for Debug Settings choices
+   *  (AgentPaneTunables `documentAttributes`), by name without `data-`: `{ "needs-you": "off" }`. */
+  documentAttributes?: Record<string, string>;
 };
 
 /** The markdown editor page (src/pages/markdown) on an in-page cmuxPage host. */

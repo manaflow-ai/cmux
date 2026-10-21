@@ -74,6 +74,9 @@ public nonisolated struct SidebarWorkspace: Identifiable, Hashable, Sendable {
     /// An agent turn runs in one of the workspace's tabs (daemon agent
     /// state): the row's working indicator.
     public var agentWorking: Bool
+    /// The Priority view's chip for the workspace's most urgent agent chat on this Mac
+    /// (`sidebar.rowStatus`): needs you, done, failed or lost. Nil when every chat works or is idle.
+    public var agentChip: SidebarPriorityEntry.State?
     /// Set only when the user chose an icon or color. When nil, the row
     /// draws no icon (WORKSPACE-ROWS-NO-DEFAULT-ICON).
     public var icon: WorkspaceIcon?

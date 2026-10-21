@@ -298,7 +298,7 @@ mod terminal_create;
 mod terminal_defaults;
 mod terminal_directory;
 mod terminal_lifecycle_commit;
-use terminal_lifecycle_commit::commit_terminal_lifecycle;
+use terminal_lifecycle_commit::{commit_terminal_lifecycle, commit_terminals_adopting};
 mod terminal_exit;
 mod terminal_exit_wait;
 mod terminal_host_link;
@@ -340,7 +340,8 @@ pub use idle_close::{IDLE_CLOSE_REAP_INTERVAL, IdleTerminalReaper, start_idle_te
 pub use layout_ratio_error::LayoutRatioError;
 pub(crate) use pinned_columns::{
     LONE_DOCK_NEIGHBOR_WIDTH, ensure_pane_takes_tabs, ensure_pinned_columns_kept,
-    lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column, pinned_columns,
+    ensure_pinned_tabs_not_closed, lone_pinned_dock_taking_no_tabs, pane_in_lone_pinned_column,
+    pinned_columns,
 };
 pub use presentation::{
     PendingTerminal, TabDirectory, TabNotificationAck, TabPinChange, TreeDecorations,
@@ -691,6 +692,12 @@ pub struct Mux {
     agent_cli_job_execution: Mutex<()>,
     resource_creation_active: AtomicBool,
     terminal_adoptions: Mutex<HashSet<String>>,
+    /// Restored tab names, by tab slot, for terminals that adopt after the
+    /// start: the surface takes its tab's name when it arrives. A leaf lock.
+    restored_tab_names: Mutex<HashMap<SurfaceId, String>>,
+    /// Lets a start's adoption threads go before the owner says ready: a
+    /// creation the crash interrupted waits on its host's adoption.
+    startup_adoptions_released: AtomicBool,
     /// Terminals with a possibly live host and no runtime surface (R41),
     /// keyed by public terminal id (`term_…`, what the tab JSON reads), with
     /// the host terminal id. A leaf lock: nothing else is locked under it.
