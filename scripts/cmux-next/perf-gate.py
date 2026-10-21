@@ -38,7 +38,10 @@ warnings only.
                  in the first frame after it is drawn (late_vsyncs 0; a frame check). Press to drawn over
                  one frame is a warning; the reply (the daemon's confirm) is reported.
   idle           Settings open, then 10 workspace switches: the page's host lists list the wallpaper
-                 folders 0 times (debug.layout_counters backdrop_catalog_builds; perf100). Then 5 s with
+                 folders 0 times (debug.layout_counters backdrop_catalog_builds; perf100). 10 workspace
+                 renames 0.3 s apart: at most 4 `Control.frames` display frames each (debug.wakeups
+                 ledger; the snapshot publisher's throttle is a deadline, not a clock check per
+                 frame). Then 5 s with
                  nothing changing: no FrameScheduler delivers a frame (debug.wakeups frames, which
                  count stalled-link frames too, so any console measures it).
   status         4 background workspaces print OSC 7501 progress 4 times a second for 5 s:
@@ -89,6 +92,10 @@ BUDGET = {
     # Settings open, per 10 workspace switches (perf100): wallpaper folder listings; then display
     # frames delivered by every FrameScheduler in 5 s with nothing changing.
     "idle": {"backdrop_catalog_builds": 0, "idle_frames": 0},
+    # Display frames the control batcher (`Control.frames`: work queue + snapshot publisher) runs per
+    # model change, 10 renames 0.3 s apart: the rename's work-queue frames and one publish. The
+    # publisher waited out its 100 ms throttle by checking the clock on every frame (12 at 120 Hz).
+    "publish_frames_per_change": 4,
 }
 # Known breaches of a budget above: (scenario, counter) -> (the value measured today, the bead that
 # removes it). A breach up to that value is a warning that names the bead; above it, a failure. A
@@ -913,6 +920,20 @@ class Gate:
         # Settings closes again: `status` runs as before.
         app.action("goToWorkspace", {"workspace": ids[0]})
         app.action("closeTab")
+        # A model change publishes after the publisher's throttle without a frame per clock check.
+        ledger = lambda: sum(e.get("count", 0) for e in (app.rpc("debug.wakeups") or {}).get("ledger") or []
+                             if e.get("owner") == "Control.frames" and e.get("reason") == "frame")
+        app.quiet_counters()
+        before = ledger()
+        for i in range(10):
+            app.action("renameWorkspace", {"name": f"perf idle {i}"}, target=f"workspace:{ids[1]}")
+            time.sleep(0.3)  # test script: one model change at a time, past the 100 ms throttle
+        app.settle()
+        per_change = (ledger() - before) / 10
+        report["phases"].setdefault("idle", {})["publish_frames_per_change"] = per_change
+        check(per_change <= BUDGET["publish_frames_per_change"],
+              f"{per_change:g} control batcher frames per model change (10 renames; budget "
+              f"{BUDGET['publish_frames_per_change']})", "idle")
         # Nothing changes for 5 s: no display link runs.
         app.quiet_counters()
         time.sleep(2.0)  # test script: trailing work of the switches above settles before the window
