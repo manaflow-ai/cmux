@@ -109,9 +109,56 @@ class ArmTests(unittest.TestCase):
     def test_heads_down_has_no_team_tools_and_no_receipts(self):
         self.assertEqual(team_eval.ARMS["A"]["tools"], "")
         self.assertEqual(team_eval.ARMS["A"]["grace"], "0")
-        for arm in ("M", "D"):
+        for arm in ("B", "B2"):
             self.assertEqual(team_eval.ARMS[arm]["tools"], "spawn,tell")
             self.assertNotEqual(team_eval.ARMS[arm]["grace"], "0")
+
+
+class SpendTests(unittest.TestCase):
+    def test_a_transcript_counts_each_message_once_and_grows_live(self):
+        import tempfile
+        d = tempfile.mkdtemp()
+        proj = os.path.join(d, ".claude", "projects", "-tmp-repo")
+        os.makedirs(proj)
+        f = os.path.join(proj, "s1.jsonl")
+        line = lambda mid, out: json.dumps({"type": "assistant", "message": {"id": mid, "model": "claude-opus-5-5",
+                                            "usage": {"input_tokens": 1000, "output_tokens": out}}}) + "\n"
+        open(f, "w").write(line("m1", 100) + line("m1", 1000))  # a streamed copy: the last wins
+        meter = team_eval.LiveMeter([d, None])
+        self.assertAlmostEqual(meter.usd(), (1000 * 5 + 1000 * 25) / 1e6)
+        with open(f, "a") as fh:
+            fh.write(line("m2", 0) + '{"type": "assistant", "message": {"id": "m3"')  # m3 is half written
+        self.assertAlmostEqual(meter.usd(), (2000 * 5 + 1000 * 25) / 1e6)
+
+    def test_an_unknown_model_is_priced_as_the_dearest_and_cache_writes_by_ttl(self):
+        u = {"cache_creation_input_tokens": 10**6, "cache_creation": {"ephemeral_5m_input_tokens": 10**6}}
+        self.assertEqual(team_eval.usage_usd("claude-opus-5-5", u), 6.25)
+        self.assertEqual(team_eval.usage_usd("claude-opus-5-5", {"cache_creation_input_tokens": 10**6}), 10.0)
+        self.assertEqual(team_eval.usage_usd("some-new-model", {"output_tokens": 10**6}), 25.0)
+
+    def test_the_ledger_never_lets_the_eval_pass_its_cap(self):
+        import tempfile
+        path = os.path.join(tempfile.mkdtemp(), "ledger.json")
+        led = team_eval.Ledger(path, 60)
+        self.assertEqual(led.reserve("r1", 25, 3), 25)          # committed 28
+        self.assertEqual(led.reserve("r2", 25, 3), 25)          # 56
+        self.assertIsNone(led.reserve("r3", 25, 3))             # 60 - 56 - 3 = 1 < 5
+        led.settle("r1", 7.5)                                   # 7.5 + 28 = 35.5
+        self.assertEqual(led.reserve("r3", 25, 3), 21)          # cut to fit: 60 - 35.5 - 3
+        led.settle("r2", None)                                  # unknown keeps its 28
+        self.assertAlmostEqual(team_eval.Ledger(path, 60).committed(), 7.5 + 28 + 24)
+        self.assertIsNone(led.reserve("r1", 25, 3))             # done runs never rerun
+        with self.assertRaises(SystemExit):
+            team_eval.Ledger(path, 800)                         # one cap per eval
+
+    def test_step_spend_reads_the_higher_of_trace_and_live(self):
+        out = 'x\nTEAM-EVAL {"cost_usd": {"all": 4.0, "live": 4.5}}\n'
+        self.assertEqual(team_eval.step_spend(out), 4.5)
+        self.assertIsNone(team_eval.step_spend("no line"))
+
+    def test_followup_skew(self):
+        task = {"followups": [{"id": "status", "at": 120}, {"id": "scope", "at": 360}]}
+        self.assertEqual(team_eval.followup_skew({"brief": 1000, "status": 121500}, task), {"status": 0.5})
 
 
 if __name__ == "__main__":

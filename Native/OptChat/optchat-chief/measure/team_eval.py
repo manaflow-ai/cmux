@@ -11,23 +11,39 @@ or runs a fleet step: `gh` and `cmux-ci` are stubs on the run's PATH that
 record their calls.
 
 Arms (the profile and env differ, nothing else):
-  A  Chief heads-down: no spawn or tell, receipts off.
-  M  Front desk may act: receipts on, spawn and tell, and the rule that work
-     fitting a few quick tool calls is done inline, the rest handed off.
-  D  Front desk always delegates: receipts on, spawn and tell, every task to
-     a subagent.
-  L  Lossy heads-down: no Chief. One plain Claude Code session (stream-json,
-     as acpmux runs Claude Code) in the task repo, with its own
-     auto-compaction; messages sent while it works wait for its next turn.
+  A   Chief heads-down: no spawn or tell, receipts off.
+  B   Front desk always delegates: receipts on, spawn and tell, every task to
+      a subagent.
+  B2  Front desk may act: receipts on, spawn and tell, and the rule that work
+      fitting a few quick tool calls is done inline, the rest handed off.
+  C   UniiChat (team_eval_unii.py): its tree memory and background agents.
+  L   Lossy heads-down: no Chief. One plain Claude Code session (stream-json,
+      as acpmux runs Claude Code) in the task repo, with its own
+      auto-compaction; messages sent while it works wait for its next turn.
 
 usage:
-  team_eval.py run --task ID --arm A|M|D|L --bins DIR --repo DIR --out DIR
+  team_eval.py run --task ID --arm A|B|B2|C|L --bins DIR --repo DIR --out DIR
       [--tasks FILE] [--env K=V ...] [--budget-usd 40] [--max-minutes 60] [--keep-repo DIR]
   --bins   optchat-chief, cmux-tui (also as cmux) and acpmux
   --repo   a cmux checkout that has the task's base and reference commits
 Writes OUT/run.json (timeline, cost, flags), OUT/conversation.json,
 OUT/traces/, OUT/diff.patch and OUT/stubs.jsonl. Scoring that needs a judge
 is team_eval_score.py; the numbers that need none are in run.json.
+
+A run stops at --budget-usd of real spend: the live total of its Claude
+Code transcripts (LiveMeter, mid-turn too) or the trace's, the higher.
+
+  team_eval.py campaign --ref SHA --base-url URL --task ID... --arm ARM...
+      [--reps 1] [--cap-usd 800] [--ledger FILE] [--run-budget 25]
+      [--margin 3] [--parallel 3] --out DIR
+runs every task x arm x rep as a fleet step (scripts/measure/team-eval.sh)
+under one spend cap for the whole eval, pilot and full run alike: the
+ledger (default ~/.local/state/team-eval/ledger.json) holds what each run
+spent and what each running one may still spend. A run starts only when
+spent + reserved + its budget + margin stays under the cap; its budget is
+cut to fit, and none starts below $5. A run whose spend is unknown (no
+TEAM-EVAL line) counts its whole reservation. Re-running the same campaign
+re-attaches to its steps (the same --key) and skips finished runs.
 """
 import argparse
 import json
@@ -47,7 +63,17 @@ DESK_PREFIX = "voice:desk:"
 
 ARMS = {
     "A": {"tools": "", "grace": "0", "rule": ""},
-    "M": {
+    "B": {
+        "tools": "spawn,tell",
+        "grace": "5",
+        "rule": (
+            "You are the front desk and the dispatcher of this Chief. Answer every message from "
+            "the person quickly. You never do the task's work yourself: every piece of work goes "
+            "to a subagent with spawn (give it the repo path and the whole task), and follow-ups "
+            "about it go to that subagent with tell. You route, track and keep the person told."
+        ),
+    },
+    "B2": {
         "tools": "spawn,tell",
         "grace": "5",
         "rule": (
@@ -57,16 +83,6 @@ ARMS = {
             "longer, parallel or blocking (a multi-file change, a test run, a build) to a subagent "
             "with spawn, give it the repo path and the whole task, then track it and keep the "
             "person told. Never spend a long turn heads-down while the person waits."
-        ),
-    },
-    "D": {
-        "tools": "spawn,tell",
-        "grace": "5",
-        "rule": (
-            "You are the front desk and the dispatcher of this Chief. Answer every message from "
-            "the person quickly. You never do the task's work yourself: every piece of work goes "
-            "to a subagent with spawn (give it the repo path and the whole task), and follow-ups "
-            "about it go to that subagent with tell. You route, track and keep the person told."
         ),
     },
 }
@@ -124,6 +140,70 @@ def trace_cost(events):
     total = {"turns": sum(rises(turns)), "subagents": sum(sum(rises(v)) for v in subs.values()), "compactor": nodes}
     total["all"] = sum(total.values())
     return {k: round(v, 4) for k, v in total.items()}
+
+
+# List prices per million tokens: input, cache write 1h, cache write 5m, cache read, output.
+from unii_bench import PRICES  # noqa: E402
+
+
+def usage_usd(model, usage):
+    """One API response's dollars at list prices. A model not in PRICES is
+    priced as the dearest; a cache write with no 1h/5m split as 1h."""
+    p = PRICES.get(model) or max(PRICES.values())
+    split = usage.get("cache_creation") or {}
+    w1h, w5m = split.get("ephemeral_1h_input_tokens"), split.get("ephemeral_5m_input_tokens")
+    if w1h is None and w5m is None:
+        w1h, w5m = usage.get("cache_creation_input_tokens") or 0, 0
+    return ((usage.get("input_tokens") or 0) * p[0] + (w1h or 0) * p[1] + (w5m or 0) * p[2]
+            + (usage.get("cache_read_input_tokens") or 0) * p[3] + (usage.get("output_tokens") or 0) * p[4]) / 1e6
+
+
+class LiveMeter:
+    """Real spend while the run runs, mid-turn too: every Claude Code
+    transcript under `roots` (`projects/**/*.jsonl`, written as each response
+    arrives), each assistant message's usage at list prices, once per message
+    id (streamed copies repeat it; the last wins). The trace's cost comes
+    only at a turn's end, so the budget reads this."""
+
+    def __init__(self, roots):
+        self.roots = [r for r in roots if r]
+        self.offsets = {}
+        self.by_id = {}
+
+    def usd(self):
+        for root in self.roots:
+            for dirpath, _, files in os.walk(root):
+                if "projects" not in dirpath.split(os.sep):
+                    continue
+                for f in files:
+                    if f.endswith(".jsonl"):
+                        self._read(os.path.join(dirpath, f))
+        return sum(self.by_id.values())
+
+    def _read(self, path):
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(self.offsets.get(path, 0))
+                chunk = fh.read()
+        except OSError:
+            return
+        whole = chunk[: chunk.rfind(b"\n") + 1]
+        self.offsets[path] = self.offsets.get(path, 0) + len(whole)
+        for line in whole.splitlines():
+            try:
+                e = json.loads(line)
+            except ValueError:
+                continue
+            msg = e.get("message") if isinstance(e, dict) else None
+            if e.get("type") != "assistant" or not isinstance(msg, dict) or not msg.get("usage"):
+                continue
+            self.by_id[msg.get("id") or f"{path}:{len(self.by_id)}"] = usage_usd(msg.get("model"), msg["usage"])
+
+
+def followup_skew(sent, task):
+    """Seconds each follow-up went out after its schedule (`at` after the brief)."""
+    return {f["id"]: round((sent[f["id"]] - sent["brief"]) / 1000 - f["at"], 1)
+            for f in task["followups"] if f["id"] in sent and "brief" in sent}
 
 
 def timeline(sent, messages, arrivals):
@@ -342,6 +422,7 @@ def run_lossy(opts):
             with lock:
                 events.append((now_ms(), {"type": "eval.sent", "key": key, "text": text}))
 
+        meter = LiveMeter([os.path.join(os.environ["HOME"], ".claude"), extra.get("CLAUDE_CONFIG_DIR")])
         sent = {}
         t0 = now_ms()
         sent["brief"] = t0
@@ -361,7 +442,7 @@ def run_lossy(opts):
                 log(f"sent {f['id']}")
             with lock:
                 snap = list(events)
-            cost = lossy_cost(snap)
+            cost = max(lossy_cost(snap), meter.usd())
             if cost > opts.budget_usd:
                 end = "budget"
                 info["flags"].append(f"stopped at ${cost:.2f}, over the ${opts.budget_usd:.0f} budget")
@@ -394,7 +475,9 @@ def run_lossy(opts):
         info.update({
             "sent": sent,
             "timeline": timeline(sent, msgs, arrivals),
-            "cost_usd": {"turns": lossy_cost(snap), "subagents": 0, "compactor": 0, "all": lossy_cost(snap)},
+            "cost_usd": {"turns": lossy_cost(snap), "subagents": 0, "compactor": 0, "all": lossy_cost(snap),
+                         "live": round(meter.usd(), 4)},
+            "followup_skew_s": followup_skew(sent, task),
             "turns": sum(1 for _, e in snap if e.get("type") == "result"),
             "compactions": sum(1 for _, e in snap if e.get("type") == "system" and e.get("subtype") == "compact_boundary"),
             "spawns": 0, "receipts": 0,
@@ -405,7 +488,7 @@ def run_lossy(opts):
         })
         if info["leaks"]:
             info["flags"].append("the reference answer was mentioned")
-        log(f"done: {end} after {info['minutes']} min, ${info['cost_usd']['all']}, {info['turns']} turns, "
+        log(f"done: {end} after {info['minutes']} min, ${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}, {info['turns']} turns, "
             f"diff {info['diff_lines']} lines, flags {info['flags']}")
     finally:
         if proc and proc.poll() is None:
@@ -422,12 +505,149 @@ def run_lossy(opts):
         shutil.rmtree(brain, ignore_errors=True)
 
 
+CAMPAIGN_ARMS = sorted(ARMS) + ["C", "L"]
+MIN_RUN_BUDGET = 5
+
+
+class Ledger:
+    """The eval's spend ledger: one JSON file, the cap fixed when it is made.
+    `committed` is what finished runs spent plus what running (or crashed,
+    unknown) ones were allowed to spend, so the cap holds even when runs
+    overlap or this process dies."""
+
+    def __init__(self, path, cap):
+        import threading
+        self.path = os.path.expanduser(path)
+        self.lock = threading.Lock()
+        if os.path.exists(self.path):
+            with open(self.path) as f:
+                self.data = json.load(f)
+            if cap is not None and abs(self.data["cap_usd"] - cap) > 1e-9:
+                raise SystemExit(f"ledger {self.path} has cap ${self.data['cap_usd']}, not ${cap}; one cap per eval")
+        else:
+            if cap is None:
+                raise SystemExit("a new ledger needs --cap-usd")
+            self.data = {"cap_usd": cap, "runs": {}}
+            self._save()
+
+    def _save(self):
+        os.makedirs(os.path.dirname(self.path), exist_ok=True)
+        tmp = self.path + ".tmp"
+        with open(tmp, "w") as f:
+            json.dump(self.data, f, indent=1)
+            f.flush()
+            os.fsync(f.fileno())
+        os.replace(tmp, self.path)
+
+    def committed(self):
+        return sum(r["spent"] if r["state"] == "done" else r["reserved"] for r in self.data["runs"].values())
+
+    def reserve(self, key, want, margin):
+        """The budget `key` may spend (whole dollars), reserved with its
+        margin, or None when the cap leaves less than MIN_RUN_BUDGET."""
+        with self.lock:
+            old = self.data["runs"].get(key)
+            if old and old["state"] == "done":
+                return None
+            room = self.data["cap_usd"] - (self.committed() - (old["reserved"] if old else 0)) - margin
+            budget = int(min(want, room))
+            if budget < MIN_RUN_BUDGET:
+                return None
+            self.data["runs"][key] = {"state": "running", "budget": budget, "reserved": budget + margin,
+                                      "spent": None, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
+            self._save()
+            return budget
+
+    def settle(self, key, spent, step=None):
+        """A finished run: its spend, or (None) unknown, which keeps the whole reservation."""
+        with self.lock:
+            r = self.data["runs"][key]
+            r["step"] = step
+            if spent is None:
+                r["state"] = "unknown"
+            else:
+                r.update(state="done", spent=round(spent, 4))
+            self._save()
+
+
+def step_spend(stdout):
+    """A step's real spend from its TEAM-EVAL line, or None."""
+    for line in reversed(stdout.splitlines()):
+        if line.startswith("TEAM-EVAL {"):
+            c = json.loads(line[len("TEAM-EVAL "):]).get("cost_usd") or {}
+            vals = [v for v in (c.get("all"), c.get("live")) if isinstance(v, (int, float))]
+            return max(vals) if vals else None
+    return None
+
+
+def campaign(opts):
+    from concurrent.futures import ThreadPoolExecutor
+
+    ledger = Ledger(opts.ledger, opts.cap_usd)
+    out = os.path.abspath(opts.out)
+    os.makedirs(out, exist_ok=True)
+    runs = [(t, a, n) for n in range(1, opts.reps + 1) for t in opts.task for a in opts.arm]
+
+    def one(run):
+        task, arm, n = run
+        key = f"team-eval-{opts.name}-{task}-{arm}-{n}"
+        if os.path.exists(os.path.join(out, key, "out", "run.json")):
+            return key, "kept"
+        budget = ledger.reserve(key, opts.run_budget, opts.margin)
+        if budget is None:
+            return key, f"not started: the ${ledger.data['cap_usd']:.0f} cap is reached or it already ran"
+        cmd = ["cmux-ci", "run", "--class", "exclusive", "--script", "scripts/measure/team-eval.sh", "--ref", opts.ref,
+               f"--arg=base_url={opts.base_url}", f"--arg=task={task}", f"--arg=arm={arm}", f"--arg=budget={budget}",
+               f"--arg=model={opts.model}", f"--arg=effort={opts.effort}", f"--arg=minutes={opts.minutes}",
+               "--artifact", ".build/team-eval/out.tgz", "--timeout", str(int(opts.minutes) * 60 + 3600), "--key", key]
+        r = subprocess.run(cmd, capture_output=True, text=True)
+        step = next((m.group(1) for m in re.finditer(r"cmux-ci: step (\S+) ", r.stderr)), None)
+        os.makedirs(os.path.join(out, key), exist_ok=True)
+        log = r.stdout
+        if step and "TEAM-EVAL {" not in log:
+            log += subprocess.run(["cmux-ci", "log", step], capture_output=True, text=True).stdout
+        with open(os.path.join(out, key, "step.log"), "w") as f:
+            f.write(log + "\n--- stderr\n" + r.stderr)
+        spent = step_spend(log)
+        if step and r.returncode == 0:
+            tgz = os.path.join(out, key, "out.tgz")
+            if subprocess.run(["cmux-ci", "artifact", step, tgz], capture_output=True).returncode == 0:
+                subprocess.run(["tar", "-xzf", tgz, "-C", os.path.join(out, key)], check=False)
+        run_json = os.path.join(out, key, "out", "run.json")
+        if spent is None and os.path.exists(run_json):
+            with open(run_json) as f:
+                spent = step_spend("TEAM-EVAL " + json.dumps(json.load(f)))
+        ledger.settle(key, spent, step)
+        return key, f"rc {r.returncode}, spent {'unknown' if spent is None else f'${spent:.2f}'}"
+
+    with ThreadPoolExecutor(max_workers=opts.parallel) as pool:
+        for key, what in pool.map(one, runs):
+            print(f"[team-eval campaign] {key}: {what}; committed ${ledger.committed():.2f} of ${ledger.data['cap_usd']:.0f}",
+                  flush=True)
+
+
 def main():
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
+    c = sub.add_parser("campaign")
+    c.add_argument("--name", required=True, help="the campaign's name, in every step key (pilot, full)")
+    c.add_argument("--ref", required=True)
+    c.add_argument("--base-url", required=True)
+    c.add_argument("--task", nargs="+", required=True)
+    c.add_argument("--arm", nargs="+", required=True, choices=CAMPAIGN_ARMS)
+    c.add_argument("--reps", type=int, default=1)
+    c.add_argument("--cap-usd", type=float, default=None, help="fixed when the ledger is made; 800 for this eval")
+    c.add_argument("--ledger", default="~/.local/state/team-eval/ledger.json")
+    c.add_argument("--run-budget", type=float, default=25)
+    c.add_argument("--margin", type=float, default=3, help="dollars a run may overshoot its budget by (one response)")
+    c.add_argument("--parallel", type=int, default=3)
+    c.add_argument("--model", default="claude-opus-5-5")
+    c.add_argument("--effort", default="medium")
+    c.add_argument("--minutes", type=int, default=60)
+    c.add_argument("--out", required=True)
     r = sub.add_parser("run")
     r.add_argument("--task", required=True)
-    r.add_argument("--arm", required=True, choices=sorted(ARMS) + ["L"])
+    r.add_argument("--arm", required=True, choices=CAMPAIGN_ARMS)
     r.add_argument("--tasks", default=os.path.join(HERE, "team_eval_tasks.json"))
     r.add_argument("--bins", required=True)
     r.add_argument("--repo", required=True)
@@ -438,8 +658,13 @@ def main():
     r.add_argument("--quiet-seconds", type=float, default=90)
     r.add_argument("--keep-repo", default="", help="check the task out here and leave it (for checks after the run)")
     opts = ap.parse_args()
-    if opts.arm == "L":
+    if opts.cmd == "campaign":
+        campaign(opts)
+    elif opts.arm == "L":
         run_lossy(opts)
+    elif opts.arm == "C":
+        import team_eval_unii
+        team_eval_unii.run_unii(opts)
     else:
         run(opts)
 
@@ -587,6 +812,10 @@ def run(opts):
                  "transaction": f"tx-{key}", "op": {"kind": "message.send", "client_msg_id": key,
                                                     "parts": [{"type": "text", "text": text}]}})
 
+        meter = LiveMeter([brain, os.path.join(os.environ["HOME"], ".claude"),
+                           dict(kv.split("=", 1) for kv in opts.env).get("CLAUDE_CONFIG_DIR")])
+        last_meter = 0
+        live = 0.0
         sent = {}
         t0 = now_ms()
         sent["brief"] = t0
@@ -607,7 +836,12 @@ def run(opts):
             ev = trace_events()
             if len(ev) + len(msgs) != seen:
                 seen, last_activity = len(ev) + len(msgs), now_ms()
-            cost = trace_cost(ev)["all"]
+            if now_ms() - last_meter > 5000:
+                live, last_meter = meter.usd(), now_ms()
+            traced = trace_cost(ev)
+            # Real spend: the transcripts' live total plus the compactor
+            # (no transcript), or the trace's when that is higher.
+            cost = max(traced["all"], live + traced["compactor"])
             if cost > opts.budget_usd:
                 end = "budget"
                 info["flags"].append(f"stopped at ${cost:.2f}, over the ${opts.budget_usd:.0f} budget")
@@ -635,7 +869,8 @@ def run(opts):
         info.update({
             "sent": sent,
             "timeline": timeline(sent, msgs, arrivals),
-            "cost_usd": trace_cost(ev),
+            "cost_usd": dict(trace_cost(ev), live=round(meter.usd() + trace_cost(ev)["compactor"], 4)),
+            "followup_skew_s": followup_skew(sent, task),
             "turns": sum(1 for e in ev if e.get("ev") == "turn.end"),
             "spawns": sum(1 for e in ev if e.get("ev") == "spawn"),
             "receipts": sum(1 for m in msgs if is_desk(m)),
@@ -648,7 +883,7 @@ def run(opts):
             info["flags"].append("arm A spawned a subagent")
         if info["leaks"]:
             info["flags"].append("the reference answer was mentioned")
-        log(f"done: {end} after {info['minutes']} min, ${info['cost_usd']['all']}, {info['turns']} turns, "
+        log(f"done: {end} after {info['minutes']} min, ${max(info['cost_usd']['all'], info['cost_usd'].get('live') or 0)}, {info['turns']} turns, "
             f"{info['spawns']} spawns, diff {info['diff_lines']} lines, flags {info['flags']}")
     finally:
         # The evidence of a stopped run, before the brain dir goes.

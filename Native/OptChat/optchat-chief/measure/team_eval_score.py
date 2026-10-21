@@ -91,7 +91,7 @@ def score(out, tasks, opts):
     met = [i for i in checklist.get("items", []) if i.get("met")]
     return {
         "task": run["task"], "arm": run["arm"], "end": run.get("end"), "minutes": run.get("minutes"),
-        "cost_usd": run.get("cost_usd", {}).get("all"), "turns": run.get("turns"), "spawns": run.get("spawns"),
+        "cost_usd": max([v for v in (run.get("cost_usd", {}).get(k) for k in ("all", "live")) if v is not None] or [None]), "turns": run.get("turns"), "spawns": run.get("spawns"),
         "receipts": run.get("receipts"), "flags": run.get("flags"), "leaks": len(run.get("leaks") or []),
         "first_reply_s": (run["timeline"]["brief"]["first_reply_ms"] or 0) / 1000 if run["timeline"]["brief"]["first_reply_ms"] is not None else None,
         "waits_s": waits,

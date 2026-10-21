@@ -3,7 +3,7 @@
 # knowledge/inspiration/coordinator-mode-eval.md): one task, one arm, a real
 # Chief through a credential-free Claude route, alone on a worker:
 #   cmux-ci run --class exclusive --script scripts/measure/team-eval.sh --ref SHA \
-#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=A|M|D|L \
+#     --arg=base_url=http://HOST:PORT --arg=task=composer-scroll --arg=arm=A|B|B2|C|L \
 #     [--arg=model=claude-opus-5-5] [--arg=effort=medium] [--arg=budget=40] \
 #     [--arg=minutes=60] [--arg=claude=2.1.300] \
 #     --artifact .build/team-eval/out.tgz --timeout 7200
@@ -43,7 +43,7 @@ for arg in "$@"; do
 done
 [[ "$base_url" =~ ^https?://[A-Za-z0-9.-]+(:[0-9]{1,5})?$ ]] || { echo "team-eval.sh: base_url=http://HOST[:PORT] is required" >&2; exit 2; }
 [[ "$task" =~ ^[a-z0-9-]{1,40}$ ]] || { echo "team-eval.sh: task=ID (see team_eval_tasks.json)" >&2; exit 2; }
-[[ "$arm" =~ ^[AMDL]$ ]] || { echo "team-eval.sh: arm=A|M|D|L" >&2; exit 2; }
+[[ "$arm" =~ ^(A|B|B2|C|L)$ ]] || { echo "team-eval.sh: arm=A|B|B2|C|L" >&2; exit 2; }
 [[ "$model" =~ ^[a-z0-9.-]{1,60}$ ]] || { echo "team-eval.sh: model=NAME" >&2; exit 2; }
 [[ "$effort" =~ ^(low|medium|high|xhigh|max)$ ]] || { echo "team-eval.sh: effort=low|medium|high|xhigh|max" >&2; exit 2; }
 [[ "$budget" =~ ^[0-9]{1,3}$ ]] || { echo "team-eval.sh: budget is whole dollars" >&2; exit 2; }
@@ -93,8 +93,8 @@ for sha in "$base" "$reference"; do
 done
 
 export CI=1
-# Arm L runs no Chief: only Claude Code.
-if [[ "$arm" != L ]]; then
+# Arms C and L run no Chief: UniiChat, or only Claude Code.
+if [[ "$arm" != L && "$arm" != C ]]; then
 git submodule update --init --depth 1 ghostty-next
 scripts/cmux-next/build-acpmux.sh --output "$work/bin/acpmux"
 scripts/cmux-next/build-optchat-chief.sh --output "$work/bin/optchat-chief"
