@@ -79,6 +79,7 @@ final class SidebarPriorityRowView: NSView {
         case .done: Strings.priorityDone
         case .failed: Strings.priorityFailed
         case .lost: Strings.priorityLost
+        case .ciFailing: Strings.priorityCIFailing
         case .working(let since):
             since.flatMap { elapsed(from: $0, to: now) }.map(Strings.priorityWorking(for:)) ?? Strings.priorityWorking
         case .idle: Strings.priorityIdle
@@ -96,11 +97,11 @@ final class SidebarPriorityRowView: NSView {
         return formatter.string(from: seconds)
     }
 
-    /// Attention for needs you, danger for failed or lost, dim otherwise; workspace rows use it too.
+    /// Attention for needs you, danger for failed, lost or Red CI, dim otherwise; workspace rows use it too.
     static func chipColor(_ state: SidebarPriorityEntry.State) -> NSColor {
         switch state {
         case .needsYou: Palette.attention
-        case .failed, .lost: Palette.danger
+        case .failed, .lost, .ciFailing: Palette.danger
         case .done, .working, .idle: Palette.textTertiary
         }
     }
@@ -109,7 +110,7 @@ final class SidebarPriorityRowView: NSView {
         switch state {
         case .needsYou: .waiting
         case .working: .working
-        case .failed, .lost: .error
+        case .failed, .lost, .ciFailing: .error
         case .done, .idle: .idle
         }
     }
@@ -162,7 +163,9 @@ final class SidebarPriorityRowView: NSView {
         title.frame = NSRect(x: inset, y: pad, width: max(0, titleWidth), height: lineHeight)
         placeLabel.frame = NSRect(x: title.frame.maxX + Metrics.space2, y: pad, width: tagWidth, height: lineHeight)
         let previewTop = pad + lineHeight + Metrics.space1
-        preview.frame = NSRect(x: inset, y: previewTop, width: max(0, b.width - 2 * inset), height: max(0, b.height - previewTop - pad))
+        // The full row's lines, not the bounds': an opening or closing slot clips them, never squeezes them.
+        let fullHeight = Self.height(hasPreview: entry.preview != nil)
+        preview.frame = NSRect(x: inset, y: previewTop, width: max(0, b.width - 2 * inset), height: max(0, fullHeight - previewTop - pad))
     }
 
     override func updateLayer() {
