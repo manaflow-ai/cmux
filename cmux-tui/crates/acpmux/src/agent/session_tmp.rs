@@ -420,7 +420,7 @@ mod tests {
     fn two_sessions_never_share_a_temporary_folder() {
         let s = Scratch::new("two");
         let base = s.0.join("acpmux-501");
-        let home = Path::new("/home/someone/.acpmux");
+        let home = Path::new("/home/someone/state");
         let a = make(&base, home, A).unwrap();
         let b = make(&base, home, B).unwrap();
         assert_ne!(a, b);
@@ -587,7 +587,7 @@ mod tests {
     fn a_daemon_sweeps_only_its_own_unknown_sessions() {
         let s = Scratch::new("sweep");
         let base = s.0.join("acpmux-1");
-        let (mine, theirs) = (s.0.join("home/.acpmux"), s.0.join("home/chief/acpmux"));
+        let (mine, theirs) = (s.0.join("home/state"), s.0.join("home/chief/acpmux"));
         std::fs::create_dir_all(&mine).unwrap();
         std::fs::create_dir_all(&theirs).unwrap();
         let (mine, theirs) = (mine.as_path(), theirs.as_path());
@@ -621,7 +621,7 @@ mod tests {
     fn a_purge_removes_the_folder_and_the_first_builds_one() {
         let s = Scratch::new("purge");
         let base = s.0.join("acpmux-1");
-        let home = Path::new("/home/u/.acpmux");
+        let home = Path::new("/home/u/state");
         let user = s.0.join("user");
         let dir = make(&base, home, A).unwrap();
         std::fs::write(dir.join("f"), b"x").unwrap();
@@ -706,7 +706,7 @@ mod tests {
     fn two_homes_with_one_hash_never_share_a_root() {
         let s = Scratch::new("collide");
         let base = s.0.join("acpmux-1");
-        let (first, second) = (Path::new("/home/first/.acpmux"), Path::new("/home/second/.acpmux"));
+        let (first, second) = (Path::new("/home/first/state"), Path::new("/home/second/state"));
         let dir = make(&base, first, A).unwrap();
         // The first's root moved to the second home's name: what a hash
         // collision would make.
