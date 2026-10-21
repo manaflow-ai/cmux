@@ -57,10 +57,14 @@ fn echo_value(harness: &RecoveryHarness, surface: u64, tag: &str, expr: &str) ->
     loop {
         let text = screen(harness, surface);
         // The echoed command line shows the expression; the output does not.
+        // A line the shell is still drawing (`dir-$(b`) has no `-end` yet:
+        // only a value closed by `-end` on its own line, with no `$` left
+        // unexpanded, is the output.
         let value = text.match_indices(&needle).find_map(|(at, _)| {
-            let rest = &text[at + needle.len()..];
-            let value = rest.split("-end").next()?;
-            (!value.contains(expr) && !value.is_empty()).then(|| value.to_string())
+            let line = text[at + needle.len()..].lines().next()?;
+            let (value, _) = line.split_once("-end")?;
+            (!value.contains(expr) && !value.contains('$') && !value.is_empty())
+                .then(|| value.to_string())
         });
         if let Some(value) = value {
             return value;
