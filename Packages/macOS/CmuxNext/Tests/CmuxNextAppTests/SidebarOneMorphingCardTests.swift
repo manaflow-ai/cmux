@@ -63,8 +63,14 @@ import Testing
         var card: SidebarUpdateCardView { sidebar.updateCardView }
         var cards: HoverCardCoordinator { sidebar.hoverCards }
 
-        /// The card windows on screen beside the sidebar.
-        var shownCards: [NSWindow] { (window.childWindows ?? []).filter { $0.isVisible && $0.alphaValue > 0.01 } }
+        /// The card windows on screen beside the sidebar. A hover card being shown counts even at
+        /// alpha 0, the first frame of its fade-in on a host where the fade runs; any other window
+        /// (a card fading out among them) counts until it is clear.
+        var shownCards: [NSWindow] {
+            (window.childWindows ?? []).filter {
+                $0.isVisible && ($0.alphaValue > 0.01 || ($0 as? HoverCardPanel)?.isShowingCard == true)
+            }
+        }
 
         func tearDown() {
             card.hideNotes()
