@@ -36,6 +36,11 @@ final class PaneOverlayView: NSView {
     private let glow = CALayer()
     private let attention = CALayer()
     private let dimLayer = CALayer()
+    /// The ring flashed when focus arrives without a click (`focus.flashOnMove`): its own layer, so
+    /// the ring's opacity updates never cut the flash short.
+    private let focusFlash = CALayer()
+    /// This pane was the focused one at the last update.
+    private var isFocusedPane = false
     private var padding: CGFloat = 0
     private var cornerRadius: CGFloat = 0
     private var headerHeight: CGFloat = 0
@@ -60,7 +65,7 @@ final class PaneOverlayView: NSView {
         glowClip.addSublayer(glow)
         glow.shadowOffset = .zero
         glow.shadowOpacity = 1
-        for sublayer in [dimLayer, border, ring, glowClip, attention] {
+        for sublayer in [dimLayer, border, ring, glowClip, attention, focusFlash] {
             sublayer.opacity = 0
             layer?.addSublayer(sublayer)
         }
@@ -142,7 +147,7 @@ final class PaneOverlayView: NSView {
             sublayer.frame = rect
             sublayer.cornerRadius = radius
         }
-        for sublayer in [ring, glowClip] {
+        for sublayer in [ring, glowClip, focusFlash] {
             sublayer.frame = rect
             sublayer.cornerRadius = ringRadius
         }
@@ -159,6 +164,7 @@ final class PaneOverlayView: NSView {
         glow.cornerRadius = ringRadius
         border.borderWidth = borderStyle.width ?? PaneChromeGeometry.hairlineWidth(scale: scale)
         ring.borderWidth = focusRing.width
+        focusFlash.borderWidth = max(focusRing.width, Self.flashMinimumWidth)
         glow.borderWidth = focusRing.width
         glow.shadowRadius = max(2, focusRing.width * LayoutTunables.focusGlowRadiusFactor.value)
         attention.borderWidth = attentionSettings.width
@@ -193,7 +199,7 @@ final class PaneOverlayView: NSView {
 
     func update(showsRing: Bool, dim: CGFloat, dimFill: DimFill = .pane, focusRing: FocusRingSettings, ringAlphaOverride: CGFloat? = nil,
                 border borderStyle: Border, attention mark: AttentionMark?, attentionSettings: AttentionSettings,
-                readByEntry: Bool = false, animated: Bool) {
+                readByEntry: Bool = false, focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
         self.dimFill = dimFill
         let shapeChanged = focusRing != self.focusRing || attentionSettings != self.attentionSettings
             || borderStyle.width != self.borderStyle.width
@@ -228,9 +234,26 @@ final class PaneOverlayView: NSView {
             for ((layer, value), leaves) in zip(targets, leaving) where !leaves { layer.opacity = value }
         }
         Motion.feedback.transaction(animated ? .paneDim : nil) { dimLayer.opacity = Float(dim) }
+        if Self.flashesFocus(wasFocused: isFocusedPane, focused: focused, requested: flashesFocus, animated: animated,
+                             ringShows: style != .none) {
+            Motion.feedback.set(focusFlash, "opacity", to: Float(0), fade: .focusFlash, from: Float(1))
+        } else if !focused, focusFlash.animation(forKey: "opacity") != nil {
+            // Focus moved on: the flash leaves with it.
+            focusFlash.removeAnimation(forKey: "opacity")
+        }
+        isFocusedPane = focused
         applyAttention(mark, readByEntry: readByEntry, animated: animated)
         applyColors()
     }
+
+    /// Whether the ring flashes on this pane: focus just arrived, the screen asked for the flash
+    /// (`ScreenContentView.requestsFocusFlash`), the change animates and no ring already marks it.
+    static func flashesFocus(wasFocused: Bool, focused: Bool, requested: Bool, animated: Bool, ringShows: Bool) -> Bool {
+        requested && animated && focused && !wasFocused && !ringShows
+    }
+
+    /// The flash's stroke is at least this wide, so a 1 pt ring setting still reads at a glance.
+    static let flashMinimumWidth: CGFloat = 2
 
     /// Reads the highlight look and applies a Debug Settings change once,
     /// without replaying the ring's animation (no polling).
@@ -294,6 +317,9 @@ final class PaneOverlayView: NSView {
         performWithTheme {
             let ringColor = Palette.paneFocusRing(focusRing, override: ringAlphaOverride)
             ring.borderColor = ringColor.cgColor
+            // The flash marks a move, so it draws at least at standard contrast.
+            let flashAlpha = max(ringAlphaOverride ?? focusRing.contrast.ringAlpha, FocusRingContrast.standard.ringAlpha)
+            focusFlash.borderColor = Palette.paneFocusRing(focusRing, override: flashAlpha).cgColor
             glow.borderColor = ringColor.withAlphaComponent(ringColor.alphaComponent * LayoutTunables.focusGlowAlpha.value).cgColor
             glow.shadowColor = ringColor.cgColor
             let attentionColor = attentionMark?.color?.nsColor ?? attentionSettings.color?.nsColor ?? attentionLook.defaultColor

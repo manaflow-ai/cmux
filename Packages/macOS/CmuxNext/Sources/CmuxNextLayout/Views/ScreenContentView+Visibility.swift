@@ -18,6 +18,8 @@ extension ScreenContentView {
             && context.model.lastFocusSource != .pointer
             && context.model.lastFocusSource != .scroll
         let dim = style.inactiveDim(dimsInactive: dimsInactive)
+        let flashes = Self.requestsFocusFlash(enabled: FocusIndicatorTunables.flashOnMove.value, multiple: multiple,
+                                              source: context.model.lastFocusSource)
         for pane in paneFrames.keys {
             guard let host = context.hosts[pane] else { continue }
             let isFocused = pane == focused
@@ -32,9 +34,17 @@ extension ScreenContentView {
                 attention: attention[pane],
                 attentionSettings: style.attention,
                 readByEntry: isFocused && context.model.attentionReadByEntry.contains(pane),
+                focused: isFocused, flashesFocus: flashes,
                 animated: animated
             )
         }
+    }
+
+    /// Whether a focus change flashes the ring on its pane (`focus.flashOnMove`): only focus nobody
+    /// clicked (a link open, the pane after a close, an agent handoff, all `programmatic`); a
+    /// click, scroll or key already shows where focus went. One pane on screen needs no cue.
+    static func requestsFocusFlash(enabled: Bool, multiple: Bool, source: ColumnFocusSource) -> Bool {
+        enabled && multiple && source == .programmatic
     }
 
     // MARK: Visibility and hit testing
