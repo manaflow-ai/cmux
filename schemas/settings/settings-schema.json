@@ -32,7 +32,6 @@
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
-              "browser.toolbarPosition",
               "tabs.barOrder",
               "tabs.overflow",
               "appearance.metrics.tabMaxWidth",
@@ -356,6 +355,7 @@
               "appearance.background",
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
+              "appearance.glass",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim"
@@ -2343,75 +2343,6 @@
     },
     {
       "accepts" : [
-        "top",
-        "bottom"
-      ],
-      "agent_refusal" : null,
-      "agent_settable" : true,
-      "choices" : [
-        {
-          "title" : {
-            "key" : "settings.choice.top",
-            "text" : "Top"
-          },
-          "value" : "top"
-        },
-        {
-          "title" : {
-            "key" : "settings.choice.bottom",
-            "text" : "Bottom"
-          },
-          "value" : "bottom"
-        }
-      ],
-      "consumers" : [
-        "cmux-next"
-      ],
-      "default" : "top",
-      "default_label" : null,
-      "group" : {
-        "key" : "settings.group.tabs",
-        "text" : "Tabs"
-      },
-      "help" : {
-        "key" : "settings.browser.toolbarPosition.help",
-        "text" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
-      },
-      "kept_on_reset_all" : false,
-      "key" : "browser.toolbarPosition",
-      "keywords" : [
-        "omnibar",
-        "address bar",
-        "toolbar",
-        "url bar",
-        "browser",
-        "markdown",
-        "top",
-        "bottom",
-        "position",
-        "layout"
-      ],
-      "kind" : "choice",
-      "page_hidden" : false,
-      "path" : [
-        "browser",
-        "toolbarPosition"
-      ],
-      "refuses" : [
-        "__not_a_choice__",
-        1,
-        true
-      ],
-      "section" : "general",
-      "summary" : null,
-      "title" : {
-        "key" : "settings.browser.toolbarPosition",
-        "text" : "Browser Toolbar Position"
-      },
-      "validation" : "portable"
-    },
-    {
-      "accepts" : [
         "aboveToolbar",
         "belowToolbar"
       ],
@@ -2444,7 +2375,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barOrder.help",
-        "text" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
+        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barOrder",
@@ -10977,6 +10908,84 @@
       "title" : {
         "key" : "settings.appearance.paneBackgrounds",
         "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "lens",
+        "plain",
+        "spectrum"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glassLens",
+            "text" : "Lens"
+          },
+          "value" : "lens"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.glassPlain",
+            "text" : "Plain Glass"
+          },
+          "value" : "plain"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.glassSpectrum",
+            "text" : "Spectrum"
+          },
+          "value" : "spectrum"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "lens",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.glass.help",
+        "text" : "How glass surfaces bend the wallpaper behind them. Plain Glass blurs only. Reduce Transparency and Low Power Mode use Plain Glass."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.glass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "lens",
+        "refraction",
+        "refract",
+        "spectrum",
+        "chromatic",
+        "dispersion",
+        "blur",
+        "wallpaper",
+        "transparency"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "glass"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.glass",
+        "text" : "Glass"
       },
       "validation" : "portable"
     },

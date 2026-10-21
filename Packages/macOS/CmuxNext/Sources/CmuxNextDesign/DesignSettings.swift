@@ -222,6 +222,8 @@ public final class DesignSettings {
     /// `appearance.borders`: default, or none (no border, hairline or
     /// separator anywhere; `Borders`).
     public var borders: BorderMode = .default
+    /// `appearance.glass`: how web glass bends the wallpaper (`GlassLensMode.current` is what draws).
+    public var glass: GlassLensMode = .lens
     /// `appearance.sidebarSurface`: the sidebar on the main pane's surface,
     /// or shaded apart from it.
     public var sidebarSurface: SidebarSurface = .same
