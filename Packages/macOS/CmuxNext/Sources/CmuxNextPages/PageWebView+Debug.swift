@@ -123,6 +123,38 @@ extension PageWebView {
         return clicked as? Bool == true
     }
 
+    /// Moves the mouse onto the center of the first element matching `selector` (scrolled into
+    /// view), so the page gets hover with no AppKit pointer: a capture slot's window never
+    /// activates, and macOS sends an inactive window no mouse moves. Chromium gets a trusted
+    /// DevTools `mouseMoved` (real `:hover`, `mouseenter`); WebKit gets page-script `mouseover`,
+    /// `mouseenter` and `mousemove` (React's `onMouseEnter` listens to `mouseover`, so it runs, but
+    /// `:hover` styles do not apply). `{hovered, native, x, y}` in CSS pixels, or `{hovered: false}`
+    /// when nothing matches.
+    public func debugHover(_ selector: String) async -> JSONValue {
+        let script = """
+        const el = document.querySelector(selector); if (!el) { return null; }
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        const r = el.getBoundingClientRect();
+        const x = r.left + r.width / 2, y = r.top + r.height / 2;
+        if (!native) {
+          for (const type of ['mouseover', 'mouseenter', 'mousemove']) {
+            el.dispatchEvent(new MouseEvent(type, { bubbles: type !== 'mouseenter', clientX: x, clientY: y, view: window }));
+          }
+        }
+        return JSON.stringify({ x, y });
+        """
+        let native = chromiumSession != nil
+        guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
+              case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
+              case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
+        if let page = chromiumSession?.page {
+            guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
+            ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
+        }
+        return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
+    }
+
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
     /// first 120 characters of text (a list's order and row state as the page draws it).
     public func debugQuery(_ selector: String) async -> JSONValue {
