@@ -378,14 +378,24 @@ final class WindowManager {
         userClosed(id)
     }
 
-    /// Flushes state and stops saving (quit).
+    /// Flushes state and stops saving (quit). The records go first: they
+    /// never hold an incognito window, and a slow daemon close of an
+    /// incognito workspace must not keep them past the quit step's limit.
     func prepareForTermination() async {
         recordSaver.geometryTimer.cancel()
+        await recordSaver.flushSaves()
         await closeIncognitoWindowsForTermination()
         await recordSaver.flushSaves()
+        stopSavingForTermination()
+        // Chromium stops later, as the last quit step (QuitCompletion).
+    }
+
+    /// Stops saving for the quit at once: also when ``prepareForTermination()``
+    /// passed its quit-step limit and still runs (`QuitDeadline.step`).
+    func stopSavingForTermination() {
+        recordSaver.geometryTimer.cancel()
         isTerminating = true
         membershipObservation?.cancel()
-        // Chromium stops later, as the last quit step (QuitCompletion).
     }
 
     /// Copies each open window's frame and display into the registry.
