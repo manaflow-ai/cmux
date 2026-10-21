@@ -81,8 +81,9 @@ export type ItemScrollAnchor = { itemId: string; offset: number };
 /**
  * The reader's place as that file and the pixels of it above the viewport's top, so a reorder of
  * the column can put them back on the line they were reading instead of the file's first one. A
- * reorder moves whole files past each other and never changes a file's own height, which is what
- * makes the offset still true afterwards.
+ * reorder moves whole files past each other rather than reflowing any of them, which is what
+ * makes the offset still true afterwards — to within the pixel or two the kind pill adds to every
+ * file header when the grouping comes on (FileHeader.tsx), a fraction of a line.
  *
  * `getTopForItem` is the viewer's own measure of where the file starts. A file it cannot measure
  * anchors at its top — what every file did before the offset existed.
