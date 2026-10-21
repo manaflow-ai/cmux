@@ -109,6 +109,7 @@ const WEAK_LEADS = new Set([
   "run",
   "set",
   "show",
+  "tail",
   "test",
   "update",
   "upgrade",
@@ -231,6 +232,8 @@ export function readsAsRequest(text: string): boolean {
   if (lead && WEAK_LEADS.has(lead) && words.length >= 4) return true;
   // An imperative: a verb, then its object ("open the voice settings").
   if (lead && second && OBJECTS.has(second) && !NOT_VERBS.has(lead) && words.length >= 4) return true;
+  // A known request word and "the": "run the tests", "tail the logs" ("build a bear" stays a title).
+  if (lead && second === "the" && WEAK_LEADS.has(lead) && words.length >= 3) return true;
   if (lead && second && POINTERS.has(second) && WEAK_LEADS.has(lead) && !OBJECTS.has(lead) && words.length >= 3)
     return true;
   // "It broke. Fix it": a word's sentence end, then a new sentence ("St. Louis" stays a name).
