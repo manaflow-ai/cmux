@@ -68,14 +68,18 @@ pub(crate) fn project_layout_columns(columns: &mut Vec<LayoutColumn>) -> ColumnP
     for column in columns.iter_mut() {
         column.normalize_rows();
     }
-    if columns.len() == 1 && columns[0].rows.is_empty() {
+    if columns.len() == 1 && columns[0].rows.is_empty() && !is_lone_pinned(columns) {
         let column = columns.pop().expect("one column");
         return ColumnProjection::Tree {
             root: column.root,
             creation_order_auto_layout: column.creation_order_auto_layout,
         };
     }
-    if let [column] = columns.as_mut_slice() {
+    // A lone pinned column keeps its dock width: the frontend draws it full
+    // width alone and at that width once a column opens beside it again.
+    if let [column] = columns.as_mut_slice()
+        && !column.dock.is_some_and(|flag| flag.pinned)
+    {
         column.width = 1.0;
     }
     normalize_dock_columns(columns);
@@ -244,9 +248,11 @@ impl ColumnDock {
     }
 }
 
-/// True when the dock flags satisfy the column invariants: no flag on a
-/// screen with fewer than two columns, at most one column per edge, and at
-/// least one scrolling (non-dock) column.
+/// True when the dock flags satisfy the column invariants: at most one
+/// column per edge, and at least one scrolling (non-dock) column beside a
+/// dock. The one exception is a lone pinned column (`pinned-dock-alone-v1`):
+/// the Home dock with nothing beside it stays a pinned dock, so Home needs
+/// no placeholder column (a terminal it never asked for) on its right.
 pub(crate) fn dock_columns_are_consistent(columns: &[LayoutColumn]) -> bool {
     dock_flags_are_consistent(&columns.iter().map(|column| column.dock).collect::<Vec<_>>())
 }
@@ -257,18 +263,39 @@ pub(crate) fn dock_flags_are_consistent(flags: &[Option<ColumnDock>]) -> bool {
     if dock.is_empty() {
         return true;
     }
-    flags.len() >= 2
-        && dock.len() < flags.len()
+    ((flags.len() >= 2 && dock.len() < flags.len()) || flags_are_lone_pinned(flags))
         && DockEdge::ALL
             .iter()
             .all(|edge| dock.iter().filter(|flag| flag.edge == *edge).count() <= 1)
 }
 
+/// One column, pinned (`pinned-dock-alone-v1`): the Home dock alone.
+pub(crate) fn flags_are_lone_pinned(flags: &[Option<ColumnDock>]) -> bool {
+    matches!(flags, [Some(flag)] if flag.pinned)
+}
+
+/// [`flags_are_lone_pinned`] over a screen's columns.
+pub(crate) fn is_lone_pinned(columns: &[LayoutColumn]) -> bool {
+    matches!(columns, [column] if column.dock.is_some_and(|flag| flag.pinned))
+}
+
 /// Restore the docked invariants after a structural change removed or
 /// reordered columns: a second column on an edge loses its flag, and when no
-/// scrolling column remains every flag is cleared. Commands that set flags
-/// validate first, so this only acts after removals.
+/// scrolling column remains every flag but a pinned one is cleared (the
+/// others scroll again); a lone pinned column stays docked
+/// (`pinned-dock-alone-v1`). Commands that set flags validate first, so this
+/// only acts after removals.
 pub(crate) fn normalize_dock_columns(columns: &mut [LayoutColumn]) {
+    if is_lone_pinned(columns) {
+        return;
+    }
+    if columns.len() >= 2 && columns.iter().all(|column| column.dock.is_some()) {
+        for column in columns.iter_mut() {
+            if !column.dock.is_some_and(|flag| flag.pinned) {
+                column.dock = None;
+            }
+        }
+    }
     if columns.len() < 2 || columns.iter().all(|column| column.dock.is_some()) {
         for column in columns.iter_mut() {
             column.dock = None;
@@ -378,7 +405,9 @@ impl Screen {
         if self.layout_columns.is_empty() {
             return self.viewport_splits.is_empty() && self.viewport_base_width.is_none();
         }
-        if (self.layout_columns.len() < 2 && !self.has_lone_row_column())
+        if (self.layout_columns.len() < 2
+            && !self.has_lone_row_column()
+            && !is_lone_pinned(&self.layout_columns))
             || self.creation_order_auto_layout.is_some()
             || self.viewport_base_width != self.layout_columns.first().map(|column| column.width)
             || self.viewport_splits.len() + 1 != self.layout_columns.len()

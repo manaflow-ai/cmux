@@ -183,9 +183,8 @@ impl Brain {
         let subagents = self.stop_subagents();
         let turn = self.phase == Phase::Running;
         if turn {
-            self.deny_pending("the owner stopped the turn");
             self.owner_stopped = true;
-            self.interrupt.request();
+            self.interrupt.request_hard();
             (self.log)("the owner stopped the running turn");
         }
         if subagents.is_empty() {

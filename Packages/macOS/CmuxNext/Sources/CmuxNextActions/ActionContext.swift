@@ -48,12 +48,17 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     public static let codeEditorFocused = ActionContext(rawValue: 1 << 18)
     /// `home.channelsEnabled` is on (cx-frn2y): the Channels actions (Open Channels) are available.
     public static let homeChannelsEnabled = ActionContext(rawValue: 1 << 19)
+    /// A web view has the keyboard, or had it last before the palette
+    /// opened: a browser tab (WebKit or Chromium), the Markdown page, an
+    /// agent chat, or any other `WKWebView` page. The Developer Tools
+    /// commands (`devtools.*`) need it.
+    public static let webViewFocused = ActionContext(rawValue: 1 << 20)
     /// A markdown page (with ``markdownFocused``) shows a file it cannot
     /// save: nothing in it takes typing, so it owns bare keys (K1, `g g`).
-    public static let markdownReadOnlyFocused = ActionContext(rawValue: 1 << 20)
+    public static let markdownReadOnlyFocused = ActionContext(rawValue: 1 << 21)
     /// A markdown page (with ``markdownFocused``) edits its file: bare keys
     /// are typing there.
-    public static let markdownEditorFocused = ActionContext(rawValue: 1 << 21)
+    public static let markdownEditorFocused = ActionContext(rawValue: 1 << 22)
 
     /// Contexts whose page owns bare keys (no Command, Control or Option):
     /// only while one holds, and no text field has the keyboard, may a

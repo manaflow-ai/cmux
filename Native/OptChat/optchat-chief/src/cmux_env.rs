@@ -35,6 +35,18 @@ pub const SOCKET_KEYS: [&str; 2] = ["CMUX_TUI_SOCKET", "CMUX_MUX_SOCKET"];
 /// The app's daemon when the host's `--daemon-socket` is not it.
 pub const APP_DAEMON_KEY: &str = "CMUX_APP_DAEMON_SOCKET";
 
+/// The cmux app control socket of a host that has no app of its own (the
+/// Cloud Chief VM): a diagnostics-only relay to the user's Mac app. The
+/// turns' tools get it as `CMUX_SOCKET_PATH`; app actions are denied at the
+/// relay, and subagent workspaces stay on the VM's own daemon/cloud install.
+pub const REMOTE_APP_KEY: &str = "CMUX_CHIEF_APP_SOCKET";
+
+/// Set to `1` in a turn's env: its `cmux` app requests name the Home chat as
+/// their caller, so the app opens a tab with no target beside the Chief's chat
+/// (the app does not know a turn's agent session). Not in `PINNED_KEYS`: a
+/// subagent places beside its own chat.
+pub const HOME_CHAT_KEY: &str = "CMUX_CALLER_HOME_CHAT";
+
 /// The socket `cmux` calls must reach: `CMUX_APP_DAEMON_SOCKET`, else the
 /// host's `--daemon-socket`.
 pub fn app_daemon_socket(

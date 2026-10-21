@@ -148,6 +148,18 @@
       "expect": {"action": "focusUp"}
     },
     {
+      "name": "Cmd-Opt-Left in a terminal focuses the pane to the left (Ghostty goto_split, reserved)",
+      "context": {"surfaceKind": "terminal", "terminalFocused": true},
+      "keys": ["cmd+opt+left"],
+      "expect": {"action": "focusLeft"}
+    },
+    {
+      "name": "Cmd-Opt-Right in a web page focuses the pane to the right (Ghostty goto_split, reserved)",
+      "context": {"surfaceKind": "page", "browserFocused": true},
+      "keys": ["cmd+opt+right"],
+      "expect": {"action": "focusRight"}
+    },
+    {
       "name": "A removal with the default's own when takes it out (one-clause when)",
       "context": {"surfaceKind": "terminal", "terminalFocused": true},
       "removals": [{"key": "cmd+opt+up", "command": "focusUp", "when": "!codeEditorFocused"}],

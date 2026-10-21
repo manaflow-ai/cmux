@@ -11,9 +11,9 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
     case hidden
     /// The user asked to check: a spinning ring.
     case checking
-    /// Downloading or unpacking: a progress ring, nil while the size is
-    /// unknown (spinning).
-    case downloading(progress: Double?)
+    /// Starting, downloading or unpacking (``UpdateTransfer``): a progress
+    /// ring, spinning while unmeasured.
+    case downloading(UpdateTransfer)
     /// Found, not downloaded (`updates.downloadAutomatically` off): a click
     /// downloads and installs.
     case available(version: String?)
@@ -46,12 +46,11 @@ nonisolated public enum UpdateIndicatorPhase: Equatable, Sendable {
         case .error:
             self = .note(.checkFailed)
         case .startingDownload:
-            self = .downloading(progress: nil)
+            self = .downloading(.starting)
         case .downloading(let downloading):
-            let expected = downloading.expectedLength ?? 0
-            self = .downloading(progress: expected > 0 ? min(1, Double(downloading.progress) / Double(expected)) : nil)
-        case .extracting:
-            self = .downloading(progress: nil)
+            self = .downloading(.downloading(received: downloading.progress, expected: downloading.expectedLength))
+        case .extracting(let extracting):
+            self = .downloading(.preparing(extracting.progress > 0 ? extracting.progress : nil))
         case .installing(let installing):
             // Sparkle's "Restart to Complete Update" is the staged update.
             self = installing.isAutoUpdate ? .ready(version: version) : .installing
@@ -83,7 +82,7 @@ extension UpdateIndicatorPhase {
         switch self {
         case .hidden: nil
         case .checking: UpdaterStrings.checking
-        case .downloading: UpdaterStrings.downloading
+        case .downloading(let transfer): transfer.stage == .preparing ? UpdaterStrings.preparing : UpdaterStrings.downloading
         case .ready(let version?) where !version.isEmpty: UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
         case .ready, .available(nil): UpdaterStrings.availableNoVersion + "\n" + UpdaterStrings.install
         case .available(let version?): UpdaterStrings.available(version) + "\n" + UpdaterStrings.install
@@ -95,8 +94,9 @@ extension UpdateIndicatorPhase {
     /// Whether the ring spins: work with no measured progress.
     public var spins: Bool {
         switch self {
-        case .checking, .installing, .downloading(progress: nil): true
-        case .hidden, .available, .downloading, .ready, .note: false
+        case .checking, .installing: true
+        case .downloading(let transfer): transfer.fraction == nil
+        case .hidden, .available, .ready, .note: false
         }
     }
 

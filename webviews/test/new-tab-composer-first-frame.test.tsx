@@ -69,12 +69,12 @@ beforeAll(() => {
 });
 
 afterEach(async () => {
-  const { rememberStartMode } = await import("../src/agent-session/acpmux/startMode");
-  rememberStartMode("claude", undefined, undefined);
+  const { resetStartModesForTests } = await import("../src/agent-session/acpmux/startMode");
   act(() => root?.unmount());
   root = undefined;
   host.replaceChildren();
   dom.window.localStorage.clear();
+  resetStartModesForTests();
 });
 
 afterAll(() => {

@@ -15,7 +15,13 @@ export type AcpmuxSessionEntry = {
   status?: string;
   model?: string;
   cwd?: string;
+  /** acpmux's last write to the session: any logged record, a warm, resume or stop of its agent too. */
   updatedAt?: number;
+  /** When the person or the agent last did something in the chat (`activityAt`): what the chat
+   *  lists sort and label by, so warming, resuming or stopping an agent moves no row. */
+  activityAt?: number;
+  /** When acpmux made the session (`SessionSummary.createdAt`). */
+  createdAt?: number;
   pendingPermissions?: number;
   unread?: boolean;
   /** The status dot acpmux decided (`SessionSummary.indicator`, cx-zlox); absent for none. */
@@ -35,6 +41,9 @@ export type AcpmuxSessionEntry = {
   /** A side chat: a fork tagged `side` with its chat's session, shown beside that chat and off every list. */
   side?: boolean;
   pullRequest?: SessionPullRequest;
+  /** The pull request URLs the session's `gh pr create` calls printed (acpmux `pullRequests`),
+   *  oldest first; absent from an acpmux that does not record them. */
+  pullRequestUrls?: string[];
   /** A line of the session's latest reply, for previews. */
   preview?: string;
   /** A fork: the chat it was forked from and that chat's event it branched after (cx-ncc.61). */
@@ -139,6 +148,8 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     model: text(session.model),
     cwd: typeof session.cwd === "string" ? session.cwd : undefined,
     updatedAt: typeof session.updatedAt === "number" ? session.updatedAt : undefined,
+    activityAt: summaryActivityAt(session),
+    createdAt: typeof session.createdAt === "number" ? session.createdAt : undefined,
     pendingPermissions: Number.isFinite(pending) ? pending : 0,
     unread: session.unread === true,
     indicator: INDICATORS.includes(session.indicator) ? session.indicator : undefined,
@@ -152,6 +163,7 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
     // A side question's throwaway copy (`aside`, acpmux hub/aside.rs) is never listed either.
     side: session.side === true || tagged(session.tags, SIDE_TAG) || tagged(session.tags, ASIDE_TAG),
     pullRequest: pullRequest(session.pullRequest),
+    pullRequestUrls: pullRequestUrls(session.pullRequests),
     preview: text(session.preview),
     parentId: text(session.parentId),
     spawnedBy: text(session.spawnedBy),
@@ -172,6 +184,32 @@ export function sessionEntry(session: Record<string, any> & { sessionId: string 
   };
 }
 
+const time = (value: unknown) => (typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined);
+
+/** When the person or the agent last did something in a chat, from acpmux's session summary.
+ *  `updatedAt` moves on every record acpmux logs, a pane warming or resuming the chat's agent and
+ *  the idle pool stopping it included, so it is activity only while a turn runs. A chat waiting on
+ *  the person counts from when it began to wait; any other from when its last turn ended, or, with
+ *  no turn ended here (adopted, or never answered), from when it was made: it never jumps to now. */
+export function summaryActivityAt(session: Record<string, any>): number | undefined {
+  const updated = time(session.updatedAt);
+  // Waiting on the person (a permission inside a turn too) counts from when the wait began, so a
+  // draft or a tag saved meanwhile moves nothing.
+  const waiting = time(session.inputSince);
+  if (waiting !== undefined) return waiting;
+  if (session.status === "running" || session.status === "waiting" || Number(session.pendingPermissions) > 0)
+    return updated;
+  // A turn that never ended on a chat no longer running (disconnected, unreachable) counts from its
+  // start, so retries to reach the agent move nothing.
+  if (session.turn && typeof session.turn === "object") return time(session.turn.startedAt) ?? updated;
+  return time(session.lastTurn?.endedAt) ?? time(session.createdAt) ?? updated;
+}
+
+/** The time a chat list sorts and labels an entry by: its activity, or for an entry cut by an
+ *  older producer (gallery fixtures), its `updatedAt`. */
+export const activityTime = (entry: Pick<AcpmuxSessionEntry, "activityAt" | "updatedAt">) =>
+  entry.activityAt ?? entry.updatedAt;
+
 /** Reuses a direct-client entry while retaining compatibility with raw summary fixtures/callers. */
 export function normalizedSessionEntry(session: Record<string, any> & { sessionId: string }): AcpmuxSessionEntry {
   return typeof session.displayTitle === "string" ? (session as AcpmuxSessionEntry) : sessionEntry(session);
@@ -186,6 +224,12 @@ function lifecycleReceipt(value: unknown): LifecycleReceipt | undefined {
   if (typeof raw.state !== "string" || !raw.state) return undefined;
   if (typeof raw.source !== "string" || !raw.source) return undefined;
   return { id: raw.id, sequence, state: raw.state, source: raw.source };
+}
+
+function pullRequestUrls(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const urls = value.filter((url): url is string => typeof url === "string" && url.startsWith("https://"));
+  return urls.length ? urls : undefined;
 }
 
 function pullRequest(value: any): SessionPullRequest | undefined {
@@ -282,7 +326,7 @@ export function homePath(path: string): string {
 
 /** Newest first. */
 function byRecency(sessions: AcpmuxSessionEntry[]): AcpmuxSessionEntry[] {
-  return [...sessions].sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0));
+  return [...sessions].sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0));
 }
 
 /** A stable newest-first view for ungrouped sidebar sections. */

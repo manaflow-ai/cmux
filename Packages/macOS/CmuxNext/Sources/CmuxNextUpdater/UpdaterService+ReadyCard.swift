@@ -14,6 +14,8 @@ extension UpdaterService {
     /// never nothing. Installing always shows.
     public var readyCard: UpdateReadyCard? {
         guard let pill = footerPill ?? askedWhileStaged else { return nil }
+        // An install the person followed on the notice card stays there (``UpdateCard/installing``).
+        if pill == .installing, flow.card(downloadsAutomatically: true) == .installing { return nil }
         if pill == .ready, case .ready(let version) = flow.phase,
            updateSnooze.hides(version: version, at: now()) { return nil }
         let notes = UpdateReadyNotes(version: stagedVersion, notes: stagedNotes, fullNotesURL: stagedReleaseNotesURL)

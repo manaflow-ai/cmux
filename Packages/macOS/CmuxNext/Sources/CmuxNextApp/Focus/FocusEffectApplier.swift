@@ -116,6 +116,8 @@ final class FocusEffectApplier: FocusEffectApplying {
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
+            // A page in Chromium shows in a child window: it takes the keys like a Chromium browser tab.
+            if let page = TabContent.page(view).childWindowTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             // A page with a primary input (the docked Home, a Home tab) lands the keyboard there by
             // the same rule as a conversation tab; its page view itself takes no keys.
@@ -233,6 +235,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func reclaimKeyAfterActivation() {
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
+        case .page(let pane, let tab) where presented(pane: pane, tab: tab)?.childWindowTab != nil: return
         default: reclaimKeyFromPageWindow()
         }
     }
@@ -351,11 +354,10 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func paneShowingChildWindowPage(at frame: NSRect) -> (key: String, page: any BrowserTab)? {
         let center = NSPoint(x: frame.midX, y: frame.midY)
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
-            guard case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow,
-                  let window = pane.view.window else { continue }
-            let content = entry.tab.contentView
+            guard let page = pane.currentContent?.childWindowTab, let window = pane.view.window else { continue }
+            let content = page.contentView
             let screenFrame = window.convertToScreen(content.convert(content.bounds, to: nil))
-            if screenFrame.contains(center) { return (pane.paneKey, entry.tab) }
+            if screenFrame.contains(center) { return (pane.paneKey, page) }
         }
         return nil
     }
@@ -384,6 +386,11 @@ final class FocusEffectApplier: FocusEffectApplying {
         case KeyRouter.codeEditorPageID?: next.insert(.codeEditorFocused)
         default: break
         }
+        // A web view has the keyboard (or had it below the palette): the Developer Tools set shows.
+        next.remove(.webViewFocused)
+        if WebInspectorTargets().target(in: controller) != nil { next.insert(.webViewFocused) }
+        // The same rule as `KeyRouter.keyContext`: a terminal's TextBox has the keyboard.
+        if controller.window?.firstResponder is TextBoxTextView { next.insert(.textBoxFocused) }
         if registry.context != next { registry.context = next }
     }
 
