@@ -148,8 +148,17 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         expect(firstLine).toBeGreaterThanOrEqual(0);
         for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
         await page.waitForTimeout(200);
+        // The last line's text shows in full (on Linux the browser's own caret reveal stops with the
+        // line box at the field's edge, short of the bottom padding).
+        const lastLine = await page.evaluate(() => {
+          const box = document.querySelector(".acpmux-md-field")!;
+          const text = document.createRange();
+          text.selectNodeContents([...box.querySelectorAll("p")].at(-1)!.lastChild!);
+          return box.getBoundingClientRect().bottom - [...text.getClientRects()].at(-1)!.bottom;
+        });
+        expect(lastLine).toBeGreaterThanOrEqual(0);
         after = await field();
-        expect(after.end - after.top).toBeLessThan(10);
+        expect(after.end - after.top).toBeLessThan(16);
         expect(await scrollTop(page)).toBe(transcript);
         expect(after.y).toBe(typed.y);
         expect(after.height).toBe(typed.height);
