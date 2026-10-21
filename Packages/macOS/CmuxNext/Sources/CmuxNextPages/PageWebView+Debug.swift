@@ -170,6 +170,21 @@ extension PageWebView {
         return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y), "width": .number(width), "height": .number(height)]
     }
 
+    /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
+    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
+    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
+    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
+    public func debugPress(x: Double, y: Double) async -> Bool {
+        guard let page = chromiumSession?.page else { return false }
+        for type in ["mousePressed", "mouseReleased"] {
+            guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
+                "type": type, "x": x, "y": y, "button": "left", "buttons": type == "mousePressed" ? 1 : 0,
+                "clickCount": 1, "modifiers": 0,
+            ])) != nil else { return false }
+        }
+        return true
+    }
+
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
     /// first 120 characters of text (a list's order and row state as the page draws it).
     public func debugQuery(_ selector: String) async -> JSONValue {
