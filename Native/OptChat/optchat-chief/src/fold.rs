@@ -317,7 +317,14 @@ impl TurnFold {
             }
             return out;
         }
-        if self.in_subagent
+        // A subagent's translated update is logged under its own session
+        // (`<acp>/<toolu>`); acpmux keeps none of its raw stream lines.
+        let subagent_update = event
+            .msg
+            .pointer("/params/sessionId")
+            .and_then(Value::as_str)
+            .is_some_and(|id| id.contains('/'));
+        if (self.in_subagent || subagent_update)
             && matches!(
                 event.kind.as_str(),
                 "agent_message_chunk" | "agent_thought_chunk" | "tool_call" | "tool_call_update"
