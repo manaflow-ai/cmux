@@ -35,7 +35,7 @@ concurrency:
 jobs:
   health:
     if: ${{ github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-16vcpu-ubuntu-2404' }}
     timeout-minutes: 45
     strategy:
       fail-fast: false

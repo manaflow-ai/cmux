@@ -115,7 +115,7 @@ jobs:
             npm_target: darwin-x64
             executable: coderouter
             maturin_container: "off"
-          - runner: blacksmith-4vcpu-ubuntu-2404
+          - runner: blacksmith-32vcpu-ubuntu-2404
             rust_target: x86_64-unknown-linux-gnu
             npm_target: linux-x64
             executable: coderouter

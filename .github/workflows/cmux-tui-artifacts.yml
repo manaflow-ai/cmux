@@ -2058,8 +2058,8 @@ jobs:
     # references are this job's own output.
     # !cancelled(): publish's chain runs through the skipped macOS fallback jobs.
     if: ${{ !cancelled() && needs.publish.result == 'success' && needs.tree-preflight.outputs.darwin_builder == 'mac' }}
-    # 8 vCPU: the shadow builds both macOS targets of every binary.
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
+    # 32 vCPU: the shadow builds both macOS targets of every binary.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 60
     continue-on-error: true
     permissions:
