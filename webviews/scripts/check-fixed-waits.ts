@@ -10,10 +10,11 @@ import { fileURLToPath } from "node:url";
  * woke after the card's 250 ms delay). Where the timing is itself the behavior under test, use fake
  * timers or measure against the timer, not the wall clock.
  *
- * A fixed wait is `page.waitForTimeout(…)`, `Bun.sleep(…)`, a `setTimeout` that resolves a
- * `new Promise` after a delay other than 0 (0 only yields to the next macrotask), or a call to a
- * local helper built on one of those. One that must stay says why in a `// fixed-wait: <reason>`
- * comment on its line or the line above.
+ * A fixed wait is `page.waitForTimeout(…)`, `Bun.sleep(…)`, or a `setTimeout` that resolves a
+ * `new Promise` after a delay other than 0 (0 only yields to the next macrotask). Each one counts,
+ * and so does each use of a local helper built on one (a call, or the helper passed as a value),
+ * inside other helpers too, so a new wait anywhere raises the count. One that must stay says why in
+ * a `// fixed-wait: <reason>` comment within its statement or on a comment line just above it.
  *
  * Files from before the rule have a count in fixed-waits-baseline.tsv. A file fails with more
  * unmarked waits than its row, and with fewer until the row is lowered (`--update-baseline`), so
@@ -79,22 +80,16 @@ function fixedDelay(call: ts.CallExpression): ts.Expression | null | undefined {
 }
 
 /** A named function in the file: a declaration, or a function assigned to a const. */
-type Named = { name: string; node: ts.SignatureDeclaration; exported: boolean };
+type Named = { name: string; node: ts.SignatureDeclaration };
 
 /** The innermost named function around `node`, if any (a test's anonymous callback is not one). */
 function enclosingNamed(node: ts.Node): Named | undefined {
   for (let at: ts.Node | undefined = node.parent; at; at = at.parent) {
     if (!ts.isFunctionLike(at)) continue;
-    const exported = (holder: ts.Node) =>
-      !!ts.getCombinedModifierFlags(holder as ts.Declaration) &&
-      (ts.getCombinedModifierFlags(holder as ts.Declaration) & ts.ModifierFlags.Export) !== 0;
-    if (ts.isFunctionDeclaration(at) && at.name) return { name: at.name.text, node: at, exported: exported(at) };
+    if (ts.isFunctionDeclaration(at) && at.name) return { name: at.name.text, node: at };
     let holder: ts.Node = at.parent;
     while (ts.isParenthesizedExpression(holder)) holder = holder.parent;
-    if (ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name)) {
-      const statement = holder.parent.parent;
-      return { name: holder.name.text, node: at, exported: ts.isVariableStatement(statement) && exported(statement) };
-    }
+    if (ts.isVariableDeclaration(holder) && ts.isIdentifier(holder.name)) return { name: holder.name.text, node: at };
     if (ts.isArrowFunction(at) || ts.isFunctionExpression(at)) continue;
     return undefined;
   }
@@ -104,12 +99,19 @@ function enclosingNamed(node: ts.Node): Named | undefined {
 /** Whether an identifier is the name a declaration introduces, not a use of it. */
 function isDeclarationName(node: ts.Identifier): boolean {
   const parent = node.parent;
+  if (ts.isExportSpecifier(parent)) return true;
   return (
     (ts.isVariableDeclaration(parent) ||
       ts.isFunctionDeclaration(parent) ||
       ts.isParameter(parent) ||
       ts.isBindingElement(parent) ||
+      ts.isFunctionExpression(parent) ||
       ts.isMethodDeclaration(parent) ||
+      ts.isMethodSignature(parent) ||
+      ts.isPropertyDeclaration(parent) ||
+      ts.isPropertySignature(parent) ||
+      ts.isGetAccessor(parent) ||
+      ts.isSetAccessor(parent) ||
       ts.isImportSpecifier(parent)) &&
     parent.name === node
   );
@@ -143,26 +145,22 @@ export function findFixedWaits(file: string, text: string): string[] {
     return false;
   };
 
-  // A wait inside a named function makes it a helper: each call to it waits (and so on outward), so
-  // the calls count, not the definition. A helper whose delay parameter defaults to 0 waits only
-  // when a call passes a delay other than 0.
-  const helpers = new Map<string, { zeroDefaultAt: number | undefined; exported: ts.Node | undefined }>();
+  // A wait inside a named function also makes it a helper: each use of it waits (and so on outward).
+  // A helper whose delay parameter defaults to 0 waits only when a call passes a delay other than 0,
+  // so its own timer is not counted.
+  const helpers = new Map<string, { zeroDefaultAt: number | undefined }>();
   const waits: ts.Node[] = [];
   const place = (site: ts.Node, delay: ts.Expression | null) => {
     const named = enclosingNamed(site);
-    if (!named) return void waits.push(site);
-    if (helpers.has(named.name)) return;
     const index =
-      delay && ts.isIdentifier(delay)
+      named && delay && ts.isIdentifier(delay)
         ? named.node.parameters.findIndex(
             (parameter) => ts.isIdentifier(parameter.name) && parameter.name.text === delay.text,
           )
         : -1;
-    const zeroDefault = index >= 0 && isZero(named.node.parameters[index]!.initializer);
-    helpers.set(named.name, {
-      zeroDefaultAt: zeroDefault ? index : undefined,
-      exported: named.exported ? named.node : undefined,
-    });
+    const zeroDefault = index >= 0 && isZero(named!.node.parameters[index]!.initializer);
+    if (!zeroDefault) waits.push(site);
+    if (named && !helpers.has(named.name)) helpers.set(named.name, { zeroDefaultAt: zeroDefault ? index : undefined });
   };
   const visit = (node: ts.Node) => {
     if (ts.isCallExpression(node)) {
@@ -181,6 +179,7 @@ export function findFixedWaits(file: string, text: string): string[] {
     if (!helper || isDeclarationName(node)) return undefined;
     if (ts.isPropertyAccessExpression(parent) && parent.name === node) return undefined;
     if (ts.isPropertyAssignment(parent) && parent.name === node) return undefined;
+    if (ts.isTypeQueryNode(parent)) return undefined;
     const zeroAt = helper.zeroDefaultAt;
     if (zeroAt === undefined) return node.text;
     const call = ts.isCallExpression(parent) && parent.expression === node ? parent : undefined;
@@ -197,15 +196,14 @@ export function findFixedWaits(file: string, text: string): string[] {
     };
     promote(source);
   }
-  // Uses outside any helper count once each; an exported helper counts at its definition too, since
-  // its callers in other files cannot see it.
+  // Every unmarked wait counts, and every unmarked use of a helper outside its own body.
   const counted = new Set<ts.Node>(waits);
   const count = (node: ts.Node) => {
-    if (waitingUse(node) && !enclosingNamed(node) && !marked(node)) counted.add(node);
+    const used = waitingUse(node);
+    if (used && enclosingNamed(node)?.name !== used && !marked(node)) counted.add(node);
     ts.forEachChild(node, count);
   };
   count(source);
-  for (const helper of helpers.values()) if (helper.exported) counted.add(helper.exported);
   const name = path.relative(root, file);
   return [...counted]
     .map((node) => line(node.getStart(source)))
