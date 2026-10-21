@@ -71,6 +71,10 @@ struct FakeAcpmux {
     /// Sessions whose withdraws wait, unanswered, until released.
     withdraw_gates: Mutex<std::collections::HashSet<String>>,
     withdraw_gate_opened: Condvar,
+    /// acpmux still reads its chat logs after a restart: an `_acpmux/info`
+    /// that waits for them (any without `waitLogs: false`) gets no answer, as
+    /// on a large log store that takes longer than its caller waits.
+    reading_logs: std::sync::atomic::AtomicBool,
 }
 
 pub struct Daemon {
@@ -241,6 +245,12 @@ impl Daemon {
     /// How many `_acpmux/info` requests named `session`.
     pub fn lookups_of(&self, session: &str) -> usize {
         self.fake.looked_up.lock().unwrap().iter().filter(|s| *s == session).count()
+    }
+
+    /// The fake acpmux reads its chat logs from now on and never finishes
+    /// ([`FakeAcpmux::reading_logs`]).
+    pub fn reading_chat_logs(&self) {
+        self.fake.reading_logs.store(true, Ordering::SeqCst);
     }
 
     /// The fake acpmux no longer knows `session` (it was deleted).
@@ -622,6 +632,9 @@ fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
             (Some("_acpmux/info"), workspace) => {
                 fake.lookups.fetch_add(1, Ordering::SeqCst);
                 fake.looked_up.lock().unwrap().push(session.to_owned());
+                if fake.reading_logs.load(Ordering::SeqCst) && params["waitLogs"] != json!(false) {
+                    continue;
+                }
                 let prompted =
                     fake.prompts.lock().unwrap().iter().any(|p| p["sessionId"] == session);
                 let unreachable =
