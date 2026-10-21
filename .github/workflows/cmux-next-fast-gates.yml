@@ -1,0 +1,133 @@
+name: cmux-next fast gates
+
+# Four push-time checks, in fail mode, on a pull request merged with its base
+# (scripts/ci/cmux_next_fast_gates.py). On 2026-10-21 four base reds landed
+# through checks that only warn on a pull request or only run on push: webviews
+# lint/format and switch-fetches (ci-web's react-apps-check warns on a pull
+# request; `web lint (fast)` in cmux-next-web.yml fails only on push), a
+# self-merge past its own red defaults-snapshot, and direct pushes that tripped
+# the crash ratchet. feat-cmux-next has no required checks.
+#
+# The job posts `cmux-next/fast-gates` on the PR head with the description
+# `base <sha>`, the merge's first parent. A merger (next-autoland, the hq merge
+# hook) takes it as fresh when it is success, its base is an ancestor of the
+# current tip, and the commits since touch none of the PR's files; otherwise it
+# dispatches this workflow with pr=N on feat-cmux-next, which merges the PR head
+# into the current tip and runs the gates again. No paths filter: every pull
+# request gets a status. About two minutes on Linux.
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: Pull request number into feat-cmux-next, merged with the current tip and gated
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fast-gates-${{ github.event.pull_request.number || inputs.pr }}
+  cancel-in-progress: true
+
+jobs:
+  fast-gates:
+    name: fast gates
+    # A fork pull request runs on a hosted runner, never on LINUX_RUNNER.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      statuses: write
+    steps:
+      - name: Validate the dispatch input
+        env:
+          PR: ${{ inputs.pr }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [[ "$EVENT_NAME" == workflow_dispatch && ! "$PR" =~ ^[0-9]{1,7}$ ]]; then
+            echo "::error::pr must be a pull request number (digits only)"
+            exit 1
+          fi
+
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+          # A pull request's merge commit and both parents. A dispatch fetches
+          # the PR head and the tip itself and deepens until they meet.
+          fetch-depth: 2
+
+      - name: Merge with the base
+        id: prepare
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR: ${{ inputs.pr }}
+          PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [[ "$EVENT_NAME" == workflow_dispatch ]]; then
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event workflow_dispatch --pr "$PR" --output "$GITHUB_OUTPUT"
+          else
+            python3 scripts/ci/cmux_next_fast_gates.py prepare --event pull_request --pr-head "$PR_HEAD" --output "$GITHUB_OUTPUT"
+          fi
+
+      # Web lint installs node_modules only in the web folders the diff touches
+      # (scripts/web_lint_prepush.py); without a web change none of this runs.
+      - name: Setup Bun
+        if: ${{ steps.prepare.outputs.web == 'true' }}
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.4.2"
+
+      - name: Cache Bun package cache
+        if: ${{ steps.prepare.outputs.web == 'true' }}
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.bun/install/cache
+          key: bun-web-lint-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock', 'web/bun.lock', 'cmux-tui/frontends/web/bun.lock') }}
+
+      # `vp check` runs on Node and needs ^22.18 or ^24.11; bun still installs.
+      - name: Setup Node
+        if: ${{ steps.prepare.outputs.web == 'true' }}
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "24.11.1"
+
+      # prepush-gate.py downloads its pinned tools (sha256 checked) once per lock.
+      - name: Cache the pinned lint tools
+        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: ~/.cache/cmux-lint-tools
+          key: cmux-lint-tools-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/cmux-next/lint-tools.lock') }}
+
+      - name: Fast gates on the merge
+        id: gates
+        env:
+          BASE: ${{ steps.prepare.outputs.base }}
+          WEB: ${{ steps.prepare.outputs.web }}
+        run: python3 scripts/ci/cmux_next_fast_gates.py run --base "$BASE" --web "$WEB" --summary "$GITHUB_STEP_SUMMARY"
+
+      # Inline, not from the checkout: the status step runs no pull request code.
+      - name: Post the cmux-next/fast-gates status
+        if: ${{ !cancelled() && steps.prepare.outputs.base != '' && (github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CONTEXT: cmux-next/fast-gates
+          HEAD_SHA: ${{ steps.prepare.outputs.head_sha }}
+          BASE: ${{ steps.prepare.outputs.base }}
+          PREPARE: ${{ steps.prepare.outcome }}
+          GATES: ${{ steps.gates.outcome }}
+          TARGET_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ && "$BASE" =~ ^[0-9a-f]{40}$ ]] || { echo "::error::no head or base sha to report"; exit 1; }
+          state=failure
+          if [[ "$PREPARE" == success && "$GATES" == success ]]; then state=success; fi
+          body="$(jq -n --arg state "$state" --arg context "$CONTEXT" --arg url "$TARGET_URL" \
+            --arg description "base $BASE" '{state: $state, context: $context, target_url: $url, description: $description}')"
+          curl -fsS -o /dev/null -X POST -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/statuses/$HEAD_SHA" -d "$body"
+          echo "$CONTEXT: $state on $HEAD_SHA (base $BASE)"

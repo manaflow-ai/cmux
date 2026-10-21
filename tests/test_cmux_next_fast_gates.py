@@ -221,9 +221,11 @@ class ScriptBehavior(unittest.TestCase):
         return subprocess.run([sys.executable, str(SCRIPT), *args, "--repo", str(repo)],
                               capture_output=True, text=True, env=env)
 
-    def clone(self) -> Path:
+    def clone(self, shallow: bool = True) -> Path:
+        # Shallow like actions/checkout: a dispatch must deepen until the PR head and the tip meet.
         work = self.tmp / "work"
-        subprocess.run(["git", "clone", "-q", "--depth=1", "-b", "feat-cmux-next",
+        depth = ["--depth=1"] if shallow else []
+        subprocess.run(["git", "clone", "-q", *depth, "-b", "feat-cmux-next",
                         f"file://{self.remote}", str(work)], check=True)
         return work
 
@@ -275,7 +277,7 @@ class ScriptBehavior(unittest.TestCase):
                 self.assertIn("pull request number", result.stderr)
 
     def test_pull_request_uses_the_checked_out_merge(self):
-        work = self.clone()
+        work = self.clone(shallow=False)
         git(work, "fetch", "-q", "origin", "refs/pull/7/head")
         git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
             "--no-edit", "FETCH_HEAD")
@@ -288,7 +290,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(out["merge"], git(work, "rev-parse", "HEAD"))
 
     def test_pull_request_merge_of_another_head_fails(self):
-        work = self.clone()
+        work = self.clone(shallow=False)
         git(work, "fetch", "-q", "origin", "refs/pull/7/head")
         git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
             "--no-edit", "FETCH_HEAD")
