@@ -194,12 +194,13 @@ class BaseAutofixFinishes(unittest.TestCase):
         self.assertEqual(landed[WEBVIEWS], "new")
         self.assertEqual(done.returncode, 1, out)
 
-    def test_outputs_built_from_a_left_out_export_wait_with_it(self):
-        # Greptile on #22474: a change to the action export's inputs leaves it out, and the shortcuts
-        # file built from that export must not land without it, though its own inputs did not move.
+    def test_outputs_built_from_an_export_whose_inputs_moved_wait_for_the_tip(self):
+        # Greptile on #22474: the shortcuts file built from the action export at the run's commit must not
+        # land past a move of the export's inputs. The export itself lands as progress (run 39633520123:
+        # held, none landed), and base-autofix-land.sh makes the shortcuts again on the tip from it.
         done, landed, out = self.push({ACTION_TESTS: "changed"},
                                       repair={SURFACES: "new", SHORTCUTS: "new", WEBVIEWS: "new"})
-        self.assertEqual(landed[SURFACES], "old")
+        self.assertEqual(landed[SURFACES], "new")
         self.assertEqual(landed[SHORTCUTS], "old")
         self.assertEqual(landed[WEBVIEWS], "new")
         self.assertEqual(done.returncode, 1, out)
