@@ -58,8 +58,14 @@ final class HomeProjection: @preconcurrency ChatIntents {
     var onPickAttachments: () -> Void = {}
     /// A paste or a drop; true when taken.
     var onAttachmentPasteboard: (NSPasteboard) -> Bool = { _ in false }
-    /// While dragging, types only.
+    /// Whether a paste would be taken, types only.
     var acceptsAttachmentDrag: (NSPasteboard) -> Bool = { _ in false }
+    /// A drop on the field; true when taken. Nil takes it as a paste.
+    var onAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// While dragging over the field, types only. Nil answers as for a paste.
+    var acceptsAttachmentDrop: ((NSPasteboard) -> Bool)?
+    /// The field became or stopped being the target of a drag the host takes.
+    var onAttachmentDropTarget: (Bool) -> Void = { _ in }
     /// The store refused a send's attachment before logging it; the draft is back.
     var onAttachmentRefusal: (HomeAttachmentError) -> Void = { _ in }
     /// The field's text changed.
@@ -594,6 +600,9 @@ final class HomeProjection: @preconcurrency ChatIntents {
     func pickAttachments() { onPickAttachments() }
     func takeAttachments(from pasteboard: NSPasteboard) -> Bool { onAttachmentPasteboard(pasteboard) }
     func acceptsAttachments(from pasteboard: NSPasteboard) -> Bool { acceptsAttachmentDrag(pasteboard) }
+    func takeDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (onAttachmentDrop ?? onAttachmentPasteboard)(pasteboard) }
+    func acceptsDroppedAttachments(from pasteboard: NSPasteboard) -> Bool { (acceptsAttachmentDrop ?? acceptsAttachmentDrag)(pasteboard) }
+    func attachmentDropTargeted(_ targeted: Bool) { onAttachmentDropTarget(targeted) }
     func statusLineClicked(_ rect: CGRect, in view: NSView) {
         let popover = turnPopover ?? {
             let made = HomeTurnStatusPopover { [weak self] in self?.liveLine.details() }

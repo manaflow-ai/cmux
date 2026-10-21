@@ -276,6 +276,10 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // Temporary folders of sessions this daemon no longer has, before the
+    // socket serves (`agent/session_tmp.rs`).
+    #[cfg(unix)]
+    hub.sweep_session_tmp();
     // The forum log (`forum.rs`): on disk unless the store is in memory; a
     // log that cannot open leaves the posts in memory.
     if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
