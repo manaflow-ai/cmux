@@ -68,6 +68,10 @@ one.
   when the machine refuses or does not answer, the result is `needs_user`
   with `user_action.command`, the ssh command to try. Hand the user that
   command; never ask for their password and never edit their ssh keys or
-  `~/.ssh/config`. Ask first before adding a machine the user did not name.
+  `~/.ssh/config`. Without `--name` the peer is named after the host's first
+  label; when that name already belongs to another peer, the result is
+  `needs_user` with `user_action.kind` `name` and nothing changed: pick a
+  new `--name`, or ask before passing the taken one (that moves the peer).
+  Ask first before adding a machine the user did not name.
   `cmux setup status` lists every peer with `connected` and `outdated`, and
   the `fix` for each one that needs it.
