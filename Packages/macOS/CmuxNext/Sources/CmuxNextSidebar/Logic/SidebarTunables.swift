@@ -138,6 +138,16 @@ public nonisolated enum SidebarTunables {
         help: "Prototype for a late workspace or agent-chat title: instant, crossfade, or a short upward lift in the existing title slot.",
         default: .instant, code: "SidebarTunables.workspaceTitleMotion")
 
+    /// "Workspaces as tabs" (Leo, relayed 2026-10-21; prototype, off): every workspace row is one
+    /// line (its icon, name, status and pull request badge, as Claude desktop's chat list), and
+    /// Cmd-Shift-[ / ] step the workspaces in sidebar order as tabs (`nextSidebarTab`), wrapping,
+    /// across groups, everywhere but Home. Off, Cmd-Shift-[ / ] cycle a pane's tabs as they ship
+    /// (Lawrence 2026-10-15), so the default keymap does not change.
+    public static let workspacesAsTabs = Tunable<Bool>.toggle(
+        "sidebar.workspacesAsTabs", .sidebar, "Workspaces as tabs",
+        help: "Workspace rows are one line (name, status, pull request), and Cmd-Shift-[ / ] go to the previous or next workspace, wrapping, instead of the previous or next tab (Home keeps its own keys).",
+        default: false, code: "SidebarTunables.workspacesAsTabs")
+
     /// Every sidebar tunable, one per line in alphabetical order, so two pull requests that each add
     /// one insert different lines and merge cleanly (#21946). Debug Settings lists them in this order.
     public static var all: [TunableDescriptor] {
@@ -167,6 +177,7 @@ public nonisolated enum SidebarTunables {
             updateCardButton.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,
+            workspacesAsTabs.descriptor,
             workspaceTitleMotion.descriptor,
         ] + SidebarSectionTunables.all
     }

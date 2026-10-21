@@ -8024,7 +8024,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The selected agent has no resumable session id."
+            "value": "The selected agent has no resumable session ID."
           }
         },
         "ar": {

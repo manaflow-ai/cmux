@@ -325,6 +325,21 @@ nonisolated enum AgentActionCatalog: ActionCatalogGroup {
                 startsTerminal: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
             ),
+            // Agents and scripts (`cmux agent open-tab SESSION`): an existing acpmux session's chat as a tab of a pane.
+            ActionDescriptor(
+                id: "agent.openSessionTab",
+                title: String(localized: "action.agent.openSessionTab", defaultValue: "Open Agent Session in Tab", bundle: .module),
+                keywords: ["agent", "session", "acpmux", "subagent", "tab", "chat"], category: .agents,
+                symbol: "bubble.left.and.text.bubble.right", surfaces: [.keyboard],
+                arguments: [
+                    ActionArgument(name: "session", title: String(localized: "argument.agent.session", defaultValue: "Session", bundle: .module),
+                                   kind: .string),
+                    ActionArgument(name: "host", title: String(localized: "argument.agent.host", defaultValue: "Session Host", bundle: .module),
+                                   kind: .string, isRequired: false),
+                ],
+                targets: [.pane, .tab], cliName: "agent open-tab",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noObject), cli: .offered, contextMenuExemption: .noObject)
+            ),
             // The Home Chief's settings sidebar (the header's name pill does the same).
             ActionDescriptor(
                 id: "home.toggleChiefSettings",

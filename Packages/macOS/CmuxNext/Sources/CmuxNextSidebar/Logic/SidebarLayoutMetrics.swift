@@ -121,6 +121,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
     public var expanded = false
+    /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): every workspace row is one line.
+    public var workspacesAsTabs = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`): an expanded row's age and a
@@ -151,6 +153,9 @@ nonisolated extension SidebarLayoutOptions {
     /// Icon, the working spinner and progress (spinner and OSC 9;4 bar, Lawrence via cx-htbe5): the name
     /// and the unread mark always draw (minimal mode).
     static let minimalRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .progress]))
+    /// Workspaces as tabs: the icon, the working spinner and the pull request badge, on the name's
+    /// line with the status glyph and the unread mark (Claude desktop's chat list).
+    static let tabRow = WorkspaceRowPreferences(base: WorkspaceRowElements(shown: [.icon, .working, .pullRequest]))
 
     /// What `ws`'s row draws under these options. Minimal mode drops the
     /// second line (including another computer's name and a machine's
@@ -171,6 +176,12 @@ nonisolated extension SidebarLayoutOptions {
     }
 
     private func baseRowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
+        // Workspaces as tabs: one line at any density; attention states (the needs-you mark) still show.
+        if workspacesAsTabs {
+            var content = WorkspaceRowContent(ws, preferences: Self.tabRow, now: now)
+            (content.detail, content.status, content.trailingStatus, content.badgeTime) = (nil, nil, nil, nil)
+            return content
+        }
         if expanded && !minimal {
             return WorkspaceRowContent(expanded: ws, now: now, machine: machine,
                                        showsNotification: workspaceRow.resolved(for: ws.rowKind).shows(.notification))
