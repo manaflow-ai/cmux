@@ -99,3 +99,18 @@ test("opening the finished fold does not replay its rows", async () => {
   await act(async () => fold.click());
   expect(entering(container, "li.acpmux-chat-inspector-task--command")).toEqual(["tsc:-"]);
 });
+
+// Custom properties inherit, so a row's entrance must not pick up the axis or the travel of the
+// surface it sits in (the Summary card enters from the right, and travels 100% inline): each edge
+// sets both axes, and a surface inside another entering surface starts from the default distance.
+test("an entering row inside an entering card keeps its own edge and distance", async () => {
+  const css = await Bun.file(new URL("../src/ui/popupSurface.css", import.meta.url)).text();
+  const rule = (selector: string) =>
+    css.match(new RegExp(`${selector.replace(/[[\]()"]/g, "\\$&")}\\s*\\{([^}]*)\\}`))?.[1] ?? "";
+  for (const edge of ["right", "left", "bottom", "top"]) {
+    const body = rule(`:where([data-enter="${edge}"])`);
+    expect(body).toContain("--ui-enter-x:");
+    expect(body).toContain("--ui-enter-y:");
+  }
+  expect(rule(":where([data-enter] [data-enter])")).toContain("--ui-enter-distance: 8px");
+});
