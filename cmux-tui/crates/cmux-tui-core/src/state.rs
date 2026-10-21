@@ -100,6 +100,8 @@ pub(crate) mod router;
 mod screen_group_icon_tests;
 pub(crate) mod screen_state_store;
 pub(crate) mod screens;
+#[cfg(test)]
+mod sidebar_doc_group_alias_tests;
 pub(crate) mod sidebar_doc_legacy;
 pub(crate) mod sidebar_doc_ops;
 pub(crate) mod sidebar_doc_order;
