@@ -295,6 +295,9 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
+        // How long a nightly waits before it restarts into an update: the person's call.
+        "updates.idleInstallMaxWaitSeconds": .userOnly,
+        "updates.idleInstallQuietSeconds": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
@@ -316,6 +319,8 @@ extension SettingsSchema {
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
+        // Who answers a sub-session's questions is the person's call too.
+        "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not

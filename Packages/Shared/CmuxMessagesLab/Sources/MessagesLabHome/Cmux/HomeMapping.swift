@@ -355,10 +355,13 @@ enum HomeMapping {
         }
     }
 
-    static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
+    /// `avatars`: a chosen avatar by participant id (the host's Chief avatars); anyone else draws their initials.
+    static func participants(_ summary: ConversationSummary?, me: ParticipantID,
+                             avatars: [String: Participant.Avatar] = [:]) -> [Participant] {
         var out = (summary?.participants ?? []).map {
             // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
-            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me, avatar: .monogram($0.initials))
+            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
+                        avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         return out

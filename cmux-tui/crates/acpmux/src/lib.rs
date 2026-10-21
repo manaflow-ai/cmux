@@ -56,6 +56,7 @@ pub mod native;
 pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
+pub mod pairing;
 pub mod peer;
 pub mod peer_link;
 #[cfg(not(unix))]
@@ -89,6 +90,7 @@ pub mod subagents;
 pub mod subrouter_session;
 pub mod subsession_mcp;
 pub mod subsession_worktree;
+pub mod tailnet;
 pub mod transcript;
 pub mod trust;
 pub mod trust_auto;

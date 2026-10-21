@@ -58,10 +58,10 @@ test("a Ledger release shows its version tag and date in the margin and its chan
   ];
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
-  await act(async () => {
-    mountChangelogPage(root, new MockChangelogProvider(notes) as never);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  });
+  await act(async () => void mountChangelogPage(root, new MockChangelogProvider(notes) as never));
+  // The notes load from the provider, then the release draws.
+  for (let tries = 0; tries < 200 && !root.querySelector(".cll .clj-section"); tries += 1)
+    await act(async () => void (await new Promise((resolve) => setTimeout(resolve, 0))));
   const page = root.querySelector(".cll");
   expect(page).not.toBeNull();
   const release = root.querySelector(".cll .clj-section");

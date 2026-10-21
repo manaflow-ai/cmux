@@ -322,9 +322,11 @@ function ChangeList({ changes }: { changes: ChangeItem[] }) {
 
 const CHANGES_PAGE = 20;
 
-/** The nightly reels of `builds` (in their order, newest first), one card each: a link to the
-    video, which opens as links do (the host's link setting). Only an https reel is shown. */
-export function ReelCards({
+/** The span's nightly reels as ONE player (Leo 2026-10-21: one reel inline, not a row per
+    nightly): the newest reel plays in place, muted with controls, and a row of nightly chips picks
+    another. Under it a link opens the video as links do (the host's link setting), which is also
+    all that shows when the video cannot play here. Only an https reel is shown. */
+export function ReelPlayer({
   builds,
   reels,
   strings,
@@ -333,15 +335,49 @@ export function ReelCards({
   reels: Record<string, string>;
   strings: Strings;
 }) {
+  const [picked, setPicked] = useState<string | undefined>();
+  const [broken, setBroken] = useState<ReadonlySet<string>>(() => new Set());
   const shown = builds.filter((b) => reels[b.build]?.startsWith("https://"));
-  if (shown.length === 0) return null;
+  const current = shown.find((b) => b.build === picked) ?? shown[0];
+  if (!current) return null;
+  const url = reels[current.build]!;
+  const label = strings.format("changelog.page.watchReel", cardVersion(current.shortVersion));
   return (
-    <div className="cl-reels">
-      {shown.map((b) => (
-        <a key={b.build} className="cl-reel" href={reels[b.build]} rel="noreferrer">
-          {strings.format("changelog.page.watchReel", cardVersion(b.shortVersion))}
+    <div className="cl-reel-player">
+      {!broken.has(url) && (
+        <figure className="cl-media cl-reel-video">
+          <video
+            key={url}
+            src={url}
+            aria-label={label}
+            controls
+            muted
+            playsInline
+            preload="metadata"
+            onError={() => setBroken((set) => new Set(set).add(url))}
+          />
+        </figure>
+      )}
+      <div className="cl-reel-bar">
+        {shown.length > 1 && (
+          <div className="cl-reel-picker">
+            {shown.map((b) => (
+              <button
+                key={b.build}
+                type="button"
+                className="cl-reel-chip"
+                aria-pressed={b === current}
+                onClick={() => setPicked(b.build)}
+              >
+                {cardVersion(b.shortVersion)}
+              </button>
+            ))}
+          </div>
+        )}
+        <a className="cl-reel" href={url} rel="noreferrer">
+          {label}
         </a>
-      ))}
+      </div>
     </div>
   );
 }

@@ -24,7 +24,22 @@ enum WorkspaceBulkClose {
 
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         for id in ids { registry.bind(id, run: { invocation in try close(id, invocation, context) }) }
+        // On the bottom or top row, with only Home left, or alone in its group the close has
+        // nothing to close: the row is disabled with the reason and every run is refused with it.
+        for (id, none) in nothingToClose {
+            context.setTargetReason(id) { invocation in
+                ((try? plan(id, invocation, context))?.0.isEmpty ?? false) ? none() : nil
+            }
+        }
     }
+
+    /// The closes that can find nothing to close, and what they say then.
+    static let nothingToClose: [(ActionID, @MainActor () -> String)] = [
+        ("palette.closeOtherWorkspaces", { RefusalStrings.noOtherWorkspacesToClose }),
+        ("palette.closeWorkspacesBelow", { RefusalStrings.noWorkspacesBelowToClose }),
+        ("palette.closeWorkspacesAbove", { RefusalStrings.noWorkspacesAboveToClose }),
+        ("workspace.closeOthersInGroup", { RefusalStrings.noOtherWorkspacesInGroupToClose }),
+    ]
 
     /// What a run of `id` closes, and the window that stays open to show its
     /// undo toast (nil when none does).
@@ -88,6 +103,7 @@ enum WorkspaceBulkClose {
 
     static func close(_ id: ActionID, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
         let (members, window) = try plan(id, invocation, context)
+        if members.isEmpty, let none = nothingToClose.first(where: { $0.0 == id })?.1 { throw ActionFailure.invalidTarget(none()) }
         let services = context.services
         let names = members.map { $0.0.name }
         let seen = Set(DaemonClosedHistory.entries([.workspace], in: services).map(\.item.id))
@@ -108,7 +124,9 @@ enum WorkspaceBulkClose {
     }
 
     /// The open workspaces a sidebar section lists: its workspace items (Pinned
-    /// too), or the window's workspace list for the workspaces section.
+    /// too) the active window draws (not another window's, which it leaves
+    /// out: `SidebarRows.visibleLayout`), or the window's workspace list for
+    /// the workspaces section.
     static func sectionWorkspaces(_ invocation: ActionInvocation, _ context: AppActionContext) throws -> [String] {
         let layout = context.services.sidebarLayout
         if let reason = SidebarDocWiring.layoutUnavailableReason(layout) { throw ActionFailure(message: reason) }
@@ -116,7 +134,10 @@ enum WorkspaceBulkClose {
         switch section.content {
         case .items:
             let refs = WorkspaceLayoutRefs(machines: context.services.machines)
-            return section.items.compactMap { refs.workspace(for: $0.ref)?.0.id }
+            let registry = context.services.windows.registry.value, window = context.activeWindow?.state.id
+            return section.items.filter { item in
+                window.map { !refs.ownedElsewhere(item.ref.value, window: $0, registry: registry) } ?? true
+            }.compactMap { refs.workspace(for: $0.ref)?.0.id }
         case .workspaces:
             guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
             return window.sidebar.model.selectableWorkspaces.map(\.id.rawValue)

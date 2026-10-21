@@ -59,8 +59,22 @@ one.
   that answer was made for, and forgetting it there makes every worktree of
   the repository ask again (`written` says which folder changed). It never
   edits Claude Code's or Codex's own files.
-- Harness install and sign-in: `cmux harness doctor ID --json` names the
-  failing step and its fix; `cmux harness login ID` starts the sign-in.
+- Harness install and sign-in: `cmux setup harness [ID ...]` (default:
+  every configured or found harness) says per harness whether it is
+  installed, signed in and outdated. A signed-out one is `needs_user` with
+  `cmux harness login ID` (a harness not configured yet: its own login
+  command, such as `codex login`): run `user_action.command` in a terminal
+  beside your chat and the user finishes the sign-in in the browser. A
+  missing CLI is `needs_user` with the install docs as `url`. An outdated
+  one names its `update` command; run it only when the user wants the
+  update. Run `cmux setup harness ID` again after the user acts.
+  `signed_in: null` means cmux cannot see the sign-in; it is still `ok`,
+  and `auth_detail` says why when cmux knows. Setup never reads the login
+  keychain itself and does not start a harness whose sign-in may be there
+  (a Keychain item in its profile env, Codex keeping its login in the
+  keychain, a Claude Code adapter).
+  `cmux harness doctor ID --json` runs a real prompt turn when a harness
+  that looks ready still fails.
 - Add an ssh machine: `cmux setup machine SSH_TARGET [--name NAME]`. It is
   `ok` when the peer is already connected and current, updates a peer on an
   older build, and otherwise installs acpmux there and registers the peer;
@@ -75,3 +89,37 @@ one.
   Ask first before adding a machine the user did not name.
   `cmux setup status` lists every peer with `connected` and `outdated`, and
   the `fix` for each one that needs it.
+- MCP outside cmux: `cmux setup mcp [claude|codex ...]` gives Claude Code
+  and Codex started outside cmux (a terminal, another app) the cmux MCP
+  server, through their own `mcp add`; chats cmux starts already have it.
+  `needs_user` with `user_action.kind` `setting` means the person turns on
+  `"mcp": {"enabled": true}` in the settings file the text names; hand them
+  that line, do not edit the file. Kind `conflict` means their own server
+  is named `cmux`: ask before removing it. `undo` is the shell line that
+  puts each changed config back. With neither installed it is `ok`:
+  nothing to wire, and the switch is not needed.
+- Computer Use: `cmux setup computer-use` turns it on: cmux shows the user
+  a sheet to allow it (tell them to click Allow), then each missing macOS
+  grant comes back as `user_action` kind `grant`; run its `command` to
+  open the System Settings pane and tell them which switch to turn on.
+  Kind `wait` means it is starting: run the task again in a few seconds.
+  Kind `declined` means it was not allowed (they said no, did not answer
+  the sheet in time, or cmux had no window to show the sheet in): ask them
+  before running it again.
+- Cloud machine: ask the user first (it costs money every hour it runs and
+  does not pause by itself), then run `cmux setup cloud-machine`. Signed
+  out is kind `sign_in`: run its `command` and the user signs in in the
+  browser. Otherwise cmux shows the user a card to allow the new machine
+  (tell them to click it); the result names the `machine` and the `undo`
+  that kills it and makes setup forget it. With `inferred: true` setup
+  guessed which machine is its own: read `undo_note` and check with the
+  user before running that undo. A machine they already have is `ok`, and
+  a paused one has a `note` with the command that resumes it. Kind `wait`
+  means cmux is still loading its machines or a machine is on its way: run
+  the task again in a minute; it never makes a second machine. Kind
+  `declined` means it was not allowed: ask before running it again. Kind
+  `many_machines` means more than one new machine appeared and setup claims
+  none: ask the user which is theirs. Kind `app` is cmux's own refusal, such as a plan with no room for another
+  machine: tell the user what its text says. Run `cmux setup cloud-machine
+  --forget` only after the machine was killed, or once the user says no
+  machine is on its way (a `wait` on an empty list ends that way).

@@ -64,6 +64,11 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
+    let params = super::pairing::gate(conn, m, params)?;
+    if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
@@ -404,4 +409,13 @@ pub(super) fn push_activity(hub: &Hub, conn: &Conn, ev: &HubEvent) {
     {
         conn.send(&Message::notification("_acpmux/chat_changed", change));
     }
+}
+
+/// `_acpmux/watch_take_over {sessionId, ifLive?}`: the watched chat runs the conversation itself
+/// (`hub/watch.rs`).
+pub(super) async fn watch_take_over(hub: &Arc<Hub>, params: &Value) -> Result<Value, RpcError> {
+    let s = hub.resolve(super::session_key(params)?)?;
+    let if_live = crate::adopt::IfLive::parse(super::str_param(params, "ifLive"))
+        .map_err(RpcError::invalid_params)?;
+    hub.watch_take_over(&s, if_live).await
 }
