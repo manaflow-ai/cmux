@@ -64,13 +64,13 @@ body {
     --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
     --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
     /* The dark menu glass tint (--surface-menu, below; Reduce Transparency overrides --surface-menu). */
-    --surface-menu-tint: rgb(22 22 22 / 25%);
+    --surface-menu-tint: rgb(22 22 22 / 25%); /* theme-fixed: the native menu glass is neutral, never the theme's */
   }
 }
 :root[data-theme="dark"] {
   --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
   --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
-  --surface-menu-tint: rgb(22 22 22 / 25%);
+  --surface-menu-tint: rgb(22 22 22 / 25%); /* theme-fixed: the native menu glass is neutral, never the theme's */
 }
 
 @media (min-resolution: 2dppx) {
@@ -377,7 +377,7 @@ input[type="submit"] {
      (ui/popupSurface.css). The blur turns text under a menu into a smear, never readable text (the
      glass of 2026-10-12 had a light blur, so rows read as text on text). Reduce Transparency: the
      opaque popup surface, no blur. */
-  --surface-menu-tint: rgb(250 250 250 / 60%);
+  --surface-menu-tint: rgb(250 250 250 / 60%); /* theme-fixed: the native menu glass is neutral, never the theme's */
   --surface-menu: var(--surface-menu-tint);
   --surface-menu-blur: blur(20px) saturate(1.3);
 }

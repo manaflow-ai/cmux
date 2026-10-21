@@ -17,7 +17,7 @@
   --ui-popup-drop: var(--elevation-2, 0 2px 6px color-mix(in srgb, black 11%, transparent));
   /* The glass edge, as the native menu draws it (Lucas, 2026-10-21): a one-point light rim inside a
      one-device-pixel dark line. Light themes keep a quiet line and a white rim. */
-  --ui-popup-rim: color-mix(in srgb, white 55%, transparent);
+  --ui-popup-rim: color-mix(in srgb, white 55%, transparent); /* theme-fixed: the native menu glass is neutral, never the theme's */
   --ui-popup-outline: color-mix(in srgb, black 12%, transparent);
   --ui-popup-shadow:
     0 0 0 var(--cmux-hairline, 0.5px) var(--ui-popup-outline),
@@ -35,12 +35,12 @@
 /* Dark themes: the native dark menu's brighter rim and near-black line. */
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ui-popup-rim: color-mix(in srgb, white 22%, transparent);
+    --ui-popup-rim: color-mix(in srgb, white 22%, transparent); /* theme-fixed: the native menu glass is neutral, never the theme's */
     --ui-popup-outline: color-mix(in srgb, black 75%, transparent);
   }
 }
 :root[data-theme="dark"] {
-  --ui-popup-rim: color-mix(in srgb, white 22%, transparent);
+  --ui-popup-rim: color-mix(in srgb, white 22%, transparent); /* theme-fixed: the native menu glass is neutral, never the theme's */
   --ui-popup-outline: color-mix(in srgb, black 75%, transparent);
 }
 
