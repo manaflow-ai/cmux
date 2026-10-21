@@ -2,7 +2,7 @@ import QuartzCore
 @testable import CmuxNextDesign
 import Testing
 
-/// The opt-in steady ring (the default style is no ring) is clearly visible and arrives with
+/// The opt-in steady ring (blink is the default style) is clearly visible and arrives with
 /// one short soft pulse (Leo, 2026-10-14: the steady ring settled at the old faint resting
 /// level, so a new notification barely showed; steady, no blink, one small fast pulse at most).
 @MainActor @Suite(.serialized) struct AttentionSteadyTests {
