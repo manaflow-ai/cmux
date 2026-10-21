@@ -346,6 +346,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       };
       requestAnimationFrame(tick);
     }, start.row);
+    const restHeight = await page.evaluate(
+      () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
+    );
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
@@ -362,13 +365,12 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     }
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
-    // Sampled until the card is back to its first frame's height (a slow runner can paint the
+    // Sampled until the card is back to its height before typing (a slow runner can paint the
     // last shrink after a fixed wait), then a few frames more.
-    await page.waitForFunction(() => {
-      const first = (window as unknown as { __frames?: { cardHeight: number }[] }).__frames?.[0];
-      const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-      return first !== undefined && Math.abs(card.height - first.cardHeight) <= 1;
-    });
+    await page.waitForFunction(
+      (rest) => Math.abs(document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height - rest) <= 1,
+      restHeight,
+    );
     await page.waitForTimeout(150);
     const frames = await page.evaluate(() => {
       const holder = window as unknown as { __frames?: { top: number; rowTop: number; cardHeight: number }[] };
@@ -418,6 +420,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       };
       requestAnimationFrame(tick);
     });
+    const restHeight = await page.evaluate(
+      () => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height,
+    );
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
@@ -433,13 +438,12 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     }
     await page.keyboard.press("ControlOrMeta+A");
     await page.keyboard.press("Backspace");
-    // Sampled until the card is back to its first frame's height (a slow runner can paint the
+    // Sampled until the card is back to its height before typing (a slow runner can paint the
     // last shrink after a fixed wait), then a few frames more.
-    await page.waitForFunction(() => {
-      const first = (window as unknown as { __frames?: { cardHeight: number }[] }).__frames?.[0];
-      const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
-      return first !== undefined && Math.abs(card.height - first.cardHeight) <= 1;
-    });
+    await page.waitForFunction(
+      (rest) => Math.abs(document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height - rest) <= 1,
+      restHeight,
+    );
     await page.waitForTimeout(150);
     const frames = await page.evaluate(() => {
       const holder = window as unknown as {
