@@ -163,9 +163,12 @@ function useChatPages(load: LoadChatsPage) {
   const [state, setState] = useState<State>(initialState);
   // Rows from the settled first page: the mount reads only a change pushed since (see below).
   const [seeded] = useState(() => state.loaded);
-  // A list drawn from a saved first page takes its first read whole: a chat deleted or archived
-  // since must not stay listed (merging keeps every row the fresh page does not name).
-  const replaceSaved = useRef(seeded);
+  // A list drawn from a saved first page that mounts to a changed index takes that first read
+  // whole: a chat deleted or archived since must not stay listed (merging keeps every row the
+  // fresh page does not name). Pages read past the saved one meanwhile stay; only saved rows go.
+  const replaceSaved = useRef(false);
+  const [savedKeys] = useState(() => new Set(state.rows.map((row) => row.key)));
+  const pagedPastSaved = useRef(false);
   const latestLoad = useRef(load);
   latestLoad.current = load;
   const generation = useRef(0);
@@ -206,6 +209,8 @@ function useChatPages(load: LoadChatsPage) {
               },
               atPush,
             );
+          if (cursor) pagedPastSaved.current = true;
+          else replaceSaved.current = false;
           const known = new Set(s.rows.map((row) => row.key));
           const rows = cursor ? [...s.rows, ...fresh.filter((row) => !known.has(row.key))] : fresh;
           return {
@@ -256,12 +261,16 @@ function useChatPages(load: LoadChatsPage) {
           replaceSaved.current = false;
           setState((s) => {
             if (s.query) return s;
-            if (replace) {
-              const fresh = rowsOf(page);
+            const fresh = rowsOf(page);
+            if (replace && !pagedPastSaved.current) {
               const nextCursor = page.nextCursor && fresh.length > 0 ? page.nextCursor : undefined;
               return { ...s, rows: fresh, nextCursor, ready: page.ready !== false };
             }
-            const rows = mergeFirstPage(rowsOf(page), s.rows);
+            const named = new Set(fresh.map((row) => row.key));
+            const rows = mergeFirstPage(
+              fresh,
+              replace ? s.rows.filter((row) => !savedKeys.has(row.key) || named.has(row.key)) : s.rows,
+            );
             // Most pushes change nothing on the first page: the list keeps its rows (no re-render).
             const same =
               rows.length === s.rows.length &&
@@ -280,13 +289,16 @@ function useChatPages(load: LoadChatsPage) {
         refreshing.current = "idle";
         if (again) refreshFirstPage();
       });
-  }, []);
+  }, [savedKeys]);
   // The first page when the list mounts. A list that drew the settled first page (a workspace
   // closed or opened and its page mounted again) reads it only for a change the chat index pushed
   // since; a later push reads it as on any loaded list (Leo 2026-10-18: the list emptied and refilled).
   useEffect(() => {
     if (!seeded) fetchPage("", undefined);
-    else if (chatsChangedSinceSettled()) refreshFirstPage();
+    else if (chatsChangedSinceSettled()) {
+      replaceSaved.current = true;
+      refreshFirstPage();
+    }
   }, [seeded, fetchPage, refreshFirstPage]);
   // A page opened before the chat index finished its first scan (`ready: false`, or no rows yet)
   // reads its first page from the start when the host pushes the index's chats (cx-ztlw: the first
