@@ -1726,6 +1726,61 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
     assert_eq!(ran["msg"]["_meta"]["provenance"], provenance, "{ran:#}");
 }
 
+/// A narrower policy set on a chat whose agent runs in a host the restarted daemon has not
+/// reached yet moves that agent out of full access. Its host is running, so the chat is not
+/// stopped: saving the mode for the next start never reached the agent, because reaching the
+/// host again (`readopt`) replays nothing, and the agent kept `bypassPermissions`.
+#[tokio::test]
+async fn a_narrower_policy_reaches_an_agent_whose_host_is_not_adopted_yet() {
+    let mut daemon = Daemon::new("polhost", "approve-all");
+    daemon.sigterm();
+    let control_log = daemon.home.join("control.log");
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"cmux": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": {"FAKE_CLAUDE_CONTROL_LOG": control_log}}}, "defaultHarness": "cmux", "permissionPolicy": "approve-all", "defaultPermissionMode": "fullAccess"}).to_string(),
+    )
+    .unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness), "the agent did not outlive the daemon");
+    let meta: Value = serde_json::from_slice(
+        &std::fs::read(daemon.home.join("sessions").join(&session).join("session.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(meta["modes"]["currentModeId"], "bypassPermissions", "{meta:#}");
+    let _ = std::fs::remove_file(&control_log);
+    // The host is adopted only after the chat logs load: the policy comes before that.
+    daemon.env = vec![("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), "3000".into())];
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    rpc.call("_acpmux/set_policy", json!({"sessionId": session, "policy": "ask"})).await;
+    let reply = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]}),
+        )
+        .await;
+    assert_eq!(reply["stopReason"], "end_turn", "{reply}");
+    assert!(alive(harness), "a second agent replaced the hosted one");
+    let sent = std::fs::read_to_string(&control_log).unwrap_or_default();
+    assert!(
+        sent.lines().any(|l| l == "set_permission_mode"),
+        "the hosted agent was never moved out of full access: {sent:?}"
+    );
+}
+
 /// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
 /// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
 /// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list
