@@ -42,8 +42,7 @@ struct HomeTableSplitter {
             out.append(.text(pending.joined(separator: "\n")))
             pending = []
         }
-        while i < lines.count {
-            let line = lines[i]
+        while let line = lines[checked: i] {
             let trimmed = line.trimmingCharacters(in: .whitespaces)
             // Fenced code stays as written: a table inside a fence is code.
             if let open = fence {
@@ -58,17 +57,17 @@ struct HomeTableSplitter {
                 i += 1
                 continue
             }
-            if i + 1 < lines.count, let header = Self.cells(line), header.count >= 2,
-               let alignments = Self.delimiter(lines[i + 1], columns: header.count) {
+            if let next = lines[checked: i + 1], let header = Self.cells(line), header.count >= 2,
+               let alignments = Self.delimiter(next, columns: header.count) {
                 var rows: [[String]] = []
                 var j = i + 2
-                while j < lines.count, !lines[j].trimmingCharacters(in: .whitespaces).isEmpty, let cells = Self.cells(lines[j]) {
+                while let row = lines[checked: j], !row.trimmingCharacters(in: .whitespaces).isEmpty, let cells = Self.cells(row) {
                     rows.append(Self.fit(cells, header.count))
                     j += 1
                 }
                 if !rows.isEmpty, rows.count <= Self.maxRows, header.count <= Self.maxColumns {
                     flush()
-                    let raw = lines[i..<j].joined(separator: "\n")
+                    let raw = lines.dropFirst(i).prefix(j - i).joined(separator: "\n")
                     out.append(.table(HomeTable(header: header, alignments: alignments, rows: rows), raw: raw))
                     i = j
                     continue
@@ -146,9 +145,8 @@ struct HomeTableCell: Hashable, Sendable {
         let chars = Array(markdown)
         var i = 0
         func length() -> Int { (text as NSString).length }
-        while i < chars.count {
-            let ch = chars[i]
-            if ch == "*" || ch == "_", i + 1 < chars.count, chars[i + 1] == ch {
+        while let ch = chars[checked: i] {
+            if ch == "*" || ch == "_", chars[checked: i + 1] == ch {
                 if let start = boldStart {
                     bold.append(NSRange(location: start, length: length() - start))
                     boldStart = nil
@@ -163,10 +161,10 @@ struct HomeTableCell: Hashable, Sendable {
                 continue
             }
             // [title](url)
-            if ch == "[", let close = chars[(i + 1)...].firstIndex(of: "]"), close + 1 < chars.count, chars[close + 1] == "(",
-               let end = chars[(close + 2)...].firstIndex(of: ")") {
-                let title = String(chars[(i + 1)..<close])
-                let target = String(chars[(close + 2)..<end])
+            if ch == "[", let close = chars.dropFirst(i + 1).firstIndex(of: "]"), chars[checked: close + 1] == "(",
+               let end = chars.dropFirst(close + 2).firstIndex(of: ")") {
+                let title = String(chars.dropFirst(i + 1).prefix(close - i - 1))
+                let target = String(chars.dropFirst(close + 2).prefix(end - close - 2))
                 if let url = URL(string: target), url.scheme != nil {
                     text += title
                     links.append(url)
@@ -229,7 +227,7 @@ struct HomePlanCard: Codable, Hashable, Sendable {
         let keyColumn = others.first { $0 != titleColumn && words($0) <= table.rows.count * 3 }
         rows = table.rows.map { cells in
             let parsed = cells.map(HomeTableCell.init(markdown:))
-            let ownerCell = parsed[ownerColumn].text
+            let ownerCell = parsed[checked: ownerColumn]?.text ?? ""
             let owner = Self.ownerID(ownerCell)
             let note = owner.flatMap { Self.note(ownerCell, after: $0) }
             var prs: [String] = []
@@ -238,9 +236,9 @@ struct HomePlanCard: Codable, Hashable, Sendable {
                     if let pr = ChiefPlanPullRequest(link: url.absoluteString), !prs.contains(pr.url) { prs.append(pr.url) }
                 }
             }
-            let key = keyColumn.map { parsed[$0].text }.flatMap { $0.isEmpty ? nil : $0 }
-            let written = statusColumn.flatMap { Self.writtenState(parsed[$0].text) }
-            return Row(key: key, title: parsed[titleColumn].text, owner: owner, ownerNote: note, pullRequests: prs, written: written)
+            let key = keyColumn.flatMap { parsed[checked: $0]?.text }.flatMap { $0.isEmpty ? nil : $0 }
+            let written = statusColumn.flatMap { parsed[checked: $0] }.flatMap { Self.writtenState($0.text) }
+            return Row(key: key, title: parsed[checked: titleColumn]?.text ?? "", owner: owner, ownerNote: note, pullRequests: prs, written: written)
         }
     }
 
@@ -251,7 +249,7 @@ struct HomePlanCard: Codable, Hashable, Sendable {
         let digits = s.dropFirst().prefix { $0.isASCII && $0.isNumber }
         guard !digits.isEmpty, digits.count <= 4 else { return nil }
         let after = s.dropFirst(1 + digits.count).first
-        guard after == nil || !(after!.isLetter || after!.isNumber) else { return nil }
+        if let after, after.isLetter || after.isNumber { return nil }
         return "a" + digits
     }
 
@@ -303,22 +301,19 @@ enum HomeTableColumns {
         var fixed = Set<Int>()
         var room = available
         while true {
-            let open = natural.indices.filter { !fixed.contains($0) }
+            let open = natural.enumerated().filter { !fixed.contains($0.offset) }
             guard !open.isEmpty else { break }
             let share = room / CGFloat(open.count)
-            let small = open.filter { natural[$0] <= share }
+            let small = open.filter { $0.element <= share }
             if small.isEmpty { break }
-            for i in small {
-                fixed.insert(i)
-                room -= natural[i]
+            for column in small {
+                fixed.insert(column.offset)
+                room -= column.element
             }
         }
-        let open = natural.indices.filter { !fixed.contains($0) }
-        let openNatural = open.reduce(CGFloat(0)) { $0 + natural[$1] }
-        var out = natural
-        for i in open {
-            out[i] = max(minColumn, (room * natural[i] / max(1, openNatural)).rounded(.down))
+        let openNatural = natural.enumerated().reduce(CGFloat(0)) { fixed.contains($1.offset) ? $0 : $0 + $1.element }
+        return natural.enumerated().map { column in
+            fixed.contains(column.offset) ? column.element : max(minColumn, (room * column.element / max(1, openNatural)).rounded(.down))
         }
-        return out
     }
 }

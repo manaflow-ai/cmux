@@ -74,8 +74,9 @@ final class HomeTableRowProvider: TranscriptCustomRowProvider {
         guard let payload = Self.payload(part) else { return false }
         let links = payload.table.rows.flatMap { $0 }.flatMap { HomeTableCell(markdown: $0).links }
         let items = links.map { (HomeCardLinks.title($0), $0) }
-        // tapped runs on the main thread (MessagesWindowView.hostControl).
-        return MainActor.assumeIsolated { HomeCardLinks.offer(items) }
+        guard !items.isEmpty else { return false }
+        Task { @MainActor in HomeCardLinks.offer(items) }
+        return true
     }
 }
 
@@ -107,8 +108,8 @@ struct HomeTableGrid {
         self.widths = widths
         heights = all.map { (row: [NSAttributedString]) -> CGFloat in
             var tallest: CGFloat = 0
-            for (c, text) in row.enumerated() where c < widths.count {
-                tallest = max(tallest, Self.textHeight(text, width: widths[c] - 2 * Self.cellPadX))
+            for (text, width) in zip(row, widths) {
+                tallest = max(tallest, Self.textHeight(text, width: width - 2 * Self.cellPadX))
             }
             return tallest + 2 * Self.cellPadY
         }
@@ -125,14 +126,14 @@ struct HomeTableGrid {
         defer { ctx.restoreGState() }
         ctx.clip(to: card.insetBy(dx: Self.pad / 2, dy: 0))
         var y = card.minY + Self.pad
-        for (r, row) in cells.enumerated() {
+        for (r, (row, rowHeight)) in zip(cells, heights).enumerated() {
             var x = card.minX + Self.pad
-            for (c, text) in row.enumerated() {
-                let frame = CGRect(x: x + Self.cellPadX, y: y + Self.cellPadY, width: widths[c] - 2 * Self.cellPadX, height: heights[r] - 2 * Self.cellPadY)
-                HomeCardDraw.text(ctx, text, in: frame, alignment: alignments[safe: c] ?? .leading)
-                x += widths[c]
+            for (c, (text, width)) in zip(row, widths).enumerated() {
+                let frame = CGRect(x: x + Self.cellPadX, y: y + Self.cellPadY, width: width - 2 * Self.cellPadX, height: rowHeight - 2 * Self.cellPadY)
+                HomeCardDraw.text(ctx, text, in: frame, alignment: alignments[checked: c] ?? .leading)
+                x += width
             }
-            y += heights[r]
+            y += rowHeight
             if r < cells.count - 1 {
                 HomeCardDraw.hairline(ctx, from: CGPoint(x: card.minX + Self.pad, y: y), to: CGPoint(x: card.maxX - Self.pad, y: y), strong: r == 0)
             }
@@ -213,7 +214,9 @@ final class HomePlanRowProvider: TranscriptCustomRowProvider {
                 if let url = URL(string: pr) { items.append((HomeCardLinks.title(url), url)) }
             }
         }
-        return MainActor.assumeIsolated { HomeCardLinks.offer(items) }
+        guard !items.isEmpty else { return false }
+        Task { @MainActor in HomeCardLinks.offer(items) }
+        return true
     }
 }
 
@@ -266,7 +269,7 @@ struct HomePlanLayout {
             return Line(owner: row.owner, title: title, detail: detail,
                         titleHeight: HomeTableGrid.textHeight(title, width: textWidth),
                         detailHeight: detail.map { HomeTableGrid.textHeight($0, width: textWidth) } ?? 0,
-                        state: states[safe: i] ?? nil)
+                        state: states[checked: i] ?? nil)
         }
     }
 
@@ -396,11 +399,11 @@ enum HomeCardLinks {
         return CmuxStrings.planOpenLink(url.host ?? url.absoluteString)
     }
 
-    /// Shows the menu; false when there is nothing to open (the click then selects the row).
-    @MainActor static func offer(_ items: [(String, URL)]) -> Bool {
+    /// Shows the menu of `items` (without repeats) at the pointer.
+    @MainActor static func offer(_ items: [(String, URL)]) {
         var seen = Set<URL>()
         let unique = items.filter { seen.insert($0.1).inserted }
-        guard !unique.isEmpty else { return false }
+        guard !unique.isEmpty else { return }
         let menu = NSMenu()
         for (title, url) in unique.prefix(24) {
             let item = NSMenuItem(title: title, action: #selector(HomeCardLinkTarget.open(_:)), keyEquivalent: "")
@@ -409,7 +412,6 @@ enum HomeCardLinks {
             menu.addItem(item)
         }
         _ = menu.popUp(positioning: nil, at: NSEvent.mouseLocation, in: nil)
-        return true
     }
 }
 
@@ -419,8 +421,4 @@ enum HomeCardLinks {
         guard let url = sender.representedObject as? URL else { return }
         NSWorkspace.shared.open(url)
     }
-}
-
-private extension Array {
-    subscript(safe i: Int) -> Element? { indices.contains(i) ? self[i] : nil }
 }
