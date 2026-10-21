@@ -15,9 +15,10 @@ import { useEffect, useReducer, useRef, useState } from "react";
 import type { ComposerAttachment } from "../attachments";
 
 export type ImageSize = { width: number; height: number };
-/// A sent image ready to draw: its data URL, its natural size when known, and the decoded element
-/// (held so the engine keeps its pixels).
-export type ImageEntry = { src: string; size?: ImageSize; decoded?: HTMLImageElement };
+/// A sent image ready to draw: its data URL, its natural size when known, and whether the engine
+/// decoded it ahead. The element that decoded it is not held: up to 128 decoded screenshots would
+/// pin gigabytes, and the engine's own image cache serves the same src string again.
+export type ImageEntry = { src: string; size?: ImageSize; decoded?: boolean };
 
 /// Sent images by acpmux id, most recently drawn last, within a count and a total data URL length.
 const MAX_ENTRIES = 128;
@@ -117,7 +118,7 @@ function keep(id: string, entry: ImageEntry): ImageEntry {
 
 /// Decodes `src` off screen, so the <img> that shows it paints in its first frame, and measures it.
 /// Undefined size where the engine cannot decode ahead (the <img> then measures it when it loads).
-export async function decodeImage(src: string): Promise<{ size?: ImageSize; decoded?: HTMLImageElement }> {
+export async function decodeImage(src: string): Promise<{ size?: ImageSize; decoded?: boolean }> {
   const header = dataUrlImageSize(src);
   if (typeof Image !== "function") return { size: header };
   const image = new Image();
@@ -129,13 +130,17 @@ export async function decodeImage(src: string): Promise<{ size?: ImageSize; deco
   } catch {
     return { size: header };
   }
-  const size = image.naturalWidth && image.naturalHeight ? { width: image.naturalWidth, height: image.naturalHeight } : header;
-  return { size, decoded: image };
+  const size =
+    image.naturalWidth && image.naturalHeight ? { width: image.naturalWidth, height: image.naturalHeight } : header;
+  return { size, decoded: true };
 }
 
 /// The sent image `id`, read with `read` (acpmux's `_acpmux/attachment`) and decoded once; every
 /// caller gets the same entry. Undefined when acpmux has none; a failed read is not kept.
-export function loadSentImage(id: string, read: (id: string) => Promise<string | undefined>): Promise<ImageEntry | undefined> {
+export function loadSentImage(
+  id: string,
+  read: (id: string) => Promise<string | undefined>,
+): Promise<ImageEntry | undefined> {
   const known = sentImageEntry(id);
   if (known) return Promise.resolve(known);
   const inFlight = reading.get(id);
@@ -217,7 +222,7 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
   const canRead = read !== undefined;
   const [loaded, setLoaded] = useState<{ id: string; entry?: ImageEntry }>();
   const [, measured] = useReducer((count: number) => count + 1, 0);
-  const entry = id === undefined ? undefined : (loaded?.id === id ? loaded.entry : undefined) ?? sentImageEntry(id);
+  const entry = id === undefined ? undefined : ((loaded?.id === id ? loaded.entry : undefined) ?? sentImageEntry(id));
   useEffect(() => {
     if (id === undefined || !canRead || sentImageEntry(id)) return;
     let live = true;
@@ -240,8 +245,7 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     (meta?.width && meta.height ? { width: meta.width, height: meta.height } : undefined) ??
     entry?.size ??
     (src !== undefined ? knownImageSize(src) : undefined);
-  const status =
-    src !== undefined ? "ready" : id !== undefined && canRead && loaded?.id !== id ? "loading" : "missing";
+  const status = src !== undefined ? "ready" : id !== undefined && canRead && loaded?.id !== id ? "loading" : "missing";
   const onLoad = (event: { currentTarget: HTMLImageElement }) => {
     const { naturalWidth: width, naturalHeight: height, currentSrc } = event.currentTarget;
     const drawnSrc = src ?? currentSrc;
@@ -256,7 +260,7 @@ export function useStableImage(source: StableImageSource, meta?: { width?: numbe
     ...(size && { width: size.width, height: size.height }),
     status,
     fresh: fade.current?.fresh ?? true,
-    decoded: entry?.decoded !== undefined || (src !== undefined && hasDrawn(src)),
+    decoded: entry?.decoded === true || (src !== undefined && hasDrawn(src)),
     onLoad,
   };
 }
@@ -295,7 +299,8 @@ export function dataUrlImageSize(src: string): ImageSize | undefined {
   const size = (width: number, height: number) => (width > 0 && height > 0 ? { width, height } : undefined);
   const u16be = (b: Uint8Array, at: number) => (b[at]! << 8) | b[at + 1]!;
   const u16le = (b: Uint8Array, at: number) => b[at]! | (b[at + 1]! << 8);
-  const u32be = (b: Uint8Array, at: number) => ((b[at]! << 24) | (b[at + 1]! << 16) | (b[at + 2]! << 8) | b[at + 3]!) >>> 0;
+  const u32be = (b: Uint8Array, at: number) =>
+    ((b[at]! << 24) | (b[at + 1]! << 16) | (b[at + 2]! << 8) | b[at + 3]!) >>> 0;
   // PNG: the IHDR chunk's width and height.
   if (head[0] === 0x89 && head[1] === 0x50 && head[2] === 0x4e && head[3] === 0x47 && head.length >= 24)
     return size(u32be(head, 16), u32be(head, 20));
@@ -321,7 +326,7 @@ export function dataUrlImageSize(src: string): ImageSize | undefined {
     const jpeg = bytes(256 * 1024);
     if (!jpeg) return undefined;
     let rotated = false;
-    for (let at = 2; at + 9 < jpeg.length; ) {
+    for (let at = 2; at + 9 < jpeg.length;) {
       if (jpeg[at] !== 0xff) return undefined;
       const marker = jpeg[at + 1]!;
       if (marker === 0xff) {

@@ -41,7 +41,8 @@ function pngBytes(width: number, height: number, salt = 0): Uint8Array {
   return bytes;
 }
 const base64 = (bytes: Uint8Array) => Buffer.from(bytes).toString("base64");
-const png = (width: number, height: number, salt = 0) => `data:image/png;base64,${base64(pngBytes(width, height, salt))}`;
+const png = (width: number, height: number, salt = 0) =>
+  `data:image/png;base64,${base64(pngBytes(width, height, salt))}`;
 
 beforeEach(() => images.clearImageEntries());
 
@@ -100,6 +101,7 @@ try {
       const shown = images.useStableImage({ src });
       return (
         <img
+          alt=""
           className={shown.fresh ? "fresh" : "again"}
           src={shown.src}
           width={shown.width}
@@ -124,13 +126,27 @@ try {
     const bytes = pngBytes(400, 200, 9);
     const id = createHash("sha256").update(bytes).digest("hex");
     await images.primeSentImages([
-      { id: "composer-1", kind: "image", name: "image.png", mimeType: "image/png", size: bytes.length, data: base64(bytes) },
+      {
+        id: "composer-1",
+        kind: "image",
+        name: "image.png",
+        mimeType: "image/png",
+        size: bytes.length,
+        data: base64(bytes),
+      },
     ]);
     expect(images.sentImageEntry(id)?.size).toEqual({ width: 400, height: 200 });
     const host = dom.window.document.getElementById("root")!;
     const root = createRoot(host);
     let reads = 0;
-    const row = { id: "user-p", version: 1, at: 1, kind: "user_message", text: "look", images: [{ id, mimeType: "image/png" }] };
+    const row = {
+      id: "user-p",
+      version: 1,
+      at: 1,
+      kind: "user_message",
+      text: "look",
+      images: [{ id, mimeType: "image/png" }],
+    };
     await act(async () =>
       root.render(
         <TurnActionsContext.Provider
