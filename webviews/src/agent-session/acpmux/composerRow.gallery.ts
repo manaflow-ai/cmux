@@ -51,11 +51,12 @@ const modes = {
 };
 
 // The chat in Leo's report: Claude Opus 5.5, Medium, Auto (no context ring: the model's tooltip says the usage).
+// Claude Code steers (acpmux `steering`), so a prompt typed mid-turn draws the ↵ control.
 function row(fields: Parameters<typeof chat>[1] = {}, extra: Partial<NonNullable<AcpmuxSnapshot["summary"]>> = {}) {
   const snapshot = chat(finished, { title: "Composer row", ...fields });
   return {
     ...snapshot,
-    summary: { ...snapshot.summary!, configOptions: [effort], modes, ...extra },
+    summary: { ...snapshot.summary!, configOptions: [effort], modes, steering: true, ...extra },
   } satisfies AcpmuxSnapshot;
 }
 

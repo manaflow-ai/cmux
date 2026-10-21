@@ -15,6 +15,7 @@
 pub mod adopt;
 pub mod adopt_live;
 pub mod adopt_replay;
+pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
@@ -54,6 +55,7 @@ pub mod offer_mcp;
 #[cfg(windows)]
 mod owner_only;
 pub mod peer;
+pub mod peer_link;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;
