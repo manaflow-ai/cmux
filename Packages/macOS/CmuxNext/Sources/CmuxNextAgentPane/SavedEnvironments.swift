@@ -8,7 +8,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
     /// Most environments kept; a save past it is refused.
     static let maximumCount = 200
 
-    enum Failure: Error { case invalid, full, unwritable }
+    nonisolated enum Failure: Error { case invalid, full, unwritable, unreadable }
 
     private let url: URL
     private let now: @Sendable () -> Date
@@ -16,6 +16,10 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
     /// Entries this build cannot read (a newer build's kind, a hand edit): kept as they were and
     /// written back with every save, so an older build never drops them.
     private var foreign: [Any] = []
+    /// The file is there but could not be read (its permissions, an IO error): nothing is cached
+    /// and no save or remove may replace it, so the user's environments are never lost to a
+    /// passing failure.
+    private var unreadable = false
 
     /// The store kept in `url` (`environments.json` beside the app's sidebar snapshot).
     public init(url: URL, now: @escaping @Sendable () -> Date = { Date() }) {
@@ -30,6 +34,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
     public func save(_ environment: AgentPaneEnvironment) throws -> AgentPaneEnvironment {
         guard var kept = environment.validated() else { throw Failure.invalid }
         var all = environments()
+        guard !unreadable else { throw Failure.unreadable }
         kept.id = kept.id ?? UUID().uuidString
         // Always after every kept one, so the list order is the order of the saves.
         let latest = all.compactMap(\.updatedAt).max() ?? 0
@@ -46,6 +51,7 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
 
     public func remove(id: String) throws {
         var all = environments()
+        guard !unreadable else { throw Failure.unreadable }
         guard let index = all.firstIndex(where: { $0.id == id }) else { return }
         all.remove(at: index)
         try write(all)
@@ -53,10 +59,21 @@ public actor SavedEnvironments: AgentPaneEnvironmentStoring {
 
     /// The kept list, read from the file the first time, entry by entry: one this build cannot
     /// read (or that no longer validates) is left out of the list but kept in the file. A file
-    /// that is not a list of environments at all reads as empty and is replaced by the next save.
+    /// that is not a list of environments at all reads as empty and is replaced by the next save; a
+    /// file that is there but cannot be read reads as empty and is kept (`unreadable`).
     private func environments() -> [AgentPaneEnvironment] {
         if let loaded { return loaded }
-        let document = (try? Data(contentsOf: url)).flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
+        let data: Data?
+        do {
+            data = try Data(contentsOf: url)
+        } catch let error as CocoaError where error.code == .fileReadNoSuchFile {
+            data = nil
+        } catch {
+            unreadable = true
+            return []
+        }
+        unreadable = false
+        let document = data.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]
         var valid: [AgentPaneEnvironment] = []
         for entry in document?["environments"] as? [Any] ?? [] {
             let decoded = (try? JSONSerialization.data(withJSONObject: entry))
