@@ -13,7 +13,7 @@ import type { SavedEnvironment, SavedEnvironmentHost } from "../environments";
 import { SavedEnvironmentPanel } from "../SavedEnvironmentPanel";
 import { useSavedEnvironments } from "./savedEnvironments";
 import type { ComposerAttachment, DroppedKind, LinkItem } from "../attachments";
-import { AttachmentStrip, useAttachmentIntake } from "../composer/attachmentIntake";
+import { AttachmentStrip, useAttachmentIntake, useSendWhenAttached } from "../composer/attachmentIntake";
 import { AllChatsList, type LoadChatsPage } from "./AllChatsList";
 import { ChatCards } from "./ChatCards";
 import { ClosedList } from "./ClosedList";
@@ -247,12 +247,20 @@ export function NewTabScreen(props: Props) {
   const field = useRef<HTMLTextAreaElement>(null);
   // A paste on the field (an image, a copied file, a screenshot) and a file drop anywhere on the
   // page stage attachments, as a chat's composer does (composer/attachmentIntake.tsx).
-  const { attachments, setAttachments, attachError, dropping } = useAttachmentIntake({
+  const {
+    attachments,
+    setAttachments,
+    pending: reading,
+    attachError,
+    dropping,
+  } = useAttachmentIntake({
     allowImages: snapshot.summary?.promptCapabilities?.image !== false,
     // Shell mode turns the page into a terminal, which takes no attachment: the paste stays text.
     pasteTarget: (target) => (!shell && field.current?.contains(target) ? { uploads: false } : undefined),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
+  const holdForAttachments = useSendWhenAttached(reading.length);
+  const submitNow = useRef(() => {});
   const wholeSelection = useRef(false);
   const inlineCaret = useRef<number | undefined>(undefined);
   const composing = useRef(false);
@@ -566,6 +574,8 @@ export function NewTabScreen(props: Props) {
     setSelected(undefined);
   };
   const submit = () => {
+    // A screenshot pasted a moment ago is still being read: Return goes once its chip is ready.
+    if (holdForAttachments(() => submitNow.current())) return;
     // Closed suggestions still answer Return: their top row ("reddit" opens reddit.com).
     const row = rows.length ? rows[current] : suggested[defaultSelection(suggested)];
     // Staged attachments go with a chat: a row that opens a page or a tab would drop them.
@@ -579,6 +589,7 @@ export function NewTabScreen(props: Props) {
     if (!harness) return;
     askChat(harness, prompt, project, chipModel);
   };
+  submitNow.current = submit;
   // One create per page: a double click, or a click while the terminal spawns, opens one tab.
   const created = useRef(false);
   const create = (kind: "terminal" | "browser") => {
@@ -1020,6 +1031,7 @@ export function NewTabScreen(props: Props) {
             text and never moves it (Leo 2026-10-19: the composer kept "going to places"). */}
           <AttachmentStrip
             attachments={attachments}
+            pending={reading}
             {...(attachError ? { error: attachError } : {})}
             dropping={dropping}
             codex={harness === "codex"}
