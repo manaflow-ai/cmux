@@ -101,7 +101,9 @@ fn write_log(dir: &Path, mb: u64) -> (u64, u64) {
             // The daemon's field order (`EventRecord`): seq first, so a read can pass a
             // record on its header alone.
             let at = 1_791_000_000_000u64 + seq;
-            let line = format!(r#"{{"seq":{seq},"at":{at},"dir":"{dir}","kind":"{kind}","msg":{msg}}}"#) + "\n";
+            let line =
+                format!(r#"{{"seq":{seq},"at":{at},"dir":"{dir}","kind":"{kind}","msg":{msg}}}"#)
+                    + "\n";
             if in_segment >= 8 * 1024 * 1024 {
                 out.flush().unwrap();
                 segment += 1;
@@ -128,7 +130,7 @@ fn peak_kb(pid: u32, reset: bool) -> u64 {
         }
         let status = std::fs::read_to_string(format!("/proc/{pid}/status")).unwrap();
         let line = status.lines().find(|l| l.starts_with("VmHWM:")).unwrap();
-        return line.split_whitespace().nth(1).unwrap().parse().unwrap();
+        line.split_whitespace().nth(1).unwrap().parse().unwrap()
     }
     #[cfg(not(target_os = "linux"))]
     {
