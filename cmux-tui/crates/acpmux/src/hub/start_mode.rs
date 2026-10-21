@@ -413,7 +413,12 @@ fn level_of(mode: &str, family: &str, asking: &[String]) -> DefaultMode {
 
 /// Whether mode `mode` of a harness of `family` asks before each change (or only reads).
 pub(super) fn asks(mode: &str, family: &str) -> bool {
-    level_of(mode, family, &[]) == DefaultMode::Ask
+    asks_in(mode, family, &[])
+}
+
+/// `asks`, also counting `asking`: the configured asking modes of `family` (`webAskingModes`).
+pub(super) fn asks_in(mode: &str, family: &str, asking: &[String]) -> bool {
+    level_of(mode, family, asking) == DefaultMode::Ask
 }
 
 impl DefaultMode {
@@ -506,7 +511,7 @@ impl Hub {
             return Err(e);
         }
         // A narrower policy holds over a pinned mode too (`policy_mode.rs`).
-        self.hold_policy_mode(session, child).await;
+        self.hold_policy_mode(session, child, profile_sets_mode(profile)).await;
         Ok(())
     }
 
