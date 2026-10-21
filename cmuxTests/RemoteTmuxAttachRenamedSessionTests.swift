@@ -33,15 +33,19 @@ struct RemoteTmuxAttachRenamedSessionTests {
             // What discovery saw: the name and the stable id.
             let listed = try tmux(["list-sessions", "-F", "#{session_id} #{session_name}"])
             let rawId = try #require(listed.split(separator: " ").first.map(String.init), "no session: \(listed)")
-            let sessionId = try #require(Int(rawId.dropFirst()), "unexpected session id \(rawId)")
             // The session renames itself before the attach runs.
             _ = try tmux(["rename-session", "-t", "=agent-working", "agent-done"])
 
+            // The production handoff from discovery, which carries the listed id to the attach.
             let manager = try #require(AppDelegate.shared?.tabManagerFor(windowId: windowId))
-            let mirrored = try controller.mirrorSession(
-                host: host, sessionName: "agent-working", sessionId: sessionId, into: manager
+            let mirrored = controller.mirrorDiscoveredSessions(
+                host: host,
+                sessions: [RemoteTmuxSession(
+                    id: rawId, name: "agent-working", windowCount: 1, attached: false, createdUnix: nil
+                )],
+                into: manager
             )
-            #expect(mirrored)
+            #expect(mirrored.count == 1)
             let connection = try #require(controller.connection(host: host, sessionName: "agent-working"))
             defer { controller.detach(host: host, sessionName: connection.sessionName) }
 
