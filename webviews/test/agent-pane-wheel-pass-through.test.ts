@@ -51,7 +51,12 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
   /// Wheels `deltaY` with the pointer at the middle of `selector`'s box, and the scroll it made.
   async function wheelOver(page: Page, selector: string, deltaY: number): Promise<number> {
     const box = (await page.locator(selector).first().boundingBox())!;
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    return wheelAt(page, box.x + box.width / 2, box.y + box.height / 2, deltaY);
+  }
+
+  /// Wheels `deltaY` with the pointer at (`x`, `y`), and the scroll it made.
+  async function wheelAt(page: Page, x: number, y: number, deltaY: number): Promise<number> {
+    await page.mouse.move(x, y);
     const before = await scrollTop(page);
     await page.mouse.wheel(0, deltaY);
     await page.waitForTimeout(400);
@@ -85,16 +90,23 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
       });
 
       // Leo 2026-10-20: "all of these areas are essentially a no-scroll zone." The wheel over the
-      // bottom stack's parts (the composer's card here) moves neither the transcript nor the stack.
+      // bottom stack's parts moves neither the transcript nor the stack: over the composer's card,
+      // in the gutter beside it and in the composer's padding under its footer row.
       test("the bottom stack is a no-scroll zone", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
-        const card = () =>
-          page.evaluate(() => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().y);
-        const before = await card();
-        expect(await wheelOver(page, ".acpmux-composer-box", -300)).toBe(0);
-        expect(await wheelOver(page, ".acpmux-composer-box", 150)).toBe(0);
-        expect(await card()).toBe(before);
+        // Up from the latest message, so the transcript can scroll either way.
+        expect(await wheelOver(page, ".acpmux-scroll", -1200)).toBeLessThan(0);
+        const card = (await page.locator(".acpmux-composer-box").first().boundingBox())!;
+        const composer = (await page.locator(".acpmux-dock > .acpmux-composer").first().boundingBox())!;
+        expect(card.x).toBeGreaterThan(composer.x + 12);
+        const points: [string, number, number][] = [
+          ["card", card.x + card.width / 2, card.y + card.height / 2],
+          ["gutter", card.x - 8, card.y + card.height / 2],
+          ["foot", card.x + card.width / 2, composer.y + composer.height - 6],
+        ];
+        for (const [where, x, y] of points)
+          for (const deltaY of [-300, 300]) expect([where, await wheelAt(page, x, y, deltaY)]).toEqual([where, 0]);
         await page.close();
       });
 
@@ -158,7 +170,7 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
           const box = document.querySelector(".acpmux-md-field")!;
           const text = document.createRange();
           text.selectNodeContents([...box.querySelectorAll("p")].at(-1)!.firstChild!);
-          return box.getBoundingClientRect().bottom - text.getClientRects()[0]!.bottom;
+          return box.getBoundingClientRect().bottom - [...text.getClientRects()].at(-1)!.bottom;
         });
         expect(lastLine).toBeGreaterThanOrEqual(0);
         expect(await scrollTop(page)).toBe(transcript);
