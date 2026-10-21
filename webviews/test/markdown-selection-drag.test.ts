@@ -58,13 +58,15 @@ await requireBrowserLane("markdown-selection-drag.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    // The entry and the page it mounts (frame/pages.ts), not the frame: its registry names every
-    // entry. Module URLs carry the config's base, /gallery/; a path outside it is a 404 that warms
-    // nothing, so a warm-up that found no imports fails here.
+    // The entry and the page it mounts (pages/markdown/main.tsx), not the frame: its registry names
+    // every entry. Module URLs carry the config's base, /gallery/; a path outside it is a 404 that
+    // warms nothing, so a warm-up that found no imports fails here. Both share one budget that ends
+    // inside this hook's limit, so a slow warm-up reports its own error, not a hook timeout.
+    const deadline = Date.now() + 40_000;
     for (const url of [`/gallery/${ENTRY_PATH}`, "/gallery/src/pages/markdown/main.tsx"])
-      if ((await warmViteServer(vite, url, { timeoutMs: 30_000 })) === 0)
+      if ((await warmViteServer(vite, url, { timeoutMs: Math.max(1, deadline - Date.now()) })) === 0)
         throw new Error(`warmViteServer: ${url} imports nothing; is it served?`);
-  });
+  }, 60_000);
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await vite?.close();
