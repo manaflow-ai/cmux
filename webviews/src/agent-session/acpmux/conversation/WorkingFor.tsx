@@ -10,6 +10,10 @@
 // rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
 // ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
 // ends, the "Worked for" disclosure takes its place.
+//
+// Drawn as the turn's last row (`row.below`, Debug Settings `agentPane.debug.liveLineBelow`), it
+// has no rule under it and its clock never stops while the turn runs, and before any output
+// (`row.thinkingNow`) it reads "Thinking" beside the time.
 import { createContext, useContext, useEffect, useState } from "react";
 import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
@@ -45,18 +49,24 @@ export const workingTokens = (t: Translate, language: PaneLanguage, tokens: numb
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
+/// `now()`, again each second while `running`.
+export function useTicking(running: boolean, now: () => number = Date.now): number {
+  const [time, setTime] = useState(now);
+  useEffect(() => {
+    if (!running) return;
+    setTime(now());
+    const timer = setInterval(() => setTime(now()), 1000);
+    return () => clearInterval(timer);
+  }, [now, running]);
+  return time;
+}
+
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
   const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
-  const [time, setTime] = useState(now);
-  const held = row.durationMs !== undefined;
-  useEffect(() => {
-    if (held) return;
-    setTime(now());
-    const timer = setInterval(() => setTime(now()), 1000);
-    return () => clearInterval(timer);
-  }, [now, held]);
+  const held = !row.below && row.durationMs !== undefined;
+  const time = useTicking(!held, now);
   const until = held ? row.at + row.durationMs! : time;
   const parts = counts
     ? [
@@ -77,13 +87,15 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
         },
       ].filter((part) => part !== false)
     : [];
-  // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
-  // line is not painted either: the call it names is matched on its own tool row.
   return (
-    <div className="cv-worked has-divider" data-find-skip>
-      {row.doing ? (
+    // Find counts and visits transcript rows only (chatFind.ts findMatches skips this row), so the
+    // line is not painted either: the call it names is matched on its own tool row.
+    <div className={row.below ? "cv-worked is-below" : "cv-worked has-divider"} data-find-skip>
+      {row.doing || row.thinkingNow ? (
         <>
-          <span className="cv-worked__label cv-worked__doing">{row.doing}</span>
+          <span className={row.doing ? "cv-worked__label cv-worked__doing" : "cv-worked__label"}>
+            {row.doing ?? t("thinking")}
+          </span>
           <span className="cv-worked__time">{formatDuration(Math.max(0, until - row.at))}</span>
         </>
       ) : (

@@ -180,6 +180,22 @@ export type AcpmuxRow = {
   live?: boolean;
   /// A running turn's status line: the title of the call in flight, which it names (WorkingFor.tsx).
   doing?: string;
+  /// A running turn's status line before the turn's first output: it reads "Thinking" beside the
+  /// turn's time (WorkingFor.tsx).
+  thinkingNow?: boolean;
+  /// A running turn's status line drawn as the turn's last row (Debug Settings
+  /// `agentPane.debug.liveLineBelow`, conversation/turns.ts): no rule under it, and its clock
+  /// never stops while the turn runs.
+  below?: boolean;
+  /// The Codex-style live line (conversation/turns.ts `codexLiveTurn`, Thinking.tsx): the call in
+  /// flight's start on this computer's clock, which its time counts from; whether `doing` is a raw
+  /// command line, which reads "Running <command>" (or "Running a command" when empty); no time
+  /// beside "Thinking" (the turn's line over its work has it); and the streaming text it waits
+  /// behind, by id and version, while that text still moves.
+  doingAt?: number;
+  doingShell?: boolean;
+  untimed?: boolean;
+  quietKey?: string;
   /// A "Worked for" disclosure of a turn without timing reads "N previous messages" (conversation/turns.ts).
   previous?: number;
   /// A prompt queued behind a harness switch (its id there), which offers Cancel (harnessSwitch.ts).
