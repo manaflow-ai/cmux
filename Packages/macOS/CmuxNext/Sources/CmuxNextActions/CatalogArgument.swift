@@ -27,6 +27,13 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// A cmux Cloud team of the signed-in account, by id (Team Picker): the palette lists the teams
+    /// and marks the current one.
+    static var cloudTeam: ActionArgument {
+        ActionArgument(name: "team", title: String(localized: "argument.team", defaultValue: "Team", bundle: .module), kind: .string,
+                       suggestions: ActionSuggestions(source: ActionSuggestions.cloudTeams, pinned: []))
+    }
+
     static var nameString: ActionArgument {
         ActionArgument(name: "name", title: String(localized: "argument.name", defaultValue: "Name", bundle: .module), kind: .string)
     }

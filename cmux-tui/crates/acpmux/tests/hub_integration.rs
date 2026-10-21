@@ -31,6 +31,8 @@ mod lanes;
 mod permission_groups;
 #[path = "hub_integration/prompt_context.rs"]
 mod prompt_context;
+#[path = "hub_integration/prompt_ledger.rs"]
+mod prompt_ledger;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
 #[path = "hub_integration/prompt_withdraw.rs"]
@@ -57,6 +59,8 @@ mod steer_now;
 mod steer_only;
 #[path = "hub_integration/stop.rs"]
 mod stop;
+#[path = "hub_integration/surfaces.rs"]
+mod surfaces;
 #[path = "hub_integration/tags_rules.rs"]
 mod tags_rules;
 #[path = "hub_integration/xai_requests.rs"]

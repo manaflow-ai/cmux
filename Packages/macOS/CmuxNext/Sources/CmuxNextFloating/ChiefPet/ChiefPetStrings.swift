@@ -34,6 +34,19 @@ enum ChiefPetStrings {
         String(localized: "chiefPet.menu.hide", defaultValue: "Hide Chief Pet", table: "ChiefPet", bundle: .module)
     }
 
+    /// A notice whose poster gave no title: the tab's name and what happened there.
+    static func finished(_ name: String) -> String {
+        String(localized: "chiefPet.notice.finished", defaultValue: "\(name) finished", table: "ChiefPet", bundle: .module)
+    }
+
+    static func needsYou(_ name: String) -> String {
+        String(localized: "chiefPet.notice.needsYou", defaultValue: "\(name) needs your input", table: "ChiefPet", bundle: .module)
+    }
+
+    static func failed(_ name: String) -> String {
+        String(localized: "chiefPet.notice.failed", defaultValue: "\(name) failed", table: "ChiefPet", bundle: .module)
+    }
+
     static var replyTarget: String {
         String(localized: "chiefPet.reply.target", defaultValue: "Send to", table: "ChiefPet", bundle: .module)
     }

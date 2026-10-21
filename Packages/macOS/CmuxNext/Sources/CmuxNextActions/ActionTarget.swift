@@ -105,6 +105,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case bookmark
     /// The bookmarks bar's empty area.
     case bookmarksBar
+    /// The bookmark manager page's more (⋮) button: the shown folder and the page's profile go as arguments.
+    case bookmarkManager
     /// The screen bar's empty area or its new screen (+) button.
     case screenBar
     /// A row of the notifications panel.
@@ -141,7 +143,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .profile: .profile
         case .browserProfile: .browserProfile
         case .bookmark: .bookmark
-        case .bookmarksBar, .screenBar, .notification: nil
+        case .bookmarksBar, .bookmarkManager, .screenBar, .notification: nil
         // The workspace whose background it is.
         case .windowBackground: .workspace
         case .sidebarItem: .sidebarItem
