@@ -281,13 +281,16 @@ class CampaignOutcomeTests(unittest.TestCase):
         import argparse
         import shutil
         import tempfile
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
+        workers = more.pop("workers", {"m1": {"last_seen": now}, "m2": {"last_seen": now}})
         d = tempfile.mkdtemp()
         self.addCleanup(shutil.rmtree, d, True)
         os.makedirs(os.path.join(d, "bin"))
         fake = os.path.join(d, "bin", "cmux-ci")
         with open(fake, "w") as f:
             f.write(f"#!/bin/sh\necho \"$*\" >> {d}/calls\n"
-                    f"[ \"$1\" = workers ] && {{ echo '{{\"m1\": {{}}, \"m2\": {{}}}}'; exit 0; }}\n"
+                    f"[ \"$1\" = workers ] && {{ echo '{json.dumps(workers)}'; exit 0; }}\n"
                     f"echo {json.dumps(stderr)} >&2\nexit {rc}\n")
         os.chmod(fake, 0o755)
         opts = argparse.Namespace(ledger=os.path.join(d, "l.json"), cap_usd=100, out=os.path.join(d, "out"), reps=1,
@@ -324,6 +327,10 @@ class CampaignOutcomeTests(unittest.TestCase):
     def test_an_unknown_worker_stops_the_campaign_before_any_reservation(self):
         with self.assertRaises(SystemExit):
             self.campaign_with("", 0, worker=["m1", "typo"])
+
+    def test_a_listed_but_offline_worker_stops_the_campaign_before_any_reservation(self):
+        with self.assertRaises(SystemExit):
+            self.campaign_with("", 0, worker=["m1"], workers={"m1": {"last_seen": "2026-09-25T00:00:00Z"}})
 
     def test_no_worker_means_no_target(self):
         self.campaign_with("cmux-ci: controller HTTP 400: no", 1)

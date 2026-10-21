@@ -725,11 +725,19 @@ def campaign(opts):
 
     if opts.worker:
         # A targeted step waits for its worker with no limit, so a name the
-        # controller does not know would hang the campaign on its reservation.
+        # controller does not know, or a machine it still lists but has not
+        # heard from lately, would hang the campaign on its reservation.
+        from datetime import datetime, timedelta, timezone
         known = json.loads(subprocess.run(["cmux-ci", "workers"], capture_output=True, text=True, check=True).stdout)
-        unknown = [w for w in opts.worker if w not in known]
-        if unknown:
-            sys.exit(f"team-eval campaign: not controller workers: {unknown}")
+        recent = datetime.now(timezone.utc) - timedelta(minutes=10)
+
+        def live(w):
+            seen = known.get(w, {}).get("last_seen", "")
+            return bool(seen) and datetime.fromisoformat(seen.replace("Z", "+00:00")) > recent
+
+        down = [w for w in opts.worker if not live(w)]
+        if down:
+            sys.exit(f"team-eval campaign: not live controller workers (unknown, or unseen for 10 minutes): {down}")
     ledger = Ledger(opts.ledger, opts.cap_usd)
     # A step must run where --base-url resolves (a tailnet host, not an AWS Mac):
     # with --worker each step takes a free one of these, so no two share one.
