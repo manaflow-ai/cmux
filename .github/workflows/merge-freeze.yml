@@ -69,12 +69,24 @@ jobs:
           BASE: ${{ github.event.pull_request.base.ref }}
           # The event's count, so the pull request is not read again to check the file list.
           CHANGED_FILES: ${{ github.event.pull_request.changed_files }}
+        # Exit 3: GitHub's rate limit refused the read, and again two minutes later. That says
+        # nothing about this pull request, so it is a warning, not a red that holds it; the
+        # merge paths (gh-merge-green, next-autoland) read the freezes again and refuse until
+        # they can.
         run: |
-          args=(check --repo "$REPO" --pr "$NUMBER" --base "$BASE")
+          args=(check --repo "$REPO" --pr "$NUMBER" --base "$BASE" --rate-limit-retry 120)
           if [ -n "$CHANGED_FILES" ]; then
             args+=(--changed-files "$CHANGED_FILES")
           fi
-          python3 scripts/ci/merge_freeze.py "${args[@]}"
+          status=0
+          python3 scripts/ci/merge_freeze.py "${args[@]}" || status=$?
+          if [ "$status" -eq 3 ]; then
+            note="Could not check merge freezes: GitHub's rate limit refused the read twice. gh-merge-green and next-autoland read the freezes again before merging."
+            echo "::warning title=merge freeze not checked::$note"
+            printf '### merge freeze: not checked\n\n%s\n' "$note" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          exit "$status"
 
   expire:
     if: github.event_name != 'pull_request_target'

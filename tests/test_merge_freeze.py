@@ -286,7 +286,7 @@ class CheckApiCalls(unittest.TestCase):
         self.assertEqual([token for _, token in fake.calls], ["app", "workflow"])
         fake = FakeGh({self.ISSUES: []}, refuse_token="app")
         status, _, _ = self.run_check(fake, env={"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": ""})
-        self.assertEqual(status, 2)  # no fallback: unknown, never clear
+        self.assertEqual(status, 3)  # no fallback: rate-limited, not checked, never clear
 
     def test_a_write_is_never_retried_with_the_fallback(self):
         with mock.patch.dict(os.environ, {"GH_TOKEN": "app", "GH_FALLBACK_TOKEN": "workflow"}):
@@ -312,6 +312,53 @@ class CheckApiCalls(unittest.TestCase):
             self.assertEqual(freeze.repo_role("o/r", "maintainer"), "admin")
         self.assertEqual(calls, ["app", "workflow"])
 
+    def rate_limited_check(self, failures, retry="120", error="gh: API rate limit exceeded for installation."):
+        """check with the first `failures` GitHub reads failing with `error`: (status, sleeps, stderr)."""
+        calls, sleeps = [], []
+
+        def gh(*args):
+            calls.append(args)
+            if len(calls) <= failures:
+                raise freeze.subprocess.CalledProcessError(1, ["gh", *args], stderr=error)
+            return ""
+
+        original_gh, original_sleep = freeze.gh, freeze.time.sleep
+        freeze.gh, freeze.time.sleep = gh, sleeps.append
+        try:
+            with tempfile.TemporaryDirectory() as directory:
+                files = Path(directory) / "files.txt"
+                files.write_text("docs/a.md\n")
+                err = io.StringIO()
+                with redirect_stderr(err), redirect_stdout(io.StringIO()):
+                    status = freeze.main(["check", "--repo", "x/y", "--pr", "1", "--files", str(files),
+                                          "--rate-limit-retry", retry])
+        finally:
+            freeze.gh, freeze.time.sleep = original_gh, original_sleep
+        return status, sleeps, err.getvalue()
+
+    def test_a_rate_limited_read_is_retried_once(self):
+        status, sleeps, _ = self.rate_limited_check(failures=1)
+        self.assertEqual((status, sleeps), (0, [120]))
+
+    def test_a_read_still_rate_limited_after_the_retry_is_status_3_could_not_check(self):
+        """Not 1 (frozen) and not 0 (clear): the merge freeze check shows a warning instead of a
+        red, and gh-merge-green and next-autoland, which read again before merging, refuse it."""
+        for error in ("gh: API rate limit exceeded for installation.",
+                      "gh: You have exceeded a secondary rate limit. (HTTP 403)",
+                      "gh: Too Many Requests (HTTP 429)"):
+            with self.subTest(error=error):
+                status, sleeps, err = self.rate_limited_check(failures=2, error=error)
+                self.assertEqual((status, sleeps), (3, [120]))
+                self.assertIn("could not check", err)
+
+    def test_any_other_unreadable_answer_is_still_status_2_with_no_retry(self):
+        status, sleeps, _ = self.rate_limited_check(
+            failures=2, error="gh: Resource not accessible by integration (HTTP 403)")
+        self.assertEqual((status, sleeps), (2, []))
+
+    def test_without_a_retry_a_rate_limited_read_is_status_3_at_once(self):
+        status, sleeps, _ = self.rate_limited_check(failures=1, retry="0")
+        self.assertEqual((status, sleeps), (3, []))
 
 if __name__ == "__main__":
     unittest.main()

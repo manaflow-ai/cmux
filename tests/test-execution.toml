@@ -1630,6 +1630,10 @@ path = "tests/test_ci_prune_pr_media.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_ci_pr_media_privacy.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_install_git_hooks.py"
 lane = "linux-guard"
 
@@ -1890,6 +1894,10 @@ path = "tests/test_ci_signing_secrets_need_release_environment.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_nightly_next_train_drive_pin.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_signing_keychain_is_deleted_before_bundle_code.py"
 lane = "linux-guard"
 
@@ -1919,6 +1927,14 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_merge_fast_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_review_receipt.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_merge_check_paths.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1967,4 +1983,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_evidence_paginate_without_slurp.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_owned_pool_sources.py"
 lane = "linux-guard"
