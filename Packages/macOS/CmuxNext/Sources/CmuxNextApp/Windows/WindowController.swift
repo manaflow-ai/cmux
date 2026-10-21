@@ -10,7 +10,6 @@ import CmuxNextBrowser
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
-import CmuxNextWorkspaceNaming
 import Observation
 
 /// One window: sidebar, titlebar, and the content of the workspace it shows.
