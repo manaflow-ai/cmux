@@ -405,9 +405,16 @@ impl Hub {
     /// Appends the adopted conversation's past turns (`adopt_replay::read`) as this session's
     /// history, unless the session already shows some (a harness that sent history after its load).
     pub(super) async fn replay_adopted(&self, session: &Arc<Session>, family: &str, file: PathBuf) {
-        let has_history = self.store.events(&session.id, 0, 100_000).is_ok_and(|events| {
-            events.iter().any(|e| e.kind == "user_message" || e.kind == "agent_message_chunk")
-        });
+        // Stops at the first message; no other record is parsed.
+        let mut has_history = false;
+        let _ = self.store.scan_kinds(
+            &session.id,
+            &["user_message", "agent_message_chunk"],
+            &mut |_| {
+                has_history = true;
+                false
+            },
+        );
         if has_history {
             return;
         }

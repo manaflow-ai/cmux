@@ -127,6 +127,15 @@ case "$(git rev-parse --show-prefix)" in
     bun install --frozen-lockfile
     ;;
 esac
+# A fleet cmux-ci step that runs the browser lane (CMUX_BROWSER_TESTS=1, requireBrowserLane.ts) needs
+# the engines PR CI installs; without them the lane only ever ran in PR CI. They live in the step
+# cache, one directory per Playwright version, so a host downloads each once. GitHub Actions
+# installs its own (cmux-next-web-bundles.yml).
+if [ "${CMUX_BROWSER_TESTS:-}" = 1 ] && [ "${GITHUB_ACTIONS:-}" != true ]; then
+  playwright_version="$(python3 -c 'import json; print(json.load(open("package.json"))["devDependencies"]["playwright"])' 2> /dev/null || echo unknown)"
+  export PLAYWRIGHT_BROWSERS_PATH="${CMUX_CI_CACHE_DIR:-$HOME/Library/Caches/cmux-ci}/playwright-$playwright_version"
+  ./node_modules/.bin/playwright install --only-shell chromium webkit
+fi
 
 timeout_seconds="${CMUX_WEB_TEST_FILE_TIMEOUT:-120}"
 default_jobs="$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)"

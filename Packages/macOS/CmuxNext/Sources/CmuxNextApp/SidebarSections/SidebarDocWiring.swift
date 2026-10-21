@@ -19,6 +19,16 @@ enum SidebarDocWiring {
                                     unplacedOrder: { PersonalSidebar.personalOrder($0, of: daemon, machines: machines) })
     }
 
+    /// The document has applied a change `shown` does not show yet (rebuilt a hop later), and `shown` does not place
+    /// `workspace` (of `session`): `sections` would list it after every placed row for that hop. Only while `shown`
+    /// lags: a workspace a current projection does not place (its adopt still on the way, or refused) lists its own
+    /// row, so a pending row never stands in for it for long.
+    static func awaitsPlacement(_ workspace: WorkspaceModel, session: String?) -> Bool {
+        guard let store = SidebarDocStore.current, let shown = store.shown, store.version != store.shownVersion,
+              let ref = SidebarDocSections.ref(of: workspace, session: session) else { return false }
+        return shown.items[ref] == nil
+    }
+
     static func start(_ services: AppServices, layout: SidebarLayoutService) {
         let local = services.machines.local, machines = services.machines
         let serves: @MainActor () -> Bool = { local.supports(DaemonCapabilities.shared.sidebarDoc) }

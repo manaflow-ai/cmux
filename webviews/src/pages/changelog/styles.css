@@ -62,7 +62,7 @@ html[data-cmux-page="changelog"] body {
 .cl-button:hover { background: var(--page-selection); }
 .cl-link { color: var(--page-text-2); text-decoration: none; font-size: var(--text-body); }
 .cl-link:hover { color: var(--page-text); text-decoration: underline; text-underline-offset: 3px; }
-:is(.cl-button, .cl-link, .cl-row-action, .cl-changes summary, .clr-version, .cl-pr, .cl-more, .cl-reel):focus-visible {
+:is(.cl-button, .cl-link, .cl-row-action, .cl-row-link, .cl-changes summary, .clr-version, .cl-pr, .cl-more, .cl-reel):focus-visible {
   outline: 2px solid var(--cmux-accent, currentColor);
   outline-offset: 2px;
 }
@@ -89,20 +89,23 @@ html[data-cmux-page="changelog"] body {
 .cl-row-text { flex: 1 1 auto; min-width: 0; }
 .cl-row-title { font-weight: 600; }
 .cl-row-summary { color: var(--page-text-2); }
+/* In a one-line row, Try it and Learn more show on hover or keyboard focus, beside the paragraph.
+   Layouts that stack a change in a column (Digest, Reader) show them under the summary. */
+.cl-row-actions { display: flex; align-items: baseline; gap: 10px; flex: none; margin-left: auto; opacity: 0; }
+.cl-group li:hover .cl-row-actions,
+.cl-row-actions:focus-within { opacity: 1; }
 .cl-row-action {
-  margin-left: auto;
-  flex: none;
   border: 0;
   background: transparent;
   padding: 0 2px;
   color: var(--page-text-3);
   font-size: var(--text-detail);
   cursor: default;
-  opacity: 0;
 }
-.cl-group li:hover .cl-row-action,
-.cl-row-action:focus-visible { opacity: 1; }
-.cl-row-action:hover { color: var(--page-text); }
+.cl-row-action:hover,
+.cl-row-link:hover { color: var(--page-text); }
+.cl-row-link { color: var(--page-text-2); font-size: var(--text-detail); text-decoration: none; white-space: nowrap; }
+.cl-row-link:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 .cl-changes { margin-top: 18px; color: var(--page-text-2); }
 .cl-changes summary {
@@ -257,6 +260,7 @@ html[data-cmux-page="changelog"] body {
 .cll .cl-group ul { list-style: disc outside; padding-left: 20px; }
 .cll .cl-group li { display: list-item; padding: 3px 0; }
 .cll .cl-row-text { display: inline; }
+.cll .cl-row-actions { display: inline-flex; margin-left: 8px; }
 .cll-body .cl-builds { margin-top: 14px; }
 /* The release title (its curated headline) and, when it already names the lead change, that
    change as the first row's bold title above its picture. */
@@ -320,6 +324,8 @@ html[data-cmux-page="changelog"] body {
 .cld-item .cl-row-title,
 .cld-item .cl-row-summary { display: block; white-space: normal; }
 .cld-item .cl-row-summary { font-size: var(--text-detail); line-height: var(--text-detail--line-height); margin-top: 2px; }
+.cld-item .cl-row-actions,
+.clr-groups .cl-row-actions { margin: 4px 0 0; opacity: 1; }
 .cld-thumb { margin: 0; width: 76px; border-radius: 5px; }
 
 @media (prefers-reduced-motion: reduce) {

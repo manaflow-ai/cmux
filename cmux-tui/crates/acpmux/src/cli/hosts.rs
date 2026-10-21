@@ -78,8 +78,11 @@ fn ssh(host: &str, script: &str) -> Result<String> {
 
 /// Copy this very binary to the remote `~/.local/bin/acpmux` (rm then mv,
 /// never in place: macOS kills a running binary that is overwritten).
+/// Only the file goes (`self_command.rs`'s executable); no subcommand runs
+/// here, so no prefix: the remote copy is named `acpmux`, which cmux-tui
+/// runs as acpmux by its argv0, and its own daemon then needs none.
 fn push_binary(host: &str) -> Result<String> {
-    let exe = std::env::current_exe()?;
+    let exe = crate::self_command::SelfCommand::current()?.exe;
     ssh(host, "mkdir -p ~/.local/bin ~/.acpmux")?;
     let status = Command::new("scp")
         .args(scp_push_argv(host, &exe.to_string_lossy(), ".local/bin/acpmux.new")?)
@@ -208,9 +211,10 @@ const SYSTEMD_MANAGER: &str = "systemctl --user show-environment >/dev/null 2>&1
 /// logout, is kept). Asked only once the unit is known to be used.
 const SYSTEMD_LINGERING: &str = r#"{ [ "$(loginctl show-user "$(id -un)" -p Linger --value 2>/dev/null)" = yes ] || loginctl enable-linger >/dev/null 2>&1; }"#;
 
-/// Fails (exit 4) when the daemon still answers after its shutdown: it holds
-/// the lock, so the unit's daemon could not start in its place.
-const STILL_RUNNING_CHECK: &str = r#"if ~/.local/bin/acpmux --json daemon status 2>/dev/null | grep -q '"running": *true'; then echo "the daemon of ~/.acpmux did not shut down, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi"#;
+/// Fails (exit 4) when the daemon still answers after its shutdown (a live
+/// daemon's status carries its `pid`; a stopped one's only `"running":
+/// false`): it holds the lock, so the unit's daemon could not take over.
+const STILL_RUNNING_CHECK: &str = r#"if ~/.local/bin/acpmux --json daemon status 2>/dev/null | grep -q '"pid": *[0-9]'; then echo "the daemon of ~/.acpmux did not shut down, so acpmux.service cannot take over: stop it, then run this again" >&2; exit 4; fi"#;
 
 /// (Re)start the daemon on a Linux host. Under the user systemd unit
 /// `acpmux.service` when the user manager outlives the session
@@ -549,7 +553,7 @@ mod tests {
         let code = |ok: bool| if ok { "exit 0" } else { "exit 1" };
         // The daemon answers `daemon status` until a shutdown it does not survive.
         let daemon = format!(
-            "case \"$*\" in \"--json daemon status\") if {} && [ ! -f \"$HOME/stopped\" ]; then printf '{{\\n  \"pid\": 4242,\\n  \"running\": true\\n}}\\n'; else printf '{{\\n  \"running\": false\\n}}\\n'; fi;; \"daemon shutdown\"*) {};; esac; exit 0",
+            "case \"$*\" in \"--json daemon status\") if {} && [ ! -f \"$HOME/stopped\" ]; then printf '{{\\n  \"version\": \"0.1.0\",\\n  \"pid\": 4242,\\n  \"ready\": true\\n}}\\n'; else printf '{{\\n  \"running\": false\\n}}\\n'; fi;; \"daemon shutdown\"*) {};; esac; exit 0",
             if host.daemon_unit.is_some() { "true" } else { "false" },
             if host.survives_shutdown { ":" } else { "touch \"$HOME/stopped\"" },
         );

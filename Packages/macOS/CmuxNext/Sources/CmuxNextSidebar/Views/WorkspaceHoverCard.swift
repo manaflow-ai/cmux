@@ -150,14 +150,16 @@ final class WorkspaceHoverCardController: HoverCardSource {
         guard let list, let item = list.groups[group] else { return nil }
         let body = groupBody ?? GroupHoverCardView()
         groupBody = body
-        body.configure(Self.groupSummary(item, options: DesignSettings.shared.groupHoverCard, now: Date()))
+        body.configure(Self.groupSummary(item, workspaces: list.subtreeWorkspaces(of: group),
+                                         options: DesignSettings.shared.groupHoverCard, now: Date()))
         bodyID = id
         return HoverCardBody(view: body, placement: .beside, themeAnchor: list) { [weak body] in body?.applyColors() }
     }
 
-    /// What `group`'s card says: its workspaces as the shared group summary counts them.
-    static func groupSummary(_ group: SidebarGroup, options: GroupHoverCardOptions, now: Date) -> GroupHoverCardSummary {
-        let members = group.workspaces.map { ws in
+    /// What `group`'s card says: `workspaces` (its own and its subgroups') as the shared group summary counts them.
+    static func groupSummary(_ group: SidebarGroup, workspaces: [SidebarWorkspace], options: GroupHoverCardOptions,
+                             now: Date) -> GroupHoverCardSummary {
+        let members = workspaces.map { ws in
             GroupHoverCardMember(title: ws.title, activity: GroupHoverCardMember.Activity(ws.agentWorking && ws.activity == .idle ? .working : ws.activity),
                                  unread: Self.unreadCount(ws.unread), lastActivity: ws.lastActivity, branch: ws.branch, ports: ws.ports)
         }

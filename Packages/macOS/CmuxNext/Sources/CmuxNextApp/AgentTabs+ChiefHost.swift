@@ -34,10 +34,20 @@ struct ChiefHomeAcpmux {
     /// with this Mac's host) attaches to the Chief home's acpmux, any other to `local`.
     let localRouter: @Sendable (any AgentPaneHostProviding) -> any AgentPaneHostProviding
 
-    /// - Parameter ensureHost: starts the Chief brain host when none runs
-    ///   (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
-    init(home: ChiefHome, ensureHost: @escaping @Sendable () async -> Void) {
+    /// - Parameters:
+    ///   - local: this Mac's pane host; a Chief on the app's own acpmux
+    ///     (``ChiefHome/usesAppAcpmux``) attaches its tabs there.
+    ///   - ensureHost: starts the Chief brain host when none runs
+    ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
+    init(home: ChiefHome, local: any AgentPaneHostProviding, ensureHost: @escaping @Sendable () async -> Void) {
         host = Self.host(muxHome: home.muxHome)
+        // One daemon: the Chief's sessions are this Mac's, so its tabs attach like any chat and
+        // the app's own handoff heals that daemon (no Chief heal, no routing by `mux.parent`).
+        if home.usesAppAcpmux {
+            paneHost = local
+            localRouter = { $0 }
+            return
+        }
         let environment = Self.environment(home: home)
         // The Chief host owns this daemon (it starts it, with the Chief's env): a
         // tab only attaches, never starts one (cx-ebm.54). A daemon that runs a

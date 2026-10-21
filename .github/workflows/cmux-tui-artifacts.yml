@@ -230,6 +230,11 @@ jobs:
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
           STALE: ${{ steps.stale.outputs.stale }}
+          # The pool a feat-cmux-next push's daemon tests take now
+          # (cmux-next-daemon-tests): a publisher whose test job waits on
+          # another label, or too long, is not waited for
+          # (scripts/ci/cmux_tui_publisher_testing.py).
+          DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL }}
         run: |
           set -euo pipefail
           superseded=false
@@ -468,7 +473,14 @@ jobs:
             fi
             case "$source_state" in
               "queued push feat-cmux-next"|"in_progress push feat-cmux-next"|"waiting push feat-cmux-next"|"pending push feat-cmux-next"|"requested push feat-cmux-next")
-                echo "Tree $published_key has no daemon-tests marker yet; its publisher, feat-cmux-next push run $source_run, is still active and tests it and requests the promotion." ;;
+                # 2026-10-21: the publisher's test job sat queued for hours on
+                # the pull request side label and every later push deferred.
+                if python3 scripts/ci/cmux_tui_publisher_testing.py --run-id "$source_run" --pool "${DAEMON_POOL:-}"; then
+                  echo "Tree $published_key has no daemon-tests marker yet; its publisher, feat-cmux-next push run $source_run, is still active and tests it and requests the promotion."
+                else
+                  daemon_tested=false
+                  echo "Tree $published_key has no daemon-tests marker, and its publisher run $source_run will not test it soon; a testing run (daemon_tests true) runs the daemon tests to write it."
+                fi ;;
               *)
                 daemon_tested=false
                 echo "Tree $published_key has no daemon-tests marker and its publisher run ${source_run:-?} ($source_state) is not an active feat-cmux-next push; a testing run (daemon_tests true) runs the daemon tests to write it." ;;
@@ -530,7 +542,9 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           fetch-depth: 1
-          sparse-checkout: scripts/ci/cmux-tui-tree-claim.sh
+          sparse-checkout: |
+            scripts/ci/cmux-tui-tree-claim.sh
+            scripts/ci/cmux_tui_publisher_testing.py
           sparse-checkout-cone-mode: false
       - name: Wait for the owning tree publisher
         id: wait
@@ -545,6 +559,11 @@ jobs:
           API_URL: ${{ github.api_url }}
           REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
+          # The pool a feat-cmux-next push's daemon tests take now
+          # (cmux-next-daemon-tests): a publisher whose test job waits on
+          # another label, or too long, is not waited for
+          # (scripts/ci/cmux_tui_publisher_testing.py).
+          DAEMON_POOL: ${{ vars.CI_NEXT_DAEMON_POOL || vars.CI_NEXT_PROMOTE_POOL }}
         run: |
           set -euo pipefail
           takeover=true
@@ -652,11 +671,12 @@ jobs:
               base="https://files.cmux.com/cmux-tui/tree/$KEY"
               if ! curl --head --fail --silent --connect-timeout 5 --max-time 15 -o /dev/null \
                   "$base/daemon-tests.json?owner-wait=$GITHUB_RUN_ID-marker" 2>/dev/null; then
-                if python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next" else 1)' "$owner_json" 2>/dev/null; then
+                if python3 -c 'import json,sys; d=json.loads(sys.argv[1]); sys.exit(0 if d.get("status") in ("queued", "in_progress", "waiting", "pending", "requested") and d.get("event") == "push" and d.get("head_branch") == "feat-cmux-next" else 1)' "$owner_json" 2>/dev/null &&
+                    python3 scripts/ci/cmux_tui_publisher_testing.py --run-id "$OWNER_RUN_ID" --pool "${DAEMON_POOL:-}"; then
                   echo "Tree $KEY has no daemon-tests marker yet; feat-cmux-next push run $OWNER_RUN_ID is still active and tests it and requests the promotion."
                 else
                   unmarked=true
-                  echo "Tree $KEY has no daemon-tests marker and run $OWNER_RUN_ID is not an active feat-cmux-next push; this run tests it here."
+                  echo "Tree $KEY has no daemon-tests marker and run $OWNER_RUN_ID is not an active feat-cmux-next push whose daemon tests run soon; this run tests it here."
                 fi
               fi
             elif [[ "$branch_owner_takeover" == true ]]; then
@@ -1063,7 +1083,28 @@ jobs:
           KEY: ${{ needs.tree-preflight.outputs.key }}
           RUN_ID: ${{ github.run_id }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA" --key "$KEY" --run-id "$RUN_ID"
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          python3 scripts/ci/cmux_tui_superseded_push.py --event "$EVENT_NAME" --ref "$REF" --sha "$SHA" --key "$KEY" --run-id "$RUN_ID"
+          # The nightly gate tests only the newest tree: nightly-next-tick
+          # promotes the newest daemon-tested one. When feat-cmux-next's head
+          # has a different key whose tree is published, that head's run (or
+          # its marker path) tests it, so this older key skips its tests and
+          # frees the runner. On 2026-10-21, 26 such jobs queued for 2 h while
+          # nightly-next stalled. A rerun (attempt 2+) always tests, and any
+          # failure to read the head or the tree tests as before.
+          if [[ "$REF" == refs/heads/feat-cmux-next && "$RUN_ATTEMPT" == 1 ]] \
+             && git fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next 2>/dev/null; then
+            head_sha="$(git rev-parse FETCH_HEAD)"
+            head_key="$(scripts/cmux-next/pin-cmux-tui.sh key --rev FETCH_HEAD 2>/dev/null || true)"
+            if [[ "$head_sha" != "$SHA" && "$head_key" =~ ^[0-9a-f]{40}$ && "$head_key" != "$KEY" ]] \
+               && curl -fsS --connect-timeout 5 --max-time 15 "https://files.cmux.com/cmux-tui/tree/$head_key/completion.json?gate=$RUN_ID" \
+                 | python3 -c 'import json,sys; sys.exit(0 if json.load(sys.stdin).get("key") == sys.argv[1] else 1)' "$head_key" 2>/dev/null; then
+              echo "feat-cmux-next head ${head_sha:0:12} has published tree $head_key; its run tests it, so tree $KEY skips the nightly gate tests."
+              echo "stale=true" >> "$GITHUB_OUTPUT"
+            fi
+          fi
 
       - name: Tree key
         if: steps.current.outputs.stale != 'true'

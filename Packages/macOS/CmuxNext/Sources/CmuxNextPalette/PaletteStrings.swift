@@ -16,6 +16,9 @@ nonisolated enum PaletteStrings {
     static var shortcutsTitle: String { String(localized: "palette.page.shortcuts", defaultValue: "Keyboard Shortcuts", bundle: .module) }
     static var shortcutsPlaceholder: String { String(localized: "palette.placeholder.shortcuts", defaultValue: "Search shortcuts by name or keys…", bundle: .module) }
     static var workspacesTitle: String { String(localized: "palette.page.workspaces", defaultValue: "Go to Workspace", bundle: .module) }
+    static func workspaceNotFound(_ id: String) -> String {
+        String(localized: "palette.goToWorkspace.notFound", defaultValue: "No workspace \(id).", bundle: .module)
+    }
     static var workspacesPlaceholder: String { String(localized: "palette.placeholder.workspaces", defaultValue: "Search workspaces…", bundle: .module) }
     static var tabsTitle: String { String(localized: "palette.page.tabs", defaultValue: "Go to Tab", bundle: .module) }
     static var tabsPlaceholder: String { String(localized: "palette.placeholder.tabs", defaultValue: "Search tabs…", bundle: .module) }
@@ -53,7 +56,7 @@ nonisolated enum PaletteStrings {
     static var sectionPanes: String { String(localized: "palette.section.panes", defaultValue: "Panes", bundle: .module) }
     /// The Search scope's title (the sidebar's Search button) and its field's placeholder.
     static var searchEverythingTitle: String { String(localized: "palette.scope.search", defaultValue: "Search", bundle: .module) }
-    /// The Chats & agents chip (Cmd-Shift-A, `search.chats`) on top of Search.
+    /// The Chats & agents scope: Search narrowed to agent chats and sessions.
     static var chatsAndAgentsTitle: String { String(localized: "palette.scope.chats", defaultValue: "Chats & agents", bundle: .module) }
     static var chatsAndAgentsPlaceholder: String {
         String(localized: "palette.placeholder.chatsAndAgents", defaultValue: "Search chats and agents…", bundle: .module)

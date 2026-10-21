@@ -195,7 +195,7 @@ await requireBrowserLane("agent-pane-tab-row.test.ts", async () => {
     );
     expect(tools).toBeGreaterThan(0);
     // The tools' width and the gap the tabs keep from them.
-    expect(reported.at(-1)).toEqual({ width: tools + 8 });
+    expect(reported.at(-1)).toEqual({ width: tools + 4 });
     // Only the tools take clicks: the row's left part is the App's tabs.
     expect(await page.evaluate(() => getComputedStyle(document.querySelector(".acpmux-header")!).pointerEvents)).toBe(
       "none",

@@ -5,6 +5,9 @@ use super::*;
 impl Translator {
     /// Translate one line from claude's stdout into ACP messages for the hub.
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
+        // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
+        let now = std::time::Instant::now();
+        self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
         // A subagent's lines carry its Agent tool call's id and stream under
@@ -214,6 +217,7 @@ impl Translator {
                                     == Some(&Value::Bool(true)),
                                 launched: input.get("run_in_background")
                                     == Some(&Value::Bool(true)),
+                                asked: false,
                                 announced: false,
                                 output: None,
                             };
@@ -319,11 +323,7 @@ impl Translator {
                                 shell.output = Some(file);
                                 if shell.announced && shell.background {
                                     let mut update = background_task_update(tool, shell, "running");
-                                    update["origin"] = json!(if shell.launched {
-                                        "background"
-                                    } else {
-                                        "auto_backgrounded"
-                                    });
+                                    update["origin"] = json!(origin(shell));
                                     out.push(shell_update(shell, update));
                                 }
                             }
@@ -331,7 +331,9 @@ impl Translator {
                         // ACP content replaces the call's content: a finished edit
                         // keeps its diff, and a failed one says why.
                         let content = match self.edits.lock().await.remove(tool) {
-                            Some(diffs) if !is_err => diffs,
+                            Some(diffs) if !is_err => {
+                                settle_write(diffs, &text, line.get("tool_use_result"))
+                            }
                             _ => {
                                 json!([{"type": "content", "content": {"type": "text", "text": text}}])
                             }
@@ -490,6 +492,24 @@ impl Translator {
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
                     self.pending.lock().await.remove(&id.to_string());
                     out.push(super::workflows::stop_reply(acp, ok, &resp));
+                } else if let Some(acp) = rid.strip_prefix("bg-") {
+                    // A background_tasks answer (`BACKGROUND_TASKS`, Ctrl-B). Claude Code's
+                    // SDK reads a missing `backgrounded` as true.
+                    let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
+                    let moved =
+                        ok && inner.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
+                    // Nothing moved: a shell Claude Code moves later on its own is not the
+                    // person's, unless another Ctrl-B moved it or still waits.
+                    let key = id.to_string();
+                    self.end_background_asks(moved, |k, _| k == key).await;
+                    out.push(if ok {
+                        Message::ok(id, json!({"backgrounded": moved}))
+                    } else {
+                        let why = resp.get("error").and_then(Value::as_str);
+                        let why =
+                            why.unwrap_or("Claude Code did not move its work to the background");
+                        Message::err(id, RpcError::internal(why))
+                    });
                 } else if let Some(acp) = rid.strip_prefix("now-") {
                     // A step stopped for a steer sent now (`MUX_STEP_NOW`).
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
@@ -559,6 +579,8 @@ impl Translator {
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 self.in_turn.store(false, Ordering::SeqCst);
+                // A Ctrl-B still unanswered leaves no mark past its turn.
+                self.end_background_asks(false, |_, _| true).await;
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
@@ -709,6 +731,7 @@ impl Translator {
                     task: None,
                     background: false,
                     launched: backgrounded(line.get("is_backgrounded")),
+                    asked: false,
                     announced: false,
                     output: None,
                 });
@@ -958,8 +981,7 @@ fn background_task_update(tool: &str, shell: &BackgroundShell, state: &str) -> V
 }
 
 /// The `running` update of a shell Claude runs in the background now, once
-/// per shell, with its `origin` (`background` when it started there,
-/// `auto_backgrounded` when it moved there): the hub lists it as a process
+/// per shell, with its `origin`: the hub lists it as a process
 /// (`hub/processes.rs`) and keeps a chat with one alive (`hub/idle.rs`).
 /// Clients note only how a shell ended.
 fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
@@ -968,8 +990,19 @@ fn running(tool: &str, shell: &mut BackgroundShell) -> Option<Message> {
     }
     shell.announced = true;
     let mut update = background_task_update(tool, shell, "running");
-    update["origin"] = json!(if shell.launched { "background" } else { "auto_backgrounded" });
+    update["origin"] = json!(origin(shell));
     Some(shell_update(shell, update))
+}
+
+/// How a shell got to the background: `background` when it started there,
+/// `user_backgrounded` when the person moved it (Ctrl-B), else
+/// `auto_backgrounded` (Claude Code moved it).
+fn origin(shell: &BackgroundShell) -> &'static str {
+    match (shell.launched, shell.asked) {
+        (true, _) => "background",
+        (false, true) => "user_backgrounded",
+        (false, false) => "auto_backgrounded",
+    }
 }
 
 /// `update` as a session update in the shell's session, with its output
