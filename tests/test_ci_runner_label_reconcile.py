@@ -39,6 +39,12 @@ class FakeApi:
     def runners(self):
         return self.list
 
+    def runner(self, rid):
+        found = next((item for item in self.list if item["id"] == rid), None)
+        if found is None:
+            raise reconcile.urllib.error.HTTPError("u", 404, "Not Found", {}, None)
+        return found
+
     def set_labels(self, rid, labels):
         self.calls.append((rid, list(labels)))
         for item in self.list:
@@ -77,6 +83,28 @@ class Reconcile(unittest.TestCase):
                                           "glaeda-side-light-xcode-26.6"])])
         self.assertIn("0 runner(s) relabelled", self.run_main(api, "--apply"))
         self.assertEqual(len(api.calls), 1)
+
+    def test_a_vanished_runner_is_skipped_and_the_rest_still_converge(self):
+        api = FakeApi(self.fleet() + [runner(4, "cmux8-glaeda-3", "glaeda-mini", "glaeda-side-std-xcode-26.6")])
+        listed = api.list
+        api.list = list(listed)
+        api.runners = lambda: listed
+        api.list = [item for item in listed if item["id"] != 1]  # re-registered after the listing
+        out = self.run_main(api, "--apply")
+        self.assertIn("cmux7-glaeda-3", out)
+        self.assertEqual([call[0] for call in api.calls], [4])
+
+    def test_a_glaeda_without_the_rule_changes_nothing(self):
+        api = FakeApi(self.fleet())
+        with tempfile.TemporaryDirectory() as tmp:
+            rules = Path(tmp) / "rules.py"
+            rules.write_text("RUNNER_CLASSES = ('std', 'light')\n")
+            with contextlib.redirect_stdout(io.StringIO()):
+                self.assertEqual(reconcile.main(["--apply"], {"GLAEDA_LABELS": str(rules)}, api), 0)
+        self.assertEqual(api.calls, [])
+
+    def test_untyped_labels_are_not_custom(self):
+        self.assertEqual(reconcile.custom_labels({"labels": [{"name": "a"}, {"name": "b", "type": "custom"}]}), ["b"])
 
     def test_the_workflow_reads_glaedas_rule_and_applies_on_schedule(self):
         text = WORKFLOW.read_text()

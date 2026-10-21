@@ -19,6 +19,7 @@ import importlib.util
 import json
 import os
 import sys
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Any, Callable, Iterable, Mapping, Sequence
@@ -36,7 +37,7 @@ def load_rules(path: str) -> Any:
 
 def custom_labels(runner: Mapping[str, Any]) -> list[str]:
     return [str(label.get("name")) for label in runner.get("labels") or []
-            if isinstance(label, Mapping) and label.get("type", "custom") == "custom"]
+            if isinstance(label, Mapping) and label.get("type") == "custom"]
 
 
 def plan(runners: Iterable[Mapping[str, Any]], widen: Callable[[list[str]], list[str]]
@@ -75,6 +76,9 @@ class GitHub:
                 return found
             page += 1
 
+    def runner(self, runner_id: int) -> Mapping[str, Any]:
+        return self._call("GET", f"/orgs/{self.org}/actions/runners/{int(runner_id)}")
+
     def set_labels(self, runner_id: int, labels: Sequence[str]) -> None:
         self._call("PUT", f"/orgs/{self.org}/actions/runners/{int(runner_id)}/labels", {"labels": list(labels)})
 
@@ -85,19 +89,36 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] = os.environ,
     parser.add_argument("--org", default="manaflow-ai")
     args = parser.parse_args(argv)
     rules = load_rules(env["GLAEDA_LABELS"])
+    widen = getattr(rules, "widened_labels", None)
+    if widen is None:
+        # A glaeda main that predates the rule: nothing to converge to, so change nothing.
+        print("glaeda's label rules have no widened_labels(); nothing to reconcile")
+        return 0
     api = api or GitHub(env["GITHUB_TOKEN_RUNNERS"], args.org)
-    todo = plan(api.runners(), rules.widened_labels)
+    todo = plan(api.runners(), widen)
+    failed = 0
     for runner, current, wanted in todo:
         added = [label for label in wanted if label not in current]
         print(f"{runner.get('name')}: {'set' if args.apply else 'would add'} {' '.join(added)}")
-        if args.apply:
+        if not args.apply:
+            continue
+        try:
+            # Re-read just before writing: a relabel may have re-registered it since the listing.
+            fresh = custom_labels(api.runner(runner["id"]))
+            if fresh != current:
+                wanted = widen(fresh)
+                if set(wanted) == set(fresh):
+                    continue
             api.set_labels(runner["id"], wanted)
+        except (urllib.error.URLError, OSError, ValueError) as error:
+            failed += 1
+            print(f"::warning title=runner labels::{runner.get('name')}: {error}; retried next run")
     print(f"{len(todo)} runner(s) {'relabelled' if args.apply else 'to relabel'}; the rest match glaeda's rules")
     summary = env.get("GITHUB_STEP_SUMMARY")
     if summary:
         Path(summary).write_text(f"### Runner labels\n\n{len(todo)} runner(s) "
                                  f"{'relabelled' if args.apply else 'to relabel (dry run)'}.\n")
-    return 0
+    return 1 if failed and failed == len(todo) else 0
 
 
 if __name__ == "__main__":
