@@ -163,8 +163,9 @@ def check_workflow(name: str, text: str) -> list[str]:
     errors = []
     workflow_jobs = jobs(text)
     # A hyphenated job id such as swift-canary-fleet (in `needs.` or a message) names a job, not the toolchain.
+    # A path such as scripts/build-x.sh keeps its name even when a job shares it.
     job_ids = [job_id for job_id in workflow_jobs if "-" in job_id]
-    job_id_token = re.compile(r"(?<![\w-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
+    job_id_token = re.compile(r"(?<![\w/-])(" + "|".join(map(re.escape, job_ids)) + r")(?![\w-])") if job_ids else None
     for job_id, job in workflow_jobs.items():
         key = (name, job_id)
         if not is_macos(job) or key in EXEMPT:
