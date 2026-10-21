@@ -366,6 +366,8 @@ def main():
     ap.add_argument("--interactive-bound", type=float, default=8.0,
                     help="seconds from process start to the first live terminal frame (or agent handshake)")
     ap.add_argument("--stall-bound", type=float, default=2000, help="ms: the longest main-thread stall in the launch")
+    ap.add_argument("--launch-advisory", action="store_true",
+                    help="launch bounds only warn (a CI host over its load threshold); the quit bound still fails")
     opts = ap.parse_args()
     os.makedirs(opts.out, exist_ok=True)
     session = Session(opts)
@@ -373,7 +375,7 @@ def main():
     pages = Pages()
     report = {"app": session.app, "tag": session.tag, "bounds": {"quit_s": opts.quit_bound, "window_s": opts.window_bound,
               "interactive_s": opts.interactive_bound, "stall_ms": opts.stall_bound}, "quits": [], "launches": []}
-    failures = []
+    failures, warnings = [], []
     try:
         bench.reset_state(session.tag)
         session.start()
@@ -399,14 +401,15 @@ def main():
                     f"{launch_result['interactive_ms']} ms, longest stall {launch_result['longest_stall_ms']} ms")
                 for stall in launch_result["stalls"][:3]:
                     log(f"  stall {stall['ms']} ms: " + " <- ".join(stall["frames"][:6]))
+                launch_failures = failures if not opts.launch_advisory else warnings
                 if launch_result["window_ms"] is None or launch_result["window_ms"] > opts.window_bound * 1000:
-                    failures.append(f"launch after {label}: first window frame {launch_result['window_ms']} ms "
+                    launch_failures.append(f"launch after {label}: first window frame {launch_result['window_ms']} ms "
                                     f"(bound {opts.window_bound * 1000:.0f} ms)")
                 if launch_result["interactive_ms"] is None or launch_result["interactive_ms"] > opts.interactive_bound * 1000:
-                    failures.append(f"launch after {label}: interactive {launch_result['interactive_ms']} ms "
+                    launch_failures.append(f"launch after {label}: interactive {launch_result['interactive_ms']} ms "
                                     f"(bound {opts.interactive_bound * 1000:.0f} ms)")
                 if launch_result["longest_stall_ms"] > opts.stall_bound:
-                    failures.append(f"launch after {label}: main-thread stall {launch_result['longest_stall_ms']} ms "
+                    launch_failures.append(f"launch after {label}: main-thread stall {launch_result['longest_stall_ms']} ms "
                                     f"(bound {opts.stall_bound:.0f} ms)")
         # The last launch ends its sessions so nothing of the tag stays.
         if session.launch:
@@ -418,10 +421,13 @@ def main():
         session.teardown.end()
         pages.close()
         report["failures"] = failures
+        report["warnings"] = warnings
         with open(os.path.join(opts.out, "quit-launch-bound.json"), "w") as f:
             json.dump(report, f, indent=1)
         shutil.rmtree(session.scratch, ignore_errors=True)
     log("report", os.path.join(opts.out, "quit-launch-bound.json"))
+    for warning in warnings:
+        log("WARN (launch bounds advisory on a loaded host)", warning)
     for failure in failures:
         log("FAIL", failure)
     if failures:
