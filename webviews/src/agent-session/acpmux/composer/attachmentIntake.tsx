@@ -18,9 +18,9 @@ import {
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
 import { Close, FileDoc, ImageIcon } from "../conversation/icons";
-import { type StringKey, type Translate, useT } from "../i18n";
+import { type StringKey, type Translate, usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
-import { lineCount, pastedLabel } from "../pastedText";
+import { pasteLines, pasteName } from "../conversation/promptCollapse";
 import { intakeFiles } from "./intakeFiles";
 
 const ATTACHMENT_LABELS = {
@@ -35,7 +35,7 @@ const ATTACHMENT_LABELS = {
   imagesUnsupported: "composer.imagesUnsupported",
   tooMany: "composer.tooMany",
   pastedText: "composer.pastedText",
-  pastedLines: "composer.pastedText.lines",
+  pastedLines: "transcript.pastedLines",
   editPasted: "composer.pastedText.edit",
 } as const satisfies Record<string, StringKey>;
 
@@ -204,6 +204,7 @@ function AttachmentChip({
   onExpand?(id: string): void;
 }) {
   const t = useT();
+  const language = usePaneLanguage();
   const openImage = useContext(ImageViewerContext);
   const [broken, setBroken] = useState(false);
   const [thumb, setThumb] = useState<{ url: string; width: number; height: number }>();
@@ -308,12 +309,14 @@ function AttachmentChip({
   // A huge paste (pastedText.ts): its first words and line count; a click puts it back in the prompt.
   if (pasted) {
     const text = attachment.text ?? "";
+    const lines = pasteLines(text);
+    const count = new Intl.NumberFormat(language).format(lines);
     const expand = onExpand ? () => onExpand(attachment.id) : undefined;
     const body = (
       <>
-        <span className="acpmux-attachment-pasted-name">{attachment.name || pastedLabel(text)}</span>
+        <span className="acpmux-attachment-pasted-name">{attachment.name || pasteName(text)}</span>
         <span className="acpmux-attachment-pasted-lines">
-          {`${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lineCount(text) })}`}
+          {`${name} · ${t(ATTACHMENT_LABELS.pastedLines, { n: lines, count })}`}
         </span>
       </>
     );

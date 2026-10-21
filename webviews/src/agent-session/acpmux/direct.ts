@@ -24,7 +24,7 @@ import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
 import { liftInlineImages } from "./inlineImages";
-import { resentAttachments, shownPromptText } from "./pastedText";
+import { resentAttachments, shownPrompt } from "./pastedText";
 import { peerConnectedFromStatus, peerKindsFromStatus } from "./environments";
 import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
@@ -3232,7 +3232,7 @@ export class AcpmuxDirectClient {
     // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
     if (!sessionId) throw new Error(translate("error.notOpen"));
     // A paste sent as its own block shows in the bubble as acpmux's echo will have it (pastedText.ts).
-    const text = shownPromptText(promptText(input, attachments), attachments);
+    const { text, pasted } = shownPrompt(promptText(input, attachments), attachments);
     const rowId = `local-${promptId}`;
     const at = Date.now();
     this.optimisticPromptRows.set(promptId, rowId);
@@ -3269,6 +3269,7 @@ export class AcpmuxDirectClient {
         at,
         kind: "user",
         text,
+        ...(pasted.length ? { pasted } : {}),
         pending: true,
         delivery,
       });

@@ -4,33 +4,16 @@
 // edit; Paste as Plain Text keeps a raw paste. It goes to the agent as text: its own ACP text block
 // after the prompt's, marked `_meta.cmux.pasted` so the transcript can tell it from what was typed.
 import type { ComposerAttachment, PromptBlock } from "./attachments";
+import { pasteLines, pasteName, type PasteRange } from "./conversation/promptCollapse";
 
 /// A paste of more lines than this is a chip.
 export const PASTE_CHIP_LINES = 20;
 /// A paste of more characters than this is a chip.
 export const PASTE_CHIP_CHARS = 2000;
-/// The longest a chip's label (its first words) runs before it is cut.
-const LABEL_CHARS = 60;
-
-/// The lines `text` has; a newline at its very end starts none.
-export function lineCount(text: string): number {
-  const body = text.replace(/(?:\r\n|\r|\n)$/, "");
-  return body ? body.split(/\r\n|\r|\n/).length : 0;
-}
-
-/// Whether a paste of `text` is a chip rather than prompt text.
+/// Whether a paste of `text` is a chip rather than prompt text. Its lines and name are counted as
+/// the transcript's paste chip counts them (promptCollapse.ts), so the two chips read the same.
 export function isLargePaste(text: string): boolean {
-  return text.length > PASTE_CHIP_CHARS || lineCount(text) > PASTE_CHIP_LINES;
-}
-
-/// A chip's label: the paste's first words (of its first line with any), cut at a word near LABEL_CHARS.
-export function pastedLabel(text: string): string {
-  const first = text.split(/\r\n|\r|\n/).find((line) => line.trim()) ?? "";
-  const words = first.trim().replace(/\s+/g, " ");
-  if (words.length <= LABEL_CHARS) return words;
-  const cut = words.slice(0, LABEL_CHARS);
-  const space = cut.lastIndexOf(" ");
-  return `${(space > LABEL_CHARS / 2 ? cut.slice(0, space) : cut).trimEnd()}…`;
+  return text.length > PASTE_CHIP_CHARS || pasteLines(text) > PASTE_CHIP_LINES;
 }
 
 /// The chip a large paste of `text` makes.
@@ -38,7 +21,7 @@ export function pastedTextAttachment(text: string): ComposerAttachment {
   return {
     id: crypto.randomUUID(),
     kind: "pasted",
-    name: pastedLabel(text),
+    name: pasteName(text),
     mimeType: "text/plain",
     size: text.length,
     text,
@@ -57,12 +40,23 @@ export function pastedTextBlocks(attachments: readonly ComposerAttachment[]): Pr
 
 /// What a prompt's bubble and queue row show before acpmux's echo: its text `body` (the typed text
 /// with text files) and each paste, joined as the echo joins a prompt's text blocks (a newline,
-/// acpmux hub/session.rs `prompt_text`), so a send of only a paste shows it and nothing jumps.
-export function shownPromptText(body: string, attachments: readonly ComposerAttachment[]): string {
+/// acpmux hub/session.rs `prompt_text`), with each paste's range in that text as the echo's
+/// `user_message.pasted` names it. The bubble draws the same chips before and after the echo.
+export function shownPrompt(
+  body: string,
+  attachments: readonly ComposerAttachment[],
+): { text: string; pasted: PasteRange[] } {
   const pastes = attachments.flatMap((attachment) =>
     attachment.kind === "pasted" && attachment.text ? [attachment.text] : [],
   );
-  return [body, ...pastes].filter(Boolean).join("\n");
+  let text = body;
+  const pasted: PasteRange[] = [];
+  for (const paste of pastes) {
+    if (text) text += "\n";
+    pasted.push({ start: text.length, end: text.length + paste.length });
+    text += paste;
+  }
+  return { text, pasted };
 }
 
 /// The chips Retry and Edit send again with a prompt's text: that text is acpmux's echo, which

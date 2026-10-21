@@ -15,11 +15,9 @@ import {
   PASTE_CHIP_CHARS,
   PASTE_CHIP_LINES,
   isLargePaste,
-  lineCount,
-  pastedLabel,
   pastedTextAttachment,
   resentAttachments,
-  shownPromptText,
+  shownPrompt,
 } from "../src/agent-session/acpmux/pastedText";
 import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
 
@@ -282,9 +280,17 @@ test("a bubble shows a pasted chip's text as the echo will; a resend never sends
   const chip = pastedTextAttachment(LOG);
   const file: ComposerAttachment = { id: "f", kind: "text", name: "a.txt", mimeType: "text/plain", size: 1, text: "a" };
   // acpmux joins a prompt's text blocks with a newline (hub/session.rs prompt_text).
-  expect(shownPromptText("why?", [chip])).toBe(`why?\n${LOG}`);
-  expect(shownPromptText("", [chip])).toBe(LOG);
-  expect(shownPromptText("why?", [])).toBe("why?");
+  // Each paste's range is the one the echo's user_message.pasted names, so the bubble's chip is
+  // there from the send on.
+  expect(shownPrompt("why?", [chip])).toEqual({ text: `why?\n${LOG}`, pasted: [{ start: 5, end: 5 + LOG.length }] });
+  expect(shownPrompt("", [chip, chip])).toEqual({
+    text: `${LOG}\n${LOG}`,
+    pasted: [
+      { start: 0, end: LOG.length },
+      { start: LOG.length + 1, end: 2 * LOG.length + 1 },
+    ],
+  });
+  expect(shownPrompt("why?", [])).toEqual({ text: "why?", pasted: [] });
   // Retry and Edit send the echoed text, which has the paste in it: the chip stays out.
   expect(resentAttachments([chip, file])).toEqual([file]);
 });
@@ -320,13 +326,8 @@ test("the limit: more than 20 lines or 2,000 characters; the label is the first 
   expect(isLargePaste(lines(21))).toBe(true);
   expect(isLargePaste("x".repeat(2000))).toBe(false);
   expect(isLargePaste("x".repeat(2001))).toBe(true);
-  expect(lineCount("a\r\nb\rc\n")).toBe(3);
-  expect(lineCount("")).toBe(0);
-  expect(pastedLabel("\n  first   line\nsecond line  ")).toBe("first line");
-  const label = pastedLabel("word ".repeat(40));
-  expect(label.endsWith("…")).toBe(true);
-  expect(label.length).toBeLessThanOrEqual(61);
-  expect(label).not.toContain("\n");
+  // Its name is the transcript chip's (promptCollapse.ts pasteName): the first words, one line.
+  expect(pastedTextAttachment("\n  first   line\nsecond line  ").name).toBe("first line");
 });
 
 test("a pasted chip is kept with the chat's unsent chips, its text with it (#23139)", () => {
