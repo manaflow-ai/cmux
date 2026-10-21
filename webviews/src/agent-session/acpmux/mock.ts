@@ -417,6 +417,8 @@ export class MockAcpmuxSocket {
           session: {
             ...this.sessions.find((entry) => entry.sessionId === target),
             enforcement: { policy: "default", label: "native_policy", isolation: "unverified", detail: null },
+            // The newest command list, as acpmux keeps it in the session.
+            ...this.availableCommands(target),
           },
           // The newest page, as acpmux pages an attach (hub/paging.rs): at most `limit` records
           // and `maxBytes` of them, `hasMore` when older ones remain. Answering the whole log made
@@ -702,6 +704,16 @@ export class MockAcpmuxSocket {
     const changed = { ...this.sessions[index], ...fields, ...(moved ? { updatedAt: Date.now() } : {}) };
     this.sessions[index] = changed;
     this.deliver({ jsonrpc: "2.0", method: "_acpmux/session_changed", params: { kind: "updated", session: changed } });
+  }
+
+  /// `{availableCommands}`: the newest command list `target`'s agent sent, as acpmux keeps it.
+  private availableCommands(target: string): { availableCommands?: unknown } {
+    for (let index = this.events.length - 1; index >= 0; index -= 1) {
+      const event = this.events[index]!;
+      if (event.sessionId === target && event.kind === "available_commands_update")
+        return { availableCommands: (event.msg as any)?.params?.update };
+    }
+    return {};
   }
 
   /// The newest record's seq in `target`'s log, 0 when it has none.

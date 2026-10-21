@@ -97,7 +97,6 @@ const turn = (index: number) => [
   row(`t${index}-end`, "turnSummary", { status: "completed", durationMs: 1_000 }),
 ];
 
-
 test("a reader back at the top after a page lands gets the next page", async () => {
   let history = Array.from({ length: 12 }, (_, index) => turn(index + 100)).flat();
   const root = createRoot(dom.window.document.getElementById("root")!);
