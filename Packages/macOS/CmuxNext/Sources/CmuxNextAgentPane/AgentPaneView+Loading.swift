@@ -38,6 +38,10 @@ public final class AgentPaneLoadingView: NSView {
     private var revealWaiters: [() -> Void] = []
     /// While it fades out over the page, clicks and scrolls go to the page.
     private var leaving = false
+    /// Whether the page was asked to fade in when this left, nil until it has. The decision, not
+    /// what was drawn of it: with motion off a fade and no fade both end in one frame, so this is
+    /// the only way a test on a headless host can tell them apart.
+    private(set) var leftFading: Bool?
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -133,6 +137,7 @@ public final class AgentPaneLoadingView: NSView {
         onGiveUp = nil
         hideMark()
         leaving = true
+        leftFading = fades
         let overImage = isHidden
         CATransaction.begin()
         CATransaction.setDisableActions(true)

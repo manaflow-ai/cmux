@@ -104,19 +104,18 @@ struct AgentPaneColdChatRevealTests {
     /// (tailCache.ts), so it shows as a New Tab page does: in one frame, with no fade over rows
     /// already drawn. "Instant if cached" (Leo 2026-10-20).
     ///
-    /// Only where a fade would have been seen: with motion off (Reduce Motion, which the CI VMs
-    /// have on, or a window with no screen) the cold path's own animation runs its completion at
-    /// once, so the loading state leaves in one frame either way and this would pass over the bug
-    /// it exists for.
+    /// The decision is what these read (`leftFading`), not what was drawn of it: with motion off —
+    /// Reduce Motion, which the CI VMs have on, or a window with no screen — the animation runs its
+    /// completion at once, so a fade and no fade both end in one frame. Asserting on the frame
+    /// passed with the fix reverted on a headless mini, which is how this file's own gap was found.
     @Test func aChatDrawnFromAKeptTailShowsInOneFrame() async throws {
         let (view, window) = try Self.pane()
         defer { window.close() }
-        try #require(Motion.canAnimate(in: view) && Motion.home.duration(.fadeIn) > 0,
-                     "motion is off on this host, where a skipped fade and a run one look the same")
         #expect(view.showsLoadingState)
         _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted",
                                                                  "params": ["drewKeptTail": true]]))
-        #expect(view.loadingView.superview == nil, "a chat already on screen faded in over itself")
+        #expect(view.loadingView.leftFading == false, "a chat already on screen was faded in over itself")
+        try await Self.settle { view.pageContent.alphaValue == 1 }
         #expect(view.pageContent.alphaValue == 1)
     }
 
@@ -125,9 +124,7 @@ struct AgentPaneColdChatRevealTests {
         let (view, window) = try Self.pane()
         defer { window.close() }
         _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
-        if Motion.canAnimate(in: view), Motion.home.duration(.fadeIn) > 0 {
-            #expect(view.loadingView.superview != nil, "a chat read cold showed in one frame, with no fade")
-        }
+        #expect(view.loadingView.leftFading == true, "a chat read cold showed in one frame, with no fade")
         try await Self.settle { view.loadingView.superview == nil }
         #expect(view.loadingView.superview == nil, "the fade never ended")
     }
