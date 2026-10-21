@@ -15,4 +15,6 @@
 # the rest is PRs, chiefly #23050 +477, #23046 +304, #23083 +228, #23105 +201,
 # #23004 +109, #22990 +101, #22678 +101. FileExplorer/ (1647) and
 # BrowserDownloadsPopup.swift (468) belong in their own targets (SW14).
-134745
+# Then to the count at ae0d9b765fa4 (+1103 more, 26 commits), chiefly #23651 +305,
+# #23155 +285, #23527 +132, #23324 +92, #23638 +82, #23492 +57, #23588 +53, #23109 +48.
+135848
