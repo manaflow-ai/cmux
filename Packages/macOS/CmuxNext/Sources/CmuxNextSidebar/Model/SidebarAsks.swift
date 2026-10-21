@@ -1,5 +1,5 @@
 import Foundation
-import Observation
+public import Observation
 
 /// Questions that wait on the person in the sidebar's notice card (an agent's
 /// request for a Cloud machine), instead of a sheet over their work. `ask`
