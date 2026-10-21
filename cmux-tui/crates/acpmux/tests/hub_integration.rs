@@ -29,6 +29,8 @@ mod permission_groups;
 mod prompt_context;
 #[path = "hub_integration/prompt_provenance.rs"]
 mod prompt_provenance;
+#[path = "hub_integration/purged_stays_purged.rs"]
+mod purged_stays_purged;
 #[path = "hub_integration/prompt_withdraw.rs"]
 mod prompt_withdraw;
 #[path = "hub_integration/questions.rs"]
