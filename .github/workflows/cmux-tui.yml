@@ -1298,6 +1298,11 @@ jobs:
         working-directory: web
         run: bun install --frozen-lockfile
 
+      - name: Cache Playwright's apt packages
+        uses: ./.github/actions/playwright-apt-cache
+        with:
+          engines: chromium
+
       - name: Install pinned Playwright Chromium (Linux)
         if: runner.os == 'Linux'
         working-directory: web
