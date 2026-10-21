@@ -1827,6 +1827,10 @@ struct SidebarWorkspaceTableTests {
         )
         window.contentView = container
         defer { window.close() }
+        // Size the clip view before the first apply, or that apply measures at
+        // width 0 and serves estimates; the first real-width pass would then
+        // note every row for a genuine estimate-to-measured height change.
+        container.layoutSubtreeIfNeeded()
         controller.apply(
             rows: makeRows(workspaceCount: 6),
             actions: makeTableActions(),
@@ -1834,6 +1838,8 @@ struct SidebarWorkspaceTableTests {
             selectedWorkspaceId: nil,
             selectedScrollTargetWorkspaceId: nil
         )
+        await flushStagedTableMutations()
+        controller.performWidthRemeasureNow()
         await flushStagedTableMutations()
         container.layoutSubtreeIfNeeded()
         container.tableView.layoutSubtreeIfNeeded()
