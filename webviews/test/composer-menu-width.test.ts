@@ -16,7 +16,9 @@ import { requireBrowserLane } from "./support/requireBrowserLane";
 await requireBrowserLane("composer-menu-width.test.ts", async () => {
   setDefaultTimeout(120_000);
   const source = path.resolve(import.meta.dir, "../src/agent-session");
+  // desktop.css first, as in the pane bundle: it defines the popup surface and menu glass tokens.
   const css = [
+    "../pages/shared/desktop.css",
     "shared/styles.css",
     "acpmux/styles.css",
     "acpmux/composerControls.css",

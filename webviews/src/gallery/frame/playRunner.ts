@@ -297,7 +297,10 @@ function measurePopups(): PopupMeasure[] {
   const outermost = found.filter((element) => !found.some((other) => other !== element && other.contains(element)));
   return outermost.map((popup) => {
     const rect = popup.getBoundingClientRect();
-    const inset = 3;
+    // Sample inside the rounded corner: past the corner's curve, a point is the page behind it,
+    // not the popup (a 12 pt menu corner leaves its 3 px corner point outside).
+    const radius = Number.parseFloat(getComputedStyle(popup).borderTopLeftRadius) || 0;
+    const inset = Math.max(3, Math.ceil(radius * (1 - Math.SQRT1_2)) + 2);
     const points: [string, number, number][] = [
       ["top-left", rect.left + inset, rect.top + inset],
       ["top-right", rect.right - inset, rect.top + inset],

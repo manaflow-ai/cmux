@@ -98,7 +98,9 @@ await requireBrowserLane("composer-click-near-focuses.test.ts", async () => {
         await page.locator(".acpmux-composer-plus").click();
         const menu = page.locator(".acpmux-menu").first();
         await menu.waitFor();
-        // The menu's own padding: no option, no control. Whether the press's default was cancelled,
+        // The menu's own padding: no option, no control. The middle of its top edge, so the press
+        // stays inside the rounded corners (a 12 pt menu corner clips a press at its corner's 2 px).
+        // Whether the press's default was cancelled,
         // read after every handler ran (window, bubbling).
         await page.evaluate(() => {
           window.addEventListener("mousedown", (event) => {
@@ -106,7 +108,7 @@ await requireBrowserLane("composer-click-near-focuses.test.ts", async () => {
           });
         });
         const at = (await menu.boundingBox())!;
-        await page.mouse.move(at.x + 2, at.y + 2);
+        await page.mouse.move(at.x + at.width / 2, at.y + 2);
         await page.mouse.down();
         const cancelled = await page.evaluate(() => (window as unknown as { cancelled?: boolean }).cancelled);
         await page.mouse.up();
