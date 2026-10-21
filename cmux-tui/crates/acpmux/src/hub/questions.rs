@@ -20,6 +20,14 @@ pub(super) fn question(request: &Value) -> Option<&Value> {
     request.pointer("/toolCall/_meta/acpmux/question").filter(|q| q["items"].is_array())
 }
 
+/// The folder a trust request asks about (`hub/trust_wait.rs`): a card the daemon raises on a
+/// session that wants to start a sub-session in a folder nobody answered for. It renders as a
+/// choice question (`question` with the `acp` harness: the answer is the picked option, no
+/// `answers`), and only a person answers it, never a policy.
+pub(super) fn trust_cwd(request: &Value) -> Option<&str> {
+    request.pointer("/toolCall/_meta/acpmux/trust/cwd").and_then(Value::as_str)
+}
+
 /// True when policy and batches must not answer the request: a question.
 /// Other interactive requests (plan approval) keep their policy behavior.
 pub(super) fn needs_person(request: &Value) -> bool {
@@ -45,9 +53,11 @@ pub(super) fn check_reply(
     match answers {
         Some(_) if !allows => Err(RpcError::invalid_params("answers go only with an allow option")),
         Some(answers) => check_answers(request, answers),
-        None if allows && needs_person(request) => Err(RpcError::invalid_params(
-            "this is a question: answer it with `acpmux answer <session> --answer \"<question or id>=<choice>\"` (one --answer per question), in the agent tab or Home card, or decline it with `acpmux deny <session>`",
-        )),
+        None if allows && needs_person(request) && trust_cwd(request).is_none() => {
+            Err(RpcError::invalid_params(
+                "this is a question: answer it with `acpmux answer <session> --answer \"<question or id>=<choice>\"` (one --answer per question), in the agent tab or Home card, or decline it with `acpmux deny <session>`",
+            ))
+        }
         None => Ok(()),
     }
 }
