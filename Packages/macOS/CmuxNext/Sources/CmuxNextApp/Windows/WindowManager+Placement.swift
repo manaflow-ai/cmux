@@ -34,8 +34,10 @@ extension WindowManager {
             let section = SectionID.machine(MachineID(daemon.machineID))
             let home = NewWorkspacePlacements.home(services.machines)
             // This Mac's daemon placed the workspace by the setting in its create: no second write for that
-            // slot. Another machine's create writes no row in this Mac's order, so the app places it.
-            let slot = pending.slot ?? (daemon.isLocal ? pending.byDefault?.move(for: id, section: section, in: sections, home: home)
+            // slot, and none at all when the create named the window's current workspace (`placedByDaemon`).
+            // Another machine's create writes no row in this Mac's order, so the app places it.
+            let named = NewWorkspacePlacements.placedByDaemon.remove(id) != nil
+            let slot = pending.slot ?? (daemon.isLocal ? (named ? nil : pending.byDefault?.move(for: id, section: section, in: sections, home: home))
                 : pending.byDefault?.slot(for: id, section: section, in: sections, home: home))
             if let position = slot?.position(moving: [id], section: section, in: sections) {
                 bridge.place([SidebarWorkspaceID(id)], at: position, in: sections)
