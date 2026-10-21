@@ -421,6 +421,7 @@ impl Brain {
         self.phase = Phase::Running;
         self.stop_wanted = false;
         self.tool_stopped = false;
+        self.denial_stopped = None;
         // A user message or a report replaces the `until: event` wakes.
         self.drop_event_wakes(
             items
@@ -438,10 +439,13 @@ impl Brain {
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        let ambient_requires_approval = self.settings.home_view.is_some();
-        // The strictest origin wins. Paired-device work asks unless the owner
-        // explicitly opted into auto-approval; another participant and
-        // ambient Home text always ask.
+        // The whole Home view is untrusted text; it gates the turn only when
+        // the owner turned on `home.ask` (the host reads Home on every turn,
+        // so an always-on gate asked for every effect of every turn).
+        let ambient_requires_approval = self.settings.home_view.is_some() && self.chief.home_ask;
+        // The strictest origin wins. Another participant always asks; the
+        // owner's paired devices and the Home view ask only when the owner
+        // turned that gate on (`remote.ask`, `home.ask`).
         self.turn_remote = std::mem::take(&mut self.remote_taint)
             || items.iter().any(|i| {
                 matches!(
@@ -453,9 +457,19 @@ impl Brain {
                 )
             });
         let participant_requires_approval = items.iter().any(Queued::requires_approval);
-        self.turn_ask = participant_requires_approval
-            || ambient_requires_approval
-            || (self.turn_remote && !self.chief.remote_auto_approve);
+        let remote_requires_approval = self.turn_remote && self.chief.remote_gate();
+        self.turn_why = if participant_requires_approval {
+            Some(crate::approval::Why::Participant)
+        } else if remote_requires_approval {
+            Some(crate::approval::Why::Device(self.device_name(&items)))
+        } else if ambient_requires_approval {
+            Some(crate::approval::Why::Home)
+        } else {
+            None
+        };
+        self.turn_ask = self.turn_why.is_some();
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
         self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
         // The shared rule (cmux_chief::policy::turn_policy, the corpus's
@@ -814,7 +828,7 @@ impl Brain {
         // its turn is never passed by later ones).
         // Messages never set the interrupt now; only chief.stop does, and a
         // boundary must not clear it.
-        if !self.owner_stopped && !self.tool_stopped {
+        if !self.owner_stopped && !self.tool_stopped && self.denial_stopped.is_none() {
             self.interrupt.clear();
         }
         let side = self.turn_side();
@@ -889,17 +903,9 @@ impl Brain {
         // in between tool calls when the session steers, else it waits and
         // the next turn starts the moment this one ends. Native: the engine
         // delivers it after the next tool results. Only chief.stop stops.
-        let side = self.turn_side();
-        let human = self
-            .queue
-            .iter()
-            .filter(|q| q.conversation == side)
-            .any(|q| matches!(q.source, Source::Message { .. }));
-        if human {
-            // A pending approval holds the tool call: a newer message denies
-            // it, so the turn reaches its next tool boundary and reads it.
-            self.deny_pending("a newer message");
-        }
+        // A pending approval stays pending: a newer message never answers
+        // it (only the person's Allow or Deny does); the message is steered
+        // in once the tool call is answered.
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.try_steer();
         }
@@ -1187,7 +1193,10 @@ impl Brain {
         // meant to say went by send, reply or react, so its last text is not
         // posted and the cancel is no failure; unlike an owner stop, the
         // turn still closes its messages.
-        let tool_stopped = std::mem::take(&mut self.tool_stopped);
+        // A turn stopped for asking again for what it was denied ends like
+        // a Chief stop, but says so in one line.
+        let denial_stopped = self.denial_stopped.take();
+        let tool_stopped = std::mem::take(&mut self.tool_stopped) || denial_stopped.is_some();
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
@@ -1235,6 +1244,13 @@ impl Brain {
         } else {
             text
         };
+        let text = match &denial_stopped {
+            Some(what) if !quiet => {
+                (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
+                format!("I stopped: I kept asking to {what} after you denied it.")
+            }
+            _ => text,
+        };
         if let Some(note) = &failure_note
             && let Err(e) = self.chat.append(Kind::Note, note)
         {
@@ -1247,6 +1263,9 @@ impl Brain {
         }
         self.turn_remote = false;
         self.turn_ask = false;
+        self.turn_why = None;
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
         self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
@@ -1446,6 +1465,7 @@ impl Brain {
         if self.stop_wanted
             || self.owner_stopped
             || self.tool_stopped
+            || self.denial_stopped.is_some()
             || self.cuts >= MAX_CUTS
             || self.state.turn.as_ref().is_none_or(|t| t.key != key)
         {
@@ -1559,6 +1579,10 @@ impl Brain {
         }
         self.turn_remote = false;
         self.turn_ask = false;
+        self.turn_why = None;
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
+        self.denial_stopped = None;
         self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         self.stop_wanted = false;

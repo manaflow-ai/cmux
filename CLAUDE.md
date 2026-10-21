@@ -165,6 +165,9 @@ Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 - Never hand-edit or hand-merge generated files (`settings-schema.json`, `settings-schema.sources.sha256`,
   `docs/mdm/*`). On a conflict take either side; the PR or base autofix regenerates them (#21946, #21985).
 - Webview UI screenshots come from the gallery advisory run: add a gallery entry with fixture states.
+  For a before/after in a minute or two, push and run `scripts/gallery-compare.sh [--open]`: it prints a
+  tailnet URL that shows each gallery state your change reaches at the merge-base and at your branch, side
+  by side (no Swift build).
   Mac captures (the `cmux-next media` tours) are only for native/AppKit UI or real end-to-end flows.
 - Every `feat-cmux-next` PR gets a `risk:low|normal|high` label ([risk tiers](docs/ci/risk-tiers.md)).
   Low (docs, copy, generated, tests) and normal (most UI and logic) never wait for a person:
