@@ -378,9 +378,11 @@ class GlassLens {
       this.imageKey = null;
       return;
     }
-    this.loadImage();
-    if (this.glass.length > 0) this.start();
-    else this.stop();
+    // No glass on the page: don't even decode the still.
+    if (this.glass.length > 0) {
+      this.loadImage();
+      this.start();
+    } else this.stop();
     // Spectrum on or off changes each surface's dispersion.
     this.markAllStale();
     this.invalidate();
@@ -429,6 +431,8 @@ class GlassLens {
     this.invalidate();
   };
   private readonly onContextLost = (event: Event) => {
+    // A canvas stop() dropped can report its loss after a new one started: not ours any more.
+    if (event.target !== this.canvas) return;
     event.preventDefault();
     this.gpu = null;
     this.textureReady = false;
@@ -486,6 +490,8 @@ class GlassLens {
     this.resizeObserver?.disconnect();
     this.resizeObserver = null;
     this.observed.clear();
+    this.canvas?.removeEventListener("webglcontextlost", this.onContextLost);
+    this.canvas?.removeEventListener("webglcontextrestored", this.onContextRestored);
     this.gpu?.gl.getExtension("WEBGL_lose_context")?.loseContext();
     this.gpu = null;
     this.textureReady = false;
