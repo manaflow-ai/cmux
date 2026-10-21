@@ -1025,6 +1025,7 @@ mod pairing;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
+pub(crate) mod outbox;
 mod pending;
 mod processes;
 mod worktrees;

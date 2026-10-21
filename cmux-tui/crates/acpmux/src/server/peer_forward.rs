@@ -30,6 +30,9 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_SHUTDOWN,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
+    // A message to deliver is this daemon's (`outbox.rs`), whatever session it names.
+    method::MUX_SEND_QUEUE,
+    method::MUX_SEND_STATUS,
     // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
     method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
@@ -133,7 +136,29 @@ async fn forward_inner(
                 let _ = peer.request(method::MUX_ATTACH, attach).await;
             }
         }
-        let mut result = peer.request(m, p).await.map_err(|e| {
+        // The peer answers a prompt when its turn (or a steer's step) ends; the client hears
+        // the peer's acceptance as soon as it comes (`hub/outbox.rs` `PeerAccepts`).
+        let accept = (m == method::SESSION_PROMPT)
+            .then(|| p.pointer("/_meta/acpmux/promptId").and_then(Value::as_str))
+            .flatten()
+            .map(str::to_owned);
+        if let Some(prompt_id) = &accept {
+            let (conn, peer_name) = (conn.clone(), peer.name.clone());
+            hub.peer_accepts.wait(
+                prompt_id,
+                Box::new(move |mut v| {
+                    if let Some(obj) = v.as_object_mut() {
+                        obj.insert("peer".into(), Value::String(peer_name));
+                    }
+                    conn.send(&Message::notification(method::MUX_PROMPT_ACCEPTED, v));
+                }),
+            );
+        }
+        let result = peer.request(m, p).await;
+        if let Some(prompt_id) = &accept {
+            hub.peer_accepts.forget(prompt_id);
+        }
+        let mut result = result.map_err(|e| {
                         if e.message.contains("Method not found") {
                             RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
                         } else {
