@@ -1225,11 +1225,9 @@ impl Brain {
             text
         };
         let text = match &denial_stopped {
-            Some(what) if !quiet => {
+            Some((what, why)) if !quiet => {
                 (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
-                format!(
-                    "I stopped: I kept trying to {what}, and a turn another person started may not do that."
-                )
+                format!("I stopped: I kept trying to {what}, and {}.", why.reason())
             }
             _ => text,
         };
