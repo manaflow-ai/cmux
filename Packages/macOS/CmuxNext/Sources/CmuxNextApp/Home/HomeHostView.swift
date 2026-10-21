@@ -29,6 +29,8 @@ final class HomeHostView: NSView {
     private let petRows: ChiefPetSettingsRows
     private var isChief = false
     private var engineWatch: Task<Void, Never>?
+    /// Each Chief's avatar beside this conversation's group bubbles, as its Home row draws it.
+    private var avatarsWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
     /// The Chief's avatar when its profile sets none: the pet character `mascot` picks
@@ -178,6 +180,19 @@ final class HomeHostView: NSView {
                 if settings.isShown { settingsView.refresh() }
             }
         }
+        // task-owner: lives as long as this view; event-driven (Observation): each Chief of
+        // this conversation wears its Home row's avatar beside a group's bubbles, again after a
+        // swap (a Chief's picture or text, the pet character a Chief with none wears).
+        avatarsWatch = Task { [weak self, weak service, weak services] in
+            for await avatars in ObservationStream({ () -> [String: HomeChiefAvatar] in
+                guard let service else { return [:] }
+                let participants = store.rows.first { $0.summary.id == id }?.summary.participants ?? []
+                let fallback = HomeHostView.defaultTileAvatar(mascot: services?.settings?.snapshot.homeChiefPetMascot)
+                return HomeChiefAvatar.bubbleAvatars(for: participants, own: service.directory.chiefAvatars, fallback: fallback)
+            }) {
+                self?.transcript.setChiefBubbleAvatars(avatars)
+            }
+        }
         // Settings > Home: whether attached photos and videos keep their location.
         transcript.keepLocation = { [weak services] in services?.settings?.snapshot.homeKeepLocation ?? false }
         // The first-run rows run the same registry actions as the sidebar's
@@ -274,6 +289,7 @@ final class HomeHostView: NSView {
         MainActor.assumeIsolated {
             availability?.cancel()
             engineWatch?.cancel()
+            avatarsWatch?.cancel()
             hostWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()

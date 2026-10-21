@@ -153,7 +153,7 @@ struct SplitSpringMotionTests {
 
     // MARK: The spring
 
-    /// The split's spring (`split`, response 0.28 s, damping 0.95): slow enough to read as one
+    /// The split's spring (`split`, response 0.23 s, damping 0.95): slow enough to read as one
     /// fluid motion (about a third of the way at 50 ms, where `move` was past 60%), no visible
     /// overshoot, and at rest at exactly its target within 0.75 s.
     @Test(arguments: [SplitAxis.horizontal, .vertical])

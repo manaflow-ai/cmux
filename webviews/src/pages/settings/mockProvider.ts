@@ -8,6 +8,7 @@
 // pair, so the page's calls cross the real envelope (call/ok/err/sub/ev).
 import { createMockPair } from "../../protocol/adapters/mock";
 import { updatable } from "./harnesses";
+import { recentAfterPick } from "./fontPickerModel";
 import { ProtocolError, ProtocolErrorCode } from "../../protocol/errors";
 import { Session, type EventSourceContext } from "../../protocol/session";
 import {
@@ -22,6 +23,8 @@ import {
   type AccountsState,
   type HarnessesRun,
   type HarnessesState,
+  type IntegrationsRun,
+  type IntegrationsState,
   type Diagnostic,
   type Domains,
   type ListRow,
@@ -72,6 +75,7 @@ export const mockDomains: Domains = {
   ],
   font_families: ["Berkeley Mono", "Iosevka", "JetBrains Mono", "Menlo", "SF Mono"],
   sounds: ["default", "Basso", "Funk", "Glass", "Ping", "Submarine", "none"],
+  recent_fonts: ["JetBrains Mono"],
 };
 
 /** The fixture managed key: a device profile pins remote localhost forwarding off. */
@@ -210,7 +214,7 @@ export class MockSettingsProvider {
       "cmux.settings.agents.run": (params) => this.agents.run(params as unknown as AgentsRun),
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
-      "cmux.chief.profile.avatar.get": () => ({ avatar: null }),
+      "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
       "cmux.chief.profile.history": (params) => ({
         chief: params.chief,
         revisions: this.chiefs
@@ -363,6 +367,26 @@ export class MockSettingsProvider {
         this.harnessRuns.push(run);
         return {};
       },
+      "cmux.settings.integrations.state": () => this.integrations,
+      "cmux.settings.integrations.run": (params) => {
+        const run = params as IntegrationsRun;
+        if (run.action === "refresh") return {};
+        const row = this.integrations.providers.find((entry) => entry.id === run.id);
+        // Like the host: only a listed provider, and never an install over a conflict.
+        if (!row) throw new ProtocolError("cmux.settings.invalid", "id must be a listed provider");
+        if (run.action !== "remove" && (row.state === "conflict" || row.state === "unavailable")) {
+          throw new ProtocolError("cmux.settings.invalid", `${row.id} has a file cmux did not create in the way`);
+        }
+        this.integrationRuns.push(run);
+        const state = run.action === "remove" ? "absent" : "installed";
+        this.integrations = {
+          ...this.integrations,
+          providers: this.integrations.providers.map((entry) =>
+            entry.id === row.id ? { ...entry, state, error: null } : entry,
+          ),
+        };
+        return {};
+      },
       "cmux.app.clipboard.write": (params) => {
         this.clipboard = String(params.text);
         return {};
@@ -401,6 +425,8 @@ export class MockSettingsProvider {
       "cmux.chief.backend.doctor",
       "cmux.settings.harnesses.state",
       "cmux.settings.harnesses.run",
+      "cmux.settings.integrations.state",
+      "cmux.settings.integrations.run",
       "cmux.settings.theme.set",
       "cmux.settings.theme.colors",
       "cmux.settings.theme.accepts",
@@ -450,6 +476,9 @@ export class MockSettingsProvider {
     });
     provide("cmux.settings.harnesses.changed", (ctx) => this.track(this.harnessesChanged, ctx));
   }
+
+  /** Custom Chief pictures by Chief id (`chief.profile.avatar.get`); a Chief without one reads null. */
+  chiefAvatars = new Map<string, Params>();
 
   /** The Chief records the host's page relay lists (`chief.profile.list`). */
   chiefs: Params[] = [
@@ -521,6 +550,28 @@ export class MockSettingsProvider {
       { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
     ],
   };
+  /** `cmux agent hook status` as the app serves it (`SettingsAgentIntegrations.state`). */
+  integrations: IntegrationsState = {
+    loading: false,
+    problem: null,
+    command: "cmux agent hook install",
+    providers: [
+      { id: "claude", path: "~/.claude/settings.json", state: "installed", reason: null, detail: null, error: null },
+      { id: "codex", path: "~/.codex/hooks.json", state: "partial", reason: null, detail: null, error: null },
+      {
+        id: "amp",
+        path: "~/.config/amp/plugins/cmux-tui-journal.ts",
+        state: "conflict",
+        reason: "not_owned",
+        detail: "~/.config/amp/plugins/cmux-tui-journal.ts exists and is not owned by cmux-tui",
+        error: null,
+      },
+      { id: "gemini", path: "~/.gemini/settings.json", state: "absent", reason: null, detail: null, error: null },
+    ],
+  };
+  /** Agent integrations gestures the page sent (install, repair, remove). */
+  readonly integrationRuns: IntegrationsRun[] = [];
+
   /** Harnesses gestures the page sent. */
   readonly harnessRuns: HarnessesRun[] = [];
   private readonly harnessesChanged = new Set<EventSourceContext>();
@@ -765,7 +816,7 @@ export class MockSettingsProvider {
         [...this.managed].map(([key, { source, reason, team }]) => [key, { source, reason, team: team ?? null }]),
       ),
       diagnostics: this.diagnostics,
-      domains: this.domains ?? { themes: null, font_families: null, sounds: null },
+      domains: this.domains ?? { themes: null, font_families: null, sounds: null, recent_fonts: null },
     };
   }
 
@@ -826,6 +877,9 @@ export class MockSettingsProvider {
     const reason = validate(rowsByKey.get(key)!, value, this.domains ?? undefined);
     if (reason) throw new ProtocolError("cmux.settings.invalid", `${key}: ${reason}`, { details: { key, value } });
     this.values.set(key, value);
+    // The host keeps the fonts written lately (RecentFonts.swift).
+    if (this.domains && rowsByKey.get(key)?.kind === "font_family" && typeof value === "string")
+      this.domains = { ...this.domains, recent_fonts: recentAfterPick(this.domains.recent_fonts, value) };
     return this.commit([key], "user");
   }
 

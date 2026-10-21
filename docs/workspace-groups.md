@@ -93,18 +93,18 @@ cmux --json workspace group list
 
 ## Configuration
 
-Per-group configuration is keyed by the anchor's working directory in `~/.config/cmux/cmux.json` (this surface lands in a follow-up; the file location is reserved). The intent:
+Per-group configuration is keyed by the anchor's working directory in `~/.config/cmux/cmux.json`. A group's entry sets its header color and icon, where New Workspace in Group puts a new workspace, and extra rows for its header menu. **Edit Group Config…** in a group's header menu opens the file at that group's entry, and adds an empty entry for the group's folder when none matches:
 
 ```jsonc
 {
   "workspaceGroups": {
     // Global default for Cmd-N inside a group, the group header + button, and
     // configured group actions. Per-cwd entries below can override it.
-    //   "afterCurrent" (default) - after the active in-group workspace; falls
-    //                              back to top when there is no member reference
-    //   "top"                    - second slot, right after the anchor
-    //   "end"                    - after the trailing member
-    "newWorkspacePlacement": "afterCurrent",
+    //   "end" (default)  - after the trailing member
+    //   "top"            - second slot, right after the anchor
+    //   "afterCurrent"   - after the active in-group workspace; falls back
+    //                      to top when there is no member reference
+    "newWorkspacePlacement": "end",
     "byCwd": {
       "/Users/you/manaflow/cmux": {
         "color": "#7A4FD8",
@@ -131,7 +131,7 @@ Matching: keys containing `*` or `?` are globs; otherwise they are path prefixes
 Resolution order for group new-workspace placement:
 1. Explicit `"placement"` in the v2 `workspace.group.new_workspace` params.
 2. The per-cwd entry above.
-3. Global default via Settings > App > Group New Workspace Placement or `workspaceGroups.newWorkspacePlacement` in `cmux.json` (defaults to `afterCurrent`).
+3. Global default via Settings > App > Group New Workspace Placement or `workspaceGroups.newWorkspacePlacement` in `cmux.json` (defaults to `end`).
 
 `Cmd-N` inside a group uses the active group workspace as the placement reference. The group header `+` button and CLI path use the anchor as the reference, so `afterCurrent` behaves like `top` there.
 
