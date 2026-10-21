@@ -411,6 +411,8 @@ final class FocusEffectApplier: FocusEffectApplying {
         if services.keyRouter.focusesPhone(in: controller) { next.insert(.simulatorFocused) }
         // The same rule as `KeyRouter.keyContext`: the right sidebar's file explorer has the keyboard.
         if FileExplorerService.hasKeyboard(controller.window) { next.insert(.fileExplorerFocused) }
+        // The Files tree follows the focused terminal's folder.
+        services.fileExplorers.focusChanged(in: controller)
         if registry.context != next { registry.context = next }
     }
 

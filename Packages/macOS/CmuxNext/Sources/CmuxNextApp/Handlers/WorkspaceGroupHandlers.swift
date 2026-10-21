@@ -124,7 +124,7 @@ enum WorkspaceGroupHandlers {
         })
         registry.bind("workspaceGroup.delete", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             // RECOVERABLE-BY-DEFAULT: deleting a group keeps its workspaces
-            // (Close All Workspaces in Group is the verb that closes them).
+            // (Close Workspaces in Group is the verb that closes them).
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.deletedToast)
         })
         registry.bind("workspaceGroup.copyID", run: { invocation in context.copy(try context.group(invocation).id.rawValue) })

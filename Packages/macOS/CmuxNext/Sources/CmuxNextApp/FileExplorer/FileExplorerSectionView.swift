@@ -8,19 +8,21 @@ import CmuxNextDesign
 /// runs through the registry, the path the palette, keys and CLI take.
 final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSource, NSTableViewDelegate {
     let model: FileExplorerModel
-    private let rootFolder: @MainActor () -> URL
+    private let rootFolder: @MainActor @Sendable () -> URL?
     private let perform: @MainActor (String) -> Void
     private let header = NSTextField(labelWithString: "")
     let table = FileExplorerTableView()
     private let scroll = NSScrollView()
     private var rows: [FileExplorerRow] = []
     private var observation: Task<Void, Never>?
+    private var following: Task<Void, Never>?
 
     /// - Parameters:
     ///   - model: The tree (the handlers act on its selection).
-    ///   - rootFolder: The folder to show now (the focused terminal's, else home).
+    ///   - rootFolder: The focused terminal's folder, nil when the focused tab has no local folder
+    ///     (the tree keeps its root). Read in an observation, so a `cd` there moves the tree.
     ///   - perform: Runs an explorer action with `fileExplorerFocused` (``FileExplorerHandlers``).
-    init(model: FileExplorerModel, rootFolder: @escaping @MainActor () -> URL, perform: @escaping @MainActor (String) -> Void) {
+    init(model: FileExplorerModel, rootFolder: @escaping @MainActor @Sendable () -> URL?, perform: @escaping @MainActor (String) -> Void) {
         self.model = model
         self.rootFolder = rootFolder
         self.perform = perform
@@ -33,6 +35,14 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
             }
         }
         refresh()
+        // The focused terminal's folder changes (a `cd`): the tree follows. A focus change the
+        // observation cannot see comes through ``follow()`` (FileExplorerService.focusChanged).
+        following = Task { [weak self, rootFolder] in
+            for await folder in ObservationStream({ rootFolder() }) {
+                guard let self else { return }
+                if let folder { self.show(folder) }
+            }
+        }
     }
 
     @available(*, unavailable)
@@ -41,12 +51,27 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated { observation?.cancel() }
+        MainActor.assumeIsolated {
+            observation?.cancel()
+            following?.cancel()
+        }
     }
 
-    /// Roots the tree at the focused terminal's folder each time the section shows.
+    /// Roots the tree at the focused terminal's folder each time the section shows (home before
+    /// any terminal had focus).
     func refresh() {
-        let folder = rootFolder()
+        show(rootFolder() ?? model.root ?? FileManager.default.homeDirectoryForCurrentUser, relist: true)
+    }
+
+    /// Focus moved: the tree roots at the newly focused terminal's folder; a tab with no local
+    /// folder keeps the tree where it is.
+    func follow() {
+        if let folder = rootFolder() { show(folder) }
+    }
+
+    /// Roots the tree at `folder`; the same folder lists again only when `relist`.
+    private func show(_ folder: URL, relist: Bool = false) {
+        guard relist || folder.standardizedFileURL != model.root else { return }
         let model = model
         // task-owner: one listing; a newer one supersedes it (the model's generation).
         Task { await model.setRoot(folder) }
