@@ -101,3 +101,13 @@ fn vm_receiver_client_http_refuses_get_credentials_before_io() {
     );
     assert_eq!(listener.accept().unwrap_err().kind(), std::io::ErrorKind::WouldBlock);
 }
+
+#[test]
+fn vm_receiver_client_http_errors_do_not_echo_rejected_urls() {
+    let url = "http://private-test-bearer@127.0.0.1/private-policy";
+    let error = JsonPoster::allowing_http()
+        .unwrap()
+        .request_until(url, None, None, Instant::now() + Duration::from_secs(1))
+        .unwrap_err();
+    assert!(!error.contains(url) && !error.contains("private-test-bearer"));
+}
