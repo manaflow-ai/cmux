@@ -232,9 +232,80 @@ public struct ChiefControlClient: Sendable {
         }
     }
 
+    /// `chief.stop {all: true}` (Stop all agents): the running turn and every
+    /// subagent at work or queued stop; the answer names the subagents (the
+    /// undo toast's list and its Restart). `chief` as in `chiefEngine(chief:)`.
+    public func stopAllAgents(chief: String? = nil) async throws(ChiefControlError) -> ChiefStopAll {
+        let key = "cmux-next-chief-stop-all-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["all": .bool(true)])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefStopAll>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
+    /// `chief.stop {restart: [ids]}` (Restart on the stop-all toast): those
+    /// subagents go on; nothing stops. `chief` as in `chiefEngine(chief:)`.
+    public func restartAgents(_ names: [String], chief: String? = nil) async throws(ChiefControlError) -> ChiefRestart {
+        let key = "cmux-next-chief-restart-" + UUID().uuidString.lowercased()
+        let params = Self.naming(chief, ["restart": .array(names.map(JSONValue.string))])
+        do {
+            return try await connection.resourceRequest({ id in
+                ResourceRequestEnvelope(id: id, operation: "chief.stop", params: params, idempotencyKey: key)
+            }, as: ResourceMutationResult<ChiefRestart>.self).value
+        } catch {
+            throw ChiefControlError(error)
+        }
+    }
+
     /// `params` with the `chief` field when `chief` names a Chief.
     static func naming(_ chief: String?, _ params: [String: JSONValue]) -> [String: JSONValue] {
         guard let chief, !chief.isEmpty else { return params }
         return params.merging(["chief": .string(chief)]) { _, named in named }
     }
+}
+
+/// The answer to `chief.stop {all: true}`.
+public nonisolated struct ChiefStopAll: Decodable, Sendable, Equatable {
+    /// Whether the Chief's own turn was running and stopped.
+    public var stopped: Bool
+    /// The subagents that stopped, in id order.
+    public var subagents: [String]
+
+    public init(stopped: Bool, subagents: [String]) {
+        self.stopped = stopped
+        self.subagents = subagents
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        stopped = try c.decodeIfPresent(Bool.self, forKey: .stopped) ?? false
+        subagents = try c.decodeIfPresent([String].self, forKey: .subagents) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey { case stopped, subagents }
+}
+
+/// The answer to `chief.stop {restart: [ids]}`.
+public nonisolated struct ChiefRestart: Decodable, Sendable, Equatable {
+    /// The subagents that go on again.
+    public var restarted: [String]
+    /// One line per subagent that could not.
+    public var errors: [String]
+
+    public init(restarted: [String], errors: [String]) {
+        self.restarted = restarted
+        self.errors = errors
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        restarted = try c.decodeIfPresent([String].self, forKey: .restarted) ?? []
+        errors = try c.decodeIfPresent([String].self, forKey: .errors) ?? []
+    }
+
+    private enum CodingKeys: String, CodingKey { case restarted, errors }
 }

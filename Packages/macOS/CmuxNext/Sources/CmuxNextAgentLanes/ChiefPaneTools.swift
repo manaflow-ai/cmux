@@ -17,8 +17,8 @@ public final class ChiefPaneTools: NSView {
     /// The app's one more button (⋮, OverflowButton); its menu opens on press.
     public let actionsButton = OverflowButton(label: ChiefToolStrings.actions)
     /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
-    public static let actions: [ActionID] = ["home.stopChief", "home.toggleChiefSettings", "chief.openMemoryInspector",
-                                             "chief.openUsage", "home.newChief"]
+    public static let actions: [ActionID] = ["home.stopChief", "home.stopAllAgents", "home.toggleChiefSettings",
+                                             "chief.openMemoryInspector", "chief.openUsage", "home.newChief"]
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
     private var watch: Task<Void, Never>?
