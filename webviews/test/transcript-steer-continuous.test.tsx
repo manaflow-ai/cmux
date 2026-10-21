@@ -33,6 +33,7 @@ import { readTurnFromRows } from "../src/agent-session/acpmux/changes/turnCheckp
 import { runningGroups } from "../src/agent-session/acpmux/subagents/subagentRows";
 import { SUBAGENTS } from "../src/agent-session/acpmux/subagents/subagentFold";
 import { minimapTurns } from "../src/agent-session/acpmux/threadMinimap/model";
+import { endedEditRow, markRows } from "../src/agent-session/acpmux/rowMarks";
 
 const CHAT = "0190a000-0000-7000-8000-0000000000d3";
 const START = Date.UTC(2026, 9, 20, 9, 0, 0);
@@ -117,7 +118,12 @@ async function clientOf(history: ReturnType<typeof record>, page = history.lengt
     open,
   );
   await new Promise((resolve) => setTimeout(resolve, 0));
-  return { client, rows: () => rows };
+  /// Live records after the attach, as acpmux streams them.
+  const push = (events: ReturnType<typeof record>) => {
+    for (const event of events)
+      socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method: "_acpmux/event", params: event }) });
+  };
+  return { client, rows: () => rows, push };
 }
 
 /// Leo's prompt runs 55s; he sends a message now; acpmux stops that turn and runs his message next.
@@ -315,4 +321,94 @@ test("an older history page that ends at the steer leaves it a steer", async () 
   const view = turnView(rows(), new Set());
   expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
   expect(view.filter((row) => row.kind === WORKED)).toHaveLength(1);
+});
+
+test("an edit before a sent-now cancel asks for its checkpoint only once the turn ends", () => {
+  let at = START;
+  const row = (id: string, kind: string, extra: Partial<AcpmuxRow> = {}): AcpmuxRow => ({
+    id,
+    kind,
+    version: 1,
+    at: (at += 1_000),
+    ...extra,
+  });
+  const before = [
+    row("u", "user", { text: "Fix the flaky login test" }),
+    row("e", "editedFiles"),
+    row("cut", "turnSummary", { status: "cancelled", continued: true }),
+    row("s", "user", { text: "also check the logout path", steer: "landed" }),
+  ];
+  // The cancel the steer caused does not end the turn: nothing asks for a pair that is not there.
+  expect(endedEditRow(markRows(before))).toBeUndefined();
+  const marks = markRows(before);
+  const ended = [
+    ...before,
+    row("a", "assistant", { text: "Both fixed." }),
+    row("end", "turnSummary", { status: "completed" }),
+  ];
+  expect(endedEditRow(markRows(ended, marks))).toBe("e");
+});
+
+/// Records numbered from `seq` on, at `atSeconds` after START each.
+const recordFrom = (seq: number, steps: Step[]) =>
+  record(steps).map((event, index) => ({ ...event, seq: seq + index }));
+
+test("an older page cut off after a Send now does not make the next real Stop read as continued", async () => {
+  // The older turn's sent-now prompt never ran (acpmux restarted); the open page is a later turn.
+  const older = record([
+    ["mux", "user_message", { text: "Fix the flaky login test", promptId: "p-1", turnId: "turn-1" }, 0],
+    ["mux", "turn_started", { promptId: "p-1", turnId: "turn-1" }, 0],
+    ["mux", "queued", { text: "also check the logout path", promptId: "p-2", turnId: "turn-2" }, 10],
+    ["mux", "queue_order", { promptId: "p-2", order: ["p-2"], next: true }, 10],
+  ]);
+  const open = recordFrom(older.length + 1, [
+    ["mux", "user_message", { text: "Try the parser", promptId: "p-3", turnId: "turn-3" }, 100],
+    ["mux", "turn_started", { promptId: "p-3", turnId: "turn-3" }, 100],
+    ["in", "tool_call", call("t-3", "bun test parser"), 110],
+  ]);
+  const history = [...older, ...open];
+  const { client, rows, push } = await clientOf(history, open.length);
+  await client.loadOlder();
+  // The person presses Stop.
+  push(recordFrom(history.length + 1, [["mux", "turn_result", { status: "cancelled", turnId: "turn-3" }, 120]]));
+  const view = turnView(rows(), new Set());
+  const stopped = view.filter((row) => row.kind === WORKED && row.status === "cancelled");
+  expect(stopped).toHaveLength(1);
+  expect(workedLabel(translate, stopped[0]!)).toBe(translate("turn.stopped", { time: "20s" }));
+});
+
+test("an older page read while a Send now waits leaves that Send now a steer", async () => {
+  const older = record([
+    ["mux", "user_message", { text: "Earlier question", promptId: "p-0", turnId: "turn-0" }, 0],
+    ["mux", "turn_started", { promptId: "p-0", turnId: "turn-0" }, 0],
+    ["in", "agent_message_chunk", say("Earlier answer.", "m-0"), 5],
+    ["mux", "turn_result", { status: "completed", turnId: "turn-0" }, 5],
+  ]);
+  const open = recordFrom(older.length + 1, [
+    ["mux", "user_message", { text: "Fix the flaky login test", promptId: "p-1", turnId: "turn-1" }, 10],
+    ["mux", "turn_started", { promptId: "p-1", turnId: "turn-1" }, 10],
+    ["in", "tool_call", call("t-1", "bun test login"), 20],
+  ]);
+  const history = [...older, ...open];
+  const { client, rows, push } = await clientOf(history, open.length);
+  // Send now while the turn runs; the older page comes in before acpmux's cancel does.
+  push(
+    recordFrom(history.length + 1, [
+      ["mux", "queued", { text: "also check the logout path", promptId: "p-2", turnId: "turn-2" }, 30],
+      ["mux", "queue_order", { promptId: "p-2", order: ["p-2"], next: true }, 30],
+    ]),
+  );
+  await client.loadOlder();
+  push(
+    recordFrom(history.length + 3, [
+      ["mux", "turn_result", { status: "cancelled", turnId: "turn-1" }, 31],
+      ["mux", "dequeued", { promptId: "p-2" }, 31],
+      ["mux", "user_message", { text: "also check the logout path", promptId: "p-2", turnId: "turn-2" }, 31],
+      ["mux", "turn_started", { promptId: "p-2", turnId: "turn-2" }, 31],
+    ]),
+  );
+  const steer = rows().find((row) => row.kind === "user" && row.text === "also check the logout path")!;
+  expect(steer.steer).toBe("landed");
+  const view = turnView(rows(), new Set(), { working: true });
+  expect(view.some((row) => row.kind === WORKED && row.status === "cancelled")).toBe(false);
 });
