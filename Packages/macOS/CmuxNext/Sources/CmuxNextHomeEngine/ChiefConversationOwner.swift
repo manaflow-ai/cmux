@@ -31,6 +31,10 @@ public final class ChiefConversationOwner {
     public private(set) var adoption: ChiefAdoption.Outcome?
     /// Why the owner is not connected, for `debug.home`.
     public private(set) var lastError: String?
+    /// The handshake's refusal of the owner's build (too old, another protocol): nil while it has
+    /// not answered yet, for a timeout or a closed socket, and once it connects. Home says the
+    /// daemon is too old only then, never while it is still connecting.
+    public private(set) var refusal: DaemonCompatibility?
     /// Runs once on the first connection, before the connection is
     /// published (the move of the old per-tag Chiefs). It never holds the
     /// owner back: Home's availability does not wait for the move.
@@ -155,14 +159,17 @@ public final class ChiefConversationOwner {
         await connection.close()
     }
 
-    private func noteFailure(_ error: DaemonError) {
+    func noteFailure(_ error: DaemonError) {
         lastError = error.description
+        // A retry that times out after a refusal says nothing new about the build.
+        if let refused = DaemonCompatibility(refusal: error) { refusal = refused }
     }
 
     private func attach(_ connection: DaemonConnection, identity: DaemonIdentity) {
         self.identity = identity
         self.connection = connection
         lastError = nil
+        refusal = nil
         logger.info("chief owner \(identity.session, privacy: .public) (cmux-tui \(identity.version, privacy: .public)) for \(self.home.root.path, privacy: .public)")
     }
 
