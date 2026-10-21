@@ -190,13 +190,30 @@ def runs(directory: Path) -> list[str]:
 
 def test_unix_installer_joins_with_a_pasted_ticket() -> None:
     # `sh -s -- <ticket>`, `--join <ticket>` and CMUX_JOIN_TICKET all join,
-    # with --serve unless CMUX_HOST already turned hosting on.
+    # with --serve unless CMUX_HOST already turned hosting on, and pass
+    # `--advertise` / CMUX_JOIN_ADVERTISE through.
     cases = [
         ([TICKET], {}, [f"host join --serve {TICKET}"]),
         (["--join", TICKET], {}, [f"host join --serve {TICKET}"]),
         ([], {"CMUX_JOIN_TICKET": TICKET}, [f"host join --serve {TICKET}"]),
         ([TICKET], {"CMUX_HOST": "1"}, ["host enable", f"host join {TICKET}"]),
         ([TICKET], {"CMUX_HOST": "0"}, [f"host join {TICKET}"]),
+        # A daemon-role ticket: the address the other machine dials this one at.
+        (
+            [TICKET, "--advertise", "wss://new.example/acp"],
+            {},
+            [f"host join --serve --advertise wss://new.example/acp {TICKET}"],
+        ),
+        (
+            ["--advertise=wss://new.example/acp", TICKET],
+            {"CMUX_HOST": "0"},
+            [f"host join --advertise wss://new.example/acp {TICKET}"],
+        ),
+        (
+            [TICKET],
+            {"CMUX_JOIN_ADVERTISE": "wss://new.example/acp"},
+            [f"host join --serve --advertise wss://new.example/acp {TICKET}"],
+        ),
         ([], {}, []),
     ]
     for args, env, expected in cases:

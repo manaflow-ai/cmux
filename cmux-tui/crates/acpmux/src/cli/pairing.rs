@@ -23,6 +23,9 @@ use crate::rpc::{Message, method};
 /// (`web/public/tui/install-static.sh`). `CMUX_INSTALL_URL` overrides it.
 const INSTALL_URL: &str = "https://cmux.com/tui/install-static.sh";
 
+/// What a daemon-role command shows where the new machine's address goes.
+const ADVERTISE_PLACEHOLDER: &str = "<wss:// address of the new machine>";
+
 /// How long a redeem may take end to end.
 const REDEEM_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
 
@@ -42,8 +45,14 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             }
             let mut v = client.request(method::MUX_PAIR_TICKET_NEW, params).await?;
             let ticket = v["ticket"].as_str().unwrap_or_default().to_owned();
-            v["install_command"] = json!(install_command(&ticket));
-            v["join_command"] = json!(format!("cmux host join '{ticket}'"));
+            // A daemon-role join also names the address this machine dials
+            // the new one at; the placeholder fails until it is filled in.
+            let advertise = match role {
+                Role::Daemon => format!(" --advertise '{ADVERTISE_PLACEHOLDER}'"),
+                Role::Client | Role::ReadOnly => String::new(),
+            };
+            v["install_command"] = json!(format!("{}{advertise}", install_command(&ticket)));
+            v["join_command"] = json!(format!("cmux host join '{ticket}'{advertise}"));
             if !json_out {
                 print_minted(&v);
                 return Ok(());
@@ -62,6 +71,11 @@ pub(crate) async fn ticket(client: Arc<Client>, cmd: TicketCmd, json_out: bool) 
             let v = client.request(method::MUX_PAIR_REVOKE, json!({"id": id})).await?;
             if !json_out {
                 let r = &v["revoked"];
+                if let Some(device) = r["used_by"].as_str() {
+                    println!(
+                        "That ticket was already used; the machine it paired stays paired. Revoke it: cmux host ticket revoke {device}"
+                    );
+                }
                 println!(
                     "revoked {} {}{}{}",
                     r["kind"].as_str().unwrap_or("-"),
@@ -108,6 +122,17 @@ fn install_command(ticket: &str) -> String {
 fn print_minted(v: &Value) {
     let s = |k: &str| v[k].as_str().unwrap_or("-").to_owned();
     println!("Ticket {} ({}), single use, expires {}.", s("id"), s("role"), s("expires_at"));
+    if v["role"] == "daemon" {
+        println!(
+            "Replace {ADVERTISE_PLACEHOLDER} with the wss:// URL this machine reaches the new one at."
+        );
+    }
+    if s("url").starts_with("ws://") {
+        println!(
+            "The new machine dials {} on itself: forward that port to this machine first (ssh -L), or mint with --url wss://… instead.",
+            s("url")
+        );
+    }
     println!("On the new machine, run:\n\n  {}\n", s("install_command"));
     println!("Or, where cmux is installed already:\n\n  {}\n", s("join_command"));
     println!("Revoke it: cmux host ticket revoke {}", s("id"));
@@ -172,6 +197,9 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
     crate::session_name::validate(&peer_name)
         .map_err(|e| AppError::usage(format!("--peer-name: {e}")))?;
     let mut params = json!({"name": name});
+    // The credential a daemon-role join issued on this daemon, revoked again
+    // when the redeem fails so no unused credential stays live.
+    let mut issued_here = None;
     match ticket.role {
         Role::Daemon => {
             let url = args.advertise.ok_or_else(|| {
@@ -189,6 +217,7 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
                 .await?;
             params["advertiseUrl"] = json!(url);
             params["advertiseToken"] = issued["token"].clone();
+            issued_here = issued["deviceId"].as_str().map(str::to_owned);
         }
         Role::Client | Role::ReadOnly => {
             let peers = client.request("_acpmux/peers", json!({})).await?;
@@ -203,9 +232,19 @@ pub(crate) async fn join(client: Arc<Client>, args: JoinArgs, json_out: bool) ->
             }
         }
     }
-    let reply = tokio::time::timeout(REDEEM_TIMEOUT, redeem(&ticket, params))
-        .await
-        .map_err(|_| anyhow!("the other machine did not answer within 30 s ({})", ticket.url))??;
+    let reply = match tokio::time::timeout(REDEEM_TIMEOUT, redeem(&ticket, params)).await {
+        Ok(Ok(reply)) => reply,
+        failed => {
+            let e = match failed {
+                Ok(Err(e)) => e,
+                _ => anyhow!("the other machine did not answer within 30 s ({})", ticket.url),
+            };
+            if let Some(id) = issued_here {
+                let _ = client.request(method::MUX_PAIR_REVOKE, json!({"id": id})).await;
+            }
+            return Err(e);
+        }
+    };
     let role = reply["role"].as_str().and_then(Role::parse).unwrap_or(ticket.role);
     let mut out = json!({
         "joined": true,

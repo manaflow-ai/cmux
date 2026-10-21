@@ -100,6 +100,27 @@ fn a_credential_proves_its_device_until_revoked() {
 }
 
 #[test]
+fn a_live_name_is_issued_once_and_free_again_after_revoking() {
+    let mut s = Store::default();
+    let first = s.issue("box", Role::Client, &"ab".repeat(32), "dv_1", None, T0).unwrap();
+    let again = s.issue("box", Role::Client, &"cd".repeat(32), "dv_2", None, T0).unwrap_err();
+    assert_eq!(reason(&again), "name_taken");
+    s.revoke(&first.id, T0 + 1).unwrap();
+    s.issue("box", Role::Client, &"cd".repeat(32), "dv_2", None, T0 + 2).unwrap();
+}
+
+#[test]
+fn revoking_a_used_ticket_names_the_machine_it_paired() {
+    let (mut s, t) = minted(Role::Client);
+    let r = redeem(&mut s, SECRET, "laptop", T0 + 1).unwrap();
+    let v = s.revoke(&t.id, T0 + 2).unwrap().to_value(0);
+    assert_eq!(v["revoked"]["kind"], "ticket");
+    assert_eq!(v["revoked"]["used_by"], r.device.id.as_str());
+    // The machine stays paired until it is revoked itself.
+    assert!(s.device_for(&r.token).is_some());
+}
+
+#[test]
 fn a_ticket_lives_one_second_to_a_day() {
     let mut s = Store::default();
     assert!(s.mint(SECRET, Role::Client, 0, None, T0).is_err());

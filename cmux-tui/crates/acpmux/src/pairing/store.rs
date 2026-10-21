@@ -131,12 +131,14 @@ pub enum Revoked {
 
 impl Revoked {
     pub fn to_value(&self, closed: usize) -> Value {
-        let (kind, id, name, role, already) = match self {
-            Self::Ticket(t, a) => ("ticket", &t.id, None, t.role, *a),
-            Self::Device(d, a) => ("device", &d.id, Some(&d.name), d.role, *a),
+        let (kind, id, name, role, already, used_by) = match self {
+            Self::Ticket(t, a) => ("ticket", &t.id, None, t.role, *a, t.used_by.as_ref()),
+            Self::Device(d, a) => ("device", &d.id, Some(&d.name), d.role, *a, None),
         };
+        // `used_by`: the machine a used ticket paired, which revoking the
+        // ticket leaves paired.
         json!({
-            "revoked": {"kind": kind, "id": id, "name": name, "role": role.as_str(), "already": already},
+            "revoked": {"kind": kind, "id": id, "name": name, "role": role.as_str(), "already": already, "used_by": used_by},
             "closed_connections": closed,
         })
     }
@@ -152,6 +154,15 @@ pub fn new_id(prefix: &str) -> Result<String, RpcError> {
 
 fn hash(secret: &str) -> String {
     crate::sha256::sha256_hex(secret.as_bytes())
+}
+
+/// A live device already has that name; names are how `revoke` and the
+/// peer list find a machine, so they stay unique.
+fn name_taken(name: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "a machine named {name:?} is already paired here; pass another --name, or revoke it first"
+    ))
+    .with_data(json!({"reason": "name_taken"}))
 }
 
 /// The refusal a ticket that cannot be redeemed gets. One message for every
@@ -230,10 +241,7 @@ impl Store {
             .map(|t| (t.id.clone(), t.role))
             .ok_or_else(ticket_refused)?;
         if self.devices.iter().any(|d| d.revoked_ms.is_none() && d.name == name) {
-            return Err(RpcError::invalid_params(format!(
-                "a machine named {name:?} is already paired here; pass another --name"
-            ))
-            .with_data(json!({"reason": "name_taken"})));
+            return Err(name_taken(name));
         }
         check(role)?;
         let device = self.issue(name, role, token, device_id, Some(id.clone()), now_ms)?;
@@ -255,6 +263,9 @@ impl Store {
     ) -> Result<Device, RpcError> {
         crate::session_name::validate(name)
             .map_err(|e| RpcError::invalid_params(format!("the machine name: {e}")))?;
+        if self.devices.iter().any(|d| d.revoked_ms.is_none() && d.name == name) {
+            return Err(name_taken(name));
+        }
         let device = Device {
             id: id.to_owned(),
             name: name.to_owned(),

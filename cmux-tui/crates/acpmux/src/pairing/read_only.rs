@@ -2,7 +2,7 @@
 //! (`server/chats.rs` checks every request before any other dispatcher):
 //! a closed allow list of reads. Anything else, including every method
 //! added later, is refused, and no notification from such a connection is
-//! acted on (`server/requests.rs` `handle_notification`).
+//! acted on (`server/mod.rs` `serve_connection_from` drops them).
 //!
 //! Allowed: the handshake, the session lists, watching and attaching
 //! (always hidden, so the person's unread and seen state do not change),
