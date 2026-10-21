@@ -96,3 +96,45 @@ fn claude_tool_hooks_keep_the_turn_state_true() {
         "the waits and the turn's end notify; tool hooks never do"
     );
 }
+
+/// A wait whose projection is still pending (committed, then the projector missed it) is
+/// answered: the tool hook waits behind it in the retry queue, so the projector and the roster
+/// both end working, not one blocked and one working.
+#[test]
+fn tool_hook_waits_behind_a_pending_wait() {
+    let mux = test_mux();
+    let surface = mux.new_workspace(None, None).unwrap();
+    let terminal_id = surface.terminal_public_id().cloned().unwrap();
+    let ingress = |event: &str, observed_at_ms: u64| {
+        let mut ingress = crate::agent_hooks::agent_hook_journal_ingress(
+            "claude",
+            event,
+            Some(terminal_id.as_str()),
+            serde_json::json!({"session_id": "claude-1", "tool_name": "Bash"}),
+        )
+        .unwrap();
+        crate::agent_hooks::stamp_agent_hook_observed_at(&mut ingress, observed_at_ms);
+        ingress
+    };
+    mux.append_journal_ingress(&ingress("UserPromptSubmit", 1_000), "test", "pending-1").unwrap();
+    // The request commits, and the process stops before projecting it (its row stays pending).
+    let request = ingress("PermissionRequest", 1_100);
+    let validated = mux.journal_kernel.validate_ingress(&request).unwrap();
+    mux.workspace_registry
+        .lock()
+        .unwrap()
+        .append_journal_ingress(&request, &validated, "test", "pending-2")
+        .unwrap();
+    mux.append_journal_ingress(&ingress("PostToolUse", 1_200), "test", "pending-3").unwrap();
+    assert_eq!(
+        mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().len(),
+        2,
+        "the tool hook waits behind the request"
+    );
+
+    mux.retry_pending_agent_hooks_for_terminal(&terminal_id).unwrap();
+    assert!(
+        mux.workspace_registry.lock().unwrap().pending_agent_hook_projections().unwrap().is_empty()
+    );
+    assert_state(&mux, &terminal_id, "working");
+}
