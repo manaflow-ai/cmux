@@ -140,6 +140,43 @@ await requireBrowserLane("new-tab-paste-attachments.test.ts", async () => {
     },
   );
 
+  // Austin 2026-10-21: a pasted image went only by its ×. Backspace with the caret at the field's
+  // start takes back the last chip, one per press; Backspace in the text still edits the text.
+  test.each(engines.map(([name]) => name))(
+    "%s: Backspace at the field's start removes the last pasted image, one per press",
+    async (name) => {
+      const page = await newTab(name);
+      const field = page.locator(".nt-field");
+      await field.click();
+      for (const file of ["One.png", "Two.png"]) {
+        const data = await transfer(page, file);
+        await field.evaluate(
+          (node, data) =>
+            node.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true })),
+          data,
+        );
+      }
+      const images = page.locator(".nt-box .acpmux-attachment-image");
+      await images.nth(1).waitFor();
+      await page.keyboard.type("ab");
+      // A frame after each press, so a chip removed by mistake is gone before the count.
+      const frame = () => page.evaluate(() => new Promise((done) => requestAnimationFrame(done)));
+      await page.keyboard.press("Backspace");
+      await frame();
+      expect(await field.inputValue()).toBe("a");
+      expect(await images.count()).toBe(2);
+      await page.keyboard.press("Backspace");
+      await frame();
+      expect(await field.inputValue()).toBe("");
+      expect(await images.count()).toBe(2);
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(() => document.querySelectorAll(".nt-box .acpmux-attachment-image").length === 1);
+      await page.keyboard.press("Backspace");
+      await page.waitForFunction(() => document.querySelectorAll(".nt-box .acpmux-attachment").length === 0);
+      await page.close();
+    },
+  );
+
   test.each(engines.map(([name]) => name))(
     "%s: with an image staged, Return on an address asks a chat instead of opening the page",
     async (name) => {
