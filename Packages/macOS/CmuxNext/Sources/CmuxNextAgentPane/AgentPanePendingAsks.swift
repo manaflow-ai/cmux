@@ -1,4 +1,5 @@
 import CmuxNextPages
+import CmuxNextSettings
 public import Foundation
 
 /// `chat.asks.pending {sessionId}`: the permission requests acpmux holds open for one chat, for the
