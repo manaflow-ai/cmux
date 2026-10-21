@@ -1138,11 +1138,11 @@ mark {
 
 /* Settings > Appearance's floating Undo, Redo and Reset: pinned to the bottom right of the content
    while the page scrolls, on the solid popup surface so it reads over any background. Sticky stops at
-   the scroller's content box, so the offset reaches into the end padding: 16px above the pane's edge,
-   not 16px above the padding, where it covered the last row's control. */
+   the scroller's content box, so the offset reaches into the end padding: it rests just above the
+   content's bottom fade, not 16px above the padding, where it covered the last row's control. */
 .appearance-bar {
   position: sticky;
-  bottom: calc(16px - var(--content-pad-end, 0px));
+  bottom: calc(var(--content-fade-bottom, 28px) + 4px - var(--content-pad-end, 0px));
   z-index: var(--layer-sticky);
   display: flex;
   align-items: center;

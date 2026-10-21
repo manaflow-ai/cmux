@@ -101,13 +101,13 @@
 /* A search group without a match takes no space (layout.css), also against the margin above. */
 :root[data-settings-look="refined"] .settings .group.collapse:not([data-open]) { margin-bottom: 0; }
 :root[data-settings-look="refined"] .settings .group-title {
-  margin: 0 0 10px 16px;
+  margin: 0 0 10px 17px;
   color: var(--polish-muted);
   font-size: var(--text-detail);
   font-weight: 500;
 }
-/* A group's lead-in text starts on the group title's edge, which is the rows' text edge. */
-:root[data-settings-look="refined"] .settings .density-help { margin-left: 16px; }
+/* Titles and a group's lead-in text start on the rows' text edge: the card's 1px border + 16px padding. */
+:root[data-settings-look="refined"] .settings .density-help { margin-left: 17px; }
 
 :root[data-settings-look="refined"] .settings .rows {
   border: 1px solid var(--polish-edge);
@@ -176,7 +176,7 @@
   :root[data-settings-look="refined"]:has(.settings) { --sidebar-width: 156px; }
   :root[data-settings-look="refined"] .settings > .content { --content-pad-end: 32px; padding: 20px 12px var(--content-pad-end); }
   :root[data-settings-look="refined"] .settings .row { padding: 10px; }
-  :root[data-settings-look="refined"] .settings :is(.group-title, .density-help) { margin-left: 10px; }
+  :root[data-settings-look="refined"] .settings :is(.group-title, .density-help) { margin-left: 11px; }
   :root[data-settings-look="refined"] .settings .row-main { gap: 8px; flex-wrap: wrap; }
 }
 
