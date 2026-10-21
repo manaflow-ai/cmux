@@ -12,8 +12,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
   const VARIANTS = ["image-attached", "image-pasted-unnamed", "image-failed", "quick-image-attached", "pdf-attached"];
@@ -30,7 +30,7 @@ await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.composer&variant=${variant}&width=760`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("agent-pane.composer", { variant, width: 760 })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -39,8 +39,8 @@ await requireBrowserLane("gallery-composer-paste.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser });
   });
   afterAll(async () => {
     await browser?.close();

@@ -394,9 +394,9 @@ final class NotificationCenterService {
             feedDriver?.run()
             if let workspace, decision.attention { moveToTop(workspace) }
             if decision.desktop {
-                // A workspace's notification names its workspace, as a terminal's does.
-                post(notification, tab: nil, workspace: workspace?.id, sound: decision.sound,
-                     subtitle: notification.shownSubtitle ?? workspace?.displayName)
+                // A workspace's notification names its workspace in the title, as a terminal's does.
+                post(notification, tab: nil, workspace: workspace?.id, workspaceName: workspace?.displayName,
+                     sound: decision.sound)
             }
             if !notification.desktop, let sound = decision.sound { NotificationSounds.playWithoutBanner(sound) }
             if let mode = decision.bounce { dockAttention.bounce(untilActive: mode == .untilActive) }
