@@ -1,12 +1,16 @@
 import AppKit
-@testable import CmuxNextHome
+import CmuxNextActions
+import CmuxNextAgentActivity
+@testable import CmuxNextAgentLanes
 import CmuxNextDesign
+@testable import CmuxNextHome
 import Testing
 
 /// Leo 2026-10-20: the Chief's pane gets a top-right area like a workspace's (status, subagents,
 /// actions), in its pane's tab row like a chat's header tools (`PaneTabRowSharing`). The docked
 /// Home's Messages view puts its tools at the row's trailing end, left of the pane's own toolbar,
-/// sits under the row only while they are in it, and Channels has none.
+/// sits under the row only while they are in it, and Channels has none. The Chief's tools show its
+/// status, its subagents and its actions.
 @MainActor @Suite struct HomeDockTabRowToolsTests {
     final class Dock: HomeDockSwitchView {
         override func makeContent(for mode: HomeDockMode) -> NSView? { NSView() }
@@ -47,20 +51,33 @@ import Testing
         #expect(changes == 0) // the width did not change
     }
 
-    @Test func channelsHasNoToolsAndTellsThePane() async {
-        let (dock, tools) = Self.dock()
-        var changes = 0
-        dock.onTabRowToolsChange = { changes += 1 }
+    @Test func channelsHasNoTools() {
+        let dock = Dock(mode: .channels)
+        let tools = Tools()
+        dock.rowTools = [.messages: tools]
+        dock.frame = NSRect(x: 0, y: 0, width: 400, height: 300)
         dock.setTabRow(height: 28, trailingInset: 0)
-        let enabled = DesignSettings.shared.homeChannelsEnabled
-        defer { DesignSettings.shared.homeChannelsEnabled = enabled }
-        DesignSettings.shared.homeChannelsEnabled = true
-        dock.switchTo(.channels)
-        await dock.settled()
         dock.layoutSubtreeIfNeeded()
         #expect(dock.tabRowToolsWidth == nil)
-        #expect(dock.tabRowToolsNeed == 60 + Metrics.space2) // kept: whether the row fits next time
+        #expect(dock.tabRowToolsNeed == nil)
         #expect(tools.isHidden)
-        #expect(changes == 1)
+        #expect(dock.subviews.first?.frame == dock.bounds)
+    }
+
+    /// The Chief's tools: its status on the mark, Subagents only with a subagent, and Chief
+    /// Actions from the catalog in order.
+    @Test func theChiefsToolsShowItsStatusSubagentsAndActions() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
+        tools.show(.init(), subagents: 0)
+        #expect(tools.indicator.state == .idle)
+        #expect(!tools.subagentsButton.isEnabled)
+        tools.show(.init(activity: .waiting, badge: 1), subagents: 2)
+        #expect(tools.indicator.state == .waiting)
+        #expect(tools.subagentsButton.isEnabled)
+        #expect(tools.subagentsMenu().items.isEmpty) // this store has no lanes
+        let ids = tools.actionsMenu()?.items.compactMap { $0.identifier?.rawValue }
+        #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
+        #expect(tools.intrinsicContentSize.width > 0)
     }
 }

@@ -21,6 +21,7 @@ public final class ChiefPaneTools: NSView {
     private let chief: ChiefSidebar
     private weak var registry: ActionRegistry?
     private var watch: Task<Void, Never>?
+    private var shownInRow = ChromeTunables.tabRowTools.value
 
     public init(chief: ChiefSidebar = .shared, registry: ActionRegistry) {
         self.chief = chief
@@ -42,8 +43,11 @@ public final class ChiefPaneTools: NSView {
         actionsButton.pressMenu = { [weak self] in self?.actionsMenu() }
         // task-owner: this view (cancelled in deinit); event-driven (Observation).
         watch = Task { [weak self, chief] in
-            for await (status, subagents) in ObservationStream({ (chief.status, chief.allSubagents().count) }) {
-                self?.show(status, subagents: subagents)
+            for await (status, subagents, inRow) in ObservationStream({ (chief.status, chief.allSubagents().count, ChromeTunables.tabRowTools.value) }) {
+                guard let self else { return }
+                show(status, subagents: subagents)
+                // The setting decides whether the dock reports these tools (HomeDockSwitchView+TabRow).
+                if inRow != shownInRow { shownInRow = inRow; superview?.needsLayout = true }
             }
         }
     }
