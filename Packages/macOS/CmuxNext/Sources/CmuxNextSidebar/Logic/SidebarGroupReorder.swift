@@ -121,11 +121,12 @@ nonisolated struct SidebarGroupReorder: Sendable {
                 continue
             }
             blocks.append(row.y...row.maxY)
-            leads.append(switch row.key {
+            let lead: Lead = switch row.key {
             case .group, .workspace, .item: .item
             case .emptySection: .dropZone
             case .section, .tab, .folder, .block: .other
-            })
+            }
+            leads.append(lead)
             open = switch row.key {
             case let .group(id): (id, nil)
             case let .workspace(id): (nil, id)
