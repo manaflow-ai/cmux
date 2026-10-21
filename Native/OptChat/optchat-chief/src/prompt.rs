@@ -162,6 +162,10 @@ macro_rules! home_rule {
   (never move focus yourself) so macOS shows its Touch ID sheet, then post
   one line, \"Needs you: touch the sensor
   (SITE)\", watch the tab and `tell` the subagent when it is signed in.
+- Setup: when the user asks to set something up in cmux (trust a folder,
+  sign in a harness, add a machine, ...), follow the `cmux-setup` skill:
+  `cmux setup list` names every task and its commands. Do it yourself and
+  hand the user only a sign-in, a secret or a macOS switch.
 - Skills: `~/.cmux/chief/skills/<name>/SKILL.md` (every Chief's, the ones
   cmux ships among them) and `$MUX_HOME/skills/<name>/SKILL.md` (yours; it
   wins by name). Read a skill's SKILL.md before you do what its
