@@ -24,6 +24,8 @@ type Disk = {
   readonly rootFreeKb: number;
   /** Current size of the state image in bytes. */
   readonly imageBytes?: number;
+  /** Makes the growth allocation fail, as on a disk that filled after the headroom check. */
+  readonly fallocateFails?: boolean;
 };
 
 function stub(bin: string, name: string, body: string): void {
@@ -32,7 +34,7 @@ function stub(bin: string, name: string, body: string): void {
   chmodSync(file, 0o755);
 }
 
-function runEnsure(disk: Disk): { status: number | null; stderr: string; grew: boolean } {
+function runEnsure(disk: Disk): { status: number | null; stderr: string; grew: boolean; truncatedTo: string | null } {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-state-mount-"));
   scratchDirs.push(root);
   const bin = path.join(root, "bin");
@@ -50,7 +52,8 @@ function runEnsure(disk: Disk): { status: number | null; stderr: string; grew: b
   stub(bin, "losetup", "exit 0");
   stub(bin, "resize2fs", "exit 0");
   stub(bin, "stat", `echo ${disk.imageBytes ?? 1024 * 1024 * 1024}`);
-  stub(bin, "fallocate", `: > ${JSON.stringify(grewMarker)}`);
+  stub(bin, "fallocate", disk.fallocateFails ? "exit 1" : `: > ${JSON.stringify(grewMarker)}`);
+  stub(bin, "truncate", `echo "$@" > ${JSON.stringify(path.join(root, "truncated"))}`);
   stub(
     bin,
     "df",
@@ -74,7 +77,13 @@ function runEnsure(disk: Disk): { status: number | null; stderr: string; grew: b
     encoding: "utf8",
     env: { PATH: `${bin}:/usr/bin:/bin` },
   });
-  return { status: result.status, stderr: result.stderr, grew: existsSync(grewMarker) };
+  const truncated = path.join(root, "truncated");
+  return {
+    status: result.status,
+    stderr: result.stderr,
+    grew: existsSync(grewMarker),
+    truncatedTo: existsSync(truncated) ? readFileSync(truncated, "utf8").trim() : null,
+  };
 }
 
 describe("cmux-tui state mount on a full disk", () => {
@@ -103,6 +112,13 @@ describe("cmux-tui state mount on a full disk", () => {
     const result = runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024 });
     expect(result.status).toBe(0);
     expect(result.grew).toBe(true);
+  });
+
+  test("a failed growth allocation is undone and the daemon still starts", () => {
+    const result = runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024, fallocateFails: true });
+    expect(result.status).toBe(0);
+    expect(result.truncatedTo).toContain(`-s ${1024 * 1024 * 1024}`);
+    expect(result.stderr).toContain("continuing with 65536KiB free");
   });
 
   test("leaves a roomy state filesystem alone", () => {

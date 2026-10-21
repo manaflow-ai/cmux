@@ -102,21 +102,25 @@ public struct CloudMachineResourcePresentation: Equatable, Sendable {
     public static let staleSampleAge: TimeInterval = 90
 
     /// Free space below which the disk counts as nearly full: 10% of capacity,
-    /// and never less than 2 GiB so small disks warn before the last gigabytes.
+    /// and never less than 3 GiB. The floor covers ext4's root-reserved blocks,
+    /// which the used figure leaves out, and the 1 GiB root reserve plus 2 GiB
+    /// step the guest needs to grow cmux-tui's state filesystem.
     public static func lowDiskThresholdMb(totalMb: Int) -> Int {
-        max(totalMb / 10, 2048)
+        max(totalMb / 10, 3072)
     }
 
     /// A tooltip and accessibility sentence for a nearly full disk, or nil when there is room.
     /// - Parameter machineID: The id `cmux vm clean` takes, shown so the action is copyable.
     public func lowDiskWarning(machineID: String) -> String? {
-        guard let lowDiskFreeMb else { return nil }
+        guard lowDiskFreeMb != nil else { return nil }
+        // No free figure here: the Disk reading beside it carries the amounts,
+        // and user writes run out before used reaches capacity (reserved blocks).
         return String(
             format: String(
                 localized: "cloudTree.resources.lowDisk",
-                defaultValue: "Disk almost full: %1$@ GB free. Run cmux vm clean %2$@ or resize the disk to keep this machine reachable."
+                defaultValue: "Disk almost full. Run cmux vm clean %@ or resize the disk to keep this machine reachable."
             ),
-            gb(lowDiskFreeMb), machineID
+            machineID
         )
     }
 
