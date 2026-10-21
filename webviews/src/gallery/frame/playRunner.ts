@@ -549,6 +549,12 @@ export async function runPlay(
     },
     waitFor: (condition, { capMs = 5000 } = {}) =>
       new Promise<void>((resolve, reject) => {
+        let frame = 0;
+        const stop = () => {
+          observer.disconnect();
+          cancelAnimationFrame(frame);
+          clearTimeout(cap);
+        };
         const check = () => {
           let held: unknown;
           try {
@@ -557,21 +563,23 @@ export async function runPlay(
             held = false;
           }
           if (!held) return false;
-          observer.disconnect();
-          clearTimeout(cap);
+          stop();
           resolve();
           return true;
+        };
+        // A condition can turn true with no DOM mutation (a posted message, focus, layout), so it is
+        // checked every frame too; the observer answers a DOM change right after it, in a microtask.
+        const poll = () => {
+          if (!check()) frame = requestAnimationFrame(poll);
         };
         const observer = new MutationObserver(() => void check());
         // The cap fails a wait that never comes true; it is not how the wait resolves.
         const cap = window.setTimeout(() => {
-          observer.disconnect();
+          stop();
           reject(new Error(`play: waitFor did not hold within ${capMs} ms`));
         }, capMs);
         observer.observe(document, { subtree: true, childList: true, attributes: true, characterData: true });
-        document.addEventListener("animationend", check, { once: true });
-        document.addEventListener("transitionend", check, { once: true });
-        if (!check()) void nextFrame().then(check);
+        poll();
       }),
   };
   try {

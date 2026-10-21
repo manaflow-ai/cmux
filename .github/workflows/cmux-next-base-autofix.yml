@@ -22,8 +22,8 @@ name: cmux-next base autofix
 # (their fix edits cmux-tui-artifacts.yml); the app FFI pin stays with
 # app-ffi-release.yml's app-ffi-repin pull request. The action exports
 # (plans/cmux-next/action-surfaces.json, actions.md, links.json) need a Mac
-# swift test: the action-exports job regenerates them on a Mac
-# (scripts/cmux-next/regenerate-action-exports.sh) and autofix copies them in
+# swift test: the action-exports job regenerates them on a Mac at the newest
+# tip (scripts/cmux-next/base-autofix-action-exports.sh) and autofix copies them in
 # before it rewrites the docs shortcuts from them. The settings exports
 # (schemas/settings/settings-schema.json, docs/mdm, and the source stamp
 # schemas/settings-export/settings-schema.sources.sha256) need one too: the
@@ -85,8 +85,11 @@ on:
       - scripts/cmux-next/base-autofix-land.sh
       - scripts/cmux-next/base-autofix-repair.sh
       - scripts/cmux-next/base-autofix-settings-exports.sh
+      - scripts/cmux-next/base-autofix-action-exports.sh
       - scripts/cmux-next/base-autofix-mac-busy.sh
       - scripts/cmux-next/base-autofix-since.sh
+      - scripts/cmux-next/base-autofix-changed.sh
+      - scripts/cmux-next/base-autofix-settings-landed.sh
       - scripts/cmux-next/autofix-areas.sh
       - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -131,10 +134,12 @@ jobs:
         run: |
           set -euo pipefail
           since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
-          if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
+          # base-autofix-changed.sh: since..HEAD without grafting since into this depth-1 checkout, plus
+          # a stale settings stamp at HEAD.
+          if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
             scripts/cmux-next/autofix-areas.sh --all | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           else
-            git diff --name-only "$since" HEAD | scripts/cmux-next/autofix-areas.sh | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
+            scripts/cmux-next/autofix-areas.sh <<<"$changed" | grep -E '^(actions|settings)=' | tee -a "$GITHUB_OUTPUT"
           fi
 
       - name: Mac exports already queued or running
@@ -178,14 +183,17 @@ jobs:
     # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
     # takes it and runs beside a console GUI job; until then the gui label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    # Up to three settings regenerations on a moving tip (base-autofix-settings-exports.sh).
-    timeout-minutes: 60
+    # One action regeneration and up to three settings regenerations on a moving tip
+    # (base-autofix-action-exports.sh, base-autofix-settings-exports.sh).
+    timeout-minutes: 90
     permissions:
       contents: read
     outputs:
       exports: ${{ steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true' }}
       # The commit the settings exports were made at (the newest tip when their inputs moved).
       settings_made_at: ${{ steps.settings.outputs.made_at }}
+      # The commit the action exports were made at (the newest tip when their inputs moved).
+      actions_made_at: ${{ steps.actions.outputs.made_at }}
       # The exports on this tree are current: regenerated, or already fresh.
       # Skipped (that area did not change) counts as current.
       verified: ${{ steps.actions.outcome != 'failure' }}
@@ -250,13 +258,23 @@ jobs:
           CMUX_STRINGS_BEST_EFFORT: "1"
         run: scripts/cmux-next/build-web-bundles.sh
 
+      # Made at the newest tip: the job queues for up to half an hour and the actions area moves every
+      # few minutes, so exports made at the run's commit were held on every push (2026-10-21). It
+      # starts on the tip when the area moved meanwhile, regenerates once, and leaves the checkout at
+      # the run's commit; base-autofix-push.sh lands the exports as progress when the area moved again.
       - name: Regenerate the action exports
         id: actions
         if: needs.action-areas.outputs.actions == 'true'
         continue-on-error: true
+        timeout-minutes: 40
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_BASE_AUTOFIX_ACTIONS_PREPARE: scripts/cmux-next/build-web-bundles.sh
         run: |
           set -euo pipefail
-          scripts/cmux-next/regenerate-action-exports.sh "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/action-exports.txt"
+          scripts/cmux-next/base-autofix-action-exports.sh "$RUNNER_TEMP/action-exports" origin feat-cmux-next \
+            | tee "$RUNNER_TEMP/action-exports.txt"
+          echo "made_at=$(sed -n 's/^made at: //p' "$RUNNER_TEMP/action-exports.txt")" >> "$GITHUB_OUTPUT"
           if grep -q '^regenerated: ' "$RUNNER_TEMP/action-exports.txt"; then
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
@@ -270,7 +288,7 @@ jobs:
         id: settings
         if: needs.action-areas.outputs.settings == 'true'
         continue-on-error: true
-        # Below the job's 60 so a slow run fails only this step, and the upload of the action
+        # Below the job's 90 so a slow run fails only this step, and the upload of the action
         # exports (and of any settings export it finished) still runs.
         timeout-minutes: 40
         env:
@@ -463,12 +481,15 @@ jobs:
           set -euo pipefail
           since="$(scripts/cmux-next/base-autofix-since.sh feat-cmux-next)"
           # scripts/cmux-next/autofix-areas.sh maps the changed paths to repairs.
-          if [[ -z "$since" ]] || ! git fetch --quiet --depth=1 origin "$since"; then
+          # base-autofix-changed.sh reads since..HEAD without grafting since into this depth-1 checkout:
+          # a graft cut the tip's history off before HEAD, and every Mac export was held (run 39617667536).
+          # A stale settings stamp at HEAD counts as a settings change.
+          if [[ -z "$since" ]] || ! changed="$(scripts/cmux-next/base-autofix-changed.sh "$since")"; then
             echo "No successful run to diff from; running every repair."
             scripts/cmux-next/autofix-areas.sh --all | tee -a "$GITHUB_OUTPUT"
           else
             echo "Changes since the last successful run at ${since:0:12}."
-            git diff --name-only "$since" HEAD | scripts/cmux-next/autofix-areas.sh | tee -a "$GITHUB_OUTPUT"
+            scripts/cmux-next/autofix-areas.sh <<<"$changed" | tee -a "$GITHUB_OUTPUT"
           fi
 
       - name: Setup Node
@@ -566,6 +587,7 @@ jobs:
           ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           HEAD_SHA: ${{ github.sha }}
           SETTINGS_MADE_AT: ${{ needs.action-exports.outputs.settings_made_at }}
+          ACTIONS_MADE_AT: ${{ needs.action-exports.outputs.actions_made_at }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
           CMUX_BASE_AUTOFIX_REPAIR: scripts/cmux-next/base-autofix-repair.sh
         run: |
@@ -580,9 +602,22 @@ jobs:
           # the tip changed, or that a newer commit wrote, waits (with its export and what is built from it).
           # A held file this job makes itself (the CI target graph, say) is made again on the new tip and
           # pushed, at most three rounds; a held Mac export waits for the next run, and the run fails, which
-          # keeps it in the next run's "since". The settings exports are judged from the commit the Mac job
-          # made them at.
-          scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" 2>&1 \
+          # keeps it in the next run's "since". The settings and action exports are judged from the commit
+          # the Mac job made them at.
+          scripts/cmux-next/base-autofix-land.sh "$remote" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" "$ACTIONS_MADE_AT" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
+
+      # A green run moves the next run's "since" past its changes: when its own Mac job made the exports
+      # and the settings area is on, it fails when the settings exports are still stale for the sources
+      # it had, so the next run makes them again. A run that left its Mac exports to another run
+      # (mac-exports-deferred) skips this and stays green; base-autofix-since.sh passes over it anyway.
+      - name: Settings exports current after landing
+        if: success() && needs.action-exports.result == 'success' && steps.areas.outputs.settings == 'true' && vars.CMUX_NEXT_BASE_AUTOFIX == '1'
+        env:
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          scripts/cmux-next/base-autofix-settings-landed.sh "https://github.com/$GITHUB_REPOSITORY.git" feat-cmux-next "$HEAD_SHA" 2>&1 \
             | tee -a "$GITHUB_STEP_SUMMARY"
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum

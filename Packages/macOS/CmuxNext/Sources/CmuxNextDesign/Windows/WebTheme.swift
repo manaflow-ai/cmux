@@ -124,6 +124,8 @@ public nonisolated struct WebTheme: Equatable, Sendable {
             // theme's own hue with appearance.accent).
             "--cmux-accent": Self.css(tokens.accent),
             "--cmux-on-accent": Self.css(tokens.onAccent),
+            // A lit (pressed, on) control's glyph: the accent, never fainter than at rest (`ThemeTokens.litGlyph`).
+            "--cmux-lit-glyph": Self.css(tokens.litGlyph),
             // The modal scrim (`Scrim`), the same as native dialogs'.
             "--cmux-scrim": Self.css(tokens.scrim),
         ].merging((app ?? ThemeStore.shared.appTheme ?? tokens.app).cssVariables) { own, _ in own }

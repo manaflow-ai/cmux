@@ -53,6 +53,7 @@ enum AgentPaneTheme {
             "accent": css(tokens.accent),
             "onAccent": css(tokens.onAccent),
             "accentSoft": css(tokens.selectionFill),
+            "litGlyph": css(tokens.litGlyph),
             "accentText": css(opaquePage),
             "danger": css(tokens.danger),
             "warning": css(tokens.attention),

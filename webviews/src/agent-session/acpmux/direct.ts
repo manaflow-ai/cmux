@@ -60,6 +60,7 @@ import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
 import { type StartMode, startModeChanged } from "./startMode";
 import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
 import { reduceAgentPair } from "./conversation/agentPairs";
+import { pasteRanges } from "./conversation/promptCollapse";
 import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks";
 
 export type AcpmuxHostConfig = {
@@ -968,6 +969,10 @@ export class AcpmuxDirectClient {
   private turnOpener?: EventRecord;
   private lastSeq = 0;
   private turnOpen = false;
+  /// The open turn's agent has said nothing since its prompt, past acpmux's `silentTurnMs`
+  /// (`turn_silent`, hub/silent_turn.rs): the line says the model has not answered. The agent's
+  /// next word, or the turn's end, clears it.
+  private silentTurn = false;
   /// Stop got no answer within STOP_GRACE_MS: the turn no longer shows as working until the next
   /// one starts (an acpmux that waits on an agent ignoring the cancel).
   private stopGaveUp = false;
@@ -994,6 +999,10 @@ export class AcpmuxDirectClient {
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
   /// `sessions` holds the daemon's list: its first page has been read.
   private listedSessions = false;
+  /// This page drew a chat from a kept tail (`drawKeptTail`), so those rows were on screen before
+  /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
+  /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
+  private drewKeptTail = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -1286,6 +1295,9 @@ export class AcpmuxDirectClient {
             keptThrough = this.drawKeptTail(sessionId);
           }
           if (keptThrough > 0) {
+            // Where the caller decides, not where the tail is read: a tail that drew no row is a
+            // cold open, and the host must not be told rows are on screen that are not.
+            this.drewKeptTail = true;
             this.emit("selected");
             this.releaseSnapshots(hold);
           }
@@ -1301,6 +1313,9 @@ export class AcpmuxDirectClient {
             forgetTail(sessionId);
             this.events = [];
             this.queue = [];
+            // Those rows are off screen again, so the frame the host shows is the failure, not a
+            // chat: it fades in as any first draw of a chat does.
+            this.drewKeptTail = false;
             this.rebuild();
             this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
           }
@@ -1350,6 +1365,8 @@ export class AcpmuxDirectClient {
     this.turnOpener = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
+    // Nothing is drawn, so nothing drawn came from a kept tail: the next open says for itself.
+    this.drewKeptTail = false;
     // A page still in flight belongs to the session before; it is dropped when it lands.
     this.loadingOlder = undefined;
     this.rows.clear();
@@ -1368,6 +1385,7 @@ export class AcpmuxDirectClient {
     this.queue = [];
     this.queueWithdrawn = [];
     this.turnOpen = false;
+    this.silentTurn = false;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
     this.streamingActivity = undefined;
@@ -2212,6 +2230,7 @@ export class AcpmuxDirectClient {
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
+    this.silentTurn = false;
     this.turnTokens = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
@@ -2457,6 +2476,7 @@ export class AcpmuxDirectClient {
   private reduceEvent(event: EventRecord): void {
     const msg = event.msg ?? {};
     const update = sessionUpdate(event);
+    if (event.dir === "in") this.silentTurn = false;
     if (update?.sessionUpdate === USAGE_KIND) {
       const used = Number(update.used);
       const size = Number(update.size);
@@ -2616,6 +2636,10 @@ export class AcpmuxDirectClient {
           ...(continues ? { continues } : {}),
           ...(steer === "waiting" && promptId ? { steerPromptId: promptId } : {}),
           ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
+          // The blocks the composer sent as pastes, by where they sit in the text acpmux recorded;
+          // only while the row shows that text as recorded (a harness note it hides moves them).
+          ...(shown.text === raw &&
+            pasteRanges(msg.pasted, raw).length > 0 && { pasted: pasteRanges(msg.pasted, raw) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
@@ -2628,8 +2652,11 @@ export class AcpmuxDirectClient {
           this.setDelivery(fallbackPromptId, { state: "read", readAt: event.at }, `user-${event.seq}`);
         }
         this.turnOpen = true;
+      } else if (event.kind === "turn_silent") {
+        this.silentTurn = this.turnOpen;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.silentTurn = false;
         this.turnTokens = event.seq >= this.usageFromSeq ? 0 : undefined;
         this.subagents.startTurn();
         this.settleCompactions(event.seq, true);
@@ -2647,6 +2674,7 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.silentTurn = false;
         this.turnTokens = undefined;
         this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
         this.landSteer();
@@ -3099,12 +3127,14 @@ export class AcpmuxDirectClient {
       connection,
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
+      ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
         this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
       ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
+      ...(this.replayThrough === undefined && this.turnOpen && this.silentTurn ? { silentTurn: true as const } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
@@ -4020,6 +4050,7 @@ export class AcpmuxDirectClient {
         keptThrough = this.drawKeptTail(sessionId);
     }
     if (keptThrough > 0) {
+      this.drewKeptTail = true;
       this.emit("selected");
       this.releaseSnapshots(hold);
     }
@@ -4036,6 +4067,7 @@ export class AcpmuxDirectClient {
         forgetTail(sessionId);
         this.events = [];
         this.queue = [];
+        this.drewKeptTail = false;
         this.rebuild();
         this.emit(this.socket?.readyState === WebSocket.OPEN ? "failed" : "disconnected");
       }
@@ -4577,6 +4609,7 @@ export class AcpmuxDirectClient {
   private foldOlder(older: EventRecord[]): void {
     const live = {
       turnOpen: this.turnOpen,
+      silentTurn: this.silentTurn,
       turnTokens: this.turnTokens,
       streamingAssistant: this.streamingAssistant,
       streamingAssistantMessageId: this.streamingAssistantMessageId,
@@ -4606,6 +4639,7 @@ export class AcpmuxDirectClient {
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
+    this.silentTurn = false;
     this.turnTokens = undefined;
     this.streamingAssistant = undefined;
     this.streamingAssistantMessageId = undefined;
