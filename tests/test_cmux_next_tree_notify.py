@@ -10,6 +10,7 @@ dispatches cmux-next's same-tree mode for each run that is still current.
 
 from __future__ import annotations
 
+import http.client
 import io
 import json
 import sys
@@ -235,6 +236,8 @@ class Notify(unittest.TestCase):
             seen.append(request.full_url)
             if "missing" in seen[-1]:
                 raise notify.urllib.error.HTTPError(request.full_url, 404, "Not Found", {}, None)
+            if "truncated" in seen[-1]:  # the connection drops mid-body
+                raise http.client.IncompleteRead(b"{")
             return Response(json.dumps(completion_json()).encode())
 
         original = notify.urllib.request.urlopen
@@ -243,6 +246,7 @@ class Notify(unittest.TestCase):
             self.assertEqual(notify.fetch_completion(KEY), completion_json())
             self.assertTrue(seen[-1].startswith(f"https://files.cmux.com/cmux-tui/tree/{KEY}/completion.json?"))
             self.assertIsNone(notify.fetch_completion("missing"))
+            self.assertIsNone(notify.fetch_completion("truncated"))
         finally:
             notify.urllib.request.urlopen = original
 
