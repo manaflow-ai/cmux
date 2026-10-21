@@ -1867,7 +1867,7 @@ button.cv-received__name:focus-visible {
   border-radius: 4px;
 }
 .cv-message .cv-tool-output {
-  margin: 0 0 8px 13px;
+  margin: 0 10px 8px 32.5px;
 }
 
 /* The answer's action row; its height is reserved. One quiet line under the answer, where its text
@@ -3163,7 +3163,7 @@ button.cv-received__name:focus-visible {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  margin: 0 10px 8px 32.5px;
+  margin: 0 0 8px 13px;
 }
 .cv-message__reply > .cv-user__edit {
   width: 100%;
