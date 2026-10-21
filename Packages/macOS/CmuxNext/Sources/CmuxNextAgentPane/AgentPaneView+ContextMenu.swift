@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextDesign
 import CmuxNextPages
 import WebKit
 
@@ -84,12 +85,14 @@ final class AgentPaneMenuAction: NSObject {
 
     @objc func run() { handler() }
 
-    /// An item titled `title` that runs `handler`.
-    static func item(_ title: String, handler: @escaping () -> Void) -> NSMenuItem {
+    /// An item titled `title` with SF Symbol `symbol` (the matching action's catalog symbol: every
+    /// cmux menu row shows one) that runs `handler`.
+    static func item(_ title: String, symbol: String, handler: @escaping () -> Void) -> NSMenuItem {
         let action = AgentPaneMenuAction(handler: handler)
         let item = NSMenuItem(title: title, action: #selector(run), keyEquivalent: "")
         item.target = action
         item.representedObject = action
+        item.image = AgentPaneContextMenu.icon(symbol)
         return item
     }
 }
@@ -148,7 +151,8 @@ extension AgentPaneView {
         messageMenuTarget = nil
         menuSelection = nil
         let chatMenu = target == nil && selection == nil ? model.chatMenuItems?() ?? [] : []
-        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu, actions: .init(
+        AgentPaneContextMenu.rebuild(menu, target: target, selection: selection, devTools: DevTools.isEnabled, chatMenu: chatMenu,
+                                     scope: themeScope.fullStrength, actions: .init(
             copy: { [weak self] text in self?.copyText(text) },
             fork: { [weak self] seq in self?.fork(through: seq) },
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },

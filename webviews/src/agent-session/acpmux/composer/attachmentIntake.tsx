@@ -7,6 +7,7 @@ import { ContextMenu } from "../../../ui/ContextMenu";
 import { Dialog } from "../../../ui/Dialog";
 import {
   filesFrom,
+  pastedImageFiles,
   installFileDropLifecycle,
   thumbnail,
   type AttachmentError,
@@ -84,10 +85,15 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     const paste = (event: ClipboardEvent) => {
       const owned = live.current.options.pasteTarget(event.target as Node);
       if (!owned) return;
-      const files = filesFrom(event.clipboardData);
-      if (files.length === 0) return;
-      event.preventDefault();
-      void attach(files, owned.uploads, "paste");
+      const pasted = filesFrom(event.clipboardData);
+      // An image copied as HTML only (from a page or the transcript) or as `![…](data:…)` text (a
+      // prompt copied from a bubble) comes in as a chip too; its text still goes into the field (a
+      // textarea's own paste, the prompt's handler), without the images.
+      const other = pasted.length ? undefined : pastedImageFiles(event.clipboardData);
+      const files = other ? other.files : pasted;
+      if (!other) event.preventDefault();
+      if (files.length) void attach(files, owned.uploads, "paste");
+      if (other?.text !== undefined) pasteTextInto(event, other.text);
     };
     const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach(files, true, "drop"), setDropping);
     document.addEventListener("paste", paste);
@@ -97,6 +103,19 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
     };
   }, [attach]);
   return { attachments, setAttachments, attachError, setAttachError, dropping, attach };
+}
+
+/// Puts `text` in place of a paste's own text in a plain text field (the New Tab prompt), so the
+/// images lifted out of it never land there as base64; the prompt field takes its paste itself.
+function pasteTextInto(event: ClipboardEvent, text: string) {
+  const target = event.target as Node | null;
+  const view = target?.ownerDocument?.defaultView;
+  if (!view || !(target instanceof view.HTMLTextAreaElement || target instanceof view.HTMLInputElement)) return;
+  event.preventDefault();
+  if (!text || target.ownerDocument.execCommand?.("insertText", false, text)) return;
+  const end = target.value.length;
+  target.setRangeText(text, target.selectionStart ?? end, target.selectionEnd ?? end, "end");
+  target.dispatchEvent(new view.Event("input", { bubbles: true }));
 }
 
 /// The staged attachments' chips over the prompt, with the drop hint or a refusal's note.
