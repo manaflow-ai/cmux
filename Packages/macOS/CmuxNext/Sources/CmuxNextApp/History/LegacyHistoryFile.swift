@@ -5,7 +5,7 @@ import Foundation
 ///
 /// SAFETY: the directory descriptor and captured identities are immutable;
 /// the descriptor closes only after the last reference is released.
-final class LegacyHistoryFile: @unchecked Sendable, Equatable {
+final class LegacyHistoryFile: Sendable, Equatable {
     let url: URL
     private let parentURL: URL
     private let parentDescriptor: Int32
@@ -139,10 +139,10 @@ final class LegacyHistoryFile: @unchecked Sendable, Equatable {
             device = UInt64(info.st_dev)
             inode = UInt64(info.st_ino)
             size = info.st_size
-            modifiedSeconds = info.st_mtimespec.tv_sec
-            modifiedNanoseconds = info.st_mtimespec.tv_nsec
-            changedSeconds = info.st_ctimespec.tv_sec
-            changedNanoseconds = info.st_ctimespec.tv_nsec
+            modifiedSeconds = Int64(info.st_mtimespec.tv_sec)
+            modifiedNanoseconds = Int64(info.st_mtimespec.tv_nsec)
+            changedSeconds = Int64(info.st_ctimespec.tv_sec)
+            changedNanoseconds = Int64(info.st_ctimespec.tv_nsec)
             kind = info.st_mode & S_IFMT
         }
 

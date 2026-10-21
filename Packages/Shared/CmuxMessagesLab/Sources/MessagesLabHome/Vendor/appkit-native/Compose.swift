@@ -410,13 +410,36 @@ final class FieldTextView: NSTextView {
             tlm.ensureLayout(for: tlm.documentRange)
             laidOut = state
         }
-        var line: CGRect?
-        tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard, options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
-            line = r; return false
+        func segment(upstream: Bool) -> CGRect? {
+            var line: CGRect?
+            tlm.enumerateTextSegments(in: NSTextRange(location: loc), type: .standard,
+                                      options: upstream ? [.rangeNotRequired, .upstreamAffinity] : [.rangeNotRequired]) { _, r, _, _ in
+                line = r; return false
+            }
+            return line
         }
-        guard let l = line else { return nil }
         let o = textContainerOrigin
-        return CGRect(x: l.minX + o.x, y: l.midY + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+        // cmux: a picture takes its whole line, as in Messages (ComposeInlineAttachment).
+        let storageText = textStorage
+        func picture(_ i: Int) -> Bool {
+            guard let s = storageText, i >= 0, i < s.length else { return false }
+            return s.attribute(.attachment, at: i, effectiveRange: nil) is ComposeInlineAttachment
+        }
+        let length = storageText?.length ?? 0
+        let next: unichar? = index < length ? (storageText?.string as NSString?)?.character(at: index) : nil
+        let previous: unichar? = index > 0 && index <= length ? (storageText?.string as NSString?)?.character(at: index - 1) : nil
+        // Right after a picture, where nothing follows on its line (the end, a line break or another
+        // picture), the caret starts the line under it: the next character goes there.
+        if picture(index - 1), next == nil || next == 0x0A || picture(index), let above = segment(upstream: true) {
+            return CGRect(x: o.x, y: above.maxY + Fixture.lineHeight / 2 + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+        }
+        // Just before a picture that follows text, the caret ends the text's line above it.
+        let beforePicture = picture(index) && previous != nil && previous != 0x0A && !picture(index - 1)
+        guard let l = segment(upstream: upstream || beforePicture) else { return nil }
+        // cmux: on a line an inline picture makes taller the text sits at the bottom, so the caret
+        // is on the line's last text line, not its middle (Draft+InlineMarks.swift).
+        let y = l.height > Fixture.lineHeight + 0.5 ? l.maxY - Fixture.lineHeight / 2 : l.midY
+        return CGRect(x: l.minX + o.x, y: y + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
     }
     /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
     /// whole text is laid out again from scratch (equal when no layout input went stale).
@@ -849,6 +872,7 @@ final class ComposeView: UIView {
         tv.textColor = Fixture.incomingText
         tv.insertionPointColor = Fixture.caret
         tv.installCaret()
+        inlineHover.install(on: tv)  // cmux: an inline attachment's remove button on hover
         tv.textContainer?.lineFragmentPadding = 0
         // AppKit puts `textContainerInset.height` above and below the text when it sizes the
         // document; the container origin puts the text at the top inset.
@@ -1071,6 +1095,8 @@ final class ComposeView: UIView {
     private var stripChips: [Attachment] { [] }
     /// The field's inline attachments by id (made once each).
     private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]
+    /// cmux: the remove button over the inline attachment under the pointer.
+    let inlineHover = ComposeInlineRemoveHover()
 
     /// The remove button of an inline attachment: its mark leaves the text as an edit, so the
     /// draft follows through the text view's own change path (`textDidChange`).
@@ -1144,6 +1170,7 @@ final class ComposeView: UIView {
                 tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
                                                                             scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
                 tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
+                inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
                 tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
                                                                   added: ComposeView.addedMark(d, before: chips)))
                 if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
