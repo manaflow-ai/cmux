@@ -2751,7 +2751,9 @@ export function VirtualTranscript({
                       kind={kind}
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
-                      beforeFooter={row.kind === "assistant" && rows[absoluteIndex + 1]?.kind === "turnSummary"}
+                      beforeFooter={
+                        row.kind === "assistant" && nextDrawnRow(rows, absoluteIndex)?.kind === "turnSummary"
+                      }
                       lastFooter={row.kind === "turnSummary" && !nextDrawnRow(rows, absoluteIndex)}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
