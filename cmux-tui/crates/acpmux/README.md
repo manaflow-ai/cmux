@@ -189,6 +189,9 @@ unattended, with `ACPMUX_EVENT`, `ACPMUX_SESSION_NAME` and `ACPMUX_TEXT` set.
 session load or new, config replay): past it the request fails with code -32000 and
 `data.reason` `deadline_exceeded` (`data.wait` `agent_start`), the agent is ended, the
 session stays open, and the log gets `agent_start_timed_out`.
+`silentTurnMs` (default 90000; 0 turns it off): a turn whose agent sends nothing at all
+for that long after its prompt (a stalled model) logs `turn_silent` {turnId, silentMs}
+once, so a client can say the model has not answered.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
