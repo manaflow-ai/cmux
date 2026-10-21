@@ -34,8 +34,11 @@ extension AppActions {
         }
         // Next / previous sidebar item and Cmd-1…9: one walk over every
         // visible item in shown order (SIDEBAR-NUMBERING-AND-STEPPING).
-        registry.bind("nextSidebarTab") { SidebarNavigation.step(by: 1, services) }
-        registry.bind("prevSidebarTab") { SidebarNavigation.step(by: -1, services) }
+        // Workspaces as tabs' Cmd-Shift-] / [ pass `scope` (workspaces only, wrapping); the table holds them
+        // only while its Debug tunable is on.
+        registry.bind("nextSidebarTab", invoke: { SidebarNavigation.step(by: 1, scope: $0["scope"]?.stringValue, services) })
+        registry.bind("prevSidebarTab", invoke: { SidebarNavigation.step(by: -1, scope: $0["scope"]?.stringValue, services) })
+        registry.includesWorkspaceTabKeys = { SidebarTunables.workspacesAsTabs.value }
         registry.bind("selectWorkspaceByNumber", invoke: { invocation in
             guard let number = invocation["index"]?.intValue else { return }
             SidebarNavigation.select(number: number, services)
@@ -44,7 +47,7 @@ extension AppActions {
         // fixture: registered at launch so a restored tab finds its provider (not blank).
         services.pages.register(HomePageTab(services: services))
         registry.bind("home.tab", invoke: { _ = HomePageTab.open(services, focus: $0.allowsViewChange) })
-        services.pages.register(HomeChannelsPageTab(services: services))
+        services.pages.register(HomeChannelsPageTab.make(services))
         // The docked Home's tab (HomeDockTab): the Messages or Channels view (the sidebar's Home or Channels entry).
         services.pages.register(HomeDockTab(services: services))
         #if DEBUG

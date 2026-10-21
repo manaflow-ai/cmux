@@ -85,6 +85,8 @@ final class WorkspaceRowView: SidebarRowView {
             needsDisplay = true
         }
     }
+    /// On screen in this window but not the focused one (`SidebarModel.onScreen`): the soft fill.
+    var isOnScreen = false { didSet { if isOnScreen != oldValue { needsDisplay = true } } }
     override var showsSelection: Bool { isSelected || isSecondarySelected }
     /// A tab dragged from a pane would move into this workspace.
     var isDropTarget = false { didSet { if isDropTarget != oldValue { needsDisplay = true } } }
@@ -181,6 +183,7 @@ final class WorkspaceRowView: SidebarRowView {
     override func prepareForReuse(key: SidebarRowKey) {
         super.prepareForReuse(key: key)
         isSecondarySelected = false
+        isOnScreen = false
         isDropTarget = false
         onClose = nil
         onMore = nil
@@ -262,7 +265,7 @@ final class WorkspaceRowView: SidebarRowView {
         }
         title.font = ws.titleWeight.map { NSFont.systemFont(ofSize: SidebarStyle.titleFont.pointSize, weight: $0.font) } ?? SidebarStyle.titleFont
         subtitle.setFont(SidebarStyle.subtitleFont)
-        subtitle.setString(row.detail ?? "")
+        subtitle.setString(shown.now.map(Strings.rowNow) ?? row.detail ?? "")
         hasSubtitle = row.detail != nil
         // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
         let trailingText = shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) }

@@ -22,6 +22,7 @@ EOF
 chmod +x "$TMP/bin/swift"
 
 # run <name> <status>: runs the wrapper on $TMP/<name>.out; sets out, summary, status.
+# STUB_PATH goes ahead of the stub swift on PATH (a slow tee).
 run() {
   export STUB_OUTPUT="$TMP/$1.out" STUB_STATUS="$2" GITHUB_STEP_SUMMARY="$TMP/$1.summary"
   : > "$GITHUB_STEP_SUMMARY"
@@ -29,7 +30,7 @@ run() {
   # The sampler's log lives in this test's own TMPDIR: on CI the check runs beside
   # many others, and its /tmp/swift-test-log.* was once gone before it was read.
   mkdir -p "$TMP/tmp"
-  out=$(PATH="$TMP/bin:$PATH" TMPDIR="$TMP/tmp" CMUX_NEXT_TEST_HANG_SECONDS=60 \
+  out=$(PATH="${STUB_PATH:+$STUB_PATH:}$TMP/bin:$PATH" TMPDIR="$TMP/tmp" CMUX_NEXT_TEST_HANG_SECONDS=60 \
     bash "$ROOT/scripts/cmux-next/swift-test-with-hang-sampler.sh" --skip-build 2>&1) || status=$?
   summary=$(cat "$GITHUB_STEP_SUMMARY")
 }
@@ -71,6 +72,18 @@ grep '^::error' <<<"$out" | grep -q '2 red' || fail "the error does not count 2 
 if grep '^::error' <<<"$out" | grep -q 'aPasses'; then fail "the error names a passing test" "$out"; fi
 grep -q 'aFails() AFileTests.swift:12' <<<"$summary" || fail "the step summary does not name aFails()" "$summary"
 grep -q 'aTimesOut()' <<<"$summary" || fail "the step summary does not name aTimesOut()" "$summary"
+
+# The log's writer finishes after swift does: a tee that writes late. The report
+# still reads the whole log, because the wrapper waits for its tee to end (bash 3.2
+# cannot `wait` for a process substitution; run this under /bin/bash to see it).
+mkdir -p "$TMP/slow"
+cat > "$TMP/slow/tee" <<'EOF'
+#!/usr/bin/env bash
+in=$(cat); sleep 1; printf '%s\n' "$in" > "$1"; printf '%s\n' "$in"
+EOF
+chmod +x "$TMP/slow/tee"
+STUB_PATH="$TMP/slow" run red 1
+grep '^::error' <<<"$out" | grep -q 'aFails() AFileTests.swift:12' || fail "a late-written log was read before its writer finished" "$out"
 
 # No summary line although swift exited 0: the run fails and names the tests
 # that started and never finished, and not the finished ones.
