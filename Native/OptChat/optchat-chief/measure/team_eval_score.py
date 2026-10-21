@@ -48,8 +48,22 @@ def transcript(run, conv):
     return "\n".join(lines)
 
 
+def excluded(run):
+    """Why a run is not a result (it did not pass the step, or ran another
+    model or effort than the pin), or None."""
+    why = list(run.get("failed") or [])
+    if run.get("ok") is None:
+        why.append("no ok in run.json (not packed by the step)")
+    if not (run.get("pin") or {}).get("ok"):
+        why.append(f"pin: {(run.get('pin') or {}).get('bad')}")
+    return why or None
+
+
 def score(out, tasks, opts):
     run = json.load(open(os.path.join(out, "run.json")))
+    why = excluded(run)
+    if why:
+        return {"task": run.get("task"), "arm": run.get("arm"), "excluded": why}
     conv = json.load(open(os.path.join(out, "conversation.json")))
     diff = open(os.path.join(out, "diff.patch")).read()
     checks = json.load(open(os.path.join(out, "checks.json"))) if os.path.exists(os.path.join(out, "checks.json")) else {}

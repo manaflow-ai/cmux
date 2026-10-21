@@ -3,6 +3,7 @@
 import json
 import os
 import subprocess
+import sys
 import unittest
 
 import team_eval
@@ -32,6 +33,11 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(t["status"]["first_reply_ms"], 5000)
         self.assertTrue(t["status"]["first_reply_is_receipt"])
         self.assertEqual(t["status"]["first_chief_reply_ms"], 60000)
+
+    def test_messages_seen_in_the_same_ms_keep_their_order(self):
+        messages = [msg(1, "user_local", "hi"), msg(2, "agent_mux", "a"), msg(3, "agent_mux", "b")]
+        t = team_eval.timeline({"brief": 1000}, messages, {"m1": 1000, "m2": 2000, "m3": 2000})
+        self.assertEqual(t["brief"]["first_reply_ms"], 1000)
 
     def test_no_reply_is_none(self):
         t = team_eval.timeline({"brief": 1000}, [msg(1, "user_local", "hi")], {"m1": 1000})
@@ -188,10 +194,94 @@ class PinTests(unittest.TestCase):
         ok = [{"ev": "turn.end", "model": "claude-opus-5-5", "effort": "medium"},
               {"ev": "request", "node": "5236+4", "model": "claude-haiku-5-5"}]  # a compactor node's request
         self.assertTrue(team_eval.pin_check(self.ENV, set(), ok)["ok"])
-        high = ok + [{"ev": "tool", "name": "mcp__chief__spawn", "args": {"tasks": ["x"], "effort": "high"}}]
+        high = ok + [{"ev": "tool", "name": "mcp__optchat__spawn", "args": {"tasks": ["x"], "effort": "high"}}]
         self.assertEqual(team_eval.pin_check(self.ENV, set(), high)["bad"], ["effort high"])
         blind = ok + [{"ev": "tool", "name": "spawn", "args_bytes": 40}]
         self.assertFalse(team_eval.pin_check(self.ENV, set(), blind)["ok"])  # no args: unproven
+
+
+FAKE_CLAUDE = """#!/usr/bin/env python3
+import json, os, subprocess, sys
+p = os.path.join(os.environ["HOME"], ".claude", "projects", "-x")
+os.makedirs(p, exist_ok=True)
+for n, line in enumerate(sys.stdin):
+    if n == 0:
+        open("touched.txt", "w").write("x\\n")
+        subprocess.run(["sh", "-c", "git add -A && git commit -qm agent"], check=True)
+        subprocess.run(["gh", "pr", "view", "1"])
+    with open(os.path.join(p, "s.jsonl"), "a") as f:
+        f.write(json.dumps({"type": "assistant", "message": {"id": f"m{n}", "model": os.environ["FAKE_MODEL"],
+                                                            "usage": {"output_tokens": 1000}}}) + "\\n")
+    print(json.dumps({"type": "assistant", "message": {"content": [{"type": "text", "text": f"reply {n}"}]}}), flush=True)
+    print(json.dumps({"type": "result", "total_cost_usd": 0.025 * (n + 1)}), flush=True)
+"""
+
+
+class LossyRunTests(unittest.TestCase):
+    """The whole arm L loop, with a fake claude on a one-file repo (a few seconds)."""
+
+    def run_l(self, model):
+        import tempfile
+        d = tempfile.mkdtemp(prefix="te-test.", dir="/tmp")
+        self.addCleanup(subprocess.run, ["rm", "-rf", d])
+        src = os.path.join(d, "src")
+        os.makedirs(os.path.join(d, "home", ".local", "bin"))
+        os.makedirs(src)
+        open(os.path.join(src, "a.txt"), "w").write("a\n")
+        g = ["git", "-C", src, "-c", "user.name=x", "-c", "user.email=x@x"]
+        subprocess.run(["git", "init", "-q", "-b", "main", src], check=True)
+        subprocess.run(g + ["add", "-A"], check=True)
+        subprocess.run(g + ["commit", "-qm", "base"], check=True)
+        sha = subprocess.run(["git", "-C", src, "rev-parse", "HEAD"], capture_output=True, text=True).stdout.strip()
+        claude = os.path.join(d, "home", ".local", "bin", "claude")
+        open(claude, "w").write(FAKE_CLAUDE)
+        os.chmod(claude, 0o755)
+        task = json.load(open(os.path.join(HERE, "team_eval_tasks.json")))["tasks"][1]
+        task = dict(task, base=sha, followups=[dict(f, at=i + 1) for i, f in enumerate(task["followups"])])
+        json.dump({"tasks": [task]}, open(os.path.join(d, "tasks.json"), "w"))
+        env = dict(os.environ, HOME=os.path.join(d, "home"))
+        pins = [x for k, v in team_eval.PIN_ENV.items() for x in ("--env", f"{k}={v}")]
+        r = subprocess.run([sys.executable, os.path.join(HERE, "team_eval.py"), "run", "--task", task["id"], "--arm", "L",
+                            "--tasks", os.path.join(d, "tasks.json"), "--bins", d, "--repo", src,
+                            "--out", os.path.join(d, "out"), "--keep-repo", os.path.join(d, "repo"),
+                            "--quiet-seconds", "1", "--max-minutes", "1", *pins, "--env", f"FAKE_MODEL={model}"],
+                           env=env, capture_output=True, text=True, timeout=120)
+        return r, json.load(open(os.path.join(d, "out", "run.json")))
+
+    def test_a_pinned_run_ends_idle_with_its_timeline_cost_diff_and_stub_calls(self):
+        r, run = self.run_l("claude-opus-5-5")
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(run["end"], "idle")
+        self.assertTrue(run["pin"]["ok"])
+        self.assertEqual(set(run["followup_skew_s"]), {"status", "scope", "side", "correction"})
+        self.assertLess(max(run["followup_skew_s"].values()), 2)
+        self.assertIsNotNone(run["timeline"]["brief"]["first_reply_ms"])
+        self.assertAlmostEqual(run["cost_usd"]["live"], 5 * 1000 * 25 / 1e6)
+        self.assertGreater(run["diff_lines"], 0)
+        self.assertEqual(run["stub_calls"], 1)
+        self.assertIn("no process holds its locks", r.stdout)
+
+    def test_another_model_stops_the_run_and_fails_it(self):
+        r, run = self.run_l("claude-sonnet-5-5")
+        self.assertEqual(r.returncode, 3, r.stdout + r.stderr)
+        self.assertEqual(run["end"], "pin")
+        self.assertFalse(run["pin"]["ok"])
+
+
+class CampaignOutcomeTests(unittest.TestCase):
+    def test_a_void_attempt_costs_nothing_and_its_run_may_run_again(self):
+        import tempfile
+        led = team_eval.Ledger(os.path.join(tempfile.mkdtemp(), "l.json"), 60)
+        key, _ = led.reserve("r1", 25, 3)
+        led.void(key, "step1", ["no run.json"])
+        self.assertEqual(led.committed(), 0)
+        self.assertEqual(led.reserve("r1", 25, 3), ("r1-a2", 25))
+
+    def test_the_scorer_excludes_failed_and_off_pin_runs(self):
+        import team_eval_score
+        self.assertIsNone(team_eval_score.excluded({"ok": True, "failed": [], "pin": {"ok": True}}))
+        self.assertTrue(team_eval_score.excluded({"ok": False, "failed": ["driver exit 3 (pin)"], "pin": {"ok": False}}))
+        self.assertTrue(team_eval_score.excluded({"pin": {"ok": True}}))  # never packed by the step
 
 
 if __name__ == "__main__":

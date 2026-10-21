@@ -235,10 +235,11 @@ def pin_check(env, models, events=()):
     seen = set(models)
     efforts = set()
     for e in events:
-        if e.get("ev") == "request" and e.get("model") and (e.get("turn") or e.get("subagent")):
+        if (e.get("ev") == "request" and e.get("model") and e["model"] != "<synthetic>"
+                and (e.get("turn") or e.get("subagent"))):
             seen.add(e["model"])
         elif e.get("ev") == "turn.end":
-            if e.get("model"):
+            if e.get("model") and e["model"] != "<synthetic>":
                 seen.add(e["model"])
             if e.get("effort"):
                 efforts.add(e["effort"])
@@ -267,7 +268,9 @@ def timeline(sent, messages, arrivals):
     For each prompt: the first Chief message after it (a desk receipt counts
     here and is marked), and the first one that is not a receipt."""
     chief = sorted(
-        (arrivals.get(m["id"], 0), m) for m in messages if m.get("author") == CHIEF and text_of(m).strip()
+        ((arrivals.get(m["id"], 0), m) for m in messages if m.get("author") == CHIEF and text_of(m).strip()),
+        # Messages seen in the same ms keep their conversation order.
+        key=lambda tm: (tm[0], tm[1].get("seq", 0)),
     )
     order = sorted(sent.items(), key=lambda kv: kv[1])
     out = {}
@@ -522,10 +525,10 @@ def run_lossy(opts):
             with lock:
                 snap = list(events)
             cost = max(lossy_cost(snap), meter.usd())
-            early = pin_check(dict(kv.split("=", 1) for kv in opts.env), set(), ev)
-            if early["bad"] and early["models"]:
+            wrong = sorted(m for m in meter.models if not is_pinned_model(m))
+            if wrong:
                 end = "pin"
-                info["flags"].append(f"stopped: {early['bad']}, not {PIN}")
+                info["flags"].append(f"stopped: {wrong} answered, not {PIN['model']}")
                 break
             if cost > opts.budget_usd:
                 end = "budget"
@@ -649,7 +652,7 @@ class Ledger:
 
     @staticmethod
     def _committed(data):
-        return sum(a["spent"] if a["state"] == "done" else a["reserved"] for a in data["attempts"].values())
+        return sum(a["spent"] if a["state"] in ("done", "void") else a["reserved"] for a in data["attempts"].values())
 
     def committed(self):
         with self._locked() as data:
@@ -675,6 +678,11 @@ class Ledger:
                                      "spent": None, "model": PIN["model"], "effort": PIN["effort"],
                                      "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
             return key, budget
+
+    def void(self, key, step, failed):
+        """An attempt that spent nothing (no agent started): counted as $0, and its run may run again."""
+        with self._locked() as data:
+            data["attempts"][key].update(state="void", spent=0, step=step, failed=failed)
 
     def settle(self, key, spent, step=None, pin=None, failed=None):
         """A finished attempt: its spend, or (None) unknown, which keeps the
@@ -743,7 +751,11 @@ def campaign(opts):
         if pin is None and os.path.exists(run_json):
             with open(run_json) as f:
                 pin = json.load(f).get("pin")
-        failed = line.get("failed", [f"step rc {r.returncode}, no TEAM-EVAL line"] if r.returncode else None)
+        failed = line.get("failed", [f"step rc {r.returncode}, no TEAM-EVAL line"])
+        if line.get("started") is False:
+            # The step failed before any agent ran (route, build, install): $0, retryable.
+            ledger.void(key, step, failed)
+            return key, f"VOID before any agent ran: {failed}"
         ledger.settle(key, spent, step, pin, failed)
         return key, (f"{'ok' if not failed else 'FAILED ' + str(failed)}, "
                      f"spent {'unknown' if spent is None else f'${spent:.2f}'}")
@@ -1000,10 +1012,10 @@ def run(opts):
             # Real spend: the transcripts' live total plus the compactor
             # (no transcript), or the trace's when that is higher.
             cost = max(traced["all"], live + traced["compactor"])
-            wrong = sorted(m for m in meter.models if not is_pinned_model(m))
-            if wrong:
+            early = pin_check(dict(kv.split("=", 1) for kv in opts.env), set(), ev)
+            if early["bad"] and early["models"]:
                 end = "pin"
-                info["flags"].append(f"stopped: {wrong} answered, not {PIN['model']}")
+                info["flags"].append(f"stopped: {early['bad']}, not {PIN}")
                 break
             if cost > opts.budget_usd:
                 end = "budget"
