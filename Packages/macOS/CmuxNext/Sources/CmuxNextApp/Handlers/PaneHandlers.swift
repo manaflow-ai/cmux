@@ -35,6 +35,13 @@ enum PaneHandlers {
         content.focus.send(.focusPane(pane.rawValue, source: .intent))
     }
 
+    /// A pane-navigation key (Focus Pane Left, Next Pane, a pane number, a column key) moves focus
+    /// where the person asked, so the layout records a keyboard move: no without-a-click flash.
+    static func focusByKey(_ pane: LayoutPaneID, in content: WorkspaceContentController) {
+        content.layoutModel.focus(pane, notify: false, source: .keyboard)
+        focus(pane, in: content)
+    }
+
     // MARK: Splits
 
     private static func bindSplits(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -89,6 +96,11 @@ enum PaneHandlers {
             if let content = strip.workspace { focus(strip.layoutPaneID, in: content) }
             if page { return strip.newTabPage() }
             return strip.newTerminalTab(cwd: named, keep: keep, fromSelectedTab: true, daemonResolvesCwd: true)
+        case .besideDock(let dock):
+            // Every direction is a column on the dock's right: the pinned dock neither splits nor moves.
+            if page { NewTabPage.split(dock, edge: .right); return }
+            dock.workspace?.newColumn(after: dock.layoutPaneID, options: SpawnOptions(cwd: cwd, workspace: workspace, keep: keep))
+            return
         }
         let axis: SplitAxis = direction == .left || direction == .right ? .horizontal : .vertical
         let sizing = controller.flatMap { controller in
@@ -163,7 +175,7 @@ enum PaneHandlers {
                 guard let next = neighbor(of: pane.layoutPaneID, direction: direction, in: content) else {
                     return ctx.refuseQuietly(RefusalStrings.noPaneInDirection(RefusalStrings.direction(direction)))
                 }
-                focus(next, in: content)
+                focusByKey(next, in: content)
             })
         }
         registry.bind("focusPreviousPane", invoke: { cycleFocus(ctx, $0, offset: -1) })
@@ -176,7 +188,7 @@ enum PaneHandlers {
             let order = screen.layout.panes
             let index = number >= 9 ? order.count - 1 : number - 1
             guard order.indices.contains(index) else { return ctx.refuseQuietly(RefusalStrings.noPaneWithNumber) }
-            focus(order[index], in: content)
+            focusByKey(order[index], in: content)
         })
     }
 
@@ -187,7 +199,7 @@ enum PaneHandlers {
         guard order.count > 1, let index = order.firstIndex(of: pane.layoutPaneID) else {
             return ctx.refuseQuietly(RefusalStrings.screenHasOnePane)
         }
-        focus(order[(index + offset + order.count) % order.count], in: content)
+        focusByKey(order[(index + offset + order.count) % order.count], in: content)
     }
 
     // MARK: Sizing

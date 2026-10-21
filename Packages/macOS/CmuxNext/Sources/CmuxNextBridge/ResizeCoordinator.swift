@@ -36,7 +36,7 @@ public final class ResizeCoordinator {
     /// main thread the animation needs (fullscreen-lag). The newest size
     /// goes the frame after it ends. A drag stays real time (it does not hold).
     private let holds: () -> Bool
-    /// Who holds every grid now (a layout's pane close, `LayoutRootView.onTerminalGridHold`).
+    /// Who holds every grid now (a layout's split or pane close, `LayoutRootView.onTerminalGridHold`).
     /// Weak: a holder that goes away lets go.
     private var holders: [ObjectIdentifier: WeakHolder] = [:]
     /// Pane sizes span windows, so the frames run on the app scheduler.

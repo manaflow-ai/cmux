@@ -240,7 +240,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.openTeamPicker", defaultValue: "Team Picker", bundle: .module),
                 keywords: ["team", "account", "switch"],
                 defaultShortcut: Shortcut("t", modifiers: [.option, .shift, .command]), category: .cloud,
-                symbol: "person.2", surfaces: [.palette, .keyboard], cliName: "cloud team-picker"
+                symbol: "person.2", surfaces: [.palette, .keyboard], arguments: [CatalogArgument.cloudTeam], cliName: "cloud team-picker"
             ),
             ActionDescriptor(
                 id: "palette.auth.signIn",

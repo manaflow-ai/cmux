@@ -42,6 +42,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
     "_acpmux/peer_add",
+    "_acpmux/peer_lease",
     "_acpmux/peer_remove",
     "_acpmux/peer_reconnect",
 ];

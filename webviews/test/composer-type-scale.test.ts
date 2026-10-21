@@ -7,8 +7,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("composer-type-scale.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -27,7 +27,7 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
   const url = (entry: string, variant: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(entry, { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -37,21 +37,11 @@ await requireBrowserLane("composer-type-scale.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
     // Warm the gallery stage once, as composer-location-side.test.ts does: the first load can
     // trigger Vite's dependency optimizer and reload its context mid-compile.
-    const warm = await browser.newPage({ viewport: { width: 760, height: 560 } });
-    await warm.goto(url("agent-pane.composer", "new-chat"));
-    for (;;) {
-      try {
-        await warm.waitForFunction(() => document.documentElement.dataset.galleryReady, undefined, { timeout: 0 });
-        break;
-      } catch (error) {
-        if (!/context was destroyed|navigat/i.test(String(error))) throw error;
-      }
-    }
-    await warm.close();
+    await warmGalleryFrame(vite, "agent-pane.composer", { browser, params: { variant: "new-chat" } });
+    await warmGalleryFrame(vite, ["agent-pane.composer-context", "agent-pane.composer-pickers"], { browser });
   });
 
   afterAll(async () => {
