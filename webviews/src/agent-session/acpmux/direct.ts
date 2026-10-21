@@ -4340,10 +4340,13 @@ export class AcpmuxDirectClient {
   private rejectPending(): void {
     for (const request of this.pending.values()) {
       if (request.timer) clearTimeout(request.timer);
+      // The timeout code stays (git writes, checkpoints and permissions read it); `reason` tells a
+      // closed connection from a deadline (conversation/backgroundNotice.ts).
       request.reject(
         Object.assign(new Error(translate("error.interrupted")), {
           code: "native.timed_out",
           origin: "native",
+          reason: "interrupted",
           // The connection went, not the request's own time (`lostPrompt.ts`).
           interrupted: true,
         }),
