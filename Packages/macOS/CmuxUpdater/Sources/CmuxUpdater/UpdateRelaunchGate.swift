@@ -205,7 +205,7 @@ final class UpdateRelaunchGate {
                                agentTimeout: agentTimeout,
                                daemonUnavailableTimeout: daemonUnavailableTimeout,
                                automaticWaitCap: automaticWaitCap) {
-            if request.automatic, !current.isEmpty {
+            if request.automatic, !current.isEmpty, request.waited >= automaticWaitCap {
                 log.append("update relaunch gate: automatic install waited its cap; relaunching")
             } else if current.busyAgentCount > 0 {
                 log.append("update relaunch gate timed out with \(current.busyAgentCount) busy agent(s)")

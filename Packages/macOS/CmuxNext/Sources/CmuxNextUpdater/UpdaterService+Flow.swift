@@ -67,6 +67,7 @@ extension UpdaterService {
             #if DEBUG
             UpdateHarness.mark("install_started")
             #endif
+            automaticInstallInFlight = false
             if let failure = installPreflightFailure() {
                 failInstall(failure)
                 return
@@ -107,6 +108,11 @@ extension UpdaterService {
         case .ready:
             recordStagedUpdate()
             keepRunningBuildForRollback()
+        case .note where wasInstalling && automaticInstallInFlight:
+            // An install nobody clicked failed: nothing opens over the person's work; the
+            // log keeps it and the next check offers the update again.
+            automaticInstallInFlight = false
+            log.append("automatic install ended without a relaunch (not shown)")
         case .note where wasInstalling || (wasReady && clickedInstall):
             // The install failed: no relaunch comes. The windows come back and the failure's
             // sheet opens with Retry and Download Manually, so the click never ends in silence.

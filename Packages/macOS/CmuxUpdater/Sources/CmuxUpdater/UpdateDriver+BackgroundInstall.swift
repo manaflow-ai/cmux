@@ -25,9 +25,12 @@ extension UpdateDriver {
             return
         }
         if installsWhenIdle {
-            log.append("background install: staged, waiting for a safe idle relaunch")
-            installStaged(automatic: true)
-            return
+            if actionDelegate?.updaterPrepareAutomaticInstall() ?? true {
+                log.append("background install: staged, waiting for a safe idle relaunch")
+                installStaged(automatic: true)
+                return
+            }
+            log.append("background install: the host declined the automatic install")
         }
         log.append("background install: staged, waiting for the user")
         setState(.installing(.init(
