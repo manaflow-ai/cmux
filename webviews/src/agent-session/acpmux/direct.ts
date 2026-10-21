@@ -3737,7 +3737,9 @@ export class AcpmuxDirectClient {
     const status = await this.request("_acpmux/status", {}).catch(() => undefined);
     if (status === undefined) return;
     this.readPeers(status);
-    this.emit();
+    // A held snapshot (a chat being switched or reattached) draws the peers when it is released;
+    // emitting now would record "connected" on the hold before setup says so.
+    if (!this.snapshotHold) this.emit();
   }
   private readPeers(status: any): void {
     this.peers = Array.isArray(status?.peers)
