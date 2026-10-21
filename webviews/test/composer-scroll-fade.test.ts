@@ -83,10 +83,11 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const field = document.querySelector<HTMLElement>(selector)!;
         const data = new DataTransfer();
         // Long lines: the draft overflows the field's eight lines however the pasted lines wrap or join.
+        // At most 20 of them, under 2,000 characters: a larger paste is a chip (pastedText.ts).
         const lines = Array.from(
           { length: count },
           (_, i) =>
-            `draft line ${i + 1}: keep the ${markup ? "<Retry> " : ""}retry rules and the tests in sync with the docs.`,
+            `draft line ${i + 1}: keep the ${markup ? "<Retry> " : ""}retry rules and the tests in sync with the docs, and say why.`,
         );
         data.setData("text/plain", lines.join("\n") + (markup ? "\n" : ""));
         field.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
@@ -144,10 +145,10 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         expect(seen.end).toBeLessThanOrEqual(0);
         expect([seen.fadeTop, seen.fadeBottom, seen.mask]).toEqual([false, false, "none"]);
 
-        // A 40-line paste shows its end: the top fades, the bottom does not.
+        // A 20-line paste shows its end: the top fades, the bottom does not.
         await page.keyboard.press("ControlOrMeta+A");
         await page.keyboard.press("Backspace");
-        await paste(page, 40);
+        await paste(page, 20);
         seen = await edges(page);
         expect(seen.end).toBeGreaterThan(100);
         expect(seen.end - seen.top).toBeLessThan(2);
@@ -187,7 +188,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       test("a markup-looking paste at the end of the draft shows the draft's end too", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
-        await paste(page, 40, true);
+        await paste(page, 20, true);
         const seen = await edges(page);
         expect(seen.end).toBeGreaterThan(100);
         // Its last line is clear of the bottom fade: the field is at its end, the bottom edge plain.
@@ -199,7 +200,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       test("the caret's line, revealed at the faded top edge, sits clear of the fade", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
-        await paste(page, 40);
+        await paste(page, 20);
         // The caret on line 10, the field at the draft's end; typing there reveals the caret at the
         // field's top edge, which has draft above it and so fades.
         await page.evaluate((selector) => {
@@ -245,7 +246,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
       test("the faded edge is see-through: what is behind the prompt shows, nothing covers it", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
-        await paste(page, 40);
+        await paste(page, 20);
         await scrollTo(page, "middle");
         const seen = await edges(page);
         expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, true]);
@@ -292,7 +293,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
         await page.evaluate(() => document.documentElement.setAttribute("data-reduce-transparency", ""));
-        await paste(page, 40);
+        await paste(page, 20);
         await scrollTo(page, "middle");
         const seen = await edges(page);
         expect([seen.fadeTop, seen.fadeBottom]).toEqual([true, true]);
