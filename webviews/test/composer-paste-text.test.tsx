@@ -18,6 +18,8 @@ import {
   lineCount,
   pastedLabel,
   pastedTextAttachment,
+  resentAttachments,
+  shownPromptText,
 } from "../src/agent-session/acpmux/pastedText";
 import { keptChips } from "../src/agent-session/acpmux/composer/keptAttachments";
 
@@ -129,10 +131,10 @@ const markdownField = () => host.querySelector<MarkdownFieldElement>(".acpmux-md
 const chips = (handle: RefObject<ComposerHandle | null>) => handle.current!.wakeState().attachments ?? [];
 
 /// Pastes plain text on the prompt field as WebKit delivers it: one ClipboardEvent with its data.
-async function paste(plain: string) {
+async function paste(plain: string, files: File[] = []) {
   const data = {
-    files: [],
-    types: ["text/plain"],
+    files,
+    types: [...(files.length ? ["Files"] : []), ...(plain ? ["text/plain"] : [])],
     getData: (type: string) => (type === "text/plain" ? plain : ""),
   };
   const event = new dom.window.Event("paste", { bubbles: true, cancelable: true });
@@ -154,6 +156,21 @@ async function typeDraft(text: string) {
 
 /// 25 lines of a log: over the 20-line limit, under 2,000 characters.
 const LOG = Array.from({ length: 25 }, (_, index) => `line ${index + 1} of the build log`).join("\n");
+/// The log with a blank line in it, which a paste keeps.
+const SPACED = LOG.replace("line 13 of the build log\n", "line 13 of the build log\n\n");
+
+const plainPasteKey = (init: KeyboardEventInit) =>
+  act(async () => {
+    field().dispatchEvent(
+      new dom.window.KeyboardEvent("keydown", {
+        metaKey: true,
+        shiftKey: true,
+        bubbles: true,
+        cancelable: true,
+        ...init,
+      }),
+    );
+  });
 
 test("a paste over 20 lines is a Pasted text chip; the prompt keeps what was typed", async () => {
   const composer = await openComposer();
@@ -218,15 +235,48 @@ test("× removes the chip and puts nothing in the prompt", async () => {
   expect(field().textContent).toBe("");
 });
 
-test("a click on the chip puts its text back in the prompt to edit, and the chip goes", async () => {
-  const composer = await openComposer();
-  await paste(LOG);
+test("a click on the chip puts its text back in the prompt to edit, exactly as pasted, and the chip goes", async () => {
+  const sent: Sent[] = [];
+  const composer = await openComposer(sent);
+  await paste(SPACED);
   const open = host.querySelector<HTMLButtonElement>(".acpmux-attachment-pasted-open")!;
   expect(open).not.toBeNull();
   await act(async () => open.click());
   expect(chips(composer)).toEqual([]);
   expect(field().textContent).toContain("line 1 of the build log");
   expect(field().textContent).toContain("line 25 of the build log");
+  // The same text a raw paste gives: its lines and its blank line, nothing between the others.
+  expect(markdownField().agentText(markdownField().value())).toBe(SPACED);
+  await act(async () => {
+    composer.current!.send();
+  });
+  expect(sent.map((prompt) => prompt.text)).toEqual([SPACED]);
+});
+
+test("Paste as Plain Text by the key's position (a non-Latin layout) keeps the paste raw too", async () => {
+  const composer = await openComposer();
+  await plainPasteKey({ key: "м", code: "KeyV" });
+  await paste(LOG);
+  expect(chips(composer)).toEqual([]);
+});
+
+test("Paste as Plain Text of only a file leaves no raw paste armed for the next text paste", async () => {
+  const composer = await openComposer();
+  await plainPasteKey({ key: "v", code: "KeyV" });
+  await paste("", [new File(["notes"], "notes.txt", { type: "text/plain" })]);
+  await paste(LOG);
+  expect(chips(composer).map((chip) => chip.kind)).toEqual(["text", "pasted"]);
+});
+
+test("a bubble shows a pasted chip's text as the echo will; a resend never sends the paste twice", () => {
+  const chip = pastedTextAttachment(LOG);
+  const file: ComposerAttachment = { id: "f", kind: "text", name: "a.txt", mimeType: "text/plain", size: 1, text: "a" };
+  // acpmux joins a prompt's text blocks with a newline (hub/session.rs prompt_text).
+  expect(shownPromptText("why?", [chip])).toBe(`why?\n${LOG}`);
+  expect(shownPromptText("", [chip])).toBe(LOG);
+  expect(shownPromptText("why?", [])).toBe("why?");
+  // Retry and Edit send the echoed text, which has the paste in it: the chip stays out.
+  expect(resentAttachments([chip, file])).toEqual([file]);
 });
 
 test("the pasted text goes to the agent as its own text block after the prompt's, marked pasted", async () => {
