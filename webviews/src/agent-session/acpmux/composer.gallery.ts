@@ -22,6 +22,12 @@ async function openModelMenu(ctx: PlayContext) {
 /// Opens the model menu, then its Effort submenu; resolves with the submenu's popup.
 async function openEffortMenu(ctx: PlayContext): Promise<HTMLElement> {
   await openModelMenu(ctx);
+  return openEffortSubmenu(ctx);
+}
+
+/// With the model menu open, opens its Effort submenu (pressing the model button again would close
+/// the menu); resolves with the submenu's popup.
+async function openEffortSubmenu(ctx: PlayContext): Promise<HTMLElement> {
   // A submenu row opens on hover or from the keyboard: Base UI's submenu trigger ignores a mouse
   // press while it opens on hover. Enter on the focused row opens it, as a keyboard user does.
   await ctx.focus({ role: "menuitem", name: /^Effort/ });
@@ -1246,7 +1252,7 @@ export default agentPaneEntry({
       },
     },
     "reasoning-claude": {
-      note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its Effort submenu lists Low to Max with Extra High, then Ultracode.",
+      note: "Play: the model button reads Medium with no Fast word; its menu ends on a checked Fast mode row, and its Effort submenu lists the levels Opus 5.5 offers (Low, Medium, High, Max) and no Fast.",
       snapshot: withSummary(chat(finished, { title: "Claude reasoning" }), {
         configOptions: [
           {
@@ -1283,9 +1289,11 @@ export default agentPaneEntry({
         const fast = ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast");
         if (fast?.getAttribute("aria-checked") !== "true")
           throw new Error("Fast mode must be a checked row of the menu");
-        const levels = await openEffortMenu(ctx);
+        // The menu is open: a second press on the model button would close it.
+        const levels = await openEffortSubmenu(ctx);
         const names = [...levels.querySelectorAll(".acpmux-menu-label")].map((node) => node.textContent?.trim());
-        const expected = ["Low", "Medium", "High", "Extra High", "Max", "Ultracode"];
+        // The fixture's Opus 5.5 offers Low, Medium, High and Max (no Extra High, so no Ultracode).
+        const expected = ["Low", "Medium", "High", "Max"];
         if (names.join("|") !== expected.join("|")) throw new Error(`Effort lists ${names.join(", ")}`);
         if (levels.textContent?.includes("Fast")) throw new Error("Fast mode must live in one place, not in Effort");
       },
