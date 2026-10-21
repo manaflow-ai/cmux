@@ -26,6 +26,20 @@ public nonisolated enum GroupColor: String, CaseIterable, Codable, Hashable, Sen
         automaticOrder.first { !used.contains($0.rawValue) }
     }
 
+    /// The color a group with no stored color draws in: one of `automaticOrder`, picked from
+    /// the group's id, so it is the same on every launch and machine (Leo 2026-10-20: groups
+    /// made by agents and the CLI store none and all drew grey, as Chrome never does). A
+    /// group someone colored grey keeps grey; only a missing color takes this.
+    public static func unset(id: String) -> GroupColor {
+        // FNV-1a: `hashValue` is seeded per process, so it would change the color each launch.
+        var hash: UInt64 = 0xCBF2_9CE4_8422_2325
+        for byte in id.utf8 {
+            hash ^= UInt64(byte)
+            hash &*= 0x0000_0100_0000_01B3
+        }
+        return automaticOrder[Int(hash % UInt64(automaticOrder.count))]
+    }
+
     /// The color itself: swatches, group lines, sidebar rails.
     public var swatch: NSColor { dynamic(.swatch) }
     /// Chip and label backgrounds that carry text.
