@@ -41,7 +41,8 @@ extension AgentTabStore {
             seedFirstChat(chat, in: workspace)
         }
         defer { firstChats[workspace] = nil; firstPageTokens[workspace] = nil }
-        let response = try await connection.request(request)
+        // One mutation id for every send: a tab the daemon made after the deadline replays.
+        let response = try await DaemonConnection.retryingLateReplies(NewConversationTabRequest.command) { try await connection.request(request) }
         let key = response.tabResourceID?.rawValue ?? "surface:\(response.surface.rawValue)"
         if chat != nil {
             // No view took the seed while the request ran: the tab's view takes it.

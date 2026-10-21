@@ -99,10 +99,14 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.history"), group("settings.group.quit"), group("settings.group.picker"),
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
-                group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
+                group("settings.group.files"), group("settings.group.screenshots"),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
+        // How this Mac updates (docs/release-rings.md in hq).
+        CategorySpec(
+            id: "updates", title: SettingsText.keyed("settings.category.updates", "Updates"), symbol: "icloud.and.arrow.down",
+            groups: [group("settings.group.updates")]),
         CategorySpec(
             id: "theme", title: SettingsText.keyed("settings.category.theme", "Theme"), symbol: "paintpalette",
             // appearance.theme and appearance.appTheme are drawn by the theme
