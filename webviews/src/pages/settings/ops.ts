@@ -103,6 +103,8 @@ export type HostLists = {
   computer_use?: ComputerUseState | null;
   /** Settings > Mobile: the iPhone host's status, space and connected phones; every text localized by the host. */
   iphone?: IPhoneHostState | null;
+  /** Settings › Import: the import suggestion cards, every text localized by the host (ui/ImportCards.tsx parses it). */
+  import_suggestions?: unknown;
   /**
    * Wallpaper choices; thumbnails at `backdrop/<id>` on the page's own origin. Each carries its
    * picker collection (`darkArt`, `museumIcons`, `calm`, `dore`, `yours`, `apple`, `video`) and
@@ -558,6 +560,8 @@ export const settingsPageActions = [
   "palette.computerUse.setup",
   "palette.computerUse.accessibility",
   "palette.computerUse.screenRecording",
+  "import.card",
+  "importFromBrowser",
 ] as const;
 
 export type SettingsPageAction = (typeof settingsPageActions)[number];
