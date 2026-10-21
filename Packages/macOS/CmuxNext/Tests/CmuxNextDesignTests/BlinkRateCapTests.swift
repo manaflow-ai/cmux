@@ -66,6 +66,7 @@ import Testing
             for count in [2, AttentionSettings.blinkRange.upperBound] {
                 attention.blinkCount = count
                 flashes.append(("attention \(count) blinks \(look)", Motion.indicators.attentionAnimation(attention, look: look)))
+                flashes.append(("dismiss \(count) blinks \(look)", Motion.indicators.attentionDismissAnimation(attention, look: look)))
             }
         }
         for (name, animation) in flashes {

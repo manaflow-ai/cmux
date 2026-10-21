@@ -59,6 +59,9 @@ export function toolLabel(
   // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.
   const call = mcpCall(tool);
   if (call) return mcpPlainName(call);
+  // An edit of several files keeps a title that says more than its verb ("Edit 2 files"): naming
+  // the first file alone would read as an edit of that one file.
+  if (paths.length > 1 && /\s/.test(title)) return title;
   if (paths.length) {
     const action = firstWord(title || fallbackName);
     return title.includes(paths[0]!) ? title : `${action} ${fromFolder(paths[0]!, cwd)}`;
