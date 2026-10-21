@@ -131,6 +131,8 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
                 ? { left: copyBox.left, right: copyBox.right, top: copyBox.top, bottom: copyBox.bottom }
                 : null,
               truncates: label ? getComputedStyle(label).textOverflow === "ellipsis" : false,
+              // The cut above holds only while the label clips what runs past its box.
+              clips: label ? getComputedStyle(label).overflowX === "hidden" : false,
             };
           });
           expect(geometry.copy, "the context line has its own Copy").not.toBeNull();
@@ -150,6 +152,7 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
           }
           expect(geometry.text.height, "the label stays on one line").toBeLessThanOrEqual(geometry.lineHeight * 1.5);
           expect(geometry.truncates, "a long label ends in an ellipsis").toBe(true);
+          expect(geometry.clips, "the label clips its overflow, so nothing draws past its box").toBe(true);
           await page.close();
         });
 });
