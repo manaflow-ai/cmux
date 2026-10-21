@@ -159,7 +159,7 @@ test("every older page the reader asks for brings an older turn in, past a promp
     const first = snapshot.rows[0]?.id;
     await client.loadOlder();
     await settle();
-    if (snapshot.canLoadOlder) expect(snapshot.rows[0]?.id).not.toBe(first);
+    expect(snapshot.rows[0]?.id).not.toBe(first);
   }
   expect(questions(snapshot.rows)).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Question ${n}`));
   expect(snapshot.canLoadOlder).toBe(false);
