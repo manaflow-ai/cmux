@@ -1,4 +1,5 @@
 import type { AcpmuxActivity, AcpmuxFileDiff, AcpmuxRow } from "./model";
+import { opensTurn } from "./turnStart";
 
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
@@ -152,16 +153,21 @@ export function diffHunks(ops: Op[], firstLine = 1, context = CONTEXT_LINES): Di
   return hunks;
 }
 
-/// The rows of the turn `rowId` belongs to: from its user message up to the next one.
+/// The rows of the turn `rowId` belongs to: from its user message up to the next one. A steer goes
+/// on with the turn (turnStart.ts), so the turn runs past it.
 export function turnRows(rows: AcpmuxRow[], rowId: string): AcpmuxRow[] {
   const index = rows.findIndex((row) => row.id === rowId);
   if (index < 0) return [];
   let start = index;
-  while (start > 0 && rows[start].kind !== "user") start -= 1;
+  while (start > 0 && !opensTurn(rows[start])) start -= 1;
   let end = index + 1;
-  while (end < rows.length && rows[end].kind !== "user") end += 1;
+  while (end < rows.length && !opensTurn(rows[end])) end += 1;
   return rows.slice(start, end);
 }
+
+/// A summary that ends the turn. A turn a prompt sent now stopped goes on under that prompt
+/// (direct.ts `continued`): its summary ends only that part, and the turn ends with a later one.
+export const endsTurn = (row: AcpmuxRow) => row.kind === "turnSummary" && !row.continued;
 
 function commonDirectory(paths: string[]): string {
   if (paths.length === 0) return "";

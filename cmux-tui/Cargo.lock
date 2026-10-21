@@ -18,6 +18,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-sdk",
  "cmux-unix-socket",
+ "cmux-worktree-care",
  "crossterm",
  "dirs",
  "futures",
@@ -1770,6 +1771,16 @@ dependencies = [
  "tokio-util",
  "x25519-dalek",
  "zeroize",
+]
+
+[[package]]
+name = "cmux-worktree-care"
+version = "0.1.0"
+dependencies = [
+ "cmux-git",
+ "libc",
+ "serde",
+ "serde_json",
 ]
 
 [[package]]
