@@ -283,8 +283,14 @@ export class MemoryInbox implements HexclaveInboxStore {
   }
 
   async claimDue(now: Date, entityLimit: number, leaseUntil: Date): Promise<HexclaveInboxEntry[]> {
+    const activeEntities = new Set([...this.rows.values()]
+      .filter((row) => !row.deadLetteredAt && row.claimedUntil && row.claimedUntil > now)
+      .map((row) => `${row.target.kind}:${row.target.id}`));
     const due = [...this.rows.values()]
-      .filter((row) => !row.deadLetteredAt && row.nextAttemptAt <= now && (!row.claimedUntil || row.claimedUntil <= now))
+      .filter((row) => !row.deadLetteredAt
+        && row.nextAttemptAt <= now
+        && (!row.claimedUntil || row.claimedUntil <= now)
+        && !activeEntities.has(`${row.target.kind}:${row.target.id}`))
       .sort((a, b) => a.receivedOrder - b.receivedOrder);
     const entities: string[] = [];
     for (const row of due) {
