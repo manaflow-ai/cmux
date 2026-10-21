@@ -2167,8 +2167,9 @@ export function VirtualTranscript({
       // A viewport that grew clamps at the end the content had then: the room a queued prompt's
       // card leaves (`floor`) can make the content taller again in this same commit.
       const live = node.scrollTop;
-      const end = Math.min(node.scrollHeight, Math.ceil(old.totalHeight)) - node.clientHeight;
-      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 0.5;
+      // The browser rounds the height it clamps to, so the old end allows a pixel either way.
+      const end = Math.min(node.scrollHeight, old.totalHeight) - node.clientHeight;
+      const clamped = live < scrolledTo.current.top - 0.5 && live >= end - 1;
       // An offset that has not moved since it was recorded was at the latest row if it was
       // then; a shorter viewport alone would otherwise read as scrolled up.
       const unmoved = Math.abs(live - scrolledTo.current.top) <= 0.5;
