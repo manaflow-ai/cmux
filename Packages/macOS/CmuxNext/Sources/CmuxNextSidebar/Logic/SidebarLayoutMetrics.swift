@@ -145,6 +145,10 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
     /// Earlier under them. Nil (the tree off, or a filter) draws neither.
     public var chatHistory: SidebarChatHistoryState?
+    /// `sidebar.doneFold`: workspaces marked Done fold into a "Done (N)" row at the end of their list.
+    public var foldsDone = false
+    /// The "Done (N)" rows the person opened: their workspaces list below them.
+    public var openDoneFolds: Set<SidebarDoneFoldID> = []
 
     public init() {}
 }
@@ -192,5 +196,24 @@ nonisolated extension SidebarLayoutOptions {
         content.badgeTime = nil
         content.status = nil
         return content
+    }
+}
+
+nonisolated extension SidebarLayoutOptions {
+    /// Whether the list draws workspace `ws`: not dragged out, and a match while filtering.
+    func visible(_ ws: SidebarWorkspace) -> Bool {
+        !excludedWorkspaces.contains(ws.id) && (filterMatches?.contains(ws.id) ?? true)
+    }
+
+    /// `showWorkspaceTabs` lists every workspace's tabs, except those the user collapsed with the row's disclosure.
+    func listsTabs(_ ws: SidebarWorkspace) -> Bool {
+        showWorkspaceTabs && !collapsedWorkspaces.contains(ws.id)
+    }
+
+    /// A workspace row's tab disclosure; nil when the list shows no tabs.
+    func disclosure(_ ws: SidebarWorkspace) -> SidebarTabDisclosure? {
+        guard showWorkspaceTabs else { return nil }
+        if ws.tabs.isEmpty { return .empty }
+        return collapsedWorkspaces.contains(ws.id) ? .collapsed : .expanded
     }
 }

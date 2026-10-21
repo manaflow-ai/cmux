@@ -97,6 +97,12 @@ public nonisolated enum SidebarTunables {
         help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
         default: true, code: "SidebarTunables.rowStatus")
 
+    /// Workspaces marked Done fold into one "Done (N)" row at the end of their group or list (`SidebarLayout+DoneFold`).
+    public static let doneFold = Tunable<Bool>.toggle(
+        "sidebar.doneFold", .sidebar, "Fold Done workspaces",
+        help: "Workspaces marked Done move into one Done row at the end of their group or list, in their order; click the row to show them.",
+        default: true, code: "SidebarTunables.doneFold")
+
     /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
     public static let laneFixture = Tunable<Bool>.toggle(
         "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
@@ -162,6 +168,7 @@ public nonisolated enum SidebarTunables {
         [
             agentMark.descriptor,
             collapseMotion.descriptor,
+            doneFold.descriptor,
             dragThreshold.descriptor,
             evenRowText.descriptor,
             groupEdgeFraction.descriptor,
