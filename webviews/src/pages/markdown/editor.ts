@@ -864,6 +864,9 @@ function codeHighlightPlugin(host: MarkdownEditorHost) {
         if (node.type.name !== "code_block") return true;
         const language = String(node.attrs.language ?? "").toLowerCase();
         if (!language || DIAGRAM_LANGUAGES.has(language) || (nearSet && !nearSet.has(pos))) return false;
+        // Marks the block near, so a block that stops being near (a reload replaced it with an equal
+        // node) no longer matches its decorations: ProseMirror updates its view, which watches it again.
+        if (nearSet) decorations.push(Decoration.node(pos, pos + node.nodeSize, { "data-near": "" }));
         const tokens = host.highlight!(node.textContent, language, refresh);
         for (const token of tokens ?? []) {
           decorations.push(Decoration.inline(pos + 1 + token.from, pos + 1 + token.to, { style: token.style }));
