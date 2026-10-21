@@ -4060,8 +4060,8 @@ describe("VM Effect workflows", () => {
       getStatus: (_provider, providerVmId) =>
         Effect.suspend(() => {
           statusCalls += 1;
-          const deleted = new Error(`VM_DELETED: Vm ${providerVmId} is marked as deleted but still exists in the database`);
-          deleted.name = "VmDeletedError";
+          // Freestyle's explicit answer; a bare or message-only 404 is an outage.
+          const deleted = Object.assign(new Error(`VM ${providerVmId} not found`), { status: 404, code: "NOT_FOUND" });
           return Effect.fail(new VmProviderOperationError({
             provider: "freestyle",
             operation: "getStatus",

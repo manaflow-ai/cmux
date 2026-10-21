@@ -9,6 +9,7 @@ const PROBE_TIMEOUT_MS = 5_000;
 /** Provider deletion raced the read; workflows must reconcile the VM row. */
 export class FreestyleResourceStatsNotFoundError extends Error {
   readonly status = 404;
+  readonly code = "NOT_FOUND";
   constructor() {
     super("resource stats VM not found");
     this.name = "FreestyleResourceStatsNotFoundError";
@@ -45,8 +46,14 @@ export class FreestyleResourceStatsReader {
         signal,
         body: JSON.stringify({ command: guestResourceSampleCommand(), timeoutMs: PROBE_TIMEOUT_MS, linuxUser: "nobody" }),
       });
+      // Only Freestyle's explicit answer retires the row; a bare 404 from a
+      // gateway or a moved endpoint is an unavailable sample.
       if (response.status === 404) {
-        throw new FreestyleResourceStatsNotFoundError();
+        const body: unknown = await response.json().catch(() => null);
+        if (body && typeof body === "object" && "code" in body && body.code === "NOT_FOUND") {
+          throw new FreestyleResourceStatsNotFoundError();
+        }
+        return null;
       }
       if (response.status !== 200) return null;
       const result: unknown = await response.json();

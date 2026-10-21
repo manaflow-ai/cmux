@@ -151,3 +151,14 @@ export function isProviderTunnelNetworkOverlap(err: unknown): boolean {
   }
   return false;
 }
+
+/**
+ * Whether a failed read proves the provider machine is gone, so its row may be
+ * retired. Retiring hides the machine from its owner and lets the next Base
+ * open allocate a blank replacement, so it takes the same explicit not-found
+ * contract as a destructive delete: a bare or message-only 404 is an outage
+ * (https://github.com/manaflow-ai/cmux/issues/21820).
+ */
+export function isProviderMachineGone(err: unknown): boolean {
+  return isProviderDeletionConfirmed(err);
+}
