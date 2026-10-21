@@ -133,6 +133,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// When a real key or mouse event last reached the Chromium page (``PageChromiumEvent/userInput(_:)``).
     var chromiumUserEventUptime: TimeInterval?
+    /// Runs before the host builds a Chromium page's right-click menu (not used yet).
+    public var chromiumMenuWait: (@MainActor () async -> Void)?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
