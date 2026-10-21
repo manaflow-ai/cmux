@@ -1816,6 +1816,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>daily</string>
+			<key>pfm_description</key>
+			<string>How often a shuffled background turns to its next picture.</string>
+			<key>pfm_name</key>
+			<string>appearance.backgroundRotation</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>15m</string>
+				<string>hourly</string>
+				<string>daily</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Change Picture</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>shared</string>
 			<key>pfm_description</key>
 			<string>One background behind the whole window, or a copy in each pane. A pane's own background (right-click a pane) shows either way.</string>
