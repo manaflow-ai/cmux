@@ -4,7 +4,7 @@
 // notes index listed on 2026-10-19, as published.
 import { expect, test } from "bun:test";
 import fixture from "../src/pages/changelog/fixtures/nightly-next-50.json";
-import { checkNightlyNotes } from "../src/pages/changelog/notesCheck";
+import { blocksPublish, checkNightlyNotes } from "../src/pages/changelog/notesCheck";
 import type { ReleaseNotes, WhatsNewEntry } from "../src/pages/changelog/types";
 
 const nightlies = fixture as ReleaseNotes[];
@@ -158,4 +158,24 @@ test("the command fails with one annotation per defect, and passes clean notes",
     0,
     "3917159104301: notes, page (1 and 10 nightlies) and card read clean\n",
   ]);
+});
+
+// Review of #22099: the page re-reads a summary line release-notes.py already made readable, and
+// a few such lines read as internal the second time ("Merge the green pull request…" from
+// "cx-ncc.77.4: merge the green pull request…"; "Onboarding: …" from "onboarding (red): …").
+// The page folds those lines, so no internal work reaches people; that must not withhold the
+// night's notes (and every nightly after it, which carries the same line).
+test("a summary line the page would fold warns but does not block the notes", () => {
+  const { notes, previous } = at("3917159104301");
+  const folded = [
+    "Merge the green pull request from the PR chip",
+    "Onboarding: the primary button must never be the theme's blue",
+  ];
+  const built = {
+    ...clean(notes),
+    summary: [...(clean(notes).summary ?? []), ...folded.map((title) => ({ title, group: "fixed" as const }))],
+  };
+  const defects = checkNightlyNotes(built, previous);
+  expect(defects.filter((d) => d.kind === "internal").map((d) => d.text)).toEqual(folded);
+  expect(defects.filter(blocksPublish)).toEqual([]);
 });
