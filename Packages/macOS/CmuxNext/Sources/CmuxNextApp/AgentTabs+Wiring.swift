@@ -2,6 +2,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import struct CmuxNextLayout.MainPaneLayout
 import Foundation
 
 /// Agent chat tabs on the workspace store (cmux-tui/spec/commands.md, new-conversation-tab): the store
@@ -168,6 +169,12 @@ extension AgentTabStore {
         tabs.locate = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
+        }
+        tabs.openInMainPane = { [weak services] chat, focus, open, created, finished in
+            guard let services, let (_, pane) = services.locateTab(chat), let controller = services.paneController(for: pane),
+                  let side = MainPaneLayout.side(from: controller, services: services) else { return nil }
+            return MainPaneLayout.openAgentTab(from: controller, side: side, focus: focus, services: services, open: open,
+                                         created: created, finished: finished)
         }
         // A tab's git reads (Changes, file search) go to the machine whose acpmux runs its session
         // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
