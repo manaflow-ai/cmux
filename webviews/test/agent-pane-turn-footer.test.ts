@@ -1,8 +1,8 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// A reply's footer is one quiet row (Leo 2026-10-13, cmux NEXT): Worked for and the time as muted
-// text, then Copy, Retry and Branch, at the column's left edge under the reply, as Claude's desktop
-// app sets it (the Debug menu can move it right). It shows for the last turn, and for another turn
-// while the reader points at any of it.
+// A reply's footer is one quiet row, as Claude Code desktop's (Leo 2026-10-20): Copy, Fork, Pin and
+// Read aloud, then the reply's age, at the column's left edge under the reply (the Debug menu can
+// move it right). It shows only while the reader points at the turn (or a key reaches it), the last
+// turn's too, and keeps its height while hidden.
 //
 // Before: every reply's footer showed at rest, with the time after the buttons.
 //
@@ -143,19 +143,19 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
   const footers = (page: Page) =>
     page.locator(".cv-turn-actions").evaluateAll((nodes) => nodes.map((node) => getComputedStyle(node).opacity));
 
-  test("only the last turn's footer shows at rest; pointing at an earlier reply shows its own", async () => {
+  test("no footer shows at rest; pointing at a reply shows its own only", async () => {
     const page = await open();
-    expect(await footers(page)).toEqual(["0", "1"]);
+    expect(await footers(page)).toEqual(["0", "0"]);
     await page.getByText("Not yet: the hosted test run").hover();
     await page.waitForTimeout(250);
-    expect(await footers(page)).toEqual(["1", "1"]);
+    expect(await footers(page)).toEqual(["1", "0"]);
     await page.mouse.move(0, 0);
     await page.waitForTimeout(250);
-    expect(await footers(page)).toEqual(["0", "1"]);
+    expect(await footers(page)).toEqual(["0", "0"]);
     await page.close();
   });
 
-  test("the footer is one row at the column's left edge: muted Worked for and time, then the actions", async () => {
+  test("the footer is one row at the column's left edge: muted Worked for, the actions, then the age", async () => {
     const page = await open();
     const footer = await page.evaluate(() => {
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)!;
@@ -167,7 +167,7 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
       return {
         // The row starts at the reply's left edge.
         startsLeft: summary.left - row.left <= 4,
-        order: summary.right <= time.left && time.right <= group.left,
+        order: summary.right <= group.left && group.right <= time.left,
         oneRow: Math.abs(summary.top + summary.height / 2 - (group.top + group.height / 2)) <= 2,
       };
     });
