@@ -116,12 +116,15 @@ maybe_update_checkout() {
   if ! checkout_root=$(git -C "$script_dir" rev-parse --show-toplevel 2>/dev/null); then
     return 0
   fi
-  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=all 2>/dev/null); then
+  # Only tracked edits block the update. An untracked file (Spotlight's .metadata_never_index
+  # stalled cosmic-gray's checkout for 14 h) can't be lost: the fast-forward below refuses one
+  # it would overwrite.
+  if ! status=$(git -C "$checkout_root" status --porcelain --untracked-files=no 2>/dev/null); then
     warn_checkout "cannot inspect helper checkout $checkout_root; not auto-updating"
     return 0
   fi
   if [ -n "$status" ]; then
-    warn_checkout "helper checkout $checkout_root is dirty; not auto-updating (commit or stash its changes)"
+    warn_checkout "helper checkout $checkout_root is dirty (tracked files changed); not auto-updating (commit or stash its changes)"
     return 0
   fi
   if ! branch=$(git -C "$checkout_root" branch --show-current 2>/dev/null) || [ "$branch" != main ]; then
