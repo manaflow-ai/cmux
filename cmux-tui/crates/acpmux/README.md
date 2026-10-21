@@ -195,6 +195,9 @@ responding model produces, such as Claude's stream and thinking or Codex's moder
 notice; the agent's own usage and turn notices do not count) for that long after its
 prompt (a stalled model) logs `turn_silent` {turnId, silentMs} once, so a client can say
 the model has not answered. The model's first sign after it logs `turn_heard` {turnId}.
+Files dropped into a chat (`_acpmux/file_put`, under `<home>/uploads/<session>/`) are
+deleted with the chat (`_acpmux/kill` with purge) and once older than `uploadsMaxAgeDays`
+(default 30; 0 keeps them), checked at the daemon's start and daily.
 
 A chat whose harness never titles it (Claude Code's `-p` stream-json has no title
 event) gets a 3-6 word title once, after its first completed turn, logged as `titled`.
