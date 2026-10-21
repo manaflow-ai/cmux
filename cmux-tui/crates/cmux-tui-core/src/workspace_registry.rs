@@ -2584,8 +2584,7 @@ impl WorkspaceRegistry {
                 }
                 Ok(loaded)
             }
-            Err(error) if swapped && db_path.is_some() => {
-                let db_path = db_path.expect("checked above");
+            Err(error) if swapped && let Some(db_path) = db_path => {
                 {
                     let root = platform::normalize_filesystem_path(root.to_path_buf());
                     let session_dir = platform::normalize_filesystem_path(
