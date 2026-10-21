@@ -290,7 +290,8 @@ final class HoverCardPanel: NSPanel {
         let origin = rest.origin
         isLeading = rest.isLeading
         restingPlacement = rest.placement
-        // A row card keeps its escape slot (`HoverCardEscapeGeometry`); `rest` placed it the same way.
+        // A row card keeps its geometry (`HoverCardEscapeGeometry`: its row, frame, gap strip, and the
+        // escape slot under the Debug middle layout); `rest` placed it the same way.
         escapeGeometry = placement == .besideRow
             ? HoverCardEscapeGeometry(anchor: anchor, cardSize: size,
                                       visible: screen.map { $0.visibleFrame.insetBy(dx: Metrics.space2, dy: Metrics.space2) },
