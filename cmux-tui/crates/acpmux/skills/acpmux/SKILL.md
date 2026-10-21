@@ -31,7 +31,9 @@ session's caller token is not one this acpmux daemon knows", run
 the turn ends, with tools that work again; your sub-sessions keep running.
 
 To put a session's chat in front of the user without moving their focus, run
-`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`) for a
+new workspace, or `cmux agent open-tab SESSION_ID --target PANE_ID`
+(`app_agent_open_tab`) for a tab in a pane you name; a
 `start_session` child is also listed under your chat in the chat list. Post progress on a workspace's
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
@@ -164,7 +166,9 @@ acpmux wait                                      # covers remote sessions too
 ```
 
 `host setup HOST` installs a daemon over ssh; `host update --all` pushes the
-current binary. Only do either when the task asks for it.
+current binary (`--if-idle` leaves a peer mid-turn alone; a daemon that does not
+come back on the new build is rolled back). Only do either when the task asks
+for it.
 
 ## 7. Output
 
