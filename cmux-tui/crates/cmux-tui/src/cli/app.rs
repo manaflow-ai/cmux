@@ -753,7 +753,11 @@ fn call(global: &GlobalArgs, stream: &mut UnixStream, command: AppCommand) -> Ra
                 skew::annotate(stream, method, &mut error);
             }
             settings::explain_refusal(method, &params, &mut error);
-            report.annotate(&mut error, global.output);
+            if refused_before_running(&error) {
+                report.succeeded();
+            } else {
+                report.annotate(&mut error, global.output);
+            }
             let code = super::wire::print_local_error(&error, global.output, 1);
             report.finish(global.output);
             Ran::Done(code)
@@ -773,10 +777,18 @@ fn error_code(error: &Value) -> Option<&str> {
 /// A `busy` answer is safe to retry only when the app says the request
 /// never ran; one that may have started (`in_progress`) is reported.
 fn busy_before_running(error: &Value) -> bool {
+    error_code(error) == Some("busy") && refused_before_running(error)
+}
+
+/// The app says nothing ran (`data.not_run`): it refused before the
+/// handler ran or before any of its work started, or a `busy` or `timeout`
+/// came before the start. No change may still apply and there is no key to
+/// retry. A refusal from the action's work (`unavailable` after a group was
+/// made, a send still resending) carries no mark and keeps the retry note.
+fn refused_before_running(error: &Value) -> bool {
     let data = error.get("data").unwrap_or(&Value::Null);
-    error_code(error) == Some("busy")
-        && (data.get("not_run") == Some(&Value::Bool(true))
-            || data.get("state").and_then(Value::as_str) == Some("not_run"))
+    data.get("not_run") == Some(&Value::Bool(true))
+        || data.get("state").and_then(Value::as_str) == Some("not_run")
 }
 
 fn busy_retry_delay(error: &Value) -> Duration {
