@@ -3,7 +3,8 @@
 // Codex apps do (Leo 2026-10-19): its scrollbar's track reaches the pane's bottom corner instead of
 // stopping above the composer. Scrolled to the end, the last row still sits fully above the
 // composer's card, and a composer that grows or shrinks (a prompt of several lines) keeps a
-// followed view at its end on every painted frame, with nothing under the card. Scrolled up, a
+// followed view at its end on every painted frame, with nothing under the card and the scrollbar
+// as it was (the rows follow the card, the scroll offset and heights stay). Scrolled up, a
 // composer that grows or shrinks leaves the view as it was: its offset, its height and so its
 // scrollbar, and the rows being read (Leo 2026-10-20: a newline in the composer made the
 // transcript's scrollbar jump).
@@ -445,6 +446,106 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     // view moves by exactly the card's growth in the frame the card grows.
     const rest = frames.at(-1)!.rowAboveCard;
     expect(frames.filter((frame) => Math.abs(frame.rowAboveCard - rest) > 2)).toEqual([]);
+    await page.close();
+  });
+
+  // At the latest row, too, a composer that grows and shrinks a line at a time leaves the scroller's
+  // offset, its content's height and its own height, and so its scrollbar, as they were on every
+  // painted frame; the rows follow the card instead (Leo 2026-10-20: "the new line situations in
+  // the composer make the scrollbar jump"). Before: each line grew the room under the last row, so
+  // the offset was written to the new end and the overlay thumb showed and shrank on every line.
+  test("a composer that grows and shrinks at the latest row keeps the scrollbar still on every frame", async () => {
+    const page = await open();
+    await page.locator(".acpmux-md").click();
+    const before = await measure(page);
+    expect({ fromEnd: before.fromEnd, lastIsLatest: before.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
+    type Frame = {
+      top: number;
+      height: number;
+      view: number;
+      rowAboveCard: number;
+      fromEnd: number;
+      cardHeight: number;
+    };
+    await page.evaluate(() => {
+      const frames: Frame[] = [];
+      (window as unknown as { __frames: typeof frames }).__frames = frames;
+      const sample = () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+        const last = rows.reduce((a, b) =>
+          Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+        );
+        frames.push({
+          top: scroller.scrollTop,
+          height: scroller.scrollHeight,
+          view: scroller.clientHeight,
+          rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
+          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+          cardHeight: Math.round(card.height),
+        });
+      };
+      // Read after each frame paints (a task queued from its animation frame).
+      const tick = () => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
+        setTimeout(sample, 0);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+    for (let line = 1; line <= 5; line++) {
+      await page.keyboard.type(`Line ${line} of a longer prompt`);
+      await page.keyboard.press("Shift+Enter");
+      await page.waitForTimeout(60);
+    }
+    // And back: the lines removed one at a time, then the rest of the draft at once.
+    for (let line = 1; line <= 3; line++) {
+      await page.keyboard.press("Backspace");
+      await page.keyboard.down("Shift");
+      await page.keyboard.press("Home");
+      await page.keyboard.up("Shift");
+      await page.keyboard.press("Backspace");
+      await page.waitForTimeout(60);
+    }
+    await page.keyboard.press("ControlOrMeta+A");
+    await page.keyboard.press("Backspace");
+    // The card is back at the height it had before the first line.
+    await page.waitForFunction(
+      (height) =>
+        Math.abs(document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().height - height) <= 1,
+      before.cardHeight,
+    );
+    // A few more painted frames at the card's resting height.
+    await page.evaluate(
+      () => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => setTimeout(done, 0)))),
+    );
+    const frames = await page.evaluate(() => {
+      const holder = window as unknown as { __frames?: Frame[] };
+      const frames = holder.__frames ?? [];
+      holder.__frames = undefined;
+      return frames;
+    });
+    expect(frames.length).toBeGreaterThan(5);
+    // The card grew by the lines typed and shrank back.
+    const heights = frames.map((frame) => frame.cardHeight);
+    expect(Math.max(...heights) - before.cardHeight).toBeGreaterThan(60);
+    expect(Math.abs(heights.at(-1)! - before.cardHeight)).toBeLessThanOrEqual(1);
+    // No painted frame moved the offset or changed the content's height or the scroller's, which
+    // show, move and resize the scrollbar's thumb.
+    const first = frames[0]!;
+    const moved = (a: number, b: number) => Math.abs(a - b) > 0.5;
+    expect(
+      frames
+        .filter(
+          (frame) => moved(frame.top, first.top) || moved(frame.height, first.height) || moved(frame.view, first.view),
+        )
+        .map(({ top, height, view, cardHeight }) => ({ top, height, view, cardHeight })),
+    ).toEqual([]);
+    // The last row never went under the card, the view stayed at its end, and the row held the spot
+    // above the card it rested at before the first line.
+    expect(frames.filter((frame) => frame.rowAboveCard < -1 || frame.fromEnd > 1)).toEqual([]);
+    expect(frames.filter((frame) => Math.abs(frame.rowAboveCard - before.rowAboveCard) > 2)).toEqual([]);
     await page.close();
   });
 });
