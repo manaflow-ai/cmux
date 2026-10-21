@@ -208,6 +208,21 @@ import Testing
         #expect(settings.fileRoot.value(at: pet.path) == .bool(false))
     }
 
+    /// Glass Window's key has no default to write back, so a recommended "glass" under the file
+    /// outlasts Remove. The press says so on the card instead of quietly leaving it on.
+    @Test func removeUnderARecommendationWithNothingToWriteSaysWhy() async throws {
+        let (settings, home) = try await Self.make(recommended: ["appearance.backgroundBlur": .string("glass")])
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bridge = SettingsAppFeatures(settings: { settings })
+        let glass = try Self.feature("backgrounds.glass")
+        #expect(bridge.isOn(glass), "the recommended value applies")
+
+        let error = await #expect(throws: AppFeatureKeptOn.self) { try await bridge.set(glass, on: false) }
+        #expect(error?.description == AppsStrings.featureKeptOn)
+        #expect(bridge.isOn(glass))
+        #expect(Self.leafKeys(settings.fileRoot).isEmpty, "Remove wrote \(Self.leafKeys(settings.fileRoot))")
+    }
+
     /// The dotted keys the settings file sets (an emptied parent object sets none).
     static func leafKeys(_ value: JSONValue, prefix: String = "") -> Set<String> {
         guard let members = value.objectValue else { return [prefix] }

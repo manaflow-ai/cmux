@@ -105,3 +105,10 @@ public final class SettingsAppFeatures: AppFeatureSettings {
         }
     }
 }
+
+/// A press the settings file cannot carry out: a recommended value under the file keeps the card on,
+/// and its key has no off value to write over it (Glass Window under a recommended "glass").
+public struct AppFeatureKeptOn: Error, Sendable, CustomStringConvertible {
+    public let key: String
+    public var description: String { AppsStrings.featureKeptOn }
+}
