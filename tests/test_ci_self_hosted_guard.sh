@@ -1563,6 +1563,9 @@ pr_concurrency_cancels_superseded_runs() {
         sub(/^[[:space:]]+cancel-in-progress:[[:space:]]*/, "", value)
         sub(/[[:space:]]+$/, "", value)
         if (value == "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 }}") ok=1
+        # `event == X || more` is true for every X event whatever `more` says:
+        # `||` binds loosest, so extra disjuncts only add cancellation.
+        if (index(value, "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 || ") == 1) ok=1
         # Recognize only the CI workflow label exception: synchronize still
         # cancels the old head. Extra clauses could suppress that cancellation.
         if (ENVIRON["EVENT"] == "pull_request" &&
