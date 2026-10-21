@@ -8,12 +8,15 @@ static front tab that stays shown, then runs these phases, each one adding a hid
 
   static   only the static tabs;
   loading  one more tab whose load never ends (an image request the server keeps open);
-  chatty   one more tab that calls console.log 4 times a second, as the 1Password extension does.
+  chatty   one more tab, shown, that calls console.log 4 times a second, as the 1Password extension's
+           background page does (a background page never freezes; a hidden tab would after 30 s).
 
 Each phase waits --settle-s (past the 30 s hidden-tab freeze), then measures --idle-s: CPU seconds,
 idle wakeups and bytes written per Chromium process class (app/browser, gpu, renderer, utility),
 footprint per renderer, and how many bytes cef.log grew. The chatty tab's lines carry a run marker;
-the run counts the marker lines in cef.log at the end.
+the run counts the marker lines in cef.log (and cef.previous.log) at the end, and the page counts its
+calls to the server, so "0 lines" cannot mean "never logged". CPU limits are reported, and gated only
+where the budget file names them.
 
 With --budget, a breach of any limit in the file (see browser-idle-cost-budget.json) is a FAIL.
 `sample` output of the GPU process and the app for 3 s per phase goes to the artifacts.
@@ -37,8 +40,12 @@ parser.add_argument("--idle-s", type=float, default=60)
 parser.add_argument("--phases", default="static,loading,chatty")
 parser.add_argument("--budget", help="JSON limits; a breach is a FAIL")
 parser.add_argument("--no-sample", action="store_true")
+parser.add_argument("--env", action="append", default=[], help="KEY=VALUE for the app, e.g. CMUX_NEXT_CEF_EXTRA_SWITCHES=process-per-site")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="browser-idle-cost-"))
 opts = parser.parse_args()
+PHASES = opts.phases.split(",")
+if not set(PHASES) <= {"static", "loading", "chatty"}:
+    parser.error(f"unknown phase in {opts.phases}")
 os.makedirs(opts.out, exist_ok=True)
 
 APP = os.path.realpath(opts.app)
@@ -60,6 +67,7 @@ MARKER = f"cmux-idle-cost-{RUN}"
 failures = []
 stop_serving = threading.Event()
 loaded = set()
+ticks = [0]  # the chatty page's console.log calls, in fours
 
 PAGES = {
     "static": "<title>static {n}</title><body style='font:16px system-ui'><h1>Static page {n}</h1><p>Nothing runs here.</p>"
@@ -67,7 +75,7 @@ PAGES = {
     "loading": "<title>loading</title><body><h1>This load never ends</h1><img src='/never'>"
                "<script>fetch('/loaded/loading',{{method:'POST'}})</script>",
     "chatty": "<title>chatty</title><body><h1>Console chatter</h1><script>let i=0;"
-              "setInterval(()=>console.log('" + MARKER + " ' + (i++)), 250);fetch('/loaded/chatty',{{method:'POST'}})</script>",
+              "setInterval(()=>{console.log('" + MARKER + " ' + (i++));if(i%4==0)fetch('/tick',{{method:'POST'}})}, 250);fetch('/loaded/chatty',{{method:'POST'}})</script>",
 }
 
 
@@ -88,6 +96,8 @@ class Handler(http.server.BaseHTTPRequestHandler):
         self.wfile.write(body)
 
     def do_POST(self):  # noqa: N802
+        if self.path == "/tick":
+            ticks[0] += 4
         loaded.add(self.path.removeprefix("/loaded/"))
         self.send_response(204)
         self.end_headers()
@@ -178,7 +188,7 @@ def log_size():
 
 def measure(app_pid, phase):
     rows = processes(app_pid)
-    before, log_before, t0 = snapshot(rows), log_size(), time.monotonic()
+    before, log_before, t0, ticks_before = snapshot(rows), log_size(), time.monotonic(), ticks[0]
     time.sleep(opts.idle_s)  # the measured idle window itself
     after, log_after, seconds = snapshot(rows), log_size(), time.monotonic() - t0
     classes = {}
@@ -197,7 +207,11 @@ def measure(app_pid, phase):
         c["wakeups_per_s"] = round(c["wakeups"] / seconds, 1)
         c["footprint_total"] = sum(c["footprint"])
         c["rss_total"] = sum(c["rss"])
-    result = {"phase": phase, "seconds": round(seconds, 1), "classes": classes,
+    dropped = sorted(set(rows) - (set(before) & set(after)))
+    check("gpu" in classes and classes.get("renderer", {}).get("count", 0) >= 1,
+          f"{phase}: the GPU process and renderers are measured ({sorted(classes)}, unmeasured pids {dropped})")
+    result = {"phase": phase, "seconds": round(seconds, 1), "classes": classes, "unmeasured_pids": dropped,
+              "console_calls": ticks[0] - ticks_before,
               "cef_log_bytes_per_min": round((log_after - log_before) * 60 / seconds),
               "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3)}
     for name in ("debug.cef", "debug.wakeups"):
@@ -231,12 +245,13 @@ write(EMPTY_GHOSTTY, "")
 teardown = TagTeardown(APP)
 teardown.install()
 app = None
-results = {"tabs": opts.tabs, "app": APP, "phases": []}
+results = {"tabs": opts.tabs, "app": APP, "env": opts.env, "phases": []}
 try:
     if os.path.exists(SOCKET):
         os.unlink(SOCKET)
     app = subprocess.Popen([BINARY], env={**BASE_ENV, "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
-                                          "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY},
+                                          "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": EMPTY_GHOSTTY,
+                                          **dict(item.split("=", 1) for item in opts.env)},
                            stdout=open(os.path.join(opts.out, "app.log"), "a"), stderr=subprocess.STDOUT)
     print(f"app pid {app.pid}, origin {ORIGIN}, out {opts.out}, cef.log {CEF_LOG}", flush=True)
     wait_for(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), "app socket", 120)
@@ -246,23 +261,30 @@ try:
         open_tab(f"{ORIGIN}/static-{n}", str(n))
     front = f"{ORIGIN}/static-front"
     open_tab(front, "front")
-    for phase in opts.phases.split(","):
+    for phase in PHASES:
         if phase in ("loading", "chatty"):
             open_tab(f"{ORIGIN}/{phase}-x", phase)
-            show(front)
+            # The chatty page stays shown, as an extension's background page never freezes;
+            # the loading page is hidden behind the front tab.
+            show(f"{ORIGIN}/chatty-x" if phase == "chatty" else front)
         time.sleep(opts.settle_s)  # past the hidden-tab freeze, so the window is steady idle
         results["phases"].append(measure(app.pid, phase))
     lines = 0
-    if os.path.exists(CEF_LOG):
-        with open(CEF_LOG, errors="replace") as f:
-            lines = sum(1 for line in f if MARKER in line)
+    check(os.path.exists(CEF_LOG), f"cef.log exists at {CEF_LOG}")
+    for path in (CEF_LOG, CEF_LOG.replace("cef.log", "cef.previous.log")):
+        if os.path.exists(path):
+            with open(path, errors="replace") as f:
+                lines += sum(1 for line in f if MARKER in line)
+    if "chatty" in PHASES:
+        chatty = next(p for p in results["phases"] if p["phase"] == "chatty")
+        check(chatty["console_calls"] >= opts.idle_s, f"the chatty page logs while measured ({chatty['console_calls']} calls)")
     results["console_marker_lines_on_disk"] = lines
     print(f"cef.log lines with the page's console marker: {lines}", flush=True)
     if opts.budget:
         with open(opts.budget) as f:
             budget = json.load(f)
         limit = budget.get("console_marker_lines_on_disk")
-        if limit is not None and "chatty" in opts.phases:
+        if limit is not None and "chatty" in PHASES:
             check(lines <= limit, f"page console lines in cef.log: {lines} <= {limit}")
         for phase in results["phases"]:
             limits = budget.get("phases", {}).get(phase["phase"], {})
