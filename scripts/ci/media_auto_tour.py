@@ -6,8 +6,7 @@ cannot run for every UI pull request (32 queued, 8 running on 2026-10-14). It ru
   - with the `media-tour` label, always (a draft too);
   - without it, when the pull request changes cmux-next Swift UI
     (Packages/macOS/CmuxNext/Sources/) that a specific tour covers: path_map.py
-    maps it to new-tab, agent-pane, now-playing or glass, not only the catch-all
-    `core`. Web-only changes get the gallery advisory instead, and drafts wait.
+    maps it to any tour other than the catch-all `core`. Web-only changes get the gallery advisory instead, and drafts wait.
   - never with the `no-media-tour` label.
 
     LABELS='["a","b"]' ACTION=synchronize DRAFT=false media_auto_tour.py --changed FILE
