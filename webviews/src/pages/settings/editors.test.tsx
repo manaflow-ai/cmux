@@ -61,7 +61,7 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
     case "number_list":
       return has("input.token-input") ? null : "no number token field";
     case "string_map":
-      return "a kind the cmux-next page never renders";
+      return has("[data-string-map]") && has("input[data-map-new-key]") ? null : "no key and value list";
   }
 }
 
@@ -88,14 +88,19 @@ describe("editors", () => {
             failures.push(`${row.key}: no art picker`);
           continue;
         }
+        // The Chief Pet card draws home.chiefPetEnabled (Show/Hide Pet, None) and home.chiefPetMascot (its grid).
+        if (row.key === "home.chiefPetEnabled" || row.key === "home.chiefPetMascot") {
+          if (!page.container.querySelector('[data-card="chief-pet"] .chief-pet-choice[data-pet="none"]'))
+            failures.push(`${row.key}: no Chief Pet card`);
+          continue;
+        }
         // The density card draws appearance.density and the custom density keys (SectionView).
         if (DENSITY_ROWS.has(row.key)) {
           if (!page.container.querySelector('[data-card="density"]')) failures.push(`${row.key}: no density card`);
           continue;
         }
-        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row;
-        // the page has no editor for any string_map (browser.siteEngines is edited in cmux.json).
-        if (row.key === "appearance.themeEdits" || row.kind === "string_map") {
+        // appearance.themeEdits is the pickers' "(custom)" themes, edited in the Theme section, not a row.
+        if (row.key === "appearance.themeEdits") {
           if (page.container.querySelector(`[data-row-key="${row.key}"]`)) failures.push(`${row.key}: drawn as a row`);
           continue;
         }

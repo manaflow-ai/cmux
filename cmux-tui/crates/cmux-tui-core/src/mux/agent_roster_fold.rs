@@ -59,7 +59,7 @@ impl Mux {
             .then(|| {
                 self.state
                     .lock()
-                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .unwrap_or_else(PoisonError::into_inner)
                     .terminal_catalog
                     .get(&terminal_id)
                     .cloned()

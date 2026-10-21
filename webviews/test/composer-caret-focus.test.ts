@@ -119,7 +119,7 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
       foot: ".nt-box .nt-pickers",
     },
   ];
-  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan, .acpmux-fast)";
+  const CONTROLS = ":is(.acpmux-picker-button, .acpmux-mic, .acpmux-plan)";
   const TRANSPARENT = "rgba(0, 0, 0, 0)";
 
   const open = async (engine: string, stage: Stage, { rest = true } = {}) => {
@@ -216,11 +216,14 @@ await requireBrowserLane("composer-caret-focus.test.ts", async () => {
             const bar = document.querySelector<HTMLElement>(foot)!;
             const mark = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button .agent-mark");
             const model = bar.querySelector<HTMLElement>(".acpmux-model .acpmux-picker-button")!;
-            const effort = bar.querySelector<HTMLElement>(".acpmux-effort .acpmux-picker-button");
+            // The model button names its effort after the model (Leo 2026-10-20): the name is as
+            // muted as that effort label.
+            const name = model.querySelector<HTMLElement>(".acpmux-model-name") ?? model;
+            const effort = model.querySelector<HTMLElement>(".acpmux-model-detail");
             return {
               look: bar.dataset.footerLook ?? "",
               mark: mark ? getComputedStyle(mark).display : "none",
-              muted: !effort || getComputedStyle(model).color === getComputedStyle(effort).color,
+              muted: !effort || getComputedStyle(name).color === getComputedStyle(effort).color,
             };
           },
           { foot: stage.foot },
