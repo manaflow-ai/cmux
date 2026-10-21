@@ -188,8 +188,15 @@ fn place_created_rows(
     let slot = match placement {
         NewWorkspacePlacement::Bottom => None,
         NewWorkspacePlacement::Top => Some(top_slot(transaction, &local, &placed)?),
-        NewWorkspacePlacement::AfterCurrent => {
-            match after_current_slot(transaction, &local, &placed, created.current.as_deref())? {
+        NewWorkspacePlacement::BeforeCurrent | NewWorkspacePlacement::AfterCurrent => {
+            let after = placement == NewWorkspacePlacement::AfterCurrent;
+            match beside_current_slot(
+                transaction,
+                &local,
+                &placed,
+                created.current.as_deref(),
+                after,
+            )? {
                 Some(slot) => Some(slot),
                 None => Some(top_slot(transaction, &local, &placed)?),
             }
@@ -266,14 +273,15 @@ fn top_slot(
     Ok((index, None))
 }
 
-/// `afterCurrent`: right after the current workspace's row, in its group.
-/// None when there is no current workspace, it has no row, or it is the
-/// home workspace.
-fn after_current_slot(
+/// `beforeCurrent` / `afterCurrent` (`after`): right before / after the
+/// current workspace's row, in its group. None when there is no current
+/// workspace, it has no row, or it is the home workspace.
+fn beside_current_slot(
     transaction: &Transaction<'_>,
     local: &str,
     placed: &[String],
     current: Option<&str>,
+    after: bool,
 ) -> anyhow::Result<Option<(usize, Option<String>)>> {
     let Some(current) = current.filter(|current| !placed.iter().any(|key| key == current)) else {
         return Ok(None);
@@ -290,7 +298,8 @@ fn after_current_slot(
     else {
         return Ok(None);
     };
-    let Some(group) = rows[index].group.clone() else { return Ok(Some((index + 1, None))) };
+    let slot = if after { index + 1 } else { index };
+    let Some(group) = rows[index].group.clone() else { return Ok(Some((slot, None))) };
     // Into the group only when the new workspace shows in the group's room:
     // a workspace pinned to another room (the app pins before it creates)
     // goes to the top instead.
@@ -303,5 +312,5 @@ fn after_current_slot(
                 && room.as_ref().is_some_and(|room| room.profile != pin.profile)
         })
     });
-    Ok((!elsewhere).then_some((index + 1, Some(group))))
+    Ok((!elsewhere).then_some((slot, Some(group))))
 }
