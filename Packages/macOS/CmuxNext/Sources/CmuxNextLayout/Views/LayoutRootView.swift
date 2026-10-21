@@ -78,14 +78,13 @@ public final class LayoutRootView: NSView {
     var overlayIsStale = false
     var overlayFlushScheduled = false
 
-    /// A split or a pane close is springing on some screen: the panes it resizes change size every
-    /// frame, and their terminals keep their grids (the PTY resizes once, at rest) until it lands
-    /// (plans/cmux-next/close-animation/DESIGN.md, split-spring-animation/DESIGN.md). Called with
-    /// true when the first one starts and false when the last one lands; the App holds
-    /// `ResizeCoordinator` with it.
+    /// A pane close is springing on some screen: the panes around it change size every frame, and
+    /// their terminals keep their grids (the PTY resizes once, at rest) until it lands
+    /// (plans/cmux-next/close-animation/DESIGN.md). Called with true when the first close starts
+    /// and false when the last one lands; the App holds `ResizeCoordinator` with it.
     public var onTerminalGridHold: ((Bool) -> Void)?
-    /// Whether a split or a pane close holds the terminals' grids now (``onTerminalGridHold``).
-    public var holdsTerminalGrids: Bool { !context.gridHoldScreens.isEmpty }
+    /// Whether a pane close holds the terminals' grids now (``onTerminalGridHold``).
+    public var holdsTerminalGrids: Bool { !context.closingScreens.isEmpty }
 
     /// Everything the view reads from the model, observed as one value.
     private struct Snapshot: Equatable, Sendable {
