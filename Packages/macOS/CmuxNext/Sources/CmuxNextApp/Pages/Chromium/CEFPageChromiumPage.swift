@@ -29,6 +29,8 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         didSet { listen() }
     }
 
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)?
+
     private func listen() {
         guard onEvent != nil, !closed else {
             tab.agentRelay.set(onMessage: nil, onEnd: nil)

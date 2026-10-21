@@ -12,9 +12,9 @@ import Testing
 @Suite struct PageChromiumCoverageTests {
     /// Every page the app ships, with the engine options its service makes it with.
     private static let surfaces: [(page: PageDescriptor, options: PageEngineOptions)] = [
-        (.agent, .standard), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, .standard),
+        (.agent, .standard), (.history, .standard), (.cloud, .standard), (.apps, .standard), (.settings, PageFactory.settingsEngineOptions),
         (.keybindings, .standard), (.diff, DiffPageService.engineOptions), (.markdown, FilePageService.engineOptions),
-        (.editor, FilePageService.engineOptions), (.iconPicker, .standard), (.passwords, .standard),
+        (.editor, FilePageService.engineOptions), (.iconPicker, IconPickerService.engineOptions), (.passwords, .standard),
         (.chiefInspector, .standard), (.debugSettings, .standard), (.homeChannels, PageFactory.homeChannelsEngineOptions),
         (.changelog, .standard), (.coderouter, .standard), (.files, .standard), (.stats, .standard),
         (.chiefUsage, .standard), (.mobilePairing, .standard),
@@ -23,11 +23,11 @@ import Testing
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
     private static let stillOnWebKit: [String: PageWebKitReason] = [
         PageDescriptor.agent.id: .agentChat,
-        PageDescriptor.settings.id: .runtimeResources,
-        PageDescriptor.diff.id: .runtimeResources,
-        PageDescriptor.markdown.id: .runtimeResources,
+        PageDescriptor.settings.id: .nativeHooks,
+        PageDescriptor.diff.id: .nativeHooks,
+        PageDescriptor.markdown.id: .nativeHooks,
         PageDescriptor.editor.id: .nativeHooks,
-        PageDescriptor.iconPicker.id: .runtimeResources,
+        PageDescriptor.iconPicker.id: .transparentOverlay,
         PageDescriptor.homeChannels.id: .nativeHooks,
     ]
 
@@ -41,7 +41,7 @@ import Testing
             roots[page.id] = root
         }
         let entries = FirstPartyPageSchemes.entries(roots: roots, bundleResources: bundle)
-        return (entries.mapValues { CEFPageSchemesEntryView(csp: $0.csp) }, bundle)
+        return (entries.mapValues { CEFPageSchemesEntryView(csp: $0.csp, dynamicPrefixes: Set($0.dynamicPrefixes)) }, bundle)
     }
 
     @Test func chromiumServesEveryShippedPageWithItsOwnPolicy() throws {
@@ -50,6 +50,8 @@ import Testing
         for (page, _) in Self.surfaces {
             let entry = try #require(entries[page.id], "Chromium does not serve \(page.id)")
             #expect(entry.csp == page.csp.header, "\(page.id) gets another CSP in Chromium")
+            // Chromium asks the page host for exactly the page's generated paths.
+            #expect(entry.dynamicPrefixes == page.dynamicPrefixes, "\(page.id) dynamic prefixes")
         }
     }
 
@@ -78,4 +80,5 @@ import Testing
 /// The part of a Chromium scheme entry these tests read.
 private struct CEFPageSchemesEntryView {
     let csp: String
+    let dynamicPrefixes: Set<String>
 }

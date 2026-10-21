@@ -127,4 +127,44 @@ struct PageWebViewChromiumTests {
         #expect(page.loaded.count == 1)
         view.close()
     }
+
+    /// A Chromium page asks the host for its dynamic paths, as the WebKit scheme handler does: the
+    /// page's source answers a path under one of its prefixes; anything else is a 404 that never
+    /// reaches the source.
+    @Test func aChromiumPageGetsItsDynamicPathsFromTheHost() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let dynamic = PageDescriptor(id: "test.chromium-dynamic", resource: "chromium-page", namespaces: [], dynamicPrefixes: ["asset"])
+        let hosting = FakeChromiumHosting()
+        let source = OneResource()
+        let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
+        view.chromiumClock = PageTestClock.never
+        #expect(view.engineDecision == .chromium)
+        await view.chromiumStart?.value
+        let page = try #require(hosting.made.first)
+        let resources = try #require(page.resources)
+        let png = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/a.png")))
+        #expect(png == PageChromiumResponse(status: 200, mimeType: "image/png", body: Data([1, 2, 3])))
+        let typeFromName = await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/b.json")))
+        #expect(typeFromName == PageChromiumResponse(status: 200, mimeType: "application/json", body: Data("{}".utf8)))
+        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/asset/none.png"))).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://test.chromium-dynamic/index.html"))).status == 404)
+        #expect(await resources(try #require(URL(string: "cmux-page://other.page/asset/a.png"))).status == 404)
+        #expect(source.asked.map(\.path) == [["a.png"], ["b.json"], ["none.png"]])
+        view.close()
+    }
+}
+
+/// A dynamic source with two resources: `a.png` (typed) and `b.json` (typed by its name).
+@MainActor
+private final class OneResource: PageDynamicResourceSource {
+    private(set) var asked: [PageResourceRequest] = []
+
+    func resource(for request: PageResourceRequest) async -> PageResource? {
+        asked.append(request)
+        switch request.path {
+        case ["a.png"]: return PageResource(data: Data([1, 2, 3]), mimeType: "image/png")
+        case ["b.json"]: return PageResource(data: Data("{}".utf8))
+        default: return nil
+        }
+    }
 }
