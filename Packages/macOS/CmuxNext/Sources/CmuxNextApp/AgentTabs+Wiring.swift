@@ -114,7 +114,7 @@ extension AgentTabStore {
         tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
         tabs.wakeStates = tabs.relaunchWake.take()
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag)) { [weak services] in
+        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
