@@ -20,6 +20,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly-next-train.yml"
+DRIVE = ROOT / "scripts/ci/nightly_next_train_drive.py"
 CHECK_STEP = "Check the tip is on feat-cmux-next"
 MINT_STEP = "Mint release App token"
 
@@ -65,11 +66,12 @@ class DrivePinTests(unittest.TestCase):
         self.assertNotIn("if", steps[check])
         self.assertNotIn("continue-on-error", steps[check])
 
+    @unittest.skipUnless(DRIVE.exists(), "main carries only the dispatch copy of the workflow, not the drive")
     def test_drive_checks_the_cars_before_any_car_guard_runs(self):
         # The car guards check out each car; a crafted base (good_build) can
         # name any commit, so the drive refuses cars off the tip first
         # (require_on_tip, tests/test_nightly_next_train.py).
-        source = (ROOT / "scripts/ci/nightly_next_train_drive.py").read_text(encoding="utf-8")
+        source = DRIVE.read_text(encoding="utf-8")
         check = source.find("train.require_on_tip(source, cars, args.tip)")
         guards = source.find("run_car_guards(cars, guard)")
         self.assertGreater(check, 0)
