@@ -169,6 +169,40 @@ fn receiver_owner_agent_socket_installs_pinned_policy_and_verifies_real_signatur
 }
 
 #[test]
+fn receiver_owner_queued_read_debits_suspend_before_connecting_to_the_agent() {
+    use cmux_link::elapsed::Elapsed;
+    use std::sync::{Arc, Mutex};
+    let (binding, keys, bytes) = public_fixture();
+    let active = Instant::now();
+    let value = Arc::new(Mutex::new(Some(Duration::from_secs(10))));
+    let source = value.clone();
+    let elapsed = Elapsed::capture(move || *source.lock().unwrap()).unwrap();
+    let receiver = AgentReceiver {
+        binding,
+        owner: Owner::with_elapsed_clock(keys, move || Some(active), elapsed).unwrap(),
+        generation: None,
+    };
+    let (_dir, path, task) = server([bytes, b"\n".to_vec()].concat());
+    receiver.refresh_at(&path, test_uid(), false, Duration::from_secs(2)).unwrap();
+    task.join().unwrap();
+    let queued = receiver.prepare_refresh().unwrap();
+    *value.lock().unwrap() = Some(Duration::from_secs(31));
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("agent.sock");
+    let listener = UnixListener::bind(&path).unwrap();
+    fs::set_permissions(&path, fs::Permissions::from_mode(0o660)).unwrap();
+    listener.set_nonblocking(true).unwrap();
+    assert!(
+        receiver.refresh_at_prepared(&path, test_uid(), false, REQUEST_BUDGET, queued).is_err()
+    );
+    assert_eq!(
+        listener.accept().unwrap_err().kind(),
+        std::io::ErrorKind::WouldBlock,
+        "expired queued work reached the authenticated source"
+    );
+}
+
+#[test]
 fn receiver_owner_prepared_socket_read_cannot_reopen_after_cancellation_before_io_starts() {
     for cancelled in [true, false] {
         let (binding, keys, mut reply) = public_fixture();

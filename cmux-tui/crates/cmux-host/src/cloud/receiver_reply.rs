@@ -3,6 +3,7 @@
 use std::time::{Duration, Instant};
 
 use cmux_cloud_wire::BoolLit;
+use cmux_link::elapsed::Elapsed;
 use cmux_link::keyset::read_keyset;
 use cmux_link::native_token::receiver::{Owner, Refresh};
 use serde::{Deserialize, Serialize};
@@ -71,6 +72,27 @@ impl ReceiverSnapshot {
         started: Instant,
         now: Instant,
     ) -> Result<Self, String> {
+        Self::decode_public_reply(bytes, binding, started, now, None)
+    }
+
+    /// The source observation belongs to this exact read, captured before
+    /// executor queuing or socket I/O rather than when its reply arrives.
+    pub fn from_public_reply_for_refresh(
+        bytes: &[u8],
+        binding: &ReceiverBinding,
+        refresh: &Refresh,
+        now: Instant,
+    ) -> Result<Self, String> {
+        Self::decode_public_reply(bytes, binding, refresh.started(), now, refresh.elapsed_source())
+    }
+
+    fn decode_public_reply(
+        bytes: &[u8],
+        binding: &ReceiverBinding,
+        started: Instant,
+        now: Instant,
+        source: Option<Elapsed>,
+    ) -> Result<Self, String> {
         if bytes.len() > 1024 * 1024 {
             return Err(UNAVAILABLE.into());
         }
@@ -91,7 +113,12 @@ impl ReceiverSnapshot {
         {
             return Err(UNAVAILABLE.into());
         }
-        let elapsed = now.checked_duration_since(started).ok_or(UNAVAILABLE)?;
+        let active = now.checked_duration_since(started).ok_or(UNAVAILABLE)?;
+        let source_elapsed = match &source {
+            Some(source) => Some(source.elapsed().ok_or(UNAVAILABLE)?),
+            None => None,
+        };
+        let elapsed = active.max(source_elapsed.unwrap_or(active));
         let lifetime = (policy.expires_at - policy.checked_at) as u64;
         let lifetime = Duration::from_millis(lifetime);
         if remaining_ms == 0
@@ -102,15 +129,21 @@ impl ReceiverSnapshot {
         }
         // The whole socket round trip already includes the root agent's HTTP
         // work. Cap by both observations rather than charging that work twice.
-        let deadline = started
-            .checked_add(lifetime)
-            .ok_or(UNAVAILABLE)?
-            .min(now.checked_add(Duration::from_millis(remaining_ms)).ok_or(UNAVAILABLE)?);
+        let consumed = elapsed
+            .max(lifetime.checked_sub(Duration::from_millis(remaining_ms)).ok_or(UNAVAILABLE)?);
         // An earlier effective request start represents the stricter deadline
         // without rewriting authenticated NumericDates. It can only shorten.
-        let started = deadline.checked_sub(lifetime).ok_or(UNAVAILABLE)?;
+        let started = now.checked_sub(consumed).ok_or(UNAVAILABLE)?;
+        let elapsed = match source {
+            Some(source) => Some(
+                source
+                    .rewind(consumed.saturating_sub(source_elapsed.ok_or(UNAVAILABLE)?))
+                    .ok_or(UNAVAILABLE)?,
+            ),
+            None => None,
+        };
         let keys = read_keyset(&keyset).map_err(|_| UNAVAILABLE)?;
-        let snapshot = Self { policy, keys, started, issuer, elapsed: None };
+        let snapshot = Self { policy, keys, started, issuer, elapsed };
         if snapshot.time(now).ok_or(UNAVAILABLE)?.unix_ms < issuer_time_ms {
             return Err(UNAVAILABLE.into());
         }

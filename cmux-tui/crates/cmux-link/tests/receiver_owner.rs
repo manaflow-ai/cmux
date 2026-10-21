@@ -9,6 +9,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 const NOW: u64 = 1_792_000_010_000;
+
+#[path = "receiver_owner/suspend.rs"]
+mod suspend;
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../../../../schemas/link-token/native.json")).unwrap()
 }

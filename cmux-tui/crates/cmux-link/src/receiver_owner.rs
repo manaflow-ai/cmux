@@ -1,13 +1,14 @@
 //! One writer publishes authenticated keys, policy and issuer time together.
 //! Readers retain the verifier and its replay history for the owner lifetime.
 use std::sync::{Arc, Weak};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use super::streams::{reconcile_streams, wake_streams};
 use super::{
     MAX_REPLAY, MAX_SAFE_INTEGER, NativePolicy, NativeTokenVerifier, ReceiverTime, State,
     valid_keys,
 };
+use crate::elapsed::Elapsed;
 use crate::keyset::Keyset;
 use crate::token::TokenRefused;
 
@@ -16,6 +17,7 @@ pub(super) struct ReceiverState {
     serial: u64,
     anchor: Option<ReceiverTime>,
     retired: bool,
+    elapsed: Option<Elapsed>,
 }
 
 impl ReceiverState {
@@ -64,11 +66,24 @@ pub struct Refresh {
     owner: Arc<()>,
     serial: u64,
     started: Instant,
+    elapsed: Option<Elapsed>,
     done: bool,
 }
 impl Refresh {
     pub fn started(&self) -> Instant {
         self.started
+    }
+
+    pub fn elapsed_source(&self) -> Option<Elapsed> {
+        self.elapsed.clone()
+    }
+
+    pub fn elapsed(&self, now: Instant) -> Option<Duration> {
+        let active = now.checked_duration_since(self.started)?;
+        Some(match &self.elapsed {
+            Some(elapsed) => active.max(elapsed.elapsed()?),
+            None => active,
+        })
     }
 }
 impl Drop for Refresh {
@@ -102,24 +117,44 @@ pub struct Owner {
 
 impl Owner {
     pub fn new(keys: Keyset) -> Result<Self, TokenRefused> {
-        Self::with_clock(keys, || Some(Instant::now()))
+        Self::with_elapsed_clock(
+            keys,
+            || Some(Instant::now()),
+            Elapsed::system().ok_or(TokenRefused::Invalid)?,
+        )
     }
 
     pub fn with_clock(
         keys: Keyset,
         clock: impl Fn() -> Option<Instant> + Send + Sync + 'static,
     ) -> Result<Self, TokenRefused> {
-        Self::with_mode(keys, None, clock)
+        Self::with_mode(keys, None, clock, None)
+    }
+
+    /// Inject active and suspend-inclusive clocks independently. Both remain
+    /// local to this owner and its unforgeable prepared reads.
+    pub fn with_elapsed_clock(
+        keys: Keyset,
+        clock: impl Fn() -> Option<Instant> + Send + Sync + 'static,
+        elapsed: Elapsed,
+    ) -> Result<Self, TokenRefused> {
+        Self::with_mode(keys, None, clock, Some(elapsed))
     }
 
     pub fn for_receiver(keys: Keyset, generation: String) -> Result<Self, TokenRefused> {
-        Self::with_mode(keys, Some(generation), || Some(Instant::now()))
+        Self::with_mode(
+            keys,
+            Some(generation),
+            || Some(Instant::now()),
+            Some(Elapsed::system().ok_or(TokenRefused::Invalid)?),
+        )
     }
 
     fn with_mode(
         keys: Keyset,
         generation: Option<String>,
         clock: impl Fn() -> Option<Instant> + Send + Sync + 'static,
+        elapsed: Option<Elapsed>,
     ) -> Result<Self, TokenRefused> {
         let clock = move || Some(ReceiverTime { unix_ms: 0, monotonic: clock()? });
         let verifier = match generation {
@@ -128,8 +163,13 @@ impl Owner {
             }
             None => NativeTokenVerifier::new(keys, clock, MAX_REPLAY),
         }?;
-        verifier.state.lock().map_err(|_| TokenRefused::Invalid)?.receiver =
-            Some(ReceiverState { identity: Arc::new(()), serial: 0, anchor: None, retired: false });
+        verifier.state.lock().map_err(|_| TokenRefused::Invalid)?.receiver = Some(ReceiverState {
+            identity: Arc::new(()),
+            serial: 0,
+            anchor: None,
+            retired: false,
+            elapsed,
+        });
         Ok(Self { verifier: Arc::new(verifier) })
     }
 
@@ -143,11 +183,23 @@ impl Owner {
         let receiver = state.receiver.as_mut().ok_or(TokenRefused::Invalid)?;
         let serial = receiver.next();
         if let (Some(serial), Some(started)) = (serial, now) {
+            let elapsed = match &receiver.elapsed {
+                Some(elapsed) => match elapsed.restart() {
+                    Some(elapsed) => Some(elapsed),
+                    None => {
+                        drop(state);
+                        self.invalidate();
+                        return Err(TokenRefused::Invalid);
+                    }
+                },
+                None => None,
+            };
             return Ok(Refresh {
                 verifier: Arc::downgrade(&self.verifier),
                 owner: receiver.identity.clone(),
                 serial,
                 started,
+                elapsed,
                 done: false,
             });
         }

@@ -36,6 +36,29 @@ impl Elapsed {
     }
 
     pub fn elapsed(&self) -> Option<Duration> {
+        self.sample()?.checked_sub(self.started)
+    }
+
+    /// A new read starts a new budget on the same clock and failure latch.
+    pub fn restart(&self) -> Option<Self> {
+        Some(Self {
+            source: self.source.clone(),
+            started: self.sample()?,
+            state: self.state.clone(),
+        })
+    }
+
+    /// Shorten a captured budget without restarting it. Public remaining-time
+    /// caps must debit both elapsed and active clocks by the same amount.
+    pub fn rewind(&self, debit: Duration) -> Option<Self> {
+        Some(Self {
+            source: self.source.clone(),
+            started: self.started.checked_sub(debit)?,
+            state: self.state.clone(),
+        })
+    }
+
+    fn sample(&self) -> Option<Duration> {
         // Sample under the lock so concurrent callers cannot reorder readings
         // and mistake an older, delayed sample for a clock regression.
         let mut state = self.state.lock().ok()?;
@@ -45,7 +68,7 @@ impl Elapsed {
         match (self.source)().filter(|now| *now >= state.last) {
             Some(now) => {
                 state.last = now;
-                now.checked_sub(self.started)
+                Some(now)
             }
             None => {
                 state.valid = false;
