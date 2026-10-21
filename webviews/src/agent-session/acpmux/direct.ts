@@ -15,7 +15,7 @@ import type {
   QueuedPrompt,
   StartSource,
 } from "./model";
-import { continuesTurn } from "./model";
+import { continuesTurn } from "./turnStart";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
 import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
@@ -3633,6 +3633,14 @@ export class AcpmuxDirectClient {
     Object.assign(this, live, { forkedAtSeq });
     // Older turns end on their own result; a row of the live turn it closed (its typing row) stays.
     for (const [id, row] of held) if (!this.rows.has(id)) this.rows.set(id, row);
+    // A held page can start at a prompt sent now whose cancel only this page holds: its row,
+    // drawn before, goes on with that turn now (a steer), so the turn never reads as stopped.
+    for (const event of this.events) {
+      const promptId = event.kind === "user_message" ? event.msg?.promptId : undefined;
+      if (typeof promptId !== "string" || !this.continuations.has(promptId)) continue;
+      const row = this.rows.get(`user-${event.seq}`);
+      if (row && !row.steer) this.rows.set(row.id, { ...row, steer: "landed", version: row.version + 1 });
+    }
   }
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {

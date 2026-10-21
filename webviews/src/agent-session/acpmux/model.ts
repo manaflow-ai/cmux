@@ -160,7 +160,7 @@ export type AcpmuxRow = {
   /// A prompt sent into a running turn: `waiting` until the agent reads it (it reads a steer when
   /// the step it is on ends), then `landed`. A prompt sent now to an agent that cannot steer stops
   /// the turn and runs next (acpmux cancels and starts a turn); it reads `landed` too, and the
-  /// transcript draws it inside the turn it went into (``continuesTurn``).
+  /// transcript draws it inside the turn it went into (turnStart.ts ``continuesTurn``).
   steer?: "waiting" | "landed";
   /// A turn summary of a turn that a prompt sent now stopped, not Stop or Esc (direct.ts): the
   /// turn goes on under that prompt, so it draws no "You stopped after" (conversation/turns.ts).
@@ -474,12 +474,6 @@ const FALLBACK_CHAR_WIDTH = 8;
 /// 62.5% of a wider pane up to 800px (or the cap Debug Settings' `agent.chatWidth` picks, chatWidth.ts),
 /// centered, at least the page edge from each side.
 const PAGE_EDGE = 18;
-/// A prompt that goes on with the turn it was sent into (a steer, or a prompt sent now that
-/// stopped it), rather than opening a turn: the transcript draws it inline in that turn, and the
-/// turn's clock runs from its first prompt (conversation/turns.ts, direct.ts `turnTotals`).
-export const continuesTurn = (row: AcpmuxRow): boolean =>
-  row.kind === "user" && row.steer !== undefined && !row.pending && !row.failed;
-
 export function transcriptColumn(paneWidth: number, { min, max, share }: ChatColumn = chatColumn()) {
   const column = Math.min(max, Math.max(min, paneWidth * share));
   const inset = Math.max(PAGE_EDGE, (paneWidth - column) / 2);

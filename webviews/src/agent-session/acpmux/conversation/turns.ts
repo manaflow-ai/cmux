@@ -7,7 +7,8 @@
 // Stop-gap seam: acpmux owns the turn structure (spec acp-ui.md, OWNERSHIP-PRINCIPLES.md). When
 // acpmux serves turn-structured rows (`acp.view.subscribe`, `_acpmux/view`), `turnView` becomes
 // a field-for-field mapping of them and nothing else in the pane changes.
-import { continuesTurn, type AcpmuxRow } from "../model";
+import type { AcpmuxRow } from "../model";
+import { continuesTurn, opensTurn } from "../turnStart";
 import { turnPreviewUrl } from "./previewUrl";
 import { renderCall } from "./renderCall";
 import { showsTimestamp, type TurnTimes } from "./timestamps";
@@ -253,10 +254,17 @@ function shapedTurn(
   // A steer draws where it went into the turn; bookkeeping sent in draws nothing
   // (incomingMessage.ts). The summary of the turn a prompt sent now stopped is not a Stop: the
   // turn goes on under that prompt, so it neither ends nor times the turn.
+  // Nor does it before the steer's own record comes, while it is the turn's last summary: the turn
+  // is about to go on, and would read "You stopped after" for that moment.
   const turn = source.filter(
     (row, at) =>
       (row.kind !== "user" || (continuesTurn(row) && row.incoming?.kind !== "hidden")) &&
-      !(row.kind === "turnSummary" && row.continued && source.slice(at + 1).some(continuesTurn)),
+      !(
+        row.kind === "turnSummary" &&
+        row.continued &&
+        (source.slice(at + 1).some(continuesTurn) ||
+          (last && !source.slice(at + 1).some((later) => later.kind === "turnSummary")))
+      ),
   );
   const held = source.filter((row) => row.kind === "user" && !continuesTurn(row));
   const date = dated ? [{ id: `${DATE}-${user.id}`, version: 1, at: user.at, kind: DATE }] : [];
@@ -595,6 +603,24 @@ function codexRuns(rows: AcpmuxRow[]): AcpmuxRow[] {
       ? { ...row, inFlight: true, version: row.version * 4 + 1 }
       : { ...row, settled: true, foldRun: true, version: row.version * 4 + 2 };
   });
+}
+
+/// The "Worked for" fold that holds `rows[index]`: the one of the turn its prompt opened, past
+/// steers (turnStart.ts). Find and a shell's row open it to reveal a row the fold hides.
+export function turnFoldFor(rows: readonly AcpmuxRow[], index: number): string | undefined {
+  for (let at = Math.min(index, rows.length - 1); at >= 0; at -= 1)
+    if (opensTurn(rows[at]!)) return `${WORKED}-${rows[at]!.id}`;
+  return undefined;
+}
+
+/// The footer of the drawn turn that `rows[from]` is in (the turn's summary row), looking forward
+/// from it to the next turn's prompt; a steer drawn inside the turn does not end it.
+export function turnFooterFrom(rows: readonly AcpmuxRow[], from: number): string | undefined {
+  for (let index = from; index >= 0 && index < rows.length; index += 1) {
+    if (index > from && opensTurn(rows[index]!)) return undefined;
+    if (rows[index]!.kind === "turnSummary") return rows[index]!.id;
+  }
+  return undefined;
 }
 
 /// A folded copy of an activity row is drawn as tool rows, never as the edited-files card.
