@@ -1,13 +1,22 @@
 // l10n-allow-file: gallery fixtures (sample messages and replies), not shipped UI.
 // Another agent's message to this chat as a card from it, and a Claude Code task notification as
-// one quiet line (IncomingMessageCard.tsx, incomingMessage.ts).
+// one quiet line (IncomingMessageCard.tsx, incomingMessage.ts). A message from a chat here also
+// has Reply (R with the card focused), which answers in place in the sender's chat and thread.
 import { agentPaneEntry } from "../../../gallery/format";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
 
-const message = (name: string, text: string, raw = text, sessionId?: string) => ({
+const message = (
+  name: string,
+  text: string,
+  raw = text,
+  sessionId?: string,
+  ids: { msgId?: string; threadId?: string } = {},
+) => ({
   kind: "message" as const,
-  message: { name, text, raw, ...(sessionId ? { sessionId } : {}) },
+  message: { name, text, raw, ...(sessionId ? { sessionId } : {}), ...ids },
 });
+
+const gridFix = "The grid fix is on cmux/grid-fix; tests pass.";
 
 export default agentPaneEntry({
   id: "agent-pane.incoming-message",
@@ -22,8 +31,8 @@ export default agentPaneEntry({
         user("Split the grid fix into its own chat and report back", 9),
         assistant("Started Grid fix; it will message this chat when done.", 8.5),
         summary(8.5, { status: "completed" }),
-        user("The grid fix is on cmux/grid-fix; tests pass.", 6, {
-          incoming: message("Grid fix", "The grid fix is on cmux/grid-fix; tests pass.", undefined, "child-3"),
+        user(gridFix, 6, {
+          incoming: message("Grid fix", gridFix, undefined, "child-3"),
           untyped: true,
         }),
         assistant("Merged cmux/grid-fix into this branch.", 5.5),
@@ -38,6 +47,19 @@ export default agentPaneEntry({
         }),
         assistant("Reviewing #123 now.", 3.5),
         summary(3.5, { status: "completed" }),
+      ]),
+    },
+    reply: {
+      note: "A message from a chat here, with its id and thread: Open beside, and Reply to answer in its thread.",
+      snapshot: chat([
+        user("Split the grid fix out to its own chat and tell me when tests pass", 9, { seq: 1 }),
+        assistant("Started Grid fix; I'll hand back here when it reports.", 8.5),
+        summary(8.5, { seq: 3, status: "completed" }),
+        user(gridFix, 2, {
+          seq: 4,
+          incoming: message("Grid fix", gridFix, undefined, "child-3", { msgId: "m-1", threadId: "t-1" }),
+          untyped: true,
+        }),
       ]),
     },
     notice: {
