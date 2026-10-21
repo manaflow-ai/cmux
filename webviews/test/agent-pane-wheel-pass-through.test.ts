@@ -66,6 +66,12 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         // Up from the latest message, so the button shows.
         expect(await wheelOver(page, ".acpmux-scroll", -1200)).toBeLessThan(0);
         await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+        // The bottom fade reaches past the button, so rows pass out of sight behind it (layout pass,
+        // hq#2696: "overlaps the date line, with no fade").
+        const fade = await page.evaluate(() =>
+          getComputedStyle(document.querySelector(".acpmux-scroll")!).getPropertyValue("--acpmux-fade-bottom").trim(),
+        );
+        expect(fade).toBe("56px");
         expect(await wheelOver(page, ".acpmux-jump-latest", -300)).toBeLessThan(-100);
         expect(await wheelOver(page, ".acpmux-jump-latest", 200)).toBeGreaterThan(100);
         await page.locator(".acpmux-jump-latest").click();

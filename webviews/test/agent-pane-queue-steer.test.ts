@@ -394,7 +394,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       const page = await openChat(false);
       const row = page.locator(".acpmux-queued", { hasText: "space thing" });
       await row.hover();
-      await row.locator(".acpmux-queued-action").first().click();
+      // A queued row shows Edit, Remove and Send now (#22805): click Send now by its name.
+      await row.getByRole("button", { name: "Send now", exact: true }).click();
       await row.locator(".acpmux-queued-kind", { hasText: "Steering" }).waitFor({ timeout: 10_000 });
       // The stopped turn has not ended yet: the row still shows.
       await page.waitForTimeout(500);

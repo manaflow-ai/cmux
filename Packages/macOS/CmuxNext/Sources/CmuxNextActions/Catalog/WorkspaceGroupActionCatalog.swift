@@ -20,8 +20,8 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "toggleFocusedWorkspaceGroupCollapsed",
-                title: String(localized: "action.toggleFocusedWorkspaceGroupCollapsed", defaultValue: "Toggle Group Collapse", bundle: .module),
-                keywords: ["group", "expand", "collapse"],
+                title: String(localized: "action.toggleFocusedWorkspaceGroupCollapsed", defaultValue: "Collapse/Expand Workspace Group", bundle: .module),
+                keywords: ["group", "expand", "collapse", "toggle"],
                 defaultShortcut: Shortcut(".", modifiers: [.control, .command]), category: .workspace,
                 symbol: "chevron.up.chevron.down", surfaces: [.palette, .keyboard], targets: [.workspaceGroup],
                 cliName: "workspace-group toggle-collapse"
