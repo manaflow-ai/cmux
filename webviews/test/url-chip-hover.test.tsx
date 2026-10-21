@@ -167,8 +167,10 @@ test("link inspection bounds burst requests and coalesces store notifications", 
   expect(rootElement.querySelector("output")?.getAttribute("data-state")).toBe("root|outside|First|Last");
 
   const beforeSeedRenders = renders;
-  seedLinkStore({ paths: { "/workspace/seed-a.md": { place: "root", folder: false } } });
-  seedLinkStore({ sites: { "https://example.com/seed": { title: "Seed" } } });
+  // Two answers for keys the probe reads, in one tick: one render. (A key no hook reads renders
+  // nothing: each hook's snapshot is its own key.)
+  seedLinkStore({ paths: { [paths[1]]: { place: "root", folder: false } } });
+  seedLinkStore({ sites: { [urls[1]]: { title: "Seed" } } });
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
   });

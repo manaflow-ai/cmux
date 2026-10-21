@@ -191,6 +191,7 @@ import {
   sessionEdits,
   type SessionEdits,
 } from "./turnChanges/sessionRows";
+import { repositoryRoot, viewChangesBeside } from "./turnChanges/viewChanges";
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import {
   RunInBackgroundContext,
@@ -232,6 +233,7 @@ import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
 import {
   canFork,
+  forkRefusal,
   earlierForkPrompts,
   forksAnyTurn,
   latestForkSeq,
@@ -271,6 +273,7 @@ import { chatColumnOf, configureChatWidth, useChatWidth } from "./chatWidth";
 import { registerChatDisplayHost, useChatDisplay } from "./chatDisplay";
 import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
+import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -807,6 +810,14 @@ const ThinkingRow = memo(
     return (
       <Thinking
         status={row.status}
+        since={row.at}
+        doing={row.doing}
+        doingAt={row.doingAt}
+        doingShell={row.doingShell}
+        untimed={row.untimed}
+        quietKey={row.quietKey}
+        below={row.below}
+        command={row.doingCommand}
         onCancel={
           queued
             ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
@@ -820,7 +831,15 @@ const ThinkingRow = memo(
     a.row.id === b.row.id &&
     a.row.version === b.row.version &&
     a.row.status === b.row.status &&
-    a.row.queued === b.row.queued,
+    a.row.queued === b.row.queued &&
+    a.row.at === b.row.at &&
+    a.row.doing === b.row.doing &&
+    a.row.doingAt === b.row.doingAt &&
+    a.row.doingShell === b.row.doingShell &&
+    a.row.untimed === b.row.untimed &&
+    a.row.quietKey === b.row.quietKey &&
+    a.row.below === b.row.below &&
+    a.row.doingCommand === b.row.doingCommand,
 );
 const WorkingRow = memo(
   function WorkingRow({ row, sessionId }: RowProps) {
@@ -837,6 +856,8 @@ const WorkingRow = memo(
     a.row.at === b.row.at &&
     a.row.durationMs === b.row.durationMs &&
     a.row.doing === b.row.doing &&
+    a.row.thinkingNow === b.row.thinkingNow &&
+    a.row.below === b.row.below &&
     a.row.doingCommand === b.row.doingCommand &&
     a.row.doingGroup === b.row.doingGroup &&
     a.row.doingGroupOpen === b.row.doingGroupOpen &&
@@ -1144,19 +1165,24 @@ function trailingRowTop(layout: ConversationLayout, rows: readonly { id: string 
 /// drawn heights): each glide is measured from what was painted, not from a layout nobody saw.
 type GlideHold = { id: string; top: number; added: number; glides: Animation[] };
 
+/// Whether `entry` is the height already kept for its row. Heights compare exactly: a fold's last
+/// frame draws its row a fraction of a pixel short of the height it settles at (145.72px, then
+/// 146px), and with any slack the row kept the frame's height, so every row below it sat that
+/// fraction too high, over the row above. A height that did not change still compares equal, so
+/// it renders nothing.
+function sameDrawn(old: DrawnHeight | undefined, entry: DrawnHeight): boolean {
+  return (
+    old !== undefined &&
+    old.sessionId === entry.sessionId &&
+    old.version === entry.version &&
+    old.width === entry.width &&
+    old.height === entry.height
+  );
+}
+
 /// Whether `updates` change any drawn height in `current`.
 function changesDrawn(current: Map<string, DrawnHeight>, updates: Map<string, DrawnHeight>): boolean {
-  for (const [id, entry] of updates) {
-    const old = current.get(id);
-    if (
-      !old ||
-      old.sessionId !== entry.sessionId ||
-      old.version !== entry.version ||
-      old.width !== entry.width ||
-      Math.abs(old.height - entry.height) >= 0.5
-    )
-      return true;
-  }
+  for (const [id, entry] of updates) if (!sameDrawn(current.get(id), entry)) return true;
   return false;
 }
 
@@ -1865,15 +1891,7 @@ export function VirtualTranscript({
     setDrawn((current) => {
       let next: Map<string, DrawnHeight> | undefined;
       for (const [id, entry] of updates) {
-        const old = current.get(id);
-        if (
-          old &&
-          old.sessionId === entry.sessionId &&
-          old.version === entry.version &&
-          old.width === entry.width &&
-          Math.abs(old.height - entry.height) < 0.5
-        )
-          continue;
+        if (sameDrawn(current.get(id), entry)) continue;
         next ??= new Map(current);
         next.set(id, entry);
       }
@@ -1905,13 +1923,17 @@ export function VirtualTranscript({
   useEffect(() => {
     const previous = previousRowList.current;
     previousRowList.current = rows;
-    // Rows that only grew below the ones there (a streaming turn) left none behind.
-    if (
-      previous &&
-      previous.length <= rows.length &&
-      previous.every((row, index) => row === rows[index] || row.id === rows[index]!.id)
-    )
-      return;
+    // Rows that only grew below the ones there (a streaming turn) left none behind, also when the
+    // running turn's line stays last under them (`below`, conversation/turns.ts).
+    if (previous && previous.length <= rows.length) {
+      const line = previous.at(-1)?.below === true && rows.at(-1)?.id === previous.at(-1)!.id ? 1 : 0;
+      if (
+        previous
+          .slice(0, previous.length - line)
+          .every((row, index) => row === rows[index] || row.id === rows[index]!.id)
+      )
+        return;
+    }
     const ids = new Set(rows.map((row) => row.id));
     const cache = measurementCache.current;
     for (const id of cache.keys()) if (!ids.has(id)) cache.delete(id);
@@ -2377,7 +2399,10 @@ export function VirtualTranscript({
         // line opening over a turn's first tool call), and by layouts of the same frame that never
         // painted (a new turn's rows by estimate, then by drawn height): the text dropped that far,
         // then slid up past where it was. The offset is read back, as WebKit keeps it to whole pixels.
-        const lastSeen = oldRows.at(-1);
+        // The row the reader reads, not the running turn's line under it (`below`): that line
+        // leaves when the turn ends, and its footer takes its place at the same height.
+        let lastSeen = oldRows.at(-1);
+        if (lastSeen?.below && oldRows.length > 1) lastSeen = oldRows.at(-2);
         if (!glideHold.current && lastSeen) {
           const was = trailingRowTop(old, oldRows, lastSeen.id);
           if (was !== undefined) {
@@ -3662,6 +3687,8 @@ function AcpmuxPane() {
   );
   // Codex-style tool runs in a running turn (Debug toggle, codexToolRuns.ts).
   const codexRuns = useCodexToolRuns();
+  // The running turn's status line as its last row (Debug toggle, liveLineBelow.ts).
+  const lineBelow = useLiveLineBelow();
   // The chats this chat's agent started, as cards in its transcript and chips in its replies
   // (started/startedSessions.ts), with the started-session-cards experiment on. An offer's
   // started task stays on its suggested tasks card.
@@ -3750,7 +3777,13 @@ function AcpmuxPane() {
       const turns = turnViewFrom(
         rows,
         expanded,
-        { working: snapshot.isWorking, clockOffset: snapshot.clockOffsetMs, liveRuns: codexRuns, sessionStatus },
+        {
+          working: snapshot.isWorking,
+          clockOffset: snapshot.clockOffsetMs,
+          liveRuns: codexRuns,
+          sessionStatus,
+          lineBelow,
+        },
         last?.turns,
       );
       const subagents = subagentRowsFrom(turns.rows, expanded, last?.subagents);
@@ -3767,6 +3800,7 @@ function AcpmuxPane() {
     snapshot.clockOffsetMs,
     codexRuns,
     sessionStatus,
+    lineBelow,
     chatShellRuns,
     panelAsks,
   ]);
@@ -3880,8 +3914,10 @@ function AcpmuxPane() {
   /// Opens the chat folder's diff in its own pane right of the chat, as the header's Changes does
   /// (Lawrence 2026-10-13: "when i click diff viewer it opens in new pane to right, not in a split in
   /// same webpage"). False when the host cannot (a remote chat, Quick Chat, the gallery): the turn's
-  /// diff then opens in place. Set below, once the header's actions exist.
-  const diffBeside = useRef<() => Promise<boolean>>(async () => false);
+  /// diff then opens in place, as it does for a folder outside a repository and a turn that changed a
+  /// file outside the repository, which the folder's diff does not hold (turnChanges/viewChanges.ts).
+  /// Set below, once the header's actions exist.
+  const diffBeside = useRef<(rowId: string) => Promise<boolean>>(async () => false);
   // A click does not focus a button in WebKit, so the clicked control is the opener, not the focus.
   const openDiff = useCallback<OpenDiff>((rowId, path, opener) => {
     const clicked = opener ?? (document.activeElement instanceof HTMLElement ? document.activeElement : undefined);
@@ -3890,7 +3926,7 @@ function AcpmuxPane() {
       setInspectorOpen(false);
       setDiffView({ sessionId: sessionIdRef.current, rowId, path, opener: clicked });
     };
-    void diffBeside.current().then((opened) => {
+    void diffBeside.current(rowId).then((opened) => {
       if (!opened) inPlace();
     }, inPlace);
   }, []);
@@ -4836,6 +4872,9 @@ function AcpmuxPane() {
         // Integrate a Harness… from the palette or the File menu on a New Tab page (cx-9fqw): the
         // Harnesses page in place, as the page's own button shows it.
         if (name === "showHarnesses") openHarnessesPage();
+        // A chat that just opened from a fork (the app's Fork Conversation): the composer takes the
+        // keyboard, so the next words go to the fork.
+        if (name === "focusComposer") composerHandle.current?.focus();
         // Archive Chat (Ctrl-Cmd-A), as in the Codex app: the chat menu's row, so it does nothing where
         // the menu has none or the chat is archived.
         if (name === "archiveChat") archiveChatRef.current?.();
@@ -4886,6 +4925,7 @@ function AcpmuxPane() {
         applyAgentTheme(theme as never);
         configureChatWidth(theme.chatWidth);
         configureCodexToolRuns(theme.codexToolRuns);
+        configureLiveLineBelow(theme.liveLineBelow);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
       },
       applyShortcuts(labels) {
@@ -5250,10 +5290,12 @@ function AcpmuxPane() {
           const name = shown?.summary?.modes?.availableModes.find((mode) => mode.id === modeId)?.name;
           pickedMode(client.shownSession()?.harness ?? shown?.summary?.harness, modeId, name);
         };
-        const openOwnTab = (sessionId: string) =>
+        /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
+        /// workspace, window); none is a tab after this chat's.
+        const openOwnTab = (sessionId: string, placement?: string) =>
           mock
             ? Promise.resolve(false)
-            : callNative("chat.openTab", { sessionId }).then(
+            : callNative("chat.openTab", placement ? { sessionId, placement } : { sessionId }).then(
                 () => true,
                 () => false,
               );
@@ -5500,6 +5542,30 @@ function AcpmuxPane() {
             const chat = client.selectedSession;
             const forked = await client.fork(Number(throughSeq), undefined, true);
             if (!forked || (await openOwnTab(forked)) || client.selectedSession !== chat) return forked;
+            return persistSession(await client.select(forked));
+          },
+          // Fork Conversation from the app (the palette's step, the chat's right-click menu, its
+          // shortcut): a fork through the chat's latest finished turn, opened where the app names
+          // (`placement`). A chat that cannot fork now says why in its transcript.
+          "chat.forkTo": async ({ placement }) => {
+            const shown = snapshotRef.current;
+            const refusal = shown ? forkRefusal(shown) : "unavailable";
+            const through = shown ? latestForkSeq(shown.rows) : undefined;
+            if (refusal || through === undefined) {
+              client.notice(
+                refusal === "busy"
+                  ? translate("notice.forkBusy")
+                  : refusal === "nothingYet"
+                    ? translate("notice.forkNothingYet")
+                    : translate("notice.forkFailed"),
+              );
+              return undefined;
+            }
+            harnessSwitch.cancel();
+            const chat = client.selectedSession;
+            const forked = await client.fork(through, undefined, true);
+            if (!forked || (await openOwnTab(forked, String(placement ?? "tab"))) || client.selectedSession !== chat)
+              return forked;
             return persistSession(await client.select(forked));
           },
           // Edit and resend (cx-ncc.60): a fork through the turn before the prompt, which then gets the
@@ -5860,9 +5926,13 @@ function AcpmuxPane() {
     runHeaderAction(id, cwd, mode);
     window.setTimeout(refreshTabState, 400);
   };
-  diffBeside.current = async () => {
+  diffBeside.current = async (rowId) => {
     // A remote or cloud chat's folder is not on this Mac, and Quick Chat's panel has no tab beside it.
     if (quick || !localCwd) return false;
+    // The folder's diff is its repository's: a folder outside one, or a file the turn wrote outside
+    // the repository, opens the turn's own diff in place (turnChanges/viewChanges.ts).
+    const root = await repositoryRoot(localCwd, readFolderStatus);
+    if (!viewChangesBeside(turnRowsRef.current, rowId, root)) return false;
     const reply = await callNative<{ ran?: boolean } | null>("pane.action", {
       id: HEADER_ACTIONS.changes,
       cwd: localCwd,
