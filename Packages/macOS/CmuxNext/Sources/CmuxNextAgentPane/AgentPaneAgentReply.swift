@@ -69,9 +69,10 @@ public nonisolated struct AgentPaneAgentReply: Equatable, Sendable {
     /// acpmux writes.
     static func signed(_ result: [String: Any]?, subject: String?, sessions: AcpmuxPaneSessions) -> AgentPaneAgentReply? {
         guard let subject, sessions.contains(subject), let reply = result?["reply"] as? [String: Any] else { return nil }
+        // Rust char::is_control (acpmux, the daemon) is category Cc only: format characters pass.
         func field(_ key: String, _ limit: Int = maximumField) -> String? {
             guard let value = reply[key] as? String, !value.isEmpty, value.utf8.count <= limit,
-                  !value.unicodeScalars.contains(where: { CharacterSet.controlCharacters.contains($0) && $0 != "\n" && $0 != "\t" }) else { return nil }
+                  !value.unicodeScalars.contains(where: { $0.properties.generalCategory == .control && $0 != "\n" && $0 != "\t" }) else { return nil }
             return value
         }
         guard field("from") == "acp:\(subject)", let replyTo = field("replyTo"), let threadId = field("threadId"),
