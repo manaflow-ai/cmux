@@ -89,9 +89,11 @@
   flex-direction: column;
   align-items: flex-end;
 }
-/* A prompt sits on the composer's surface, solid so it reads over a wallpaper (Leo 2026-10-13): the
-   composer's tint mixed into the opaque base, a small radius, and text inset evenly, 12px from
-   each side (8px of padding plus the line's half-leading above and below). model.ts measures it. */
+/* A prompt is tinted glass over the window (Leo 2026-10-20: translucent, never a solid fill): the
+   theme's text at a low strength over transparent, so the window's backdrop shows through, edged
+   with the composer's hairline so it holds its shape on a busy wallpaper. A small radius, and text
+   inset evenly, 12px from each side (8px of padding plus the line's half-leading above and
+   below). model.ts measures it. */
 .cv-user__bubble {
   box-sizing: border-box;
   max-width: 70%;
@@ -109,7 +111,7 @@
   -webkit-font-smoothing: antialiased;
 }
 .acpmux-shell .cv-user__bubble {
-  background: color-mix(in srgb, var(--agent-text) 13%, var(--acpmux-base));
+  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
 }
 
 /* The images a prompt sent, above its bubble. */
