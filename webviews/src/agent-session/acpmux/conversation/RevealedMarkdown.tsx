@@ -3,7 +3,7 @@
 // ends, so nothing remounts when it settles.
 import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import { StreamReveal } from "../streamReveal";
+import { StreamReveal, wordEdge } from "../streamReveal";
 import { Markdown } from "./Markdown";
 import { MessageBoundary } from "./MessageBoundary";
 import { pageAway } from "../../shared/pageReveal";
@@ -13,6 +13,11 @@ export const revealFrames = {
   request: (callback: (now: number) => void): number => requestAnimationFrame(callback),
   cancel: (handle: number): void => cancelAnimationFrame(handle),
 };
+
+/// The Debug toggle `agentPane.debug.streamWords` (on by default): a reply grows a whole word at a
+/// time. Off, the app sets `data-stream-words="off"` on <html> and it grows a character at a time.
+export const streamWords = () =>
+  typeof document === "undefined" || document.documentElement.dataset.streamWords !== "off";
 
 const reducedMotion = () =>
   typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches === true;
@@ -55,7 +60,13 @@ export function useStreamReveal(text: string, streaming: boolean): { visible: st
       // (shared/pageReveal.ts), and its blocks draw in place (Markdown's awayBlocks).
       const away = pageAway();
       const before = latest.current.shown;
-      let length = current.advance(latest.current.text, now, !latest.current.streaming);
+      const raw = current.advance(latest.current.text, now, !latest.current.streaming);
+      // A word shows once it is whole, never a letter at a time (#22339); the reveal's own count
+      // runs on, so a word that completes shows at once.
+      let length =
+        reduce.current || !streamWords()
+          ? raw
+          : wordEdge(latest.current.text, raw, !latest.current.streaming, before.length);
       // After `advance`, which takes in the text received meanwhile: all of it shows.
       if (away) {
         current.flush();

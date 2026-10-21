@@ -1338,6 +1338,10 @@ const currentRegistry = (): NativeRegistry => ({
 /// The thread's top padding (styles.css `.acpmux-thread`): rows draw this far below their places,
 /// so the transcript ends this far past their total height.
 const THREAD_TOP = 16;
+/// Room kept under the last row, over the bottom stack's: a streaming reply's newest line sits a
+/// line and a half above the composer instead of on its edge, as in ChatGPT and Claude desktop.
+/// It is always there, streaming or not, so a reply that starts or ends moves nothing.
+export const TRANSCRIPT_RUNWAY = 24;
 /// Small layout changes arrive constantly while a reply streams. Treat the bottom as a short
 /// resting zone so every token does not write a new fractional scroll offset (and make the thumb
 /// visibly twitch at the same cadence). A meaningful displacement still corrects immediately.
@@ -2095,7 +2099,7 @@ export function VirtualTranscript({
     : queueLeft.current && footDropped && previousLayout.current
       ? Math.max(floor.current.height, previousLayout.current.totalHeight - box.height + height)
       : floor.current.height;
-  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + dockSpace;
+  const rowsHeight = measured.layout.totalHeight + THREAD_TOP + TRANSCRIPT_RUNWAY + dockSpace;
   const layout = useMemo(
     () => ({ ...measured.layout, totalHeight: Math.max(floorHeight, rowsHeight) }),
     [measured, rowsHeight, floorHeight],
