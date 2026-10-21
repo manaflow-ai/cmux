@@ -77,9 +77,8 @@ public final class ThinScroller: NSScroller {
         didSet { placeKnob() }
     }
 
-    override public func setFrameSize(_ newSize: NSSize) {
-        super.setFrameSize(newSize)
-        placeKnob()
+    override public var frame: NSRect {
+        didSet { placeKnob() }
     }
 
     /// Never a track, also while the pointer is over the scroller.
