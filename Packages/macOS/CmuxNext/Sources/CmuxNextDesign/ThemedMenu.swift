@@ -4,7 +4,7 @@ extension NSMenu {
     /// Draws this menu's rows, and its submenus', in `scope`'s accent instead of the system accent
     /// (follow-up to #19754). NSMenu always highlights in the system accent and only follows light
     /// and dark, so every row becomes a `ThemedMenuRowView` that draws its own highlight: a faint
-    /// wash of the theme's accent (`Palette.menuHighlight`) in the label's ink. Separators and rows that already have a
+    /// wash of the theme's accent (`Palette.menuHighlight`) in the label's ink. Separators, section headers and rows that already have a
     /// view (the workspace and group menus' name and color header) are left as they are; such a view that is a
     /// `ThemedMenuItemView` is handed the scope to draw in. Call it last, once the menu is
     /// built, with the scope of the view that was right-clicked.
@@ -33,7 +33,8 @@ extension NSMenu {
             session.keep(relay)
             delegate = relay
         }
-        for item in items where !item.isSeparatorItem {
+        // A section header ("Phones" in the device menu) stays AppKit's: it never highlights or runs.
+        for item in items where !item.isSeparatorItem && !item.isSectionHeader {
             if let view = item.view as? any ThemedMenuItemView {
                 view.adoptMenuScope(scope)
             } else if item.view == nil {
@@ -48,6 +49,12 @@ extension NSMenu {
 }
 
 extension NSMenu {
+    /// Themes rows added to this themed menu since it was themed (a search's results while it is
+    /// open), in its scope and opening; does nothing in a menu that was never themed.
+    public func themeAddedRows() {
+        (delegate as? ThemedMenuHighlightRelay)?.themeRows(of: self)
+    }
+
     /// Runs `body` once a row chosen in this themed menu has run. A themed row runs its item after
     /// the menu's tracking loop ends (`ThemedMenuRowView.activate`), so code that follows `popUp`
     /// and settles the menu's outcome (a page menu that ends a dismissed request) waits for it.
@@ -146,6 +153,11 @@ final class ThemedMenuHighlightRelay: NSObject, NSMenuDelegate {
     /// A submenu filled as it opens (Open With ▸) themes the rows its delegate just added.
     func menuNeedsUpdate(_ menu: NSMenu) {
         forward?.menuNeedsUpdate?(menu)
+        themeRows(of: menu)
+    }
+
+    /// Themes `menu`'s rows that are not yet themed, in this relay's scope and opening.
+    func themeRows(of menu: NSMenu) {
         if let session { menu.themeRows(in: scope, session: session) }
     }
 }

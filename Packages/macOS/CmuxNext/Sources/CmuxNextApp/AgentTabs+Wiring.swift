@@ -71,16 +71,12 @@ extension AgentTabStore {
 
     /// Whether a new or empty workspace of `daemon` opens with an agent tab: this Mac's opens the
     /// New Tab page; another machine's opens only a chat it asked for (its terminal otherwise).
-    func opensFirstPage(on daemon: DaemonService, chat: Bool = false) -> Bool {
-        canHost(on: daemon) && (daemon.isLocal || chat)
-    }
+    func opensFirstPage(on daemon: DaemonService, chat: Bool = false) -> Bool { canHost(on: daemon) && (daemon.isLocal || chat) }
 
     /// The chat seed of new `workspace`, held before its tab is known: the
     /// tree can list the tab before new-conversation-tab replies, and a view
     /// built then takes it (``firstChatSeed(of:in:)``).
-    func seedFirstChat(_ seed: AgentPaneSeed, in workspace: WorkspaceHandle) {
-        firstChats[workspace] = AgentPaneSeedSource(seed)
-    }
+    func seedFirstChat(_ seed: AgentPaneSeed, in workspace: WorkspaceHandle) { firstChats[workspace] = AgentPaneSeedSource(seed) }
 
     /// A new workspace's first New Tab page, carrying that workspace's key-hold token.
     func firstPage(cwd: String?, token: String?) -> (page: AgentPaneNewTab, handler: NewTabPageHandler)? {
@@ -118,7 +114,7 @@ extension AgentTabStore {
         tabs.relaunchWake = AgentPaneRelaunchWake(directory: state)
         tabs.wakeStates = tabs.relaunchWake.take()
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag)) { [weak services] in
+        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag), local: tabs.host) { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
@@ -151,10 +147,7 @@ extension AgentTabStore {
         tabs.onFirstPageToken = { [weak services] token in services?.keyRouter.newTabInputCoordinator.attachIncoming(token) }
         tabs.resolveLocalHost = { [weak services] in
             guard let services else { return nil }
-            guard let id = try? services.cloud.localDeviceID() else {
-                services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused")
-                return nil
-            }
+            guard let id = try? services.cloud.localDeviceID() else { services.daemon.logger.error("agent tabs: no install id, new agent tabs are refused"); return nil }
             return AgentSessionRef.host(installID: id)
         }
         tabs.openProcess = { [weak services] chat, viewer in
@@ -168,6 +161,22 @@ extension AgentTabStore {
         tabs.locate = { [weak services] key in
             guard let services, let (tab, pane) = services.locateTab(key) else { return nil }
             return (pane: pane.handle, daemon: services.machines.daemon(forTab: tab))
+        }
+        // A redeemed Run attempt's terminal opens only on a Cloud machine (keyed by its provider VM
+        // id) whose daemon this Mac already has connected, with the session the ticket names; never
+        // on this Mac, an SSH host or a paired server. The page's ids are not verified against the
+        // Run API here, so this is the boundary. The tab's own daemon stores the remote-terminal
+        // reference (RemoteTerminalService.openTerminal does the same).
+        tabs.runAttach = { [weak services] key, request in
+            let vm = request.providerVMID, tabsCapability = DaemonCapabilities.shared.remoteTerminalTabs
+            guard let services, let (_, pane) = services.locateTab(key) else { throw DaemonError.notConnected }
+            let home = services.machines.daemon(forPane: pane)
+            guard let homeConnection = home.connection, services.machines.session(vm) != nil, let worker = services.machines.daemon(machine: vm), !worker.isLocal,
+                  worker.connection != nil, let identity = worker.identity, let sessionID = identity.sessionID, identity.session == request.session else { throw DaemonError.notConnected }
+            guard home.supports(tabsCapability) else { throw DaemonError.missingCapabilities([tabsCapability]) }
+            let name = services.machines.machineName(vm) ?? vm
+            let ref = RemoteTerminalRef(sessionID: sessionID, terminalID: TerminalID(rawValue: request.providerTerminalID), sessionName: name)
+            _ = try await homeConnection.newRemoteTerminalTab(ref, in: pane.handle, title: RemoteStrings.terminalOn(name))
         }
         // A tab's git reads (Changes, file search) go to the machine whose acpmux runs its session
         // (AgentPaneHostKind): a Cloud or SSH machine's session reads its folder there (cx-d0tq).
@@ -223,9 +232,7 @@ extension AgentTabStore {
                 // daemon that serves the verb; never a fallback to this Mac (cx-k21v). It starts at
                 // the page's first send, never when the tab opens.
                 guard started else { return nil }
-                guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else {
-                    return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine))
-                }
+                guard daemon.supports(DaemonCapabilities.shared.agentSessionStart) else { return AgentTabRefusedHost(refusal: .startUnsupported(machine: machine)) }
                 host.start = { [weak tabs] cwd, harness, personKey in
                     guard let tabs else { throw CancellationError() }
                     return try await tabs.startRemoteChat(key, machine: machine, cwd: cwd, harness: harness, personKey: personKey, endpoint: endpoint)
@@ -281,9 +288,7 @@ extension AgentTabStore {
             }
         }
         tabs.bind = { [weak services] key, surface, expected, session, harness in
-            guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else {
-                return (.failed, nil)
-            }
+            guard let services, let (tab, _) = services.locateTab(key), let connection = services.machines.daemon(forTab: tab).connection else { return (.failed, nil) }
             let request = BindConversationTabSessionRequest(surface: surface, session: session, expectedSession: expected, harness: harness)
             let outcome: AgentSessionBindOutcome, sequence: UInt64? // one return: swiftlang/swift#92698 (cx-21wc5)
             do {
