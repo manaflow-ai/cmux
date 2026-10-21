@@ -17837,127 +17837,127 @@
         "ar" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "جرس في أعلى الشريط الجانبي يرتّب مساحات العمل حسب ما يحتاج إليك."
+            "value" : "جرس في أعلى الشريط الجانبي يرتّب كل محادثات الوكلاء، على هذا الـMac وعلى الأجهزة المتطابقة ووكلاء Chief الفرعيين: المحادثات التي تحتاج إليك أولًا، ثم المنتهية غير المقروءة، ثم الفاشلة، ثم قيد العمل، ثم الخاملة."
           }
         },
         "bs" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Zvono na vrhu bočne trake sortira radne prostore prema onome što traži vašu pažnju."
+            "value" : "Zvono na vrhu bočne trake rangira svaki razgovor s agentom, na ovom Macu, na preslikanim uređajima i Chiefove podagente: prvo razgovore kojima ste potrebni, zatim završene nepročitane, neuspjele, aktivne i neaktivne."
           }
         },
         "da" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En klokke øverst i sidebjælken sorterer arbejdsområder efter, hvad der har brug for dig."
+            "value" : "En klokke øverst i sidebjælken rangerer alle agentchats, på denne Mac, på spejlede enheder og Chiefs underagenter: først chats, der har brug for dig, derefter færdige ulæste, mislykkede, aktive og inaktive."
           }
         },
         "de" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Eine Glocke oben in der Seitenleiste sortiert Workspaces danach, was dich braucht."
+            "value" : "Eine Glocke oben in der Seitenleiste ordnet jeden Agenten-Chat, auf diesem Mac, auf gespiegelten Geräten und die Subagenten des Chiefs: zuerst Chats, die dich brauchen, dann fertige ungelesene, fehlgeschlagene, arbeitende und ruhende."
           }
         },
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "A bell at the top of the sidebar sorts workspaces by what needs you."
+            "value" : "A bell at the top of the sidebar ranks every agent chat, on this Mac, on mirrored peers and the Chief's subagents: chats that need you first, then finished unread ones, failed, working and idle."
           }
         },
         "es" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una campana en la parte superior de la barra lateral ordena los espacios de trabajo según lo que te necesita."
+            "value" : "Una campana en la parte superior de la barra lateral ordena todos los chats de agentes, en este Mac, en equipos reflejados y los subagentes del Chief: primero los que te necesitan, luego los terminados sin leer, los fallidos, los que trabajan y los inactivos."
           }
         },
         "fr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Une cloche en haut de la barre latérale trie les espaces de travail selon ce qui a besoin de vous."
+            "value" : "Une cloche en haut de la barre latérale classe chaque chat d'agent, sur ce Mac, sur les appareils en miroir et les sous-agents du Chief : d'abord ceux qui ont besoin de vous, puis les terminés non lus, les échoués, ceux en cours et les inactifs."
           }
         },
         "it" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Una campanella in cima alla barra laterale ordina gli spazi di lavoro in base a ciò che richiede la tua attenzione."
+            "value" : "Una campanella in cima alla barra laterale ordina ogni chat degli agenti, su questo Mac, sui dispositivi in mirroring e i subagenti del Chief: prima le chat che ti richiedono, poi quelle finite non lette, fallite, in corso e inattive."
           }
         },
         "ja" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "サイドバー上部のベルで、対応が必要な順にワークスペースを並べ替えます。"
+            "value" : "サイドバー上部のベルで、この Mac、ミラーされたピア、Chief のサブエージェントのすべてのエージェントチャットを並べます。対応が必要なチャットが先頭で、次に完了した未読、失敗、作業中、待機中の順です。"
           }
         },
         "km" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "កណ្ដឹងនៅខាងលើរបារចំហៀងតម្រៀបកន្លែងធ្វើការតាមអ្វីដែលត្រូវការអ្នក។"
+            "value" : "កណ្ដឹងនៅខាងលើរបារចំហៀងតម្រៀបការជជែកភ្នាក់ងារទាំងអស់ នៅលើ Mac នេះ លើឧបករណ៍ឆ្លុះ និងភ្នាក់ងាររងរបស់ Chief៖ ការជជែកដែលត្រូវការអ្នកមុនគេ បន្ទាប់មកការជជែកដែលបានបញ្ចប់តែមិនទាន់អាន បរាជ័យ កំពុងធ្វើការ និងទំនេរ។"
           }
         },
         "ko" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "사이드바 상단의 벨이 확인이 필요한 순서로 작업 공간을 정렬합니다."
+            "value" : "사이드바 상단의 벨이 이 Mac, 미러링된 피어, Chief의 하위 에이전트의 모든 에이전트 채팅을 정렬합니다. 확인이 필요한 채팅이 먼저이고, 그다음 읽지 않은 완료, 실패, 작업 중, 대기 순입니다."
           }
         },
         "nb" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "En bjelle øverst i sidepanelet sorterer arbeidsområder etter hva som trenger deg."
+            "value" : "En bjelle øverst i sidepanelet rangerer alle agentchatter, på denne Macen, på speilede enheter og Chiefs underagenter: først chatter som trenger deg, så ferdige uleste, mislykkede, aktive og inaktive."
           }
         },
         "pl" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Dzwonek u góry paska bocznego sortuje obszary robocze według tego, co wymaga Twojej uwagi."
+            "value" : "Dzwonek u góry paska bocznego porządkuje każdy czat z agentem, na tym Macu, na urządzeniach lustrzanych i podagentów Chiefa: najpierw czaty, które Cię potrzebują, potem ukończone nieprzeczytane, nieudane, pracujące i bezczynne."
           }
         },
         "pt-BR" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Um sino no topo da barra lateral ordena os espaços de trabalho pelo que precisa de você."
+            "value" : "Um sino no topo da barra lateral ordena todos os chats de agentes, neste Mac, em dispositivos espelhados e os subagentes do Chief: primeiro os que precisam de você, depois os concluídos não lidos, os com falha, os em andamento e os ociosos."
           }
         },
         "ru" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Колокольчик вверху боковой панели сортирует рабочие пространства по тому, что требует вашего внимания."
+            "value" : "Колокольчик вверху боковой панели упорядочивает все чаты агентов, на этом Mac, на зеркальных устройствах и субагентов Chief: сначала чаты, которым нужны вы, затем завершённые непрочитанные, сбойные, работающие и простаивающие."
           }
         },
         "th" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "กระดิ่งที่ด้านบนของแถบด้านข้างจัดเรียงเวิร์กสเปซตามสิ่งที่ต้องการคุณ"
+            "value" : "กระดิ่งที่ด้านบนของแถบด้านข้างจัดลำดับแชทเอเจนต์ทั้งหมด บน Mac เครื่องนี้ บนอุปกรณ์ที่มิเรอร์ และเอเจนต์ย่อยของ Chief: แชทที่ต้องการคุณก่อน ตามด้วยแชทที่เสร็จแล้วแต่ยังไม่อ่าน ล้มเหลว กำลังทำงาน และว่าง"
           }
         },
         "tr" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Kenar çubuğunun üstündeki zil, çalışma alanlarını size ihtiyaç duyan şeye göre sıralar."
+            "value" : "Kenar çubuğunun üstündeki zil, bu Mac'teki, yansıtılan cihazlardaki ve Chief'in alt ajanlarındaki tüm ajan sohbetlerini sıralar: önce size ihtiyaç duyanlar, sonra okunmamış bitenler, başarısızlar, çalışanlar ve boştakiler."
           }
         },
         "uk" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Дзвіночок угорі бічної панелі сортує робочі простори за тим, що потребує вашої уваги."
+            "value" : "Дзвіночок угорі бічної панелі впорядковує всі чати агентів, на цьому Mac, на дзеркальних пристроях і субагентів Chief: спершу чати, яким потрібні ви, потім завершені непрочитані, невдалі, робочі й неактивні."
           }
         },
         "vi" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Một chiếc chuông ở đầu thanh bên sắp xếp không gian làm việc theo những gì cần bạn."
+            "value" : "Một chiếc chuông ở đầu thanh bên xếp hạng mọi cuộc trò chuyện với agent, trên máy Mac này, trên các máy được phản chiếu và các agent con của Chief: trước tiên là những cuộc cần bạn, sau đó là đã xong chưa đọc, thất bại, đang chạy và rảnh."
           }
         },
         "zh-Hans" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "边栏顶部的铃铛按需要你处理的事项对工作区排序。"
+            "value" : "边栏顶部的铃铛为所有代理对话排序，包括这台 Mac、镜像的设备和 Chief 的子代理：先是需要你处理的对话，然后是已完成未读、失败、进行中和空闲的对话。"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "側邊欄頂部的鈴鐺依需要你處理的事項排序工作區。"
+            "value" : "側邊欄頂部的鈴鐺為所有代理對話排序，包括這台 Mac、鏡像的裝置和 Chief 的子代理：先是需要你處理的對話，然後是已完成未讀、失敗、進行中和閒置的對話。"
           }
         }
       }
