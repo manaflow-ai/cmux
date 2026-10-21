@@ -559,6 +559,7 @@ async fn an_adopted_claude_chat_still_moves_its_work_after_an_update_restart() {
     std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
     daemon.start();
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    until_turn_restored(&daemon, &session).await;
 
     let mut rpc = daemon.rpc().await;
     let listed = rpc.call("session/list", json!({})).await;
@@ -594,6 +595,28 @@ fn flood_while_down(gate: &Path) {
     while !done.exists() {
         assert!(Instant::now() < deadline, "the agent never streamed its backlog");
         std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// Waits until the adopted chat holds its turn again (`_acpmux/sessions` `turn`, which only
+/// the running daemon sets).
+/// The daemon logs `host_adopted` before it restores the turn in flight (`hub/hosts.rs`
+/// `recover_work`), so a Ctrl-B right after that record can find no turn and move nothing.
+async fn until_turn_restored(daemon: &Daemon, session: &str) {
+    let mut rpc = daemon.rpc().await;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let all = rpc.call("_acpmux/sessions", json!({})).await;
+        let entry = all["sessions"]
+            .as_array()
+            .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
+            .cloned()
+            .unwrap_or(Value::Null);
+        if !entry["turn"].is_null() {
+            return;
+        }
+        assert!(Instant::now() < deadline, "the adopted turn never ran again: {entry}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
     }
 }
 
@@ -638,6 +661,7 @@ async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_it
     daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
     let adopted = started.elapsed();
     assert!(adopted < Duration::from_secs(4), "adoption took {adopted:?}");
+    until_turn_restored(&daemon, &session).await;
     assert_eq!(backgrounds_work(&daemon, &session).await, true, "the adopted chat hides Ctrl-B");
     let mut rpc = daemon.rpc().await;
     let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
