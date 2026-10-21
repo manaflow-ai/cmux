@@ -17,7 +17,7 @@ final class AppPaletteNavigationSource: PaletteNavigationSource {
 
     func navigationEntries() -> [PaletteNavigationEntry] {
         guard let services else { return [] }
-        PaletteNavigationEntries.entries(ControlSnapshotPublisher.topology(services), groups: Self.groups(services),
+        return PaletteNavigationEntries.entries(ControlSnapshotPublisher.topology(services), groups: Self.groups(services),
                                          lastActive: TabSearchFactsBuilder.lastActive(services),
                                          closing: TabSearchFactsBuilder.closing(services))
     }
