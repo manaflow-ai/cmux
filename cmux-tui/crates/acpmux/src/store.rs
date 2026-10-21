@@ -230,6 +230,10 @@ pub struct SessionMeta {
     /// `total_cost_usd`), which the next turn's cost is measured from.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub harness_cost_usd: Option<f64>,
+    /// The pull requests this session's `gh pr create` calls printed (`hub/pull_requests.rs`),
+    /// once each, oldest first. A fork starts with none.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub pull_requests: Vec<String>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`), with its short name and depth. `None`
     /// for a session a person or client started. Never copied to a fork.
@@ -503,6 +507,11 @@ pub trait Store: Send + Sync {
     /// Where handoff records live: `handoffs/` beside `sessions/`, or none
     /// (in memory) for the memory store.
     fn handoff_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Where each peer's last-known sessions are saved: `peers/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -912,6 +921,10 @@ impl Store for LocalStore {
 
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
+    }
+
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("peers"))
     }
 }
 

@@ -218,6 +218,9 @@ final class SidebarListView: NSView {
         occlusionObserver = window.map { center.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: $0, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.windowOcclusionChanged() } // main-proof: observer on queue: .main
         } }
+        // The rows read the window when they moved in; the list's own reading starts them all from
+        // the same state, not each from whatever its window said a moment earlier.
+        if window != nil { windowOcclusionChanged() }
     }
     private func windowOcclusionChanged() {
         setWindowVisible(window?.occlusionState.contains(.visible) ?? false)
