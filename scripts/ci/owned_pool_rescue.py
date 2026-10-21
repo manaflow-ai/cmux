@@ -1472,6 +1472,11 @@ def follow(client: GitHub, target: Target, *, seconds: int, queue_rounds: str | 
 # run gets a thread running follow(), the per-run watch.
 WATCH_MARKER = "owned-pool-watch"
 LATE_WATCH_MARKER = "owned-pool-watch-late"
+# cmux-next.yml's placement uploads this instead of WATCH_MARKER when it found
+# no free Blacksmith slot: a re-run would only rejoin the same owned queue, so
+# the run (and every re-run of it) is watched for refusals only (run
+# 39615562861 was cancelled and re-run twice while it waited, 2026-10-21).
+REFUSALS_WATCH_MARKER = "owned-pool-watch-refusals"
 SWEEP_TICK_SECONDS = 60
 # A sweeper adopts runs this long, then stops its watches and gives any rescue
 # it started RESCUE_GRACE_SECONDS. ci-owned-pool-rescue.yml's two-hourly cron
@@ -1548,6 +1553,7 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     outcomes: dict[str, int] = {}
     seen: set[int] = set()
     rerun_seen: set[tuple[int, int]] = set()  # re-runs, once per attempt (owned_reruns())
+    refusals_runs: set[int] = set()  # runs with REFUSALS_WATCH_MARKER, re-runs included
     threads: list[threading.Thread] = []
     started = now()
     latest = started + dt.timedelta(seconds=sweep_seconds + RESCUE_GRACE_SECONDS)
@@ -1604,6 +1610,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         if isinstance(target, str):
             log(f"[run {run_id}] not watched: {target}")
             return
+        if run_id in refusals_runs:
+            target = dataclasses.replace(target, refusals_only=True)
         thread = threading.Thread(target=one, args=(target,), name=f"run-{run_id}", daemon=True)
         thread.start()
         threads.append(thread)
@@ -1611,19 +1619,26 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
     while (now() - started).total_seconds() < sweep_seconds:
         oldest = now() - dt.timedelta(seconds=SWEEP_MAX_AGE_SECONDS)
         # The picker's marker first: a run with both is watched the ordinary way.
-        for name, late in ((WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
+        # Refusals-only runs are listed before the re-runs, which inherit the mark.
+        refusals_listed = False
+        for name, late in ((REFUSALS_WATCH_MARKER, False), (WATCH_MARKER, False), (LATE_WATCH_MARKER, True)):
             try:
                 marked = client.marked_runs(name, SWEEP_LISTING, oldest, SWEEP_LISTING_PAGES, log=log)
             except READ_ERRORS as error:
                 log(f"could not list {name} markers ({error}); next tick")
                 continue
+            refusals_listed = refusals_listed or name == REFUSALS_WATCH_MARKER
             for run_id, created in marked:
-                if run_id in seen or (created is not None and created < oldest):
+                if created is not None and created < oldest:
                     continue
-                adopt(run_id, late)
+                if name == REFUSALS_WATCH_MARKER:
+                    refusals_runs.add(run_id)
+                if run_id not in seen:
+                    adopt(run_id, late)
         # A re-run of failed jobs goes back to the minis with no marker of its own; two listings a tick.
         try:
-            reruns = client.owned_reruns(SWEEP_LISTING)
+            # Without the refusals listing a re-run could lose its mark: wait a tick.
+            reruns = client.owned_reruns(SWEEP_LISTING) if refusals_listed else []
         except READ_ERRORS as error:
             log(f"could not list re-runs ({error}); next tick")
             reruns = []
