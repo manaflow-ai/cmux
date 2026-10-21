@@ -80,6 +80,11 @@ public struct CloudConversationClient: CloudConversationCommands {
         try await local(CloudSessionStatusRequest())
     }
 
+    /// `cloud-selfhost-info`: the daemon asks the self-hosted server its lease names who the person is.
+    public func selfHostInfo() async throws -> CloudSelfHostInfo {
+        try await network(CloudSelfHostInfoRequest())
+    }
+
     public func inboxList(limit: Int) async throws -> CloudInboxList {
         try await network(CloudInboxListRequest(limit: limit))
     }
