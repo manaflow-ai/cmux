@@ -63,9 +63,15 @@ export function useNeedsYou({
     void callNative("chat.select", { sessionId: item.sessionId }).then(reveal, () => undefined);
   };
   const actions: NeedsYouActions = {
-    answer: (item, choice) => {
+    answer: async (item, choice) => {
+      // `reply` throws on an answer its question cannot take: a refusal, never a stuck row.
       const call = answerParams(item, choice);
-      return call ? callNative(call.method, call.params) : Promise.reject(new Error("unanswerable"));
+      if (!call) throw new Error("unanswerable");
+      // The pane may answer only a chat it shows (the relay's session scope and answers rule), so
+      // an ask of another chat opens that chat first; the same click's gesture covers both.
+      if (item.sessionId !== sessionId && item.kind !== "held")
+        await callNative("chat.select", { sessionId: item.sessionId });
+      return callNative(call.method, call.params);
     },
     goTo,
     ask: (item, question) => ask(question, item.sessionId),

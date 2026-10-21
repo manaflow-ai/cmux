@@ -17,7 +17,7 @@ import type { AcpmuxSessionEntry } from "../src/agent-session/acpmux/sessionList
 import { needsYouItems, type NeedsYouItem, type WatchedAsk } from "../src/agent-session/acpmux/needsYou/model";
 import { needsYouLink, needsYouTarget, onOpenNeedsYou, openNeedsYou } from "../src/agent-session/acpmux/needsYou/links";
 import { nextAsk, NeedsYouPill } from "../src/agent-session/acpmux/needsYou/JumpPill";
-import { answerParams } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
+import { answerParams, useNeedsYou } from "../src/agent-session/acpmux/needsYou/useNeedsYou";
 import {
   NeedsYouPanel,
   needsYouMode,
@@ -154,6 +154,35 @@ test("the open chat's held agent pair messages are one item with Resume; a resum
     method: "chat.agentPair.resume",
     params: { peer: "a" },
   });
+});
+
+test("a chat with held messages and a waiting indicator is one item, not two", () => {
+  const row = {
+    kind: "agentPair",
+    agentPair: {
+      peer: "a",
+      peerName: "Agent a",
+      reason: "alternating",
+      count: 10,
+      held: [{ promptId: "a-1", text: "LGTM?" }],
+      released: 0,
+      dropped: 0,
+    },
+  } as unknown as AcpmuxRow;
+  const items = needsYouItems({
+    sessions: [session("s1", { indicator: "input" })],
+    asks: [],
+    open: { sessionId: "s1", rows: [row] },
+  });
+  expect(items.map((item) => item.id)).toEqual(["held:s1:a"]);
+});
+
+test("an answer the question cannot take is refused, not thrown", () => {
+  const [decision] = needsYouItems({
+    sessions: [session("s-q")],
+    asks: [ask("s-q", permission({ permissionId: "q-perm", question: question() }), 1)],
+  });
+  expect(() => answerParams(decision!, { id: "nope", label: "nope", tone: "choice" })).toThrow();
 });
 
 test("a subagent's ask names the chat that started it", () => {
@@ -349,4 +378,44 @@ test("compact mode lists asks without answers", () => {
   );
   expect(html).toContain("Run it");
   expect(html).not.toContain("acpmux-needs-you-answer");
+});
+
+test("answering another chat's ask opens that chat first, so the relay lets the answer through", async () => {
+  const host = installDom();
+  const calls: string[] = [];
+  const callNative = (async (method: string, params?: Record<string, unknown>) => {
+    calls.push(`${method}:${String(params?.sessionId ?? "")}`);
+    return undefined;
+  }) as <T>(method: string, params?: Record<string, unknown>) => Promise<T>;
+  let actions: NeedsYouActions | undefined;
+  let items: NeedsYouItem[] = [];
+  function Probe() {
+    const needsYou = useNeedsYou({
+      snapshot: {
+        sessionId: "here",
+        rows: [],
+        sessions: [session("here"), session("other")],
+        asks: [
+          ask("here", permission({ permissionId: "p-here" }), 2),
+          ask("other", permission({ permissionId: "p-other" }), 1),
+        ],
+      },
+      callNative,
+      ask: async () => "",
+    });
+    actions = needsYou.actions;
+    items = needsYou.items;
+    return null;
+  }
+  root = createRoot(host);
+  await act(async () => root!.render(<Probe />));
+  const here = items.find((item) => item.sessionId === "here")!;
+  const other = items.find((item) => item.sessionId === "other")!;
+  await actions!.answer(here, here.answers[0]!);
+  expect(calls).toEqual(["chat.permission:here"]);
+  calls.length = 0;
+  await actions!.answer(other, other.answers[0]!);
+  expect(calls).toEqual(["chat.select:other", "chat.permission:other"]);
+  // A refused question answer rejects instead of throwing out of the click.
+  await expect(actions!.answer({ ...other, permissionId: undefined }, other.answers[0]!)).rejects.toThrow();
 });

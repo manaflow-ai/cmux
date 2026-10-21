@@ -2664,8 +2664,12 @@ export function VirtualTranscript({
           shown={behind || (needsYou?.elsewhere ?? 0) > 0}
           working={working}
           onJump={(focused) => {
-            if (behind) jumpToLatest(focused);
-            if (needsYou && needsYou.count > 0) needsYou.next(behind);
+            // One press, one move: to the latest message when this chat's ask waits there (or no
+            // ask is open), else straight to the next chat's ask.
+            const here = needsYou ? needsYou.count - needsYou.elsewhere : 0;
+            const scroll = behind && (!needsYou || needsYou.count === 0 || here > 0);
+            if (scroll) jumpToLatest(focused);
+            if (needsYou && needsYou.count > 0) needsYou.next(scroll);
           }}
           lift={dockSpace}
           needsYou={needsYou}

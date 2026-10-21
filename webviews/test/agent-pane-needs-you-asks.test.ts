@@ -61,11 +61,37 @@ test("an answer elsewhere rereads the chat, and the read's list wins", async () 
   expect(asks.list()[0]!.permission.turnId).toBe("t3");
 });
 
-test("a count that matches what the page holds needs no read", () => {
+test("a chat is read once per reported count, not on every summary change", () => {
   const { asks, reads } = tracker();
   asks.pending({ sessionId: "s1", permissionId: "p1" });
   asks.session({ sessionId: "s1", pendingPermissions: 1 }, "status");
-  expect(reads).toHaveLength(0);
+  asks.session({ sessionId: "s1", pendingPermissions: 1 }, "status");
+  asks.session({ sessionId: "s1", pendingPermissions: 1 }, "title");
+  expect(reads).toHaveLength(1);
+  // A new request with the count unchanged (one answered, one asked) is read again.
+  asks.session({ sessionId: "s1", pendingPermissions: 1 }, "permission_request");
+  expect(reads).toHaveLength(2);
+});
+
+test("an ask answered while a newer ask arrives during the read still leaves", async () => {
+  const { asks, reads } = tracker();
+  asks.pending({ sessionId: "s1", permissionId: "old" });
+  asks.session({ sessionId: "s1", pendingPermissions: 1 }, "permission_decision");
+  // "old" was answered elsewhere; "new" arrives while the read is out.
+  asks.pending({ sessionId: "s1", permissionId: "new" });
+  reads[0]!.resolve([]);
+  await settle();
+  expect(ids(asks)).toEqual(["new"]);
+});
+
+test("grouped requests are left to their group card", async () => {
+  const { asks, reads } = tracker();
+  asks.pending({ sessionId: "s1", permissionId: "g1", groupId: "grp" });
+  expect(ids(asks)).toEqual([]);
+  asks.session({ sessionId: "s1", pendingPermissions: 2 });
+  reads[0]!.resolve([{ permissionId: "g2", groupId: "grp" }, { permissionId: "solo" }]);
+  await settle();
+  expect(ids(asks)).toEqual(["solo"]);
 });
 
 test("asks found by a read (opened before the page saw them) are dated by the chat's last change", async () => {

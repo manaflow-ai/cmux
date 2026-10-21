@@ -25,10 +25,20 @@ export type ParsePermission = (message: unknown, sessionId: string) => AcpmuxPer
 
 const count = (value: unknown) => (typeof value === "number" && value > 0 ? Math.floor(value) : 0);
 
+/// A grouped request (`groupId`) is answered as a group on its own card, never one by one: the list
+/// leaves it to the chat's waiting item (model.ts), which opens that card.
+const grouped = (value: unknown) => typeof value === "string" && value.length > 0;
+
 export class AskTracker {
   private readonly asks = new Map<string, WatchedAsk>();
+  /// When each ask was first seen, in `tick`s: a read that started before it cannot drop it.
+  private readonly seen = new Map<string, number>();
+  private tick = 0;
   /// Each chat's newest read: an older read that lands after it is dropped.
   private readonly reads = new Map<string, number>();
+  /// The pending count acpmux last reported for each chat: a chat is read again only when it
+  /// changes (or on an answer), never on every summary change.
+  private readonly reported = new Map<string, number>();
   private readonly updatedAt = new Map<string, number>();
   private listed: WatchedAsk[] = [];
   private stale = false;
@@ -52,12 +62,13 @@ export class AskTracker {
   /// A `_acpmux/permission_pending` notification, on an attached chat or a watched one.
   pending(message: unknown): void {
     const sessionId = sessionOf(message);
-    if (!sessionId) return;
+    if (!sessionId || grouped((message as { groupId?: unknown }).groupId)) return;
     const permission = this.parse(message, sessionId);
     if (!permission || this.asks.has(permission.permissionId)) return;
-    // A read already on its way may predate this ask, and would drop it: it no longer counts.
-    this.reads.set(sessionId, (this.reads.get(sessionId) ?? 0) + 1);
+    // A read already on its way keeps counting: it may hold another chat's answer. It cannot drop
+    // this ask, which it never saw (`reconcile` keeps asks seen after the read started).
     this.asks.set(permission.permissionId, { sessionId, permission, at: this.now() });
+    this.seen.set(permission.permissionId, ++this.tick);
     this.touch();
   }
 
@@ -73,15 +84,16 @@ export class AskTracker {
   session(session: WatchedSession, kind?: string): void {
     if (typeof session.updatedAt === "number") this.updatedAt.set(session.sessionId, session.updatedAt);
     const reported = count(session.pendingPermissions);
-    const held = this.heldFor(session.sessionId);
+    const before = this.reported.get(session.sessionId);
+    this.reported.set(session.sessionId, reported);
     if (reported === 0) {
       // Nothing open: no read needed, and a read still in flight is stale.
       this.reads.set(session.sessionId, (this.reads.get(session.sessionId) ?? 0) + 1);
-      if (held > 0) this.forget(session.sessionId);
+      if (this.heldFor(session.sessionId) > 0) this.forget(session.sessionId);
       return;
     }
-    const answered = kind === "permission_decision" || kind === "permission_resolved";
-    if (reported !== held || answered) void this.reread(session.sessionId);
+    const changed = kind === "permission_request" || kind === "permission_decision" || kind === "permission_resolved";
+    if (reported !== before || changed) void this.reread(session.sessionId);
   }
 
   /// A chat acpmux purged: its asks go.
@@ -90,8 +102,10 @@ export class AskTracker {
     for (const [id, ask] of this.asks)
       if (ask.sessionId === sessionId) {
         this.asks.delete(id);
+        this.seen.delete(id);
         removed = true;
       }
+    this.reported.delete(sessionId);
     if (removed) this.touch();
   }
 
@@ -104,6 +118,7 @@ export class AskTracker {
   private async reread(sessionId: string): Promise<void> {
     const generation = (this.reads.get(sessionId) ?? 0) + 1;
     this.reads.set(sessionId, generation);
+    const started = this.tick;
     let entries: readonly PendingEntry[] | undefined;
     try {
       entries = await this.read(sessionId);
@@ -111,13 +126,14 @@ export class AskTracker {
       entries = undefined;
     }
     if (entries === undefined || this.reads.get(sessionId) !== generation) return;
-    this.reconcile(sessionId, entries);
+    this.reconcile(sessionId, entries, started);
   }
 
-  private reconcile(sessionId: string, entries: readonly PendingEntry[]): void {
+  private reconcile(sessionId: string, entries: readonly PendingEntry[], started: number): void {
     const open = new Set<string>();
     let moved = false;
     for (const entry of entries) {
+      if (grouped(entry.groupId)) continue;
       const permission = this.parse({ sessionId, permissionId: entry.permissionId, request: entry.request }, sessionId);
       if (!permission) continue;
       if (typeof entry.turnId === "string" && !permission.turnId) permission.turnId = entry.turnId;
@@ -126,11 +142,14 @@ export class AskTracker {
       // An ask found by a read was asked before the page saw it: the chat's last change dates it.
       const at = Math.min(this.now(), this.updatedAt.get(sessionId) ?? Number.POSITIVE_INFINITY);
       this.asks.set(permission.permissionId, { sessionId, permission, at });
+      this.seen.set(permission.permissionId, ++this.tick);
       moved = true;
     }
+    // An ask the read does not list was answered, unless it arrived after the read started.
     for (const [id, ask] of this.asks)
-      if (ask.sessionId === sessionId && !open.has(id)) {
+      if (ask.sessionId === sessionId && !open.has(id) && (this.seen.get(id) ?? 0) <= started) {
         this.asks.delete(id);
+        this.seen.delete(id);
         moved = true;
       }
     if (moved) this.touch();

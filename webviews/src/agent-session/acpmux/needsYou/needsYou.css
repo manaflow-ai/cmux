@@ -2,6 +2,7 @@
    chat's Needs your input pill. One mark says "this needs you" everywhere: the blue dot the
    window sidebar draws for a workspace that waits on you (the sidebar's input mark, the badge, the
    pill). */
+:root,
 .acpmux-shell,
 .ui-positioner {
   --acpmux-needs-you-mark: rgb(57 130 245); /* theme-fixed: the sidebar's unread dot on every theme (Palette.notificationBlue) */

@@ -88,6 +88,8 @@ export function needsYouItems(input: NeedsYouInput): NeedsYouItem[] {
   if (input.open?.sessionId) {
     const session = byId.get(input.open.sessionId);
     for (const pair of heldPairs(input.open.rows)) {
+      // The chat's held messages are what it waits on: no second, vaguer item for it below.
+      asked.add(input.open.sessionId);
       items.push({
         id: `held:${input.open.sessionId}:${pair.peer}`,
         kind: "held",
