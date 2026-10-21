@@ -219,61 +219,21 @@ impl Mux {
                 }
                 continue;
             }
-            if let Err(error) = self.transition_terminal_lifecycle(
-                "terminal-adopting",
-                "adopt-terminal",
-                &terminal_id,
-                TerminalLifecycle::Adopting,
-                Some(&record.incarnation),
-            ) {
-                let current =
-                    self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
-                if current.as_ref().is_some_and(|terminal| {
-                    matches!(
-                        terminal.lifecycle,
-                        TerminalLifecycle::Exited | TerminalLifecycle::Tombstoned
-                    )
-                }) {
-                    if current
-                        .as_ref()
-                        .is_some_and(|terminal| terminal.lifecycle == TerminalLifecycle::Exited)
-                    {
-                        self.detach_exited_terminal_topology(&terminal_id)?;
-                    }
-                    handled_terminals.insert(terminal_id.clone());
-                    if !cleanup_terminal_host_record(&record, &record_path) {
-                        self.schedule_terminal_adoption(options.clone(), record, record_path);
-                    }
-                    continue;
-                }
-                return Err(error);
-            }
-            if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
-                // Commit the durable exit before deleting the record. The
-                // record is the only proof that this host ever existed, so a
-                // failed commit must leave the next startup able to retry
-                // instead of facing a lifecycle row with no evidence.
-                self.mark_terminal_ended(
-                    &terminal_id,
-                    "terminal-host-proven-dead",
-                    "host-process-ended-before-adoption",
-                    &options,
-                )?;
-                let _ = crate::terminal_host_runtime::remove_stale_terminal_host_record(
-                    &record_path,
-                    &record,
-                );
-                handled_terminals.insert(terminal_id.clone());
-                continue;
-            }
             // The host adopts on its own thread, after the owner answers its
             // clients: one host's handshake and replay must not hold the first
             // answer, nor every other terminal (launch to a live terminal,
-            // plans/cmux-next/service-start-PERF.md 5b). The tab is adopting,
-            // not dead, until then (R41).
+            // plans/cmux-next/service-start-PERF.md 5b). That thread commits
+            // the adopting lifecycle and proves a dead host, so no per-host
+            // write runs before the answer either. The tab is adopting, not
+            // dead, until then (R41).
             handled_terminals.insert(terminal_id.clone());
             self.set_pending_terminal(&terminal_id, PendingTerminal::Adopting);
-            self.schedule_terminal_adoption_after(options.clone(), record, record_path, Duration::ZERO);
+            self.schedule_terminal_adoption_after(
+                options.clone(),
+                record,
+                record_path,
+                Duration::ZERO,
+            );
         }
 
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
@@ -685,7 +645,12 @@ impl Mux {
         record: crate::terminal_host_runtime::TerminalHostRecord,
         record_path: std::path::PathBuf,
     ) {
-        self.schedule_terminal_adoption_after(options, record, record_path, Duration::from_millis(100));
+        self.schedule_terminal_adoption_after(
+            options,
+            record,
+            record_path,
+            Duration::from_millis(100),
+        );
     }
 
     /// Adopts a surviving host on its own thread, first after `first_delay`, then
@@ -777,12 +742,13 @@ impl Mux {
                         delay = (delay * 2).min(Duration::from_secs(5));
                         continue;
                     }
-                    if terminal.lifecycle == TerminalLifecycle::Running {
-                        let already_live = mux
-                            .resolve_terminal(&terminal_id)
-                            .ok()
-                            .flatten()
-                            .is_some_and(|resolution| resolution.surface.is_some());
+                    if terminal.lifecycle != TerminalLifecycle::Adopting {
+                        let already_live = terminal.lifecycle == TerminalLifecycle::Running
+                            && mux
+                                .resolve_terminal(&terminal_id)
+                                .ok()
+                                .flatten()
+                                .is_some_and(|resolution| resolution.surface.is_some());
                         if already_live {
                             break;
                         }
@@ -796,7 +762,10 @@ impl Mux {
                             )
                             .is_err()
                         {
-                            break;
+                            // The next pass reads the row again: an ended
+                            // terminal stops there, a failed write retries.
+                            delay = (delay * 2).min(Duration::from_secs(5));
+                            continue;
                         }
                     }
                     if terminal_host_record_liveness(&record_path, &record)
@@ -830,7 +799,12 @@ impl Mux {
                     };
                     let adopted = {
                         let _slot = AdoptionSlot::take();
-                        mux.adopt_restored_terminal(restored_binding, &options, &record, &record_path)
+                        mux.adopt_restored_terminal(
+                            restored_binding,
+                            &options,
+                            &record,
+                            &record_path,
+                        )
                     };
                     if mux.refused_all(
                         &mut refusals,
@@ -927,9 +901,12 @@ static ADOPTION_SLOT_FREED: std::sync::Condvar = std::sync::Condvar::new();
 
 impl AdoptionSlot {
     fn take() -> Self {
-        let mut in_flight = ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let mut in_flight =
+            ADOPTIONS_IN_FLIGHT.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         while *in_flight >= ADOPTION_SLOTS {
-            in_flight = ADOPTION_SLOT_FREED.wait(in_flight).unwrap_or_else(std::sync::PoisonError::into_inner);
+            in_flight = ADOPTION_SLOT_FREED
+                .wait(in_flight)
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
         }
         *in_flight += 1;
         AdoptionSlot
