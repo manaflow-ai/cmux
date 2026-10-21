@@ -77,10 +77,11 @@ struct AgentPaneConnectActionTests {
             menu.removeAllItems()
             return items
         }
-        #expect(await model.respond(to: .tabState(refresh: false))["moves"] as? [String] == ["cloudMove"])
+        let moves = { (await model.respond(to: .tabState(refresh: false))["value"] as? [String: Any])?["moves"] as? [String] }
+        #expect(await moves() == ["cloudMove"])
         hidden = ["cloudMove"]
-        #expect(await model.respond(to: .tabState(refresh: false))["moves"] as? [String] == ["cloudBringBack"])
+        #expect(await moves() == ["cloudBringBack"])
         hidden = ["cloudMove", "cloudBringBack"]
-        #expect(await model.respond(to: .tabState(refresh: false))["moves"] as? [String] == [])
+        #expect(await moves() == [])
     }
 }
