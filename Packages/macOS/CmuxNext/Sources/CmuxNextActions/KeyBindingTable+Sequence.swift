@@ -27,10 +27,10 @@ extension KeyBindingTable {
                      isRunnable: (ActionID) -> Bool) -> SequenceStep {
         // A bare sequence goes on only while the context still owns bare
         // keys: focus that moved into a text field mid-sequence types the key.
-        if let first = keys.first, BareKeys.isBare(first), !context.ownsBareKeys { return .none }
+        if let first = keys.first, first.isBare, !context.ownsBareKeys { return .none }
         if keys.count + 1 < Self.maxSequenceLength,
            let longer = readings.first(where: {
-               (!keys.isEmpty || !BareKeys.isBare($0) || context.ownsBareKeys) && continues(keys + [$0], in: context, isRunnable: isRunnable)
+               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys) && continues(keys + [$0], in: context, isRunnable: isRunnable)
            }) {
             return .extend(longer)
         }

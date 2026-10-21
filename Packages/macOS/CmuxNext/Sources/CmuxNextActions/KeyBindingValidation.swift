@@ -16,7 +16,7 @@ public nonisolated struct KeyBindingIssue: Hashable, Sendable {
         /// first key with Option but neither).
         case firstKeyNeedsCommandOrControl
         /// A bare first key (no Command, Control or Option) binds only under
-        /// a `when` that requires a bare-key page and no text field (``BareKeys``).
+        /// a `when` that requires a bare-key page and no text field (``WhenClause/allowsBareKeys``).
         case bareKeyNeedsBareKeyContext
     }
 
@@ -94,8 +94,8 @@ public struct KeyBindingLoader {
         guard let first = entry.keys.first else { return .failure(.noKeys) }
         guard entry.keys.count <= KeyBindingTable.maxSequenceLength else { return .failure(.tooManyKeys) }
         if first.modifiers.isDisjoint(with: [.command, .control]) {
-            guard BareKeys.isBare(first) else { return .failure(.firstKeyNeedsCommandOrControl) }
-            guard BareKeys.mayBind(when: entry.when) else { return .failure(.bareKeyNeedsBareKeyContext) }
+            guard first.isBare else { return .failure(.firstKeyNeedsCommandOrControl) }
+            guard entry.when?.allowsBareKeys == true else { return .failure(.bareKeyNeedsBareKeyContext) }
         }
         let id = registry.canonicalID(for: entry.command)
         var binding = entry

@@ -63,7 +63,7 @@ public nonisolated struct ActionContext: OptionSet, Sendable, Hashable {
     /// Contexts whose page owns bare keys (no Command, Control or Option):
     /// only while one holds, and no text field has the keyboard, may a
     /// binding of a bare key run or a bare sequence arm (the diff viewer's
-    /// j, k, G, /; a user's `g g` in a read-only markdown page). See ``BareKeys``.
+    /// j, k, G, /; a user's `g g` in a read-only markdown page). See ``KeyContext/ownsBareKeys``.
     public static let bareKeyOwners: ActionContext = [.diffViewerFocused, .markdownReadOnlyFocused]
 }
 

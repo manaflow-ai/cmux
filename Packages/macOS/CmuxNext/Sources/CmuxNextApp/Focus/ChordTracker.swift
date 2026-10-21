@@ -114,8 +114,7 @@ struct ChordTracker {
         }
         // A bare first key reaches here only from a page that owns bare keys, and the table arms
         // it only there (`KeyBindingTable.step`); an Option key never starts a chord.
-        guard KeyRouter.isChord(event.modifierFlags) || KeyRouter.isBareKey(event.modifierFlags), let key = first(event), canArm()
-        else { return .pass }
+        guard KeyRouter.isChord(event.modifierFlags) || KeyRouter.isBareKey(event.modifierFlags), let key = first(event), canArm() else { return .pass }
         self.pending = ([key], window, focus)
         return .armed
     }

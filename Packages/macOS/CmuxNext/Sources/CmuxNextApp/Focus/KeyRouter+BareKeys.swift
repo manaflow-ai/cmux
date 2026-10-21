@@ -13,18 +13,6 @@ extension KeyRouter {
         flags.isDisjoint(with: [.command, .control, .option])
     }
 
-    /// The focused page owns bare keys now: an owning context, and no text
-    /// field (native or in the page) has the keyboard.
-    nonisolated static func ownsBareKeys(_ context: KeyContext) -> Bool {
-        context.ownsBareKeys
-    }
-
-    /// The binding a bare key runs in `context`, or nil when it is typing.
-    func bareKeyWinner(_ event: NSEvent, context: KeyContext) -> KeyBinding? {
-        guard Self.isBareKey(event.modifierFlags), Self.ownsBareKeys(context) else { return nil }
-        return resolve(event, context: context)
-    }
-
     /// A bare key-down in a cmux window: when the focused page owns bare
     /// keys, the first key of a sequence (`g g`, `] f`) arms the chord
     /// tracker and a single key runs its binding; any other key goes on to
@@ -36,7 +24,9 @@ extension KeyRouter {
         let facts = facts(in: window, controller: controller)
         if Self.belongsToInputMethod(event, facts: facts) { return false }
         let context = keyContext(for: controller.focus.state, facts: facts)
-        guard Self.ownsBareKeys(context) else { return false }
+        // The focused page owns bare keys now (`KeyContext.ownsBareKeys`): an owning context, and
+        // no text field (native or in the page) has the keyboard.
+        guard context.ownsBareKeys else { return false }
         return dispatchBare(event, in: window, controller: controller, context: context, facts: facts)
     }
 }
