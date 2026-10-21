@@ -80,7 +80,7 @@ export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
   placeholderSteer: "composer.placeholderSteer",
-  placeholderInterrupt: "composer.placeholderInterrupt",
+  placeholderSteerQuick: "composer.placeholderSteerQuick",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -821,19 +821,42 @@ export function Composer({
       onStop();
     }
   };
+  // Enter sends unless it picks a command: with the menu closed, with nothing to pick (an unknown
+  // command or a pasted path), or on a command already typed in full that takes no arguments.
+  const returnSends = () => {
+    const typedInFull =
+      matches[selected]?.command.name === query &&
+      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
+    return !open || matches.length === 0 || typedInFull;
+  };
+  const sendOnReturn = (event: { preventDefault(): void }) => {
+    if (!returnSteers) return submit(event);
+    event.preventDefault();
+    return send(false, true);
+  };
+  // The Return an input method or Dictation passed on (keyCode 229) reaches no key handler, and
+  // the browser inserts its paragraph instead (Leo's dictated prompt, d5829ff). Return never adds
+  // a line here (Shift-Return does): it sends, or picks the menu's command, as a Return key would.
+  const returnInput = () => {
+    if (shell) return;
+    if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (returnSends()) return void sendOnReturn({ preventDefault() {} });
+    if (matches.length > 0) pick(matches[selected].command);
+  };
   const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
-    // Quick Composer keeps its own ⌘Return and Esc, below.)
+    // While a turn runs, ⌘Return queues the prompt for after it; Return steers (below). Nothing
+    // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
+    // Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
     const commandReturn =
       event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
-    if (commandReturn && steerable) {
+    if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
-      send(false, true);
+      send(false);
       return;
     }
     // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
@@ -944,14 +967,8 @@ export function Composer({
       onOpenInWindow(sent);
       return;
     }
-    // Enter sends unless it picks a command: with the menu closed, with nothing
-    // to pick (an unknown command or a pasted path), or on a command already
-    // typed in full that takes no arguments.
-    const typedInFull =
-      matches[selected]?.command.name === query &&
-      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
-    if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
-      submit(event);
+    if (event.key === "Enter" && plain && returnSends()) {
+      sendOnReturn(event);
       return;
     }
     if (!open) return;
@@ -993,24 +1010,29 @@ export function Composer({
     pageEscape: !onOpenInWindow,
     onStop: stopTurn,
   });
-  // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
-  const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
-  const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
   const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
-  // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
-  // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
-  // typed text, so with only attachments staged it says just that Return queues.
+  // An agent that steers takes Return into the running turn: it reads the prompt when its current
+  // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
+  // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
+  // that cannot steer queues on both keys.
+  const steers = queues && snapshot.summary?.steering === true;
+  const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
+  // The steer control shows once a prompt is typed.
+  const steerable = steers && Boolean(text.trim());
+  // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
+  // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
+  // cannot steer says it queues.
   // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does.
   const placeholder = escapeStop.armed
     ? COMPOSER_LABELS.escapeAgainToStop
     : !queues
       ? COMPOSER_LABELS.placeholder
-      : onOpenInWindow || attachments.length > 0
+      : !steers
         ? COMPOSER_LABELS.placeholderQueued
-        : steerKind === "steer"
-          ? COMPOSER_LABELS.placeholderSteer
-          : COMPOSER_LABELS.placeholderInterrupt;
+        : onOpenInWindow
+          ? COMPOSER_LABELS.placeholderSteerQuick
+          : COMPOSER_LABELS.placeholderSteer;
   // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
   const dictating = useDictationListening();
   // Focus leaving the composer closes the menu and takes back what + wrote.
@@ -1313,6 +1335,7 @@ export function Composer({
             onChange={(markdown, at) => edit(markdown, at)}
             onCaret={setCaret}
             onKeyDown={keyDown}
+            onReturnInput={returnInput}
             onCompositionChange={(value) => {
               composing.current = value;
             }}
@@ -1447,18 +1470,18 @@ export function Composer({
               </SpeedToggleHost.Provider>
             )}
             <span className="acpmux-composer-actions">
-              {/* While a turn runs, a typed prompt gets one icon control, as Codex and Claude draw
-                  it (Leo 2026-10-20): ↵ sends it now (steers, or interrupts an agent that cannot
-                  steer), the ⌘Return the placeholder teaches. Return still queues it. It comes in
-                  at the cluster's leading edge, so the mic and Stop keep their places (hq#1957). */}
+              {/* While a turn runs, a typed prompt gets one icon control, not a word (Leo
+                  2026-10-20): ↵ puts it into the turn now, as Return does; ⌘Return queues it. It
+                  comes in at the cluster's leading edge, so Stop and the mic keep their places
+                  (hq#1957). */}
               {steerable && (
                 <button
                   key="steer"
                   type="button"
                   className="acpmux-send acpmux-send-ready acpmux-steer-now"
-                  aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
-                  // tooltip-allow: names the icon-only control and its shortcut.
-                  title={t(steerKind === "steer" ? "composer.steerNowTooltip" : "composer.interruptTooltip")}
+                  aria-label={t("composer.steerLabel")}
+                  // tooltip-allow: names the icon-only control, what it does and its key.
+                  title={t("composer.steerTooltip")}
                   // Keep focus and the caret in the prompt, as the mic does.
                   onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
@@ -1496,7 +1519,13 @@ export function Composer({
                       ? t("composer.shellRun")
                       : blocked?.reason
                         ? t(blocked.reason)
-                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                        : t(
+                            !snapshot.isWorking
+                              ? "composer.sendTooltip"
+                              : returnSteers
+                                ? "composer.queueLaterTooltip"
+                                : "composer.queueTooltip",
+                          )
                   }
                 >
                   <ArrowUpIcon />

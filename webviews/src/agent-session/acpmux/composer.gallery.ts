@@ -533,14 +533,13 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
-    // Leo 2026-10-18: the empty prompt mid-turn teaches its keys, as Claude's "↵ to send, ⌘↵ to
-    // queue for later" does.
+    // Leo 2026-10-20: the empty prompt mid-turn teaches its keys, as Claude's composer does.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says ↵ queues and ⌘↵ steers.",
+      note: "A turn running for an agent that steers: the empty prompt says ↵ steers and ⌘↵ queues.",
       snapshot: steering(true),
     },
-    "working-hint-interrupt": {
-      note: "The same for an agent that cannot steer: the empty prompt says ↵ queues and ⌘↵ interrupts.",
+    "working-hint-queue": {
+      note: "The same for an agent that cannot steer: nothing sent stops the turn, so the empty prompt says it queues.",
       snapshot: steering(false),
     },
     "working-stop": {
@@ -559,7 +558,7 @@ export default agentPaneEntry({
       },
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now (⌘Return), Return queues it for after the turn, and Stop sits left of the mic, as in Claude's desktop app.",
+      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
       play: async (ctx) => {
@@ -572,8 +571,8 @@ export default agentPaneEntry({
         );
       },
     },
-    "working-interrupt": {
-      note: "The same for an agent that cannot steer: the ↵ control stops the turn and sends the prompt next (⌘Return).",
+    "working-queue": {
+      note: "The same for an agent that cannot steer: no ↵ control; Return and ⌘Return queue the prompt.",
       snapshot: steering(false),
       ready: { draft: "Use the new tokenizer instead" },
     },

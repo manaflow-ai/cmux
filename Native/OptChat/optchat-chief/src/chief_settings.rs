@@ -1,10 +1,11 @@
 //! Per-Chief settings, `$MUX_HOME/optchat/settings.json`
-//! (`{"remote": {"autoApprove": false}, "cache": {"ttl": "1h"}}`), shown later in the Chief settings
+//! (`{"cache": {"ttl": "1h"}}`), shown later in the Chief settings
 //! sidebar. The host reads the file once at start and owns the value after
-//! that: a change goes through the host (`Brain::set_setting`), which
-//! refuses to loosen the approval gates (`remote.autoApprove` on, `remote.ask`
-//! or `home.ask` off) during a remote-origin turn, and writes the file. An edit of the file by hand takes effect at the next
-//! host start (README "Remote-origin messages").
+//! that: a change goes through the host (`Brain::set_setting`), which writes
+//! the file. An edit of the file by hand takes effect at the next host start.
+//! No setting makes the Chief ask before it acts (Lawrence, 2026-10-20:
+//! "chief should never have to ask for approvals"); the old `remote.*` and
+//! `home.ask` keys are ignored when read and dropped at the next write.
 
 use std::path::Path;
 
@@ -15,23 +16,6 @@ use crate::prompt::CacheTtl;
 /// The settings this host knows.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ChiefSettings {
-    /// A remote-origin turn (the owner's own paired device) runs with the
-    /// configured policy instead of `ask`. Default false; true is an explicit
-    /// opt-in that applies only to that owner's paired devices.
-    pub remote_auto_approve: bool,
-    /// "Ask before acting on requests from other devices" (`remote.ask`):
-    /// a turn a paired device started (the owner's phone or another
-    /// machine) asks before each local effect. Default false: the owner's
-    /// own devices run like the Mac (Leo, 2026-10-20; the gate is for a
-    /// shared Chief or a phone that might be lost). `remote.autoApprove`
-    /// true still wins over it. Another participant's turn always asks.
-    pub remote_ask: bool,
-    /// "Ask before acting on what Home shows" (`home.ask`): every turn that
-    /// reads the Home workspace block (terminal screens, titles, URLs: text
-    /// anything on this Mac can write) asks before each local effect.
-    /// Default false; the host reads Home on every turn, so on it gates
-    /// every turn the owner starts too.
-    pub home_ask: bool,
     /// How long a turn's prompt cache entries live (`5m` or `1h`); None: the
     /// engine's default (1 hour on the Claude Code path, 5 minutes on the
     /// native engine). `OPTCHAT_CACHE_TTL` wins over it.
@@ -86,9 +70,6 @@ impl ReplyThreads {
 impl Default for ChiefSettings {
     fn default() -> ChiefSettings {
         ChiefSettings {
-            remote_auto_approve: false,
-            remote_ask: false,
-            home_ask: false,
             cache_ttl: None,
             reply_threads: ReplyThreads::Auto,
             show_after_report: true,
@@ -96,15 +77,6 @@ impl Default for ChiefSettings {
         }
     }
 }
-
-/// The key of `ChiefSettings::remote_auto_approve`.
-pub const REMOTE_AUTO_APPROVE: &str = "remote.autoApprove";
-
-/// The key of `ChiefSettings::remote_ask`.
-pub const REMOTE_ASK: &str = "remote.ask";
-
-/// The key of `ChiefSettings::home_ask`.
-pub const HOME_ASK: &str = "home.ask";
 
 /// The key of `ChiefSettings::cache_ttl`.
 pub const CACHE_TTL: &str = "cache.ttl";
@@ -119,11 +91,6 @@ pub const SHOW_AFTER_REPORT: &str = "show.afterReport";
 pub const CLOUD_AUTO_PAUSE_IDLE_SECONDS: &str = "cloud.autoPauseIdleSeconds";
 
 impl ChiefSettings {
-    /// Whether a turn a paired device started asks before its local effects.
-    pub fn remote_gate(self) -> bool {
-        self.remote_ask && !self.remote_auto_approve
-    }
-
     /// The settings in `path`; a missing or unreadable file is the defaults.
     pub fn load(path: &Path) -> ChiefSettings {
         let value: Value = std::fs::read_to_string(path)
@@ -131,9 +98,6 @@ impl ChiefSettings {
             .and_then(|t| serde_json::from_str(&t).ok())
             .unwrap_or(Value::Null);
         ChiefSettings {
-            remote_auto_approve: cmux_chief::policy::remote_auto_approve(&value),
-            remote_ask: value["remote"]["ask"].as_bool().unwrap_or(false),
-            home_ask: value["home"]["ask"].as_bool().unwrap_or(false),
             cache_ttl: value["cache"]["ttl"].as_str().and_then(CacheTtl::parse),
             reply_threads: value["replies"]["thread"]
                 .as_str()
@@ -147,9 +111,7 @@ impl ChiefSettings {
     }
 
     pub fn to_json(self) -> Value {
-        let mut value =
-            json!({"remote": {"autoApprove": self.remote_auto_approve, "ask": self.remote_ask}});
-        value["home"] = json!({"ask": self.home_ask});
+        let mut value = json!({});
         if let Some(ttl) = self.cache_ttl {
             value["cache"] = json!({"ttl": ttl.as_str()});
         }

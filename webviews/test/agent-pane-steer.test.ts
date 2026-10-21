@@ -5,8 +5,8 @@
 //
 // - Enter queues: the queue row shows the prompt and the composer is free for the next one. The
 //   prompt shows there from the send on, never first as a transcript bubble.
-// - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
-//   (`_meta.acpmux.interrupt`); the button says so.
+// - Nothing sent stops the turn (Leo 2026-10-20): to an agent that cannot steer, ⌘Enter queues the
+//   prompt too, with no steer control and no `_meta.acpmux.interrupt`.
 // - Esc stops the turn on a second press (escapeStop.ts): the first turns Stop into an Esc hint,
 //   and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
 //   (focus outside the composer, as in a question card) counts too; with no turn, Esc does nothing.
@@ -286,16 +286,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("⌘Enter interrupts an agent that cannot steer and sends now", async () => {
+    test("⌘Enter queues to an agent that cannot steer and never stops the turn", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("use the new tokenizer");
-      const button = page.getByRole("button", { name: "Interrupt and send" });
-      await button.waitFor();
       await page.keyboard.press("Meta+Enter");
-      await page.waitForFunction(
-        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
-      );
+      await page.locator(".acpmux-queued", { hasText: "use the new tokenizer" }).waitFor();
       expect({
         meta: prompts.map(
           (p) =>
@@ -304,8 +300,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
               interrupt: p._meta.acpmux.interrupt,
             },
         ),
-        queued: await page.locator(".acpmux-queued").count(),
-      }).toEqual({ meta: [{ steer: true, interrupt: true }], queued: 0 });
+        steerControl: await page.locator(".acpmux-steer-now").count(),
+        cancels: cancels.length,
+      }).toEqual({ meta: [{ steer: undefined, interrupt: undefined }], steerControl: 0, cancels: 0 });
       await page.close();
     });
 
