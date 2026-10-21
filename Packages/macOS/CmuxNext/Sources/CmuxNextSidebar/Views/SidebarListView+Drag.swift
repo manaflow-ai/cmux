@@ -315,8 +315,7 @@ extension SidebarListViewComponents {
             drag.heldKeys = []
             // A lifted group's line rode on the card; the applies under the flight left it out while its rows were
             // hidden. It shows with its rows, in this transaction (u2455: it came back only at the next click).
-            joinHeaders(displayed)
-            groupLineViews.showMissing(groupLines(displayed), in: self, below: decorations)
+            showMissingGroupLines(displayed)
         }
         updateHover()
         // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).

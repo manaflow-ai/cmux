@@ -37,6 +37,25 @@ extension SidebarListViewComponents {
         return groupLineViews.update(groupLines(layout), from: start, in: self, below: decorations, animated: animated)
     }
 
+    /// The lines `layout` shows that have no view yet, and the joined headers' lines, at once.
+    func showMissingGroupLines(_ layout: SidebarLayout) {
+        joinHeaders(layout)
+        groupLineViews.showMissing(groupLines(layout), in: self, below: decorations)
+    }
+
+    /// A row's frame and, for a joined header, the line it draws below it: the header stays
+    /// realized while any of its line can show.
+    func reach(of row: SidebarRow) -> CGRect {
+        let frame = frame(for: row)
+        guard case let .group(id) = row.key, let length = joinedLineLengths[id] else { return frame }
+        return CGRect(x: frame.minX, y: frame.minY, width: frame.width, height: frame.height + length)
+    }
+
+    /// The joined headers outside `rect` whose line reaches into it.
+    func joinedHeaders(reaching rect: CGRect) -> [SidebarRow] {
+        joinedLineLengths.keys.compactMap { displayed.row(for: .group($0)) }.filter { reach(of: $0).intersects(rect) }
+    }
+
     /// Joined, how far each open group's header draws its line below its bar, kept for headers
     /// configured later (`configure`) and handed to the headers on screen now; else none.
     func joinHeaders(_ layout: SidebarLayout) {

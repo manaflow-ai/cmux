@@ -155,7 +155,7 @@ extension SidebarListViewComponents {
             let target = frame(for: row)
             if reopened.contains(row.key) { rowViews.removeValue(forKey: row.key)?.removeFromSuperview() }
             let existing = rowViews[row.key]
-            guard existing != nil || target.intersects(realize) else { continue }
+            guard existing != nil || reach(of: row).intersects(realize) else { continue }
             keep.insert(row.key)
             // Without motion (a space switch, a page) any parked view of the kind serves, as a scroll's
             // does: a space's rows then make no new views once the pool holds some (space-switch-fast).
@@ -308,11 +308,10 @@ extension SidebarListViewComponents {
         SidebarPerfCounters.add(.scrollRealizes)
         groupEditing.followScroll()
         let realize = realizationRect()
-        for index in displayed.rowIndices(from: realize.minY, to: realize.maxY) {
-            let row = displayed.rows[index]
+        for row in displayed.rowIndices(from: realize.minY, to: realize.maxY).map({ displayed.rows[$0] }) + joinedHeaders(reaching: realize) {
             guard rowViews[row.key] == nil else { continue }
             let target = frame(for: row)
-            guard target.intersects(realize) else { continue }
+            guard reach(of: row).intersects(realize) else { continue }
             let opening = openingRows[row.key] != nil
             let view = dequeue(row.key, rebinding: !opening)
             view.targetSize = target.size
@@ -331,7 +330,7 @@ extension SidebarListViewComponents {
         let keepRect = realizationRect().insetBy(dx: 0, dy: -SidebarStyle.pruneMargin)
         // Only realized rows can be pruned: visit those, not every row.
         for (key, view) in rowViews {
-            guard let row = displayed.row(for: key), !frame(for: row).intersects(keepRect),
+            guard let row = displayed.row(for: key), !reach(of: row).intersects(keepRect),
                   inlineRename.session?.key != key, key != groupEditor.shownGroup.map(SidebarRowKey.group) else { continue }
             recycle(view)
             rowViews[key] = nil

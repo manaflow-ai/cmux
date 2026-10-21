@@ -27,10 +27,9 @@ final class SidebarGroupLineViews {
     /// line whose group closed or left shrinks back up into its header.
     ///
     /// Lines go in under the decorations, so every row, whenever the list
-    /// adds it (right above the decorations), draws over every line: a joined
-    /// line's top end tucks under the header bar (`SidebarGroupLine.lines`). The
-    /// drag gap the decorations draw sits right of the members' gutter, so
-    /// it never covers a line.
+    /// adds it (right above the decorations), draws over every line. A drop
+    /// gap the decorations draw inside a group washes over its line with its
+    /// translucent fill; member rows start right of the gutter and never do.
     func update(_ new: [SidebarGroupLine], from start: [SidebarGroupLine], in list: NSView, below decorations: NSView, animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
         // A reload without motion shows the lines as they are now: a line still fading out
         // from an earlier, animated update (the join setting turned on, a group closed) goes now.
@@ -137,9 +136,13 @@ final class GroupLineView: NSView {
 
     override func layout() {
         super.layout()
+        // The trim follows the view's frame in the same frame: the frame moves in the rows' Motion block.
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
         shape.frame = bounds
         shape.path = SidebarGroupLineShape.line(width: bounds.width, height: bounds.height)
         if layer?.mask !== shape { layer?.mask = shape }
+        CATransaction.commit()
     }
 
     override func updateLayer() {
