@@ -33,6 +33,7 @@ import { acpmuxListCommand, acpmuxListProblems, programChecksCommand } from "../
 import { runChild } from "./helpers/run-child";
 
 const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests mutate arbitrary nested lock fields
 const fresh = () => JSON.parse(lockText) as Record<string, any>;
 
 function problemsOf(raw: unknown): string[] {
