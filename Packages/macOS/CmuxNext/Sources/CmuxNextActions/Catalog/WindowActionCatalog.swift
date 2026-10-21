@@ -204,7 +204,7 @@ nonisolated enum WindowActionCatalog: ActionCatalogGroup {
                 title: String(localized: "action.search.chats", defaultValue: "Search Everything…", bundle: .module),
                 keywords: ["search", "everything", "history", "chats", "agents", "chief", "find", "acp"],
                 defaultShortcut: Shortcut("a", modifiers: [.command, .shift]),
-                category: .window, symbol: "bubble.left.and.bubble.right", surfaces: [.palette, .keyboard, .menu],
+                category: .window, symbol: "magnifyingglass", surfaces: [.palette, .keyboard, .menu],
                 arguments: [CatalogArgument.queryString], cliName: "app search-chats", mainMenu: .window
             ),
             ActionDescriptor(

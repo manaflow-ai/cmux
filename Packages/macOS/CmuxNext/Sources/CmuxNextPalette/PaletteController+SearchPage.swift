@@ -6,11 +6,11 @@ extension PaletteController {
     /// pages (history, agent chats), ranked by the palette's one off-main
     /// searcher. Rows keep one section per kind, so a query reads as blocks
     /// of Workspaces, Tabs, History, Settings and Commands. The empty query
-    /// shows Recent and the workspaces (Cmd-P's old first results).
+    /// shows Recent and the workspaces. Cmd-Shift-A opens it; Cmd-P is `workspacesPage`.
     func searchPage() -> PalettePageSpec {
         var providers: [any PaletteProvider] = []
         if let source = sources.workspaces {
-            // Before typing, the workspaces show, as Go to Workspace (the old Cmd-P) showed them.
+            // Before typing, the workspaces show, as on Cmd-P.
             providers.append(WorkspacePaletteProvider(source: source, showsItemsForEmptyQuery: true))
         }
         // The navigation source lists every tab (with groups and panes); the plain tab list is the fallback.
