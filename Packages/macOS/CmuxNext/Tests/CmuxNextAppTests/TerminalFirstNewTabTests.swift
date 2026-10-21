@@ -38,7 +38,7 @@ struct TerminalFirstNewTabTests {
             }
             @MainActor func pages() -> [TabModel] { tabs().filter { services.agentTabs.isNewTabPage($0.id) } }
             @MainActor func terminals() -> [TabModel] { tabs().filter { $0.kind == .pty } }
-            let describe = { @MainActor in "tabs: \(tabs().map { "\($0.id) \($0.kind)" }), panes: \(paneCount())" }
+            @MainActor func describe() -> String { "tabs: \(tabs().map { "\($0.id) \($0.kind)" }), panes: \(paneCount())" }
 
             // The default: Cmd-T opens the New Tab page, selected in the focused pane.
             let terminalsBefore = terminals().count

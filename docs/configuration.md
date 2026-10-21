@@ -152,7 +152,7 @@ What Cmd-T, Cmd-D and Cmd-Shift-D open.
 - `false` (default): Cmd-T opens the New Tab page, and a split from a browser tab, the New Tab page or an agent chat opens the New Tab page in the new pane.
 - `true`: Cmd-T opens a terminal tab and Cmd-D and Cmd-Shift-D open a terminal in the new pane, as in cmux classic.
 
-Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
+With it on, Cmd-T always opens a tab in the focused pane, even with `newTerminal.opensWorkspace` or `layout.newPanePlacement: split`. A new workspace still starts on the New Tab page. Scripts (`cmux tab new`, `cmux pane split-right`, MCP) are not affected. Change it in **Settings > General > Tabs** or with `cmux settings set tabs.terminalFirst true`.
 
 ## `tabs.swapCmdTAndCmdN`
 
