@@ -88,7 +88,13 @@ grow_if_needed() {
   command -v fallocate >/dev/null 2>&1 || { echo "cmux-tui-state-mount: fallocate is required for state growth" >&2; return 1; }
 
   echo "cmux-tui-state-mount: growing state image from ${current_bytes} to ${next_bytes} bytes" >&2
-  (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE") || return 1
+  # A failed fallocate can leave the file partly extended. Shrink it back so a
+  # later resize cannot absorb blocks the root headroom check never approved;
+  # the filesystem inside still ends at current_bytes.
+  (umask 077; fallocate -l "$next_bytes" "$STATE_IMAGE") || {
+    truncate -s "$current_bytes" "$STATE_IMAGE" 2>/dev/null || true
+    return 1
+  }
   losetup -c "$loop_device" || return 1
   resize2fs "$loop_device" >/dev/null || return 1
 }
