@@ -45,10 +45,12 @@ from typing import Dict, List, Optional, Tuple
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
-# Current Swift package tests, including the iOS package. The workflow guard
-# router sends these paths to the quality-determinism group, which runs this lint.
+# Swift test sources: the macOS and iOS package tests, and the iOS app's
+# keyboard UI tests (the cmuxUITests target of ios/cmux-ios.xcodeproj). The
+# quality-determinism guard group runs this lint; the router reaches it for the
+# ios/ paths through its run-every-group fallback.
 TEST_PATH = re.compile(
-    r"^(?:Packages/.*/Tests/|ios/CmuxiOS/Tests/).*\.swift$"
+    r"^(?:Packages/.*/Tests/|ios/CmuxiOS/Tests/|ios/cmuxUITests/).*\.swift$"
 )
 
 ASSERTION = re.compile(r"(#expect|#require|\bXCTAssert[A-Za-z]*|\bXCTUnwrap)\s*\(")

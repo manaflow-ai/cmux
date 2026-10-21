@@ -256,10 +256,11 @@ class CommandLine(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertIn("1 Swift test files", stdout)
 
-    def test_scans_the_ios_package_test_sources(self) -> None:
+    def test_scans_the_ios_test_sources(self) -> None:
         for path in (
             "ios/CmuxiOS/Tests/CmuxHomeUITests/ProbeTests.swift",
             "ios/CmuxiOS/Tests/CmuxiOSTerminalTests/ProbeTests.swift",
+            "ios/cmuxUITests/ProbeTests.swift",
         ):
             with self.subTest(path=path):
                 status, _, stderr = self.run_lint(
@@ -267,14 +268,6 @@ class CommandLine(unittest.TestCase):
                 )
                 self.assertEqual(status, 1)
                 self.assertIn(f"{path}:2", stderr)
-
-    def test_does_not_scan_retired_ios_app_tests(self) -> None:
-        status, stdout, stderr = self.run_lint(
-            {"ios/cmuxUITests/ProbeTests.swift": "#expect(errno == EAGAIN)\n"}
-        )
-        self.assertEqual(status, 0)
-        self.assertIn("0 Swift test files", stdout)
-        self.assertEqual(stderr, "")
 
 
 if __name__ == "__main__":
