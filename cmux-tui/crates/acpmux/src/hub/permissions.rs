@@ -696,6 +696,7 @@ impl Hub {
                     && answered_by.is_some()
                     && answers.is_some()
                     && p.ancestor_may_answer
+                    && super::questions::trust_cwd(&p.request).is_none()
                     && option_id.as_deref().is_some_and(|o| {
                         option_kind(p.request["options"].as_array().map_or(&[], Vec::as_slice), o)
                             == Some("allow_once")

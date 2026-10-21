@@ -47,10 +47,11 @@ pub(super) fn needs_person(request: &Value) -> bool {
 /// Claude Code's AskUserQuestion (`_meta.claude.tool`, which the adapter
 /// writes from the tool's name). Any other tool whose input holds
 /// `questions` (an MCP tool, ExitPlanMode), a writer's own
-/// `_meta.acpmux.question` and a Codex user-input request (its adapter's
-/// shape is unverified) stay the person's.
+/// `_meta.acpmux.question`, a Codex user-input request (its adapter's
+/// shape is unverified) and the folder-trust card (`trust_cwd`) stay the person's.
 pub(super) fn ancestor_answerable(request: &Value, from_agent: bool) -> bool {
     let asks = question(request).is_some()
+        && trust_cwd(request).is_none()
         && (!from_agent
             || request.pointer("/toolCall/_meta/claude/tool").and_then(Value::as_str)
                 == Some("AskUserQuestion"));
