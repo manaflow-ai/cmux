@@ -152,10 +152,16 @@ extension PageWebView {
               case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
         guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
         if let page {
-            // DevTools input is in view points; the page's CSS pixels are zoomed by `pageZoom`.
+            // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them
+            // (Chromium applies the page's zoom itself, as link hints rely on).
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
-                "type": "mouseMoved", "x": x * pageZoom, "y": y * pageZoom, "button": "none", "buttons": 0, "modifiers": 0,
+                "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
             ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
+            // Only a hover the page now reports counts, so a move that missed never reads as one.
+            let check = "const el = document.querySelector(selector); return !!el && el.matches(':hover');"
+            guard await callPageFunction(check, arguments: ["selector": selector]) as? Bool == true else {
+                return ["hovered": false, "error": "the element is not hovered after the move"]
+            }
         }
         return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
     }
