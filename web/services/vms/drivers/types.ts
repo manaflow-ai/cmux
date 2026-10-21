@@ -33,6 +33,8 @@ export type VmPauseState = "paused" | "in_progress" | "not_paused" | "stopped" |
 /// reading: they report `asleep` with only their provisioned memory.
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
+  /** Health of the guest reporter, independent of provider power state. */
+  readonly health?: "healthy" | "unknown" | "unresponsive";
   readonly sampledAt: number;
   /** Timestamp of the latest guest reporter sample, even when it is stale. */
   readonly resourceSampledAt?: number;
@@ -388,6 +390,12 @@ export type VMFileStat = {
 
 export type ExecOptions = {
   readonly timeoutMs?: number;
+  /**
+   * Run as root instead of the work user. Every exec ran as root before
+   * public `vm exec` moved to the work user (#16769); cmux's own guest
+   * maintenance that writes root-owned paths still needs it.
+   */
+  readonly asRoot?: boolean;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
   readonly providerMetadata?: Record<string, unknown>;
 };
@@ -418,6 +426,8 @@ export interface VmCapabilities {
   readonly exec: boolean;
   /** Live CPU/memory/disk readings (`GET /api/vm/:id/stats`). */
   readonly stats: boolean;
+  /** Provider-level recovery for a frozen machine (`POST /api/vm/:id/restart`). */
+  readonly restart: boolean;
   /** Token-gated HTTPS preview URLs for arbitrary VM ports (`POST /api/vm/:id/open-port`). */
   readonly ports: boolean;
   /** A desktop (VNC) image exists for this provider. */
@@ -575,6 +585,11 @@ export interface VMProvider {
 
   /** Optional provider volume inventory used by the report-only VM reaper. */
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
+  /**
+   * Optional account-wide, read-only inventory for the staff health sweep. It
+   * covers every VM and TLS rule on the provider account, not only cmux rows.
+   */
+  readonly healthInventory?: VmHealthInventory;
 
   getStatus?(vmId: string, options?: ProviderReadOptions): Promise<VMStatus>;
   /**
@@ -589,6 +604,8 @@ export interface VMProvider {
   getStats?(vmId: string, options?: ProviderReadOptions): Promise<VMStats>;
   /** Optional direct guest probe; must not install tooling, mutate, or wake. */
   getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
+  /** Force a provider-level reboot without using the guest exec channel. */
+  restart?(vmId: string): Promise<void>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
   /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
@@ -856,3 +873,14 @@ export class ProviderArtifactUnavailableError extends ProviderError {
     this.name = "ProviderArtifactUnavailableError";
   }
 }
+
+/**
+ * Read-only account inventory for the staff Cloud VM health sweep. No member
+ * may start, pause, update, or delete anything.
+ */
+export type VmHealthInventory = {
+  listAccountVms(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderVmInventory>;
+  listAccountTlsRules(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderTlsRuleInventory>;
+  /** One bounded control-path request against a running VM; never wakes a paused one on purpose. */
+  probeControl(vmId: string, options: { readonly timeoutMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").VmControlProbe>;
+};

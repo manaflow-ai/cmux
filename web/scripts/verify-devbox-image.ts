@@ -22,7 +22,7 @@
 // The devbox freestyle bake targets the public platform (see
 // build-devbox-freestyle.ts), the same platform the shipped driver speaks.
 import { Freestyle } from "freestyle";
-import { agentLaunchCheck } from "./devbox-agent-launch";
+import { agentLaunchCheck, codexHookTrustCheck } from "./devbox-agent-launch";
 import { DEFAULT_VM_EDGE_ALIAS_DOMAIN } from "../services/coderouter/vmGuestEnv";
 import path from "node:path";
 import {
@@ -240,11 +240,18 @@ const desktopChecks = (): readonly string[] => [
 const CLAUDE_LAUNCH_MARKER = "bypass permissions on";
 const CLAUDE_GATE_TEXTS = "Do you trust|Detected a custom API key|text style that looks best|Yes, I accept|cannot be used with root|Select login method";
 const CODEX_LAUNCH_MARKER = "Ask Codex to do anything";
-const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT";
+// "Hooks need review" is codex's hook-trust gate: every hook cmux installs or
+// injects must already be trusted.
+const CODEX_GATE_TEXTS = "Do you trust|new version|bubblewrap|sandbox prerequisites|Sign in with ChatGPT|Hooks need review";
 const AGENT_LAUNCH_CHECKS: readonly string[] = [
   agentLaunchCheck("root", "/root", "claude-root-launch", "CMUX_CLAUDE_AUTH=team claude --dangerously-skip-permissions", CLAUDE_LAUNCH_MARKER, CLAUDE_GATE_TEXTS),
   agentLaunchCheck("root", "/root", "codex-root-launch", "CMUX_CODEX_AUTH=team codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
   agentLaunchCheck(DEVBOX_DESKTOP_USER, DEVBOX_DESKTOP_HOME, "codex-work-user-launch", "CMUX_CODEX_AUTH=team codex", CODEX_LAUNCH_MARKER, CODEX_GATE_TEXTS),
+  // A daemon pane starts codex through cmux-tui's codex wrapper (the pane
+  // PATH's codex shim), which injects per-terminal hooks and their trust.
+  // Codex draws the composer before "Hooks need review", so ask codex itself
+  // whether every hook it would run is trusted (#20482).
+  codexHookTrustCheck(DEVBOX_WORK_USER, DEVBOX_WORK_HOME, "codex-pane-hooks-trusted", `${DEVBOX_WORK_HOME}/.cmux/bin/cmux-tui`, `/tmp/cmux-tui-$(id -u)/${CMUX_TUI_SESSION}.sock`),
   // Nothing a launch wrote in the work user's home may be root-owned (the
   // root probes ran with HOME=/root, never the work user's home).
   `[ "$(find ${DEVBOX_DESKTOP_HOME} -not -user ${DEVBOX_DESKTOP_USER} | wc -l)" = 0 ] && echo home-still-owned-by-${DEVBOX_DESKTOP_USER}`,

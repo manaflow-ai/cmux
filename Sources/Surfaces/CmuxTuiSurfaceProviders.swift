@@ -1,3 +1,4 @@
+import CmuxSSHClipboardTrust
 import CmuxAuthRuntime
 import CmuxCloud
 import CmuxCloudTui
@@ -45,6 +46,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     var agentHookMirror = CloudVMAgentHookMirror()
     let links: any RemoteTuiLinkManaging
     unowned let catalog: SurfaceCatalog
+    let sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore
     /// Loopback forwards into this machine's private address over the hub; nil
     /// when the build has no hub. Owned by the registry, shared by every provider.
     let portForwards: CloudHubPortForwarder?
@@ -175,6 +177,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         ownerTeamID: String? = nil,
         links: any RemoteTuiLinkManaging,
         catalog: SurfaceCatalog,
+        sshClipboardWriteTrustStore: SSHClipboardWriteTrustStore? = nil,
         portForwards: CloudHubPortForwarder? = nil,
         attachmentClock: any Clock<Duration> = ContinuousClock(),
         portAccessStore: CloudPortAccessStore? = nil,
@@ -190,6 +193,7 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
         self.summary = summary
         self.links = links
         self.catalog = catalog
+        self.sshClipboardWriteTrustStore = sshClipboardWriteTrustStore ?? SSHClipboardWriteTrustStore(defaults: .standard)
         self.portForwards = portForwards
         self.portAccessStore = portAccessStore ?? CloudPortAccessStore()
         self.displayCoordinator = displayCoordinator ?? CloudDisplayCoordinator { command, timeout in
@@ -1812,9 +1816,10 @@ final class CmuxTuiSurfaceProvider: SurfaceProvider {
     func projectionsRestored(resources: Set<SurfaceResourceID>) {
         reprojectRestoredPanes(generation: lifecycleGeneration, resourceIDs: resources)
     }
-    /// Reprojects restored panes while preserving lifecycle and ownership guards.
     private func reprojectRestoredPanes(generation: UInt64, resourceIDs: Set<SurfaceResourceID>? = nil) {
         guard isCurrentLifecycleGeneration(generation), isRegisteredInCatalog() else { return }
+        // Browser and port projections have their own reachability state. A
+        // stale terminal graph must not strand those unrelated panes.
         reprojectRestoredBrowserPanes(generation: generation, resourceIDs: resourceIDs)
         let projectionsByResource = resourceIDs.map { catalog.projections(of: $0) }
         let terminals = catalog.authoritativeSnapshot.resources(on: machine).filter {

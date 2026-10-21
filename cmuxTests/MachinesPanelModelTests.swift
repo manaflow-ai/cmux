@@ -471,8 +471,8 @@ final class MachinesPanelModelTests: XCTestCase {
             includeLocalMachine: true
         )
         let ids = CloudTreeNodeBuilder.flattened(nodes).map(\.id)
-        // One machine, many workspaces: the Workspaces group leads (nonempty workspace
-        // pointers), then Ports, VNC Displays (one row per screen), and last, its own
+        // One machine, many workspaces: the Workspaces group leads (including empty
+        // drop targets), then Ports, VNC Displays (one row per screen), and last, its own
         // section, Terminals (every terminal the machine owns).
         XCTAssertEqual(ids, [
             "machine:local",
@@ -485,6 +485,7 @@ final class MachinesPanelModelTests: XCTestCase {
             "machine:vivid-newt/ws/ws_side",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/terminal/term_1/tab:tab_9",
             "machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk",
+            "machine:vivid-newt/ws/ws_empty",
             "machine:vivid-newt/ports",
             "resource:vivid-newt/browser/port:3000",
             "machine:vivid-newt/displays",
@@ -536,7 +537,7 @@ final class MachinesPanelModelTests: XCTestCase {
         if case .workspace(_, _, _, _, let openIn) = openByID["machine:vivid-newt/ws/ws_side"]!.kind {
             XCTAssertEqual(openIn, remoteSideLocalWorkspace, "term_1's second remote view uses its own local workspace")
         } else { XCTFail("expected ws_side row") }
-        XCTAssertNil(openByID["machine:vivid-newt/ws/ws_empty"], "empty workspaces are omitted from the Cloud sidebar")
+        XCTAssertNotNil(openByID["machine:vivid-newt/ws/ws_empty"], "empty workspaces remain visible as Cloud drop targets")
         // Desktop rows: a workspace's own display pointer opens inside the local
         // workspace showing that remote workspace; the pool row keeps the global jump.
         if case .display(_, let openIn, _) = openByID["machine:vivid-newt/ws/ws_side/resource:vivid-newt/display/display:1/tab:tab_desk"]!.kind {
@@ -582,7 +583,7 @@ final class MachinesPanelModelTests: XCTestCase {
             XCTAssertEqual(row.resource.agent?.source, "claude")
             XCTAssertEqual(row.remoteView?.tabID, "tab_9")
         } else { XCTFail("expected pointer row") }
-        XCTAssertNil(byID["machine:vivid-newt/ws/ws_empty"], "zero-terminal workspaces are not sidebar rows")
+        XCTAssertNotNil(byID["machine:vivid-newt/ws/ws_empty"], "zero-terminal workspaces remain visible as Cloud drop targets")
         if case .terminalsPool(_, let count) = byID["machine:vivid-newt/terminals"]!.kind {
             XCTAssertEqual(count, 2, "every terminal the machine owns")
         } else { XCTFail("expected terminals pool") }
@@ -613,7 +614,7 @@ final class MachinesPanelModelTests: XCTestCase {
             case .terminal, .display:
                 XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
             case .workspace where !node.machine.isLocal:
-                XCTAssertTrue(node.isDragSource, "\(node.id) should drag")
+                XCTAssertEqual(node.isDragSource, node.dragGroup != nil, "\(node.id) should drag only when it has placements")
             default:
                 XCTAssertFalse(node.isDragSource, "\(node.id) should not drag")
             }
@@ -1019,12 +1020,16 @@ final class MachinesPanelModelTests: XCTestCase {
 @MainActor
 final class CloudTreeScopeAndSignatureTests: XCTestCase {
     func testMachineCapabilitiesDecodeWithSupportedDefaults() {
-        XCTAssertEqual(VMCapabilities(json: nil), .all, "an older control plane supports everything")
+        var legacy = VMCapabilities.all
+        legacy.restart = false
+        XCTAssertEqual(VMCapabilities(json: nil), legacy, "restart requires explicit server support")
+        XCTAssertTrue(VMCapabilities(json: ["restart": true]).restart)
+        XCTAssertFalse(VMCapabilities(json: ["restart": false]).restart)
         XCTAssertEqual(VMCapabilities(json: ["snapshot": false, "fork": false]), VMCapabilities(snapshot: false, restore: true, fork: false))
         XCTAssertEqual(VMCapabilities(json: ["snapshot": NSNumber(value: false), "restore": NSNumber(value: true), "fork": true]),
                        VMCapabilities(snapshot: false, restore: true, fork: true))
         let summary = VMSummary(id: "m", provider: "freestyle", status: "running", image: "cmux-devbox:devbox-20260828b", createdAt: 0, base: nil)
-        XCTAssertEqual(summary.capabilities, .all)
+        XCTAssertEqual(summary.capabilities, legacy)
         var declared = summary
         declared.capabilities = VMCapabilities(json: ["snapshot": false, "restore": false, "fork": false])
         XCTAssertFalse(declared.capabilities.snapshot)
@@ -1394,5 +1399,164 @@ struct MachineUsageReadoutTests {
         #expect(fact?.contains(line) == true, "compact usage follows the name on the same line")
         #expect(CloudTreeMachineRowContent(machine: withUsage).toolTip.contains(line), "spend stays available on hover")
     }
+}
 
+// MARK: - Realtime `vms` stream
+
+@MainActor
+final class MachinesPanelVMStreamTests: XCTestCase {
+
+    /// A panel with no client, no pin store and Cloud enabled: the stream's
+    /// merge path with nothing to fetch.
+    private func makeStreamingModel(pollingClock: any Clock<Duration> = ContinuousClock()) -> MachinesPanelViewModel {
+        let model = MachinesPanelViewModel(
+            createCoordinator: MachineCreateCoordinator(notifier: { _ in }, notificationCenter: NotificationCenter()),
+            pollingClock: pollingClock,
+            isCloudEnabled: { true },
+            catalogProvider: { .empty }
+        )
+        model.localWorkspacesProvider = { [] }
+        return model
+    }
+
+    /// Stats-less so a merge never samples the shared client.
+    private func streamSummary(_ id: String, status: String = "running", createdAt: Int64, label: String? = nil) -> VMSummary {
+        VMSummary(
+            id: id, provider: "freestyle", status: status, image: "cmux-devbox:devbox-20260828b", createdAt: createdAt,
+            capabilities: VMCapabilities(snapshot: true, restore: true, fork: true, stats: false), displayName: label
+        )
+    }
+
+    func testStreamUpsertReplacesTheRowInPlace() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        XCTAssertTrue(model.hasLoadedOnce, "a complete fleet is a loaded list")
+
+        model.applyVMChanges(upserts: [streamSummary("b", status: "paused", createdAt: 2_000, label: "dev box")], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"], "an update keeps the row's slot")
+        XCTAssertEqual(model.machines[1].activity, .ready)
+        XCTAssertEqual(model.machines[1].label, "dev box")
+        XCTAssertEqual(model.machineIndexByID, ["c": 0, "b": 1, "a": 2])
+    }
+
+    func testStreamInsertKeepsCreatedAtDescendingOrder() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.applyVMChanges(upserts: [streamSummary("b", createdAt: 2_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        model.applyVMChanges(upserts: [streamSummary("d", createdAt: 4_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["d", "c", "b", "a"], "the newest machine leads, as the list endpoint orders it")
+        model.applyVMChanges(upserts: [streamSummary("z", createdAt: 0)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["d", "c", "b", "a", "z"], "an unknown creation time sorts last")
+        XCTAssertEqual(model.machineIndexByID, ["d": 0, "c": 1, "b": 2, "a": 3, "z": 4])
+        XCTAssertNil(model.plan, "limits only arrive with a REST list")
+    }
+
+    func testStreamDeleteRemovesTheRow() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.applyVMChanges(upserts: [], deletions: ["b", "never-listed"], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "a"])
+        XCTAssertEqual(model.machineIndexByID, ["c": 0, "a": 1])
+
+        // A backfilled snapshot is the complete fleet: rows it lacks are gone.
+        model.applyVMChanges(upserts: [streamSummary("a", createdAt: 1_000)], deletions: [], authoritative: true)
+        XCTAssertEqual(model.machines.map(\.id), ["a"])
+    }
+
+    func testUnbackfilledSnapshotNeverDeletes() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        // The worker has only seen `b` since the collection shipped: it may
+        // add and update, but `c` and `a` stay until a REST list says otherwise.
+        model.applyVMChanges(upserts: [streamSummary("b", createdAt: 2_000)], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+        model.applyVMChanges(upserts: [], deletions: [], authoritative: false)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+    }
+
+    /// The stream record carries only the row's own columns; per-request
+    /// list fields (creator name, pool claim, free-access expiry) must survive
+    /// a live update instead of resetting until the next REST read.
+    func testStreamUpsertKeepsListOnlyFieldsOfTheExistingRow() {
+        let model = makeStreamingModel()
+        var listed = streamSummary("a", createdAt: 1_000)
+        listed.createdBy = VMCreator(userId: "user-1", displayName: "Ada")
+        let claim = CloudVMResourceReservation(vcpus: 4, memoryMb: 8_192)
+        listed.resourcePoolClaim = claim
+        listed.resourceReservation = claim
+        listed.agentUpdates = .latest
+        let expiresAt = Int64(Date().addingTimeInterval(3 * 86_400).timeIntervalSince1970 * 1000)
+        listed.freeAccessExpiresAt = expiresAt
+        model.applyVMChanges(upserts: [listed], deletions: [], authoritative: true)
+        let before = model.machines[0]
+
+        var streamed = streamSummary("a", status: "paused", createdAt: 1_000, label: "renamed")
+        streamed.createdBy = VMCreator(userId: "user-1")
+        model.applyVMChanges(upserts: [streamed], deletions: [], authoritative: false)
+
+        let after = model.machines[0]
+        XCTAssertEqual(after.label, "renamed", "the stream's own columns apply")
+        XCTAssertEqual(after.createdBy, VMCreator(userId: "user-1", displayName: "Ada"))
+        XCTAssertEqual(after.resourcePoolClaim, claim)
+        XCTAssertEqual(after.resourceReservation, claim)
+        XCTAssertEqual(after.agentUpdates, .latest)
+        XCTAssertEqual(after.freeAccess, before.freeAccess)
+    }
+
+    func testStreamInsertTakesTheCreatorFromTheRecord() throws {
+        let summary = try VMClient.decodeListItem([
+            "id": "vm-new", "provider": "freestyle", "image": "cmux-devbox", "status": "running",
+            "createdAt": 1_000, "createdByUserId": "user-2",
+        ])
+        XCTAssertEqual(summary.createdBy, VMCreator(userId: "user-2"))
+    }
+
+    /// A REST read that started before a stream change lands after it: the
+    /// newer change must survive the older page instead of being undone.
+    func testStreamChangesDuringARestReadSurviveItsResult() {
+        let model = makeStreamingModel()
+        model.applyVMChanges(
+            upserts: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)],
+            deletions: [], authoritative: true
+        )
+        model.beginRestReadStreamCapture()
+        model.applyVMChanges(upserts: [], deletions: ["b"], authoritative: false)
+        model.applyVMChanges(upserts: [streamSummary("a", status: "paused", createdAt: 1_000, label: "renamed")], deletions: [], authoritative: false)
+
+        let stalePage = VMListPage(vms: [streamSummary("c", createdAt: 3_000), streamSummary("b", createdAt: 2_000), streamSummary("a", createdAt: 1_000)])
+        model.applyRefreshResult(.success(stalePage), generation: model.refreshGeneration, scope: nil)
+
+        XCTAssertEqual(model.machines.map(\.id), ["c", "a"], "a delete newer than the read stays deleted")
+        XCTAssertEqual(model.machines[1].label, "renamed", "an update newer than the read stays applied")
+
+        // Outside a read, the REST page is the authority again.
+        model.applyRefreshResult(.success(stalePage), generation: model.refreshGeneration, scope: nil)
+        XCTAssertEqual(model.machines.map(\.id), ["c", "b", "a"])
+    }
+
+    func testRoutinePollIntervalFollowsTheStream() {
+        let clock = CloudReadManualClock()
+        let model = makeStreamingModel(pollingClock: clock)
+        XCTAssertEqual(model.routinePollInterval, MachinesPanelViewModel.pollInterval)
+        XCTAssertEqual(MachinesPanelViewModel.pollInterval, .seconds(45))
+        XCTAssertEqual(MachinesPanelViewModel.streamingPollInterval, .seconds(300))
+        XCTAssertFalse(model.isVMSyncConnected)
+        XCTAssertNil(model.vmSync, "no auth coordinator, no stream")
+        model.stopVMSync()
+        XCTAssertEqual(model.routinePollInterval, .seconds(45), "stopping an absent stream keeps the polling cadence")
+    }
 }

@@ -355,7 +355,7 @@ final class WindowDecorationsController {
                 _ = appDelegate.performNewWorkspaceAction(
                     tabManager: context.tabManager,
                     debugSource: "titlebar.minimalSidebarControl",
-                    skipConfiguredAction: true
+                    localOnly: true
                 )
             case .newWorkspaceMenu:
                 if let anchorView {

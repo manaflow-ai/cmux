@@ -1,7 +1,7 @@
 import AppKit
 
 extension AppDelegate {
-    /// Ctrl+Cmd+1…9 focuses a split pane by its tree-order number (9 = last).
+    /// Focus Pane 1…9 (unbound by default) focuses a split pane by its tree-order number (9 = last).
     /// A matched digit is always consumed so an out-of-range pane number never
     /// falls through to Ghostty.
     func handlePaneNumberShortcut(_ event: NSEvent) -> Bool {

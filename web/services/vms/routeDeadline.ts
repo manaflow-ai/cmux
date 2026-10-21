@@ -29,9 +29,10 @@ import { currentVmRequestContext } from "./requestContext";
  * through `after()` until the route's maxDuration, then it is interrupted.
  * A mutation answers `vm_operation_in_progress` so the caller checks status
  * before retrying: pause reconciles on the provider's raw pause state, resume
- * waits out a start already under way, destroy tolerates a machine already
- * gone, snapshot and resize refuse a concurrent duplicate, and create-likes
- * reuse the Idempotency-Key.
+ * waits out a start already under way, destroy tolerates a machine already gone,
+ * snapshot and resize refuse a concurrent duplicate, and create-likes reuse
+ * the Idempotency-Key. Restart remains unsupported until the provider has a
+ * hard-reboot contract with completion and duplicate-request semantics.
  */
 
 /** Time left for the response to reach the client after the route answers. */
@@ -92,6 +93,8 @@ export const VM_ROUTE_DEADLINES = {
   restore: { clientTimeoutMs: 960_000, maxDurationMs: 600_000, mutating: true },
   /** VMClient.updateNetworkPolicy 60 s. */
   networkUpdate: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
+  /** Provider-level recovery for a frozen machine; it never waits on guest exec. */
+  restart: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
   /** No native caller; the 60 s URLRequest default. */
   filesWrite: { clientTimeoutMs: 60_000, maxDurationMs: 300_000, mutating: true },
   /** Mac VMClient.resize and CLI 120 s. */
@@ -402,8 +405,9 @@ export function isVmProviderHang(error: VmWorkflowError): boolean {
 
 /**
  * A hung mutation that may still complete at the provider. A stuck guest
- * (#19307's vm_guest_unresponsive) is excluded: that answer names the
- * machine and its restart action on every route.
+ * (#19307's vm_guest_unresponsive) is excluded: that answer preserves the
+ * machine and gives support guidance instead of claiming an unverified
+ * recovery operation.
  */
 function isUnfinishedMutation(error: VmWorkflowError): boolean {
   return isVmProviderHang(error) && !(error._tag === "VmProviderOperationError" && hasProviderGuestUnresponsiveCause(error.cause));

@@ -505,16 +505,23 @@ check_signing_intermediate_imports() {
 
   for file in "$ROOT_DIR/.github/workflows/nightly.yml" "$ROOT_DIR/.github/workflows/release.yml"; do
     if ! awk '
-      /- name: Import signing cert/ { in_step=1; next }
+      /- name: Import signing cert$/ { in_step=1; next }
       in_step && /^[[:space:]]*- name:/ { in_step=0 }
-      in_step && /security import \/tmp\/cert\.p12/ { saw_cert_import=1 }
-      in_step && /\.\/scripts\/import-apple-developer-id-intermediates\.sh build\.keychain/ { saw_intermediates=1 }
-      END { exit !(saw_cert_import && saw_intermediates) }
+      in_step && /\.\/scripts\/ci\/signing-keychain\.sh create/ { saw_create=1 }
+      END { exit !saw_create }
     ' "$file"; then
-      echo "FAIL: $(basename "$file") must import Apple Developer ID intermediates into build.keychain after the signing certificate"
+      echo "FAIL: $(basename "$file") must import the signing certificate through scripts/ci/signing-keychain.sh create"
       exit 1
     fi
   done
+  if ! awk '
+    /"\$SECURITY_TOOL" import "\$certificate"/ { saw_cert_import=NR }
+    /import-apple-developer-id-intermediates\.sh" "\$name"/ { saw_intermediates=NR }
+    END { exit !(saw_cert_import && saw_intermediates && saw_cert_import < saw_intermediates) }
+  ' "$ROOT_DIR/scripts/ci/signing-keychain.sh"; then
+    echo "FAIL: scripts/ci/signing-keychain.sh must import Apple Developer ID intermediates after the signing certificate"
+    exit 1
+  fi
 
   echo "PASS: nightly and release signing import Apple Developer ID intermediates"
 }
@@ -792,10 +799,13 @@ check_dmg_signing_uses_build_keychain() {
   fi
   for needle in \
     'CODESIGN_TOOL="${CMUX_CODESIGN_TOOL:-/usr/bin/codesign}"' \
-    '"$CREATE_DMG_TOOL" --no-code-sign "$APP_PATH" "$DMG_TMP_DIR"' \
+    '"$CREATE_DMG_TOOL" --no-code-sign "$app" "$work"' \
+    'package_signed_dmg "$APP_PATH" "$DMG_RELEASE" "$DMG_TMP_DIR"' \
+    'package_signed_dmg "$APP_PATH" "$FINAL_DMG" "$restaple_dir/work"' \
+    '"$XCRUN_TOOL" notarytool submit "$FINAL_DMG"' \
     '"$CODESIGN_TOOL" --force --timestamp --keychain build.keychain' \
     '--sign "$APPLE_SIGNING_IDENTITY"' \
-    '"$CODESIGN_TOOL" --verify --verbose=2 "$DMG_RELEASE"' \
+    '"$CODESIGN_TOOL" --verify --verbose=2 "$out"' \
     '"$XCRUN_TOOL" notarytool submit "$DMG_RELEASE"'; do
     if ! grep -Fq -- "$needle" "$nightly_helper"; then
       echo "FAIL: nightly notarization helper must sign the DMG through build.keychain before submission: $needle"
@@ -1210,6 +1220,10 @@ check_tmux_terminal_nightly_isolation() {
 }
 
 check_no_github_hosted_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # A GitHub billing block or a GitHub-hosted outage must never stop CI, so no
   # job in manaflow-ai may select a GitHub-hosted runner (ubuntu-*, macos-*,
   # windows-*). Jobs run on Blacksmith labels, the CI_TRUSTED_RUNNER selector
@@ -1280,6 +1294,12 @@ check_no_github_hosted_runners() {
     file="${line%%:*}"
     content="${line#*:*:}"
     [[ "$content" =~ ^[[:space:]]*# ]] && continue
+    # Nightly workflows never run on Blacksmith (user decision 2026-10-19,
+    # tests/test_ci_nightly_off_blacksmith.py): compiles stay on the trusted
+    # minis, everything else takes an ephemeral GitHub-hosted image.
+    if [[ "$(basename "$file")" == *nightly*.yml || "$(basename "$file")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
     # Fork-only matrix rows: read only through the fork branch above.
     [[ "$content" =~ (^|[^A-Za-z_])\"?hosted_runner\"?:[[:space:]] ]] && continue
     stripped="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/$trusted_list//g")"
@@ -1311,6 +1331,10 @@ check_no_github_hosted_runners() {
 }
 
 check_no_self_hosted_fleet_runners() {
+  # Nightly workflows (*nightly*.yml, *notarization*.yml) may name these
+  # GitHub-hosted images: they never route to Blacksmith (user decision
+  # 2026-10-19, tests/test_ci_nightly_off_blacksmith.py).
+  local nightly_hosted="(^|[^A-Za-z0-9_-])'?(ubuntu-24[.]04(-arm)?|macos-(15|26)|windows-2025)'?([^A-Za-z0-9_.-]|$)"
   # Required jobs route through repository variables. Forbid hardcoded fleet
   # labels so paid-provider fallback remains a configuration change and a
   # physical host label cannot bypass the routing rules. tart-* labels (the
@@ -1412,6 +1436,9 @@ check_no_self_hosted_fleet_runners() {
     in_options && /^          - glaeda-(xl|std|light)-xcode-[0-9]+([.][0-9]+)*$/ { print FNR }
   ' "$E2E_FILE")"
 
+  # Capability is accepted only as the complete NEXT trusted selector.
+  local next_trusted_selector="fromJSON(format('[\"{0}\", \"{1}\", \"glaeda-trusted-next-nightly\"]', vars.CI_NIGHTLY_NEXT_TRUSTED_POOL, vars.CI_NIGHTLY_NEXT_TRUSTED_RUNNER))"
+  local next_repository_guard="github.repository == 'manaflow-ai/cmux' && "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
   # items (`  - <label>`, which covers dispatch runner dropdowns and multi-line
@@ -1421,6 +1448,13 @@ check_no_self_hosted_fleet_runners() {
   # never match the bare `cmux` label.
   while IFS= read -r line; do
     content="${line#*:*:}"
+    if [[ "$(basename "${line%%:*}")" == *nightly*.yml || "$(basename "${line%%:*}")" == *notarization*.yml ]]; then
+      content="$(printf '%s\n' "$content" | sed -E "s/$nightly_hosted//g")"
+    fi
+    if [[ "${line%%:*}" == "$ROOT_DIR/.github/workflows/nightly.yml" ]]; then
+      content="${content/"$next_trusted_selector"/}"
+      content="${content/"$next_repository_guard"/}"
+    fi
     content_without_allowed="$(printf '%s\n' "$content" | sed -E "s/$fork_branch//g; s/($allowed)//g")"
     # GitHub matches runner labels without regard to case, so a fleet label
     # is refused in any case; the bare self-hosted labels stay case-sensitive
@@ -2051,6 +2085,9 @@ check_background_macos_lane() {
     file="${line%%:*}"
     content="${line#*:*:}"
     rel="$(basename "$file")"
+    # Nightly workflows never run on Blacksmith (tests/test_ci_nightly_off_blacksmith.py):
+    # their hosted macos-15/26 jobs are the intended ephemeral route.
+    [[ "$rel" == *nightly*.yml || "$rel" == *notarization*.yml ]] && continue
     printf '%s\n' "$content" | strip_background_lane_expr | grep -Eq "$hosted_mac" || continue
     allowed=0
     for exception in "${hosted_exceptions[@]}"; do
