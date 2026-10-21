@@ -37,14 +37,14 @@ common=(--seed "$seed" --out "$out" --tag "${NX_APP_TAG:-}" --sha "$sha" --host-
 status=0
 echo "PERF100-NX host=$(hostname -s) sha=$sha tag=${NX_APP_TAG:-} load=\"$(uptime | sed 's/.*load averages*: //')\" ptys_in_use=$(ls /dev | grep -c '^ttys[0-9]')"
 if [ "$app_scenarios" != "none" ]; then
-  "$py" scripts/perf100/perf100.py app --app "$NX_APP" --scenarios "$app_scenarios" "${common[@]}" --md "$out/app.md" > "$out/app.log" 2>&1 || status=$?
+  "$py" scripts/perf100/perf100.py app --app "$NX_APP" --scenarios "$app_scenarios" --flood-timeout 1800 "${common[@]}" --md "$out/app.md" > "$out/app.log" 2>&1 || status=$?
   tail -n 5 "$out/app.log"
 fi
 bin="$NX_APP/Contents/Resources/bin"
 # A short scratch parent: the daemons' socket paths must stay under the macOS sun_path limit.
 scratch="$(mktemp -d /tmp/p100.XXXXXX)"
 if [ "$tui_scenarios" != "none" ]; then
-  "$py" scripts/perf100/perf100.py tui --tui "$bin/cmux-tui" --scenarios "$tui_scenarios" --root-dir "$scratch" --pty-budget 300 --pty-reserve 150 "${common[@]}" --md "$out/tui.md" > "$out/tui.log" 2>&1 || status=$?
+  "$py" scripts/perf100/perf100.py tui --tui "$bin/cmux-tui" --scenarios "$tui_scenarios" --root-dir "$scratch" --pty-budget 300 --pty-reserve 150 --flood-timeout 1800 "${common[@]}" --md "$out/tui.md" > "$out/tui.log" 2>&1 || status=$?
   tail -n 5 "$out/tui.log"
 fi
 if [ "$acpmux_sessions" != "none" ]; then

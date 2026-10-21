@@ -29,7 +29,7 @@ scratch="$(mktemp -d /tmp/p100.XXXXXX)"
 trap 'rm -rf "$scratch" "$out"' EXIT
 common=(--seed "$seed" --out "$out" --tag "rbx-release" --sha "$sha" --host-class "rbx" --root-dir "$scratch" $quick)
 status=0
-python3 scripts/perf100/perf100.py tui --tui "$target/release/cmux-tui" "${common[@]}" > "$out/tui.log" 2>&1 || status=$?
+python3 scripts/perf100/perf100.py tui --tui "$target/release/cmux-tui" --flood-timeout 1800 "${common[@]}" > "$out/tui.log" 2>&1 || status=$?
 tail -n 3 "$out/tui.log"
 python3 scripts/perf100/perf100.py acpmux --acpmux "$target/release/acpmux" "${common[@]}" > "$out/acpmux.log" 2>&1 || status=$?
 tail -n 3 "$out/acpmux.log"
