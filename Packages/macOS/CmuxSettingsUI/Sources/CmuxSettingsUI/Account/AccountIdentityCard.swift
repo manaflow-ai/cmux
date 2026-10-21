@@ -43,6 +43,7 @@ struct AccountIdentityCard: View {
                 slowSignInFallback
             }
             if flow?.currentIdentity == nil,
+               flow?.isWorkingOnAuth != true,
                let failureTitle = flow?.signInFailureTitle,
                let failureRecovery = flow?.signInFailureRecovery {
                 signInFailure(title: failureTitle, recovery: failureRecovery)

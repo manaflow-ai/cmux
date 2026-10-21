@@ -291,7 +291,9 @@ public final class HostBrowserSignInFlow {
         if let activeAttemptID {
             log.log("auth.browser.attempt.replace previous=\(activeAttemptID)")
         }
-        cancelActiveAttempt()
+        // A user who retries because nothing seemed to happen may still finish
+        // the replaced attempt's browser tab; keep its state valid.
+        cancelActiveAttempt(keepingCallbackStates: true)
         activeAttemptSelectsAccount = selectAccount
         lastFailure = nil
         nextAttemptID &+= 1
@@ -383,7 +385,8 @@ public final class HostBrowserSignInFlow {
                 }
                 // Safari can finish the web handoff after the hosted session
                 // reports that it was cancelled or failed. Keep this attempt's
-                // state as a short-lived, single-use external state before
+                // state as a single-use external state, for as long as an
+                // abandoned attempt would live, before
                 // resuming the session continuation, so the callback is not
                 // lost in the gap between those two events.
                 if case .cancelled = result {
@@ -432,9 +435,12 @@ public final class HostBrowserSignInFlow {
         isPresentingSignIn = false
     }
 
-    private func cancelActiveAttempt() {
+    private func cancelActiveAttempt(keepingCallbackStates: Bool = false) {
         if let activeAttemptID {
             log.log("auth.browser.attempt.cancel id=\(activeAttemptID)")
+        }
+        if keepingCallbackStates, let activeCallbackState {
+            issueCallbackState(activeCallbackState)
         }
         resumeActiveSessionContinuation(
             returning: .cancelled(reason: "attempt_cancelled"),
@@ -447,7 +453,9 @@ public final class HostBrowserSignInFlow {
         activeAttemptTask = nil
         handedOffAttemptID = nil
         activeCallbackState = nil
-        issuedCallbackStates.removeAll()
+        if !keepingCallbackStates {
+            issuedCallbackStates.removeAll()
+        }
         activeSession?.cancel()
         activeSession = nil
         isSigningIn = false
