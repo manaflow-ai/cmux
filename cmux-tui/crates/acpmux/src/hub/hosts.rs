@@ -708,9 +708,7 @@ impl Hub {
         session.permissions.lock().unwrap().pending.insert(
             permission_id.clone(),
             PendingPermission {
-                // The agent's own `session/request_permission`, judged like a
-                // fresh one (`from_agent`): a re-adopted AskUserQuestion stays
-                // answerable, anything else shaped like a question does not.
+                // The agent's own ask, judged like a fresh one (a re-adopted AskUserQuestion).
                 ancestor_may_answer: super::questions::ancestor_answerable(&request, true),
                 request: request.clone(),
                 reply: tx,
