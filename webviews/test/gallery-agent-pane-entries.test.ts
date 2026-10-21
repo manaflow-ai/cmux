@@ -18,7 +18,7 @@ import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { playFailures } from "./support/galleryPlay";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 
 type Case = {
   entry: string;
@@ -77,8 +77,9 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
+  // Each frame loads its own entry's file alone (galleryFrame), not every gallery file.
   const url = ({ entry, variant }: Case) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=agent-pane.${entry}&variant=${variant}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(`agent-pane.${entry}`, { variant })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -87,8 +88,9 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    const entries = [...new Set(CASES.map(({ entry }) => `agent-pane.${entry}`))];
+    await warmGalleryFrame(vite, entries, { browser, timeoutMs: 200_000 });
   });
   afterAll(async () => {
     await browser?.close();
