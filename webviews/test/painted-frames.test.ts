@@ -6,7 +6,7 @@
 // frame), and failed on a 4px jump that was never on screen (scroll-jitter, 2026-10-21).
 //
 // Real Chromium and WebKit with real key events. Every read must see the page as its frame did,
-// and every frame is read: the test counts keys from a capturing listener added after the helper's.
+// and every frame is read. The test counts keys from a capturing listener added after the helper's.
 // Locally: CMUX_BROWSER_TESTS=1 bun test test/painted-frames.test.ts
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
@@ -44,29 +44,37 @@ await requireBrowserLane("painted-frames.test.ts", async () => {
     await page.setContent("<textarea></textarea>");
     await installPaintedFrames(page);
     await page.evaluate(() => {
-      const w = window as unknown as { __keys: number; __reads: [number, number][]; __stop: () => void };
+      const w = window as unknown as {
+        __keys: number;
+        __frames: number;
+        __reads: [number, number][];
+        __stop: () => void;
+      };
       w.__keys = 0;
+      w.__frames = 0;
       w.__reads = [];
       addEventListener("keydown", () => (w.__keys += 1), true);
       let atFrame = 0;
       w.__stop = window.cmuxAfterPaint(
         () => void w.__reads.push([atFrame, w.__keys]),
-        () => (atFrame = w.__keys),
+        () => {
+          w.__frames += 1;
+          atFrame = w.__keys;
+        },
       );
     });
     await page.locator("textarea").click();
     // Keys as fast as the driver sends them, so input queues up behind each frame.
     for (let round = 0; round < 4; round++) await page.keyboard.type("the quick brown fox jumps over the lazy dog ");
     await page.evaluate(() => window.cmuxPaintFrame());
-    const reads = await page.evaluate(() => {
-      const w = window as unknown as { __reads: [number, number][]; __stop: () => void };
+    const { reads, frames } = await page.evaluate(() => {
+      const w = window as unknown as { __frames: number; __reads: [number, number][]; __stop: () => void };
       w.__stop();
-      return w.__reads;
+      return { reads: w.__reads, frames: w.__frames };
     });
     await page.close();
-    // Every frame between the first key and the last is read, input or not.
-    expect(reads.length).toBeGreaterThan(0);
-    expect(reads.filter(([, atRead], index) => index > 0 && atRead > reads[index - 1]![1]).length).toBeGreaterThan(0);
+    // Every frame is read, input or not (the last one's read can still be on its way).
+    expect(reads.length).toBeGreaterThanOrEqual(frames - 1);
     // Keys counted by the read that its frame had not seen.
     expect(reads.filter(([atFrame, atRead]) => atRead !== atFrame)).toEqual([]);
   });

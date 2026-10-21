@@ -9,7 +9,9 @@
 // browser handles between the frame and that task would change the page the read lays out, a
 // state no frame painted (a composer card a line taller than the lift its frame painted,
 // scroll-jitter 2026-10-21): the first input event after a frame runs its read at once instead,
-// from a capturing listener on the window that comes before the page's own handlers.
+// from a capturing listener on the window that comes before the page's own handlers. (The pointer's
+// :hover and :active move with hit testing, before any event: a read inside a pointer event sees
+// them already, as it would a frame later.)
 // scripts/check-frame-reads.ts keeps browser tests on these.
 import type { Page } from "playwright";
 
@@ -28,7 +30,10 @@ declare global {
 
 /** The page side; runs in the page, so it closes over nothing. */
 function definePaintedFrames() {
-  if (typeof window.cmuxAfterPaint === "function") return;
+  // Once per document: `document.open` (Playwright's setContent) drops the window's listeners.
+  const marked = document as unknown as { cmuxPaintedFrames?: true };
+  if (marked.cmuxPaintedFrames) return;
+  marked.cmuxPaintedFrames = true;
   // Reads of painted frames not yet run: the next input event runs them before it changes anything.
   const pending = new Set<() => void>();
   for (const kind of [
@@ -38,9 +43,13 @@ function definePaintedFrames() {
     "input",
     "compositionupdate",
     "pointerdown",
+    "pointerover",
+    "pointerout",
     "pointermove",
     "pointerup",
     "mousedown",
+    "mouseover",
+    "mouseout",
     "mousemove",
     "mouseup",
     "wheel",
