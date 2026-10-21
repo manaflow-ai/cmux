@@ -323,6 +323,9 @@ test("the finish key ends the session and keeps its words (stop, never cancel)",
     deliverDictation({ state: "listening", text: "rename the helper", level: 0.4, cancelled: false }),
   );
   calls.length = 0;
+  // Pressed from the keyboard: the finish key has focus, not the field.
+  finishKey()!.focus();
+  expect(document.activeElement).toBe(finishKey());
   await act(async () => finishKey()!.click());
   expect(calls.map(([method]) => method)).toEqual(["dictation.stop"]);
   // The keyboard goes back to the field the words are in, not to the page.
