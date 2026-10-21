@@ -67,11 +67,13 @@ MARKER = f"cmux-idle-cost-{RUN}"
 failures = []
 stop_serving = threading.Event()
 loaded = set()
-ticks = [0]  # the chatty page's console.log calls, in fours
+ticks = [0]
+visibility = {}  # static page -> its latest document.visibilityState  # the chatty page's console.log calls, in fours
 
 PAGES = {
     "static": "<title>static {n}</title><body style='font:16px system-ui'><h1>Static page {n}</h1><p>Nothing runs here.</p>"
-              "<script>fetch('/loaded/{n}',{{method:'POST'}})</script>",
+              "<script>fetch('/loaded/{n}',{{method:'POST'}});const v=()=>fetch('/vis/{n}/'+document.visibilityState,{{method:'POST'}});"
+              "v();document.addEventListener('visibilitychange',v)</script>",
     "loading": "<title>loading</title><body><h1>This load never ends</h1><img src='/never'>"
                "<script>fetch('/loaded/loading',{{method:'POST'}})</script>",
     "chatty": "<title>chatty</title><body><h1>Console chatter</h1><script>let i=0;"
@@ -98,6 +100,9 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):  # noqa: N802
         if self.path == "/tick":
             ticks[0] += 4
+        elif self.path.startswith("/vis/"):
+            _, _, n, state = self.path.split("/", 3)
+            visibility[n] = state
         loaded.add(self.path.removeprefix("/loaded/"))
         self.send_response(204)
         self.end_headers()
@@ -212,6 +217,7 @@ def measure(app_pid, phase):
           f"{phase}: the GPU process and renderers are measured ({sorted(classes)}, unmeasured pids {dropped})")
     result = {"phase": phase, "seconds": round(seconds, 1), "classes": classes, "unmeasured_pids": dropped,
               "console_calls": ticks[0] - ticks_before,
+              "pages_visible": sorted(n for n, state in visibility.items() if state == "visible"),
               "cef_log_bytes_per_min": round((log_after - log_before) * 60 / seconds),
               "total_cpu_percent": round(sum(c["cpu_percent"] for c in classes.values()), 3)}
     for name in ("debug.cef", "debug.wakeups"):
@@ -223,7 +229,8 @@ def measure(app_pid, phase):
                                capture_output=True, timeout=60)
     summary = ", ".join(f"{k} x{c['count']}: {c['cpu_percent']}% cpu, {c['wakeups_per_s']} wk/s, "
                         f"{c['footprint_total'] // 1048576} MB" for k, c in sorted(classes.items()))
-    print(f"phase {phase} ({opts.tabs} tabs): {summary}; cef.log {result['cef_log_bytes_per_min']} B/min", flush=True)
+    print(f"phase {phase} ({opts.tabs} tabs): {summary}; cef.log {result['cef_log_bytes_per_min']} B/min; "
+          f"static pages that report visible: {result['pages_visible']}", flush=True)
     return result
 
 
