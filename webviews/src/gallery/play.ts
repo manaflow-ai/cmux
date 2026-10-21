@@ -170,6 +170,29 @@ export function rectDelta(before: Rect | null, after: Rect | null): number {
   );
 }
 
+export type LayoutShiftSourceRects = {
+  previousRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+  currentRect?: Pick<DOMRectReadOnly, "x" | "y" | "width" | "height">;
+};
+
+/** True only for shifts caused by fractional layout rounding below half a CSS pixel. */
+export function isSubpixelLayoutShift(sources: LayoutShiftSourceRects[]): boolean {
+  return (
+    sources.length > 0 &&
+    sources.every(({ previousRect, currentRect }) => {
+      if (!previousRect || !currentRect) return false;
+      return (
+        Math.max(
+          Math.abs(previousRect.x - currentRect.x),
+          Math.abs(previousRect.y - currentRect.y),
+          Math.abs(previousRect.width - currentRect.width),
+          Math.abs(previousRect.height - currentRect.height),
+        ) < 0.5
+      );
+    })
+  );
+}
+
 /** A step's verdict under the entry's checks. */
 export function judgeStep(
   measured: Omit<StepReport, "status" | "problems">,
