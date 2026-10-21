@@ -12,10 +12,10 @@ public final class OverflowButton: NSButton {
     public static var glyphSize: CGFloat { .iconRowSize(forLabelPointSize: Metrics.smallIconSize - Metrics.space1) }
 
     public private(set) lazy var hover = ChromeHover(self, behindContent: true)
-    /// What a click, Space or VoiceOver's press does (the sidebar row's menu, the group editor).
+    /// What a click or VoiceOver's press does (the sidebar row's menu, the group editor).
     public var onPress: (() -> Void)?
     /// A menu that opens on press, like a pop-up button (the pane toolbar's): press, drag to a row
-    /// and release to run it. A keyboard or VoiceOver press runs ``onPress``.
+    /// and release to run it. VoiceOver's press runs ``onPress``, else opens this menu.
     public var pressMenu: (() -> NSMenu?)?
     /// Shows a press menu under the button (tests record it instead).
     public var presentMenu: @MainActor (NSMenu, OverflowButton) -> Void = { menu, button in
@@ -68,9 +68,13 @@ public final class OverflowButton: NSButton {
     /// AXPress runs `onPress` and reports success (NSButton's own press answered -25205, so an
     /// agent that read the error pressed again).
     override public func accessibilityPerformPress() -> Bool {
-        guard let onPress else { return super.accessibilityPerformPress() }
+        guard onPress != nil || pressMenu != nil else { return super.accessibilityPerformPress() }
         guard isEnabled, !isHiddenOrHasHiddenAncestor else { return false }
-        onPress()
+        if let onPress {
+            onPress()
+        } else if let menu = pressMenu?(), !menu.items.isEmpty {
+            presentMenu(menu, self)
+        }
         return true
     }
 

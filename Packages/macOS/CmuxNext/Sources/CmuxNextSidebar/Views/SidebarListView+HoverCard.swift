@@ -42,9 +42,9 @@ extension SidebarListViewComponents {
     func subtreeWorkspaces(of id: GroupID) -> [SidebarWorkspace] {
         (groupSubtrees[id] ?? [id]).flatMap { groups[$0]?.workspaces ?? [] }
     }
-    /// Nothing in `id` nor under it (no workspace, link, tab or app): its card would say nothing.
+    /// No workspace in `id` nor under it: its card, which counts workspaces, would say nothing.
     private func isEmptyTree(_ id: GroupID) -> Bool {
-        (groupSubtrees[id] ?? [id]).allSatisfy { groups[$0].map { $0.workspaces.isEmpty && $0.items.isEmpty } ?? true }
+        (groupSubtrees[id] ?? [id]).allSatisfy { groups[$0]?.workspaces.isEmpty ?? true }
     }
     /// The group header's frame on screen, nil when it is not laid out.
     func hoverCardAnchor(forGroup id: GroupID) -> CGRect? {

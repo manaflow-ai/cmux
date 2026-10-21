@@ -27,7 +27,7 @@ extension SidebarListViewComponents {
                 case let .workspace(ws): workspaces[ws.id] = ws
                 case let .group(group):
                     groups[group.id] = group
-                    groupSubtrees[group.id] = [group.id]
+                    if groupSubtrees[group.id] == nil { groupSubtrees[group.id] = [group.id] }
                     var ancestor = group.parent, seen: Set<GroupID> = [group.id]
                     // A malformed parent chain (a cycle) stops at the first group seen again.
                     while let id = ancestor, groupSubtrees[id] != nil, seen.insert(id).inserted {
