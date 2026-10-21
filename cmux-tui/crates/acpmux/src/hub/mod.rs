@@ -79,6 +79,7 @@ pub use new_request::{
 pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 pub mod approvers;
+mod peer_cache;
 mod peers;
 pub(crate) use peers::PEER_PERMISSION_PENDING;
 mod permission_groups;
@@ -598,8 +599,10 @@ impl Hub {
         });
     }
 
-    pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
+    pub(super) fn make_session(&self, mut meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        // A Claude chat saved without `steering` (an older build) still steers once adopted.
+        meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),

@@ -44,6 +44,15 @@ nonisolated enum MarkdownPageActionCatalog: ActionCatalogGroup {
                 category: .browser, symbol: "tablecells", surfaces: [.palette],
                 requires: [.markdownFocused], targets: [.pane], cliName: "browser markdown-reset-table-widths"
             ),
+            // K1: a read-only page owns bare keys, so a user may bind `g g` here (keybindings.json,
+            // `when: markdownReadOnlyFocused`); no default key (customization.md section 7).
+            ActionDescriptor(
+                id: "markdownGoToTop",
+                title: String(localized: "action.markdownGoToTop", defaultValue: "Markdown: Go to Top", bundle: .module),
+                keywords: ["markdown", "vim", "top", "start"], category: .browser, symbol: "arrow.up.to.line.alt",
+                surfaces: [.palette, .keyboard], requires: [.markdownReadOnlyFocused], targets: [.pane],
+                cliName: "browser markdown-go-to-top"
+            ),
         ]
     }
 }

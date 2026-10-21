@@ -50,6 +50,7 @@ public final class SettingsApplier {
         if design.paneAnimations != snapshot.paneAnimations { design.paneAnimations = snapshot.paneAnimations }
         if design.backdropPlayback != snapshot.backdropPlayback { design.backdropPlayback = snapshot.backdropPlayback }
         if design.chiefPictureMotion != snapshot.chiefPictureMotion { design.chiefPictureMotion = snapshot.chiefPictureMotion }
+        if design.calmMode != snapshot.calmMode { design.calmMode = snapshot.calmMode }
         if design.animationsEnabled != snapshot.motionCategories.enabled { design.animationsEnabled = snapshot.motionCategories.enabled }
         if design.disabledAnimationCategories != snapshot.motionCategories.disabled {
             design.disabledAnimationCategories = snapshot.motionCategories.disabled
