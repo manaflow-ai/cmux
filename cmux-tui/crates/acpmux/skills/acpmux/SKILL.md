@@ -27,6 +27,14 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
 Start a session only when the user asked for one.
 
+When a sub-session asks a question (its AskUserQuestion or user input),
+`wait_for_sessions` returns and its row lists it under `questions`; answer it
+with `answer_question` (keys: each item's `id` or `prompt`). A permission
+request or a plan approval is not a question: only the user allows it, in
+cmux NEXT, so tell the user which sub-session waits. With Settings >
+Agents > Sub-sessions > Let Sessions Answer Their Sub-sessions' Questions
+off, `answer_question` is refused (`subsessions.answers_off`): tell the user.
+
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
 One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,
