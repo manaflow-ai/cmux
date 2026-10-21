@@ -732,6 +732,12 @@ export default agentPaneEntry({
     },
     "thought-expanded": {
       note: "Play: the folded thought opens to its full text under one left rule; the line still reads Thought for 12s.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Opening the thought pushes the rows below it down by its text, on purpose.",
+        },
+      },
       snapshot: thoughtChat([thought(SHORT_THOUGHT, { startedAt: 0, endedAt: 12_000 })]),
       play: async (ctx) => {
         await ctx.click({ selector: "button.cv-thought" });
@@ -743,6 +749,12 @@ export default agentPaneEntry({
     },
     "thoughts-merged": {
       note: "Play: two thoughts side by side in one step (as when a call a permission ask holds out of the transcript sat between them) are one row for the sum of their times, 4s and 8s, opening to both texts.",
+      checks: {
+        layoutShiftMax: {
+          value: 0.01,
+          reason: "Opening the thought pushes the rows below it down by its text, on purpose.",
+        },
+      },
       snapshot: thoughtChat([
         thought("Check how the helper parses errors first.", { startedAt: 0, endedAt: 4_000 }),
         thought("On second thought, the retry wrapper swallows the status, so a 429 looks like a network failure.", {
@@ -760,13 +772,14 @@ export default agentPaneEntry({
       },
     },
     "thought-quiet": {
-      note: "Play: an empty thought (Claude's omitted or redacted thinking) and a short one done in under a second draw no row; the step shows its call alone.",
+      note: "Play: an empty thought (Claude's omitted or redacted thinking) and a short one done in under a second draw no row; the step shows its calls alone.",
       snapshot: thoughtChat(
         [thought("", { startedAt: 0, endedAt: 0 })],
         [thought("I am here", { startedAt: 0, endedAt: 300 })],
       ),
       play: async (ctx) => {
-        await ctx.waitFor(() => ctx.document.body.textContent?.includes("Read client.ts") ?? false);
+        // The step draws its calls (a live run may show only its newest), and nothing else.
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-tools .cv-tool"));
         if (ctx.document.querySelector(".cv-thought")) throw new Error("a quiet thought draws a row");
         if (ctx.document.body.textContent?.includes("I am here")) throw new Error("a quiet thought shows its text");
       },
