@@ -67,11 +67,12 @@ public struct FileInfoReader: Sendable {
         return total
     }
 
-    /// The space free for new files on `url`'s volume (the status line's "X available").
+    /// The space free for new files on `url`'s volume (the status line's "X available"), or nil when
+    /// unknown. Some volumes report 0 for important use, and a 0 overall reads as unknown, not a full disk.
     @concurrent
     public func availableCapacity(of url: URL) async -> Int64? {
         let reported = volumeCapacity(url)
-        return reported.important ?? reported.plain
+        return [reported.important, reported.plain].lazy.compactMap { $0 }.first { $0 > 0 }
     }
 
     /// Sets the Locked box.
