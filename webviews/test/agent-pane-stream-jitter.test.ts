@@ -175,6 +175,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       const words = WORDS.slice(index % 7, (index % 7) + 3).join(" ");
       emit("in", "agent_message_chunk", chunk(`${words}${index % 25 === 24 ? ".\n\n" : " "}`));
       at(index);
+      // fixed-wait: the stream's own cadence, a chunk every frame or two as an agent sends them, is the input under test.
       await Bun.sleep(16 + (index % 3) * 10);
     }
   }
@@ -500,7 +501,8 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
         // acpmux's queue update can come before its `queue_removed` record.
         queue = [];
         changed();
-        await page.waitForTimeout(30);
+        // The page has taken the update on its own: the card leaves with it.
+        await page.locator(".acpmux-queued").waitFor({ state: "detached" });
         emit("mux", "queue_removed", { promptId: `q-${turn}` });
       } else unqueue("queue_removed", `q-${turn}`);
       await page.locator(".acpmux-queued").waitFor({ state: "detached" });
