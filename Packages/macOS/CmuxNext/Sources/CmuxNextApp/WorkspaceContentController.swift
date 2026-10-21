@@ -107,7 +107,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         )
         themeScope.root(contentView)
         contentView.backgroundMenu = { [weak services, weak self] in
-            services?.registry.makeContextMenu(for: .windowBackground, target: self.map { ActionTargetRef(kind: .workspace, id: $0.workspace.id) })
+            self.flatMap { services?.registry.makeContextMenu(for: .windowBackground, target: ActionTargetRef(kind: .workspace, id: $0.workspace.id)).themeRows(in: $0.themeScope.fullStrength) }
         }
         contentView.showsBar = screenBar.isVisible
         screenBar.onVisibilityChange = { [weak self] visible in self?.contentView.showsBar = visible }

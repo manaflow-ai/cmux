@@ -79,6 +79,25 @@ import Testing
         #expect(counter.sender === menu.items[0])
     }
 
+    /// Code after `popUp` that settles the menu's outcome runs after the chosen row has run
+    /// (a page menu ends a dismissed request only then; ending it first dropped every engine row).
+    @Test func afterThemedRowRunsComesAfterTheChosenRow() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        menu.themeRows(in: try Self.accentedScope())
+        let row = try #require(menu.items[0].view as? ThemedMenuRowView)
+        let point = NSPoint(x: 30, y: row.bounds.midY)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 0, windowNumber: 0,
+                                                        context: nil, eventNumber: 0, clickCount: 1, pressure: 1))
+            type == .leftMouseDown ? row.mouseDown(with: event) : row.mouseUp(with: event)
+        }
+        var seen: Int?
+        menu.afterThemedRowRuns { seen = counter.count }
+        Self.drainRunLoop { seen != nil }
+        #expect(seen == 1, "the outcome step saw \(String(describing: seen)) runs of the chosen row")
+    }
+
     /// Return on a highlighted submenu row is AppKit's (it opens the submenu): the row passes it on.
     @Test func returnOnASubmenuRowIsNotSwallowed() throws {
         let counter = Counter()
@@ -129,6 +148,25 @@ import Testing
         counter.enabled = true
         menu.update()
         #expect(menu.items[0].isEnabled)
+    }
+
+    /// A submenu its delegate fills as it opens (Open With ▸) themes the rows it just added.
+    @Test func rowsAddedAsASubmenuOpensAreThemed() throws {
+        let counter = Counter()
+        let menu = Self.menu(counter)
+        let openWith = NSMenuItem(title: "Open With", action: nil, keyEquivalent: "")
+        let submenu = NSMenu(title: "Open With")
+        let filler = Filler(counter)
+        submenu.delegate = filler
+        openWith.submenu = submenu
+        menu.addItem(openWith)
+        menu.themeRows(in: try Self.accentedScope())
+
+        #expect(submenu.items.isEmpty)
+        submenu.delegate?.menuNeedsUpdate?(submenu)
+        #expect(filler.updates == 1, "the menu's own delegate still fills it")
+        let row = try #require(submenu.items.first)
+        #expect(row.view is ThemedMenuRowView, "the added row is cmux-drawn")
     }
 
     // MARK: Helpers
@@ -192,4 +230,20 @@ import Testing
 
     func menu(_ menu: NSMenu, willHighlight item: NSMenuItem?) { highlighted = item }
     func menuDidClose(_ menu: NSMenu) { closed = true }
+}
+
+/// A submenu delegate that adds one row each time the submenu opens.
+@MainActor private final class Filler: NSObject, NSMenuDelegate {
+    private let counter: Counter
+    var updates = 0
+
+    init(_ counter: Counter) { self.counter = counter }
+
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        updates += 1
+        menu.removeAllItems()
+        let item = NSMenuItem(title: "TextEdit", action: #selector(Counter.fire(_:)), keyEquivalent: "")
+        item.target = counter
+        menu.addItem(item)
+    }
 }
