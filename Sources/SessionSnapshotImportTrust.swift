@@ -154,23 +154,31 @@ enum SessionSnapshotImportTrust {
 
         var rebuiltAgent: SessionRestorableAgentSnapshot?
         if let agent = terminal.agent {
-            // Older snapshots can omit the agent's launch command while the
-            // matching hook binding still carries it. Use that binding only
-            // as local provider evidence for rebuilding the agent; the
-            // untrusted binding itself is still dropped below.
-            var agentForRebuild = agent
-            if agentForRebuild.launchCommand == nil {
-                let fallbackBinding = [terminal.resumeBinding, terminal.managedAgentResumeBinding]
-                    .compactMap { $0 }
-                    .first {
-                        $0.isAgentHookBinding
-                            && $0.checkpointId == agent.sessionId
-                            && ($0.kind == nil || $0.kind == agent.kind.rawValue)
-                            && $0.launchCommand != nil
-                    }
-                agentForRebuild.launchCommand = fallbackBinding?.launchCommand
-            }
-            if let rebuilt = rebuiltBuiltInAgent(agentForRebuild, builtIns: builtIns) {
+            // Older snapshots can omit (or contain stale) agent launch data
+            // while a matching hook binding still carries the provider route.
+            // Try every matching binding and keep the first one whose
+            // provider evidence actually sanitizes to a routed launch. A
+            // direct or malformed binding must not mask a valid managed one.
+            let matchingBindings = [terminal.resumeBinding, terminal.managedAgentResumeBinding]
+                .compactMap { $0 }
+                .filter {
+                    $0.isAgentHookBinding
+                        && $0.checkpointId?.trimmingCharacters(in: .whitespacesAndNewlines) == agent.sessionId
+                        && ($0.kind == nil
+                            || $0.kind?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+                                == agent.kind.rawValue.lowercased())
+                        && $0.launchCommand != nil
+                }
+            let primaryRebuild = rebuiltBuiltInAgent(agent, builtIns: builtIns)
+            let routedFallback = matchingBindings.lazy.compactMap { binding -> SessionRestorableAgentSnapshot? in
+                var candidate = agent
+                candidate.launchCommand = binding.launchCommand
+                guard let rebuilt = rebuiltBuiltInAgent(candidate, builtIns: builtIns),
+                      rebuilt.launchCommand != nil else { return nil }
+                return rebuilt
+            }.first
+            let rebuilt = primaryRebuild?.launchCommand != nil ? primaryRebuild : (routedFallback ?? primaryRebuild)
+            if let rebuilt {
                 rebuiltAgent = rebuilt
                 terminal.agent = rebuilt
                 // Only launch the agent automatically in a directory the user
