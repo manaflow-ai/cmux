@@ -50,9 +50,13 @@ jobs:
           fetch-depth: 0
           persist-credentials: false
 
+      # The App's installation may not grant contents: write (it refused with
+      # a 422 on #23518). Without a token the job warns and skips; the
+      # cmux-next lint still fails the pull request on any violation.
       - name: Mint scoped write token
         id: app-token
         if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
         with:
           app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
@@ -71,7 +75,7 @@ jobs:
         run: |
           set -euo pipefail
           if [ -z "$APP_TOKEN" ]; then
-            echo "::warning::Namespace autofix skipped: the scoped write App is not configured."
+            echo "::warning::Namespace autofix skipped: no write token (the App is not configured, or its installation does not grant contents: write)."
             exit 0
           fi
 
