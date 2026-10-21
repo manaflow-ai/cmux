@@ -16,7 +16,7 @@ import { commonDirectory, turnFiles, turnPathsOnly, type TurnFile } from "../dif
 import { ChevronDown } from "../changeIcons";
 import { Counts } from "../changes/Counts";
 import { TurnCountsContext } from "../changes/TurnCountsContext";
-import { outsideRepository, turnCounts } from "../changes/turnCheckpoint";
+import { changedByTools, outsideRepository, turnCounts } from "../changes/turnCheckpoint";
 import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { plainEditLabels, type AcpmuxRow } from "../model";
 import { turnChanges, type EditedFile, type UndoStatus } from "../turnChanges/model";
@@ -90,7 +90,8 @@ function Card({
   const undoState = useUndoState(row.id);
   // Those list unless a listed file is that path. Once the checkpoint loads, its files are the
   // repository's: only a path outside it stays (a /tmp file), as for the tool calls' diffs, and a
-  // failed call's, which no checkpoint file covers.
+  // failed call's, which no checkpoint file covers unless a later call changed it (matched as the
+  // checkpoint matches its files, so /tmp/x is /private/tmp/x).
   const plain =
     counts.files === toolFiles
       ? labels.filter(({ path }) => !path || !files.some((file) => file.path === path))
@@ -100,7 +101,9 @@ function Card({
             counts.root,
             files,
           ),
-          ...labels.filter(({ path, failed }) => failed && !files.some((file) => file.path === path)),
+          ...labels.filter(
+            ({ path, failed }) => failed && (!path || !files.some((file) => changedByTools(file, [{ path }]))),
+          ),
         ];
   const entries: { key: string; file?: TurnFile; path?: string; failed?: true }[] = [
     ...files.map((file) => ({ key: file.path, file })),
