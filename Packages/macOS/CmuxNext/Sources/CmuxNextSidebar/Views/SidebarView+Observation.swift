@@ -38,6 +38,8 @@ extension SidebarViewComponents {
         var history: SidebarChatHistoryState?
         /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): one-line rows.
         var workspacesAsTabs: Bool
+        /// The "Done (N)" fold (`SidebarTunables.doneFold`): turning it on or off lays the list out again.
+        var foldsDone: Bool
         init(_ model: SidebarModel, _ design: DesignSettings) {
             sectionsRevision = model.observedStructureRevision
             selection = model.selection
@@ -61,6 +63,7 @@ extension SidebarViewComponents {
             tree = SidebarSessionTree.shared.state
             history = SidebarChatHistory.shared.state
             workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+            foldsDone = SidebarTunables.doneFold.value
         }
     }
     func observe() {
@@ -94,7 +97,7 @@ extension SidebarViewComponents {
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
             || lastState?.history != state.history
-            || lastState?.workspacesAsTabs != state.workspacesAsTabs
+            || lastState?.workspacesAsTabs != state.workspacesAsTabs || lastState?.foldsDone != state.foldsDone
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections
         model.applyListPreferences(state.preferences)
