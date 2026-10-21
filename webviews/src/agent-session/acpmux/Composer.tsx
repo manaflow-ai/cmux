@@ -5,7 +5,13 @@ import "../../theme/messages.css";
 import type { ConnectKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
-import { MAX_ATTACHMENTS, type AttachmentError, type ComposerAttachment } from "./attachments";
+import {
+  MAX_ATTACHMENTS,
+  type AttachmentError,
+  type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
+} from "./attachments";
 import type { UploadResult } from "./cloudUploads";
 import { cappedShellChips, shellAttachment, type ShellRun } from "./shell/shellRuns";
 import type { Project } from "./ProjectChooser";
@@ -202,6 +208,9 @@ type Props = {
   /// moved chat's machine, or this Mac): each becomes a chip that sends its path. Undefined when this
   /// chat takes none.
   upload?(files: File[]): Promise<UploadResult>;
+  /// For a chat on this Mac: where the files of the person's drop or paste are, so a folder or a file
+  /// no block takes goes as a link to it, with nothing copied (composer/intakeFiles.ts droppedPaths).
+  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
   /// Starts a new chat in another project; the tray's project pill chooses only when set.
   onProject?(cwd: string, peer?: string): void;
   projectChoices?: Project[];
@@ -269,6 +278,7 @@ export function Composer({
   searchFiles,
   capture,
   upload,
+  localPaths,
   onProject,
   projectChoices,
   onBrowseProject,
@@ -395,6 +405,7 @@ export function Composer({
           ? { uploads: true }
           : undefined,
     ...(upload ? { upload } : {}),
+    ...(localPaths ? { localPaths } : {}),
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;

@@ -91,7 +91,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import { audioAttachment, linkAttachment, type ComposerAttachment } from "./attachments";
+import { audioAttachment, linkAttachment, linkItems, type ComposerAttachment, type DroppedKind } from "./attachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -106,6 +106,7 @@ import { TrustAsk } from "./TrustAsk";
 import { SecretCard } from "./SecretCard";
 import { ToolCards } from "./toolCards/ToolCards";
 import { uploadToMachine } from "./cloudUploads";
+import { droppedPaths } from "./composer/intakeFiles";
 import { useToolCards } from "./toolCards/toolCardStore";
 import { PermissionCard } from "./PermissionCard";
 import { cardTakesShortcuts } from "./permissionKeys";
@@ -3561,6 +3562,8 @@ function AcpmuxPane() {
     return new File([bytes], shot.name ?? "Screenshot.png", { type: shot.mimeType ?? "image/png" });
   }, []);
   const uploadFiles = useCallback((files: File[]) => uploadToMachine(files, callNative), []);
+  // A chat on this Mac links a dropped or pasted folder, or a file no block takes, where it is.
+  const localPaths = useCallback((kind: DroppedKind, files: File[]) => droppedPaths(kind, files, callNative), []);
   const searchFiles = useCallback<FileSearchSource>(
     (query) => callNative("file.search", { ...(fileRoot ? { path: fileRoot } : {}), query, limit: FILE_SEARCH_LIMIT }),
     [fileRoot],
@@ -5795,10 +5798,8 @@ function AcpmuxPane() {
   // Sources' +: the host's panel picks files and folders on this computer, which the composer holds
   // as links for the next prompt (resource_link blocks: the agent reads them where they are).
   const attachLinks = async () => {
-    const picked = await callNative<{ items?: { path?: unknown; folder?: unknown }[] } | null>("chat.attach.choose");
-    for (const item of picked?.items ?? [])
-      if (typeof item.path === "string" && item.path.startsWith("/"))
-        composerHandle.current?.attach(linkAttachment(item.path, item.folder === true));
+    for (const item of linkItems(await callNative("chat.attach.choose")))
+      composerHandle.current?.attach(linkAttachment(item.path, item.folder));
     composerHandle.current?.focus();
   };
   // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
@@ -6752,6 +6753,8 @@ function AcpmuxPane() {
             searchFiles={fileRoot ? searchFiles : undefined}
             capture={captureScreen}
             upload={uploadFiles}
+            // A chat on this Mac (as Sources' + below); the host refuses any other.
+            localPaths={localCwd !== undefined && !quick && !readOnlySubagent ? localPaths : undefined}
             onOpenInWindow={quick ? openInWindow : undefined}
             onEmptyCommandReturn={recapCard.recap ? recapCard.reply : undefined}
             onShellChange={setComposerShell}
@@ -6949,6 +6952,8 @@ function AcpmuxPane() {
               accessory={<DictationMic dictation={dictation} />}
               dictationField={newTabDictationField}
               notice={<DictationNotice dictation={dictation} />}
+              // The host answers only for a page on this Mac; another machine's keeps the refusal.
+              {...(!quick ? { localPaths } : {})}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
               snapshot={newTabSnapshot}

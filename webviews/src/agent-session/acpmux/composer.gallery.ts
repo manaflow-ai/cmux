@@ -654,6 +654,44 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-link[data-saved]"));
       },
     },
+    "folder-dropped-as-link": {
+      note: "A folder and a zip dropped from Finder on a chat whose folder is on this Mac: the host knows where they are (chat.attach.dropped), so each chip links to the real path (the folder's name ends in a slash) and nothing is copied or uploaded. The screenshot beside them is an image as before.",
+      snapshot: chat(finished),
+      native: {
+        "chat.attach.dropped": {
+          items: [
+            { path: `${CWD}/assets`, folder: true },
+            { path: "/Users/dev/Downloads/build-logs.zip", folder: false },
+            { path: "/Users/dev/Desktop/Screenshot.png", folder: false },
+          ],
+        },
+      },
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const png = Uint8Array.from(
+          atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="),
+          (char) => char.charCodeAt(0),
+        );
+        // A dropped folder: WebKit hands a File whose bytes cannot be read.
+        const folder = new view.File([], "assets", { type: "" });
+        Object.defineProperty(folder, "arrayBuffer", { value: () => Promise.reject(new Error("a folder")) });
+        const files = [
+          folder,
+          new view.File([new Uint8Array([0x50, 0x4b, 0x03, 0x04, 0xff])], "build-logs.zip", {
+            type: "application/zip",
+          }),
+          new view.File([png], "Screenshot.png", { type: "image/png" }),
+        ];
+        const drop = new view.Event("drop", { bubbles: true, cancelable: true });
+        Object.defineProperty(drop, "dataTransfer", { value: { files, types: ["Files"] } });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(drop);
+        await ctx.waitFor(
+          () => ctx.document.querySelectorAll(".acpmux-attachment-link:not([data-saved])").length === 2,
+        );
+        if (ctx.document.querySelector("output.acpmux-attachment-note"))
+          throw new Error("a folder dropped in a chat on this Mac must link, not be refused");
+      },
+    },
     draft: {
       note: "A draft the tab inherited (markdown, two lines).",
       ready: { draft: "Also add a **circuit breaker** after `5` failures.\nKeep the POST rule as is." },

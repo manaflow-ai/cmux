@@ -1,4 +1,5 @@
 import React, { useCallback, useImperativeHandle, useLayoutEffect, useRef } from "react";
+import { pasteIsOnlyFileNames } from "./attachments";
 import { COMPOSER_READY_EVENT } from "./composerFocus";
 import { isImeKeyEvent } from "../../pages/shared/imeKeys";
 import { activeFormats, applyFormat, type MarkdownFormat } from "./markdownFormat";
@@ -322,12 +323,14 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
                 latest.current.onCompositionChange?.(false);
                 return false;
               },
-              // A paste of only files (images) has no text for the field: the composer attaches them
-              // (its document paste listener). ProseMirror would move focus to a stand-in element
-              // for 50 ms to capture it, and the keys typed then came back stripped of spaces.
+              // A paste of only files (images), or of files copied in Finder (whose text is only their
+              // names), has no text for the field: the composer attaches them (its document paste
+              // listener). ProseMirror would move focus to a stand-in element for 50 ms to capture
+              // it, and the keys typed then came back stripped of spaces.
               paste: (_view, event) => {
                 const data = event.clipboardData;
-                if (!data?.files.length || data.getData("text/plain") || data.getData("text/html")) return false;
+                if (!data?.files.length || data.getData("text/html")) return false;
+                if (data.getData("text/plain") && !pasteIsOnlyFileNames(data)) return false;
                 event.preventDefault();
                 return true;
               },

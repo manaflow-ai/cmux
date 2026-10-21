@@ -11,6 +11,8 @@ import {
   thumbnail,
   type AttachmentError,
   type ComposerAttachment,
+  type DroppedKind,
+  type LinkItem,
 } from "../attachments";
 import type { UploadResult } from "../cloudUploads";
 import { ImageViewerContext } from "../conversation/imageViewerContext";
@@ -44,12 +46,15 @@ export type AttachmentIntakeOptions = {
   pasteTarget(target: Node): { uploads: boolean } | undefined;
   /// The chat's host saves what the composer can't attach (cloudUploads.ts); its chip sends the path.
   upload?(files: File[]): Promise<UploadResult>;
+  /// For a chat on this Mac: where the files of the person's drop or paste are (composer/intakeFiles.ts
+  /// droppedPaths), so a folder or a file no block takes goes as a link to it, tried before `upload`.
+  localPaths?(kind: DroppedKind, files: File[]): Promise<LinkItem[] | undefined>;
 };
 
 /// The prompt's staged attachments: what a paste on the composer's field or a file drop anywhere on
 /// the page adds (the document-level drop contract, attachments.ts), with the note a refusal leaves.
-/// `attach(files, uploads)` adds files another way (the + menu's chooser, which uploads like a drop,
-/// or a capture).
+/// `attach(files, uploads, kind)` adds files another way (the + menu's chooser, which uploads like a
+/// drop, or a capture).
 export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   const t = useT();
   const [attachments, setAttachments] = useState<ComposerAttachment[]>([]);
@@ -59,13 +64,16 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
   live.current = { options, t, held: attachments.length };
   /// `uploads`: the person dropped, pasted or chose these, so the chat's host may save what the
   /// composer can't attach (a moved chat's machine, or this Mac for a local chat) and its chip sends
-  /// the saved path (composer/intakeFiles.ts); never a capture.
-  const [attach] = useState(() => async (files: File[], uploads = false) => {
+  /// the saved path (composer/intakeFiles.ts); never a capture. `kind`: the person's own drop or
+  /// paste, whose files the host of a chat on this Mac knows the paths of (`localPaths`).
+  const [attach] = useState(() => async (files: File[], uploads = false, kind?: DroppedKind) => {
     if (files.length === 0) return;
     const { options: current, t: translate, held } = live.current;
+    const paths = current.localPaths;
     const taken = await intakeFiles(files, {
       held,
       allowImages: current.allowImages,
+      ...(kind && paths ? { localPaths: (batch: File[]) => paths(kind, batch) } : {}),
       ...(uploads && current.upload ? { upload: current.upload } : {}),
     });
     setAttachments((staged) => [...staged, ...taken.attachments]);
@@ -79,9 +87,9 @@ export function useAttachmentIntake(options: AttachmentIntakeOptions) {
       const files = filesFrom(event.clipboardData);
       if (files.length === 0) return;
       event.preventDefault();
-      void attach(files, owned.uploads);
+      void attach(files, owned.uploads, "paste");
     };
-    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach(files, true), setDropping);
+    const removeFileDropLifecycle = installFileDropLifecycle((files) => void attach(files, true, "drop"), setDropping);
     document.addEventListener("paste", paste);
     return () => {
       removeFileDropLifecycle();
