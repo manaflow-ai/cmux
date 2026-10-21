@@ -86,7 +86,7 @@ class FleetCompileCheck(unittest.TestCase):
     def test_the_workflow_posts_the_status_the_guard_reads_on_the_sha_it_was_given(self):
         text = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
         self.assertIn(f"run-name: {guard.FLEET_TITLE}" + "${{ inputs.sha }}", text)
-        self.assertIn(f"context={guard.FLEET_CONTEXT}", text)
+        self.assertIn(f"CONTEXT: {guard.FLEET_CONTEXT}\n", text)
         self.assertIn("compile-check --ref \"$SHA\" --app", text)
         self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", text)
         self.assertIn("statuses/$SHA", text)

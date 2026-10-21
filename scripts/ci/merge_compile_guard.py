@@ -12,7 +12,13 @@ Xcode project or package manifest) file, and its head's `cmux-next Release compi
 
 - is queued or running, or not created yet while cmux-next is still routing and placing the head
   (or the head has no checks at all yet);
-- or finished red or cancelled with no passing rerun.
+- or finished red or cancelled with no passing rerun;
+
+unless the build fleet compiled the exact head: `fleet/compile-check` on the head is a success
+status posted by GitHub Actions whose run is a finished, green fleet-compile-check.yml dispatch from
+feat-cmux-next titled with the full head. A token can post any status, and a workflow on another
+branch any run, so the guard trusts only that run. The pass covers what `cmux-ci compile-check --app`
+compiles (#22845 sat queued over an hour after its fleet pass, with 60 minis offline).
 
 A compile the router skipped (iOS, packages outside the CmuxNext graph, forks) or a head cmux-next
 never ran on does not apply, and neither does a PR that changes no Swift. The command is read the
@@ -35,7 +41,12 @@ COMPILE = "cmux-next Release compile (Xcode 26)"
 ROUTING = ("cmux-next path routing", "cmux-next push head preflight", "cmux-next macOS placement")
 RUNNING = frozenset(("queued", "in_progress", "pending", "waiting", "requested"))
 NOT_RUN = frozenset(("skipped", "neutral"))
-TIMEOUT = 15  # seconds per gh call; at most four calls fit the hook's 120 s
+TIMEOUT = 15  # seconds per gh call; the at most six calls fit the hook's 120 s
+FLEET_WORKFLOW = "fleet-compile-check.yml"
+FLEET_CONTEXT = "fleet/compile-check"
+FLEET_TITLE = "fleet compile-check "  # + the full sha: the workflow's run-name
+FLEET_POSTER = "github-actions[bot]"
+FLEET_RUNS_READ = 2  # newest first; each run read is one gh call
 SWIFT_SUFFIXES = (".swift", ".xcconfig", ".h", ".m", ".mm", ".c", ".modulemap")
 SWIFT_NAMES = ("Package.swift", "Package.resolved")
 
@@ -253,13 +264,21 @@ def gh_lines(args: list[str], cwd: str | None):
         return None
 
 
-def verdict(pr: dict, files: list[str], checks: list[dict]) -> str:
+def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool = False) -> str:
     """"" when the merge may go ahead, else why it is refused."""
     if pr.get("base") != BASE:
         return ""
     swift = [f for f in files if changes_swift(f)]
-    if not swift:
+    if not swift or fleet_passed:
         return ""
+    why = compile_refusal(pr, swift, checks)
+    if why:
+        why += (f" Or compile-check the head on the build fleet: gh workflow run {FLEET_WORKFLOW} --ref {BASE} "
+                f"-f sha={pr['head']}")
+    return why
+
+
+def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:
     named = [c for c in checks if c.get("name") == COMPILE]
     head = pr["head"][:12]
     what = f"#{pr['number']} changes Swift ({swift[0]}{' and more' if len(swift) > 1 else ''})"
@@ -298,7 +317,34 @@ def read_pr(repo: str, number: int, cwd: str | None) -> str:
                        ".check_runs[] | {name, status, conclusion} | tojson"], cwd)
     if checks is None:
         raise Unreadable
-    return verdict(pr, files, checks)
+    why = verdict(pr, files, checks)
+    return why and verdict(pr, files, checks, fleet_passed(repo, pr["head"], cwd))
+
+
+def fleet_passed(repo: str, head: str, cwd: str | None) -> bool:
+    """Whether a fleet-compile-check.yml run from the base, dispatched for exactly `head`, passed. The
+    head's fleet/compile-check statuses only point at runs; an unreadable one counts as no pass."""
+    statuses = gh_lines(["api", "--paginate", f"repos/{repo}/commits/{head}/statuses?per_page=100", "--jq",
+                         f'.[] | select(.context == "{FLEET_CONTEXT}") | '
+                         '{state, creator: .creator.login, url: .target_url} | tojson'], cwd) or []
+    prefix = f"https://github.com/{repo}/actions/runs/"
+    seen = set()
+    for found in statuses:
+        url = found.get("url") or ""
+        run_id = url[len(prefix):]
+        if (found.get("state") != "success" or found.get("creator") != FLEET_POSTER or not url.startswith(prefix)
+                or not run_id.isdigit() or run_id in seen):
+            continue
+        if len(seen) == FLEET_RUNS_READ:
+            break
+        seen.add(run_id)
+        run = gh_json(["api", f"repos/{repo}/actions/runs/{run_id}", "--jq",
+                       "{path, head_branch, event, status, conclusion, display_title}"], cwd) or {}
+        if (run.get("path") == f".github/workflows/{FLEET_WORKFLOW}" and run.get("head_branch") == BASE
+                and run.get("event") == "workflow_dispatch" and run.get("status") == "completed"
+                and run.get("conclusion") == "success" and run.get("display_title") == FLEET_TITLE + head):
+            return True
+    return False
 
 
 def refusal(command: str, cwd: str | None, reader=read_pr) -> str:
