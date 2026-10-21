@@ -9,10 +9,13 @@ import { GalleryDialog } from "./GalleryDialog";
 import { chatGallery } from "./chatGallery";
 import { useScrollEdges } from "./scrollEdges";
 import { sessionSummary } from "./sessionSummary";
-import { SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
+import type { SubsessionRow } from "../subagents/subsessions";
+import { SUBSESSION_STATUS, SubagentStatusList, subagentStatus, waitingSubagents } from "./SubagentStatusList";
 import { SubagentsTab } from "./SubagentsTab";
 import { SummaryBody, type SummaryChanges } from "./SummaryBody";
 import type { SummaryCardControl } from "./cardState";
+
+const NO_SUBSESSIONS: readonly SubsessionRow[] = [];
 
 /// What the chat has produced so far. A wide pane reserves a quiet right column; a narrow pane
 /// uses a popover that dismisses on outside click or Escape. Folded popovers keep their header line,
@@ -29,6 +32,7 @@ export function SummaryCard({
   changes,
   onOpenChanges,
   subagents,
+  subsessions,
 }: {
   card: SummaryCardControl;
   rows: readonly AcpmuxRow[];
@@ -49,6 +53,9 @@ export function SummaryCard({
     /// Whether new subagents open in panes of their own, and its switch; none where no pane opens.
     autoOpen?: { on: boolean; set: (on: boolean) => void };
   };
+  /// The chat's sub-sessions (subagents/subsessions.ts `subsessionRows`), listed after its
+  /// subagents, and how a row opens one's chat beside this one.
+  subsessions?: { rows: readonly SubsessionRow[]; onOpen: (sessionId: string) => void };
 }) {
   const t = useT();
   const [gallery, setGallery] = useState(false);
@@ -107,7 +114,11 @@ export function SummaryCard({
       <aside className="acpmux-summary-card acpmux-summary-card--reserve" aria-hidden="true" data-placement="inline" />
     ) : null;
   }
-  const count = (status: string) => agents.filter((agent) => subagentStatus(agent, waiting) === status).length;
+  const sessions = subsessions?.rows ?? NO_SUBSESSIONS;
+  const listed = agents.length > 0 || sessions.length > 0;
+  const count = (status: string) =>
+    agents.filter((agent) => subagentStatus(agent, waiting) === status).length +
+    sessions.filter((session) => SUBSESSION_STATUS[session.state] === status).length;
   const counts = [
     count("waiting") > 0 && t("summary.subagents.waiting", { n: count("waiting") }),
     count("running") > 0 && t("summary.subagents.running", { n: count("running") }),
@@ -219,14 +230,17 @@ export function SummaryCard({
         {summary && !onSubagents && (
           <div className="acpmux-summary-card__body" ref={edges}>
             {/* The subagents first: they are what the card follows while a turn runs. */}
-            {agents.length > 0 && (
+            {listed && (
               <SubagentStatusList
                 agents={agents}
                 waiting={waiting}
                 current={subagents.current}
                 onOpen={subagents.onOpen}
-                autoOpen={subagents.autoOpen}
-                onShowAll={() => setTab("subagents")}
+                autoOpen={agents.length > 0 ? subagents.autoOpen : undefined}
+                // The tab lists subagents only; a chat with only sub-sessions has none to show there.
+                onShowAll={agents.length > 0 ? () => setTab("subagents") : undefined}
+                subsessions={sessions}
+                onOpenSession={subsessions?.onOpen}
               />
             )}
             <SummaryBody
@@ -238,7 +252,7 @@ export function SummaryCard({
               }}
               changes={changes}
               onOpenChanges={onOpenChanges}
-              subagents={agents.length > 0 ? <></> : undefined}
+              subagents={listed ? <></> : undefined}
               onOpenOutput={onOpenOutput}
             />
           </div>
