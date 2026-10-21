@@ -1264,6 +1264,13 @@ pre.cv-math-source {
     -webkit-text-fill-color: transparent;
     animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
   }
+  /* Marks with their own color (edit counts, a failed count) keep it inside the band. */
+  :root:not([data-status-indicators="static"])[data-working-look="shimmer"]
+    .cv-tool:has(> .cv-tool__icon .cv-spinner[data-working])
+    .cv-tool__text
+    :is(.cv-edit-diff__add, .cv-edit-diff__del, .cv-tool__failed) {
+    -webkit-text-fill-color: currentColor;
+  }
 }
 .cv-tool__icon {
   display: flex;

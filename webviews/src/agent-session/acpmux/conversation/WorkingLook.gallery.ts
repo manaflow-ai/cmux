@@ -24,7 +24,10 @@ export default agentPaneEntry({
   title: "Working look: running rows",
   area: "Agent pane",
   height: 360,
-  covers: ["agent-session/acpmux/conversation/CompactionNote.tsx", "agent-session/acpmux/conversation/ToolGroupRow.tsx"],
+  covers: [
+    "agent-session/acpmux/conversation/CompactionNote.tsx",
+    "agent-session/acpmux/conversation/ToolGroupRow.tsx",
+  ],
   keywords: ["spinner", "working", "breathing", "shimmer", "running"],
   variants: {
     breathe: {
