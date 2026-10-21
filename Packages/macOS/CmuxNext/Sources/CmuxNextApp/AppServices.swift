@@ -5,6 +5,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextBrowserHistory
+import CmuxNextChiefPetWiring
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextControl
@@ -13,6 +14,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -24,6 +26,7 @@ import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextUpdater
 import CmuxNextVSCodeServer
+import CmuxNextWorkspaceNaming
 import CmuxNextWorkspaceRepair
 import os
 /// Process-wide services the window controllers share. Model state is not
@@ -44,6 +47,8 @@ final class AppServices {
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
+    /// The names sidebar rows keep while their front tab's is briefly unknown (`WorkspaceAutoNameWiring`).
+    let autoNameHold = WorkspaceAutoNameHold()
     /// The machine of the action being run, while its handler runs (`ActionRouting`); `activeDaemon` prefers it.
     var routedDaemon: DaemonService?
     /// Brings a window forward for a jump (`revealTab`, a `cmux://` link).
@@ -64,7 +69,7 @@ final class AppServices {
     private(set) lazy var ssh: SSHService = SSHService(machines: machines, bundleID: environment.launch.bundleID)  // first read in init (no IUO)
     private(set) lazy var serverReach = ServerReachService.app(services: self)
     let mobile = MobileHostService(displayName: { await MacName().computerName() })  // phone access; the account layer starts it
-    /// iPhone connections for the cmux-next iPhone app (cnx-ios, Settings > Mobile).
+    /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
     let registry = ActionRegistry.standard()
     /// Sparkle updates (release builds) or read-only feed probes (DEV).
@@ -162,7 +167,7 @@ final class AppServices {
     private(set) lazy var workspaceTodo = WorkspaceTodoPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
-    /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
+    /// Where a link or path the person opens lands: a tab in its page's pane, a Cmd-click by `layout.linkPlacement`.
     private(set) lazy var linkOpener = LinkOpener(services: self)
     /// A link dragged out of a chat into a pane drop zone (``LinkDragSession``).
     private(set) lazy var linkDrags = LinkDragSession(services: self)
@@ -228,10 +233,17 @@ final class AppServices {
     private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
+    let chiefPetHomes = ChiefPetHomes()  // the Chief Settings popovers the Chief pet's Chief Pet Settings… opens
     /// Debug Settings: tunable overrides and their window (DEV and NIGHTLY).
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
+    /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
+    /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16)) { [weak self] in
+        guard let self else { return false }
+        return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
+            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback }
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.

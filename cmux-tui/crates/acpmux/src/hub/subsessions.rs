@@ -528,7 +528,7 @@ impl Hub {
             return Err(refused(
                 "subsessions.depth_limit",
                 format!(
-                    "start_session refused: depth limit reached. This session is at depth {} and may start sessions only down to depth {} (source: {}). Do the work in this session instead, or ask for a deeper limit: the user can raise it (Settings > Agents > Sub-sessions > Deepest Nesting, or this session's limits in its sidebar), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                    "start_session refused: depth limit reached. This session is at depth {} and may start sessions only down to depth {} (source: {}). Do the work in this session instead, or ask for a deeper limit: the user can raise it (Settings > Agents > Sub-sessions > Deepest Nesting), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                     depth - 1,
                     limits.max_depth,
                     limits.max_depth_source.as_str()
@@ -542,7 +542,7 @@ impl Hub {
                 return Err(refused(
                     "subsessions.width_limit",
                     format!(
-                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session, or this session's limits in its sidebar), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                         limits.max_children,
                         limits.max_children_source.as_str()
                     ),
@@ -587,27 +587,8 @@ impl Hub {
         let short = self.subsessions.claim_name(&parent.id, &base);
         let name = self.unique_name(&format!("{}/{short}", pm.name));
         let harness = req.harness.clone().unwrap_or_else(|| pm.harness.clone());
-        // The folder the checks pass on is the one the session gets:
-        // resolved once, here, so `..` or a link swapped after the check
-        // cannot move it.
         let asked = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
-        if !asked.is_absolute() {
-            return Err(RpcError::invalid_params(format!(
-                "cwd {} must be an absolute path to an existing folder",
-                asked.display()
-            )));
-        }
-        let folder =
-            std::fs::canonicalize(&asked).ok().filter(|f| f.is_dir()).ok_or_else(|| {
-                refused(
-                    "subsessions.cwd_unresolved",
-                    format!(
-                        "start_session refused: {} does not resolve to a folder on this machine",
-                        asked.display()
-                    ),
-                    json!({"cwd": asked}),
-                )
-            })?;
+        let folder = super::subsession_guard::resolved_folder(&asked)?;
         self.subsession_folder_check(pm, &folder).await?;
         self.subsession_harness_check(pm, &harness, req.model.as_deref(), &folder).await?;
         let mut cwd = folder.clone();
@@ -618,8 +599,6 @@ impl Hub {
         } else {
             None
         };
-        let parent_mode = crate::web_modes::mode_of(pm);
-        let parent_full = self.caller_access(pm) == super::subsession_guard::Access::Full;
         // Always the caller's effective policy: one it does not name is the
         // daemon default, never the child harness's own default.
         let policy = Some(self.effective_policy(pm).await);
@@ -644,21 +623,12 @@ impl Hub {
         };
         let probe = self.new_session(request).await?;
         // From here every refusal closes the child: it never runs unchecked.
-        if let Err(e) =
-            self.settle_subsession(parent, pm, &probe, &cwd, parent_mode, parent_full).await
+        if let Err(e) = self.settle_subsession(parent, pm, &probe, &cwd, req.name.as_deref()).await
         {
-            let closed = match self.kill(&probe, true).await {
-                Ok(()) => format!("session {} was closed", probe.id),
-                Err(c) => format!(
-                    "session {} could not be closed ({}): close it in cmux",
-                    probe.id, c.message
-                ),
-            };
-            let message = format!("{}; {closed}", e.message);
-            return Err(RpcError { message, ..e });
+            return Err(self.close_refused(&probe, e).await);
         }
         let cm = probe.meta();
-        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None).await;
+        let accepted = self.send_family_prompt(parent, &probe, &req.prompt, None, false).await;
         let accepted = match accepted {
             Ok(v) => v,
             Err(e) => {
@@ -682,64 +652,6 @@ impl Hub {
             reply["worktree"] = json!({"root": w.root, "branch": w.branch, "base": w.base});
         }
         Ok((probe, reply, worktree))
-    }
-
-    /// Everything a new sub-session takes before its first prompt: the
-    /// parent's rules and turned-off tools, the folder it was checked for,
-    /// its start mode, and [`Hub::hold_subsession`]. An error means the
-    /// caller closes it.
-    async fn settle_subsession(
-        self: &Arc<Self>,
-        parent: &Arc<Session>,
-        pm: &SessionMeta,
-        probe: &Arc<Session>,
-        cwd: &Path,
-        parent_mode: Option<String>,
-        parent_full: bool,
-    ) -> Result<(), RpcError> {
-        // The parent's rules above its policy (which can deny) and the MCP
-        // servers the user turned off apply to the child too.
-        {
-            let mut m = probe.meta.lock().unwrap_or_else(|e| e.into_inner());
-            m.permission_rules = pm.permission_rules.clone();
-            for row in &pm.tools.off {
-                if !m.tools.off.contains(row) {
-                    m.tools.off.push(row.clone());
-                }
-            }
-        }
-        self.save_meta(probe);
-        let cm = probe.meta();
-        if std::fs::canonicalize(&cm.cwd).ok().as_deref() != Some(cwd) {
-            return Err(refused(
-                "subsessions.cwd_moved",
-                format!(
-                    "start_session refused: the new session runs in {}, not the folder that was checked ({})",
-                    cm.cwd.display(),
-                    cwd.display()
-                ),
-                json!({"cwd": cwd}),
-            ));
-        }
-        let same_family = crate::web_modes::family_of(&cm) == crate::web_modes::family_of(pm);
-        let mode = if same_family {
-            parent_mode
-        } else if parent_full {
-            self.start_mode(probe).await
-        } else {
-            None
-        };
-        if let Some(mode) = mode {
-            let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
-            // The inherit rule (or the person's default under a full-access
-            // parent) grants it; a refusal ends the new session.
-            if same_family {
-                self.start_in_mode(false, Some(&parent.id), &params, probe, false).await?;
-            } else if let Err(e) = self.set_mode(probe, &mode).await {
-                tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
-            }
-        }
-        self.hold_subsession(pm, probe).await
     }
 
     /// A new worktree of `folder`'s repository for a sub-session named
@@ -776,14 +688,15 @@ impl Hub {
         .map_err(refuse)
     }
 
-    /// Sends `text` from `from` to `to` as a prompt with the family
-    /// provenance; answers once it is accepted (started or queued).
+    /// Sends `text` from `from` to `to` as a prompt with the family provenance; answers once it
+    /// is accepted (started or queued). `interrupt`: `Hub::interrupt_once_queued`.
     async fn send_family_prompt(
         self: &Arc<Self>,
         from: &Arc<Session>,
         to: &Arc<Session>,
         text: &str,
         prompt_id: Option<String>,
+        interrupt: bool,
     ) -> Result<Value, RpcError> {
         let fm = from.meta();
         let provenance = json!({
@@ -798,10 +711,12 @@ impl Hub {
         // session whose last turn was one: a family prompt never runs, or
         // lets the receiver run, below the floor (`remote_floor.rs`).
         let web = Self::web_turn(from) || Self::web_turn(to);
+        let stop = self.interrupt_once_queued(to, interrupt);
         let opts = PromptOptions {
             control: if web { Control::Web } else { Control::Local },
             prompt_id: Some(prompt_id.unwrap_or_else(|| format!("sub-{}", uuid::Uuid::now_v7()))),
             on_accepted: Some(Box::new(move |v| {
+                stop(&v);
                 let _ = tx.send(v);
             })),
             provenance: Some(provenance),
@@ -993,25 +908,8 @@ impl Hub {
                 "a sub-session never interrupts its parent: send without interrupt, and the message waits for the parent's turn to end",
             ));
         }
-        // A message runs as the receiver's prompt: never in a session that
-        // asks less than its sender, by its harness mode or its policy.
-        let (cm, tm) = (caller.meta(), target.meta());
-        if self.receiver_access(&tm, &cm).await > self.caller_access(&cm)
-            || self.policy_laxer(&tm, &cm).await
-        {
-            return Err(refused(
-                "subsessions.receiver_asks_less",
-                format!(
-                    "{} asks less than this session (its harness mode or permission policy), so a message from here would run with less checking than this session has. Ask the user to send it.",
-                    tm.name
-                ),
-                json!({"sessionId": target.id}),
-            ));
-        }
-        if interrupt && target.turn().is_some() {
-            self.cancel(target).await?;
-        }
-        let accepted = self.send_family_prompt(caller, target, text, prompt_id).await?;
+        self.receiver_check(caller, target).await?;
+        let accepted = self.send_family_prompt(caller, target, text, prompt_id, interrupt).await?;
         Ok(json!({
             "sessionId": target.id,
             "queued": accepted.get("queued").cloned().unwrap_or(json!(false)),

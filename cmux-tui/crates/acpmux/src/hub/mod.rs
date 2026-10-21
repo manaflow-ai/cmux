@@ -5,6 +5,8 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod adoption;
+mod agent_pairs;
+pub use agent_pairs::PairGuard;
 mod aside;
 pub(crate) mod auto_resume;
 mod btw;
@@ -58,11 +60,12 @@ mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
 pub use session::{Session, live_tags};
-pub(super) use session::{prompt_text, short_text};
+pub(super) use session::{newest_first, prompt_text, short_text};
 mod shutdown;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
+mod start_mode_state;
 mod startup;
 mod steer_end;
 mod stream;
@@ -316,6 +319,8 @@ pub struct Hub {
     pub(crate) chats: std::sync::OnceLock<Arc<crate::chats::ChatService>>,
     /// Work that waits for the chat index to start (`Hub::when_chats_ready`).
     pub(crate) chats_waiters: StdMutex<Vec<crate::chats::ChatsWaiter>>,
+    /// The forced start mode and the setting's change count (`start_mode_state.rs`).
+    pub(super) start_mode_state: start_mode_state::StartModeCell,
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
@@ -338,6 +343,8 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
+    pub(super) agent_pairs: agent_pairs::AgentPairs,
 }
 
 impl Hub {
@@ -402,6 +409,7 @@ impl Hub {
             remote_sandbox_exec: StdMutex::new(PathBuf::from(remote_sandbox::SANDBOX_EXEC)),
             chats: std::sync::OnceLock::new(),
             chats_waiters: StdMutex::new(Vec::new()),
+            start_mode_state: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
@@ -414,6 +422,7 @@ impl Hub {
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            agent_pairs: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
             hub.refresh_web_modes(&c);
@@ -446,42 +455,6 @@ impl Hub {
         self.idle_wake.notify_one();
     }
 
-    /// Limits the model probes to `names` (None: every harness), so a
-    /// client that uses a few harnesses (the Chief) never starts the others'
-    /// agents at daemon start. Set before `begin_startup`.
-    pub fn set_probe_only(&self, names: Option<std::collections::BTreeSet<String>>) {
-        *self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = names;
-    }
-
-    /// A client now uses `names` too (the Chief's engine set): they join the
-    /// probe list and are probed now, in the background, so their model
-    /// lists arrive without a daemon restart.
-    pub async fn allow_probes(self: &Arc<Self>, names: std::collections::BTreeSet<String>) {
-        if let Some(list) =
-            self.probe_only.lock().unwrap_or_else(std::sync::PoisonError::into_inner).as_mut()
-        {
-            list.extend(names.iter().cloned());
-        }
-        let hub = self.clone();
-        tokio::spawn(async move { hub.probe_models_with(false, false, Some(names)).await });
-    }
-
-    /// Whether the model probes may start harness `name`.
-    pub(super) fn probes(&self, name: &str) -> bool {
-        self.probe_only
-            .lock()
-            .unwrap_or_else(std::sync::PoisonError::into_inner)
-            .as_ref()
-            .is_none_or(|names| names.contains(name))
-    }
-
-    /// `ACPMUX_PROBE_HARNESSES`: comma-separated harness names; unset, every harness.
-    pub fn probe_only_from_env(value: Option<&str>) -> Option<std::collections::BTreeSet<String>> {
-        value.map(|v| {
-            v.split(',').map(str::trim).filter(|n| !n.is_empty()).map(str::to_owned).collect()
-        })
-    }
-
     /// Turns on the folder-trust gate for the app's agent pane, reading the
     /// agents' files and acpmux's record at `paths` (the daemon passes the
     /// user's; tests pass fixtures). None turns it off.
@@ -501,7 +474,7 @@ impl Hub {
 
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
-        *self.harness_homes.lock().unwrap() = homes;
+        *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -521,7 +494,7 @@ impl Hub {
             }
         };
         let mut sessions = self.sessions.lock().unwrap();
-        *self.waiting_at_load.lock().unwrap() = metas
+        *self.waiting_at_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = metas
             .iter()
             .filter(|m| m.status == SessionStatus::Waiting)
             .map(|m| m.id.clone())
@@ -588,7 +561,7 @@ impl Hub {
     /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
     /// handed out twice; only that tail is read.
     pub(super) fn catch_up(&self, session: &Session) {
-        let _order = session.append_lock.lock().unwrap();
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
     }
 
@@ -628,6 +601,7 @@ impl Hub {
 
     pub(super) fn make_session(&self, meta: SessionMeta) -> Arc<Session> {
         let (inbound_tx, inbound_rx) = mpsc::channel(1024);
+        let steering = meta.steering;
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -654,7 +628,8 @@ impl Hub {
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
-            steering: AtomicBool::new(false),
+            steering: AtomicBool::new(steering),
+            steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
             applied: StdMutex::new(session::Applied::default()),
@@ -665,6 +640,7 @@ impl Hub {
             stderr_tail: StdMutex::new(std::collections::VecDeque::new()),
             prompts: StdMutex::new(std::collections::VecDeque::new()),
             append_errors: AtomicU64::new(0),
+            last_progress: AtomicU64::new(0),
             last_active: AtomicU64::new(self.clock_now()),
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
@@ -766,11 +742,15 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
-        let _order = session.append_lock.lock().unwrap();
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
         let record = EventRecord { seq, at, dir: dir.into(), kind: kind.into(), msg, host_seq };
+        // The agent message runaway guard reads progress from here, not the store.
+        if agent_pairs::progress_record(&record) {
+            session.last_progress.store(seq, Ordering::SeqCst);
+        }
         if session.purged.load(Ordering::SeqCst) {
             return (record, true);
         }
@@ -986,10 +966,25 @@ impl Hub {
         }
     }
 
+    /// Saves the session's record; never a purged session's. A late save
+    /// (a generated title after the turn, a tag) would write its record
+    /// back after the purge deleted it, and the next daemon start loaded it
+    /// as a closed session: the Chief's compactor, which purges each node's
+    /// session when the node is built, left about 450 of them in two hours
+    /// (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
+        if session.purged.load(Ordering::SeqCst) {
+            return;
+        }
         let meta = session.meta();
         if let Err(e) = self.store.save(&meta) {
             tracing::warn!(session = %session.id, "save meta failed: {e}");
+        }
+        // The purge ran between the check and the save: delete it again.
+        if session.purged.load(Ordering::SeqCst)
+            && let Err(e) = self.store.delete(&session.id)
+        {
+            tracing::warn!(session = %session.id, "delete of a purged session failed: {e}");
         }
     }
 
@@ -1036,23 +1031,6 @@ fn clear_sent_draft(meta: &mut SessionMeta, text: &str) {
     if meta.composer_draft.as_deref().is_some_and(|d| d.trim() == text.trim()) {
         meta.composer_draft = None;
     }
-}
-
-/// `sessions` newest first. Each session's `updated_at` is read once: other
-/// tasks move it at any time (every logged event), and a key that is read
-/// again on each comparison is not a total order, which makes Rust's sort
-/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
-/// the list is the same for the same values.
-fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
-    let mut keyed: Vec<_> = sessions
-        .into_iter()
-        .map(|s| {
-            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
-            (at, s)
-        })
-        .collect();
-    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
-    keyed.into_iter().map(|(_, s)| s).collect()
 }
 
 /// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the

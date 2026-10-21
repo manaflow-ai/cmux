@@ -9,19 +9,21 @@ import CmuxNextSidebar
 /// entrypoints: a group as Next Workspace Group, a pane as `pane.focus`, a
 /// tab as Search Tabs.
 final class AppPaletteNavigationSource: PaletteNavigationSource {
-    private unowned let services: AppServices
+    private weak var services: AppServices?
 
     init(services: AppServices) {
         self.services = services
     }
 
     func navigationEntries() -> [PaletteNavigationEntry] {
-        PaletteNavigationEntries.entries(ControlSnapshotPublisher.topology(services), groups: Self.groups(services),
+        guard let services else { return [] }
+        return PaletteNavigationEntries.entries(ControlSnapshotPublisher.topology(services), groups: Self.groups(services),
                                          lastActive: TabSearchFactsBuilder.lastActive(services),
                                          closing: TabSearchFactsBuilder.closing(services))
     }
 
     func open(_ entry: PaletteNavigationEntry) {
+        guard let services else { return }
         switch entry.kind {
         case .group:
             guard WorkspaceGroupFocus.go(to: CmuxNextSidebar.GroupID(entry.id), services: services) else {

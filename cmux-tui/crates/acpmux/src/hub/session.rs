@@ -2,6 +2,15 @@
 
 use super::*;
 
+/// The steers of a session's running turn that Send now can hurry (`Session::steer_now`).
+#[derive(Default)]
+pub(super) struct SteerNow {
+    /// Sent to the agent and not answered yet: it reads them when its current step ends.
+    pub(super) waiting: std::collections::HashSet<String>,
+    /// Queued prompts sent now: their steer stops the agent's current step.
+    pub(super) step: std::collections::HashSet<String>,
+}
+
 pub struct Session {
     pub id: String,
     pub(super) meta: StdMutex<SessionMeta>,
@@ -51,6 +60,9 @@ pub struct Session {
     pub(super) inbound_tx: mpsc::Sender<Inbound>,
     pub(super) inbound_rx: Mutex<Option<mpsc::Receiver<Inbound>>>,
     pub(super) steering: AtomicBool,
+    /// Steers into the running turn by prompt id (`steer_end.rs`): Send now stops the agent's
+    /// step for one that waits (`queue_edit.rs`).
+    pub(super) steer_now: StdMutex<SteerNow>,
     /// The answer of a steer that ended its turn, with the turn's id: the
     /// turn's other prompts take it (`steer_end.rs`, codex-acp).
     pub(super) steer_end: tokio::sync::watch::Sender<Option<(String, Value)>>,
@@ -79,6 +91,9 @@ pub struct Session {
     /// Bumped when a record failed to reach the store; an agent host entry
     /// is acknowledged only when its record was stored.
     pub(super) append_errors: AtomicU64,
+    /// The seq of the last record that shows the agent doing work: a tool call that is not
+    /// messaging, or a file write (`agent_pairs.rs` `progress_record`). 0: none since load.
+    pub(super) last_progress: AtomicU64,
     /// The hub clock's time (`Hub::clock_now`) of the last record or
     /// attach change; the idle harness exit counts from it (`idle.rs`).
     pub(super) last_active: AtomicU64,
@@ -181,4 +196,21 @@ pub(super) struct Applied {
     /// (`start_gate/preset_bind.rs`).
     pub preset_resolved: Option<String>,
     pub preset_spawned: Option<String>,
+}
+
+/// `sessions` newest first. Each session's `updated_at` is read once: other
+/// tasks move it at any time (every logged event), and a key that is read
+/// again on each comparison is not a total order, which makes Rust's sort
+/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
+/// the list is the same for the same values.
+pub(crate) fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
+    let mut keyed: Vec<_> = sessions
+        .into_iter()
+        .map(|s| {
+            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
+            (at, s)
+        })
+        .collect();
+    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
+    keyed.into_iter().map(|(_, s)| s).collect()
 }

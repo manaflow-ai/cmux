@@ -1,11 +1,10 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // A reply's footer is one quiet row (Leo 2026-10-13, cmux NEXT): Worked for and the time as muted
-// text, then Copy, Retry and Branch, at the column's right edge where a prompt's Copy and Edit sit
-// under its bubble. It shows for the last turn, and for another turn while the reader points at
-// any of it.
+// text, then Copy, Retry and Branch, at the column's left edge under the reply, as Claude's desktop
+// app sets it (the Debug menu can move it right). It shows for the last turn, and for another turn
+// while the reader points at any of it.
 //
-// Before: every reply's footer showed at rest, at the column's left edge, with the time after the
-// buttons.
+// Before: every reply's footer showed at rest, with the time after the buttons.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -156,37 +155,23 @@ await requireBrowserLane("agent-pane-turn-footer.test.ts", async () => {
     await page.close();
   });
 
-  test("the footer is one row at the column's right edge: muted Worked for and time, then the actions", async () => {
-    // The `hover-actions` experiment's "all" arm keeps a plain prompt's Copy, so the prompt has a
-    // last button to line the reply's actions up with.
-    const page = await open({ "hover-actions": "all" });
+  test("the footer is one row at the column's left edge: muted Worked for and time, then the actions", async () => {
+    const page = await open();
     const footer = await page.evaluate(() => {
       const actions = [...document.querySelectorAll<HTMLElement>(".cv-turn-actions")].at(-1)!;
       const row = actions.closest(".acpmux-row")!.getBoundingClientRect();
       const box = (selector: string) => actions.querySelector(selector)!.getBoundingClientRect();
-      // The last button of each row of actions: a prompt's (Copy, Edit) and the reply's.
-      const prompt = [...document.querySelectorAll<HTMLElement>(".cv-user__actions button")]
-        .at(-1)!
-        .getBoundingClientRect();
       const summary = box(".cv-turn-summary");
       const time = box(".cv-turn-time");
       const group = box(".cv-turn-action-group");
-      const last = [...actions.querySelectorAll("button")].at(-1)!.getBoundingClientRect();
       return {
-        // The actions end where a prompt's do, at the column's right edge.
-        actionsRight: Math.round(row.right - last.right),
-        promptRight: Math.round(row.right - prompt.right),
+        // The row starts at the reply's left edge.
+        startsLeft: summary.left - row.left <= 4,
         order: summary.right <= time.left && time.right <= group.left,
         oneRow: Math.abs(summary.top + summary.height / 2 - (group.top + group.height / 2)) <= 2,
       };
     });
-    expect(footer).toEqual({
-      actionsRight: footer.promptRight,
-      promptRight: footer.promptRight,
-      order: true,
-      oneRow: true,
-    });
-    expect(footer.promptRight).toBeLessThanOrEqual(2);
+    expect(footer).toEqual({ startsLeft: true, order: true, oneRow: true });
     await page.close();
   });
 });

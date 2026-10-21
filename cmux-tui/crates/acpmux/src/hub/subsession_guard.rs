@@ -181,7 +181,133 @@ fn folder_allowed(
     ))
 }
 
+/// The folder a sub-session starts in, resolved once: the checks pass on the folder the session
+/// gets, so `..` or a link swapped after the check cannot move it.
+pub(super) fn resolved_folder(asked: &Path) -> Result<std::path::PathBuf, RpcError> {
+    if !asked.is_absolute() {
+        return Err(RpcError::invalid_params(format!(
+            "cwd {} must be an absolute path to an existing folder",
+            asked.display()
+        )));
+    }
+    std::fs::canonicalize(asked).ok().filter(|f| f.is_dir()).ok_or_else(|| {
+        refusal(
+            "subsessions.cwd_unresolved",
+            format!(
+                "start_session refused: {} does not resolve to a folder on this machine",
+                asked.display()
+            ),
+            json!({"cwd": asked}),
+        )
+    })
+}
+
 impl Hub {
+    /// Everything a new sub-session takes before its first prompt: the
+    /// parent's rules and turned-off tools, the folder it was checked for,
+    /// its start mode, and [`Hub::hold_subsession`]. An error means the
+    /// caller closes it.
+    pub(super) async fn settle_subsession(
+        self: &Arc<Self>,
+        parent: &Arc<Session>,
+        pm: &SessionMeta,
+        probe: &Arc<Session>,
+        cwd: &Path,
+        requested_name: Option<&str>,
+    ) -> Result<(), RpcError> {
+        let parent_mode = crate::web_modes::mode_of(pm);
+        let parent_full = self.caller_access(pm) == Access::Full;
+        // The parent's rules above its policy (which can deny) and the MCP
+        // servers the user turned off apply to the child too.
+        {
+            let mut m = probe.meta.lock().unwrap_or_else(|e| e.into_inner());
+            m.permission_rules = pm.permission_rules.clone();
+            // Titled by its name, else by its prompt and then a generated title (`titles.rs`).
+            super::titles::title_subsession(&mut m, requested_name);
+            for row in &pm.tools.off {
+                if !m.tools.off.contains(row) {
+                    m.tools.off.push(row.clone());
+                }
+            }
+        }
+        self.save_meta(probe);
+        let cm = probe.meta();
+        if std::fs::canonicalize(&cm.cwd).ok().as_deref() != Some(cwd) {
+            return Err(refusal(
+                "subsessions.cwd_moved",
+                format!(
+                    "start_session refused: the new session runs in {}, not the folder that was checked ({})",
+                    cm.cwd.display(),
+                    cwd.display()
+                ),
+                json!({"cwd": cwd}),
+            ));
+        }
+        let same_family = crate::web_modes::family_of(&cm) == crate::web_modes::family_of(pm);
+        // A parent still in full access after `sessions.allowFullAccess` was turned off: its child
+        // starts as a cross-family child would, at the person's start level, which is not full access.
+        let capped = parent_mode.as_deref().is_some_and(super::start_mode::is_full_access)
+            && !super::start_mode::full_access_allowed();
+        let inherit = same_family && !capped;
+        let mode = if inherit {
+            parent_mode
+        } else if parent_full || capped {
+            self.start_mode(probe).await
+        } else {
+            None
+        };
+        if let Some(mode) = mode {
+            let params = json!({"_meta": {"acpmux": {(super::person::START_MODE_FIELD): mode}}});
+            // The inherit rule (or the person's default under a full-access
+            // parent) grants it; a refusal ends the new session.
+            if inherit {
+                self.start_in_mode(false, Some(&parent.id), &params, probe, false).await?;
+            } else if let Err(e) = self.set_mode(probe, &mode).await {
+                tracing::warn!(session = %probe.id, "sub-session start mode skipped: {}", e.message);
+            }
+        }
+        self.hold_subsession(pm, probe).await
+    }
+
+    /// `e`, a refusal of the new sub-session `probe`, once `probe` is closed: it never runs
+    /// unchecked.
+    pub(super) async fn close_refused(&self, probe: &Arc<Session>, e: RpcError) -> RpcError {
+        let closed = match self.kill(probe, true).await {
+            Ok(()) => format!("session {} was closed", probe.id),
+            Err(c) => {
+                format!(
+                    "session {} could not be closed ({}): close it in cmux",
+                    probe.id, c.message
+                )
+            }
+        };
+        let message = format!("{}; {closed}", e.message);
+        RpcError { message, ..e }
+    }
+
+    /// A message runs as the receiver's prompt: never in a session that asks less than its
+    /// sender, by its harness mode or its policy.
+    pub(super) async fn receiver_check(
+        &self,
+        caller: &Session,
+        target: &Session,
+    ) -> Result<(), RpcError> {
+        let (cm, tm) = (caller.meta(), target.meta());
+        if self.receiver_access(&tm, &cm).await > self.caller_access(&cm)
+            || self.policy_laxer(&tm, &cm).await
+        {
+            return Err(refusal(
+                "subsessions.receiver_asks_less",
+                format!(
+                    "{} asks less than this session (its harness mode or permission policy), so a message from here would run with less checking than this session has. Ask the user to send it.",
+                    tm.name
+                ),
+                json!({"sessionId": target.id}),
+            ));
+        }
+        Ok(())
+    }
+
     /// The policy session `m` runs: its own, else the daemon default; one
     /// acpmux cannot parse counts as `ask`.
     pub(super) async fn effective_policy(&self, m: &SessionMeta) -> PermissionPolicy {
