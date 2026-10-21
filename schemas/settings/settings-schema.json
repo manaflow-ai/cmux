@@ -359,6 +359,7 @@
               "appearance.background",
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
+              "appearance.glass",
               "appearance.backgroundOpacity",
               "appearance.backgroundBlur",
               "appearance.inactiveWindowDim"
@@ -789,6 +790,7 @@
             "key" : "settings.group.subsessions",
             "rows" : [
               "agents.subsessions.enabled",
+              "agents.subsessions.answerQuestions",
               "agents.subsessions.maxChildren",
               "agents.subsessions.maxDepth"
             ],
@@ -4878,6 +4880,56 @@
       "title" : {
         "key" : "settings.agents.subsessions.enabled",
         "text" : "Let Agents Start Sub-sessions"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.subsessions",
+        "text" : "Sub-sessions"
+      },
+      "help" : {
+        "key" : "settings.agents.subsessions.answerQuestions.help",
+        "text" : "When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.subsessions.answerQuestions",
+      "keywords" : [
+        "subagent",
+        "sub-session",
+        "question",
+        "answer",
+        "coordinator",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "subsessions",
+        "answerQuestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.subsessions.answerQuestions",
+        "text" : "Let Sessions Answer Their Sub-sessions' Questions"
       },
       "validation" : "portable"
     },
@@ -11163,6 +11215,84 @@
       "title" : {
         "key" : "settings.appearance.paneBackgrounds",
         "text" : "Pane Backgrounds"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "lens",
+        "plain",
+        "spectrum"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.glassLens",
+            "text" : "Lens"
+          },
+          "value" : "lens"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.glassPlain",
+            "text" : "Plain Glass"
+          },
+          "value" : "plain"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.glassSpectrum",
+            "text" : "Spectrum"
+          },
+          "value" : "spectrum"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "lens",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.glass.help",
+        "text" : "How glass surfaces bend the wallpaper behind them. Plain Glass blurs only. Reduce Transparency and Low Power Mode use Plain Glass."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.glass",
+      "keywords" : [
+        "glass",
+        "liquid glass",
+        "lens",
+        "refraction",
+        "refract",
+        "spectrum",
+        "chromatic",
+        "dispersion",
+        "blur",
+        "wallpaper",
+        "transparency"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "glass"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.glass",
+        "text" : "Glass"
       },
       "validation" : "portable"
     },
