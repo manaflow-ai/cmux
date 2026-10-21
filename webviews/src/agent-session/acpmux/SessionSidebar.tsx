@@ -281,7 +281,8 @@ function SessionsView({
     [sessions, query, groupProjects],
   );
   const settled = useMemo(() => sortByRecency(filterSessions(settledSessions, query)), [settledSessions, query]);
-  const noMatches = pinned.length === 0 && active.length === 0 && settled.length === 0;
+  // Grouped by project, the shown chats are in `groups` and `active` is empty.
+  const noMatches = pinned.length === 0 && active.length === 0 && groups.length === 0 && settled.length === 0;
   if (sessions.length === 0 && settledSessions.length === 0)
     return (
       <>
