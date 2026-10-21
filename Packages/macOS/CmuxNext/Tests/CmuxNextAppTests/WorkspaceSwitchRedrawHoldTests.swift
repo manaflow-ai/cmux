@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAgentPane
 @testable import CmuxNextApp
 import CmuxNextSidebar
 import CmuxNextTabs
@@ -86,6 +87,8 @@ import Testing
         Self.show(a, in: root)
         Self.show(b, in: root)
         try #require(a.frame.size == b.frame.size, "parked at \(a.frame.size), shown at \(b.frame.size)")
+        let host = try #require(a.superview)
+        try #require(a.frame.size == host.bounds.size, "parked at \(a.frame), host \(host.frame) bounds \(host.bounds)")
         root.show(a)
         #expect(first.asked == 0)
         #expect(a.alphaValue == 1)
