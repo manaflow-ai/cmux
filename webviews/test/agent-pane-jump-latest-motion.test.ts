@@ -1,3 +1,4 @@
+// cmux-web-test-timeout: 420
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // Jump to latest after the composer grew while the reader was scrolled up (#23257), in the real
 // agent pane. With cmux's animations off (`data-agent-motion="off"`, ui.animations.enabled) the
