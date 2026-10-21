@@ -4022,12 +4022,6 @@
       "title" : "Show Greeting on New Tab",
       "type" : "boolean"
     },
-    "tabs.newTabWidgets.modeSwitch" : {
-      "default" : false,
-      "description" : "Tab switches between asking the agent and searching the web either way.",
-      "title" : "Show Search and Ask Switch on New Tab",
-      "type" : "boolean"
-    },
     "tabs.newTabWidgets.projects" : {
       "default" : false,
       "description" : "A card of this Mac and its recent projects over the composer.",
@@ -4339,7 +4333,7 @@
       "type" : "boolean"
     },
     "workspaces.newPlacement" : {
-      "default" : "afterCurrent",
+      "default" : "top",
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",
