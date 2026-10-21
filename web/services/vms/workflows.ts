@@ -1099,7 +1099,7 @@ const GO_VM_RESERVATION = { vcpus: 2, memoryMb: 4096, diskMb: 16384 } as const;
 /** Enforce Go's fixed machine shape when a Go allocation is requested. */
 function requireGoShape(planId: string | null | undefined, shape: VmResourceReservation | null) {
   return planId === "go" && (!shape || shape.vcpus !== GO_VM_RESERVATION.vcpus || shape.memoryMb !== GO_VM_RESERVATION.memoryMb || shape.diskMb !== GO_VM_RESERVATION.diskMb)
-    ? Effect.fail(new VmGoShapeError()) : Effect.void;
+    ? Effect.fail(new VmGoShapeError({})) : Effect.void;
 }
 
 const MB_PER_GB = 1024;
@@ -4949,7 +4949,7 @@ export function resizeVm(input: {
     let vm = yield* requireAccessibleUserVm({ ...input, callerPlanId: input.billingPlanId });
     const planId = input.billingPlanId ?? vm.billingPlanId ?? "free";
     if (planId === "go" && ((input.storageMb ?? 0) > 16 * 1024 || (input.cpu ?? 0) > 2 || (input.memoryMb ?? 0) > 4 * 1024)) {
-      return yield* Effect.fail(new VmGoShapeError());
+      return yield* Effect.fail(new VmGoShapeError({}));
     }
     for (const [resource, requested, max] of [
       ["cpu", input.cpu, maxVcpusForPlan(planId)],
