@@ -1,5 +1,5 @@
 import AppKit
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextWakeups
