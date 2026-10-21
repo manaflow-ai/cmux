@@ -1097,6 +1097,95 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
     let _ = std::fs::remove_dir_all(&dir);
 }
 
+/// No message on a peer link is larger than one frame every acpmux reads (16 MiB). At
+/// 2026-10-21 06:23Z a 32.8 MB reply from huge-blue reset cosmic-gray's link with its 29 chats:
+/// a history read with no `maxBytes`, 5000 records of a chat with long tool outputs. Here a
+/// 33 MB prompt pushed over the link fails alone, with an error; a 40 MB history comes in a page
+/// that fits, and a record too large for any page comes as a stub; the link never drops.
+#[tokio::test]
+async fn a_payload_over_32_mb_fails_alone_and_the_peer_link_stays() {
+    use acpmux::store::EventRecord;
+    let dir = std::env::temp_dir().join(format!("acpmux-peer-frame-{}", uuid::Uuid::now_v7()));
+    let mut cfg = config(PermissionPolicy::ApproveAll);
+    cfg.store.mode = StoreMode::Local;
+    cfg.store.segment_bytes = 64 * 1024 * 1024;
+
+    // B owns a chat of 40 tool outputs of 1 MB, then one of 12 MB.
+    let b = Hub::new(cfg.clone(), acpmux::store::open(&cfg.store, &dir).unwrap());
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "big"}}})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let mut seq = b.resolve("big").unwrap().meta().last_seq;
+    b.shutdown_all().await;
+    drop(cb);
+    drop(b);
+    let store = acpmux::store::open(&cfg.store, &dir).unwrap();
+    let mut output = |bytes: usize| {
+        seq += 1;
+        let msg = json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "agent-1",
+            "update": {"sessionUpdate": "tool_call_update", "toolCallId": format!("call-{seq}"),
+            "status": "completed",
+            "content": [{"type": "content", "content": {"type": "text", "text": "x".repeat(bytes)}}]}}});
+        let rec = EventRecord {
+            seq,
+            at: seq,
+            dir: "in".into(),
+            kind: "tool_call_update".into(),
+            msg,
+            host_seq: None,
+        };
+        store.append(&id, &rec).unwrap();
+    };
+    for _ in 0..40 {
+        output(1024 * 1024);
+    }
+    output(12 * 1024 * 1024);
+    let last = seq;
+    let b = Hub::new(cfg.clone(), store);
+    let _ = b.person.install_spawn_key(PERSON_KEY);
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "frame").await;
+    let a = hub(config(PermissionPolicy::ApproveAll)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+
+    // A 33 MB prompt for B's chat: refused with an error, never sent as one frame.
+    let huge = "y".repeat(33 * 1024 * 1024);
+    let refused = ca
+        .call(
+            method::SESSION_PROMPT,
+            json!({"sessionId": "b/big", "prompt": [{"type": "text", "text": huge}]}),
+        )
+        .await
+        .expect_err("a 33 MB prompt went over the peer link");
+    assert!(refused.contains("too large"), "{refused}");
+
+    // The whole history, asked with no maxBytes: one page that fits in a frame, newest last.
+    let att =
+        ca.call(method::MUX_ATTACH, json!({"session": "b/big", "limit": 5000})).await.unwrap();
+    let wire = serde_json::to_string(&att).unwrap().len();
+    assert!(wire < 16 * 1024 * 1024, "the history page was {} MiB", wire >> 20);
+    assert_eq!(att["peer"], "b");
+    assert_eq!(att["hasMore"], true, "40 MB of history came in one page");
+    let events = att["events"].as_array().unwrap();
+    assert_eq!(events.last().unwrap()["seq"], last, "the page ends on the latest record");
+    // The 12 MB record is a stub that says what it left out.
+    let omitted = &events.last().unwrap()["msg"]["_meta"]["acpmux"]["omitted"];
+    assert!(omitted["bytes"].as_u64().unwrap() > 12 * 1024 * 1024, "{omitted}");
+
+    // The link held through both: no reconnect, and B still answers.
+    let peer = &a.peers()[0];
+    assert_eq!(peer["connected"], true, "{peer}");
+    assert!(peer["error"].is_null(), "the peer link dropped: {peer}");
+    let page = ca
+        .call(method::MUX_EVENTS, json!({"session": "b/big", "beforeSeq": last, "limit": 2}))
+        .await
+        .unwrap();
+    assert_eq!(page["events"].as_array().unwrap().len(), 2, "{}", page["hasMore"]);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// A peer daemon that says what it likes (`hub/person.rs` (c)): a WebSocket
 /// server that answers `initialize` with `instance` as its daemon run,
 /// lists `sessions` on `_acpmux/watch`, then sends each of `pending` as
