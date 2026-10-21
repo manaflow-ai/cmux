@@ -102,6 +102,7 @@ mod transfer_guard;
 mod transfer_in;
 mod transfer_out;
 mod transfer_watch;
+mod trust_wait;
 mod turn_git;
 mod turn_usage;
 mod turns;
@@ -167,6 +168,8 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// The session's status before this prompt made it Waiting (`settle_permission`).
+    pub(super) prev_status: SessionStatus,
 }
 
 #[derive(Debug, Clone)]
@@ -252,6 +255,10 @@ pub struct Hub {
     /// Where adopt looks for harness sessions.
     pub(super) harness_homes: StdMutex<crate::adopt::HarnessHomes>,
     pub(super) events: broadcast::Sender<HubEvent>,
+    /// `_acpmux/models` replies now asking peers for theirs
+    /// (`server/models_fanout.rs`): a remote asker meanwhile gets this
+    /// daemon's own catalog, so mutual peers cannot ping-pong.
+    pub models_fanouts: std::sync::atomic::AtomicUsize,
     pub shutdown: Notify,
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
@@ -346,6 +353,8 @@ pub struct Hub {
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
     pub(super) secrets: secrets::Secrets,
+    /// Sub-session starts waiting on a folder's trust card, and Not nows (`trust_wait.rs`).
+    pub(super) trust_waits: trust_wait::Waits,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
 }
@@ -378,6 +387,7 @@ impl Hub {
             sessions: StdMutex::new(HashMap::new()),
             harness_homes: StdMutex::new(crate::adopt::HarnessHomes::from_env()),
             events,
+            models_fanouts: std::sync::atomic::AtomicUsize::new(0),
             shutdown: Notify::new(),
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
@@ -425,6 +435,7 @@ impl Hub {
             auto_resumes: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
+            trust_waits: Default::default(),
             agent_pairs: Default::default(),
         });
         if let Ok(c) = hub.config.try_read() {
