@@ -31175,6 +31175,26 @@ struct CMUXCLI {
         }
     }
 
+    /// Claude hooks that change which session owns a surface or what the
+    /// surface shows: its session, turn, status, notifications and name.
+    /// Whether a Claude lifecycle hook comes from a headless `claude -p` run
+    /// inside another agent session: the wrapper marked the run headless and
+    /// the process tree shows a session above it (#23401).
+    func claudeHookComesFromHeadlessChild(
+        subcommand: String,
+        agentPID: Int?,
+        environment: [String: String]
+    ) -> Bool {
+        environment["CMUX_CLAUDE_HEADLESS"] == "1"
+            && Self.claudeSessionLifecycleHookSubcommands.contains(subcommand)
+            && nestedAgentSessionDetected(currentAgentPID: agentPID, env: environment)
+    }
+
+    static let claudeSessionLifecycleHookSubcommands: Set<String> = [
+        "session-start", "active", "stop", "idle", "prompt-submit", "auto-name",
+        "notification", "notify", "push-notification", "session-end", "pre-tool-use",
+    ]
+
     private func runClaudeHook(
         commandArgs: [String],
         client: SocketClient,
@@ -31307,6 +31327,25 @@ struct CMUXCLI {
             if !didSendFeedTelemetry {
                 sendClaudeFeedTelemetry()
             }
+        }
+
+        // A headless `claude -p` started from inside another Claude session
+        // (a review tool or skill run from its Bash tool) shares that session's
+        // surface. Its lifecycle is part of the parent's turn: letting it start,
+        // stop or notify on the surface took the session over, and every later
+        // finish of the parent was decided stale (#23401). The wrapper marks
+        // the run headless; the process tree shows the session above it.
+        // Queued delivery drops these events at admission, while the child
+        // still runs (see `admitQueuedAgentHook`); this covers a direct call.
+        if claudeHookComesFromHeadlessChild(
+            subcommand: subcommand,
+            agentPID: liveHookAgentPID,
+            environment: env
+        ) {
+            telemetry.breadcrumb("claude-hook.headless-child", data: ["subcommand": subcommand])
+            didSendFeedTelemetry = true
+            printClaudeHookAck()
+            return
         }
 
         switch subcommand {
