@@ -71,6 +71,7 @@ struct AgentPaneAttachDroppedTests {
             ["kind": "drop", "names": Array(repeating: "a.zip", count: AgentPaneDroppedPaths.maximumNames + 1)],
             ["kind": "drop", "names": ["a/b.zip"]],
             ["kind": "drop", "names": [".."]],
+            ["kind": "drop", "names": ["."]],
             ["kind": "drop"],
         ] {
             #expect(AgentPaneRequest(body: ["method": method, "params": params]) == .unsupported(method), "\(params)")
@@ -106,6 +107,36 @@ struct AgentPaneAttachDroppedTests {
         let url = URL(fileURLWithPath: "/tmp/cafe\u{301}.mov")
         rig.model.droppedPaths.stash([url], kind: .drop)
         let items = try #require(Self.items(await rig.ask("drop", ["caf\u{e9}.mov"])))
+        #expect(items.compactMap { $0["path"] as? String } == [url.path])
+    }
+
+    /// WebKit names a dropped folder (or package) `<name>.zip`, the archive it would make: that is the
+    /// folder. A folder and a zip of the same name keep the drop's order.
+    @Test func aFolderIsTheZipWebKitNamesIt() async throws {
+        let (base, folder, file) = try Self.dropped()
+        defer { try? FileManager.default.removeItem(at: base) }
+        let rig = Rig()
+        rig.model.droppedPaths.stash([folder, file], kind: .drop)
+        var items = try #require(Self.items(await rig.ask("drop", ["docs.zip", "build.zip"])))
+        #expect(items.compactMap { $0["path"] as? String } == [folder.path, file.path])
+        #expect(items.compactMap { $0["folder"] as? Bool } == [true, false])
+
+        let build = base.appendingPathComponent("build", isDirectory: true)
+        try FileManager.default.createDirectory(at: build, withIntermediateDirectories: true)
+        rig.model.droppedPaths.stash([build, file], kind: .drop)
+        items = try #require(Self.items(await rig.ask("drop", ["build.zip", "build.zip"])))
+        #expect(items.compactMap { $0["path"] as? String } == [build.path, file.path])
+        #expect(items.compactMap { $0["folder"] as? Bool } == [true, false])
+    }
+
+    /// A dot folder or file (`.github`, `.env`) is asked for by its name like any other.
+    @Test func asksForDotFilesToo() async throws {
+        #expect(AgentPaneRequest(body: ["method": "chat.attach.dropped", "params": ["kind": "drop", "names": [".github", ".env"]]])
+            == .attachDropped(.drop, names: [".github", ".env"]))
+        let rig = Rig()
+        let url = URL(fileURLWithPath: "/tmp/.env")
+        rig.model.droppedPaths.stash([url], kind: .drop)
+        let items = try #require(Self.items(await rig.ask("drop", [".env"])))
         #expect(items.compactMap { $0["path"] as? String } == [url.path])
     }
 

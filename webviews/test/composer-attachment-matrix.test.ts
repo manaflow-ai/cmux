@@ -312,13 +312,43 @@ describe("attachment matrix: a chat on this Mac links what no block takes where 
     expect(only(result.attachments)).toMatchObject({ kind: "link", path: "/Users/dev/shot.png" });
   });
 
-  test("a batch every file of which is a block never asks for paths", async () => {
+  test("a batch every file of which is a block links nothing", async () => {
     const local = paths();
     const result = await take([file("shot.png", "image/png", PNG), file("notes.txt", "text/plain", "hi\n")], {
       localPaths: local.localPaths,
     });
-    expect(local.asked).toEqual([]);
     expect(result.attachments.map((chip) => chip.kind)).toEqual(["image", "text"]);
+  });
+
+  test("the host is asked before any file is read: its record of the drop lasts only seconds", async () => {
+    const order: string[] = [];
+    const photo = file("shot.png", "image/png", PNG);
+    const read = photo.arrayBuffer.bind(photo);
+    Object.defineProperty(photo, "arrayBuffer", {
+      value: () => {
+        order.push("read");
+        return read();
+      },
+    });
+    const local = paths();
+    await take([folder("src"), photo], {
+      localPaths: (batch) => {
+        order.push("asked");
+        return local.localPaths(batch);
+      },
+    });
+    expect(order[0]).toBe("asked");
+  });
+
+  test("a folder as WebKit hands it (`<name>.zip`, application/zip, unreadable) links to the folder", async () => {
+    const assets = folder("assets.zip");
+    Object.defineProperty(assets, "type", { value: "application/zip" });
+    const result = await take([assets], {
+      localPaths: async () => [{ path: "/Users/dev/assets", folder: true }],
+    });
+    expect(result.sent).toEqual([]);
+    expect(result.error).toBeUndefined();
+    expect(only(result.attachments)).toMatchObject({ kind: "link", name: "assets/", path: "/Users/dev/assets" });
   });
 
   test("a host that knows no paths for the batch: the upload, as before", async () => {
