@@ -155,6 +155,11 @@ final class ComposeInlineAttachment: NSTextAttachment {
         redrawField()
     }
 
+    /// The field places this attachment's view (the thumbnail with its hover remove button).
+    /// AppKit reads this to choose a view over `image(for:...)`, and by default answers from a
+    /// view provider registered for the attachment's file type, which this attachment has none of.
+    override var usesTextAttachmentView: Bool { true }
+
     override func viewProvider(for parentView: NSView?, location: any NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
         let provider = ComposeInlineAttachmentViewProvider(textAttachment: self, parentView: parentView, textLayoutManager: textContainer?.textLayoutManager, location: location)
         provider.tracksTextAttachmentViewBounds = true

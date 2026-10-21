@@ -416,7 +416,10 @@ final class FieldTextView: NSTextView {
         }
         guard let l = line else { return nil }
         let o = textContainerOrigin
-        return CGRect(x: l.minX + o.x, y: l.midY + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+        // cmux: on a line an inline picture makes taller the text sits at the bottom, so the caret
+        // is on the line's last text line, not its middle (Draft+InlineMarks.swift).
+        let y = l.height > Fixture.lineHeight + 0.5 ? l.maxY - Fixture.lineHeight / 2 : l.midY
+        return CGRect(x: l.minX + o.x, y: y + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
     }
     /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
     /// whole text is laid out again from scratch (equal when no layout input went stale).
