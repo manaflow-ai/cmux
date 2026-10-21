@@ -6,10 +6,12 @@ import { useId, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { menuPartRef } from "./menuParts";
+import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
 import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { useFold } from "./fold";
 
 export function CommandRow({ item }: { item: AcpmuxActivity }) {
   const t = useT();
@@ -19,6 +21,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
     useMemo(() => [item], [item]),
     () => setOpen(true),
   );
+  const fold = useFold(open);
   const detailsId = useId();
   const running = isRunning(tool);
   const failed = isFailed(tool);
@@ -47,6 +50,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           {after && <span data-find-skip>{after}</span>}
         </span>
         <span className="cv-command__meta">
+          {running && <BackgroundHint />}
           {running ? (
             <Spinner size={12} />
           ) : failed ? (
@@ -64,13 +68,15 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
         />
       </button>
-      {open && (
-        <ShellBlock
-          id={detailsId}
-          command={tool.command}
-          output={tool.output?.replace(/\n$/, "")}
-          exitCode={tool.exitCode}
-        />
+      {fold.present && (
+        <div ref={fold.ref} className="cv-fold">
+          <ShellBlock
+            id={detailsId}
+            command={tool.command}
+            output={tool.output?.replace(/\n$/, "")}
+            exitCode={tool.exitCode}
+          />
+        </div>
       )}
     </>
   );

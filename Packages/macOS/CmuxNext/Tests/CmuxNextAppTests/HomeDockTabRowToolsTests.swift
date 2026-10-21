@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 @testable import CmuxNextAgentLanes
 import CmuxNextDesign
 @testable import CmuxNextHome
+import CmuxNextSidebar
 import Testing
 
 /// Leo 2026-10-20: the Chief's pane gets a top-right area like a workspace's (status, subagents,
@@ -79,5 +80,42 @@ import Testing
         let ids = tools.actionsMenu()?.items.compactMap { $0.identifier?.rawValue }
         #expect(ids == ChiefPaneTools.actions.map { "cmux.action.\($0.rawValue)" })
         #expect(tools.intrinsicContentSize.width > 0)
+    }
+
+    /// Each Subagents row runs Open Chief Subagent on its row's sidebar item through the registry (the one
+    /// path the palette, shortcuts and `cmux action run` share), titled and described like its
+    /// sidebar row; no row runs a selector of its own (scripts/cmux-next/check-menu-actions.py).
+    @Test func eachSubagentRowOpensItsSessionThroughTheRegisteredAction() {
+        let lanes = AgentLaneStore()
+        for (name, state) in [("optchat-sub-6b68ac4a-a2", AgentActivityLane.State.idle), ("optchat-sub-6b68ac4a-a3", .working)] {
+            lanes.lanes["id-" + name] = AgentActivityLane(id: "id-" + name, name: name, title: name, peer: nil, parent: "optchat-chief:6b68ac4a",
+                                                          state: state, since: nil, error: nil, harness: "claude")
+        }
+        let chief = ChiefSidebar(lanes: lanes)
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        let tools = ChiefPaneTools(chief: chief, registry: registry)
+        let rows = chief.allSubagents(), items = tools.subagentsMenu().items
+        #expect(rows.count == 2)
+        #expect(items.map(\.title) == rows.map(\.info.title))
+        #expect(items.map(\.toolTip) == rows.map(\.info.activity.shortLabel))
+        let runs = items.compactMap(ActionRegistry.menuRun(of:))
+        #expect(runs.map(\.id) == Array(repeating: ActionID("chief.openSubagent"), count: rows.count))
+        // The target is the row's sidebar item, the same id a click on its sidebar row activates.
+        #expect(runs.map(\.target) == rows.map { Optional(ActionTargetRef(kind: .sidebarItem, id: $0.item.id.rawValue)) })
+        #expect(runs.compactMap { $0.target.map { SidebarTransientItem.chiefSubagentSession(LayoutItemID($0.id)) } }
+            == ["id-optchat-sub-6b68ac4a-a2", "id-optchat-sub-6b68ac4a-a3"])
+        #expect(runs.allSatisfy { $0.arguments.isEmpty })
+    }
+
+    /// Chief Actions is the app's one more button (⋮, OverflowButton): VoiceOver's press opens the
+    /// same menu a pointer press does.
+    @Test func chiefActionsIsTheOverflowButton() {
+        let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
+        let tools = ChiefPaneTools(chief: ChiefSidebar(lanes: AgentLaneStore()), registry: registry)
+        var shown: NSMenu?
+        tools.actionsButton.presentMenu = { menu, _ in shown = menu }
+        #expect(tools.actionsButton.accessibilityPerformPress())
+        #expect(shown?.items.count == ChiefPaneTools.actions.count)
+        #expect(tools.actionsButton.accessibilityLabel() == tools.actionsButton.label)
     }
 }
