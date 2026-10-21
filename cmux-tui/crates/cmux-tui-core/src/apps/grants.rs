@@ -318,6 +318,22 @@ mod tests {
     }
 
     #[test]
+    fn cmux_next_memory_search_admits_only_the_memory_read_grant() {
+        let table = ScopeTable::get();
+        let params = json!({"roots":[],"query":"deploy"});
+        assert_eq!(
+            table.check("memory.search", &params, &grant(&["memory:read"])),
+            Decision::Allow(OpClass::Read),
+        );
+        for scopes in [vec![], vec!["document:read"], vec!["agent_cli:read"]] {
+            assert!(matches!(
+                table.check("memory.search", &params, &grant(&scopes)),
+                Decision::ScopeMissing(_),
+            ));
+        }
+    }
+
+    #[test]
     fn unknown_is_unsupported_and_ungranted_is_scope_missing() {
         let table = ScopeTable::get();
         assert_eq!(table.check("made.up", &json!({}), &grant(&[])), Decision::Unsupported);
