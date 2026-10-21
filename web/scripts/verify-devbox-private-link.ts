@@ -19,6 +19,7 @@ import path from "node:path";
 import { cleanupPrivateLinkResource as cleanup } from "./devbox-private-link-cleanup";
 import { startPrivateLinkClient } from "./devbox-private-link-process";
 import { FreestyleProvider } from "../services/vms/drivers/freestyle";
+import type { CmuxRemoteEndpoint } from "../services/vms/drivers/types";
 
 /** Convert provider failures to local operator stage labels without upstream payloads. */
 const attempt = <A>(label: string, run: (signal: AbortSignal) => Promise<A>) =>
@@ -48,6 +49,25 @@ function readSnapshot(client: string, socket: string) {
       return yield* Effect.fail(new Error("Private session returned an invalid snapshot"));
     }
   });
+}
+
+function connectArgs(
+  endpoint: CmuxRemoteEndpoint,
+  root: string,
+  hubSocket: string,
+  deviceName: string,
+  socket: string,
+  inviteFile?: string,
+): string[] {
+  const auth = inviteFile ? ["--invite-file", inviteFile] : endpoint.trustedCarrier ? ["--carrier"] : [];
+  return [
+    "remote", "connect", endpoint.route, ...auth,
+    "--state-dir", path.join(root, "identity"),
+    "--device-name", deviceName,
+    "--headless", "--json", "--wireguard-hub", hubSocket,
+    "--connect-timeout-seconds", "30", "--reconnect-attempts", "1",
+    "--local-socket", socket,
+  ];
 }
 
 /** Verify private enrollment and reconnect using exclusively probe-owned resources. */
@@ -90,24 +110,48 @@ function verify(image: string, client: string) {
     const hub = yield* startPrivateLinkClient(client, ["wg", "hub", "--config", configPath, "--socket", hubSocket], { event: "hub-ready", socket: hubSocket });
     yield* hub.ready;
     const endpoint = yield* attempt("Read image attach bundle failed", () => provider.openCmuxRemote(vm.providerVmId, { clientCapabilities: probe.capabilities }));
-    if (!endpoint.trustedCarrier) return yield* Effect.fail(new Error("Fresh VM does not serve the trusted-carrier listener"));
-    const args = ["remote", "connect", endpoint.route, "--carrier", "--state-dir", path.join(root, "identity"),
-      "--device-name", slug, "--headless", "--json", "--wireguard-hub", hubSocket,
-      "--connect-timeout-seconds", "30", "--reconnect-attempts", "1"];
-    // Two carrier dials, no enrollment, no approval, no control-plane call in
-    // between: the private network is the only admission.
+    const inviteFile = endpoint.invitation ? path.join(root, "invite") : undefined;
+    if (endpoint.invitation && inviteFile) {
+      yield* Effect.try(() => writeFileSync(inviteFile, `${endpoint.invitation!.uri}\n`, { mode: 0o600 }));
+    }
+    if (!endpoint.trustedCarrier && !endpoint.invitation) {
+      return yield* Effect.fail(new Error("Fresh VM returned neither enrollment nor compatibility auth"));
+    }
+    let deviceFingerprint: string | undefined;
     yield* Effect.scoped(Effect.gen(function* () {
       const socket = path.join(root, "first.sock");
-      const connection = yield* startPrivateLinkClient(client, [...args, "--local-socket", socket], { event: "connection-snapshot", socket });
+      const connection = yield* startPrivateLinkClient(
+        client,
+        connectArgs(endpoint, root, hubSocket, slug, socket, inviteFile),
+        { event: "connection-snapshot", socket },
+      );
+      if (endpoint.invitation) {
+        const approval = yield* attempt("Approve image enrollment failed", () =>
+          provider.approveCmuxRemoteEnrollment(vm.providerVmId, endpoint.invitation!.invitationId));
+        if (!approval.approved || !approval.deviceFingerprint) {
+          return yield* Effect.fail(new Error("Image enrollment approval returned no device fingerprint"));
+        }
+        deviceFingerprint = approval.deviceFingerprint;
+      }
       yield* connection.ready;
       yield* readSnapshot(client, socket);
     }));
+    const reconnectEndpoint = yield* attempt("Read enrolled attach bundle failed", () =>
+      provider.openCmuxRemote(vm.providerVmId, {
+        clientCapabilities: probe.capabilities,
+        ...(deviceFingerprint ? { deviceFingerprint } : {}),
+      }));
     const socket = path.join(root, "reconnect.sock");
-    const connection = yield* startPrivateLinkClient(client, [...args, "--local-socket", socket], { event: "connection-snapshot", socket });
+    const connection = yield* startPrivateLinkClient(
+      client,
+      connectArgs(reconnectEndpoint, root, hubSocket, slug, socket),
+      { event: "connection-snapshot", socket },
+    );
     yield* connection.ready;
     yield* readSnapshot(client, socket);
     console.log(JSON.stringify({ image, clientCommit: probe.build_identity,
-      daemonCommit: endpoint.daemonBuild?.commit, trustedCarrier: true, reconnect: "passed", snapshot: "passed" }));
+      daemonCommit: endpoint.daemonBuild?.commit, trustedCarrier: endpoint.trustedCarrier,
+      enrolled: deviceFingerprint !== undefined, reconnect: "passed", snapshot: "passed" }));
   });
 }
 

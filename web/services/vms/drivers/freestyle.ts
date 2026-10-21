@@ -107,6 +107,23 @@ function freestyleRemoteAuthPlan(
   };
 }
 
+async function freestyleInvitationForAuth(
+  auth: ReturnType<typeof freestyleRemoteAuthPlan>,
+  mint: () => Promise<NonNullable<CmuxRemoteEndpoint["invitation"]>>,
+  vmId: string,
+): Promise<CmuxRemoteEndpoint["invitation"] | undefined> {
+  if (!auth.mintInvitation) return undefined;
+  try {
+    return await mint();
+  } catch (error) {
+    if (!auth.trustedCarrier) throw error;
+    // The old listener remains an authenticated compatibility path. Never log
+    // the provider error: it may include guest output from invitation minting.
+    console.warn(`[freestyle] enrollment invitation unavailable on trusted-carrier VM ${vmId}; using compatibility auth`);
+    return undefined;
+  }
+}
+
 // The Freestyle driver, on the public platform (api.freestyle.sh /v5, SDK
 // freestyle@0.2.x). This is the only Freestyle arm: the legacy 0.1.x platform
 // (SSH gateway, cmuxd-remote WebSocket PTY on 7777) has been removed,
@@ -146,18 +163,21 @@ function freestyleRemoteAuthPlan(
 // cmux-tui build, guest CLI integration, resource reporter, prompt sync, and
 // cmux-tui-daemon systemd unit. Its supervisor starts the daemon with a fresh
 // identity as soon as the machine resumes, keyed on the platform instance id.
-// Create and trusted-carrier attach therefore use provider metadata and the
-// immutable image contract, with no guest exec or filesystem upload.
+// Create and an already-enrolled attach use provider metadata and the immutable
+// image contract with no guest exec or filesystem upload. A first grant attach
+// performs only the bounded invitation-mint/approval guest calls.
 //
-// NO-WORK INVARIANT (read before adding a provider call to create, restore,
-// resume, or openCmuxRemote). These paths are on the user's New Machine
-// critical path, and every provider round trip here is paid on every create:
+// NO-WORK INVARIANT (read before adding a provider call to create, restore, or
+// resume). These paths are on the user's New Machine critical path, and every
+// provider round trip here is paid on every create:
 //   - create: one `vms.create` with VPC and TLS rules inline. No resize (each
 //     size has its own snapshot), no `vm.exec`, no `vm.fs` write, no
 //     readiness poll, no second provider read.
 //   - restore/resume: no guest exec; the baked supervisor owns the daemon.
-//   - openCmuxRemote: built from the row's providerMetadata alone. No guest
-//     exec, no install, no "heal", no enrollment round trip.
+//   - openCmuxRemote: providerMetadata chooses the immutable auth mode. A
+//     remembered enrolled fingerprint is exec-free; a first client may mint
+//     one five-minute invitation and approve its exact pending claim. It never
+//     installs, heals or restarts the daemon.
 // If the guest needs a new binary, file, hook, package, or setting, bake it
 // into the devbox snapshot (web/scripts/build-devbox-freestyle.ts, the boot
 // supervisor in services/vms/images/devbox/cmux-devbox-boot) and bump
@@ -1790,11 +1810,10 @@ export class FreestyleProvider implements VMProvider {
             options?.providerMetadata,
             options?.deviceFingerprint,
           );
-          let invitation: CmuxRemoteEndpoint["invitation"] | undefined;
-          if (auth.mintInvitation) {
+          const invitation = await freestyleInvitationForAuth(auth, async () => {
             const vm = this.deps.client(EXEC_DEFAULT_TIMEOUT_MS + EXEC_OVERHEAD_TIMEOUT_MS).vms.ref(vmId);
-            invitation = await mintCmuxTuiInvitation(this.cmuxTuiInvoke(vm), "freestyle", vmId);
-          }
+            return await mintCmuxTuiInvitation(this.cmuxTuiInvoke(vm), "freestyle", vmId);
+          }, vmId);
           const token = `cmux-freestyle-route-${randomBytes(32).toString("hex")}`;
           const expiresAtUnix = Math.floor(Date.now() / 1000) + ROUTE_TOKEN_TTL_SECONDS;
           const addresses = freestyleNetworkAddressMetadata(routeAddresses);

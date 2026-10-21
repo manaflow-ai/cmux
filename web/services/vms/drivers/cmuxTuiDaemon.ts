@@ -504,7 +504,10 @@ export async function mintCmuxTuiInvitation(
     `remote enroll create --session ${CMUX_TUI_SESSION} --ttl 300 --json`,
   );
   if (created.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment invitation in ${vmId} failed: ${created.stderr || created.stdout}`);
+    throw new ProviderError(
+      provider,
+      `cmux-tui enrollment invitation in ${vmId} failed (exit ${created.exitCode})`,
+    );
   }
   const uri = parseJsonObject(created.stdout).uri;
   if (typeof uri !== "string" || !uri) {
@@ -569,7 +572,10 @@ export async function approveCmuxTuiEnrollment(
     40_000,
   );
   if (result.exitCode !== 0) {
-    throw new ProviderError(provider, `cmux-tui enrollment approval in ${vmId} failed: ${result.stderr || result.stdout}`);
+    throw new ProviderError(
+      provider,
+      `cmux-tui enrollment approval in ${vmId} failed (exit ${result.exitCode})`,
+    );
   }
   const fingerprint = parseJsonObject(result.stdout).fingerprint;
   return {
