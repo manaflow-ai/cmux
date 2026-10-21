@@ -4,7 +4,6 @@ import CmuxNextBrowserAutomation
 import CmuxNextControl
 import CmuxNextSettings
 import Foundation
-import WebKit
 
 /// Native input for `browser.page.mouse|wheel|insert_text|key` (``BrowserPageOperation/input(_:)``)
 /// on a page the app shows: trusted events with the browser's default actions (Tab moves focus, a
@@ -17,7 +16,8 @@ import WebKit
 ///   must have its browser.
 ///
 /// Neither moves the person's pointer or keyboard focus. Without an engine view (a WebKit page in
-/// no window, a page with no browser, a placeholder) the answer is `{native: false, reason}` and
+/// no window, a page with no browser, a placeholder; for a wheel, a WebKit window that cannot
+/// refresh, decided before anything is sent) the answer is `{native: false, reason}` and
 /// `BrowserPageService` runs page events instead. The buttons each page holds are kept here, so a
 /// move while one is down is a drag.
 @MainActor
@@ -68,11 +68,10 @@ final class BrowserNativeInputs {
                                            flags: Self.flags(modifiers), in: webView)
                 }
             case let .wheel(x, y, dx, dy, modifiers):
-                await Self.armWheelWatch(webView)
+                // WebKit scrolls on display refresh: a window that cannot refresh would hold the
+                // native wheel. Decided before sending, so the box scrolls exactly once.
+                guard let window = webView.window, Self.refreshes(window) else { return Self.unavailable("no_display") }
                 try await webKit.wheel(at: CGPoint(x: x, y: y), deltaX: dx, deltaY: dy, flags: Self.flags(modifiers), in: webView)
-                // WebKit scrolls on display refresh: with no display (a headless Mac) it holds the
-                // wheel and the page never gets it. Then the page events run instead.
-                guard await Self.wheelArrived(webView) else { return Self.unavailable("wheel_not_delivered") }
             case let .text(text):
                 guard webKit.insertText(text, into: webView) else { return Self.unavailable("text") }
                 await roundTrip(page)
@@ -95,34 +94,11 @@ final class BrowserNativeInputs {
         return Self.delivered
     }
 
-    /// Notes the page's next wheel event, in the app's own script world (the page sees nothing).
-    private static func armWheelWatch(_ webView: WKWebView) async {
-        _ = try? await webView.callAsyncJavaScript(Self.wheelArm, arguments: [:], in: nil, contentWorld: .defaultClient)
+    /// Whether `window` can refresh its display, so WebKit runs a native wheel now: it is on a
+    /// screen and not occluded.
+    static func refreshes(_ window: NSWindow) -> Bool {
+        window.screen != nil && window.occlusionState.contains(.visible)
     }
-
-    /// Whether the page got the wheel: at once when it already has, else within one second, on a
-    /// timer in the page (the call awaits the page's answer, nothing here sleeps).
-    private static func wheelArrived(_ webView: WKWebView) async -> Bool {
-        (try? await webView.callAsyncJavaScript(Self.wheelAwait, arguments: [:], in: nil, contentWorld: .defaultClient)) as? Bool ?? false
-    }
-
-    private static let wheelArm = """
-        window.__cmuxWheelSeen = false;
-        if (!window.__cmuxWheelHook) {
-          window.__cmuxWheelHook = true;
-          addEventListener('wheel', () => { window.__cmuxWheelSeen = true; if (window.__cmuxWheelWake) { window.__cmuxWheelWake(); } },
-            { capture: true, passive: true });
-        }
-        return 0;
-        """
-
-    private static let wheelAwait = """
-        if (window.__cmuxWheelSeen) { return true; }
-        return await new Promise((resolve) => {
-          const timer = setTimeout(() => { window.__cmuxWheelWake = null; resolve(false); }, 1000);
-          window.__cmuxWheelWake = () => { clearTimeout(timer); window.__cmuxWheelWake = null; resolve(true); };
-        });
-        """
 
     /// One script round trip: the web process handles its messages in order, so the key or text
     /// is handled before the call answers.
