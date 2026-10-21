@@ -430,6 +430,11 @@ impl JournalRestoreCursor {
         Ok(())
     }
 
+    /// Every sequence after `last` through the head is a pruned range.
+    pub(crate) fn tail_is_pruned(&self, last: u64) -> anyhow::Result<bool> {
+        pruned_gap(&self.connection, last, self.target_head.saturating_add(1))
+    }
+
     pub(crate) fn finish(mut self) -> anyhow::Result<()> {
         self.finished = true;
         self.connection.execute_batch("COMMIT")?;

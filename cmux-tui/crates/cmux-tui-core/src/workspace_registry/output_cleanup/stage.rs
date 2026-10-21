@@ -16,13 +16,24 @@ use super::super::{
     required_meta,
 };
 use super::codec::{inflate_segment, split_records};
-use super::{OUTPUT_KIND, free_space_refusal, remove_staging, staging_path};
+use super::{OUTPUT_KIND, copied_bytes, free_space_refusal, remove_staging, staging_path};
 use crate::platform;
 
-const STAGING_FORMAT: &str = "1";
+const STAGING_FORMAT: &str = "2";
 /// Free space is checked again after this many staged segments.
 const SEGMENTS_PER_SPACE_CHECK: u64 = 256;
 const PROGRESS_LOG_INTERVAL: Duration = Duration::from_secs(10);
+
+fn progress_log_interval() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("CMUX_TUI_TEST_OUTPUT_CLEANUP_PROGRESS_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    PROGRESS_LOG_INTERVAL
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) enum StageOutcome {
@@ -55,7 +66,8 @@ pub(crate) fn stage_registry(
         return Ok(StageOutcome::NotNeeded);
     }
     (control.on_pending)();
-    if let Err(reason) = free_space_refusal(db_path)? {
+    let copied = copied_bytes(&source)?;
+    if let Err(reason) = free_space_refusal(db_path, copied)? {
         return Ok(StageOutcome::Refused(reason));
     }
     let registry_id = required_meta(&source, "registry_id")?;
@@ -75,11 +87,12 @@ pub(crate) fn stage_registry(
     } else {
         eprintln!("cmux-tui: output cleanup: staging {}", staging_path(db_path).display());
     }
-    match stage_segments(&source, &staging, control.next_segment, Some(db_path))? {
+    match stage_segments(&source, &staging, control.next_segment, Some((db_path, copied)))? {
         Staged::Stopped => return Ok(StageOutcome::Stopped),
         Staged::Refused(reason) => return Ok(StageOutcome::Refused(reason)),
         Staged::Finished => {}
     }
+    count_live_rows(&source, &staging)?;
     staging.execute("UPDATE output_cleanup_state SET value = '1' WHERE key = 'complete'", [])?;
     Ok(StageOutcome::Complete {
         segments: state_u64(&staging, "staged_segments")?,
@@ -137,6 +150,15 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
            kind TEXT NOT NULL,
            record_json BLOB NOT NULL,
            actor TEXT
+         );
+         CREATE TABLE output_cleanup_segments (
+           start_sequence INTEGER PRIMARY KEY,
+           end_sequence INTEGER NOT NULL,
+           record_count INTEGER NOT NULL,
+           kept INTEGER NOT NULL,
+           removed INTEGER NOT NULL,
+           CHECK(kept + removed = record_count),
+           CHECK(record_count = end_sequence - start_sequence + 1)
          );",
     )?;
     let tx = connection.unchecked_transaction()?;
@@ -147,6 +169,9 @@ pub(super) fn open_staging(db_path: &Path, registry_id: &str) -> anyhow::Result<
         ("staged_segments", "0"),
         ("last_segment_id", ""),
         ("complete", "0"),
+        ("live_archive_end", "0"),
+        ("live_head", "0"),
+        ("live_output", "0"),
     ] {
         tx.execute("INSERT INTO output_cleanup_state(key, value) VALUES(?1, ?2)", [key, value])?;
     }
@@ -204,7 +229,7 @@ pub(super) fn stage_segments(
     source: &Connection,
     staging: &Connection,
     next_segment: &dyn Fn() -> bool,
-    space_check: Option<&Path>,
+    space_check: Option<(&Path, u64)>,
 ) -> anyhow::Result<Staged> {
     let total: i64 =
         source.query_row("SELECT COUNT(*) FROM journal_segments", [], |row| row.get(0))?;
@@ -243,6 +268,18 @@ pub(super) fn stage_segments(
         );
         let kept = kept_segment_records(source, &segment_id, start, end, record_count)?;
         let tx = staging.unchecked_transaction()?;
+        tx.execute(
+            "INSERT INTO output_cleanup_segments(
+               start_sequence, end_sequence, record_count, kept, removed)
+             VALUES(?1, ?2, ?3, ?4, ?5)",
+            params![
+                i64::try_from(start)?,
+                i64::try_from(end)?,
+                record_count,
+                i64::try_from(kept.len())?,
+                record_count - i64::try_from(kept.len())?
+            ],
+        )?;
         for record in &kept {
             tx.execute(
                 "INSERT INTO output_cleanup_records(sequence, kind, record_json, actor)
@@ -265,15 +302,15 @@ pub(super) fn stage_segments(
         )?;
         tx.commit()?;
         since_space_check += 1;
-        if let Some(db_path) = space_check
+        if let Some((db_path, copied)) = space_check
             && since_space_check >= SEGMENTS_PER_SPACE_CHECK
         {
             since_space_check = 0;
-            if let Err(reason) = free_space_refusal(db_path)? {
+            if let Err(reason) = free_space_refusal(db_path, copied)? {
                 return Ok(Staged::Refused(reason));
             }
         }
-        if last_log.elapsed() >= PROGRESS_LOG_INTERVAL {
+        if last_log.elapsed() >= progress_log_interval() {
             last_log = Instant::now();
             eprintln!(
                 "cmux-tui: output cleanup: staged {} of {total} segments, {} records kept",
@@ -283,6 +320,57 @@ pub(super) fn stage_segments(
         }
         std::thread::yield_now();
     }
+}
+
+/// Counts the live rows after the sealed segments in one read snapshot, in
+/// the background: that they are contiguous (the count equals the range) and
+/// how many are output. The swap then checks kept plus removed against these
+/// numbers and counts only rows that came later.
+fn count_live_rows(source: &Connection, staging: &Connection) -> anyhow::Result<()> {
+    source.execute_batch("BEGIN DEFERRED")?;
+    let counted = (|| -> anyhow::Result<(i64, i64, i64)> {
+        let archive_end: i64 = source.query_row(
+            "SELECT COALESCE(MAX(end_sequence), 0) FROM journal_segments",
+            [],
+            |row| row.get(0),
+        )?;
+        let head: i64 = source.query_row(
+            "SELECT COALESCE(MAX(sequence), ?1) FROM session_journal",
+            [archive_end],
+            |row| row.get(0),
+        )?;
+        // The (kind, sequence) index is a fraction of the table's pages.
+        let total: i64 = source.query_row(
+            "SELECT COUNT(*) FROM session_journal INDEXED BY session_journal_by_kind_sequence
+             WHERE sequence > ?1 AND sequence <= ?2",
+            [archive_end, head],
+            |row| row.get(0),
+        )?;
+        anyhow::ensure!(
+            total == head - archive_end,
+            "the live journal rows after sequence {archive_end} are not contiguous"
+        );
+        let output: i64 = source.query_row(
+            "SELECT COUNT(*) FROM session_journal INDEXED BY session_journal_by_kind_sequence
+             WHERE kind = ?3 AND sequence > ?1 AND sequence <= ?2",
+            params![archive_end, head, OUTPUT_KIND],
+            |row| row.get(0),
+        )?;
+        Ok((archive_end, head, output))
+    })();
+    source.execute_batch("COMMIT")?;
+    let (archive_end, head, output) = counted?;
+    let tx = staging.unchecked_transaction()?;
+    for (key, value) in
+        [("live_archive_end", archive_end), ("live_head", head), ("live_output", output)]
+    {
+        tx.execute(
+            "UPDATE output_cleanup_state SET value = ?1 WHERE key = ?2",
+            params![value.to_string(), key],
+        )?;
+    }
+    tx.commit()?;
+    Ok(())
 }
 
 type KeptRecord = (u64, String, Vec<u8>, Option<String>);

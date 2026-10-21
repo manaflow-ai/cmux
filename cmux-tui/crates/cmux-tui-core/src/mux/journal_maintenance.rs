@@ -500,6 +500,11 @@ impl Mux {
                     break head;
                 }
             };
+            if reducer.last_sequence() < head_sequence
+                && cursor.tail_is_pruned(reducer.last_sequence())?
+            {
+                reducer.skip_pruned_tail(head_sequence);
+            }
             cursor.finish()?;
             return reducer.finish(head_sequence);
         }

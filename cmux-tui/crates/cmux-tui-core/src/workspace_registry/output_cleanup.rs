@@ -32,12 +32,16 @@ mod swap;
 
 use std::path::{Path, PathBuf};
 
+use rusqlite::Connection;
+
 use super::open_guard::sidecar_path;
 use super::{WorkspaceRegistry, meta_value};
 
 pub(crate) use pruned::{PRUNED_RANGES_SCHEMA, pruned_gap};
 pub(crate) use stage::{StageControl, StageOutcome, stage_registry};
-pub(super) use swap::{remove_previous_registry_later, roll_back_swap, swap_at_open};
+pub(super) use swap::{
+    note_full_start, remove_previous_registry_when_started, roll_back_swap, swap_at_open,
+};
 
 /// Registry meta key set once the cleanup is done (or was not needed). The
 /// cleanup is one-time: a registry with this key is never staged again.
@@ -74,26 +78,138 @@ fn disk_margin() -> u64 {
     DISK_MARGIN_BYTES
 }
 
+/// Journal tables the swap rebuilds; every other table is copied as is.
+const REBUILT_TABLES: [&str; 6] = [
+    "session_journal",
+    "journal_segments",
+    "journal_segment_kinds",
+    "journal_subject_index",
+    "journal_event_index",
+    "journal_pruned_ranges",
+];
+
+/// Bytes the swap copies unchanged from `source` (every table and index
+/// outside the rebuilt journal tables): their pages, counted per b-tree with
+/// `dbstat`, which reads only those b-trees. Without `dbstat`, the whole
+/// file's used pages, an upper bound.
+fn copied_bytes(source: &Connection) -> anyhow::Result<u64> {
+    let names = {
+        let rebuilt = REBUILT_TABLES.iter().map(|name| format!("'{name}'")).collect::<Vec<_>>();
+        let mut statement = source.prepare(&format!(
+            "SELECT name FROM sqlite_master
+             WHERE type IN ('table', 'index') AND tbl_name NOT IN ({})",
+            rebuilt.join(", ")
+        ))?;
+        statement.query_map([], |row| row.get::<_, String>(0))?.collect::<Result<Vec<_>, _>>()?
+    };
+    let mut total = 0_u64;
+    for name in &names {
+        let bytes = source.query_row(
+            "SELECT COALESCE(SUM(pgsize), 0) FROM dbstat WHERE name = ?1 AND aggregate = TRUE",
+            [name],
+            |row| row.get::<_, i64>(0),
+        );
+        match bytes {
+            Ok(bytes) => total = total.saturating_add(u64::try_from(bytes).unwrap_or(0)),
+            Err(_) => {
+                let (pages, free, size): (i64, i64, i64) = source.query_row(
+                    "SELECT (SELECT page_count FROM pragma_page_count()),
+                            (SELECT freelist_count FROM pragma_freelist_count()),
+                            (SELECT page_size FROM pragma_page_size())",
+                    [],
+                    |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+                )?;
+                return Ok(u64::try_from((pages - free).max(0) * size).unwrap_or(u64::MAX));
+            }
+        }
+    }
+    Ok(total)
+}
+
 /// `Err(reason)` when the directory of `db_path` has less free space than
-/// the staged file so far plus the margin.
-fn free_space_refusal(db_path: &Path) -> anyhow::Result<Result<(), String>> {
+/// what the new registry still needs (the copied tables, `copied`, plus what
+/// is not staged yet is bounded by the staged file so far) plus the margin.
+fn free_space_refusal(db_path: &Path, copied: u64) -> anyhow::Result<Result<(), String>> {
     let dir = db_path.parent().unwrap_or(Path::new("."));
     let available = fs4::available_space(dir)?;
     let staged = file_len(&staging_path(db_path));
-    let needed = staged.saturating_add(disk_margin());
+    let needed = staged.saturating_add(copied).saturating_add(disk_margin());
     Ok(if available < needed {
         Err(format!(
-            "{} MiB free in {}, {} MiB needed (staged {} MiB plus a {} MiB margin)",
+            "{} MiB free in {}, {} MiB needed (staged {} MiB, copied tables {} MiB, a {} MiB \
+             margin)",
             available >> 20,
             dir.display(),
             needed >> 20,
             staged >> 20,
+            copied >> 20,
             disk_margin() >> 20
         ))
     } else {
         Ok(())
     })
 }
+
+/// This binary, for the failure marker: a newer build retries a cleanup an
+/// older one gave up on.
+fn build_stamp() -> String {
+    let exe = std::env::current_exe()
+        .ok()
+        .and_then(|path| std::fs::metadata(path).ok())
+        .map(|metadata| {
+            let modified = metadata
+                .modified()
+                .ok()
+                .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+                .map_or(0, |time| time.as_nanos());
+            format!("{}-{modified}", metadata.len())
+        })
+        .unwrap_or_default();
+    format!("build {} exe {exe}", crate::release::DISTRIBUTION_VERSION)
+}
+
+/// True when an earlier attempt of this same build failed for a reason that
+/// would fail again. A marker of another build is removed.
+pub(crate) fn failed_for_this_build(db_path: &Path) -> bool {
+    let marker = failed_path(db_path);
+    let Ok(text) = std::fs::read_to_string(&marker) else { return false };
+    if text.lines().next() == Some(build_stamp().as_str()) {
+        return true;
+    }
+    eprintln!(
+        "cmux-tui: output cleanup: a different build retries the cleanup an older build stopped"
+    );
+    let _ = std::fs::remove_file(&marker);
+    false
+}
+
+fn write_failure_marker(db_path: &Path, reason: &str) {
+    let _ = std::fs::write(failed_path(db_path), format!("{}\n{reason}\n", build_stamp()));
+}
+
+/// Errors that a later start can get past: a busy or locked database, a full
+/// disk, an I/O error, or a registry that changed under the staged work.
+fn is_temporary(error: &anyhow::Error) -> bool {
+    error.chain().any(|cause| {
+        if let Some(code) =
+            cause.downcast_ref::<rusqlite::Error>().and_then(rusqlite::Error::sqlite_error_code)
+        {
+            return matches!(
+                code,
+                rusqlite::ErrorCode::DatabaseBusy
+                    | rusqlite::ErrorCode::DatabaseLocked
+                    | rusqlite::ErrorCode::DiskFull
+                    | rusqlite::ErrorCode::SystemIoFailure
+                    | rusqlite::ErrorCode::CannotOpen
+                    | rusqlite::ErrorCode::OutOfMemory
+            );
+        }
+        cause.is::<std::io::Error>() || cause.to_string().contains(STAGED_WORK_CHANGED)
+    })
+}
+
+/// The message of an error that makes the staged work unusable.
+const STAGED_WORK_CHANGED: &str = "the registry's sealed segments changed after staging";
 
 fn file_len(path: &Path) -> u64 {
     std::fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(0)

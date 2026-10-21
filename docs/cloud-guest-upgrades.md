@@ -81,6 +81,20 @@ else is image-only: design it so old machines keep working without it.
   daemon must open every older on-disk schema. After it migrates, the old
   binary may not start, so a rollback is only safe before the new daemon runs.
   State this in the PR when a change migrates on-disk state.
+- **The stored-output cleanup is one-way.** A daemon that finds terminal
+  output in its registry (older builds journaled every output chunk) builds a
+  new registry without it in the background and swaps it in at its next
+  start. The removed records leave runs of missing journal sequences, listed
+  in `journal_pruned_ranges`. An older build still opens the swapped registry
+  and serves its workspaces, but it is degraded: it does not know
+  `journal_pruned_ranges`, so its journal reads, journal subscriptions and
+  restore previews that cross a removed run end with a gap error, and its
+  agent roster restore skips those runs. It is not refused, because a refused
+  daemon would not start at all. The replaced file stays as
+  `workspace-registry.sqlite3.pre-output-cleanup` until a start after a full
+  start on the new registry. To roll back in that window, stop the daemon and
+  rename the `.pre-output-cleanup` file over the registry (remove its `-wal`
+  and `-shm` files first).
 - **Startup time is data-dependent.** A daemon replays its journal and adopts
   hosts before it listens; a 12 GB journal took about 3 minutes (2026-09-28).
   Nothing that waits for a daemon may assume seconds.

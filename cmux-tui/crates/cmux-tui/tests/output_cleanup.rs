@@ -20,11 +20,13 @@ use std::fs::{self, File};
 use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::platform::transport;
-use rusqlite::{Connection, OpenFlags, OptionalExtension, params};
+use rusqlite::{Connection, OpenFlags, params};
 use sha2::{Digest, Sha256};
+use wait_timeout::ChildExt;
 
 const REGISTRY: &str = "workspace-registry.sqlite3";
 /// Owners that only prepare the registry never start the cleanup.
@@ -58,19 +60,49 @@ fn command(dir: &Path) -> Command {
     command
 }
 
+/// The owner's stderr lines, kept in order; a waiter is woken on each line
+/// and when the stream ends.
+#[derive(Default)]
+struct LogLines {
+    lines: Mutex<(Vec<String>, bool)>,
+    changed: Condvar,
+}
+
+impl LogLines {
+    fn text(&self) -> String {
+        self.lines.lock().unwrap().0.join("\n")
+    }
+
+    /// The first line that contains `needle`, waiting for it up to `timeout`.
+    fn wait_for(&self, needle: &str, timeout: Duration) -> Option<String> {
+        let deadline = Instant::now() + timeout;
+        let mut guard = self.lines.lock().unwrap();
+        loop {
+            if let Some(line) = guard.0.iter().find(|line| line.contains(needle)) {
+                return Some(line.clone());
+            }
+            let now = Instant::now();
+            if guard.1 || now >= deadline {
+                return None;
+            }
+            guard = self.changed.wait_timeout(guard, deadline - now).unwrap().0;
+        }
+    }
+}
+
 struct Owner {
     child: Child,
     dir: PathBuf,
     session: String,
-    log: PathBuf,
+    log: Arc<LogLines>,
 }
 
 impl Owner {
-    /// Starts an owner whose stderr goes to `<label>.log`.
+    /// Starts an owner and waits for the line it prints once its control
+    /// socket serves.
     fn start(dir: &Path, session: &str, label: &str, env: &[(&str, &str)]) -> Self {
         let socket = dir.join("mux.sock");
         let _ = fs::remove_file(&socket);
-        let log = dir.join(format!("{label}.log"));
         let mut command = command(dir);
         command
             .args(["--headless", "--session", session, "--socket"])
@@ -78,20 +110,30 @@ impl Owner {
             .env("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", NEVER)
             .stdin(Stdio::null())
             .stdout(Stdio::null())
-            .stderr(File::create(&log).unwrap());
+            .stderr(Stdio::piped());
         for (key, value) in env {
             command.env(key, value);
         }
-        let child = command.spawn().unwrap();
-        let mut owner = Self { child, dir: dir.to_path_buf(), session: session.into(), log };
-        let deadline = Instant::now() + Duration::from_secs(60);
-        while !owner.answers() {
-            if let Some(status) = owner.child.try_wait().unwrap() {
-                panic!("the owner exited with {status}: {}", owner.log_text());
+        let mut child = command.spawn().unwrap();
+        let log = Arc::new(LogLines::default());
+        let stderr = child.stderr.take().unwrap();
+        let reader_log = log.clone();
+        let mut file = File::create(dir.join(format!("{label}.log"))).unwrap();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stderr).lines().map_while(Result::ok) {
+                let _ = writeln!(file, "{line}");
+                reader_log.lines.lock().unwrap().0.push(line);
+                reader_log.changed.notify_all();
             }
-            assert!(Instant::now() < deadline, "the owner never answered: {}", owner.log_text());
-            std::thread::sleep(Duration::from_millis(50));
-        }
+            reader_log.lines.lock().unwrap().1 = true;
+            reader_log.changed.notify_all();
+        });
+        let owner = Self { child, dir: dir.to_path_buf(), session: session.into(), log };
+        assert!(
+            owner.log.wait_for("control socket at", Duration::from_secs(120)).is_some(),
+            "the owner never served: {}",
+            owner.log.text()
+        );
         owner
     }
 
@@ -99,32 +141,15 @@ impl Owner {
         self.dir.join("mux.sock")
     }
 
-    fn answers(&self) -> bool {
-        command(&self.dir)
-            .args(["--json", "server", "status", "--session", &self.session, "--socket"])
-            .arg(self.socket())
-            .output()
-            .is_ok_and(|output| {
-                output.status.success()
-                    && String::from_utf8_lossy(&output.stdout).contains("\"running\"")
-            })
-    }
-
     fn log_text(&self) -> String {
-        fs::read_to_string(&self.log).unwrap_or_default()
+        self.log.text()
     }
 
     /// Waits for a stderr line that contains `needle`.
     fn wait_for_log(&self, needle: &str) -> String {
-        let deadline = Instant::now() + Duration::from_secs(60);
-        loop {
-            let text = self.log_text();
-            if let Some(line) = text.lines().find(|line| line.contains(needle)) {
-                return line.to_string();
-            }
-            assert!(Instant::now() < deadline, "no log line with {needle:?}: {text}");
-            std::thread::sleep(Duration::from_millis(50));
-        }
+        self.log
+            .wait_for(needle, Duration::from_secs(120))
+            .unwrap_or_else(|| panic!("no log line with {needle:?}: {}", self.log_text()))
     }
 
     fn cli(&self, args: &[&str]) -> serde_json::Value {
@@ -144,26 +169,20 @@ impl Owner {
         serde_json::from_slice(&output.stdout).unwrap()
     }
 
+    /// `server stop`, then waits for the process to exit (blocking, bounded).
     fn stop(mut self) {
-        let deadline = Instant::now() + Duration::from_secs(30);
-        loop {
+        for _ in 0..3 {
             let _ = command(&self.dir)
                 .args(["server", "stop", "--session", &self.session, "--end-terminals", "--socket"])
                 .arg(self.socket())
                 .output();
-            let retry = Instant::now() + Duration::from_secs(1);
-            while Instant::now() < retry {
-                if self.child.try_wait().unwrap().is_some() {
-                    return;
-                }
-                std::thread::sleep(Duration::from_millis(50));
-            }
-            if Instant::now() >= deadline {
-                let _ = self.child.kill();
-                let _ = self.child.wait();
-                panic!("the owner of {} did not stop", self.session);
+            if self.child.wait_timeout(Duration::from_secs(20)).unwrap().is_some() {
+                return;
             }
         }
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+        panic!("the owner of {} did not stop: {}", self.session, self.log_text());
     }
 
     fn kill(mut self) {
@@ -178,14 +197,17 @@ fn resource_request(
     params: serde_json::Value,
     key: &str,
 ) -> serde_json::Value {
-    let request = serde_json::json!({
+    let mut request = serde_json::json!({
         "protocol":"cmux.protocol/2",
         "type":"request",
         "id":key,
         "operation":operation,
         "params":params,
-        "idempotency_key":key,
     });
+    // Only mutations take an idempotency key.
+    if !operation.ends_with(".preview") {
+        request["idempotency_key"] = serde_json::json!(key);
+    }
     let stream = transport::connect(socket).unwrap();
     let mut writer = stream.try_clone_box().unwrap();
     let mut reader = BufReader::new(stream);
@@ -373,7 +395,8 @@ fn seed_output(registry: &Path, rows: usize, salt: &str) {
 }
 
 /// Seals the journal through a new checkpoint, one segment per request.
-fn seal_through_checkpoint(owner: &Owner, label: &str) {
+/// Seals the journal through a new checkpoint; returns the checkpoint id.
+fn seal_through_checkpoint(owner: &Owner, label: &str) -> String {
     let socket = owner.socket();
     let scope = serde_json::json!({"machine":"current","session":"current"});
     let checkpoint = resource_request(
@@ -383,6 +406,7 @@ fn seal_through_checkpoint(owner: &Owner, label: &str) {
         &format!("{label}-checkpoint"),
     );
     let target = decimal(&checkpoint["value"]["source_sequence"]);
+    let checkpoint_id = checkpoint["value"]["checkpoint_id"].as_str().unwrap().to_string();
     for batch in 0..64 {
         let mut params = scope.clone();
         params["through_sequence"] = serde_json::json!(target.to_string());
@@ -393,7 +417,7 @@ fn seal_through_checkpoint(owner: &Owner, label: &str) {
             &format!("{label}-seal-{batch}"),
         );
         if decimal(&sealed["value"]["through_sequence"]) >= target {
-            return;
+            return checkpoint_id;
         }
     }
     panic!("sealing never reached sequence {target}");
@@ -404,11 +428,17 @@ struct Prepared {
     workspaces: BTreeSet<(String, String)>,
     journal: Vec<Seen>,
     bytes: u64,
+    checkpoint: String,
 }
 
 /// A registry of an older build: workspaces, sealed segments that mix output
 /// with other records, and live output rows after them.
 fn prepare(dir: &Path, session: &str) -> Prepared {
+    prepare_with_tail(dir, session, 0)
+}
+
+/// `tail_output` output rows are seeded last, so the journal ends in output.
+fn prepare_with_tail(dir: &Path, session: &str, tail_output: usize) -> Prepared {
     let owner = Owner::start(dir, session, "prepare-1", &[]);
     owner.cli(&["workspace", "create", "--empty", "--name", "before-output"]);
     owner.stop();
@@ -417,7 +447,7 @@ fn prepare(dir: &Path, session: &str) -> Prepared {
 
     let owner = Owner::start(dir, session, "prepare-2", &[]);
     owner.cli(&["workspace", "create", "--empty", "--name", "between-output"]);
-    seal_through_checkpoint(&owner, "prepare");
+    let checkpoint = seal_through_checkpoint(&owner, "prepare");
     owner.stop();
     seed_output(&registry, SEEDED_LIVE, "live");
 
@@ -443,9 +473,12 @@ fn prepare(dir: &Path, session: &str) -> Prepared {
     assert_eq!(live_output_rows(&registry), SEEDED_LIVE as i64);
     let output = journal.iter().filter(|record| record.kind == "terminal.output").count();
     assert_eq!(output, SEEDED_SEALED + SEEDED_LIVE, "a reader sees every seeded output record");
+    if tail_output > 0 {
+        seed_output(&registry, tail_output, "tail");
+    }
     let bytes = fs::metadata(&registry).unwrap().len()
         + fs::metadata(sidecar(&registry, "-wal")).map(|metadata| metadata.len()).unwrap_or(0);
-    Prepared { registry, workspaces, journal, bytes }
+    Prepared { registry, workspaces, journal, bytes, checkpoint }
 }
 
 /// Phase A finished in the background and wrote its staging file.
@@ -540,6 +573,69 @@ fn integrity(path: &Path) -> String {
     read_only(path).query_row("PRAGMA integrity_check", [], |row| row.get(0)).unwrap()
 }
 
+/// Every table outside the rebuilt journal tables has the same rows, rowids
+/// included, in the new registry (`new`, a copy taken right after the swap)
+/// as in the registry it replaced (`old`). Meta differs only in the keys the
+/// cleanup writes.
+fn assert_structural_tables_equal(new: &Path, old: &Path) {
+    const REBUILT: [&str; 6] = [
+        "session_journal",
+        "journal_segments",
+        "journal_segment_kinds",
+        "journal_subject_index",
+        "journal_event_index",
+        "journal_pruned_ranges",
+    ];
+    const CLEANUP_META: &str =
+        "'output_cleanup_v1', 'journal_segment_kinds_backfill', 'output_cleanup_full_starts'";
+    let db = read_only(new);
+    db.execute("ATTACH DATABASE ?1 AS old", [old.to_str().unwrap()]).unwrap();
+    let tables: Vec<(String, String)> = db
+        .prepare(
+            "SELECT name, sql FROM old.sqlite_master
+             WHERE type = 'table' AND name NOT LIKE 'sqlite\\_%' ESCAPE '\\'",
+        )
+        .unwrap()
+        .query_map([], |row| Ok((row.get(0)?, row.get(1)?)))
+        .unwrap()
+        .collect::<Result<_, _>>()
+        .unwrap();
+    let mut compared = 0;
+    let mut differing = Vec::new();
+    for (table, sql) in &tables {
+        if REBUILT.contains(&table.as_str()) {
+            continue;
+        }
+        let columns = if sql.to_ascii_uppercase().contains("WITHOUT ROWID") {
+            "*"
+        } else {
+            "rowid AS row_id, *"
+        };
+        let filter = if table == "meta" {
+            format!("WHERE key NOT IN ({CLEANUP_META})")
+        } else {
+            String::new()
+        };
+        let rows = |left: &str, right: &str| {
+            count(
+                &db,
+                &format!(
+                    "SELECT COUNT(*) FROM (SELECT {columns} FROM {left}.\"{table}\" {filter}
+                     EXCEPT SELECT {columns} FROM {right}.\"{table}\" {filter})"
+                ),
+            )
+        };
+        let (missing, added) = (rows("old", "main"), rows("main", "old"));
+        if missing != 0 || added != 0 {
+            differing.push(format!("{table}: {missing} rows missing, {added} rows added"));
+        }
+        compared += 1;
+    }
+    assert!(compared > 20, "only {compared} tables compared");
+    assert!(differing.is_empty(), "structural tables changed in the swap: {differing:?}");
+    db.execute_batch("DETACH DATABASE old").unwrap();
+}
+
 #[test]
 fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
     let dir = state_dir("swap");
@@ -555,25 +651,101 @@ fn stored_output_is_removed_and_the_registry_swapped_at_the_next_start() {
         "phase A leaves the registry as it was"
     );
 
-    let owner =
-        Owner::start(&dir.0, session, "swap", &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0")]);
+    let snapshot = dir.0.join("swapped-copy.sqlite3");
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "swap",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_SNAPSHOT", snapshot.to_str().unwrap())],
+    );
     let line = owner.wait_for_log("output cleanup: swapped the registry");
     assert!(line.contains("pruned ranges"), "{line}");
+    let previous = sidecar(&prepared.registry, ".pre-output-cleanup");
+    assert_structural_tables_equal(&snapshot, &previous);
     assert_eq!(integrity(&prepared.registry), "ok");
     assert_cleaned(&owner, &prepared);
     owner.stop();
+    assert!(previous.is_file(), "the previous registry stays through the swap launch");
 
-    // The start after the swap opens the new registry and drops the old file.
+    // The start after a full start on the new registry removes the old file.
     let owner = Owner::start(&dir.0, session, "after-swap", &[]);
-    let previous = sidecar(&prepared.registry, ".pre-output-cleanup");
-    let deadline = Instant::now() + Duration::from_secs(30);
-    while previous.exists() {
-        assert!(Instant::now() < deadline, "the previous registry was not removed");
-        std::thread::sleep(Duration::from_millis(50));
-    }
+    owner.wait_for_log("output cleanup: removed the previous registry");
+    assert!(!previous.exists());
     let (_, reason) = read_journal(&owner.socket());
     assert_eq!(reason, "completed");
     assert!(!owner.log_text().contains("output cleanup: staging"), "the cleanup runs once");
+    owner.stop();
+}
+
+#[test]
+fn a_swapped_registry_that_cannot_serve_is_rolled_back() {
+    let dir = state_dir("rollback");
+    let session = "oc-rollback";
+    let prepared = prepare(&dir.0, session);
+    stage(&dir.0, session, "stage").stop();
+
+    // The owner build fails after the swap (debug hook): the original goes
+    // back under the session locks and the owner serves it.
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "swap-fails",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_LOAD", "1")],
+    );
+    owner.wait_for_log("output cleanup: swapped the registry");
+    owner.wait_for_log("restoring the previous registry");
+    assert_eq!(workspaces(&owner), prepared.workspaces, "the original registry serves");
+    let (journal, reason) = read_journal(&owner.socket());
+    assert_eq!(reason, "completed");
+    assert_eq!(
+        journal.iter().filter(|record| record.kind == "terminal.output").count(),
+        SEEDED_SEALED + SEEDED_LIVE,
+        "the original journal is back, output included"
+    );
+    owner.stop();
+    assert!(!sidecar(&prepared.registry, ".pre-output-cleanup").exists());
+    assert!(sidecar(&prepared.registry, ".output-cleanup-failed").is_file());
+    assert_eq!(integrity(&prepared.registry), "ok");
+
+    // This build does not try again.
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "after-rollback",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0")],
+    );
+    owner.wait_for_log("output cleanup: skipped; an earlier attempt failed");
+    owner.stop();
+}
+
+#[test]
+fn a_restore_preview_reads_across_a_pruned_tail() {
+    let dir = state_dir("tail");
+    let session = "oc-tail";
+    let prepared = prepare_with_tail(&dir.0, session, 40);
+    stage(&dir.0, session, "stage").stop();
+    let snapshot = dir.0.join("swapped-copy.sqlite3");
+    let owner = Owner::start(
+        &dir.0,
+        session,
+        "swap",
+        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_SNAPSHOT", snapshot.to_str().unwrap())],
+    );
+    owner.wait_for_log("output cleanup: swapped the registry");
+    // The swapped journal ends in a pruned range.
+    let swapped = read_only(&snapshot);
+    assert_eq!(
+        count(&swapped, "SELECT MAX(end_sequence) FROM journal_pruned_ranges"),
+        count(&swapped, "SELECT MAX(end_sequence) FROM journal_segments"),
+        "the fixture's journal ends in removed output"
+    );
+    let preview = resource_request(
+        &owner.socket(),
+        "session.journal.restore.preview",
+        serde_json::json!({"machine":"current","session":"current","checkpoint":prepared.checkpoint}),
+        "tail-preview",
+    );
+    assert!(preview.is_object(), "restore preview: {preview}");
     owner.stop();
 }
 
@@ -582,7 +754,6 @@ fn a_killed_cleanup_leaves_the_registry_usable_and_resumes() {
     let dir = state_dir("kill");
     let session = "oc-kill";
     let prepared = prepare(&dir.0, session);
-    let staging = sidecar(&prepared.registry, ".output-cleanup");
 
     // One staged segment per 500 ms, so the kill lands inside Phase A.
     let owner = Owner::start(
@@ -592,36 +763,12 @@ fn a_killed_cleanup_leaves_the_registry_usable_and_resumes() {
         &[
             ("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0"),
             ("CMUX_TUI_TEST_OUTPUT_CLEANUP_SEGMENT_PAUSE_MS", "500"),
+            ("CMUX_TUI_TEST_OUTPUT_CLEANUP_PROGRESS_MS", "0"),
         ],
     );
-    let deadline = Instant::now() + Duration::from_secs(60);
-    let staged = loop {
-        let staged = staging.is_file().then(|| {
-            Connection::open_with_flags(&staging, OpenFlags::SQLITE_OPEN_READ_ONLY).ok().and_then(
-                |db| {
-                    db.query_row(
-                        "SELECT CAST(value AS INTEGER) FROM output_cleanup_state
-                         WHERE key = 'staged_segments'",
-                        [],
-                        |row| row.get::<_, i64>(0),
-                    )
-                    .optional()
-                    .ok()
-                    .flatten()
-                },
-            )
-        });
-        if let Some(Some(staged)) = staged
-            && staged >= 1
-        {
-            break staged;
-        }
-        assert!(Instant::now() < deadline, "phase A staged nothing: {}", owner.log_text());
-        std::thread::sleep(Duration::from_millis(20));
-    };
+    owner.wait_for_log("output cleanup: staged 1 of");
+    assert!(!owner.log_text().contains("phase A complete"), "the kill lands in Phase A");
     owner.kill();
-    assert!(!owner_log_contains(&dir.0, "stage-killed", "phase A complete"), "killed mid-way");
-    assert!(staged >= 1);
 
     // The original registry was never written by the cleanup.
     assert_eq!(integrity(&prepared.registry), "ok");
@@ -634,17 +781,8 @@ fn a_killed_cleanup_leaves_the_registry_usable_and_resumes() {
     let owner = stage(&dir.0, session, "resume");
     owner.wait_for_log("output cleanup: resuming after sequence");
     owner.stop();
-    let owner = Owner::start(
-        &dir.0,
-        session,
-        "swap-after-resume",
-        &[("CMUX_TUI_TEST_OUTPUT_CLEANUP_DELAY_MS", "0")],
-    );
+    let owner = Owner::start(&dir.0, session, "swap-after-resume", &[]);
     owner.wait_for_log("output cleanup: swapped the registry");
     assert_cleaned(&owner, &prepared);
     owner.stop();
-}
-
-fn owner_log_contains(dir: &Path, label: &str, needle: &str) -> bool {
-    fs::read_to_string(dir.join(format!("{label}.log"))).unwrap_or_default().contains(needle)
 }

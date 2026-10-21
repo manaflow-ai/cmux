@@ -73,7 +73,7 @@ impl Mux {
             return Ok(());
         }
         drop(registry);
-        if failed_path(&db_path).exists() {
+        if output_cleanup::failed_for_this_build(&db_path) {
             eprintln!(
                 "cmux-tui: output cleanup: skipped; an earlier attempt failed (see {})",
                 failed_path(&db_path).display()

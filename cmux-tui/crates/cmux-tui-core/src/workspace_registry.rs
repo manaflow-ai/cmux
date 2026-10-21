@@ -808,6 +808,8 @@ pub struct WorkspaceRegistry {
     resource_patch_failures_remaining: Cell<u64>,
     pub(crate) lease: Option<SessionLease>,
     pub(crate) session_guard: Option<SessionLease>,
+    /// This open swapped in a registry without stored output.
+    output_cleanup_swapped: bool,
 }
 
 fn persistent_session_state_dir(root: &Path, session_name: &str) -> PathBuf {
@@ -2451,8 +2453,8 @@ impl WorkspaceRegistry {
             session_name.to_string(),
             MachinePublicId::random()?,
             ResourceEffectPepper::random()?,
-            None,
-            None,
+            &mut None,
+            &mut None,
             None,
         )
     }
@@ -2489,8 +2491,32 @@ impl WorkspaceRegistry {
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
         // Before the orphan check: an interrupted swap is put back first.
-        let swapped = output_cleanup::swap_at_open(&db_path);
-        let opened = (|| {
+        // The swap opens the new file through `initialize` and reads its
+        // layout before the rename, so a file that cannot serve never
+        // replaces the registry.
+        let swapped = output_cleanup::swap_at_open(&db_path, &|staged: &Path| {
+            let connection = open_registry_database(staged)?;
+            let registry = Self::initialize(
+                connection,
+                session_name.to_string(),
+                load_or_create_machine_id(&root)?,
+                load_or_create_resource_effect_pepper(&root)?,
+                &mut None,
+                &mut None,
+                None,
+            )?;
+            registry.snapshot()?;
+            Ok(())
+        });
+        // The locks stay held across a failed open and its rollback: no
+        // other owner can open either file in between.
+        let mut session_guard = Some(session_guard);
+        let mut lease = Some(lease);
+        let mut machine_id = Some(machine_id);
+        let mut resource_effect_pepper = Some(resource_effect_pepper);
+        let mut open_once = |session_guard: &mut Option<SessionLease>,
+                             lease: &mut Option<SessionLease>|
+         -> anyhow::Result<Self> {
             open_guard::refuse_orphaned_journal(&db_path)?;
             let connection = open_registry_database(&db_path)
                 .with_context(|| format!("open workspace registry {}", db_path.display()))?;
@@ -2499,29 +2525,79 @@ impl WorkspaceRegistry {
             Self::initialize(
                 connection,
                 session_name.to_string(),
-                machine_id,
-                resource_effect_pepper,
-                Some(session_guard),
-                Some(lease),
+                match machine_id.take() {
+                    Some(id) => id,
+                    None => load_or_create_machine_id(&root)?,
+                },
+                match resource_effect_pepper.take() {
+                    Some(pepper) => pepper,
+                    None => load_or_create_resource_effect_pepper(&root)?,
+                },
+                session_guard,
+                lease,
                 Some(db_path.clone()),
             )
-        })();
-        match opened {
-            Ok(registry) => {
+        };
+        match open_once(&mut session_guard, &mut lease) {
+            Ok(mut registry) => {
+                registry.output_cleanup_swapped = swapped;
                 if !swapped {
-                    output_cleanup::remove_previous_registry_later(&db_path);
+                    output_cleanup::remove_previous_registry_when_started(&db_path);
                 }
                 Ok(registry)
             }
             Err(error) if swapped => {
-                // The failed attempt released the locks: take them again so
-                // no other owner opens either file during the rollback.
+                output_cleanup::roll_back_swap(&db_path, &error);
+                open_once(&mut session_guard, &mut lease)
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Opens the registry and builds the owner from it with `load`. When this
+    /// start swapped in a cleaned registry (output cleanup) and `load` fails,
+    /// the previous registry is put back under the session locks and `load`
+    /// runs once more on it. A full start after a swap is recorded, so the
+    /// next start removes the previous file.
+    pub(crate) fn open_with<T>(
+        root: &Path,
+        session_name: &str,
+        mut load: impl FnMut(Self) -> anyhow::Result<T>,
+    ) -> anyhow::Result<T> {
+        let registry = Self::open(root, session_name)?;
+        let swapped = registry.output_cleanup_swapped;
+        let db_path = registry.database_path.clone();
+        #[cfg(debug_assertions)]
+        let loaded =
+            if swapped && std::env::var_os("CMUX_TUI_TEST_OUTPUT_CLEANUP_FAIL_LOAD").is_some() {
+                drop(registry);
+                Err(anyhow::anyhow!("test: the owner build failed after the swap"))
+            } else {
+                load(registry)
+            };
+        #[cfg(not(debug_assertions))]
+        let loaded = load(registry);
+        match loaded {
+            Ok(loaded) => {
+                if let Some(db_path) = db_path.as_deref() {
+                    output_cleanup::note_full_start(db_path);
+                }
+                Ok(loaded)
+            }
+            Err(error) if swapped && db_path.is_some() => {
+                let db_path = db_path.expect("checked above");
                 {
+                    let root = platform::normalize_filesystem_path(root.to_path_buf());
+                    let session_dir = platform::normalize_filesystem_path(
+                        root.join(session_storage_component(session_name)),
+                    );
                     let _session_guard = acquire_session_guard(&root, session_name)?;
-                    let _lease = SessionLease::acquire(&session_lock)?;
+                    let _lease = SessionLease::acquire(&platform::normalize_filesystem_path(
+                        session_dir.join(SESSION_WRITER_LOCK_FILE),
+                    ))?;
                     output_cleanup::roll_back_swap(&db_path, &error);
                 }
-                Self::open(&root, session_name)
+                load(Self::open(root, session_name)?)
             }
             Err(error) => Err(error),
         }
@@ -2532,8 +2608,8 @@ impl WorkspaceRegistry {
         session_name: String,
         machine_id: MachinePublicId,
         resource_effect_pepper: ResourceEffectPepper,
-        session_guard: Option<SessionLease>,
-        lease: Option<SessionLease>,
+        session_guard: &mut Option<SessionLease>,
+        lease: &mut Option<SessionLease>,
         database_path: Option<PathBuf>,
     ) -> anyhow::Result<Self> {
         connection.busy_timeout(std::time::Duration::from_secs(5))?;
@@ -2922,11 +2998,12 @@ impl WorkspaceRegistry {
             validate_resource_invariants(&tx)?;
             tx.commit()?;
         }
+        let generation = try_new_uuid_v4()?;
         Ok(Self {
             connection: RegistryConnection::new(connection),
             database_path,
             registry_id,
-            generation: try_new_uuid_v4()?,
+            generation,
             session_name,
             machine_id,
             session_id,
@@ -2935,8 +3012,9 @@ impl WorkspaceRegistry {
             resource_projection_stats: std::sync::Arc::default(),
             #[cfg(test)]
             resource_patch_failures_remaining: Cell::new(0),
-            session_guard,
-            lease,
+            session_guard: session_guard.take(),
+            lease: lease.take(),
+            output_cleanup_swapped: false,
         })
     }
 
