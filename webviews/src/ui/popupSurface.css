@@ -71,6 +71,14 @@
   }
 }
 
+/* A popup takes focus when it opens so its keys work; it never draws the engine's `outline: auto`
+   ring, which WebKit paints in the macOS accent (orange when the person picks orange). Its rows show
+   the highlight instead. */
+:where(.ui-popup):focus,
+:where(.ui-popup):focus-visible {
+  outline: none;
+}
+
 /* A popup fades out when it closes (POLISH: no flash; a closed menu vanished in one frame). Base UI
    keeps it mounted while it carries data-ending-style, until the fade ends. */
 :where(.ui-popup) {

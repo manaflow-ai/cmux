@@ -33,6 +33,8 @@ export function themeInput(theme: GhosttyTheme, accent: AppAccent = "neutral"): 
     selectionForeground: color(theme.selectionForeground) ?? undefined,
     backgroundOpacity: 1,
     accent,
+    // The theme's own `# cmux-accent`, which wins over `accent` as ThemeBridge's does in the app.
+    accentColor: color(theme.accent),
   };
 }
 
