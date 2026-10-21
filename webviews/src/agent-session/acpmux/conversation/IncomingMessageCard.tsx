@@ -3,12 +3,14 @@
 // sender's name opens its chat beside this one when it is a chat here; › opens the message under
 // the line, the body only; the prompt as the agent got it (cmux's or Claude Code's envelope) waits
 // behind Details under it. Whether it is open
-// lasts while the page does, so scrolling it out of the virtualized transcript keeps it.
-import { useContext, useId, useLayoutEffect, useState } from "react";
+// lasts while the page does, so scrolling it out of the virtualized transcript keeps it. Reply, at the
+// line's end, answers in place: the answer goes to the sending chat in the message's thread
+// (AcpmuxDirectClient.reply), from an editor under the opened message.
+import { useContext, useId, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage } from "./incomingMessage";
-import { SentImages } from "./UserBubble";
+import { PromptEditor, SentImages } from "./UserBubble";
 import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { ChevronRight, TerminalSquare } from "./icons";
@@ -21,6 +23,7 @@ export function IncomingMessageLine({
   message,
   images,
   onOpen,
+  onReply,
 }: {
   /// The row's id, which keeps the line open across remounts.
   id: string;
@@ -28,6 +31,8 @@ export function IncomingMessageLine({
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   onOpen(sessionId: string): void;
+  /// Sends a reply to the message's sender; rejects when it was not sent.
+  onReply?(message: IncomingMessage, text: string): Promise<void>;
 }) {
   const t = useT();
   const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
@@ -60,6 +65,22 @@ export function IncomingMessageLine({
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
   const sessionId = message.sessionId;
   const label = t("message.label", { from: message.name, to: t("message.self") });
+  // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
+  const replies = onReply !== undefined && sessionId !== undefined && message.msgId !== undefined;
+  const [reply, setReply] = useState<"closed" | "open" | "sent" | "failed">("closed");
+  const [draft, setDraft] = useState("");
+  const replyButton = useRef<HTMLButtonElement>(null);
+  const closeReply = (next: "closed" | "sent") => {
+    setReply(next);
+    // The editor unmounts with the focus in it: the Reply button takes it back.
+    requestAnimationFrame(() => replyButton.current?.focus());
+  };
+  const editing = reply === "open" || reply === "failed";
+  // Reply opens the message too, so the editor sits under what it answers.
+  const startReply = () => {
+    show(true);
+    setReply("open");
+  };
   return (
     <div className="cv-received" data-open={open || undefined}>
       <div className="cv-received__line">
@@ -97,6 +118,11 @@ export function IncomingMessageLine({
         >
           <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
         </button>
+        {replies && !editing && (
+          <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
+            {t("message.reply")}
+          </button>
+        )}
       </div>
       {open && (
         <div id={bodyId} className="cv-received__body selectable">
@@ -122,6 +148,29 @@ export function IncomingMessageLine({
           )}
         </div>
       )}
+      {open && replies && editing && (
+        <div className="cv-message__reply">
+          <PromptEditor
+            initial={draft}
+            canSend
+            label={t("message.replyTo", { name: message.name })}
+            onCancel={() => closeReply("closed")}
+            onSend={async (text) => {
+              setDraft(text);
+              if (!onReply) return;
+              try {
+                await onReply(message, text);
+                setDraft("");
+                closeReply("sent");
+              } catch {
+                setReply("failed");
+              }
+            }}
+          />
+          {reply === "failed" && <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>}
+        </div>
+      )}
+      {open && reply === "sent" && <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>}
       {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
     </div>
   );
