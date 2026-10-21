@@ -4,7 +4,9 @@
 /* The composer's surface (--acpmux-composer-bg/-edge, agent-session/acpmux/styles.css), as every
    sidebar card's (CardSurfaceView in Swift, Leo 2026-10-13): the text at 13% over the wallpaper
    (this page is transparent), a one-device-pixel edge (--cmux-hairline) at 18%, no shadow. Opaque
-   under Reduce Transparency. */
+   under Reduce Transparency. Glass on purpose, never an opaque fill (Leo 2026-10-20: "we want a
+   lot of glass... I hate opaque"): the card reads because the sidebar gives it its own room
+   (SidebarCardSlotMotion), so no list row sits behind it. */
 .wn-card {
   position: relative;
   padding: 10px 12px;
@@ -15,6 +17,18 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
 }
+/* The words are text a person reads and quotes (u4466: "i cant select text in what's new"): a
+   drag selects, a double-click takes a word, Copy copies. pageBase.css makes the body desktop
+   chrome (user-select: none); the buttons stay chrome, so a click on one never starts a selection.
+   WebKit reads only the prefixed property. */
+:is(.wn-card, .wn-pop) {
+  -webkit-user-select: text;
+  user-select: text;
+}
+:is(.wn-card, .wn-pop) button {
+  -webkit-user-select: none;
+  user-select: none;
+}
 .wn-card-eyebrow {
   padding-right: 20px;
   color: var(--page-text-3);
@@ -23,6 +37,9 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  /* Design #2 "Readable" (design/whats-new-surfaces-gallery): a hairline sets the version apart. */
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--page-separator);
 }
 .wn-card-close {
   position: absolute;
@@ -57,19 +74,19 @@
   -webkit-box-orient: vertical;
   overflow: hidden;
 }
-/* The top changes, one line each with a quiet dot (gallery #01). */
-.wn-card-changes { list-style: none; margin: 6px 0 0; padding: 0; font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
-.wn-card-changes li { position: relative; padding: 1px 0 1px 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.wn-card-changes li::before {
-  content: "";
-  position: absolute;
-  left: 3px;
-  top: calc(var(--text-detail--line-height) / 2 + 1px - 2px);
-  width: 4px;
-  height: 4px;
-  border-radius: 2px;
-  background: var(--page-text-3);
+/* What changed, one line per area (updateSummary.ts): the area in the text color and semibold, its
+   changes after it in the secondary color, each line wrapping onto a second instead of being cut
+   with an ellipsis, so it reads and selects whole (design #2 "Readable", u4466); a longer one
+   stops at two lines. */
+.wn-card-areas { list-style: none; margin: 5px 0 0; padding: 0; font-size: var(--text-detail); line-height: var(--text-detail--line-height); color: var(--page-text-2); }
+.wn-card-areas li {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
+.wn-card-areas li + li { margin-top: 3px; }
+.wn-card-area { font-weight: 600; color: var(--page-text); }
 .wn-card-more { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 /* The button keeps one line (nxdog93: "See What's New" wrapped onto two lines in a 160 pt
    sidebar, cx-7rone). */
@@ -112,8 +129,10 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.wn-pop-from { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); font-variant-numeric: tabular-nums; }
 .wn-pop-list { list-style: none; margin: 6px 0 0; padding: 0; }
-.wn-pop-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; padding: 3px 0; }
+/* Each change gets a little air (design #2 "Readable"). */
+.wn-pop-list li { display: grid; grid-template-columns: 12px minmax(0, 1fr); gap: 6px; padding: 4px 0; }
 .wn-pop-n {
   color: var(--page-text-3);
   font-size: var(--text-caption);
@@ -122,7 +141,7 @@
   text-align: right;
 }
 .wn-pop-item { display: block; font-weight: var(--weight-regular); }
-.wn-pop-line { display: block; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
+.wn-pop-line { display: block; margin-top: 1px; color: var(--page-text-2); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 /* A change's picture: the popover's width, inline with the text, scrolling with it; a click opens
    the change's notes, where it shows at the page's width. */
 .wn-pop-media {
@@ -143,6 +162,18 @@
   border-radius: 6px;
   box-shadow: inset 0 0 0 1px var(--page-separator);
 }
+/* The rest of the update's changes, after the numbered top three: one quiet line each, aligned
+   with the titles above (2026-10-20, the popover scrolls to the whole list). */
+.wn-pop-rest { margin: 2px 0 0; padding: 0 0 0 18px; }
+.wn-pop-rest-group h4 {
+  margin: 8px 0 2px;
+  color: var(--page-text-3);
+  font-size: var(--text-caption);
+  line-height: var(--text-caption--line-height);
+  font-weight: 600;
+}
+.wn-pop-rest-group ul { list-style: none; margin: 0; padding: 0; }
+.wn-pop-rest-group li { padding: 3px 0; color: var(--page-text-2); }
 .wn-pop-foot { display: flex; justify-content: space-between; align-items: baseline; gap: 8px; margin-top: 6px; padding-top: 6px; border-top: 1px solid var(--page-separator); }
 .wn-pop-more { color: var(--page-text-3); font-size: var(--text-detail); line-height: var(--text-detail--line-height); }
 .wn-pop-all {

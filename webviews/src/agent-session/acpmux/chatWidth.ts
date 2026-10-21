@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from "react";
+import { chatDisplay, ownsColumn, type ChatDisplay } from "./chatDisplay";
 
 /// How wide the chat's one column draws on a wide pane (cx-ncc.107, Leo 2026-10-14: "try a wider
 /// max width for chat content"). A trial in Debug Settings (`agent.chatWidth`,
@@ -50,10 +51,17 @@ export function configureChatWidth(value: unknown): void {
   for (const listener of listeners) listener();
 }
 
-/// A choice's column.
-export const chatColumnOf = (chatWidth: ChatWidth): ChatColumn => COLUMNS[chatWidth];
+/// The column the user's Text Width or Full Width sets (`agentPane.display.*`, chatDisplay.ts),
+/// mirroring its `--cv-column`: the pane's whole width up to the cap, at least 720px or the cap.
+export const displayColumn = (display: ChatDisplay): ChatColumn =>
+  display.fullWidth
+    ? { min: 0, max: Infinity, share: 1, prose: Infinity }
+    : { min: Math.min(720, display.width), max: display.width, share: 1, prose: Infinity };
+/// A choice's column; the user's own width, when set, wins over the Debug Settings trial.
+export const chatColumnOf = (chatWidth: ChatWidth, display: ChatDisplay = chatDisplay()): ChatColumn =>
+  ownsColumn(display) ? displayColumn(display) : COLUMNS[chatWidth];
 /// The column now.
-export const chatColumn = (): ChatColumn => COLUMNS[current];
+export const chatColumn = (): ChatColumn => chatColumnOf(current);
 
 const subscribe = (listener: () => void) => {
   listeners.add(listener);

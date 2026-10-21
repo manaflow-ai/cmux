@@ -107,6 +107,14 @@ public enum WorkspaceSortKey: String, CaseIterable, Sendable {
     case lastUsed
     case directory
 
+    /// The containers Sort orders in `section`: its loose rows (group nil), then each group's
+    /// member rows, in sidebar order. With `only`, just that group (Sort Group).
+    public static func containers(of section: SidebarRowSection, only: GroupID? = nil) -> [(group: GroupID?, ids: [String])] {
+        var all: [(group: GroupID?, ids: [String])] = [(nil, section.nodes.compactMap(\.workspaceID))]
+        for case let .group(group) in section.nodes { all.append((group.id, group.workspaces.map(\.id.rawValue))) }
+        return only.map { only in all.filter { $0.group == only } } ?? all
+    }
+
     /// `ids` sorted by this key: `name` by display name (Finder order),
     /// `directory` by first terminal directory then name, `lastUsed` by the
     /// window's recency (most recent first, never shown ones last in their

@@ -76,7 +76,12 @@ public struct SidebarDocDrag {
             case .block(let id):
                 // A block's items: tiles and rows of its own arrangement, at their base frames.
                 if let block = blocks[id] { slots += blockSlots(block, at: row.y) }
-            case .tab, .folder:
+            case .tab(let owner, _):
+                // A workspace's tab rows are part of its row: the drag's midpoint rule takes the middle of both.
+                if let last = slots.last, last.kind == .row, item(.workspace(owner)) == last.item {
+                    slots[slots.count - 1].frame.size.height = max(last.frame.height, row.maxY - last.frame.minY)
+                }
+            case .folder:
                 continue
             }
         }
@@ -126,6 +131,18 @@ public struct SidebarDocDrag {
                                             moving: Set(moving))
         let adopt = (target.before ?? target.after).flatMap { pending[$0] }.map { [$0] } ?? []
         return (target, adopt)
+    }
+
+    /// Where Move to Top (or a list reorder) sends workspace rows the document does not place when their
+    /// list section has no document section here (a machine the client holds no section for yet): `index` of
+    /// that machine's section, `sec_m_<session>`, which the rows' adopt (sent first) makes. Nil unless every
+    /// moving row is a live workspace of one session with no item, outside a group.
+    public func unplacedTarget(_ position: DropPosition, moving ids: [WorkspaceID]) -> SidebarDocTarget? {
+        guard position.group == nil, !ids.isEmpty, ids.allSatisfy({ item(.workspace($0)) == nil }) else { return nil }
+        let sessions = Set(ids.compactMap { adoptRef($0)?["session_id"] })
+        guard sessions.count == 1, let session = sessions.first, !session.isEmpty,
+              ids.allSatisfy({ adoptRef($0)?["session_id"] != nil }) else { return nil }
+        return SidebarDocTarget(section: SidebarDocStore.machineSectionPrefix + session, index: position.index)
     }
 
     /// The anchor target of a band position: `index` among `section`'s items in `layout`.

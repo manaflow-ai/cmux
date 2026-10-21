@@ -1,8 +1,8 @@
 public import AppKit
 
 /// One row of a themed menu (`NSMenu.themeRows(in:)`): the item's state mark, image, title,
-/// subtitle, and key equivalent or submenu chevron, highlighted in the theme's accent with its
-/// on-accent ink.
+/// subtitle, and key equivalent or submenu chevron, highlighted with a faint wash of the theme's
+/// accent (`Palette.menuHighlight`) over the menu's glass.
 ///
 /// AppKit still tracks the row: arrow keys and the pointer highlight it (`draw` reads
 /// `enclosingMenuItem.isHighlighted`), its title feeds type-select, and its submenu opens from it.
@@ -23,8 +23,10 @@ public final class ThemedMenuRowView: NSView {
     private var shownAt: TimeInterval = 0
     /// Where the pointer was when the menu opened: once it moved, a release is a choice.
     private var openedAt: NSPoint = .zero
-    /// The item `activate` runs once the menu's tracking loop has ended.
+    /// The item `activate` runs once the menu's tracking loop has ended, and its menu: an item
+    /// does not keep its menu, and only AppKit held a right-click menu while it tracked.
     private var pendingItem: NSMenuItem?
+    private var pendingMenu: NSMenu?
 
     init(item: NSMenuItem, scope: ThemeScope, session: ThemedMenuSession) {
         self.scope = scope
@@ -55,12 +57,14 @@ public final class ThemedMenuRowView: NSView {
         guard let item = enclosingMenuItem else { return }
         let lit = isHighlighted && item.isEnabled
         scope.perform {
+            // A faint wash of the theme's accent over the menu's glass, not a solid system-blue bar
+            // (Leo 2026-10-20: "the blue is garish, but don't make it opaque"). The ink stays the label's.
             if lit {
-                Palette.accentFill.setFill()
+                Palette.menuHighlight.setFill()
                 NSBezierPath(roundedRect: bounds.insetBy(dx: Self.inset, dy: 0), xRadius: Self.radius, yRadius: Self.radius).fill()
             }
-            let ink: NSColor = lit ? Palette.onAccent : item.isEnabled ? .labelColor : .tertiaryLabelColor
-            let quiet: NSColor = lit ? Palette.onAccent : item.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
+            let ink: NSColor = item.isEnabled ? .labelColor : .tertiaryLabelColor
+            let quiet: NSColor = item.isEnabled ? .secondaryLabelColor : .tertiaryLabelColor
             drawContent(of: item, ink: ink, quiet: quiet)
         }
     }
@@ -81,9 +85,10 @@ public final class ThemedMenuRowView: NSView {
         var x = Self.titleX
         if let image = item.image {
             let rect = NSRect(x: x, y: titleY + (titleHeight - Self.imageSide) / 2, width: Self.imageSide, height: Self.imageSide)
-            Self.draw(image, in: rect, tint: image.isTemplate ? ink : nil)
-            x += Self.imageSide + Self.gap
+            Self.draw(image, in: rect, tint: image.isTemplate ? quiet : nil)
         }
+        // Titles line up whether or not their row has an icon, once any row of the menu has one.
+        if Self.hasIconColumn(item) { x += Self.imageSide + Self.gap }
         title.draw(at: NSPoint(x: x, y: titleY))
         if let subtitle { subtitle.draw(at: NSPoint(x: x, y: bounds.midY - subtitle.size().height)) }
 
@@ -123,19 +128,24 @@ public final class ThemedMenuRowView: NSView {
     /// Runs the item, as releasing on a native row would: closes the menu, then sends the action
     /// once the tracking loop has ended (the run loop is back in its default mode), so an action
     /// that opens a field, popover or another menu never does it inside the closing one. Rows with
-    /// a submenu open it instead (AppKit does that).
+    /// a submenu open it instead (AppKit does that). A row the menu's `runsInPlace` picks runs as
+    /// the menu closes instead.
     func activate() {
         guard let item = enclosingMenuItem, Self.runs(item), let menu = item.menu else { return }
         var root = menu
         while let parent = root.supermenu { root = parent }
         root.cancelTracking()
         if menu !== root { menu.cancelTracking() }
+        // An engine's own item runs now, while its engine still holds the menu (`runsInPlace`).
+        if session.runsInPlace(item) { return menu.performActionForItem(at: menu.index(of: item)) }
         pendingItem = item
-        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: 0, modes: [.default])
+        pendingMenu = menu
+        RunLoop.main.perform(#selector(runPendingItem), target: self, argument: nil, order: Self.pendingRunOrder, modes: [.default])
     }
 
     @objc private func runPendingItem() {
-        guard let item = pendingItem, let menu = item.menu else { return }
+        defer { pendingMenu = nil }
+        guard let item = pendingItem, let menu = item.menu ?? pendingMenu else { return }
         pendingItem = nil
         menu.performActionForItem(at: menu.index(of: item))
     }
@@ -218,6 +228,8 @@ extension ThemedMenuRowView {
     static let inset: CGFloat = 5, radius: CGFloat = 4
     static let markX: CGFloat = 10, titleX: CGFloat = 22, imageSide: CGFloat = 16, gap: CGFloat = 6
     static let trailing: CGFloat = 12, shortcutGap: CGFloat = 28
+    /// The run-loop order of a chosen row's run; `NSMenu.afterThemedRowRuns` comes after it.
+    static let pendingRunOrder = 0
     /// How long a release with no press on the row is ignored after the menu opens.
     static let openingGrace: TimeInterval = 0.3
     static var subtitleFont: NSFont { .menuFont(ofSize: NSFont.smallSystemFontSize) }
@@ -229,12 +241,17 @@ extension ThemedMenuRowView {
         return nil
     }
 
+    /// Whether `item`'s menu draws an icon column: some row in it has an image.
+    static func hasIconColumn(_ item: NSMenuItem) -> Bool {
+        item.image != nil || item.menu?.items.contains { $0.image != nil } == true
+    }
+
     static func height(of item: NSMenuItem) -> CGFloat { subtitle(of: item) == nil ? rowHeight : subtitleRowHeight }
 
     static func width(of item: NSMenuItem) -> CGFloat {
         let font = font(of: item)
         func width(_ text: String, _ font: NSFont) -> CGFloat { NSAttributedString(string: text, attributes: [.font: font]).size().width }
-        var total = titleX + (item.image == nil ? 0 : imageSide + gap)
+        var total = titleX + (hasIconColumn(item) ? imageSide + gap : 0)
         total += max(width(item.title, font), subtitle(of: item).map { width($0, subtitleFont) } ?? 0)
         let shortcut = shortcutText(of: item)
         if item.submenu != nil {

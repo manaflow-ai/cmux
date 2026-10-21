@@ -13,7 +13,11 @@ import CmuxNextSidebar
 enum WorkspaceVerbHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("workspace.newAbove", run: { try create(context, $0) { .above($0.id) } })
-        registry.bind("workspace.newBelow", run: { try create(context, $0) { .below($0.id) } })
+        // On one of several selected rows: below the last of them (Chrome's New Tab Below).
+        registry.bind("workspace.newBelow", run: { invocation in
+            let anchor = try WindowMembershipHandlers.rowTargets(invocation, context).last ?? context.workspace(invocation).model
+            try spawn(context, anchor: anchor, cwd: nil, slot: .below(anchor.id), newTabPage: invocation.origin == .user)
+        })
         registry.bind("workspace.newAtTop", run: { try create(context, $0, anchorFree: .top(anchor: nil)) })
         registry.bind("workspace.newAtBottom", run: { try create(context, $0, anchorFree: .bottom(anchor: nil)) })
         // Its directory, its place (below it, so in its group) and its first tab's kind
@@ -75,7 +79,7 @@ enum WorkspaceVerbHandlers {
             registry.bind(ActionID(rawValue: "workspace.sortBy" + suffix), run: { _ in try sort(by: key, context) })
             // The same sort, on the targeted group's members only.
             registry.bind(ActionID(rawValue: "workspaceGroup.sortBy" + suffix), run: { invocation in
-                try sort(by: key, only: GroupID(try context.group(invocation).id.rawValue), context)
+                try sort(by: key, only: context.sidebar().model.groupID(personal: context.group(invocation).id.rawValue), context)
             })
         }
         registry.bind("workspaceGroup.collapseAll", run: { _ in try setAllCollapsed(true, context) })
@@ -230,12 +234,7 @@ enum WorkspaceVerbHandlers {
             if let model = context.services.workspace(id: id) { directories[id] = directory(of: model, context) }
         }
         for section in before where section.machine != nil {
-            var containers: [(GroupID?, [String])] = [(nil, section.nodes.compactMap { node in
-                if case let .workspace(workspace) = node { return workspace.id.rawValue }
-                return nil
-            })]
-            for case let .group(group) in section.nodes { containers.append((group.id, group.workspaces.map(\.id.rawValue))) }
-            for (group, ids) in containers where ids.count > 1 && (only == nil || group == only) {
+            for (group, ids) in WorkspaceSortKey.containers(of: section, only: only) where ids.count > 1 {
                 let sorted = key.sorted(ids, names: names, directories: directories, recency: window.state.workspaceRecency)
                 guard sorted != ids else { continue }
                 let moving = sorted.map(SidebarWorkspaceID.init)

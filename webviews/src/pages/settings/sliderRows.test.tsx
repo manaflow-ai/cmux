@@ -97,4 +97,25 @@ describe("slider rows", () => {
     });
     expect(slider(OPACITY).max).toBe("0.95");
   });
+
+  // Leo, 10-20: readability over a picture comes from opacity, blur and glass, never from the
+  // picture, so there is no legibility floor: the slider's whole travel changes the window.
+  test("over a background picture the slider keeps its whole travel", async () => {
+    page = await renderPage({
+      path: "/settings/appearance",
+      mock: { values: { "appearance.background": "goya-saturn" } },
+    });
+    // A host that still sends a floor (an older app) does not narrow the slider.
+    const olderHost = { ...page!.provider.host, derived_min: { [OPACITY]: 0.62 } };
+    await run(() => page!.provider.setHost(olderHost));
+    expect(slider(OPACITY).min).toBe("0");
+    expect(slider(OPACITY).max).toBe("0.95");
+    expect(slider(OPACITY).disabled).toBe(false);
+  });
+
+  test("without a picture the window opacity slider keeps its whole range", async () => {
+    page = await renderPage({ path: "/settings/appearance", mock: { values: { "appearance.background": "none" } } });
+    expect(slider(OPACITY).min).toBe("0");
+    expect(slider(OPACITY).max).toBe("1");
+  });
 });

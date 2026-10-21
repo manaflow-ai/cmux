@@ -44,6 +44,10 @@ import CmuxNextCompat
 
     public var isAvailable: Bool { last.map { now() - $0 <= Self.lifetime } ?? false }
 
+    /// The clock gestures are timed on (the system uptime; tests set it): a credit a gesture left
+    /// (``AgentPaneTransport/startCredit``) is timed on it too.
+    var uptime: TimeInterval { now() }
+
     /// Uses the gesture's scope-add credit (one attach of a session that is not yet the pane's):
     /// true once per recorded gesture; the grant credit stays.
     public func consumeScope() -> Bool {
@@ -82,7 +86,13 @@ import CmuxNextCompat
     /// there is none. One outstanding ticket per slot per connection (``AgentPaneGestureIntent/slot``):
     /// a new one revokes the older.
     public func reserve(connection: Int, intent: AgentPaneGestureIntent) -> String? {
-        guard consume() else { return nil }
+        reserve(connection: connection, intent: intent, paid: false)
+    }
+
+    /// ``reserve(connection:intent:)``; `paid`: the person's gesture was already taken for this
+    /// pick (a new chat's start credit, ``AgentPaneTransport/startCredit``). Module-only.
+    func reserve(connection: Int, intent: AgentPaneGestureIntent, paid: Bool) -> String? {
+        guard paid || consume() else { return nil }
         let at = now()
         tickets = tickets.filter { at - $0.value.at <= $0.value.intent.lifetime
             && !($0.value.connection == connection && $0.value.intent.slot == intent.slot) }

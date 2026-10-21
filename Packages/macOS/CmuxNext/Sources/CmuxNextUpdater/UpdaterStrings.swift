@@ -114,10 +114,29 @@ nonisolated enum UpdaterStrings {
     static func upToDateDetail(_ version: String) -> String {
         format("updater.notice.upToDateDetail", "Version %@, checked just now", version)
     }
+    // The loading card through a download and install (Lawrence 2026-10-20).
+    static func downloadedOf(_ received: String, _ expected: String, _ percent: String) -> String {
+        format("updater.notice.downloadedOf", "%1$@ of %2$@ · %3$@", received, expected, percent)
+    }
+    static var preparingDetail: String { text("updater.notice.preparingDetail", "Verifying and unpacking the update.") }
+    static var installingUpdate: String { text("updater.notice.installingTitle", "Installing Update") }
+    static var relaunchingDetail: String {
+        text("updater.notice.relaunchingDetail", "cmux relaunches in a moment. Your terminals and agents keep running.")
+    }
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
     // Short notice titles; the version goes in the detail line.
     static var noticeAvailable: String { text("updater.notice.available", "Update Available") }
+    // The pulled-build banner (PulledBuildWatch)
+    static var pulledTitle: String { text("updater.pulled.title", "This Nightly Was Pulled") }
+    static var pulledWait: String { text("updater.pulled.wait", "Wait for the Fix") }
+    static var pulledRollBack: String { text("updater.pulled.rollBack", "Roll Back") }
+    static func pulledKept(_ version: String) -> String {
+        format("updater.pulled.kept", "Roll back to %@, the build this Mac kept, or keep this one until the fixed build installs by itself.", version)
+    }
+    static var pulledNothingKept: String {
+        text("updater.pulled.nothingKept", "The fixed build installs by itself as soon as it is published.")
+    }
     static var noticeCheckFailed: String { text("updater.notice.checkFailed", "Update Check Failed") }
     static func foundVersion(_ version: String) -> String { format("updater.notice.foundVersion", "Version %@", version) }
     // The update changelog (cx-lntk)
