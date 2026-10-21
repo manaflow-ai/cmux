@@ -12,7 +12,7 @@ public import Observation
 /// ``MobileHostPairedDevices`` in its own 0600 file (`phone-access/paired-devices.json`), apart
 /// from the iPhone host's list, so it never reaches acpmux's approvers. Thread-safe, so the host
 /// can check a connection without a main-actor hop; a change counts only once it is written.
-final class AllowedPhones: Sendable {
+nonisolated final class AllowedPhones: Sendable {
     private let file: MobileHostPairedDevicesFile
     private let list = Mutex<MobileHostPairedDevices?>(nil)
 
