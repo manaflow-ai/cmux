@@ -1,0 +1,115 @@
+import AppKit
+import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextDesign
+import CmuxNextHomeEngine
+import CmuxNextUpdater
+
+/// Restart Background Services… (Cmd+Shift+P, `cmux settings restart-background-services`, cmux
+/// issue 23089): shows the running and bundled build of every background service this app runs
+/// (its cmux-tui session owner, the Chief's cmux-tui owner, its acpmux and the Chief's acpmux),
+/// asks, then moves each one to the bundled build by the handoff an update uses, so terminals and
+/// agent sessions keep running. It never restarts anything without the confirm.
+@MainActor
+final class BackgroundServicesPresenter {
+    private weak var services: AppServices?
+    /// A confirm or restart runs: a second ask waits for it to end.
+    private var busy = false
+
+    init(services: AppServices) {
+        self.services = services
+    }
+
+    func start(registry: ActionRegistry) {
+        registry.bind("palette.restartBackgroundServices", run: { [weak self] _ in self?.confirm() })
+    }
+
+    /// Reads every service's builds, then shows the confirm on the active window.
+    func confirm() {
+        guard !busy, let window = services?.windows.active?.window else { return }
+        busy = true
+        // task-owner: one confirm per ask; `busy` keeps a second one out until it ends
+        Task { @MainActor [weak self] in
+            guard let self, let report = await self.report() else {
+                self?.busy = false
+                return
+            }
+            _ = CmuxDialogCenter.shared.present(report.confirmSpec, in: .window(window)) { [weak self] answer in
+                guard let self else { return }
+                guard answer.button == "restart" else {
+                    self.busy = false
+                    return
+                }
+                // task-owner: the confirmed restart; its toast reports the end
+                Task { @MainActor in
+                    let result = await self.restart(report)
+                    self.busy = false
+                    let toast = CmuxToast(id: "background-services.result", message: result.message)
+                    if let window = self.services?.windows.active?.window { CmuxToastCenter.shared.show(toast, in: window) }
+                }
+            }
+        }
+    }
+
+    /// The running and bundled build of each service.
+    func report() async -> BackgroundServicesReport? {
+        guard let services else { return nil }
+        let bundledTUI = await services.daemon.bundledBuildCommit?()
+        var list = [BackgroundService(role: .sessionOwner, running: services.daemon.identity?.buildCommit, bundled: bundledTUI)]
+        let chief = services.home.chief
+        if chief.isRunning {
+            list.append(BackgroundService(role: .chiefOwner, running: chief.identity?.buildCommit, bundled: bundledTUI))
+        }
+        if let host = services.agentTabs.host as? AcpmuxHost, let builds = await host.serviceBuilds() {
+            list.append(BackgroundService(role: .agents, running: builds.running, bundled: builds.bundled,
+                                          restartEndsWork: !builds.keepsAgents))
+        }
+        if let environment = ChiefHomeAcpmux.environment(home: chief.home) {
+            let builds = await AcpmuxServiceRestart(environment: environment).builds()
+            list.append(BackgroundService(role: .chiefAgents, running: builds.running, bundled: builds.bundled,
+                                          restartEndsWork: !builds.keepsAgents))
+        }
+        return BackgroundServicesReport(services: list)
+    }
+
+    /// Restarts each running service that keeps its work. The acpmux homes go first; the session
+    /// owner last, since its handoff reconnects this app.
+    func restart(_ report: BackgroundServicesReport) async -> BackgroundServicesRestartResult {
+        var result = BackgroundServicesRestartResult()
+        guard let services else { return result }
+        let due = Set(report.services.filter { $0.running != nil && !$0.restartEndsWork }.map(\.role))
+        if due.contains(.agents), let host = services.agentTabs.host as? AcpmuxHost {
+            do {
+                try await host.restartDaemon()
+                result.restarted.append(.agents)
+            } catch {
+                result.failed.append(.init(role: .agents, reason: .other(String(describing: error))))
+            }
+        }
+        if due.contains(.chiefAgents), let environment = ChiefHomeAcpmux.environment(home: services.home.chief.home) {
+            let heal = ChiefAcpmuxHeal(home: services.home.chief.home, environment: environment) { [weak services] in
+                await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
+            }
+            switch await heal.restart() {
+            case .handOff: result.restarted.append(.chiefAgents)
+            case .waitForHost: result.afterTurn.append(.chiefAgents)
+            case .keep: result.failed.append(.init(role: .chiefAgents, reason: .refused))
+            }
+        }
+        if due.contains(.chiefOwner) {
+            if await services.home.chief.restartOnBundledBuild() {
+                result.restarted.append(.chiefOwner)
+            } else {
+                result.failed.append(.init(role: .chiefOwner, reason: .refused))
+            }
+        }
+        if due.contains(.sessionOwner) {
+            if await services.daemon.restartForUpdate() != nil {
+                result.restarted.append(.sessionOwner)
+            } else {
+                result.failed.append(.init(role: .sessionOwner, reason: .didNotReturn))
+            }
+        }
+        return result
+    }
+}

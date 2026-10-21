@@ -16,7 +16,7 @@
 //! in [`SCRUBBED`] is removed from the profile env AND from the environment the
 //! harness inherits (agent.rs reads [`UNSET_KEY`]), then the route sets its own.
 //! So switching from route A to route B never leaks A's key into B's process.
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -763,6 +763,20 @@ fn reference_value(secret: &str) -> String {
     format!("${{{secret}}}")
 }
 
+/// Every local router base URL this daemon run handed to a route (`local_router_with`).
+static ROUTER_URLS: Mutex<BTreeSet<String>> = Mutex::new(BTreeSet::new());
+
+/// Whether a harness environment names a local router base URL this daemon run handed out:
+/// that harness holds the router's key and port, so it uses that router (cmux issue 23089:
+/// its host record keeps this, `agent_host::HostRecord::uses_local_router`).
+pub fn names_local_router(env: &[(String, String)]) -> bool {
+    let urls = ROUTER_URLS.lock().unwrap_or_else(|p| p.into_inner());
+    let names = |value: &str, url: &str| {
+        value.strip_prefix(url).is_some_and(|rest| !rest.starts_with(|c: char| c.is_ascii_digit()))
+    };
+    env.iter().any(|(_, value)| urls.iter().any(|url| names(value, url)))
+}
+
 /// The local CodeRouter's loopback base URL and a key it minted for acpmux.
 /// Read from the running router (crate cmux-coderouter: its admin socket at
 /// `cmux_coderouter::admin_socket_path`), never from a settings copy. One key
@@ -818,6 +832,7 @@ pub fn local_router_with(
         }
     }
     let url = format!("http://127.0.0.1:{port}");
+    ROUTER_URLS.lock().unwrap_or_else(|p| p.into_inner()).insert(url.clone());
     let mut minted = MINTED.lock().unwrap_or_else(|p| p.into_inner());
     if let Some(key) = minted.get(&(port, family.to_owned())) {
         return Ok((url, key.clone()));
