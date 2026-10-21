@@ -44,6 +44,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     private func listen() {
         guard onEvent != nil, !closed else {
+            tab.pageFilesDragged = nil
             tab.agentRelay.set(onMessage: nil, onEnd: nil)
             crashWatch?.cancel()
             crashWatch = nil
@@ -51,6 +52,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         }
         tab.agentRelay.set(onMessage: { [weak self] json in self?.onEvent?(.devTools(json)) },
                            onEnd: { [weak self] in self?.renderEnded() })
+        tab.pageFilesDragged = { [weak self] urls in self?.onEvent?(.filesDragged(urls)) }
         guard crashWatch == nil else { return }
         let tab = tab
         crashWatch = Task { [weak self] in
@@ -86,6 +88,7 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
         crashWatch = nil
         tab.agentRelay.set(onMessage: nil, onEnd: nil)
         tab.pageResources = nil
+        tab.pageFilesDragged = nil
         tab.delegate = nil
         tab.close()
     }

@@ -178,6 +178,10 @@ typedef enum {
   // s1 = the full URL. Chromium waits for cmux_shim_page_resource_respond
   // (during the event or later); a request the page cancels drops it.
   CMUX_SHIM_PAGE_RESOURCE = 46,
+  // A drag of files from outside the app entered a page (CefDragHandler::
+  // OnDragEnter); s1 = JSON array of the files' absolute paths. The page
+  // still gets the drag.
+  CMUX_SHIM_PAGE_DRAG_ENTER = 47,
 } cmux_shim_event_kind_t;
 
 typedef enum {
