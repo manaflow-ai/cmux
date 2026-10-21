@@ -338,3 +338,29 @@ fn care_an_archive_goes_after_its_keep_time() {
     assert!(!manifest.bundle.as_ref().unwrap().exists());
     assert!(git(&main, &["for-each-ref", "refs/cmux/archive"]).is_empty());
 }
+
+#[test]
+fn care_a_worktree_whose_folder_is_missing_keeps_its_git_state() {
+    // An unmounted volume, or a folder moved with mv: its HEAD, index and
+    // reflog stay until git gc's own 3 months.
+    let (base, main) = repository("missing");
+    let wt = base.join("wt-k");
+    git(&main, &["worktree", "add", "-q", "--detach", wt.to_str().unwrap()]);
+    write(&wt.join("README"), "local\n");
+    git(&wt, &["commit", "-qam", "detached, local only"]);
+    let moved = base.join("moved-k");
+    std::fs::rename(&wt, &moved).unwrap();
+    let options = Options {
+        roots: vec![base.clone()],
+        sessions: Vec::new(),
+        settings: Settings::default(),
+        apply: true,
+        pressure: Some(Pressure::Critical),
+        only: Vec::new(),
+        measure: false,
+    };
+    let store = Store::open(base.join("store")).unwrap();
+    pass::run(&options, &store).unwrap();
+    std::fs::rename(&moved, &wt).unwrap();
+    assert!(git(&wt, &["log", "-1", "--format=%s"]).contains("detached, local only"));
+}

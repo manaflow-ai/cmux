@@ -73,6 +73,16 @@ pub fn reclaim(
     let wt = WriteGit { root: &worktree.path, overrides: &repo.overrides, hooks: &hooks };
     let id = new_id(now_ms(), &worktree.path);
     let fingerprint = fingerprint(repo, worktree)?;
+    // The fingerprint starts at HEAD as it is now; the facts are of the
+    // HEAD the scan saw. A commit in between is a change.
+    let head = git::try_line(
+        &worktree.path,
+        &repo.overrides,
+        &["rev-parse", "--verify", "--quiet", "HEAD"],
+    );
+    if head != worktree.head {
+        return Err("its HEAD moved since the scan; it stays".to_string());
+    }
     let mut manifest = Manifest {
         id: id.clone(),
         created_ms: now_ms(),
@@ -119,7 +129,10 @@ pub fn reclaim(
         files = Some(tree);
     }
     // The manifest is on disk before the folder goes.
-    store.save(&manifest)?;
+    if let Err(error) = store.save(&manifest) {
+        discard(&wt, store, &manifest);
+        return Err(error);
+    }
     if let Err(why) =
         unchanged(repo, worktree, facts, &fingerprint, files.as_deref(), &wt, store, &id)
     {
@@ -179,8 +192,12 @@ fn unchanged(
 /// Drops an archive whose worktree stays: its ref, bundle and manifest.
 fn discard(wt: &WriteGit<'_>, store: &Store, manifest: &Manifest) {
     if let (Some(reference), Some(commit)) = (&manifest.archive_ref, &manifest.archive_commit) {
-        let _ =
+        let deleted =
             git::write_str(wt, None, &["update-ref", "-d", reference, commit], Bound::Unbounded);
+        // A ref that stays keeps its manifest, so expiry finds it again.
+        if deleted.is_err() && store.manifest_path(&manifest.id).exists() {
+            return;
+        }
     }
     let _ = std::fs::remove_file(store.bundle_path(&manifest.id));
     let _ = std::fs::remove_file(store.manifest_path(&manifest.id));

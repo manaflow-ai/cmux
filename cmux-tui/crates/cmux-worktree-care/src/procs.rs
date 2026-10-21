@@ -41,11 +41,15 @@ pub fn working_folders() -> Result<Vec<Process>, String> {
     if !user.is_empty() {
         args.extend(["-u", user.as_str()]);
     }
-    let output = std::process::Command::new("lsof")
+    let mut command = std::process::Command::new("lsof");
+    command
         .args(&args)
         .stdin(std::process::Stdio::null())
-        .output()
-        .map_err(|error| format!("lsof could not run: {error}"))?;
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null());
+    // A hung lsof (a stale network mount) must not hold the pass forever.
+    let output = crate::git::run_within(command, std::time::Duration::from_secs(60))
+        .map_err(|error| format!("lsof: {error}"))?;
     let found = parse_lsof(&output.stdout);
     if found.is_empty() {
         return Err("lsof listed no process working folder".to_string());

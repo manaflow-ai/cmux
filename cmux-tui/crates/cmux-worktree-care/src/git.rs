@@ -80,19 +80,32 @@ pub(crate) fn user_git(dir: &Path, args: &[&str], limit: Duration) -> Result<Vec
         .env("GIT_TERMINAL_PROMPT", "0")
         .env("GIT_SSH_COMMAND", "ssh -o BatchMode=yes -o ConnectTimeout=10")
         .env("LC_ALL", "C");
-    let child = command.spawn().map_err(|error| format!("git could not run: {error}"))?;
+    let output =
+        run_within(command, limit).map_err(|error| format!("git {}: {error}", args.join(" ")))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(String::from_utf8_lossy(&output.stderr).trim().to_string())
+    }
+}
+
+/// Runs `command`, killed when it has not finished within `limit`.
+pub(crate) fn run_within(
+    mut command: Command,
+    limit: Duration,
+) -> Result<std::process::Output, String> {
+    let child = command.spawn().map_err(|error| format!("could not run: {error}"))?;
     let (sender, receiver) = std::sync::mpsc::channel();
     let id = child.id();
     std::thread::spawn(move || {
         let _ = sender.send(child.wait_with_output());
     });
     match receiver.recv_timeout(limit) {
-        Ok(Ok(output)) if output.status.success() => Ok(output.stdout),
-        Ok(Ok(output)) => Err(String::from_utf8_lossy(&output.stderr).trim().to_string()),
-        Ok(Err(error)) => Err(format!("git could not run: {error}")),
+        Ok(Ok(output)) => Ok(output),
+        Ok(Err(error)) => Err(format!("could not run: {error}")),
         Err(_) => {
             kill(id);
-            Err(format!("git {} did not finish within {} s", args.join(" "), limit.as_secs()))
+            Err(format!("did not finish within {} s", limit.as_secs()))
         }
     }
 }

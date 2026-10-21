@@ -281,6 +281,10 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
     let git_dir = PathBuf::from(git::line(root, overrides, &["rev-parse", "--absolute-git-dir"])?);
     let mut facts = Facts { git_dir: git_dir.clone(), ..Facts::default() };
     facts.operation = operation(&git_dir);
+    if git::try_line(root, overrides, &["rev-parse", "--verify", "--quiet", "HEAD"]).is_none() {
+        // No commit to restore it on.
+        facts.unarchivable = Some("it has no commit yet".to_string());
+    }
 
     // Tracked changes and untracked files, every untracked file listed.
     let status = git::read(
@@ -345,7 +349,13 @@ fn facts(entry: &ListEntry, overrides: &[Override], bases: &[String]) -> Result<
     }
 
     facts.sparse = sparse(root, overrides, &git_dir);
-    facts.submodules = populated_submodules(root, overrides);
+    facts.submodules = match populated_submodules(root, overrides) {
+        Ok(submodules) => submodules,
+        Err(error) => {
+            facts.unarchivable.get_or_insert(format!("its submodules cannot be read ({error})"));
+            Vec::new()
+        }
+    };
     for submodule in &facts.submodules {
         if let Some(why) = submodule_only_here(&root.join(submodule)) {
             facts.unarchivable.get_or_insert(format!("submodule {submodule} {why}"));
@@ -409,21 +419,28 @@ fn hidden_changes(root: &Path, overrides: &[Override], facts: &mut Facts) -> Res
 
 /// What lives only in a populated submodule's own repository, which goes
 /// with the worktree's git folder: commits no remote has, stashes, ignored
-/// data. `None` when it holds nothing of its own.
+/// data. `None` when it holds nothing of its own; a submodule that cannot
+/// be read holds something, as far as cleanup knows.
 fn submodule_only_here(dir: &Path) -> Option<String> {
-    let unpushed = git::try_line(dir, &[], &["rev-list", "--count", "--all", "--not", "--remotes"]);
-    if unpushed.as_deref().is_some_and(|count| count != "0") {
-        return Some("has commits no remote has".to_string());
+    let unreadable = |error: String| Some(format!("cannot be read ({error})"));
+    match git::line(dir, &[], &["rev-list", "--count", "--all", "--not", "--remotes"]) {
+        Ok(count) if count == "0" => {}
+        Ok(_) => return Some("has commits no remote has".to_string()),
+        Err(error) => return unreadable(error),
     }
-    if git::try_line(dir, &[], &["stash", "list"]).is_some() {
-        return Some("has stashes".to_string());
+    match git::line(dir, &[], &["stash", "list"]) {
+        Ok(list) if list.is_empty() => {}
+        Ok(_) => return Some("has stashes".to_string()),
+        Err(error) => return unreadable(error),
     }
-    let ignored = git::read(
+    let ignored = match git::read(
         dir,
         &[],
         &["ls-files", "-z", "--others", "--ignored", "--exclude-standard", "--directory"],
-    )
-    .ok()?;
+    ) {
+        Ok(ignored) => ignored,
+        Err(error) => return unreadable(error),
+    };
     records(&ignored)
         .map(|r| String::from_utf8_lossy(r).into_owned())
         .find(|path| !is_build_output_at(dir, path))
@@ -514,22 +531,20 @@ fn sparse(root: &Path, overrides: &[Override], git_dir: &Path) -> Option<Sparse>
     Some(Sparse { cone, patterns })
 }
 
-fn populated_submodules(root: &Path, overrides: &[Override]) -> Vec<String> {
+fn populated_submodules(root: &Path, overrides: &[Override]) -> Result<Vec<String>, String> {
     if !root.join(".gitmodules").exists() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     // Gitlinks in the index whose folder is a checkout.
-    let Ok(out) = git::read(root, overrides, &["ls-files", "-z", "--stage"]) else {
-        return Vec::new();
-    };
-    records(&out)
+    let out = git::read(root, overrides, &["ls-files", "-z", "--stage"])?;
+    Ok(records(&out)
         .filter_map(|record| {
             let text = String::from_utf8_lossy(record);
             let (meta, path) = text.split_once('\t')?;
             meta.starts_with("160000").then(|| path.to_string())
         })
         .filter(|path| root.join(path).join(".git").exists())
-        .collect()
+        .collect())
 }
 
 /// The bytes of `entries` (relative files or folders under `root`), and

@@ -127,7 +127,10 @@ pub fn run(options: &Options, store: &Store) -> Result<Report, String> {
                     pruned = true;
                     let _ = crate::git::user_git(
                         repo.main_root.as_deref().unwrap_or(&repo.common_dir),
-                        &["worktree", "prune"],
+                        // git gc's own wait: a folder on an unmounted
+                        // volume, or moved by hand, keeps its HEAD,
+                        // index and reflog.
+                        &["worktree", "prune", "--expire=3.months.ago"],
                         crate::git::READ,
                     );
                 }
