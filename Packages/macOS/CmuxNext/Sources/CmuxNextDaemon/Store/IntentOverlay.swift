@@ -124,7 +124,9 @@ import Foundation
             return .guessedTab(hidden: hidden, provisional: apply(pending.kind, to: store))
         }
         // The daemon's pane under the split's public pane id replaces the provisional one
-        // (ProvisionalSplit.apply places it until the daemon's layout does).
+        // (ProvisionalSplit.apply places it until the daemon's layout does). Once that pane is
+        // gone again, a split not yet due shows nothing until it settles (never its stand-in).
+        if ProvisionalSplit.paneGone(pending, in: store) { return nil }
         return apply(pending.kind, to: store)
     }
 

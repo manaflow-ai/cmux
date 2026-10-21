@@ -51,10 +51,14 @@ jobs:
   # default set) ran only in ci.yml's "CI fast guards", which skips feat-cmux-next pull requests, and ci.yml never
   # runs on its pushes. Nothing ran it for the branch: tests/test_preflight_trust.py errored there unseen until
   # #23006 (tests/test_feat_ci_guard_group.py).
+  # ci.yml also routes ci-guards.yml's other groups by path, again only into main, so about 70 guard tests
+  # never ran for feat-cmux-next (tests/pr-lane-exemptions.json). This job runs them too: --feat-routes picks
+  # the groups the change's paths route to (detect_linux_guard_changes.classify_feat, workflow_guard_groups.py's
+  # ownership). The main-only release-ios group never runs here; release-notary runs in nightly-guards.
   ci-guard-group:
     name: cmux-next CI guard group
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    timeout-minutes: 25
     permissions:
       contents: read
     steps:
@@ -62,25 +66,77 @@ jobs:
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
+          # A pull request's merge commit and its first parent (the base) for the changed files.
+          fetch-depth: 2
+
+      # The base this change is judged against, and the diff the groups are routed by: a pull request's
+      # merge commit against its first parent (pull_request.base.sha lags it once the base moves), a push
+      # against the previous tip. No base (a new branch, an unreadable tip) routes every group and runs
+      # no base comparison.
+      - name: Changed files
+        id: changes
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          base=""
+          if [[ "$EVENT_NAME" == pull_request ]]; then
+            base="$(git rev-parse HEAD^1)"
+          elif [[ "$BEFORE" =~ ^[0-9a-f]{40}$ && ! "$BEFORE" =~ ^0+$ ]] \
+            && git fetch --no-tags --depth=1 origin "$BEFORE"; then
+            base="$BEFORE"
+          fi
+          if [[ -n "$base" ]] && git diff --name-only --no-renames "$base" HEAD > "$RUNNER_TEMP/changed-files.txt"; then
+            echo "$(wc -l < "$RUNNER_TEMP/changed-files.txt") changed files against $base"
+            echo "base=$base" >> "$GITHUB_OUTPUT"
+          else
+            rm -f "$RUNNER_TEMP/changed-files.txt"
+            echo "::warning::no base to diff against; every routed guard group runs"
+          fi
+
+      # run_ci_guards.py skips ci-guards.yml's `uses:` setup steps, so this job provides their tools:
+      # bun (at ci-guards.yml's pin) for preflight-agent-chat, and python3.9 beside the runner's python3
+      # for release-tooling's nightly prune compatibility step (PYTHON_BIN=python3.9).
+      - name: Set up Bun for guard tests
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: "1.3.6"
+
+      - name: Set up Python 3.9 for nightly prune compatibility
+        id: python39
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405 # v6
+        with:
+          python-version: "3.9"
+          update-environment: false
+
+      - name: Put python3.9 on PATH
+        env:
+          PYTHON39: ${{ steps.python39.outputs.python-path }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/python39"
+          ln -sf "$PYTHON39" "$RUNNER_TEMP/python39/python3.9"
+          echo "$RUNNER_TEMP/python39" >> "$GITHUB_PATH"
 
       # The branch had 24 of the group's 134 steps red before this job ran there (2026-10-21), so the job fails
       # only on a step red on this change but not on its base; the base's reds are warnings
       # (scripts/ci/guards_new_reds.py). The base's steps run with this checkout's runner (--root).
       - name: Checkout the base
-        if: (github.event.pull_request.base.sha || github.event.before || '') != '' && (github.event.pull_request.base.sha || github.event.before) != '0000000000000000000000000000000000000000'
+        if: (steps.changes.outputs.base || '') != '' && (steps.changes.outputs.base) != '0000000000000000000000000000000000000000'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          ref: ${{ github.event.pull_request.base.sha || github.event.before }}
+          ref: ${{ steps.changes.outputs.base }}
           path: .guard-base
           persist-credentials: false
 
-      - name: Run the ci guard group
+      - name: Run the ci guard group and the routed groups
         env:
-          CMUX_GUARDS_BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before || '' }}
+          CMUX_GUARDS_BASE_SHA: ${{ steps.changes.outputs.base }}
         run: |
-          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --results "$RUNNER_TEMP/guards-head.json" || true
+          # The base checkout is untracked in this workspace; the workload profile refuses a dirty checkout.
+          echo "/.guard-base/" >> .git/info/exclude
+          scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --feat-routes "$RUNNER_TEMP/changed-files.txt" --results "$RUNNER_TEMP/guards-head.json" || true
           if [ -d .guard-base ]; then
-            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --root .guard-base \
+            scripts/ci/guards-local.sh --no-stamp --keep-going --jobs 8 --feat-routes "$RUNNER_TEMP/changed-files.txt" --root .guard-base \
               --results "$RUNNER_TEMP/guards-base.json" > "$RUNNER_TEMP/guards-base.log" 2>&1 || true
             tail -1 "$RUNNER_TEMP/guards-base.log"
           fi
@@ -320,6 +376,9 @@ jobs:
 
       - name: The fast gates workflow and its merge and gate script
         run: python3 tests/test_cmux_next_fast_gates.py
+
+      - name: Every check path a merger reads matches a tracked file
+        run: python3 tests/test_check_paths.py
 
       - name: The crash-class rules fast gate fails only on findings the pull request adds
         run: python3 tests/test_crash_class_fast_gate.py

@@ -57,6 +57,9 @@ struct PendingIntent {
     /// Due, but what it shows has not reached the daemon's records yet (a split's pane, cx-ry0y):
     /// it leaves the log once they hold it, or with the next snapshot.
     var awaitsRecords = false
+    /// A split's daemon pane reached the records (its `pane-added`): once it
+    /// leaves them, the split has nothing left to place (``ProvisionalSplit/paneGone(_:in:)``).
+    var daemonPaneSeen = false
     /// The person closed what it creates before the daemon made it (``CancelledCreation``): it
     /// shows nothing, hides the daemon's tab or pane, and leaves once the records drop it.
     var closeWhenCreated = false
@@ -204,6 +207,14 @@ struct IntentLog {
     /// `limit` sends in all). False when it is not pending or is out of attempts.
     mutating func allowCloseRetry(_ transaction: ClientTransactionID, limit: Int) -> Bool {
         entries.modifyFirst(where: { $0.transaction == transaction && $0.closeAttempts < limit }) { $0.closeRequested = false }
+    }
+
+    /// The daemon reported the pane under public id `paneID`: the split that mints it saw its pane.
+    mutating func noteDaemonPane(_ paneID: String) {
+        entries.modifyFirst(where: { entry in
+            guard case .splitPane(_, _, _, let provisional) = entry.kind else { return false }
+            return provisional.paneID == paneID
+        }) { $0.daemonPaneSeen = true }
     }
 
     mutating func noteReplySurface(_ transaction: ClientTransactionID, surface: SurfaceID) {
