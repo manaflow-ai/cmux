@@ -29,7 +29,8 @@ extension HomeService {
         draft.chiefShortcuts(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
     }
     func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
-        chiefRoster.look(recipient, rows: homeStore.rows, avatars: directory.chiefAvatars, fallback: HomeHostView.defaultTileAvatar,
+        chiefRoster.look(recipient, rows: homeStore.rows, avatars: directory.chiefAvatars,
+                         fallback: HomeHostView.defaultTileAvatar(mascot: services.settings?.snapshot.homeChiefPetMascot),
                          harnesses: directory.chiefHarnesses)
     }
 
@@ -117,7 +118,7 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.directory.chiefAvatars ?? [:] },
-            defaultChiefAvatar: { HomeHostView.defaultTileAvatar },
+            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services.settings?.snapshot.homeChiefPetMascot) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
@@ -137,7 +138,7 @@ extension HomeService {
 
     /// Reads each listed local Chief's own avatar for its tile (its picture in the daemon's
     /// Chief registry, which the profile and chiefs tools write, else its profile.json text;
-    /// none: 🫡), as each Chief's header does. A Chief's picture never shows on another's row.
+    /// none: the chosen pet character), as each Chief's header does. A Chief's picture never shows on another's row.
     func refreshChiefAvatars() {
         let chiefs = Set(homeStore.rows.filter { !isCloudConversation($0.id) }
             .flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
