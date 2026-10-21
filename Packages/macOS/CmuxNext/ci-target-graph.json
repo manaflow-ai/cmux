@@ -364,6 +364,7 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []

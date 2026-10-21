@@ -2327,7 +2327,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "description" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.",
       "enum" : [
         "split-right",
         "new-column",
@@ -3012,6 +3012,12 @@
       },
       "title" : "More Screenshot Folders",
       "type" : "array"
+    },
+    "sessions.allowFullAccess" : {
+      "default" : true,
+      "description" : "Off, cmux won't switch an agent into a mode that skips approvals.",
+      "title" : "Allow Full-Access Modes",
+      "type" : "boolean"
     },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
