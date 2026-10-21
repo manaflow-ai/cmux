@@ -1,5 +1,6 @@
 import CmuxNextActions
 @testable import CmuxNextApps
+import CmuxNextDaemonService
 import CmuxNextDesign
 @testable import CmuxNextSettings
 import Foundation
@@ -123,6 +124,20 @@ import Testing
         #expect(model.featureListings.map(\.id) == ["chief.pet"])
         model.query = "home.chiefPetEnabled"
         #expect(model.featureListings.map(\.id) == ["chief.pet"], "the key is searchable")
+    }
+
+    /// `cmux action run appStore.show --arg tab=features` (the tour, an agent, the palette).
+    @Test func appStoreShowOpensANamedTab() throws {
+        #expect(try AppStoreHandlers.storeTab("features") == .features)
+        #expect(try AppStoreHandlers.storeTab(" Installed ") == .installed)
+        #expect(try AppStoreHandlers.storeTab(nil) == nil)
+        #expect(try AppStoreHandlers.storeTab("") == nil)
+        #expect(throws: ActionFailure.self) { try AppStoreHandlers.storeTab("labs") }
+
+        let model = AppStoreModel(client: AppsClient(transport: FeaturesOfflineAppsTransport()))
+        model.present(appID: nil, tab: .features)
+        #expect(model.tab == .features)
+        #expect(model.canGoBack, "opening a tab is a page navigation")
     }
 }
 

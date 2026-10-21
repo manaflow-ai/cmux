@@ -27515,6 +27515,137 @@
         }
       },
       "comment": "Refusal: a viewer quote found no Home conversation to land in."
+    },
+    "refusal.appStore.unknownTab" : {
+      "extractionState" : "manual",
+      "localizations" : {
+        "ar" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "لا توجد علامة تبويب في App Store بهذا الاسم. استخدم discover أو features أو installed."
+          }
+        },
+        "bs" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nema kartice App Storea s tim imenom. Koristite discover, features ili installed."
+          }
+        },
+        "da" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Der er ingen App Store-fane med det navn. Brug discover, features eller installed."
+          }
+        },
+        "de" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Es gibt keinen App-Store-Tab mit diesem Namen. Verwende discover, features oder installed."
+          }
+        },
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No App Store tab with that name. Use discover, features or installed."
+          }
+        },
+        "es" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "No hay ninguna pestaña de App Store con ese nombre. Usa discover, features o installed."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Aucun onglet de l’App Store ne porte ce nom. Utilisez discover, features ou installed."
+          }
+        },
+        "it" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nessuna scheda dell’App Store con quel nome. Usa discover, features o installed."
+          }
+        },
+        "ja" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "その名前の App Store タブはありません。discover、features、installed のいずれかを使ってください。"
+          }
+        },
+        "km" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "គ្មានផ្ទាំង App Store ដែលមានឈ្មោះនោះទេ។ ប្រើ discover, features ឬ installed។"
+          }
+        },
+        "ko" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "그런 이름의 App Store 탭이 없습니다. discover, features, installed 중 하나를 사용하세요."
+          }
+        },
+        "nb" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Det finnes ingen App Store-fane med det navnet. Bruk discover, features eller installed."
+          }
+        },
+        "pl" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Nie ma karty App Store o tej nazwie. Użyj discover, features lub installed."
+          }
+        },
+        "pt-BR" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Não há nenhuma aba da App Store com esse nome. Use discover, features ou installed."
+          }
+        },
+        "ru" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вкладки App Store с таким названием нет. Используйте discover, features или installed."
+          }
+        },
+        "th" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "ไม่มีแท็บ App Store ชื่อนั้น ใช้ discover, features หรือ installed"
+          }
+        },
+        "tr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Bu adda bir App Store sekmesi yok. discover, features veya installed kullanın."
+          }
+        },
+        "uk" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Вкладки App Store з такою назвою немає. Використовуйте discover, features або installed."
+          }
+        },
+        "vi" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Không có thẻ App Store nào có tên đó. Hãy dùng discover, features hoặc installed."
+          }
+        },
+        "zh-Hans" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "没有该名称的 App Store 标签页。请使用 discover、features 或 installed。"
+          }
+        },
+        "zh-Hant" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "沒有這個名稱的 App Store 分頁。請使用 discover、features 或 installed。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
