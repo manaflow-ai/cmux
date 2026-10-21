@@ -3422,6 +3422,7 @@ jobs:
     outputs:
       perf_gate: ${{ steps.perf-gate.outcome }}
       crash_gate: ${{ steps.crash-gate.outcome }}
+      quit_launch: ${{ steps.quit-launch.outcome }}
     env:
       # This job's label (its runs-on): a glaeda-* label means a mini.
       CMUX_NEXT_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') && contains(needs.macos-placement.outputs.blacksmith_12_jobs, ' cmux-scheme-compile ') && 'blacksmith-12vcpu-macos-26' || (github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') && contains(needs.macos-placement.outputs.blacksmith_6_jobs, ' cmux-scheme-compile ') && 'blacksmith-6vcpu-macos-26' || (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || github.repository_owner != 'manaflow-ai' && 'macos-26' || (github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || needs.macos-placement.outputs.retry_runner || vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('["pull_request","push","workflow_dispatch"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}
@@ -3706,6 +3707,52 @@ jobs:
           if-no-files-found: ignore
           retention-days: 3
 
+      # Quit and launch bound (slow quit, 2026-10-20): a realistic session
+      # (32 terminals, Chromium tabs with beforeunload pages, a WebKit tab,
+      # an agent chat when the build has acpmux) quits by the interactive
+      # (Cmd-Q, Restart to Update's quit event), scripted and signal paths, and
+      # once with the quit's engine stop wedged on the main thread (the quit
+      # deadline must still end it), and launches again after each. Red: a
+      # quit over 6 s, a launch over its first-window (3 s) or first live
+      # terminal (8 s) bound from main(), a launch main-thread stall over
+      # 2 s, or a restored session that lost a workspace or tab. The quit
+      # bound holds on any host (the app ends itself 4 s after a keep quit is
+      # decided, QuitDeadline); on a host over the launch load threshold the
+      # launch bounds only warn. The step does not fail this job: the quit-launch
+      # job below reads its outcome. Samples of every quit and launch are in
+      # the report artifact.
+      - name: Quit and launch bound
+        id: quit-launch
+        if: ${{ !cancelled() && inputs.dev_daily != true && env.CMUX_NEXT_DERIVED_DATA != '' }}
+        continue-on-error: true
+        timeout-minutes: 12
+        env:
+          LAUNCH_LOAD_SKIP: ${{ steps.launch-load.outputs.skip }}
+        run: |
+          set -euo pipefail
+          built="$(find "$CMUX_NEXT_DERIVED_DATA/Build/Products/Debug" -maxdepth 1 -type d -name 'cmux DEV*.app' -print -quit)"
+          tag="ci-quit-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          app="$RUNNER_TEMP/quit-launch/cmux DEV ${tag}.app"
+          mkdir -p "$RUNNER_TEMP/quit-launch/out"
+          /bin/cp -R "$built" "$app"
+          # quit-launch-bound.py ends the tag's daemons by exact PID;
+          # tag_teardown.py again is the backstop when the step is stopped.
+          trap 'python3 scripts/cmux-next/tag_teardown.py "$app" || true; rm -rf "$HOME/Library/Application Support/cmux/tags/$tag" "$HOME/.acpmux/builds/com.cmuxterm.app.debug--$tag" "$HOME/.cmux/mux/tags/$tag" "$app"' EXIT
+          # On a host over the launch load threshold the launch bounds only warn (bash 3.2: no empty arrays under set -u).
+          advisory=""
+          if [[ "$LAUNCH_LOAD_SKIP" == "true" ]]; then advisory="--launch-advisory"; fi
+          python3 scripts/cmux-next/quit-launch-bound.py --app "$app" --out "$RUNNER_TEMP/quit-launch/out" $advisory
+
+      - name: Upload the quit and launch bound report
+        if: ${{ always() && steps.quit-launch.outcome != 'skipped' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cmux-next-quit-launch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/quit-launch/out
+          if-no-files-found: ignore
+          retention-days: 3
+
       # The default-branch publisher consumes the exact app produced by this
       # job.  Keep the upload limited to same-repository member PRs carrying
       # the existing dev-build label; the publisher repeats this trust check
@@ -3749,6 +3796,33 @@ jobs:
   # even after a red launch-time budget, so it is skipped only when the scheme
   # compile itself failed; that is the compile job's own red, so this job
   # passes then.
+  # The quit and launch bound's result (step "Quit and launch bound" in
+  # cmux-scheme-compile), as its own red check, so a slow quit never fails the
+  # app-producing job that the dogfood and daily publishers read.
+  quit-launch-bound:
+    needs: [cmux-scheme-compile]
+    if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
+    name: cmux-next quit and launch bound
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-2vcpu-ubuntu-2404' }}
+    timeout-minutes: 3
+    permissions: {}
+    steps:
+      - name: Read the quit and launch bound result
+        env:
+          OUTCOME: ${{ needs.cmux-scheme-compile.outputs.quit_launch }}
+          COMPILE: ${{ needs.cmux-scheme-compile.result }}
+          REPORT: cmux-next-quit-launch-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          case "$OUTCOME" in
+            success) echo "quit and launch bound: every quit and launch held its bound (report artifact $REPORT)" ;;
+            failure) echo "::error::quit and launch bound: a quit or launch broke its bound; the failures are in the cmux-scheme-compile log, step Quit and launch bound, and the artifact $REPORT"; exit 1 ;;
+            *)
+              if [[ "$COMPILE" == success ]]; then
+                echo "::error::quit and launch bound: the scheme compile succeeded but the step did not run (outcome '${OUTCOME:-none}')"; exit 1
+              fi
+              echo "quit and launch bound: not run, the scheme compile ended $COMPILE before it" ;;
+          esac
+
   perf-gate:
     needs: [cmux-scheme-compile]
     if: ${{ !cancelled() && inputs.dev_daily != true && needs.cmux-scheme-compile.result != 'skipped' }}
@@ -3904,7 +3978,7 @@ jobs:
     uses: ./.github/workflows/pr-red-checks-comment.yml
 
   push-attribution:
-    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate]
+    needs: [checks, generated-files, swift-canary, swift-test, daemon-test, release-compile, cmux-scheme-compile, perf-gate, quit-launch-bound]
     # Also a same-tree mode run for a feat-cmux-next push: the tree jobs of a
     # push whose tree was published after its run probed it run there.
     if: ${{ failure() && inputs.dev_daily != true && (github.event_name == 'push' || inputs.same_tree_origin == 'push') && github.ref == 'refs/heads/feat-cmux-next' && github.repository == 'manaflow-ai/cmux' }}

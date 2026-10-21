@@ -41,6 +41,7 @@ final class QuitCoordinator {
 
     init(services: AppServices) {
         self.services = services
+        QuitDeadline.stepMark = { DebugTimings.markLaunch($0) }
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -79,11 +80,12 @@ final class QuitCoordinator {
             return .terminateLater
         }
         isQuitting = true
+        DebugTimings.markLaunch("quit.requested")
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: Self.quitReason())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
-        logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
+        logger.notice("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
         // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
         Task { @MainActor [services] in
             // Unsaved documents come first (R96 quit hook). Answering that
@@ -142,41 +144,70 @@ final class QuitCoordinator {
     }
 
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
-        logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
+        logger.notice("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
+        DebugTimings.markLaunch("quit.decided")
         let services = services
+        // A keep quit ends within `keepQuitLimit` from here, whatever any step
+        // below does (slow quit, 2026-10-20). An End quit arms its deadline
+        // once its sessions ended (the end steps show their failures).
+        if !choice.ends { deadline.arm(after: QuitDeadline.keepQuitLimit) }
         // Sparkle installs a staged update as the app exits unless
         // `updates.installOnQuit` is off (then its installer is cancelled now).
         services.updater.prepareForQuit()
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
-        // Awaited (bounded) so `quitting` is on disk before the quit can end
-        // the process; the write itself runs off the main thread.
+        // Awaited (bounded, 500 ms) so `quitting` is on disk before the quit
+        // can end the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        DebugTimings.markLaunch("quit.marked")
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
-                guard let settings = services.settings,
-                      let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
-                do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
-                    Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
-                        .error("quit setting write failed: \(String(describing: error), privacy: .public)")
+                _ = await QuitDeadline.step("remember", limit: .milliseconds(500)) {
+                    guard let settings = services.settings,
+                          let descriptor = SettingsSchema.descriptor(for: QuitBehaviorSetting.configPath) else { return }
+                    do { try await settings.setSetting(descriptor, to: .string(behavior.rawValue), by: .user) } catch {
+                        Logger(subsystem: "com.cmuxterm.app.next", category: "app.quit")
+                            .error("quit setting write failed: \(String(describing: error), privacy: .public)")
+                    }
                 }
             },
             prepareWindows: {
+                // Each save step has a limit, in this order: a step that hangs
+                // (a page that never answers, a daemon that never replies)
+                // costs the quit at most its limit, never the whole quit.
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
-                await services.remoteTerminals.saveSnapshots()
+                await QuitDeadline.step("remote_snapshots", limit: .milliseconds(300)) {
+                    await services.remoteTerminals.saveSnapshots()
+                }
                 // Agent chats get their composer's chips, shell command and place back at the next
-                // launch (pages are asked at once, each within a second).
-                await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
+                // launch (pages are asked at once, each within a second: the step's own bound).
+                await QuitDeadline.step("agent_composers", limit: .seconds(1)) {
+                    await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
+                }
                 // Agent panes on screen draw their last page at the next launch.
-                await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
-                await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()).save(services.cache.terminals.mapValues(\.session))  // and terminals their last frame
+                await QuitDeadline.step("agent_images", limit: .milliseconds(300)) {
+                    await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
+                }
+                // And terminals their last frame.
+                await QuitDeadline.step("terminal_frames", limit: .milliseconds(500)) {
+                    await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+                        .save(services.cache.terminals.mapValues(\.session))
+                }
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
-                await services.cache.browserTabs.flushRecords()
-                await services.windows.prepareForTermination()
-                await services.sidebarSnapshots.flush()
+                await QuitDeadline.step("browser_records", limit: .milliseconds(500)) {
+                    await services.cache.browserTabs.flushRecords()
+                }
+                await QuitDeadline.step("windows", limit: .milliseconds(500)) {
+                    await services.windows.prepareForTermination()
+                }
+                // A windows step past its limit still runs: nothing saves from here.
+                services.windows.stopSavingForTermination()
+                await QuitDeadline.step("sidebar", limit: .milliseconds(500)) {
+                    await services.sidebarSnapshots.flush()
+                }
             },
             endLocalSessions: { await services.daemon.endSessionsAndStop($0) },
             confirmFailures: { [weak self] failures in await self?.confirm(failures) ?? .quitAnyway },
@@ -191,17 +222,23 @@ final class QuitCoordinator {
                 return await QuitAgents.end(QuitAgents.environment(services), keep: keep, waitForShutdown: attempts.isRetry())
             },
             stopBrowserEngines: { [weak self, deadline = self.deadline] in
+                DebugTimings.markLaunch("quit.saved")
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
-                // does, and a debug build reports that hang, never asserts it.
+                // does (a keep quit's deadline is armed already and stays),
+                // and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
                 #if DEBUG
                 if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
                 #endif
-                await services.cache.cef.shutdown()
+                // An app quit closes every page without its beforeunload
+                // (`cmux_shim_close_all` answers any question with Leave).
+                await services.cache.cef.shutdown(timeout: QuitDeadline.engineCloseWait)
+                DebugTimings.markLaunch("quit.engines_stopped")
             }
         ))
+        DebugTimings.markLaunch("quit.replied")
         sender.reply(toApplicationShouldTerminate: true)
     }
 
