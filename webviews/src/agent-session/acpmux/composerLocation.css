@@ -965,7 +965,7 @@
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 4px 0 calc(4px + var(--acpmux-tray-tuck));
   border-radius: 14px 14px 0 0;
-  background: var(--acpmux-top-tray);
+  background: color-mix(in srgb, var(--acpmux-top-tray) var(--acpmux-queue-glass, 100%), transparent);
   box-shadow: inset 0 var(--cmux-hairline, .5px) 0 var(--acpmux-composer-edge);
 }
 :root[data-top-strip="tray"] .acpmux-composer:not([data-shell]):has(> .acpmux-composer-box :focus-visible) > .acpmux-composer-queue {
@@ -982,7 +982,7 @@
   --acpmux-composer-tray: var(--acpmux-top-tray);
   margin: 0 var(--acpmux-tray-inset) calc(-1 * var(--acpmux-tray-tuck));
   padding: 0 0 calc(2px + var(--acpmux-tray-tuck)) calc(var(--acpmux-top-strip-edge) - var(--acpmux-tray-inset));
-  background: var(--acpmux-top-tray);
+  background: color-mix(in srgb, var(--acpmux-top-tray) var(--acpmux-queue-glass, 100%), transparent);
   box-shadow: none;
 }
 /* As specific as the focused card's queue rule above, so the queue stops over its fold then too. */

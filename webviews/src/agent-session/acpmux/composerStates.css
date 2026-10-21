@@ -454,19 +454,18 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   min-width: 0;
   padding: 0 8px 2px 34px;
   box-sizing: border-box;
-  background: var(--acpmux-composer-tray);
+  background: color-mix(in srgb, var(--acpmux-composer-tray) var(--acpmux-queue-glass, 100%), transparent);
   box-shadow:
     inset var(--cmux-hairline, 0.5px) 0 0 var(--acpmux-composer-edge),
     inset calc(-1 * var(--cmux-hairline, 0.5px)) 0 0 var(--acpmux-composer-edge);
 }
 /* Over art or a see-through window the queued prompts' band and its fold are glass, as the card is
-   (Leo 2026-10-20: "we want the glass, a lot of glass"): the tray's tone at the card's 60%, so band
-   and card read as one surface, not an opaque two-tone (layout pass, 2026-10-20). Reduce
-   Transparency keeps them solid. */
+   (Leo 2026-10-20: "we want the glass, a lot of glass"): every fill they take (here and in each
+   top-strip layout, focused or not) is their tray tone at this share, so band and card read as one
+   surface, not an opaque two-tone (layout pass, 2026-10-20). Reduce Transparency keeps them solid. */
 @media not (prefers-reduced-transparency: reduce) {
-  :root[data-cmux-see-through]:not([data-reduce-transparency]) .acpmux-composer
-    > :is(.acpmux-composer-queue, .acpmux-queue-foldbar) {
-    background: color-mix(in srgb, var(--acpmux-composer-tray) 60%, transparent);
+  :root[data-cmux-see-through]:not([data-reduce-transparency]) {
+    --acpmux-queue-glass: 60%;
   }
 }
 .acpmux-queue-fold {
