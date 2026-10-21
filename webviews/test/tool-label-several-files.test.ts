@@ -18,5 +18,7 @@ test("an edit of several files keeps a title that counts them", () => {
 test("a bare verb or tool id over several files names the first file", () => {
   expect(label({ title: "Edit", kind: "edit", status: "in_progress", locations: twoFiles })).toBe("Edit a.ts");
   expect(label({ title: "Read", kind: "read", locations: twoFiles })).toBe("Read a.ts");
-  expect(label({ title: "patch", kind: "edit", inputSummary: JSON.stringify({ patchText: patch }) })).toBe("patch a.ts");
+  expect(label({ title: "patch", kind: "edit", inputSummary: JSON.stringify({ patchText: patch }) })).toBe(
+    "patch a.ts",
+  );
 });
