@@ -2,7 +2,7 @@ import { authenticate, bearerOf, primaryProject, stackProjects, type Caller } fr
 import type { Env } from "./env.ts"
 import { iceServers } from "./ice.ts"
 import { createTeam, sendTeamInvite, userTeams } from "./stack.ts"
-import { apnsConfig, apnsTopics, clean, sendApns, turnCoalesced } from "./push.ts"
+import { apnsConfig, apnsTopics, clean, sendApns, TURN_PUSH_WINDOW_MS, turnPushKey } from "./push.ts"
 import { openStore, PUSH_KINDS, type Device, type PushKind, type Store } from "./store.ts"
 import { userHubName, type Attachment } from "./team-hub.ts"
 import { Timing, timingFor } from "./timing.ts"
@@ -393,12 +393,13 @@ const routes = async (req: Request, env: Env, ctx: ExecutionContext): Promise<Re
       await limit(env.NOTIFY_LIMIT, deviceId, "notifications")
       const config = apnsConfig(env)
       const kind = b.kind as PushKind
-      const sessionId = typeof b.sessionId === "string" ? b.sessionId : undefined
-      // A burst of finished turns from one session is one notification (an older Mac sends every one).
-      if (await turnCoalesced(env.TURN_NOTIFY_LIMIT, deviceId, { kind, ...(sessionId ? { sessionId } : {}) }))
-        return json({ configured: !!config, sent: 0, failed: 0, dropped: 0, coalesced: true })
       const targets = config ? (await withStore(env, ctx, (s) => s.listOwnerPush(me))).filter((t) => t.kinds.includes(kind)).slice(0, 20) : []
       if (!config || targets.length === 0) return json({ configured: !!config, sent: 0, failed: 0, dropped: 0 })
+      // A burst of turn ends from one session is one notification (a Mac on an older host sends every one).
+      // Checked only once some phone wants this kind, so an unwanted kind never uses up the window.
+      const key = turnPushKey(deviceId, { kind, ...(typeof b.sessionId === "string" ? { sessionId: b.sessionId } : {}) })
+      if (key && !(await userHub(env, caller).turnPushAllowed(key, TURN_PUSH_WINDOW_MS)))
+        return json({ configured: true, sent: 0, failed: 0, dropped: 0, coalesced: true })
       const results = await sendApns(config, targets, {
         eventId: b.eventId,
         kind,

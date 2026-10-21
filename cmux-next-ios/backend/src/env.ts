@@ -28,8 +28,6 @@ export interface Env {
   readonly ICE_LIMIT?: RateLimit
   readonly INVITE_LIMIT?: RateLimit
   readonly NOTIFY_LIMIT?: RateLimit
-  /** One finished-turn push per Mac and session per window (src/push.ts `turnCoalesced`). */
-  readonly TURN_NOTIFY_LIMIT?: RateLimit
   /** Team creations per user (they make Stack teams with the server key). */
   readonly TEAM_LIMIT?: RateLimit
   /** Milliseconds before an isolate retries a failed team hub retire (default 10 s; tests set 0). */

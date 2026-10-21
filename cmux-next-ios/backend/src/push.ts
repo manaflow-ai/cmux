@@ -86,15 +86,15 @@ export const collapseId = (e: Pick<NotifyEvent, "eventId" | "kind" | "sessionId"
   return id.length <= 64 ? id : `turn-${fnv(e.sessionId)}`
 }
 
+/** The window in which a Mac's session passes one turn-ending push (an error counts apart). Under the Mac's own 30 s. */
+export const TURN_PUSH_WINDOW_MS = 15_000
+
 /**
- * Whether a turn-ending event is coalesced away: at most one per Mac and session in the binding's window
- * (TURN_NOTIFY_LIMIT, one per 10 s). Asks, events without a session and a missing binding always pass.
+ * The key a turn-ending event is coalesced under (one per Mac, session and finished-or-error), or null for an
+ * event that is never coalesced: an ask (each one needs an answer) or one without a session.
  */
-export const turnCoalesced = async (binding: RateLimit | undefined, macId: string, e: Pick<NotifyEvent, "kind" | "sessionId">): Promise<boolean> => {
-  if (!binding || !e.sessionId || !TURN_KINDS.has(e.kind)) return false
-  const { success } = await binding.limit({ key: `${macId}:${e.sessionId}` })
-  return !success
-}
+export const turnPushKey = (macId: string, e: Pick<NotifyEvent, "kind" | "sessionId">): string | null =>
+  e.sessionId && TURN_KINDS.has(e.kind) ? `${macId}:${e.sessionId}:${e.kind === "failed" ? "failed" : "done"}` : null
 
 /** The APNs JSON body: fixed text per kind, the place as the body, ids for the tap. Never agent output. */
 export const apnsPayload = (e: NotifyEvent) => {

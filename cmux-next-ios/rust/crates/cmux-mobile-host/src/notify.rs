@@ -9,14 +9,20 @@
 //! prompts, agent output, tool arguments or paths. `CMUX_MOBILE_PUSH=0` turns it off.
 //!
 //! Only what a person can act on is pushed:
-//! - never a Chief's own sessions (its turns and compactor slots, tagged
-//!   `cmux.chief`, or named `optchat-` / preset `optchat-compact-` when
-//!   untagged): they finish a turn every few seconds while the Chief works;
+//! - never a Chief's compactor (`cmux.chief.role` `compactor`, or an
+//!   `optchat-compact-` name, preset or working directory): its slots finish a
+//!   turn every few seconds while the Chief works;
+//! - a Chief's turn (tag `cmux.chief`, another role) is "Chief replied",
+//!   coalesced per Chief home;
 //! - no finished turn of a sub-session (`startedBy`, `spawnedBy`, depth > 0)
 //!   or a Chief's child (`mux.parent`): its parent reports; their asks still push;
-//! - no finished turn that ended while a client shows the chat (acpmux's
-//!   `shown`, which also leaves it read): the person saw it;
-//! - at most one finished turn, and one error, per session in `TURN_WINDOW`.
+//! - at most one finished turn, and one error, per session (or Chief) in
+//!   `TURN_WINDOW`: the first goes at once, the newest of the rest when the
+//!   window ends (`due`), so the last state always arrives.
+//!
+//! acpmux's `shown` is not used to skip a turn: the phone attaches without
+//! `visible`, so a link left open after the phone locks reads as shown. The
+//! phone drops a banner for the tab on its screen itself (`NotificationRouter`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
@@ -36,7 +42,9 @@ pub struct SessionLabel {
     pub agent: String,
     pub place: String,
     pub chief: bool,
-    /// A Chief's own session (its turn or compactor): never pushed.
+    /// The home id of a Chief turn session (`cmux.chief`): its turns coalesce per Chief.
+    pub chief_home: Option<String>,
+    /// A Chief's compactor session: never pushed.
     pub internal: bool,
     /// A sub-session or a Chief's child: its finished turns are not pushed.
     pub sub: bool,
@@ -49,8 +57,14 @@ pub struct Classifier {
     /// Event ids already reported (bounded), so a re-watch never repeats one.
     seen: HashSet<String>,
     order: VecDeque<String>,
-    /// When each session's last finished turn (or error) was pushed (`TURN_WINDOW`).
-    last_turn: HashMap<(String, bool), Instant>,
+    /// Per session (or Chief) and finished-or-error: the last push and the newest turn held since.
+    turns: HashMap<(String, bool), TurnGate>,
+}
+
+#[derive(Debug)]
+struct TurnGate {
+    sent: Instant,
+    held: Option<NotifyEvent>,
 }
 
 const SEEN_LIMIT: usize = 512;
@@ -92,13 +106,16 @@ fn agent_name(harness: &str) -> &'static str {
 /// The tag on every session a Chief runs itself (its turns and compactor),
 /// valued with its home id (optchat-chief `CHIEF_TAG`).
 const CHIEF_TAG: &str = "cmux.chief";
+/// `turn` or `compactor`, next to `cmux.chief` (optchat-chief `CHIEF_ROLE_TAG`).
+const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
 /// The tag on a Chief's children (optchat-chief `agents.rs`).
 const CHIEF_CHILD_TAG: &str = "mux.parent";
-/// Untagged Chief sessions, as the Mac's quit census knows them
-/// (`AcpmuxSessionCensus.isChief`): the name, the compactor preset, the
-/// compactor's working directories (`$TMPDIR/optchat-compact-<id>/slot-<k>`).
-const CHIEF_NAME_PREFIX: &str = "optchat-";
+/// A compactor without its tags, as the Mac's quit census knows it
+/// (`AcpmuxSessionCensus.isChief`): its name or preset, or its working
+/// directory (`$TMPDIR/optchat-compact-<id>/slot-<k>`).
 const CHIEF_COMPACTOR_PREFIX: &str = "optchat-compact-";
+/// Labels kept at most; past it they are relearned from the next change.
+const SESSIONS_LIMIT: usize = 4096;
 
 fn session_label(session: &Value) -> Option<(String, SessionLabel)> {
     let id = session.get("sessionId")?.as_str()?.to_owned();
@@ -107,22 +124,25 @@ fn session_label(session: &Value) -> Option<(String, SessionLabel)> {
     let cwd = text("cwd").unwrap_or("");
     // The folder name only, never the path.
     let place = cwd.trim_end_matches('/').rsplit('/').next().unwrap_or("");
-    let tag = |key: &str| session.get("tags").and_then(|t| t.get(key)).is_some_and(|v| !v.is_null());
-    let internal = tag(CHIEF_TAG)
-        || text("name").is_some_and(|n| n.starts_with(CHIEF_NAME_PREFIX))
+    let tag = |key: &str| session.get("tags").and_then(|t| t.get(key)).filter(|v| !v.is_null());
+    let internal = tag(CHIEF_ROLE_TAG).and_then(Value::as_str) == Some("compactor")
+        || text("name").is_some_and(|n| n.starts_with(CHIEF_COMPACTOR_PREFIX))
         || harness.starts_with(CHIEF_COMPACTOR_PREFIX)
         || cwd.contains(&format!("/{CHIEF_COMPACTOR_PREFIX}"));
+    let chief_home =
+        tag(CHIEF_TAG).filter(|_| !internal).map(|v| v.as_str().map_or_else(|| v.to_string(), str::to_owned));
     let present = |key: &str| text(key).is_some_and(|v| !v.is_empty());
     let sub = present("startedBy")
         || present("spawnedBy")
         || session.get("depth").and_then(Value::as_u64).is_some_and(|d| d > 0)
-        || tag(CHIEF_CHILD_TAG);
+        || tag(CHIEF_CHILD_TAG).is_some();
     Some((
         id,
         SessionLabel {
-            agent: agent_name(harness).into(),
+            agent: if chief_home.is_some() { "Chief".into() } else { agent_name(harness).into() },
             place: label(place, 60),
-            chief: harness.to_ascii_lowercase().contains("chief"),
+            chief: chief_home.is_some() || harness.to_ascii_lowercase().contains("chief"),
+            chief_home,
             internal,
             sub,
         },
@@ -183,6 +203,9 @@ impl Classifier {
             "_acpmux/session_changed" => {
                 let session = params.get("session")?;
                 if let Some((id, label)) = session_label(session) {
+                    if self.sessions.len() >= SESSIONS_LIMIT && !self.sessions.contains_key(&id) {
+                        self.sessions.clear();
+                    }
                     self.sessions.insert(id, label);
                 }
                 let record = params.get("recordKind").or_else(|| params.get("kind")).and_then(Value::as_str);
@@ -198,12 +221,8 @@ impl Classifier {
                 }
                 let status = session.pointer("/lastTurn/status").and_then(Value::as_str);
                 let label = self.sessions.get(session_id).cloned().unwrap_or_default();
-                // A Chief's own turns, a sub-session's or a child's: the parent reports.
+                // A Chief's compactor; a sub-session's or a child's turn: the parent reports.
                 if label.internal || label.sub {
-                    return None;
-                }
-                // Ended while a client showed the chat: seen (acpmux leaves it read).
-                if session.get("shown").and_then(Value::as_bool) == Some(true) {
                     return None;
                 }
                 let chief = label.chief;
@@ -214,19 +233,49 @@ impl Classifier {
                     _ if chief => "chief",
                     _ => "completed",
                 };
-                let key = (session_id.to_owned(), kind == "failed");
-                if self.last_turn.get(&key).is_some_and(|at| now.saturating_duration_since(*at) < TURN_WINDOW)
-                {
-                    return None;
-                }
-                self.last_turn.insert(key, now);
-                if self.last_turn.len() > SEEN_LIMIT {
-                    self.last_turn.retain(|_, at| now.saturating_duration_since(*at) < TURN_WINDOW);
-                }
-                Some(self.event(id, kind, session_id))
+                let scope =
+                    label.chief_home.map_or_else(|| session_id.to_owned(), |home| format!("chief:{home}"));
+                let event = self.event(id, kind, session_id);
+                self.gate((scope, kind == "failed"), event, now)
             }
             _ => None,
         }
+    }
+
+    /// The turn-ending `event` of `key` at `now`: pushed when its window is over,
+    /// else held (replacing an older held one) until `due`.
+    fn gate(&mut self, key: (String, bool), event: NotifyEvent, now: Instant) -> Option<NotifyEvent> {
+        if let Some(gate) = self.turns.get_mut(&key)
+            && now.saturating_duration_since(gate.sent) < TURN_WINDOW
+        {
+            gate.held = Some(event);
+            return None;
+        }
+        self.turns.insert(key, TurnGate { sent: now, held: None });
+        if self.turns.len() > SEEN_LIMIT {
+            self.turns.retain(|_, g| g.held.is_some() || now.saturating_duration_since(g.sent) < TURN_WINDOW);
+        }
+        Some(event)
+    }
+
+    /// When the next held turn is due (its window ends).
+    pub fn next_due(&self) -> Option<Instant> {
+        self.turns.values().filter(|g| g.held.is_some()).map(|g| g.sent + TURN_WINDOW).min()
+    }
+
+    /// Held turns whose window ended by `now`, the newest of each: pushed now,
+    /// which starts a new window.
+    pub fn due(&mut self, now: Instant) -> Vec<NotifyEvent> {
+        let mut out = Vec::new();
+        for gate in self.turns.values_mut() {
+            if now >= gate.sent + TURN_WINDOW
+                && let Some(event) = gate.held.take()
+            {
+                gate.sent = now;
+                out.push(event);
+            }
+        }
+        out
     }
 
     fn event(&self, event_id: String, kind: &str, session_id: &str) -> NotifyEvent {
@@ -283,7 +332,23 @@ async fn watch_once(
         sink.send(Message::Text(request.to_string().into())).await.map_err(|e| e.to_string())?;
     }
     tracing::info!("push watch started");
-    while let Some(message) = source.next().await {
+    loop {
+        let due = classifier.next_due();
+        let message = tokio::select! {
+            message = source.next() => message,
+            () = async {
+                match due {
+                    Some(at) => tokio::time::sleep_until(tokio::time::Instant::from_std(at)).await,
+                    None => std::future::pending().await,
+                }
+            } => {
+                for event in classifier.due(Instant::now()) {
+                    report(base_url, device_id, tokens, event);
+                }
+                continue;
+            }
+        };
+        let Some(message) = message else { break };
         let text = match message.map_err(|e| e.to_string())? {
             Message::Text(text) => text.to_string(),
             Message::Close(_) => break,
@@ -297,20 +362,25 @@ async fn watch_once(
             continue;
         }
         let Some(event) = classifier.handle(&value) else { continue };
-        let tokens = Arc::clone(tokens);
-        let (base_url, device_id) = (base_url.to_owned(), device_id.to_owned());
-        tokio::spawn(async move {
-            let token = match tokens.access_token().await {
-                Ok(token) => token,
-                Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
-            };
-            match ApiClient::new(&base_url, &token).notify(&device_id, &event).await {
-                Ok(result) => tracing::info!(kind = event.kind, %result, "push reported"),
-                Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
-            }
-        });
+        report(base_url, device_id, tokens, event);
     }
     Err("acpmux closed".into())
+}
+
+/// Sends one event to the backend in the background.
+fn report(base_url: &str, device_id: &str, tokens: &Arc<Tokens>, event: NotifyEvent) {
+    let tokens = Arc::clone(tokens);
+    let (base_url, device_id) = (base_url.to_owned(), device_id.to_owned());
+    tokio::spawn(async move {
+        let token = match tokens.access_token().await {
+            Ok(token) => token,
+            Err(error) => return tracing::warn!("no access token for a push ({error:#})"),
+        };
+        match ApiClient::new(&base_url, &token).notify(&device_id, &event).await {
+            Ok(result) => tracing::info!(kind = event.kind, %result, "push reported"),
+            Err(error) => tracing::warn!(kind = event.kind, %error, "push report failed"),
+        }
+    });
 }
 
 #[cfg(test)]
@@ -381,7 +451,7 @@ mod tests {
     /// harness `claude`, tagged `cmux.chief` role `compactor`) finished a turn every few seconds and
     /// each one was pushed as "Claude finished · slot-N".
     #[test]
-    fn chief_compactor_and_turn_sessions_never_push() {
+    fn chief_compactor_sessions_never_push() {
         let mut c = Classifier::default();
         let t0 = Instant::now();
         let compactor = |k: u64, turn: u64| {
@@ -396,11 +466,8 @@ mod tests {
                     .is_none()
             );
         }
-        // A Chief turn session (role `turn`) is internal too.
-        let chief_turn = json!({"sessionId":"ct","name":"optchat-turn-1","harness":"claude","cwd":"/Users/me/.cmux/chief",
-            "tags":{"cmux.chief":"c39c6f72","cmux.chief.role":"turn"},"lastTurn":{"turnId":"a","status":"completed"}});
-        assert!(c.handle_at(&turn_msg(chief_turn), t0).is_none());
-        // Untagged Chief sessions are known by their name or preset, as the Mac's quit census does.
+        assert!(c.due(t0 + Duration::from_secs(600)).is_empty(), "nothing held for later either");
+        // An untagged compactor is known by its name or preset, as the Mac's quit census does.
         let untagged = json!({"sessionId":"u1","name":"optchat-compact-x-1","harness":"claude","cwd":"/tmp/x",
             "lastTurn":{"turnId":"a","status":"failed"}});
         assert!(c.handle_at(&turn_msg(untagged), t0).is_none());
@@ -411,6 +478,29 @@ mod tests {
         assert!(c
             .handle_at(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"cmp1","permissionId":"px","request":{}}}), t0)
             .is_none());
+    }
+
+    /// A Chief's turn sessions (`cmux.chief`, role `turn`) are how it answers the person: "Chief replied",
+    /// once per Chief in the window whatever session each turn ran in; their asks push.
+    #[test]
+    fn chief_turns_push_as_chief_replied_coalesced_per_chief() {
+        let mut c = Classifier::default();
+        let t0 = Instant::now();
+        let chief_turn = |id: &str, turn: &str| {
+            json!({"sessionId":id,"name":format!("optchat-c39c6f72-{id}"),"harness":"claude","cwd":"/Users/me/.cmux/chief",
+                "tags":{"cmux.chief":"c39c6f72","cmux.chief.role":"turn"},"lastTurn":{"turnId":turn,"status":"completed"}})
+        };
+        let first = c.handle_at(&turn_msg(chief_turn("ct1", "a")), t0).unwrap();
+        assert_eq!((first.kind.as_str(), first.agent.as_deref()), ("chief", Some("Chief")));
+        assert!(c.handle_at(&turn_msg(chief_turn("ct2", "a")), t0 + Duration::from_secs(3)).is_none());
+        assert!(c.handle_at(&turn_msg(chief_turn("ct3", "a")), t0 + Duration::from_secs(6)).is_none());
+        // The newest held reply goes when the window ends.
+        let later = c.due(t0 + TURN_WINDOW);
+        assert_eq!(later.iter().map(|e| e.event_id.as_str()).collect::<Vec<_>>(), ["t-ct3-a"]);
+        let ask = c
+            .handle_at(&json!({"method":"_acpmux/permission_pending","params":{"sessionId":"ct1","permissionId":"cq","request":{}}}), t0)
+            .unwrap();
+        assert_eq!(ask.kind, "permission");
     }
 
     #[test]
@@ -433,16 +523,14 @@ mod tests {
         assert_eq!(ask.kind, "question");
     }
 
+    /// The phone attaches without `visible`, so a link left open after it locks reads as `shown`:
+    /// a turn that ends then still pushes (the phone hides a banner for the tab it shows itself).
     #[test]
-    fn a_turn_that_ends_while_shown_is_seen_and_not_pushed() {
+    fn a_turn_that_ends_while_shown_still_pushes() {
         let mut c = Classifier::default();
-        let t0 = Instant::now();
-        let shown = json!({"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","shown":true,
+        let shown = json!({"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","shown":true,"attached":1,
             "lastTurn":{"turnId":"a","status":"completed"}});
-        assert!(c.handle_at(&turn_msg(shown), t0).is_none());
-        let hidden = json!({"sessionId":"s1","harness":"claude-code","cwd":"/x/repo","shown":false,
-            "lastTurn":{"turnId":"b","status":"completed"}});
-        assert_eq!(c.handle_at(&turn_msg(hidden), t0).unwrap().kind, "completed");
+        assert_eq!(c.handle_at(&turn_msg(shown), Instant::now()).unwrap().kind, "completed");
     }
 
     #[test]
@@ -450,26 +538,38 @@ mod tests {
         let mut c = Classifier::default();
         let t0 = Instant::now();
         let s = |id: &str, turn: &str, status: &str| json!({"sessionId":id,"harness":"claude-code","cwd":"/x/repo","lastTurn":{"turnId":turn,"status":status}});
+        let at = |secs: u64| t0 + Duration::from_secs(secs);
         assert!(c.handle_at(&turn_msg(s("s1", "a", "completed")), t0).is_some());
-        // The same session again within the window: coalesced.
-        assert!(c.handle_at(&turn_msg(s("s1", "b", "completed")), t0 + Duration::from_secs(5)).is_none());
+        // The same session again within the window: held, the newer replacing the older.
+        assert!(c.handle_at(&turn_msg(s("s1", "b", "completed")), at(5)).is_none());
+        assert!(c.handle_at(&turn_msg(s("s1", "b2", "completed")), at(7)).is_none());
         // An error is its own news, once per window too.
-        assert_eq!(
-            c.handle_at(&turn_msg(s("s1", "c", "failed")), t0 + Duration::from_secs(10)).unwrap().kind,
-            "failed"
-        );
-        assert!(c.handle_at(&turn_msg(s("s1", "c2", "failed")), t0 + Duration::from_secs(11)).is_none());
+        assert_eq!(c.handle_at(&turn_msg(s("s1", "c", "failed")), at(10)).unwrap().kind, "failed");
+        assert!(c.handle_at(&turn_msg(s("s1", "c2", "failed")), at(11)).is_none());
         // Another session is its own.
-        assert!(c.handle_at(&turn_msg(s("s2", "a", "completed")), t0 + Duration::from_secs(5)).is_some());
-        // After the window the session pushes again.
+        assert!(c.handle_at(&turn_msg(s("s2", "a", "completed")), at(5)).is_some());
+        assert_eq!(c.next_due(), Some(t0 + TURN_WINDOW));
+        assert!(c.due(t0 + TURN_WINDOW - Duration::from_secs(1)).is_empty());
+        // When a window ends the newest held turn goes, once.
+        let ids = |events: Vec<NotifyEvent>| events.into_iter().map(|e| e.event_id).collect::<Vec<_>>();
+        assert_eq!(ids(c.due(t0 + TURN_WINDOW)), ["t-s1-b2"]);
+        assert!(c.due(t0 + TURN_WINDOW + Duration::from_secs(1)).is_empty());
+        assert_eq!(ids(c.due(at(10) + TURN_WINDOW)), ["t-s1-c2"]);
+        assert_eq!(c.next_due(), None);
+        // A flushed turn starts a new window; past it the next turn goes at once and a held one is superseded.
         assert!(
-            c.handle_at(&turn_msg(s("s1", "d", "completed")), t0 + TURN_WINDOW + Duration::from_secs(1))
+            c.handle_at(&turn_msg(s("s1", "d", "completed")), t0 + TURN_WINDOW + Duration::from_secs(5))
+                .is_none()
+        );
+        assert!(
+            c.handle_at(&turn_msg(s("s1", "e", "completed")), t0 + TURN_WINDOW * 2 + Duration::from_secs(1))
                 .is_some()
         );
+        assert_eq!(c.next_due(), None);
         // Asks are never coalesced: each one needs an answer.
         for (i, id) in ["p1", "p2", "p3"].iter().enumerate() {
             let ask = json!({"method":"_acpmux/permission_pending","params":{"sessionId":"s1","permissionId":id,"request":{}}});
-            assert!(c.handle_at(&ask, t0 + Duration::from_secs(i as u64)).is_some());
+            assert!(c.handle_at(&ask, at(i as u64)).is_some());
         }
     }
 

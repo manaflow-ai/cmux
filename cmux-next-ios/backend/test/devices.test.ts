@@ -1,6 +1,8 @@
 import { exportPKCS8, generateKeyPair, decodeProtectedHeader } from "jose"
 import { describe, expect, it } from "vitest"
-import { apnsPayload, apnsRequest, clean, collapseId, sendApns, turnCoalesced } from "../src/push.ts"
+import { env } from "cloudflare:workers"
+import { apnsPayload, apnsRequest, clean, collapseId, sendApns, turnPushKey } from "../src/push.ts"
+import type { TeamHub } from "../src/team-hub.ts"
 import type { PushRegistration } from "../src/store.ts"
 import { call, connect, PROD_PROJECT, register, token } from "./helpers.ts"
 
@@ -137,17 +139,23 @@ describe("APNs payload and sender", () => {
     expect(apnsPayload(done).aps["thread-id"]).toBe("s1")
   })
 
-  it("lets one finished turn per session through a short window; asks always pass", async () => {
-    const keys: Array<string> = []
-    const binding = { limit: async ({ key }: { key: string }) => ({ success: !keys.includes(key) && keys.push(key) > 0 }) } as unknown as RateLimit
+  it("lets one turn end per Mac, session and finished-or-error through the window; asks always pass", async () => {
     const done = { ...event, kind: "completed" as const }
-    expect(await turnCoalesced(binding, "mac1", done)).toBe(false)
-    expect(await turnCoalesced(binding, "mac1", { ...done, kind: "failed" })).toBe(true)
-    expect(await turnCoalesced(binding, "mac1", { ...done, sessionId: "s2" })).toBe(false)
-    expect(await turnCoalesced(binding, "mac2", done)).toBe(false)
-    expect(await turnCoalesced(binding, "mac1", event)).toBe(false)
-    expect(await turnCoalesced(binding, "mac1", event)).toBe(false)
-    expect(await turnCoalesced(undefined, "mac1", done)).toBe(false)
+    expect(turnPushKey("mac1", done)).toBe("mac1:s1:done")
+    expect(turnPushKey("mac1", { ...done, kind: "chief" })).toBe("mac1:s1:done")
+    expect(turnPushKey("mac1", { ...done, kind: "failed" })).toBe("mac1:s1:failed")
+    expect(turnPushKey("mac1", event)).toBeNull()
+    expect(turnPushKey("mac1", { kind: "completed" })).toBeNull()
+    const ns = (env as unknown as { TEAM_HUB: DurableObjectNamespace<TeamHub> }).TEAM_HUB
+    const hub = ns.get(ns.idFromName("user:turn-push-test"))
+    expect(await hub.turnPushAllowed("mac1:s1:done", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed("mac1:s1:done", 60_000)).toBe(false)
+    // An error right after a finished turn is its own news.
+    expect(await hub.turnPushAllowed("mac1:s1:failed", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed("mac1:s2:done", 60_000)).toBe(true)
+    expect(await hub.turnPushAllowed("mac2:s1:done", 60_000)).toBe(true)
+    // Past the window (0 ms here) the key passes again.
+    expect(await hub.turnPushAllowed("mac1:s1:done", 0)).toBe(true)
   })
 
   it("signs a provider token, routes by environment and classifies answers", async () => {
