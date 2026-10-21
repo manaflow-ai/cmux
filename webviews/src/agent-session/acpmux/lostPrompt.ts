@@ -51,23 +51,56 @@ export function clientWaiter<Client>() {
   };
 }
 
-/// The prompt a sender gave up on ("Not sent"). The host's journal may still send it once acpmux
-/// is back, so the person's next send of the same text and attachments goes under its promptId,
-/// and acpmux runs it at most once. Any other prompt gets its own id: one that took a lost
-/// prompt's id would be answered as that prompt's duplicate and never run.
+/// A connection the sender may wait on for the host's resend (`AcpmuxDirectClient`).
+export type ResendWaiter = {
+  readonly isClosed: boolean;
+  awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean>;
+};
+
+/// Waits for the host to send `lost` again on a connection after `from`: the connection it shows
+/// on, or undefined when none comes within `connectMs` or the prompt does not show within
+/// `showMs` on one that stays. A connection that drops first hands the wait on to the next: the
+/// host's journal sends the prompt again there.
+export async function waitForResend<Client extends ResendWaiter>(
+  clients: { next(previous: Client, timeoutMs: number): Promise<Client | undefined> },
+  from: Client,
+  lost: LostPrompt,
+  connectMs: number,
+  showMs: number,
+): Promise<Client | undefined> {
+  let previous = from;
+  for (;;) {
+    const next = await clients.next(previous, connectMs);
+    if (!next) return undefined;
+    if (await next.awaitResent(lost.sessionId, lost.promptId, showMs)) return next;
+    if (!next.isClosed) return undefined;
+    previous = next;
+  }
+}
+
+/// The prompts a connection lost, by chat. The host's journal may send one again once acpmux is
+/// back, even after its sender said "Not sent", so the person's next send of the same text and
+/// attachments in the same chat goes under its promptId, and acpmux runs it at most once. Any
+/// other prompt gets its own id: one that took a lost prompt's id would be answered as that
+/// prompt's duplicate and never run.
 export function lostPromptSlot() {
-  const keyOf = (text: string, attachmentIds: readonly string[]) => JSON.stringify([text, attachmentIds]);
-  let kept: { promptId: string; key: string } | undefined;
+  const keyOf = (sessionId: string, text: string, attachmentIds: readonly string[]) =>
+    JSON.stringify([sessionId, text, attachmentIds]);
+  const kept = new Map<string, string>();
   return {
-    keep(promptId: string, text: string, attachmentIds: readonly string[]): void {
-      kept = { promptId, key: keyOf(text, attachmentIds) };
+    keep(sessionId: string, promptId: string, text: string, attachmentIds: readonly string[]): void {
+      kept.set(keyOf(sessionId, text, attachmentIds), promptId);
     },
-    /// The lost prompt's id when this send is that prompt. Only the next send may take it: a
+    /// The host sent `promptId` again after all: a later identical prompt is a new one.
+    forget(promptId: string): void {
+      for (const [key, id] of kept) if (id === promptId) kept.delete(key);
+    },
+    /// The lost prompt's id when this send is that prompt. Only the next send may take one: a
     /// later "continue" is a new prompt, not the lost one.
-    take(text: string, attachmentIds: readonly string[]): string | undefined {
-      const taken = kept;
-      kept = undefined;
-      return taken?.key === keyOf(text, attachmentIds) ? taken.promptId : undefined;
+    take(sessionId: string, text: string, attachmentIds: readonly string[]): string | undefined {
+      const taken = kept.get(keyOf(sessionId, text, attachmentIds));
+      kept.clear();
+      return taken;
     },
   };
 }

@@ -4127,6 +4127,12 @@ export class AcpmuxDirectClient {
   /// A prompt an earlier connection lost before acpmux took it (`lostPrompt.ts`), which the host
   /// sends again on this one: true once this chat shows it (its record, its queue row, or acpmux's
   /// acceptance), false when it does not within `timeoutMs` or this pane shows another chat.
+  /// This client's connection is gone (`close`): it shows nothing more.
+  get isClosed(): boolean {
+    return this.closed;
+  }
+  /// The `awaitResent` waits, each settled false once this connection closes.
+  private resendWaits = new Set<() => void>();
   awaitResent(sessionId: string, promptId: string, timeoutMs: number): Promise<boolean> {
     if (this.closed || this.selectedSessionId !== sessionId) return Promise.resolve(false);
     const shown = () =>
@@ -4139,11 +4145,14 @@ export class AcpmuxDirectClient {
       const done = (landed: boolean) => {
         clearTimeout(timer);
         if (this.promptAccepts.get(promptId) === accept) this.promptAccepts.delete(promptId);
+        this.resendWaits.delete(closed);
         resolve(landed);
       };
       const accept = () => done(true);
+      const closed = () => done(false);
       const timer = setTimeout(() => done(shown()), timeoutMs);
       this.promptAccepts.set(promptId, accept);
+      this.resendWaits.add(closed);
     });
   }
   /// Takes over the watched chat shown here (`_acpmux/watch_take_over`), so it runs the
@@ -4530,6 +4539,7 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
+    for (const closed of [...this.resendWaits]) closed();
     const hold = this.snapshotHold;
     if (hold) clearTimeout(hold.timer);
     this.snapshotHold = undefined;

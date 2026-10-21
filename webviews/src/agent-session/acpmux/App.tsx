@@ -41,7 +41,14 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
-import { LOST_PROMPT_CONNECT_MS, LOST_PROMPT_SHOW_MS, clientWaiter, lostPrompt, lostPromptSlot } from "./lostPrompt";
+import {
+  LOST_PROMPT_CONNECT_MS,
+  LOST_PROMPT_SHOW_MS,
+  clientWaiter,
+  lostPrompt,
+  lostPromptSlot,
+  waitForResend,
+} from "./lostPrompt";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
@@ -5356,6 +5363,7 @@ function AcpmuxPane() {
             });
           // The person sends a prompt "Not sent" named again: it goes under its first promptId.
           const again = lostPrompts.take(
+            client.selectedSession ?? "",
             text,
             attachments.map((attachment) => attachment.id),
           );
@@ -5387,21 +5395,27 @@ function AcpmuxPane() {
           const resent = async (error: unknown): Promise<string | undefined> => {
             const lost = lostPrompt(error);
             if (!lost) throw error;
-            const next = await connectedClients.next(client, LOST_PROMPT_CONNECT_MS);
-            if (next && (await next.awaitResent(lost.sessionId, lost.promptId, LOST_PROMPT_SHOW_MS))) {
+            const ids = attachments.map((attachment) => attachment.id);
+            // Kept at once: the same prompt sent again while it waits goes under its id, so
+            // acpmux runs it once however the two land.
+            lostPrompts.keep(lost.sessionId, lost.promptId, text, ids);
+            const shown = await waitForResend(
+              connectedClients,
+              client,
+              lost,
+              LOST_PROMPT_CONNECT_MS,
+              LOST_PROMPT_SHOW_MS,
+            );
+            if (shown) {
+              lostPrompts.forget(lost.promptId);
               accept?.();
               return lost.sessionId;
             }
-            lostPrompts.keep(
-              lost.promptId,
-              text,
-              attachments.map((attachment) => attachment.id),
-            );
+            lostPrompts.keep(lost.sessionId, lost.promptId, text, ids);
+            // Back in the composer once, here: the composer's own catch leaves a prompt handed back.
             if (released) restorePrompt(text, attachments);
-            (next ?? directClient.current ?? client).notice(
-              translate("prompt.notSent", { reason: errorMessage(error) }),
-            );
-            throw error;
+            (directClient.current ?? client).notice(translate("prompt.notSent", { reason: errorMessage(error) }));
+            throw released && error && typeof error === "object" ? Object.assign(error, { handedBack: true }) : error;
           };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
