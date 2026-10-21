@@ -6,7 +6,8 @@
 // followed view at its end on every painted frame, with nothing under the card. Scrolled up, a
 // composer that grows or shrinks leaves the view as it was: its offset, its height and so its
 // scrollbar, and the rows being read (Leo 2026-10-20: a newline in the composer made the
-// transcript's scrollbar jump).
+// transcript's scrollbar jump). Back at the end after it grew, by the wheel or by Jump to latest
+// (which glides), the last row is above the card on every frame.
 //
 // Before: the transcript ended at the top of the bottom stack, so its track ended about a
 // composer's height (111px here, 211px with a five-line prompt) above the pane's bottom.
@@ -243,7 +244,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(500);
+    await untilStill(page);
     await page.locator(".acpmux-md").click();
     const scroller = () =>
       page.evaluate(() => {
@@ -311,7 +312,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
     await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(500);
+    await untilStill(page);
     await page.locator(".acpmux-md").click();
     // Well up from the end, so the view is a reader's, not a follower's.
     expect((await measure(page)).fromEnd).toBeGreaterThan(100);
@@ -467,6 +468,137 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     // view moves by exactly the card's growth in the frame the card grows.
     const rest = frames.at(-1)!.rowAboveCard;
     expect(frames.filter((frame) => Math.abs(frame.rowAboveCard - rest) > 2)).toEqual([]);
+    await page.close();
+  });
+
+  type Frame = { top: number; fromEnd: number; rowAboveCard: number };
+  /// Samples the offset, the distance from the end and the last row's place over the card after
+  /// every painted frame (a task queued from its animation frame), until `stopFrames`.
+  const startFrames = (page: Page) =>
+    page.evaluate(() => {
+      const frames: { top: number; fromEnd: number; rowAboveCard: number }[] = [];
+      (window as unknown as { __frames: typeof frames }).__frames = frames;
+      const sample = () => {
+        const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+        const card = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+        const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
+        const last = rows.reduce((a, b) =>
+          Number(b.getAttribute("aria-posinset")) > Number(a.getAttribute("aria-posinset")) ? b : a,
+        );
+        frames.push({
+          top: scroller.scrollTop,
+          fromEnd: Math.round(scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight),
+          rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
+        });
+      };
+      const tick = () => {
+        if ((window as unknown as { __frames?: unknown }).__frames !== frames) return;
+        setTimeout(sample, 0);
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
+  const stopFrames = (page: Page): Promise<Frame[]> =>
+    page.evaluate(() => {
+      const holder = window as unknown as { __frames?: Frame[] };
+      const frames = holder.__frames ?? [];
+      holder.__frames = undefined;
+      return frames;
+    });
+
+  /// Resolves once the offset and the card's height have held for 200ms of painted frames, so a
+  /// read never lands mid-glide or before the last line's growth is painted.
+  const untilStill = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const card = document.querySelector(".acpmux-composer-box")!;
+          const read = () => `${scroller.scrollTop}:${card.getBoundingClientRect().height}`;
+          let last = read();
+          let since = performance.now();
+          const tick = (now: number) => {
+            const seen = read();
+            if (seen !== last) [last, since] = [seen, now];
+            if (now - since >= 200) resolve();
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+
+  /// Scrolls well up from the end, then grows the composer by five lines while there.
+  async function growWhileScrolledUp(page: Page) {
+    const view = (await page.locator(".acpmux-scroll").boundingBox())!;
+    await page.mouse.move(view.x + view.width / 2, view.y + 120);
+    await page.mouse.wheel(0, -900);
+    await untilStill(page);
+    await page.locator(".acpmux-md").click();
+    expect((await measure(page)).fromEnd).toBeGreaterThan(400);
+    for (let line = 1; line <= 5; line++) {
+      await page.keyboard.type(`Line ${line} of a longer prompt`);
+      await page.keyboard.press("Shift+Enter");
+    }
+    await untilStill(page);
+    return view;
+  }
+
+  // Review of #23097: the room under the last row stays as it was while the reader is scrolled up,
+  // so the scroller ended short of the grown card. Scrolling back to the end must never show the
+  // last row under the card, not for one frame.
+  test("scrolled back to the end after the composer grew, the last row is never under the card", async () => {
+    const page = await open();
+    const before = await measure(page);
+    const view = await growWhileScrolledUp(page);
+    await page.mouse.move(view.x + view.width / 2, view.y + 120);
+    await startFrames(page);
+    for (let step = 0; step < 12; step++) {
+      await page.mouse.wheel(0, 150);
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
+    }
+    await untilStill(page);
+    const frames = await stopFrames(page);
+    const end = await measure(page);
+    expect({ fromEnd: end.fromEnd, lastIsLatest: end.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
+    expect(end.cardHeight - before.cardHeight).toBeGreaterThan(60);
+    // At the end on every frame it reached it, the last row sits above the card.
+    expect(frames.filter((frame) => frame.fromEnd <= 1).length).toBeGreaterThan(0);
+    expect(frames.filter((frame) => frame.fromEnd <= 1 && frame.rowAboveCard < -1)).toEqual([]);
+    expect(Math.abs(end.rowAboveCard - before.rowAboveCard)).toBeLessThanOrEqual(2);
+    await page.close();
+  });
+
+  // Review of #23097: Jump to latest after the composer grew while scrolled up snapped to the end
+  // (following again gave the room back, and a followed view's room moves its offset at once).
+  // It glides there, never backs up or overshoots, and lands with the last row above the card.
+  test("Jump to latest after the composer grew glides to the end above the card", async () => {
+    const page = await open();
+    // The jump glides unless the person asked for reduced motion.
+    await page.emulateMedia({ reducedMotion: "no-preference" });
+    const before = await measure(page);
+    await growWhileScrolledUp(page);
+    const start = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
+    await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
+    await startFrames(page);
+    await page.locator(".acpmux-jump-latest").click();
+    await page.waitForFunction(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
+    });
+    await untilStill(page);
+    const frames = await stopFrames(page);
+    const end = await measure(page);
+    expect({ fromEnd: end.fromEnd, lastIsLatest: end.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
+    expect(Math.abs(end.rowAboveCard - before.rowAboveCard)).toBeLessThanOrEqual(2);
+    // A glide: several frames on the way, none moving more than half the distance, never back up.
+    const tops = [start, ...frames.map((frame) => frame.top)];
+    const distance = tops.at(-1)! - start;
+    expect(distance).toBeGreaterThan(400);
+    const steps = tops.slice(1).map((top, index) => top - tops[index]!);
+    expect(steps.filter((step) => step > 0.5).length).toBeGreaterThanOrEqual(3);
+    expect(Math.max(...steps)).toBeLessThan(distance / 2);
+    expect(steps.filter((step) => step < -1)).toEqual([]);
+    expect(frames.filter((frame) => frame.fromEnd <= 1 && frame.rowAboveCard < -1)).toEqual([]);
     await page.close();
   });
 });
