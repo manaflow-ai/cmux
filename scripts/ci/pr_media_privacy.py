@@ -273,7 +273,10 @@ def load_private_terms(env: Mapping[str, str] = os.environ) -> tuple[list[str], 
 
 
 def load_agent_authors(env: Mapping[str, str] = os.environ) -> frozenset[str]:
-    """$PR_MEDIA_AGENT_AUTHORS (comma list), else ~/Projects/leo-workspace's list, else none."""
+    """$PR_MEDIA_AGENT_AUTHORS (comma list), else ~/Projects/leo-workspace's list, else none.
+
+    The workspace file is {"authors": [...]} (a bare list is read too).
+    """
     raw = env.get("PR_MEDIA_AGENT_AUTHORS", "")
     if raw.strip():
         return agent_authors(raw)
@@ -284,8 +287,10 @@ def load_agent_authors(env: Mapping[str, str] = os.environ) -> frozenset[str]:
         logins = json.loads(path.read_text(encoding="utf-8"))
     except json.JSONDecodeError as error:
         raise BadInput(f"~/{AGENT_AUTHORS_FILE} is not JSON ({error.msg})") from error
+    if isinstance(logins, dict):
+        logins = logins.get("authors")
     if not isinstance(logins, list) or not all(isinstance(login, str) for login in logins):
-        raise BadInput(f"~/{AGENT_AUTHORS_FILE} must be a JSON list of logins")
+        raise BadInput(f"~/{AGENT_AUTHORS_FILE} must be {{\"authors\": [logins]}} or a JSON list of logins")
     return agent_authors(",".join(logins))
 
 
