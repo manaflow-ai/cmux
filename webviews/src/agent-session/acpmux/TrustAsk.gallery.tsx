@@ -69,6 +69,21 @@ const notNow: Play = async (ctx) => {
   await ctx.waitFor(() => text(ctx) === "Not trusted: Claude Code won't run in the atlas-web repo");
 };
 
+const RESTRICTED = "Restricted: no project settings, hooks or MCP; asks before every tool";
+
+/// A restricted chat keeps Trust in reach: one click and it runs as a trusted chat.
+const restrictedTrustFolder: Play = async (ctx) => {
+  await ctx.waitFor(() => text(ctx) === RESTRICTED);
+  await ctx.click({ role: "button", name: "Trust folder" });
+  await ctx.waitFor(() => text(ctx) === "Trusted demo-app");
+};
+
+const restrictedTrustRepo: Play = async (ctx) => {
+  await ctx.waitFor(() => text(ctx) === RESTRICTED);
+  await ctx.click({ role: "button", name: "Trust repo" });
+  await ctx.waitFor(() => text(ctx) === "Trusted via repo atlas-web");
+};
+
 const undo: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Undo" });
   await ctx.waitFor(() => ctx.find({ role: "button", name: "Trust folder" }));
@@ -106,5 +121,15 @@ export default componentEntry<Props>({
     trusted: { props: { initialAsk: ask("decided") }, play: undo },
     "trusted-via-repo": { props: { initialAsk: ask("decided", { ...worktree, via: repoRoot }) } },
     untrusted: { props: { initialAsk: { cwd, state: "decided", level: "untrusted" } } },
+    restricted: {
+      note: "Not now with restricted chats on (agents.trust.restrictedChats): the chat still runs, without the folder's settings, hooks or MCP, asking before every tool. Trust folder stays in reach.",
+      props: { initialAsk: { cwd, state: "decided", level: "untrusted", restricted: true } },
+      play: restrictedTrustFolder,
+    },
+    "restricted-repo": {
+      note: "A restricted chat in a repository: Trust repo stays the primary action.",
+      props: { initialAsk: { ...inRepo, via: repoRoot, state: "decided", level: "untrusted", restricted: true } },
+      play: restrictedTrustRepo,
+    },
   },
 });
