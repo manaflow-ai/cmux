@@ -219,7 +219,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     const s = cloud.started[0]!
     expect(cloud.steps.slice(0, 3)).toEqual([`${s.vm} /opt/chief-cc/boot.sh`, `${s.vm} bash`, `${s.vm} /opt/chief-cc/start.sh`])
     expect(cloud.nets).toHaveLength(1)
-    expect(cloud.nets[0]!.script).toContain(`meta skuid "$uid" accept`)
+    expect(cloud.nets[0]!.script).toContain(`meta skuid $uid accept`)
     // The turn machine knows its settings (chief-net show) and the Chief is told about the tool.
     expect(s.input.net).toEqual({ internet: true, dns: true, tailnet: false, local: false, allow: [], deny: [] })
     expect(s.input.system).toContain("chief-net")
@@ -246,7 +246,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     expect(posted.body.net).toEqual({ internet: false, dns: true, tailnet: false, local: false, allow: ["github.com"], deny: [] })
     // The script the turn machine applies at once as root.
     expect(posted.body.script).toContain("'github.com'")
-    expect(posted.body.script).not.toContain(`meta skuid "$uid" accept`)
+    expect(posted.body.script).not.toContain(`meta skuid $uid accept`)
     expect(refused.status).toBe(400)
     expect(refused.body.error).toContain("allow")
 
@@ -255,7 +255,7 @@ describe("Cloud Chief on the Claude Code route", { timeout: 120_000 }, () => {
     await replies(token, chief.main_conversation, chief.id, 2)
     expect(cloud.started[1]!.input.net).toEqual(posted.body.net)
     expect(cloud.nets[1]!.script).toContain("'github.com'")
-    expect(cloud.nets[1]!.script).not.toContain(`meta skuid "$uid" accept`)
+    expect(cloud.nets[1]!.script).not.toContain(`meta skuid $uid accept`)
     // A finished turn's token changes nothing.
     const old = cloud.started[0]!
     expect((await notes(old, { run: old.run, net: { internet: true } })).status).toBe(401)
