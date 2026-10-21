@@ -238,7 +238,15 @@ pub fn ensure_with(
                 return Err("the host is stopping; it starts no acpmux".into());
             }
             let child = match spawn(socket, bin, log) {
-                Ok(child) => child,
+                Ok(Some(child)) => child,
+                // Another starter's daemon answered while this one waited.
+                Ok(None) => {
+                    if bin.is_some() {
+                        finish_start(None);
+                    }
+                    seen_up.store(true, Ordering::SeqCst);
+                    return Ok(None);
+                }
                 Err(e) => {
                     if bin.is_some() {
                         finish_start(None);
@@ -391,8 +399,9 @@ fn finish_start(started: Option<Started>) {
     START_DONE.notify_all();
 }
 
-/// How long a stop waits for a start in flight: [`spawn`] ends within 30 s.
-const START_WAIT: Duration = Duration::from_secs(35);
+/// How long a stop waits for a start in flight: [`spawn`] ends within
+/// [`SPAWN_LIMIT`].
+const START_WAIT: Duration = Duration::from_secs(65);
 
 /// How long `acpmux daemon shutdown` may take (it ends every agent host,
 /// with its own SIGTERM-to-SIGKILL grace).
@@ -493,12 +502,104 @@ fn shutdown_at(bin: &Path, home: &Path, socket: &Path, log: &dyn Fn(&str)) -> bo
     }
 }
 
+/// How long one `daemon run` may take to answer on its socket.
+const READY_LIMIT: Duration = Duration::from_secs(30);
+
+/// How long [`spawn`] takes at most, a wait for the daemon before it to let
+/// `daemon.lock` go and the second start included. That daemon still stops
+/// after an update's handoff: the new host started 15 s after the old one
+/// ended, and the old daemon took 15 to 23 s to stop (2026-10-20).
+const SPAWN_LIMIT: Duration = Duration::from_secs(60);
+
+/// Whether another process holds the daemon lock at `path` now. The probe
+/// takes the lock for an instant, as the app's `AcpmuxQuitProof.lockState`.
+fn lock_held(path: &Path) -> bool {
+    use std::os::unix::io::AsRawFd;
+    let Ok(file) = std::fs::OpenOptions::new().read(true).write(true).open(path) else {
+        return false;
+    };
+    // SAFETY: flock on a descriptor this function owns.
+    if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) } == 0 {
+        // SAFETY: as above.
+        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_UN) };
+        return false;
+    }
+    std::io::Error::last_os_error().kind() == std::io::ErrorKind::WouldBlock
+}
+
+/// Waits until no process holds the daemon lock at `path`, at most `wait`.
+/// Deviation, as in acpmux's own `wait_for_lock_release`: flock gives no
+/// release event, so this checks with a short, growing interval.
+fn await_lock_release(path: &Path, wait: Duration) -> bool {
+    let deadline = Instant::now() + wait;
+    let mut step = Duration::from_millis(10);
+    while lock_held(path) {
+        if Instant::now() >= deadline {
+            return false;
+        }
+        std::thread::sleep(step);
+        step = (step * 2).min(Duration::from_millis(250));
+    }
+    true
+}
+
 /// Starts `$ACPMUX_BIN daemon run` and waits for its socket (local mode).
+/// When the daemon exits before its socket answers, most often because the
+/// one before it still holds `daemon.lock` (it stops after a handoff), this
+/// waits for that lock and starts it once more, all within [`SPAWN_LIMIT`].
+/// `None`: a daemon this host did not start answered meanwhile.
 fn spawn(
     socket: &Path,
     bin: Option<&str>,
     log: &dyn Fn(&str),
-) -> Result<std::process::Child, String> {
+) -> Result<Option<std::process::Child>, String> {
+    let limit = Instant::now() + SPAWN_LIMIT;
+    let lock = daemon_home(socket).join("daemon.lock");
+    let status = match spawn_once(socket, bin, log, limit)? {
+        Spawned::Ready(child) => return Ok(Some(child)),
+        Spawned::Exited(status) => status,
+    };
+    // The lock may already be free here: the old daemon can stop between
+    // this start's exit and the probe, so a free lock starts once more too.
+    if lock_held(&lock) {
+        log(&format!(
+            "acpmux daemon exited ({status}): the daemon before it still holds {}; waiting for it to stop",
+            lock.display()
+        ));
+        if !await_lock_release(&lock, limit.saturating_duration_since(Instant::now())) {
+            return Err(format!(
+                "acpmux daemon exited before its socket was ready: {status}; another daemon still holds {}",
+                lock.display()
+            ));
+        }
+    }
+    if reachable(socket) {
+        return Ok(None);
+    }
+    match spawn_once(socket, bin, log, limit)? {
+        Spawned::Ready(child) => Ok(Some(child)),
+        Spawned::Exited(status) => Err(format!(
+            "acpmux daemon exited before its socket was ready: {status}"
+        )),
+    }
+}
+
+/// What one `daemon run` start did.
+enum Spawned {
+    /// Its socket answers.
+    Ready(std::process::Child),
+    /// It exited before its socket answered.
+    Exited(std::process::ExitStatus),
+}
+
+/// One `$ACPMUX_BIN daemon run`, waited for until its socket answers, for
+/// [`READY_LIMIT`] and never past `limit`.
+fn spawn_once(
+    socket: &Path,
+    bin: Option<&str>,
+    log: &dyn Fn(&str),
+    limit: Instant,
+) -> Result<Spawned, String> {
     let Some(bin) = bin else {
         return Err(format!(
             "acpmux is not reachable at {} and ACPMUX_BIN is not set",
@@ -555,27 +656,27 @@ fn spawn(
     ));
     // Deviation: acpmux-daemon.ts waits on file-system events of the socket's
     // directory; without a watcher dependency this checks with a short,
-    // growing interval, bounded at 30 s, and stops early when the child exits.
-    let deadline = Instant::now() + Duration::from_secs(30);
+    // growing interval, bounded by READY_LIMIT, and stops early when the child exits.
+    let started = Instant::now();
+    let deadline = (started + READY_LIMIT).min(limit);
     let mut step = Duration::from_millis(10);
     loop {
         if reachable(socket) {
             // Never waited for while it runs: it outlives the host (its own
             // process group); the stop asks whether it still runs.
-            return Ok(child);
+            return Ok(Spawned::Ready(child));
         }
         if let Ok(Some(status)) = child.try_wait() {
-            return Err(format!(
-                "acpmux daemon exited before its socket was ready: {status}"
-            ));
+            return Ok(Spawned::Exited(status));
         }
         if Instant::now() >= deadline {
             // Started and never ready: it is this host's, so it ends here.
             let _ = child.kill();
             let _ = child.wait();
             return Err(format!(
-                "acpmux socket {} not ready after 30 s",
-                socket.display()
+                "acpmux socket {} not ready after {} s",
+                socket.display(),
+                started.elapsed().as_secs()
             ));
         }
         std::thread::sleep(step);
