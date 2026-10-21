@@ -12,7 +12,8 @@ import Testing
 /// beside another tab (a terminal, a browser, a chat card) went through ``LinkOpener``: to the pane
 /// on the right, else a new split, and the page's pane fell back to its old tab. The New Tab page
 /// is the tab the person opened in this pane: its pick takes the page's place there, whatever
-/// `layout.linkPlacement` says, and no pane or divider moves.
+/// `layout.linkPlacement` says, and no pane or divider moves. `layout.newTabPageFollowsLinkPlacement`
+/// opts back into the link rule (Lawrence 2026-10-19).
 @MainActor struct NewTabPagePickInPlaceTests {
     /// A pane holding a terminal (surface 1) and the New Tab page (surface 2), or the page alone.
     private static func pane(withTerminal: Bool) throws -> (AppServices, PaneController, String) {
@@ -33,9 +34,10 @@ import Testing
 
     /// Runs the page's terminal pick and reports whether it asked where links go (a pick routed
     /// through ``LinkOpener`` reads `layout.linkPlacement` to find the pane on the right or split).
-    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool) throws -> Bool {
+    private static func pickConsultsLinkPlacement(_ placement: LinkPlacement, withTerminal: Bool, optedIn: Bool = false) throws -> Bool {
         let (services, pane, page) = try Self.pane(withTerminal: withTerminal)
         defer { pane.teardown() }
+        services.linkOpener.newTabPageFollows = { optedIn }
         var consulted = false
         services.linkOpener.placement = {
             consulted = true
@@ -55,5 +57,21 @@ import Testing
     /// Nothing else in the pane: the page becomes what it opened, as it always did.
     @Test func aLonePageIsReplacedInPlace() throws {
         #expect(try !Self.pickConsultsLinkPlacement(.splitRight, withTerminal: false))
+    }
+
+    /// The opt-in setting is off unless the person turns it on.
+    @Test func followingLinkPlacementIsOptIn() {
+        #expect(!CmuxConfigSnapshot.newTabPageFollowsLinkPlacementFallback)
+    }
+
+    /// `layout.newTabPageFollowsLinkPlacement` on: the pick goes where links go, beside the page.
+    @Test func optedInThePickFollowsLinkPlacement() throws {
+        #expect(try Self.pickConsultsLinkPlacement(.splitRight, withTerminal: true, optedIn: true))
+        let (_, pane, page) = try Self.pane(withTerminal: true)
+        defer { pane.teardown() }
+        pane.services.linkOpener.newTabPageFollows = { true }
+        #expect(NewTabPage.opensBeside(page, in: pane))
+        pane.services.linkOpener.newTabPageFollows = { false }
+        #expect(!NewTabPage.opensBeside(page, in: pane))
     }
 }

@@ -3,9 +3,10 @@ public import CmuxNextDesign
 /// Where new panes open (`CmuxConfigSnapshot+PanePlacement`), in the General
 /// section's Columns group.
 nonisolated enum PanePlacementSettingsSchema {
-    /// Agents may change all three: layout choices, like `layout.dockColumnMode`.
+    /// Agents may change them all: layout choices, like `layout.dockColumnMode`.
     static var agentSettableKeys: Set<String> {
-        [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath, LinkPlacement.configPath]
+        [CmuxConfigSnapshot.newPanePlacementPath, CmuxConfigSnapshot.tileBrowsersPath, LinkPlacement.configPath,
+         CmuxConfigSnapshot.newTabPageFollowsLinkPlacementPath]
             .reduce(into: []) { $0.insert($1.joined(separator: ".")) }
     }
 
@@ -44,6 +45,14 @@ nonisolated enum PanePlacementSettingsSchema {
                 ]),
                 default: .string(LinkPlacement.fallback.rawValue),
                 keywords: ["link", "url", "path", "file", "open", "split", "right", "column", "pane", "tab"]
+            ),
+            SettingDescriptor(
+                CmuxConfigSnapshot.newTabPageFollowsLinkPlacementPath, section: .general, group: columns,
+                title: SettingsText.keyed("settings.layout.newTabPageFollowsLinkPlacement", "New Tab Page Opens Like Links"),
+                help: SettingsText.keyed("settings.layout.newTabPageFollowsLinkPlacement.help",
+                                        "Off: what you pick on a New Tab page replaces the page in its pane. On: it opens where Open Links and Files says, beside the page."),
+                kind: .toggle, default: .bool(CmuxConfigSnapshot.newTabPageFollowsLinkPlacementFallback),
+                keywords: ["new tab", "page", "link", "open", "split", "right", "pane", "replace", "in place"]
             ),
         ]
     }

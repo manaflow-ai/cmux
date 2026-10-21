@@ -112,6 +112,8 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     /// `layout.newPanePlacement` and `layout.tileBrowsers` (`CmuxConfigSnapshot+PanePlacement`).
     public var newPanePlacement: NewPanePlacement = CmuxConfigSnapshot.newPanePlacementFallback
     public var tileBrowsers: Bool = CmuxConfigSnapshot.tileBrowsersFallback
+    /// `layout.newTabPageFollowsLinkPlacement` (`CmuxConfigSnapshot+PanePlacement`).
+    public var newTabPageFollowsLinkPlacement: Bool = CmuxConfigSnapshot.newTabPageFollowsLinkPlacementFallback
     /// `layout.linkPlacement`: where an opened link or path lands (``LinkPlacement``).
     public var linkPlacement: LinkPlacement = .fallback
     /// `workspaces.newPlacement` (`WorkspaceListSettings`).

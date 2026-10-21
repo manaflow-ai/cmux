@@ -68232,6 +68232,268 @@
         }
       }
     },
+    "settings.layout.newTabPageFollowsLinkPlacement": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "New Tab Page Opens Like Links"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "صفحة علامة التبويب الجديدة تفتح مثل الروابط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Stranica nove kartice otvara kao veze"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny fane-side åbner som links"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Neuer-Tab-Seite öffnet wie Links"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La página Nueva pestaña abre como los enlaces"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La page Nouvel onglet ouvre comme les liens"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "La pagina Nuova scheda apre come i link"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "新しいタブページもリンクと同じ場所に開く"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ទំព័រផ្ទាំងថ្មីបើកដូចតំណ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "새 탭 페이지도 링크처럼 열기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ny fane-siden åpner som lenker"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Strona nowej karty otwiera jak linki"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A página Nova aba abre como os links"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Страница новой вкладки открывает как ссылки"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "หน้าแท็บใหม่เปิดเหมือนลิงก์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Yeni Sekme sayfası bağlantılar gibi açar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сторінка нової вкладки відкриває як посилання"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Trang Tab mới mở như liên kết"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新标签页像链接一样打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "新分頁頁面像連結一樣開啟"
+          }
+        }
+      }
+    },
+    "settings.layout.newTabPageFollowsLinkPlacement.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off: what you pick on a New Tab page replaces the page in its pane. On: it opens where Open Links and Files says, beside the page."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "عند الإيقاف: ما تختاره في صفحة علامة تبويب جديدة يحل محل الصفحة في جزئها. عند التشغيل: يفتح حيث يحدد خيار فتح الروابط والملفات، بجانب الصفحة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Isključeno: ono što odaberete na stranici nove kartice zamjenjuje stranicu u njenom oknu. Uključeno: otvara se gdje kaže Otvaranje veza i datoteka, pored stranice."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fra: Det, du vælger på en Ny fane-side, erstatter siden i dens rude. Til: Det åbner, hvor Åbn links og filer siger, ved siden af siden."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aus: Was du auf einer Neuer-Tab-Seite auswählst, ersetzt die Seite in ihrem Bereich. Ein: Es öffnet sich dort, wo „Links und Dateien öffnen“ es vorgibt, neben der Seite."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desactivado: lo que eliges en una página Nueva pestaña reemplaza la página en su panel. Activado: se abre donde indique Abrir enlaces y archivos, junto a la página."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Désactivé : ce que vous choisissez sur une page Nouvel onglet remplace la page dans son volet. Activé : il s’ouvre là où l’indique Ouvrir les liens et fichiers, à côté de la page."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Disattivato: ciò che scegli in una pagina Nuova scheda sostituisce la pagina nel suo riquadro. Attivato: si apre dove indica Apri link e file, accanto alla pagina."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフ：新しいタブページで選んだものは、そのペインでページと置き換わります。オン：「リンクとファイルを開く」の設定どおり、ページの横に開きます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បិទ៖ អ្វីដែលអ្នកជ្រើសនៅលើទំព័រផ្ទាំងថ្មី ជំនួសទំព័រនោះនៅក្នុងផ្ទាំងរបស់វា។ បើក៖ វាបើកនៅកន្លែងដែល បើកតំណ និងឯកសារ កំណត់ នៅក្បែរទំព័រ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "끔: 새 탭 페이지에서 고른 항목이 해당 패널에서 페이지를 대체합니다. 켬: 링크 및 파일 열기 설정에 따라 페이지 옆에 열립니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Av: Det du velger på en Ny fane-side, erstatter siden i ruten. På: Det åpnes der Åpne lenker og filer sier, ved siden av siden."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wyłączone: to, co wybierzesz na stronie nowej karty, zastępuje stronę w jej panelu. Włączone: otwiera się tam, gdzie wskazuje Otwieranie linków i plików, obok strony."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desativado: o que você escolhe em uma página Nova aba substitui a página no painel dela. Ativado: abre onde Abrir links e arquivos indicar, ao lado da página."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Выкл.: выбранное на странице новой вкладки заменяет эту страницу в её панели. Вкл.: открывается там, где указано в «Открывать ссылки и файлы», рядом со страницей."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ปิด: สิ่งที่คุณเลือกบนหน้าแท็บใหม่จะแทนที่หน้านั้นในบานของมัน เปิด: จะเปิดตามที่ เปิดลิงก์และไฟล์ กำหนด ข้างหน้านั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Kapalı: Yeni Sekme sayfasında seçtiğiniz şey, sayfanın bölmesinde sayfanın yerini alır. Açık: Bağlantıları ve Dosyaları Aç ayarının gösterdiği yerde, sayfanın yanında açılır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Вимк.: вибране на сторінці нової вкладки замінює цю сторінку в її панелі. Увімк.: відкривається там, де вказує «Відкривати посилання й файли», поруч зі сторінкою."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tắt: thứ bạn chọn trên trang Tab mới sẽ thay trang đó trong ngăn của nó. Bật: mở ở nơi Mở liên kết và tệp chỉ định, bên cạnh trang."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "关闭：在新标签页上选择的内容会在其窗格中替换该页面。打开：按照“打开链接和文件”的设置，在页面旁边打开。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "關閉：在新分頁頁面上選擇的內容會在其窗格中取代該頁面。開啟：依照「開啟連結和檔案」的設定，在頁面旁邊開啟。"
+          }
+        }
+      }
+    },
     "settings.layout.tileBrowsers": {
       "extractionState": "manual",
       "localizations": {

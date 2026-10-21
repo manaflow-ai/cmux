@@ -91,13 +91,9 @@ extension NewTabPage {
     }
 
     /// The page chose a terminal or browser: open it, then close the page,
-    /// which held nothing yet (the open-beside rule's one replace case). The
-    /// page closes only once the new tab exists, so a refused or failed open
+    /// which held nothing yet. The page closes only once the new tab exists, so a refused or failed open
     /// leaves it, and what was typed, in place. A chat that has a session
     /// (`keep`: its Log In, Update or Open in Terminal) stays; the new tab opens beside it.
-    /// The pick takes the page's place in its pane, never `layout.linkPlacement`'s pane on the
-    /// right or a new split: the page is the tab the person opened here, so no pane or divider
-    /// moves (Leo 2026-10-20, NewTabPagePickInPlaceTests).
     /// A static of the page, not the pane, so PaneController stays one
     /// responsibility (the godfile limit counts its extensions).
     static func replace(_ key: String, with request: AgentPaneOpenTab, cwd: String?, in pane: PaneController, keep chat: Bool = false) {
@@ -112,6 +108,10 @@ extension NewTabPage {
             closeFrame.scheduleFrame { BenchSpans.measure("newTab.closePage") { pane?.close([StripTabID(key)]) } }
         }
         if case .terminal = request.kind, request.run, command(request.text) == nil { return } // opens nothing
+        // The pick takes the page's place in its pane, like a browser's new tab: no pane or divider
+        // moves (Leo 2026-10-20). `layout.newTabPageFollowsLinkPlacement` sends it right of the
+        // pane instead (LinkOpener, `layout.linkPlacement`), as every link (Lawrence 2026-10-19).
+        if !keep, Self.opensBeside(key, in: pane) { return Self.openBeside(key, with: request, cwd: cwd, from: pane) }
         let closePage = keep ? close : NewTabSlot.placing(replacing: key, services: services, then: close) ?? close // the page's slot
         switch request.kind {
         case .terminal where !request.run:
@@ -138,6 +138,46 @@ extension NewTabPage {
         }
     }
 
+    /// Whether what New Tab page `key` in `pane` opens goes beside it: the person turned on
+    /// `layout.newTabPageFollowsLinkPlacement`, the link placement is not Same Pane, the page shares its pane with another tab (a lone page has nothing to keep in
+    /// view, so it is replaced in place), and it is no split's (a split's page, which lists Open
+    /// Tabs, fills the pane the person just made, NewTabPage.split).
+    static func opensBeside(_ key: String, in pane: PaneController) -> Bool {
+        let tabs = pane.services.agentTabs, page = tabs.resolve(key)
+        guard pane.services.linkOpener.newTabPageFollows() else { return false }
+        guard tabs.newTabPages[page]?.page.openTabs == nil, pane.pane.tabs.contains(where: { $0.id != page }) else { return false }
+        return pane.services.linkOpener.target(from: pane) != .pane(pane.layoutPaneID)
+    }
+
+    /// ``replace(_:with:cwd:in:keep:)`` beside the page: the terminal or browser opens through
+    /// ``LinkOpener`` (the pane on the right, else a new split), then the page closes.
+    private static func openBeside(_ key: String, with request: AgentPaneOpenTab, cwd: String?, from pane: PaneController) {
+        let services = pane.services
+        let closePage = closingPage(key, in: pane)
+        services.linkOpener.open(from: pane) { target, placed in
+            let landed: @MainActor (SurfaceID) -> Void = { surface in
+                placed?(surface)
+                closePage()
+            }
+            switch request.kind {
+            case .terminal where !request.run:
+                let typeAhead = services.newTabTypeAhead
+                if typeAhead.latest(key).isEmpty, !request.text.isEmpty { typeAhead.update(key, text: request.text) }
+                target.newTerminalTab(cwd: cwd, typingAhead: key, then: landed)
+                return true
+            case .terminal:
+                guard let command = command(request.text) else { return false }
+                target.newTerminalTab(cwd: cwd, typing: command, then: landed)
+                return true
+            case .browser:
+                let url = browserURL(request, services: services)
+                return target.newBrowserTab(url: url, engine: BrowserEngineTag.engine(for: url), background: placed != nil, then: landed)
+            case .agent:
+                return false
+            }
+        }
+    }
+
     /// The address a browser pick of the page goes to: a search, a cmux/Chromium page, or the typed
     /// destination (typos fixed).
     private static func browserURL(_ request: AgentPaneOpenTab, services: AppServices) -> URL? {
@@ -146,5 +186,11 @@ extension NewTabPage {
         return request.search
             ? resolver.searchEngine.searchURL(for: text)
             : ChromiumInternalURL(typed: text)?.url ?? resolver.commitTypoFix(for: text) ?? resolver.destination(for: request.text)?.url
+    }
+
+    /// Closes New Tab page `key` one frame after what it opened shows (``opensBeside(_:in:)`` keeps
+    /// a lone page in place, so this never empties the person's pane).
+    static func closingPage(_ key: String, in pane: PaneController) -> @MainActor () -> Void {
+        { [weak pane] in closeFrame.scheduleFrame { pane?.close([StripTabID(key)]) } }
     }
 }

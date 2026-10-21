@@ -30,10 +30,16 @@ final class LinkOpener {
     private weak var services: AppServices?
     /// The setting, read on every open (``LinkPlacement/fallback`` before settings load).
     var placement: () -> LinkPlacement
+    /// `layout.newTabPageFollowsLinkPlacement`: a New Tab page's pick opens here too (NewTabPage.opensBeside);
+    /// off, it replaces the page in its pane.
+    var newTabPageFollows: () -> Bool
 
     init(services: AppServices) {
         self.services = services
         placement = { [weak services] in services?.settings?.snapshot.linkPlacement ?? .fallback }
+        newTabPageFollows = { [weak services] in
+            services?.settings?.snapshot.newTabPageFollowsLinkPlacement ?? CmuxConfigSnapshot.newTabPageFollowsLinkPlacementFallback
+        }
     }
 
     /// The pane a link opened from tab `key` (a tab id or resource id) starts from: the pane

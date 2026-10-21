@@ -300,6 +300,21 @@ Where a new terminal or browser opens when you create it (New Terminal, Cmd-T, t
 
 The CLI and MCP always open a tab, so scripts get a predictable result; a command that names a pane opens in that pane. Change these in **Settings > General > Columns** or with `cmux settings set layout.newPanePlacement split`.
 
+## `layout.newTabPageFollowsLinkPlacement`
+
+What you pick on a New Tab page (a chat, an address, a terminal) replaces the page in its own pane, like a browser's new tab: no other pane or divider moves.
+
+```json
+{
+  "layout": { "newTabPageFollowsLinkPlacement": true }
+}
+```
+
+- `false` (default): the pick takes the page's place in its pane.
+- `true`: the pick opens where `layout.linkPlacement` (**Open Links and Files**) puts links: the pane on the right, else a new split or column. The page then closes.
+
+Change it in **Settings > General > Columns** or with `cmux settings set layout.newTabPageFollowsLinkPlacement true`.
+
 ## `layout.focusFollowsMouse`
 
 Off by default: hovering or scrolling over a pane leaves keyboard focus where you type, and only a click or the keyboard moves it. Turn it on to have the pointer focus panes, as a click does: a terminal, browser, Markdown viewer, agent chat or Home. The scroll still reaches the pane.
