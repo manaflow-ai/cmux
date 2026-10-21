@@ -107,7 +107,7 @@ public nonisolated enum LayoutTunables {
         "drop.newColumnWidth", .tabDrag, "New column zone width", help: "Width of the new-column drop zone centered on each column gap.",
         default: 36, range: 8...160, step: 1, unit: .points, code: "LayoutTunables.newColumnDropWidth")
     public static let inactivePaneDimming = Tunable<CGFloat>.number(
-        "panes.inactiveDimming", .panes, "Inactive pane dim", help: "Dim of unfocused panes when dimming is on.", default: 0.14, range: 0...0.8, step: 0.01,
+        "panes.inactiveDimming", .panes, "Inactive pane dim", help: "Dim of unfocused panes when dimming is on (theme token ThemeTokens.inactivePaneDim).", default: 0.10, range: 0...0.8, step: 0.01,
         unit: .fraction, code: "LayoutTunables.inactivePaneDimming")
     public static let minimumContentWidth = Tunable<CGFloat>.number(
         "panes.minimumContentWidth", .panes, "Minimum pane width", help: "Smallest content width a pane keeps (about 25 columns).", default: 200,
