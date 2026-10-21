@@ -116,6 +116,40 @@ struct ClickedLinkFocusTests {
         }
     }
 
+    /// An agent's open beside its lone chat docks the chat left and keeps the focus in it. That
+    /// refocus is the app's, not the person's: it must not read as the person acting, or a second
+    /// open in flight (Changes then Preview, two agents in one window) would skip selecting its tab.
+    @Test func anAgentsOpenFromALoneChatRefocusesTheChatAsTheApp() async throws {
+        try await PinnedPageTests.withApp { services, connection in
+            let store = services.daemon.store
+            let content = try #require(services.windows.active?.workspaceContent)
+            let model = try #require(store.workspaces.first?.screens.first?.panes.first)
+            let pane = try #require(services.paneController(for: model))
+            let terminal = try #require(model.tabs.first?.surface)
+            let record = AgentSessionRef(host: AgentSessionRef.host(installID: "cn-linkfocus-test"), hostName: "This Mac",
+                                         session: "chat-lone", harness: "claude")
+            let chat = try await connection.request(NewConversationTabRequest(agentSession: record, pane: model.handle))
+            try await PinnedPageTests.until({ pane.pane.tabs.contains { $0.surface == chat.surface } })
+            try await connection.closeTab(terminal)
+            try await PinnedPageTests.until({ pane.pane.tabs.count == 1 && pane.pane.tabs.first?.surface == chat.surface })
+            PaneHandlers.focus(pane.layoutPaneID, in: content)
+            try await PinnedPageTests.until({ content.focusedPane === pane })
+            let asked = content.focus.state.generation
+
+            var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: pane.paneKey), origin: .cli)
+            invocation.besideCaller = true
+            invocation.newColumnBeside = true
+            let placed = AgentBesidePlacement.placed(invocation, in: pane, then: nil)
+            let agents = try await connection.newFrontendBrowserTab(url: "https://example.com/agent", engine: .webkit,
+                                                                    in: model.handle, activate: false)
+            placed(agents.surface)
+            @MainActor func dock() -> PaneModel? { store.workspaces.flatMap(\.screens).flatMap(\.panes).first { $0.tabs.contains { $0.surface == chat.surface } } }
+            try await PinnedPageTests.until({ dock().map { $0 !== model } == true && content.focusedPane?.pane === dock() },
+                                            report: { "the chat did not dock with the focus: " + Self.describe(content, chat.surface.description) })
+            #expect(content.focus.state.generation == asked, "the app's refocus of the chat counted as the person acting")
+        }
+    }
+
     /// The chat header's Preview (Changes and Files take the same path): a person's click, so the
     /// tab that opens in a new column right of the page takes the focus, unlike an agent's own
     /// beside_caller open, and its close gives the focus back to the page it was clicked in.
