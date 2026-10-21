@@ -105,7 +105,7 @@ test("a Ledger row shows its whole description, with its picture beside the text
   const root = dom.window.document.createElement("div");
   dom.window.document.body.append(root);
   await act(async () => {
-    mountChangelogPage(root, new MockChangelogProvider(notes) as never);
+    mountChangelogPage(root, new MockChangelogProvider(notes as never) as never);
     await new Promise((resolve) => setTimeout(resolve, 20));
   });
   const row = root.querySelector<HTMLElement>(".cll .cl-group li.cl-has-media")!;
