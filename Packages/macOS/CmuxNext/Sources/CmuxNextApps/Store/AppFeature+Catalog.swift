@@ -31,7 +31,7 @@ extension AppFeature {
                        category: .chief, preview: .icon(.agentChief),
                        name: t("store.feature.chiefPet.name", "Chief Pet"),
                        summary: t("store.feature.chiefPet.summary", "A small Chief floats over every app and shows agent events."),
-                       keywords: ["pet", "mascot", "floating"]),
+                       keywords: ["pet", "mascot", "floating"], settingsLink: "home.chiefPetEnabled"),
             AppFeature(id: "chief.sidebarItem", setting: "sidebar.layout", on: .sidebarItem("chief"),
                        category: .chief, preview: .icon(.agentChief),
                        name: t("store.feature.chiefSidebarItem.name", "Chief in Sidebar"),
