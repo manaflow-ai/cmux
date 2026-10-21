@@ -3,7 +3,10 @@ import AppKit
 import CmuxNextDesign
 import Testing
 
-/// Closing the bottom row keeps the surviving row where it showed while its camera springs back.
+/// Closing the bottom row springs the surviving row back into view from where it showed. Since
+/// 9bcad4da60ed (Lawrence 2026-10-20: "immediately alongside the pane closing we also need to see
+/// a shift") the change that drops the row already takes the camera's first spring step, so the
+/// surviving pane moves a little toward its rest in that frame, and never jumps.
 @MainActor
 struct RowCloseMotionTests {
     final class Panes: LayoutPaneContentProvider {
@@ -42,12 +45,16 @@ struct RowCloseMotionTests {
         model.focus("middle")
         root.syncWithModel()
         let after = try #require(screen.displayedFrame(of: "middle"))
-        #expect(abs(after.minY - before.minY) < 0.5, "closing a row jumped the surviving pane: \(before) -> \(after)")
         #expect(screen.rowsMoving)
         #expect(screen.hasMotion)
         for _ in 0..<240 { if !root.advanceFrame(1.0 / 120) { break } }
 
         let shown = try #require(screen.displayedFrame(of: "middle"))
+        // The close's own frame is the spring's first step toward the rest: under way, and no jump.
+        let firstStep = after.minY - before.minY, travel = shown.minY - before.minY
+        #expect(abs(travel) > 100, "the middle row did not travel: \(before) -> \(shown)")
+        #expect(firstStep * travel > 0, "the close's frame did not start the shift: \(before) -> \(after)")
+        #expect(abs(firstStep) < abs(travel) * 0.1, "closing a row jumped the surviving pane: \(before) -> \(after)")
         #expect(screen.bounds.insetBy(dx: -0.5, dy: -0.5).contains(shown), "the middle row rested off screen: \(shown)")
         #expect(abs(screen.rowOffset(of: "middle") - 400) < 0.5)
         #expect(!screen.hasMotion)
