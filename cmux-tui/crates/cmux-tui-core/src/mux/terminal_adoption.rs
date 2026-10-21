@@ -298,6 +298,21 @@ impl Mux {
         // handshake is enough for healthy hosts; live or indeterminate
         // failures continue on the asynchronous adoption loop instead of
         // retrying serially ahead of every later terminal.
+        // Ends the Kitty owner floor when the commits are done, also on an
+        // early error.
+        struct KittyOwnerFloor(Option<Arc<Mux>>);
+        impl Drop for KittyOwnerFloor {
+            fn drop(&mut self) {
+                if let Some(mux) = self.0.take() {
+                    mux.set_kitty_image_owner_floor(0);
+                }
+            }
+        }
+        let mut kitty_floor = KittyOwnerFloor(None);
+        if handshakes.len() > 1 {
+            self.set_kitty_image_owner_floor(handshakes.len());
+            kitty_floor.0 = Some(self.clone());
+        }
         let adopted = self.adopt_handshakes_in_parallel(&options, &mut handshakes);
         for (handshake, adopted) in handshakes.into_iter().zip(adopted) {
             let PendingHandshake { terminal_id, record, record_path, .. } = handshake;
@@ -362,6 +377,9 @@ impl Mux {
             self.reap_if_dead(&surface);
         }
 
+        // Every adopted surface is committed (or gone): the budget follows
+        // the real owners again.
+        drop(kitty_floor);
         self.mark_unadoptable_terminal_hosts(&options, &mut handled_terminals)?;
 
         // No launcher survives a daemon restart. A durable lifecycle row
