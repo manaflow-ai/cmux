@@ -13,9 +13,11 @@
 // runs on; to an agent that cannot steer it runs next. It never cancels a turn. Only a click sends
 // now, never a key: a held or repeated key once sent row after row (claude-sr2, 2026-10-20).
 //
-// Another agent's message waiting in the queue (`from`, direct.ts `queuedFrom`) is not the
-// person's prompt: its text follows its sender's name as a chip, as its received line reads once it
-// runs, and it has no Send now (Leo, 2026-10-21).
+// Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
+// person's prompt: its row is the message's received line (conversation/IncomingMessageCard.tsx), as
+// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat, a
+// one-line preview, and the message as a card when opened. Its actions, Send now too, sit at the
+// line's end (Leo, 2026-10-21).
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
@@ -37,6 +39,8 @@ import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
+import { IncomingMessageLine } from "./conversation/IncomingMessageCard";
+import { SubsessionContext, type Subsessions } from "./subagents/subsessions";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -115,6 +119,7 @@ export function ComposerQueue({
   onLost,
   onLeave,
   readImage,
+  subsessions,
 }: {
   queue: AcpmuxSnapshot["queue"];
   /// The chat the queue belongs to: a long queue opened stays open for it.
@@ -132,6 +137,8 @@ export function ComposerQueue({
   onLeave?(): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   readImage?(id: string): Promise<string | undefined>;
+  /// The listed chats, which an agent's message names its sender among, and how its chip opens one.
+  subsessions?: Subsessions | null;
 }) {
   // A row leaves as soon as it is removed; it comes back only if acpmux kept it waiting.
   const [leaving, setLeaving] = useState<ReadonlySet<string>>(new Set());
@@ -360,7 +367,7 @@ export function ComposerQueue({
     onSelect,
   });
   const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
-    ...(sendNow && !entry.from
+    ...(sendNow
       ? [
           {
             id: "send",
@@ -408,6 +415,28 @@ export function ComposerQueue({
       <Icon name={icon} size={14} />
     </button>
   );
+  // A row's actions: on hover, at the row's end, or at the end of an agent's message line.
+  const actions = (entry: QueuedEntry) =>
+    editing !== entry.id &&
+    (onChange || remove) && (
+      <span className="acpmux-queued-actions">
+        {onChange && action("edit", "action.edit", t("composer.queueEdit"), () => setEditing(entry.id))}
+        {remove && action("remove", "action.close", t("composer.queueRemove"), () => remove(entry))}
+        {sendNow && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
+      </span>
+    );
+  // Another agent's message: its received line, which finds its sender among the listed chats.
+  const received = (entry: QueuedEntry, message: NonNullable<QueuedEntry["message"]>) => {
+    const line = (
+      <IncomingMessageLine
+        id={`queued:${entry.id}`}
+        message={message}
+        onOpen={(sessionId) => subsessions?.open(sessionId)}
+        actions={actions(entry)}
+      />
+    );
+    return subsessions ? <SubsessionContext.Provider value={subsessions}>{line}</SubsessionContext.Provider> : line;
+  };
   // A row's mark, text (or its edit) and actions.
   const cells = (entry: QueuedEntry, index: number) => (
     <>
@@ -432,6 +461,8 @@ export function ComposerQueue({
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
+      ) : entry.message ? (
+        received(entry, entry.message)
       ) : (
         <button
           type="button"
@@ -448,27 +479,11 @@ export function ComposerQueue({
                 {t("composer.steering")}
               </span>
             )}
-            {entry.from && (
-              <>
-                <span className="acpmux-hidden-label">
-                  {t("message.label", { from: entry.from, to: t("message.self") })}
-                </span>
-                <span className="acpmux-queued-kind" data-kind="from" aria-hidden="true">
-                  {entry.from}
-                </span>
-              </>
-            )}
             {entry.prompt}
           </span>
         </button>
       )}
-      {editing !== entry.id && (onChange || remove) && (
-        <span className="acpmux-queued-actions">
-          {onChange && action("edit", "action.edit", t("composer.queueEdit"), () => setEditing(entry.id))}
-          {remove && action("remove", "action.close", t("composer.queueRemove"), () => remove(entry))}
-          {sendNow && !entry.from && action("send", "composer.send", t("composer.queueSendNow"), () => sendNow(entry))}
-        </span>
-      )}
+      {!entry.message && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
         images={

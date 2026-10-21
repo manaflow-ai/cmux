@@ -7322,6 +7322,7 @@ function AcpmuxPane() {
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
             onQueueLost={(text) => composerHandle.current?.restore(text, [])}
             queueImage={readQueuedImage}
+            queueSubsessions={subsessions}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}

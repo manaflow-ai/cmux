@@ -317,7 +317,7 @@ function queuedEntry(
   next: boolean,
   sending = false,
   images?: readonly QueuedPromptImage[],
-  from?: string,
+  message?: IncomingMessage,
 ): QueuedPrompt {
   return {
     id,
@@ -325,17 +325,23 @@ function queuedEntry(
     ...(next ? { next } : {}),
     ...(sending ? { sending } : {}),
     ...(images?.length ? { images: [...images] } : {}),
-    ...(from ? { from } : {}),
+    ...(message ? { message } : {}),
   };
 }
 
-/// The sender of a `queued` record that is another agent's message: the name its provenance
-/// gives, as the received line reads it (conversation/incomingMessage.ts), else acpmux's
-/// `fromAgent` (`acpmux send --from`). Undefined for the person's own prompt.
-export function queuedFrom(msg: any): string | undefined {
-  const incoming = incomingPrompt(String(msg?.text ?? ""), msg);
-  if (incoming?.kind === "message") return incoming.message.name;
-  return typeof msg?.fromAgent === "string" && msg.fromAgent.trim() ? msg.fromAgent.trim() : undefined;
+/// A `queued` record that is another agent's message, as its received line reads it once it runs
+/// (conversation/incomingMessage.ts), else as acpmux's `fromAgent` names it (`acpmux send --from`),
+/// its text without a leading "[name]" or "From name:" that only repeats the sender. Undefined for
+/// the person's own prompt.
+export function queuedMessage(msg: any): IncomingMessage | undefined {
+  const text = String(msg?.text ?? "");
+  const incoming = incomingPrompt(text, msg);
+  if (incoming?.kind === "message") return incoming.message;
+  const name = typeof msg?.fromAgent === "string" ? msg.fromAgent.trim() : "";
+  if (!name) return undefined;
+  const lead = text.trimStart();
+  const named = [`[${name}]`, `From ${name}:`].find((prefix) => lead.toLowerCase().startsWith(prefix.toLowerCase()));
+  return { name, text: (named ? lead.slice(named.length) : text).trim(), raw: text };
 }
 
 /// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
@@ -406,7 +412,7 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     // acpmux) keeps those the pane had.
     const images = Array.isArray(entry?.images) ? withKnownBytes(promptImages(entry.images), had?.images) : had?.images;
     // acpmux's list names no sender: the `queued` record the pane read did.
-    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, had?.from);
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, had?.message);
   });
 }
 
@@ -2347,7 +2353,7 @@ export class AcpmuxDirectClient {
         .map((entry) =>
           next === undefined
             ? entry
-            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.from),
+            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.message),
         );
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
@@ -2360,7 +2366,7 @@ export class AcpmuxDirectClient {
         const images = named.length ? named : this.queue.find((entry) => entry.id === id)?.images;
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
-          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedFrom(msg)),
+          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedMessage(msg)),
         ];
       }
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
@@ -3587,7 +3593,7 @@ export class AcpmuxDirectClient {
               queued.next === true,
               next.state === "sending",
               queued.images,
-              queued.from,
+              queued.message,
             )
           : queued,
       );

@@ -18,6 +18,7 @@ import type { Project } from "./ProjectChooser";
 import { ComposerContext } from "./ComposerContext";
 import { showsLocationRow } from "./locationRow";
 import { ComposerQueue } from "./ComposerQueue";
+import type { Subsessions } from "./subagents/subsessions";
 import {
   ArrowUpIcon,
   AtIcon,
@@ -182,6 +183,8 @@ type Props = {
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   /// Stable: each queued thumbnail reads once.
   queueImage?(id: string): Promise<string | undefined>;
+  /// The listed chats, among which a queued agent's message finds its sender's (ComposerQueue.tsx).
+  queueSubsessions?: Subsessions;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -290,6 +293,7 @@ export function Composer({
   onQueueChange,
   onQueueLost,
   queueImage,
+  queueSubsessions,
   draft,
   leading,
   permissionAccess,
@@ -1411,6 +1415,7 @@ export function Composer({
         onChange={onQueueChange}
         onLost={onQueueLost}
         readImage={queueImage}
+        subsessions={queueSubsessions}
         onLeave={() => field.current?.focus()}
       />
       {context}

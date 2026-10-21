@@ -76,6 +76,9 @@ const shot = (hue: number, width = 1440, height = 900) =>
         .join("") +
       "</svg>",
   )}`;
+// Another agent's message waiting behind the turn (Leo, 2026-10-21: it drew as the person's prompt).
+const QUEUED_MESSAGE =
+  "**Rebase onto #23738** before you push: it moves the queue rows.\n\n- `ComposerQueue.tsx` changes\n- the gallery cases too";
 // A prompt queued with two screenshots (Leo, 2026-10-21: "do queued messages have pics?").
 const pictured = {
   id: "q1",
@@ -866,14 +869,36 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: its sender's name leads it as a chip, and it has no Send now (the person's prompt below keeps it).",
+      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, a one-line preview, the card when opened), its actions, Send now too, at the line's end; the person's prompt below is unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
-          { id: "q1", prompt: "Rebase onto #23738 before you push; it moves the queue rows.", from: "coord-deputy" },
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
           { id: "q2", prompt: "And update the README" },
         ],
       }),
+    },
+    "queued-from-agent-open": {
+      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown.",
+      snapshot: chat(working, {
+        isWorking: true,
+        queue: [
+          {
+            id: "q1",
+            prompt: QUEUED_MESSAGE,
+            message: { name: "coord-deputy", sessionId: "s-deputy", text: QUEUED_MESSAGE, raw: QUEUED_MESSAGE },
+          },
+          { id: "q2", prompt: "And update the README" },
+        ],
+      }),
+      play: async (ctx) => {
+        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-queued .cv-received__body") !== null);
+      },
     },
     "queued-images": {
       note: "A prompt queued with two screenshots: small thumbnails under its text, each opening the image viewer.",
