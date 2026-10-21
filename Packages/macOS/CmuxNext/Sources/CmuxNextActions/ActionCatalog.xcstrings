@@ -33281,7 +33281,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Copy Notification"
+            "value": "Copy Notification Text"
           }
         },
         "ja": {
@@ -62756,7 +62756,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Toggle Tab Unread"
+            "value": "Mark Tab Read/Unread"
           }
         },
         "ja": {
@@ -74022,7 +74022,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Open Site Settings of Blocked Download"
+            "value": "Open Site Settings for Blocked Downloads"
           }
         },
         "ja": {

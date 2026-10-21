@@ -159,7 +159,8 @@ final class FileExplorerSectionView: NSView, RightSidebarRefreshing, NSTableView
 
     /// Runs one file change through ``FileExplorerCommands``; a failure shows its reason.
     private func edit(_ change: @escaping @MainActor (FileExplorerCommands) async throws -> Void) {
-        let commands = FileExplorerCommands(model: model, effects: effects)
+        var commands = FileExplorerCommands(model: model, effects: effects)
+        commands.undoManager = window?.undoManager
         let showError = showError
         // task-owner: one file change and a relisting; ends when the folder lists again.
         Task { @MainActor in

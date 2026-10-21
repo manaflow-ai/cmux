@@ -19,7 +19,7 @@ import {
 } from "../viewed-files";
 import { readLocalViewerPrefs, sanitizeViewerPrefs, type ViewerPrefs } from "../viewer-prefs";
 import type { DiffViewerStatus } from "../status";
-import type { DiffViewerConfig } from "../types";
+import type { DiffViewerConfig, DiffViewerPayload } from "../types";
 import { canApplyDeferredHydration } from "./deferredHydration";
 import { diffItemPreloadLanguages, mergeLanguages, relanguagedItems, resolveDiffItemLanguage } from "./item-languages";
 
@@ -128,14 +128,7 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     metrics: null,
     options: {
       collapsed: false,
-      colors: "theme",
-      diffIndicators: "bars",
-      expandUnchanged: false,
-      lineNumbers: true,
-      showBackgrounds: true,
-      // The setting's default (DiffViewerSettingsSchema.swift `diff.wordDiffs`).
-      wordDiffs: true,
-      wordWrap: false,
+      ...defaultDiffViewerOptions(payload),
       ...seededOptions,
       layout: initialDiffViewerLayout(payload),
     } as DiffViewerOptions,
@@ -147,6 +140,24 @@ export function initialAppState(config: DiffViewerConfig, initialStatus: DiffVie
     viewedLocalEdits: new Map(),
     viewedScopeKey: "",
     viewerWidth: 0,
+  };
+}
+
+/**
+ * The display options before any stored pref. In cmux NEXT (the page host; its config's transport
+ * is `page`) they are the defaults of the `diff.*` settings (DiffViewerSettingsSchema.swift), and
+ * diff-option-defaults.test.ts holds them to the exported schema. Word changes are on there (Leo,
+ * 2026-10-20). The classic viewer and the dev server embed their config and keep word changes off.
+ */
+export function defaultDiffViewerOptions(payload: DiffViewerPayload): Omit<DiffViewerOptions, "collapsed" | "layout"> {
+  return {
+    colors: "theme",
+    diffIndicators: "bars",
+    expandUnchanged: false,
+    lineNumbers: true,
+    showBackgrounds: true,
+    wordDiffs: payload.transport?.kind === "page",
+    wordWrap: false,
   };
 }
 

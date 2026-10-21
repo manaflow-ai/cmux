@@ -38,6 +38,8 @@ nonisolated enum FileExplorerStrings {
     /// The name of a new file and folder (numbered when taken), as Finder names them.
     static var untitledFile: String { text("fileExplorer.untitledFile", "untitled") }
     static var untitledFolder: String { text("fileExplorer.untitledFolder", "untitled folder") }
+    /// The undo step's name (Edit > Undo Move to Trash).
+    static var undoMoveToTrash: String { text("fileExplorer.undo.moveToTrash", "Move to Trash") }
     /// The accessibility description of a row's git badge.
     static func gitState(_ state: FileGitState) -> String {
         switch state {

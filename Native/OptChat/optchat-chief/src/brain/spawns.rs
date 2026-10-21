@@ -2012,9 +2012,23 @@ impl Brain {
         }
     }
 
+    /// Subagent `id`'s task turn started at acpmux. One cancelled while it
+    /// was starting is cancelled again now: the cancel sent as its prompt
+    /// went out (`SubagentPrompted`) is lost when it reached acpmux before
+    /// the prompt did. Only its task prompt's turn comes here, and only
+    /// while it is still cancelled: a Restart in between lets it run.
+    pub(super) fn sub_turn_started(&mut self, id: &str, prompt_id: &str) {
+        self.trace.emit(
+            "subagent.turn_started",
+            json!({"id": id, "prompt": prompt_id}),
+        );
+        self.stop_if_cancelled(id);
+    }
+
     /// A subagent cancelled while it was starting has its first prompt
-    /// sent now: its turn is cancelled at once. Best effort: a cancel that
-    /// beats the prompt to acpmux is lost, same as before.
+    /// sent, or its task turn started (`sub_turn_started`): its turn is
+    /// cancelled now. A cancel acpmux refuses leaves it at work, and the
+    /// Chief is told: the stop's answer already went out saying it stopped.
     pub(super) fn stop_if_cancelled(&mut self, id: &str) {
         let Some(session) = self
             .state
@@ -2040,6 +2054,14 @@ impl Brain {
                     s.cancelled = false;
                 }
                 self.save();
+                self.trace
+                    .emit("subagent.stop_refused", json!({"id": id, "error": e}));
+                self.queue(
+                    format!(
+                        "[{id}] did not stop: it was stopped while it was starting, and acpmux refused to cancel its turn ({e}). It goes on with its task."
+                    ),
+                    Source::Note,
+                );
             }
         }
     }
