@@ -31,6 +31,7 @@ turn a good publication red; it prints a ::warning:: instead.
 from __future__ import annotations
 
 import argparse
+import http.client
 import io
 import json
 import os
@@ -103,7 +104,7 @@ def fetch_completion(key: str) -> object | None:
     try:
         with urllib.request.urlopen(urllib.request.Request(url), timeout=30) as response:
             return json.loads(response.read())
-    except (urllib.error.URLError, OSError, ValueError):
+    except (urllib.error.URLError, http.client.HTTPException, OSError, ValueError):
         return None
 
 
