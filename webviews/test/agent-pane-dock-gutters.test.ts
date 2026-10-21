@@ -140,21 +140,32 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
   const scrollTop = (page: Page) =>
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
 
-  /// Wheels `deltaY` with the pointer at (`x`, `y`), and the scroll of the transcript it made.
+  /// Wheels `deltaY` with the pointer at (`x`, `y`), and the scroll of the transcript it made: waits
+  /// for the transcript to move, or a second when it does not.
   async function wheelAt(page: Page, x: number, y: number, deltaY: number): Promise<number> {
     await page.mouse.move(x, y);
     const before = await scrollTop(page);
     await page.mouse.wheel(0, deltaY);
-    await page.waitForTimeout(400);
+    await page
+      .waitForFunction(
+        (before) => Math.abs(document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop - before) >= 2,
+        before,
+        { timeout: 1000 },
+      )
+      .catch(() => undefined);
+    // A glide settles.
+    await page.waitForTimeout(150);
     return (await scrollTop(page)) - before;
   }
 
-  /// What the pointer reaches at (`x`, `y`): the transcript, `part`, or something else.
+  /// What the pointer reaches at (`x`, `y`): something in the transcript (a row hidden under the
+  /// stack), the band of `part` itself, inside `part`, or something else.
   const reaches = (page: Page, x: number, y: number, part: string) =>
     page.evaluate(
       ([x, y, part]) => {
         const hit = document.elementFromPoint(x, y);
         if (hit?.closest(".acpmux-scroll")) return "transcript";
+        if (hit?.matches(`.acpmux-main > .acpmux-dock > :is(${part})`)) return "band";
         if (hit?.closest(part)) return "part";
         return hit ? `${hit.tagName.toLowerCase()}.${[...hit.classList].join(".")}` : "nothing";
       },
@@ -171,13 +182,15 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
     return { band, card, y: (top + bottom) / 2, gutter: card.x - 8, middle: card.x + Math.min(card.width / 2, 24) };
   }
 
-  /// The gutter beside `surface` reaches the transcript and the wheel there scrolls it either way;
-  /// the surface itself takes the pointer, and the wheel over it moves the transcript not at all.
-  async function expectGutter(page: Page, name: string, part: string, surface: string) {
+  /// The wheel in the gutter beside `surface` scrolls the transcript either way; the gutter is the
+  /// part's band (`reach` "band": it takes the pointer, so a hover, click or drag there never reaches
+  /// the rows hidden under the stack) or, beside the composer's card and queue, the transcript. The
+  /// surface itself takes the pointer, and the wheel over it moves the transcript not at all.
+  async function expectGutter(page: Page, name: string, part: string, surface: string, reach = "band") {
     const { band, card, y, gutter, middle } = await points(page, part, surface);
     // The part is a band with its surface inset: there is a gutter to test.
     expect({ name, inset: card.x - band.x > 12 }).toEqual({ name, inset: true });
-    expect({ name, gutter: await reaches(page, gutter, y, part) }).toEqual({ name, gutter: "transcript" });
+    expect({ name, gutter: await reaches(page, gutter, y, part) }).toEqual({ name, gutter: reach });
     expect({ name, surface: await reaches(page, middle, y, part) }).toEqual({ name, surface: "part" });
     const up = await wheelAt(page, gutter, y, -300);
     expect({ name, gutterScrollsUp: up < -100 }).toEqual({ name, gutterScrollsUp: true });
@@ -188,14 +201,24 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
     expect({ name, surfaceScrolls: Math.abs(over) >= 2 }).toEqual({ name, surfaceScrolls: false });
   }
 
-  async function open() {
-    const page = await pane!.open({ width: 900, height: 1000 });
+  /// The wheel at (`x`, `y`), in the empty room of a band beside what it holds, scrolls the transcript,
+  /// and the pointer there reaches the band, never a row hidden under the stack.
+  async function expectEmptyRoom(page: Page, name: string, part: string, x: number, y: number) {
+    expect({ name, reach: await reaches(page, x, y, part) }).toEqual({ name, reach: "band" });
+    const up = await wheelAt(page, x, y, -300);
+    expect({ name, scrollsUp: up < -100 }).toEqual({ name, scrollsUp: true });
+    const down = await wheelAt(page, x, y, 300);
+    expect({ name, scrollsDown: down > 100 }).toEqual({ name, scrollsDown: true });
+  }
+
+  async function open(height = 1000) {
+    const page = await pane!.open({ width: 900, height });
     await page.locator(".acpmux-asks-stack").waitFor({ timeout: 20_000 });
     await page.locator(".acpmux-pr-dock").waitFor({ timeout: 20_000 });
     await page.locator(".acpmux-agents-pill").waitFor({ timeout: 20_000 });
     await page.locator(".acpmux-composer-queue").waitFor({ timeout: 20_000 });
     // Up from the latest message, so the transcript can scroll either way.
-    expect(await wheelAt(page, 450, 120, -1500)).toBeLessThan(0);
+    expect(await wheelAt(page, 450, 80, -1500)).toBeLessThan(0);
     return page;
   }
 
@@ -208,8 +231,7 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         await page.getByRole("button", { name: "Chat actions" }).click();
         await page.locator(".acpmux-chat-menu-item", { hasText: "Edit CLAUDE.md" }).click();
         await page.locator(".acpmux-dock > .acpmux-instructions-notice").waitFor({ timeout: 10_000 });
-        await page.mouse.move(450, 120);
-        await page.waitForTimeout(200);
+        await page.mouse.move(450, 80);
 
         // Every part the stack shows, in its order, so a part missing from the fixture fails here.
         const shown = await page.evaluate(() =>
@@ -234,8 +256,26 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
           ".acpmux-instructions-notice > .acpmux-host-error-card",
         );
         await expectGutter(page, "agents pill", ".acpmux-agents-pill-anchor", ".acpmux-agents-pill");
-        await expectGutter(page, "queue", ".acpmux-composer", ".acpmux-composer > .acpmux-composer-queue");
-        await expectGutter(page, "card", ".acpmux-composer", ".acpmux-composer > .acpmux-composer-box");
+        await expectGutter(
+          page,
+          "queue",
+          ".acpmux-composer",
+          ".acpmux-composer > .acpmux-composer-queue",
+          "transcript",
+        );
+        await expectGutter(page, "card", ".acpmux-composer", ".acpmux-composer > .acpmux-composer-box", "transcript");
+
+        // The empty room right of a pull request's chip and right of the agents pill.
+        const chip = (await page.locator(".acpmux-pr-dock__chip").first().boundingBox())!;
+        await expectEmptyRoom(page, "right of a chip", ".acpmux-pr-dock", chip.x + chip.width + 16, chip.y + 13);
+        const pill = (await page.locator(".acpmux-agents-pill").boundingBox())!;
+        await expectEmptyRoom(
+          page,
+          "right of the pill",
+          ".acpmux-agents-pill-anchor",
+          pill.x + pill.width + 40,
+          pill.y + pill.height / 2,
+        );
 
         // The error card's own buttons still take a click.
         await page.locator(".acpmux-instructions-notice button[data-notice-action=dismiss]").click();
@@ -246,8 +286,10 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         await page.locator(".acpmux-dock > .acpmux-dictation-notice").waitFor({ timeout: 10_000 });
         const notice = (await page.locator(".acpmux-dock > .acpmux-dictation-notice").boundingBox())!;
         const noticeY = notice.y + notice.height / 2;
+        // Beside it is the dock's own gutter, which passes through as the composer's does.
         expect(await reaches(page, notice.x - 8, noticeY, ".acpmux-dictation-notice")).toBe("transcript");
-        expect(await reaches(page, notice.x + 4, noticeY, ".acpmux-dictation-notice")).toBe("part");
+        expect(await reaches(page, notice.x + 4, noticeY, ".acpmux-dictation-notice")).toBe("band");
+        expect(Math.abs(await wheelAt(page, notice.x + 4, noticeY, -300))).toBeLessThan(2);
         expect(await wheelAt(page, notice.x - 8, noticeY, -300)).toBeLessThan(-100);
         await page.close();
       });
@@ -264,7 +306,44 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         expect(Math.abs(await wheelAt(page, x, y, -300))).toBeLessThan(2);
         // Beside the pill, under the list's side, the transcript still scrolls.
         const { y: pillY, gutter } = await points(page, ".acpmux-agents-pill-anchor", ".acpmux-agents-pill");
-        expect(await reaches(page, gutter, pillY, ".acpmux-agents-pill-anchor")).toBe("transcript");
+        expect(await reaches(page, gutter, pillY, ".acpmux-agents-pill-anchor")).toBe("band");
+        expect(await wheelAt(page, gutter, pillY, -300)).toBeLessThan(-100);
+        await page.close();
+      });
+
+      // In a short pane the pull request dock and the question card give up height and scroll inside
+      // it: the wheel over their rows scrolls only them, and their scrollbar, at the band's edge,
+      // takes the pointer (so it can be dragged).
+      test("a part that scrolls in a short pane scrolls under the wheel alone, and its scrollbar takes the pointer", async () => {
+        current = browsers.get(name);
+        const page = await open(440);
+        const lists = await page.evaluate(() =>
+          [".acpmux-pr-dock", ".acpmux-asks-stack"].filter((selector) => {
+            const list = document.querySelector<HTMLElement>(`.acpmux-main > .acpmux-dock > ${selector}`)!;
+            return list.scrollHeight > list.clientHeight + 4;
+          }),
+        );
+        expect(lists.length).toBeGreaterThan(0);
+        for (const list of lists) {
+          const band = (await page.locator(`.acpmux-dock > ${list}`).boundingBox())!;
+          const y = band.y + band.height / 2;
+          // The list's scroll, or a scroller inside it (the permission panel's own).
+          const listTop = () =>
+            page.evaluate((list) => {
+              const band = document.querySelector<HTMLElement>(`.acpmux-dock > ${list}`)!;
+              return [band, ...band.querySelectorAll<HTMLElement>("*")].reduce((sum, node) => sum + node.scrollTop, 0);
+            }, list);
+          // Over its rows, a little in from the card's leading edge.
+          const row = (await page.locator(`.acpmux-dock > ${list} > *`).first().boundingBox())!;
+          const before = await listTop();
+          const moved = await wheelAt(page, row.x + 12, y, 60);
+          expect({ list, transcript: Math.abs(moved) < 2 }).toEqual({ list, transcript: true });
+          expect({ list, scrolled: (await listTop()) > before }).toEqual({ list, scrolled: true });
+          expect({ list, scrollbar: await reaches(page, band.x + band.width - 3, y, list) }).toEqual({
+            list,
+            scrollbar: "band",
+          });
+        }
         await page.close();
       });
     });
