@@ -333,7 +333,12 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       return frames;
     });
     expect(frames.length).toBeGreaterThan(5);
+    // No frame lands late (the last row under the card, or the view off its end) ...
     expect(frames.filter((frame) => frame.rowAboveCard < -1 || frame.fromEnd > 1)).toEqual([]);
+    // ... or overshoots: the last row sits where it rests above the card on every frame, so the
+    // view moves by exactly the card's growth in the frame the card grows.
+    const rest = frames.at(-1)!.rowAboveCard;
+    expect(frames.filter((frame) => Math.abs(frame.rowAboveCard - rest) > 2)).toEqual([]);
     await page.close();
   });
 });
