@@ -32,11 +32,11 @@ name: cmux-next media
 #   - on a pull request labeled `media-tour` (add the label to get a tour;
 #     every later push of that pull request tours again).
 #   - on a pull request without the label whose Swift UI change
-#     (Packages/macOS/CmuxNext/Sources) a specific tour covers: new-tab,
-#     agent-pane, now-playing or glass in path_map.py, not only the catch-all
-#     core tour (scripts/ci/media_auto_tour.py; not drafts, and never with the
-#     `no-media-tour` label). On 2026-10-19 that was 8 of 100 open pull
-#     requests, against 47 that touch UI paths.
+#     (Packages/macOS/CmuxNext/Sources) a specific tour covers: any tour in
+#     path_map.py other than the catch-all core tour
+#     (scripts/ci/media_auto_tour.py; not drafts, and never with the
+#     `no-media-tour` label). Over the 300 merges before 2026-10-21 that was
+#     21, against 118 that touched UI paths.
 # The route job decides; when no tour is wanted it takes no Mac and the PR
 # gets no comment.
 # Either way a change with nothing for a Mac to tour takes no Mac: no UI
