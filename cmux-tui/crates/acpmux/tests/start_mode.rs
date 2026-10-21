@@ -722,3 +722,53 @@ async fn a_pinned_claude_chat_with_a_narrower_policy_leaves_full_access() {
     assert_eq!(app.mode(&id).await, "default");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The mode `id` runs in once it is `want`, or after 10 s whatever it is: a follow the daemon
+/// starts on its own (startup, a move's end) lands a moment later.
+async fn mode_soon(app: &mut Client, id: &str, want: &str) -> String {
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    loop {
+        let mode = app.mode(id).await;
+        if mode == want || tokio::time::Instant::now() > deadline {
+            return mode;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
+/// A deny-all default skips a chat that is moving; when the move was aborted, the chat kept
+/// running in full access under the lockdown.
+#[tokio::test]
+async fn a_chat_whose_move_aborts_follows_a_deny_all_default_set_meanwhile() {
+    let dir = home("policy-move", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    let begin = app.call("_acpmux/transfer_begin", json!({"sessionId": id})).await;
+    let transfer = begin["result"]["transferId"].clone();
+    assert!(transfer.is_string(), "{begin}");
+    let r = app.call("_acpmux/set_default_policy", json!({"policy": "deny-all"})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(app.mode(&id).await, "agent-full-access", "a moving chat is not touched");
+    let r =
+        app.call("_acpmux/transfer_abort", json!({"sessionId": id, "transferId": transfer})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// `permissionPolicy: deny-all` in config.json is the same lockdown from the daemon's start: its
+/// chats follow it once startup finishes.
+#[tokio::test]
+async fn deny_all_in_config_holds_on_every_chat_from_startup() {
+    let dir = home("policy-startup", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub(&dir);
+    let mut app = Client::app(&daemon).await;
+    let (id, mode) = app.chat(&dir, "codex").await;
+    assert_eq!(mode, "agent-full-access");
+    daemon.config.write().await.permission_policy = acpmux::config::PermissionPolicy::DenyAll;
+    daemon.finish_startup().await;
+    assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
