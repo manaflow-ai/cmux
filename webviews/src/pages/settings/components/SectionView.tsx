@@ -62,13 +62,16 @@ export function SectionView({
   const picker = useBackdropsShown() && [...category.lead, ...category.trail].includes("backdrops");
   // The density card draws appearance.density and the custom density keys.
   const densityCard = [...category.lead, ...category.trail].includes("density");
-  // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own.
+  // appearance.themeEdits is the pickers' "(custom)" themes, never a row of its own. The page has no
+  // editor for any other string_map (browser.siteEngines, edited in cmux.json): an empty row would
+  // be a title with no control.
   const groups = category.groups
     .map((group) => ({
       ...group,
       rows: group.rows.filter(
         (row) =>
           row.key !== THEME_EDITS_KEY &&
+          row.kind !== "string_map" &&
           !drawn.has(row.key) &&
           !(picker && BACKDROP_ROWS.has(row.key)) &&
           !(densityCard && DENSITY_ROWS.has(row.key)),
