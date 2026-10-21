@@ -339,8 +339,18 @@ struct RapidWorkspaceCreateTests {
             frames.append(frame)
             let rowed = Set(personal.workspaces.map(\.workspaceKey.rawValue))
             let path = SidebarDocStore.current?.shown == nil ? "personal" : "doc"
+            let members = Set(services.windows.registry.members(of: window))
+            let pending = Set(PendingWorkspaceRows.shared.rows(in: window).map(\.id))
+            let room = services.windows.states[window]?.profileID ?? .defaultProfile
+            let docOrder = SidebarDocWiring.sections(of: services.machines.local, room: room, machines: services.machines)?
+                .flatMap(\.workspaces).map(\.id).filter { $0 != home }
             sources.append(Dictionary(uniqueKeysWithValues: frame.map { id in
-                (id, path + (SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : ""))
+                var tags = path + (SidebarDocWiring.item(workspace: id, services.machines) != nil ? "+d" : "") + (rowed.contains(id) ? "+p" : "")
+                tags += members.contains(id) ? "+m" : ""
+                tags += pending.contains(id) ? "+pend" : ""
+                tags += services.machines.workspace(id: id)?.0.isProvisional == true ? "+prov" : ""
+                tags += docOrder.map { "@\($0.firstIndex(of: id).map(String.init) ?? "-")" } ?? "@nil"
+                return (id, tags)
             }))
         }
         var keys: [String] = []
