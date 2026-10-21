@@ -5,8 +5,9 @@
 // warning color). A channel is a hash tile with a hairline. A Chief with a picture shows it in the
 // tile (PicturesContext: data URLs by participant id, read once per picture) until the avatar
 // service has read it.
-import { createContext, useContext } from "react";
+import { createContext, useContext, useState } from "react";
 import { useAvatarPicture } from "./avatars";
+import { useShownPicture } from "./pictureMotion";
 import type { ChiefState } from "./model";
 import type { HomeParticipant } from "./types";
 
@@ -34,18 +35,21 @@ export function Avatar({
   const agent = participant?.kind === "agent";
   const fallback = useContext(PicturesContext).get(participant?.id ?? "");
   const picture = useAvatarPicture(participant?.id) ?? fallback;
+  // An animated picture moves only as home.chiefPictureMotion allows (hover: while pointed at).
+  const [hovered, setHovered] = useState(false);
+  const shown = useShownPicture(picture, hovered);
   return (
     <span
       className={`hc-avatar${size >= 24 ? " large" : ""}${agent ? " agent" : ""}${participant?.chief ? " chief" : ""}${picture ? " picture" : ""}`}
       style={{ width: size, height: size }}
       aria-hidden="true"
+      onPointerEnter={picture ? () => setHovered(true) : undefined}
+      onPointerLeave={picture ? () => setHovered(false) : undefined}
     >
       {/* A small tile has room for one letter only. */}
-      {picture ? (
-        <img className="hc-avatar-img" src={picture} alt="" draggable={false} />
-      ) : (
-        initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)
-      )}
+      {picture
+        ? shown && <img className="hc-avatar-img" src={shown} alt="" draggable={false} />
+        : initials(participant?.name ?? "?").slice(0, size >= 24 ? 2 : 1)}
       {state && state !== "idle" && <span className={`lg-state-mark ${state}`} />}
     </span>
   );

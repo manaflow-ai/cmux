@@ -168,6 +168,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
             groups: [
                 // How the Chief chat's bubbles look (the theme's colours, or iMessage's).
                 group("settings.group.chiefChat"),
+                // Whether a Chief's GIF or animated picture moves on Home pages.
+                group("settings.group.chiefPictures"),
                 // The Chief pet floating over every app, and its character.
                 group("settings.group.chiefPet"),
             ],
