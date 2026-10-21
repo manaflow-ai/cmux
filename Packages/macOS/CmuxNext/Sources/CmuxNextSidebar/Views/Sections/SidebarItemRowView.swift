@@ -208,6 +208,7 @@ class SidebarItemRowView: NSView {
         // A pinned workspace row's pin leads, and its icon and title follow it.
         let pinSide = Metrics.smallIconSize
         let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinSide + Metrics.space2 : 0)
+            + (style == .chip ? 0 : CGFloat(info.indent) * Metrics.space3)
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)

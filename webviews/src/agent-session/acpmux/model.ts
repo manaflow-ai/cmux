@@ -191,6 +191,8 @@ export type AcpmuxRow = {
   /// the step it is on ends), then `landed`; `stopped` was sent now to an agent that cannot steer,
   /// which stopped the turn and ran it next.
   steer?: "waiting" | "landed" | "stopped";
+  /// A waiting steer's promptId, which its Send now names (conversation/PendingSteer.tsx).
+  steerPromptId?: string;
   /// The last turn's footer carries its prompt, for Retry (conversation/turns.ts).
   prompt?: string;
   /// An edited-files card of a turn that has ended, which offers Undo (conversation/turns.ts).
@@ -311,12 +313,14 @@ export type AcpmuxCatalogModel = {
   release?: string;
 };
 
-/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), or
-/// send it now.
+/// A change to a waiting prompt (`_acpmux/queue_edit`): its text, its place (0 runs next), send it
+/// now (steered into the running turn, whose step stops, when its agent steers), or `interrupt`:
+/// stop the running turn and run it next.
 export type QueueEdit =
   | { op: "update"; text: string }
   | { op: "move"; index: number }
   | { op: "send_now" }
+  | { op: "interrupt" }
   /** Runs a queue a failed turn paused; any of its prompts names it. */
   | { op: "resume" };
 
@@ -392,6 +396,10 @@ export type AcpmuxSnapshot = {
   listedSessions?: true;
   sessionId?: string;
   isWorking: boolean;
+  /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
+  /// `turnTokens`); unset when the harness does not report each call or the client missed the
+  /// turn's start.
+  turnTokens?: number;
   /// This computer's clock minus the session's, for a session on a peer (SSH, Cloud) whose
   /// events carry the peer's clock; unset when they share a clock or it is not known yet.
   clockOffsetMs?: number;

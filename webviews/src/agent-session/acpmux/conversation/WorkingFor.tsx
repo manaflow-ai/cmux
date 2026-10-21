@@ -6,9 +6,11 @@
 // tasks"): "· 2 agents · 1 command", only subagents still running and background shells that have
 // not ended. Each count opens what it counts. The counts
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
-// rows below. When the turn ends, the "Worked for" disclosure takes its place.
+// rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far
+// ("5m 54s · 2.1M tokens") when the harness reports them (direct.ts `turnTokens`). When the turn
+// ends, the "Worked for" disclosure takes its place.
 import { createContext, useContext, useEffect, useState } from "react";
-import { type Translate, useT } from "../i18n";
+import { type PaneLanguage, type Translate, usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { TerminalSquare } from "./icons";
 import { formatDuration } from "./turns";
@@ -24,12 +26,22 @@ export type WorkingCounts = {
   commands: number;
   openAgents: () => void;
   openCommands: () => void;
+  /// The turn's tokens so far (snapshot `turnTokens`), when the harness reports them.
+  tokens?: number;
 };
+
+/// "2.1M tokens": the running turn's tokens, compact in the pane's language.
+export const workingTokens = (t: Translate, language: PaneLanguage, tokens: number) =>
+  t("turn.working.tokens", {
+    n: tokens,
+    tokens: new Intl.NumberFormat(language, { notation: "compact", maximumFractionDigits: 1 }).format(tokens),
+  });
 
 export const WorkingCountsContext = createContext<WorkingCounts | undefined>(undefined);
 
 export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () => number }) {
   const t = useT();
+  const language = usePaneLanguage();
   const counts = useContext(WorkingCountsContext);
   const [time, setTime] = useState(now);
   const held = row.durationMs !== undefined;
@@ -73,6 +85,14 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
       ) : (
         <span className="cv-worked__label">{workingLabel(t, row.at, until)}</span>
       )}
+      {counts?.tokens ? (
+        <span className="cv-worked__count">
+          <span className="cv-worked__sep" aria-hidden="true">
+            ·
+          </span>
+          <span className="cv-worked__tokens">{workingTokens(t, language, counts.tokens)}</span>
+        </span>
+      ) : null}
       {parts.map((part) => (
         <span key={part.key} className="cv-worked__count">
           <span className="cv-worked__sep" aria-hidden="true">
