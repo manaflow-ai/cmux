@@ -90,7 +90,7 @@ struct DropPreviewLandingParityTests {
         let model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .splits(root))], activeScreenID: "s", focusedPane: pane)
         model.splitSizingOverride = .even
         // What the App sends once the move echoed (AppServices.splitSizing), computed before the move.
-        let sizing = model.splitSizingChanges(splitting: pane, axis: zone == .left || zone == .right ? .horizontal : .vertical, removing: removing)
+        let sizing = model.dropSizingChanges(splitting: pane, zone: zone, removing: removing)
         let tree = LayoutScreen(id: "s", name: "s", layout: .splits(daemonMove(root, pane: pane, zone: zone, removing: removing)))
         switch order {
         case .sizingFirst:
