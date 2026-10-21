@@ -3078,6 +3078,16 @@
       "title" : "Keep Mac Awake for Your Phone",
       "type" : "string"
     },
+    "phone.newDevices" : {
+      "default" : "ask",
+      "description" : "The first time a phone signed in to your cmux account connects, this Mac can ask you to allow it. Allowed phones are listed below, where you can remove them.",
+      "enum" : [
+        "ask",
+        "account"
+      ],
+      "title" : "New Phones",
+      "type" : "string"
+    },
     "phone.startSessions" : {
       "default" : true,
       "description" : "Off, your phone can still follow, type into and answer what's already running.",
