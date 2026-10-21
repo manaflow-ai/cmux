@@ -255,6 +255,25 @@ public final class MessagesLabHomeView: NSView {
         set { projection.pictureOverride = newValue }
     }
 
+    /// A sender's chosen avatar beside a group's bubbles (``setSenderAvatars(_:)``).
+    public enum SenderAvatar: Hashable, Sendable {
+        /// A picture file.
+        case picture(URL)
+        /// One or two letters or an emoji, on the grey disc.
+        case text(String)
+    }
+
+    /// Chosen avatars by participant id (each Chief's, as Home's row draws it), beside a group's
+    /// bubbles; anyone not listed draws their initials. A new value redraws those bubbles.
+    public func setSenderAvatars(_ avatars: [String: SenderAvatar]) {
+        projection.senderAvatars = avatars.mapValues {
+            switch $0 {
+            case .picture(let url): .image(url.absoluteString)
+            case .text(let text): .monogram(text)
+            }
+        }
+    }
+
     /// The name pill's VoiceOver help (what a click on it does).
     public func setNamePillHelp(_ help: String) {
         controller.host.paneHeader.pill.setAccessibilityHelp(help)
@@ -390,16 +409,31 @@ public final class MessagesLabHomeView: NSView {
         get { projection.onPickAttachments }
         set { projection.onPickAttachments = newValue }
     }
-    /// A paste in the field or a drop on the pane: true when the host's
-    /// intake took the pasteboard.
+    /// A paste in the field: true when the host's intake took the pasteboard.
     public var onAttachmentPasteboard: (NSPasteboard) -> Bool {
         get { projection.onAttachmentPasteboard }
         set { projection.onAttachmentPasteboard = newValue }
     }
-    /// While dragging (types only): whether a drop would be taken.
+    /// Whether a paste would be taken (types only).
     public var acceptsAttachmentDrag: (NSPasteboard) -> Bool {
         get { projection.acceptsAttachmentDrag }
         set { projection.acceptsAttachmentDrag = newValue }
+    }
+    /// A drop on the field: true when the host's intake took the drag's pasteboard
+    /// (nil: as a paste). A drop on the rest of the pane reaches the host's own view.
+    public var onAttachmentDrop: ((NSPasteboard) -> Bool)? {
+        get { projection.onAttachmentDrop }
+        set { projection.onAttachmentDrop = newValue }
+    }
+    /// While dragging over the field (types only): whether a drop would be taken (nil: as a paste).
+    public var acceptsAttachmentDrop: ((NSPasteboard) -> Bool)? {
+        get { projection.acceptsAttachmentDrop }
+        set { projection.acceptsAttachmentDrop = newValue }
+    }
+    /// The field became (true) or stopped being (false) the target of a drag the host takes.
+    public var onAttachmentDropTarget: (Bool) -> Void {
+        get { projection.onAttachmentDropTarget }
+        set { projection.onAttachmentDropTarget = newValue }
     }
     /// The store refused a send's attachment before logging it; the text
     /// and attachments are back in the field.

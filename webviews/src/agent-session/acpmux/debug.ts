@@ -10,6 +10,7 @@ import { workedTurnRows } from "./workedTurn";
 import { acpWire, type AcpWireLog } from "./wire";
 import { followTrace } from "./followTrace";
 import { composerChips, layoutWatch, type LayoutWatchOptions } from "./layoutWatch";
+import { queuedRowsState } from "./queuedRowsState";
 
 // `window.cmuxAcpmuxDebug`, called by the DEBUG `debug.agent_pane` socket
 // method. The first measurement call turns on measurement (acpmuxPerf.enabled);
@@ -262,6 +263,8 @@ export function createAcpmuxDebug(
             summaryCard: summaryCardState(),
             // The prompts as drawn, top first: who sent each, its bubble, and the collapsed view line.
             userBubbles: userBubblesState(),
+            // The queued prompts as drawn: each row's text, its image ids and each thumbnail's state.
+            queued: queuedRowsState(),
             subagentOf: document.querySelector(".cv-subagent-of__parent")?.textContent ?? null,
             // The composer's chips as drawn (model, effort, access), keyed by their menu label.
             composer: composerChips(),

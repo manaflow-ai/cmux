@@ -181,3 +181,16 @@ test("a recording past the byte cap is no attachment", () => {
   const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
   expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
 });
+
+test("a recording kept out by the byte cap gets a notice that does not claim two minutes", async () => {
+  const { translate } = await import("../src/agent-session/acpmux/i18n");
+  const { recordingLeftOutNotice } = await import("../src/agent-session/acpmux/attachments");
+  // The byte cap's path, as App.tsx's `attach` takes it: no attachment, then the notice.
+  const over = "A".repeat(Math.ceil(((MAX_AUDIO_BYTES + 1) * 4) / 3) + 4);
+  expect(audioAttachment({ mimeType: "audio/wav", data: over }, "Voice recording")).toBeUndefined();
+  const capped = translate(recordingLeftOutNotice("tooLarge"), {}, "en");
+  expect(capped).toBe("The voice recording is too long to attach, so the prompt gets the transcript only.");
+  // The host's two-minute stop reads the same; a narrowband mic keeps its own reason.
+  expect(translate(recordingLeftOutNotice("tooLong"), {}, "en")).toBe(capped);
+  expect(translate(recordingLeftOutNotice("narrowband"), {}, "en")).not.toBe(capped);
+});

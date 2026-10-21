@@ -90,7 +90,7 @@ public nonisolated struct AcpmuxQuit {
         guard socketPresent else { return await censusWithoutSocket(environment.home) }
         do {
             let sessions = try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: deadline).value
-            AcpmuxQuitProof.knownChief.withLock { $0 = Set(AcpmuxSessionCensus.chiefSessionIDs(sessions)) }
+            AcpmuxQuitProof.remember(chief: Set(AcpmuxSessionCensus.chiefSessionIDs(sessions)), home: environment.home)
             return AcpmuxSessionCensus.parse(sessions)
         } catch AcpmuxStatusClient.Failure.unreachable {
             return await censusWithoutSocket(environment.home)
@@ -135,7 +135,7 @@ public nonisolated struct AcpmuxQuit {
         guard let environment else { return .noDaemon }
         let socket = environment.socketPath
         guard FileManager.default.fileExists(atPath: socket) else {
-            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within,
+            return await withoutSocket(environment.home, keep: keep, waitForShutdown: waitForShutdown, within: within,
                                        socketWasSeenAtCensus: AcpmuxQuitProof.consumeCensusSocket(home: environment.home))
         }
         let status: AcpmuxStatus
@@ -143,13 +143,13 @@ public nonisolated struct AcpmuxQuit {
         do {
             status = try await AcpmuxStatusClient.status(socketPath: socket)
             chief = keptSessions(try await AcpmuxStatusClient.sessions(socketPath: socket, deadline: .seconds(2)).value, keep: keep)
-            if keep == .chief { AcpmuxQuitProof.knownChief.withLock { $0 = Set(chief) } }
+            if keep == .chief { AcpmuxQuitProof.remember(chief: Set(chief), home: environment.home) }
             try await AcpmuxStatusClient.shutdown(socketPath: socket, home: environment.home, endAgents: true, keepSessions: chief)
         } catch AcpmuxStatusClient.Failure.unreachable {
             // A socket file nobody answers on (a crash leaves one): the locks
             // decide, and a free lock is no daemon. The sighting is spent.
             _ = AcpmuxQuitProof.consumeCensusSocket(home: environment.home)
-            return await withoutSocket(environment.home, waitForShutdown: waitForShutdown, within: within)
+            return await withoutSocket(environment.home, keep: keep, waitForShutdown: waitForShutdown, within: within)
         } catch {
             return .failed(String(describing: error))
         }
@@ -162,14 +162,15 @@ public nonisolated struct AcpmuxQuit {
     }
 
     /// No usable socket: the locks decide (`AcpmuxQuitProof`). A Retry
-    /// waits (bounded) for a shutdown in progress before it decides.
-    @concurrent static func withoutSocket(_ home: URL, waitForShutdown: Bool, within: Duration,
+    /// waits (bounded) for a shutdown in progress before it decides. An end
+    /// that keeps nothing leaves no Chief host out.
+    @concurrent static func withoutSocket(_ home: URL, keep: Keep, waitForShutdown: Bool, within: Duration,
                                           socketWasSeenAtCensus: Bool = false) async -> EndResult {
         var exited = false
         if waitForShutdown, AcpmuxQuitProof.read(home: home).daemon != .free {
             exited = await AcpmuxQuitProof.waitForDaemonExit(home: home, within: within)
         }
-        return AcpmuxQuitProof.decide(AcpmuxQuitProof.read(home: home), chief: AcpmuxQuitProof.knownChief.withLock { $0 },
+        return AcpmuxQuitProof.decide(AcpmuxQuitProof.read(home: home), chief: AcpmuxQuitProof.keptChief(home: home, keep: keep),
                                       daemonExited: exited, socketWasSeenAtCensus: socketWasSeenAtCensus)
     }
 
@@ -179,7 +180,7 @@ public nonisolated struct AcpmuxQuit {
     @concurrent static func censusWithoutSocket(_ home: URL) async -> AcpmuxSessionCensus? {
         let facts = AcpmuxQuitProof.read(home: home)
         guard facts.daemon == .free else { return nil }
-        let chief = AcpmuxQuitProof.knownChief.withLock { $0 }
+        let chief = AcpmuxQuitProof.keptChief(home: home, keep: .chief)
         return AcpmuxSessionCensus(live: Set(facts.liveHostSessions + facts.unknownHostSessions).subtracting(chief).count)
     }
 }

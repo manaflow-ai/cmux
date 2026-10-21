@@ -28,6 +28,9 @@ enum PeerAskRun {
 /// The record kind of a peer's `_acpmux/permission_pending`, relayed to
 /// this daemon's watchers (`server/mod.rs` `deliver`); never stored.
 pub(crate) const PEER_PERMISSION_PENDING: &str = "peer_permission_pending";
+/// A peer left events out of this daemon's link (`_acpmux/lagged`, `Conn::send`): each client
+/// reading one of that peer's chats here reads it again from its last record.
+pub(crate) const PEER_LAGGED: &str = "peer_lagged";
 
 impl Hub {
     // ------------------------------------------------------------- peers
@@ -311,14 +314,14 @@ impl Hub {
         };
         let _ = self.events.send(HubEvent {
             session_id: id,
-            record: EventRecord {
+            record: Arc::new(EventRecord {
                 seq: 0,
                 at: now_ms(),
                 dir: "peer".into(),
                 kind: kind.into(),
                 msg: Value::Null,
                 host_seq: None,
-            },
+            }),
             remote: Some(RemoteRef { peer: peer.to_owned(), summary }),
         });
     }
@@ -440,14 +443,14 @@ impl Hub {
                         self.save_peer_cache(&peer, generation, false);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
-                            record: EventRecord {
+                            record: Arc::new(EventRecord {
                                 seq,
                                 at: now_ms(),
                                 dir: "peer".into(),
                                 kind,
                                 msg: Value::Null,
                                 host_seq: None,
-                            },
+                            }),
                             remote: Some(RemoteRef {
                                 peer: peer.clone(),
                                 summary: removed.unwrap_or_else(|| json!({"sessionId": mux_id})),
@@ -478,16 +481,40 @@ impl Hub {
                     self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
-                        record: EventRecord {
+                        record: Arc::new(EventRecord {
                             seq,
                             at: now_ms(),
                             dir: "peer".into(),
                             kind,
                             msg: Value::Null,
                             host_seq: None,
-                        },
+                        }),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
+                }
+                PeerNotice::Notification { method: m, params } if m == "_acpmux/lagged" => {
+                    let ids: Vec<String> = self
+                        .remote_sessions
+                        .lock()
+                        .unwrap()
+                        .values()
+                        .filter(|r| r.peer == peer)
+                        .map(|r| r.receipt.mux_session_id.clone())
+                        .collect();
+                    for id in ids {
+                        let _ = self.events.send(HubEvent {
+                            session_id: id,
+                            record: Arc::new(EventRecord {
+                                seq: 0,
+                                at: now_ms(),
+                                dir: "peer".into(),
+                                kind: PEER_LAGGED.into(),
+                                msg: params.clone(),
+                                host_seq: None,
+                            }),
+                            remote: Some(RemoteRef { peer: peer.clone(), summary: Value::Null }),
+                        });
+                    }
                 }
                 PeerNotice::Notification { method: m, params } => {
                     let Some(id) =
@@ -573,7 +600,7 @@ impl Hub {
                     };
                     let _ = self.events.send(HubEvent {
                         session_id: id,
-                        record,
+                        record: Arc::new(record),
                         remote: Some(RemoteRef { peer: peer.clone(), summary }),
                     });
                 }

@@ -97,14 +97,24 @@ extension SidebarViewComponents {
         }
         if model.docDrag != nil {
             // The sidebar document (one renderer): its sections draw in the list, in document order; the band
-            // above keeps only the client's own item (What's New).
-            let docSections = above.presenting(hidingItems: hidden, apps: apps).map(titled)
+            // above keeps only the client's items with nothing to follow. One anchored after an item the
+            // document shows (Channels after Home) draws right after it in its block.
+            let docSections = model.placingTransientItems(in: above.presenting(hidingItems: hidden, apps: apps), anchoredOnly: true).map(titled)
             // Only the blocks' own items' infos: another item's change does not reload the list.
             let shownIDs = Set(docSections.flatMap(\.items).map(\.id))
+            // A block's rows end where the list's other rows do, short of the inset (`rowTrailingTrim`).
+            var listMetrics = metrics
+            listMetrics.trailingTrim = SidebarStyle.rowTrailingTrim
             let blocks = SidebarListBlocks(sections: Dictionary(docSections.map { ($0.id.rawValue, $0) }, uniquingKeysWith: { first, _ in first }),
-                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look, metrics: metrics,
+                                           infos: selectedInfos.filter { shownIDs.contains($0.key) }, collapsed: model.collapsedLayoutSections, look: look,
+                                           metrics: listMetrics,
                                            drawsLines: Borders.drawsLines, appHeights: appHeights(docSections, width: width))
-            aboveRegion.update(content(model.placingTransientItems(in: [])), width: width)
+            let loose = model.placingTransientItems(in: []).map { section in
+                var section = section
+                section.items.removeAll { shownIDs.contains($0.id) }
+                return section
+            }
+            aboveRegion.update(content(loose.filter { !$0.items.isEmpty }), width: width)
             if list.blocks != blocks {
                 list.blocks = blocks
                 // The document changed under the list (an item added, a section an agent filled): calm, not under the pointer.

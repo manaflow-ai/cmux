@@ -8,7 +8,7 @@ by who is calling, not by what is possible.
 | --- | --- | --- | --- |
 | A script, a person, or an agent with a shell | `acpmux new -n NAME --worktree REPO[@BASE] --prompt-file F --report-to ME --group G -d` | `acpmux send`, `acpmux wait`, `acpmux last` | `--group G` on the same command (runs `cmux agent open`) |
 | An agent inside acpmux that wants a child (`cmux-subsessions` MCP) | `start_session {prompt, name, worktree: true}` | `send_message`, `wait_for_sessions`, `get_session` | `app_agent_open {session, group}` through the cmux MCP |
-| The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`) |
+| The cmux app or an agent with the cmux MCP | the app's own New Chat, or one of the two above | the chat pane | `app_agent_open` (`cmux agent open SESSION [--group G]`), or a tab of a pane: `app_agent_open_tab` (`cmux agent open-tab SESSION --target PANE`) |
 
 ## The launcher: `acpmux new`
 
@@ -50,6 +50,25 @@ acpmux new -n gui/composer \
   be opened in a group yet: `cmux agent open` takes only this Mac's session
   ids (no `HOST/NAME`), and its `host` only a Chief home (`chief:<id>`).
   Leave `--group` off on other machines until it can.
+
+## Wrapping it
+
+A team script that starts lanes is the launcher plus its defaults, nothing
+more. Everything a hand-written script used to check (an absolute brief
+path, a second run, a name with `/`) the launcher already checks:
+
+```bash
+#!/bin/sh
+# lane.sh NAME BRIEF [REPORT_TO]: one lane from the team's base, reporting to
+# REPORT_TO (default: the session running this, when an agent runs it).
+to=${3:-$ACPMUX_SESSION_NAME}
+exec acpmux new -n "$1" -m claude --policy approve-all -d \
+  --worktree ~/Projects/cmux@origin/feat-cmux-next --prompt-file "$2" \
+  ${to:+--report-to "$to"}
+```
+
+On another machine, run it there (`ssh HOST lane.sh NAME BRIEF`, with the
+brief on that machine): `--worktree` works over the local socket only.
 
 ## What not to use for this
 

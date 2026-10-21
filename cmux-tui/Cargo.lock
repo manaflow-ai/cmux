@@ -13,6 +13,7 @@ dependencies = [
  "cmux-chat-index",
  "cmux-coderouter",
  "cmux-codex-acp",
+ "cmux-git",
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
@@ -1136,11 +1137,16 @@ version = "0.1.0"
 dependencies = [
  "cmux-server",
  "cmux-server-core",
+ "flate2",
  "libc",
  "proptest",
+ "ring",
  "serde",
  "serde_json",
+ "sha2 0.10.9",
+ "tar",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]

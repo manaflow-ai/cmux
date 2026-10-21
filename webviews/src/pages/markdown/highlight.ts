@@ -75,6 +75,8 @@ export class CodeHighlighter {
   private readonly loaded = new Set<string>();
   private readonly failed = new Set<string>();
   private readonly pending = new Map<string, Promise<void>>();
+  /** The redraws waiting on each loading grammar, each run once when it lands (see `tokens`). */
+  private readonly waiting = new Map<string, Set<() => void>>();
   private readonly cache = new Map<string, CodeToken[]>();
 
   constructor(private themes: ThemeRegistrationAny[] | Promise<ThemeRegistrationAny[]>) {}
@@ -109,7 +111,24 @@ export class CodeHighlighter {
     const name = language.trim().toLowerCase().split(/[\s{]/)[0];
     if (!name || this.failed.has(name)) return [];
     if (!this.highlighter || !this.loaded.has(name)) {
-      this.load(name).then(refresh, () => undefined);
+      // Every code block in this language asks while its grammar loads, and the editor asks again on
+      // each redraw: one redraw per callback when the grammar lands, not one per ask, or the redraws
+      // multiply with each grammar that lands (a file with code in many languages froze).
+      let redraws = this.waiting.get(name);
+      if (!redraws) {
+        const waiting = new Set<() => void>();
+        redraws = waiting;
+        this.waiting.set(name, waiting);
+        // A load that throws (Shiki's core failed to load) redraws nothing: the code stays plain.
+        this.load(name).then(
+          () => {
+            this.waiting.delete(name);
+            for (const redraw of waiting) redraw();
+          },
+          () => void this.waiting.delete(name),
+        );
+      }
+      redraws.add(refresh);
       return null;
     }
     const key = `${name}\u0000${code}`;
