@@ -7,8 +7,8 @@ extension SidebarDocStore {
     /// drop or reorder, Pin and Unpin (the old "pin group" is plain Pin: the
     /// group moves into Pinned). A group's collapse is client view state.
     /// False: not a move (the older path handles it). `undoable` false (a new workspace placed
-    /// at its slot) puts no undo step, and a reorder of a workspace, or next to an anchor, the
-    /// document cannot name yet is left to the older path.
+    /// at its slot) puts no undo step and leaves to the older path a placement whose workspace
+    /// or anchor the document cannot name yet.
     public func handle(_ intent: SidebarIntent, model: SidebarModel, drag: SidebarDocDrag, pinTitle: String, unpinTitle: String,
                        undoable: Bool = true) -> Bool {
         let title = Self.moveTitle
