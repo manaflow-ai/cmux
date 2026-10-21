@@ -6028,7 +6028,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "agent-chats",
+      "default" : "off",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.columns",
