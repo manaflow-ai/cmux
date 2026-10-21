@@ -54,6 +54,7 @@ impl ResourceOperation {
                 | Self::ChiefProfileList
                 | Self::ChiefProfileGet
                 | Self::ChiefProfileAvatarGet
+                | Self::ChiefProfileHistory
                 | Self::ParticipantAvatarGet
                 | Self::CredentialVerify
                 | Self::CredentialMint
@@ -121,6 +122,7 @@ impl ResourceOperation {
                 | Self::WorkspaceGroupList
                 | Self::WorkspaceLogList
                 | Self::WorkspaceStatusList
+                | Self::WorkspaceChecklistList
                 | Self::WorkspaceAgentStartGet
         ) {
             OperationClass::Read

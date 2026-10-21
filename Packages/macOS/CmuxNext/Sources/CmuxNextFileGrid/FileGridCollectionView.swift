@@ -87,37 +87,41 @@ final class FileGridCollectionView: NSCollectionView {
         panel.reloadData()
     }
 
-    // Quick Look's panel-controller methods are an NSObject category it calls on the main thread.
-    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel!) -> Bool { true }
+    // Quick Look's panel-controller methods are a nonisolated NSObject category it calls on the
+    // main thread; off main (never seen) the change hops there instead of trapping.
+    nonisolated override func acceptsPreviewPanelControl(_ panel: QLPreviewPanel?) -> Bool { true }
 
-    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated {
-            panel.dataSource = self
-            panel.delegate = self
-        }
+    nonisolated override func beginPreviewPanelControl(_ panel: QLPreviewPanel?) {
+        guard let panel else { return }
+        guard Thread.isMainThread else { Task { @MainActor in attach(panel, true) }; return }
+        MainActor.assumeIsolated { attach(panel, true) } // main-proof: checked Thread.isMainThread above
     }
 
-    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel!) {
-        MainActor.assumeIsolated {
-            panel.dataSource = nil
-            panel.delegate = nil
-        }
+    nonisolated override func endPreviewPanelControl(_ panel: QLPreviewPanel?) {
+        guard let panel else { return }
+        guard Thread.isMainThread else { Task { @MainActor in attach(panel, false) }; return }
+        MainActor.assumeIsolated { attach(panel, false) } // main-proof: checked Thread.isMainThread above
+    }
+
+    private func attach(_ panel: QLPreviewPanel, _ on: Bool) {
+        panel.dataSource = on ? self : nil
+        panel.delegate = on ? self : nil
     }
 }
 
 extension FileGridCollectionView: QLPreviewPanelDataSource, QLPreviewPanelDelegate {
-    func numberOfPreviewItems(in panel: QLPreviewPanel!) -> Int {
+    func numberOfPreviewItems(in panel: QLPreviewPanel?) -> Int {
         previewURLs().count
     }
 
-    func previewPanel(_ panel: QLPreviewPanel!, previewItemAt index: Int) -> (any QLPreviewItem)! {
+    func previewPanel(_ panel: QLPreviewPanel?, previewItemAt index: Int) -> (any QLPreviewItem)? {
         let urls = previewURLs()
         guard urls.indices.contains(index) else { return nil }
         return urls[index] as NSURL
     }
 
     /// Arrow keys in the panel move the grid's selection, as in Finder.
-    func previewPanel(_ panel: QLPreviewPanel!, handle event: NSEvent!) -> Bool {
+    func previewPanel(_ panel: QLPreviewPanel?, handle event: NSEvent?) -> Bool {
         guard let event, event.type == .keyDown else { return false }
         switch Int(event.keyCode) {
         case kVK_LeftArrow, kVK_RightArrow, kVK_UpArrow, kVK_DownArrow:

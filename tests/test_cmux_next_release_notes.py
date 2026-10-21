@@ -165,6 +165,52 @@ class ReleaseNotesTests(unittest.TestCase):
         result = subprocess.run([sys.executable, SCRIPT, "verify", "--public-key", public, notes], cwd=self.repo, capture_output=True, text=True)
         self.assertNotEqual(result.returncode, 0)
 
+    def commits(self, *subjects):
+        since = self.head
+        for subject in subjects:
+            git(self.repo, "commit", "-q", "--allow-empty", "-m", subject)
+        self.head = git(self.repo, "rev-parse", "HEAD")
+        return since
+
+    def test_user_facing_commits_give_a_whats_new_digest(self):
+        # 2026-10-20: the digest summary lost its period, the validator wants whole sentences, so
+        # every summary-built entry was dropped and the update card read "What's new in this build".
+        since = self.commits("fix(sidebar): pinned avatars match row avatars in the compact rail",
+                             "feat(next): click a background task to see everything it ran")
+        notes = self.build(since, build="6")
+        entries = (notes.get("whatsNew") or {}).get("entries", [])
+        self.assertEqual([e["title"]["en"] for e in entries],
+                         ["Click a background task to see everything it ran",
+                          "Pinned avatars match row avatars in the compact rail"])
+        for entry in entries:
+            self.assertTrue(entry["summary"]["en"].endswith("."), entry)
+
+    def test_agent_and_prompt_ids_never_reach_the_summary(self):
+        since = self.commits("feat(next): nested groups up to 3 levels with one machine per tree (a283)",
+                             "Hover card: move the card's scroll view by the wheel delta directly (u3320)")
+        notes = self.build(since, build="7")
+        titles = [line["title"] for line in notes["summary"]]
+        self.assertTrue(titles, notes["summary"])
+        for title in titles:
+            self.assertNotRegex(title, r"\((?:a|u)\d+\)")
+
+    def check(self, notes_path):
+        return subprocess.run([sys.executable, SCRIPT, "check", "--notes", notes_path],
+                              cwd=self.repo, capture_output=True, text=True)
+
+    def test_check_fails_a_build_with_no_whats_new_entries(self):
+        since = self.commits("ci: tick the nightly", "test(next): a red test")
+        self.build(since, build="8")
+        result = self.check(os.path.join(self.repo, "out", "8.json"))
+        self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no What's New entries", result.stderr)
+
+    def test_check_passes_a_build_with_entries(self):
+        since = self.commits("feat(next): click a background task to see everything it ran")
+        self.build(since, build="9")
+        result = self.check(os.path.join(self.repo, "out", "9.json"))
+        self.assertEqual(result.returncode, 0, result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

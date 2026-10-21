@@ -67,7 +67,16 @@ public struct WindowTitlebar {
 
     /// The traffic lights' frame in window coordinates, or nil when they
     /// do not show (fullscreen, a window without them).
+    ///
+    /// While a window leaves full screen AppKit lays it out at its windowed
+    /// size before the lights are back in it (they are still in the full
+    /// screen titlebar, and the style mask may still say full screen): a
+    /// ``TrafficLightsResting`` window answers with the frame they come back
+    /// to, so the top row lays out once, for where it rests, and does not
+    /// jump when the animation ends (fullscreen-lag).
     public static func trafficLightsFrame(in window: NSWindow) -> CGRect? {
+        // Before the style mask: it may still say full screen while the window shrinks back.
+        if let resting = (window as? any TrafficLightsResting)?.restingTrafficLights { return resting }
         guard !window.styleMask.contains(.fullScreen) else { return nil }
         let buttons: [NSWindow.ButtonType] = [.closeButton, .miniaturizeButton, .zoomButton]
         let frames = buttons.compactMap { type -> CGRect? in
@@ -107,4 +116,14 @@ public struct WindowTitlebar {
 public protocol TitlebarAccessoryHosting: AnyObject {
     /// The accessory's frame in window coordinates, nil when none shows.
     var titlebarAccessoryFrame: CGRect? { get }
+}
+
+/// A window that knows where its traffic lights rest while AppKit has them
+/// elsewhere (the end of a full screen exit). ``WindowTitlebar/trafficLightsFrame(in:)``
+/// uses it when the window shows none of its own.
+@MainActor
+public protocol TrafficLightsResting: AnyObject {
+    /// The lights' windowed frame in window coordinates while they are away
+    /// for a transition, nil at any other time.
+    var restingTrafficLights: CGRect? { get }
 }

@@ -41,4 +41,34 @@ public nonisolated struct AnimatedFrame: Hashable, Sendable {
         let e = alpha.advance(dt, parameters: alphaParameters ?? parameters, epsilon: 0.004)
         return a || b || c || d || e
     }
+
+    /// Advances the rect without letting it settle on its own; the alpha settles as in
+    /// ``advance(_:parameters:alphaParameters:)``. For several frames that move as one motion (the
+    /// panes and dividers of a split or a close): each edge would otherwise snap in its own frame,
+    /// so edges with different travels land frames apart and a gap between them changes by up to
+    /// the snap distance. The caller lands them together once ``geometryNearRest`` holds for all.
+    ///
+    /// - Parameters:
+    ///   - dt: Seconds since the previous frame.
+    ///   - parameters: The rect's spring.
+    ///   - alphaParameters: The alpha's spring; defaults to `parameters`.
+    /// - Returns: Whether the alpha still moves.
+    public mutating func advanceUnsettled(_ dt: Double, parameters: SpringParameters, alphaParameters: SpringParameters? = nil) -> Bool {
+        _ = x.advance(dt, parameters: parameters, epsilon: 0)
+        _ = y.advance(dt, parameters: parameters, epsilon: 0)
+        _ = width.advance(dt, parameters: parameters, epsilon: 0)
+        _ = height.advance(dt, parameters: parameters, epsilon: 0)
+        return alpha.advance(dt, parameters: alphaParameters ?? parameters, epsilon: 0.004)
+    }
+
+    /// The rect is within a quarter point of its target on every edge and slower than 2 pt/s: where
+    /// ``advance(_:parameters:alphaParameters:)`` would snap it.
+    public var geometryNearRest: Bool {
+        [x, y, width, height].allSatisfy { abs($0.value - $0.target) <= 0.25 && abs($0.velocity) <= 2 }
+    }
+
+    /// Puts the rect on its target at rest; the alpha keeps moving.
+    public mutating func snapGeometry() {
+        x.snap(); y.snap(); width.snap(); height.snap()
+    }
 }

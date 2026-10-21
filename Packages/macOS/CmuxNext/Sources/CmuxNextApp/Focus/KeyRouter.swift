@@ -184,7 +184,7 @@ final class KeyRouter: BrowserKeyRouting {
             trace?("recorder: the Keyboard Shortcuts recorder took the key")
             return true
         }
-        if closesPopup(event, in: window) {
+        if routesPopupKey(event, in: window) {
             cancelChord()
             return true
         }
@@ -203,6 +203,8 @@ final class KeyRouter: BrowserKeyRouting {
             cancelChord()
             return true
         }
+        // Browser focus mode: Esc Esc leaves it (the first Escape still reaches the page).
+        if routesFocusModeEscape(event, in: window) { return true }
         let isChord = Self.isChord(event.modifierFlags)
         if isChord { dropTypeAhead() }
         guard chords.isPending || isChord else {
@@ -283,18 +285,31 @@ final class KeyRouter: BrowserKeyRouting {
         lastInterception = (candidate.id, window, ran)
     }
 
-    /// A popup window (or its Chromium page window) has the keyboard: a key
-    /// whose binding is a close action (Cmd-W) closes the popup, never the
-    /// opener's tab. The binding table decides which key that is, with the
-    /// popup's own context (no main-window focus).
-    private func closesPopup(_ event: NSEvent, in window: NSWindow?) -> Bool {
+    /// A popup window (or its Chromium page window) has the keyboard: the
+    /// binding table decides, with the popup's own context (a browser page,
+    /// its omnibar while editing; no main-window focus), and the popup takes
+    /// the keys that act on it. A close action (Cmd-W) closes the popup,
+    /// never the opener's tab; Focus Location Bar / Focus Address Bar
+    /// (Cmd-L) reach the popup's omnibar, never the opener's. Other keys
+    /// (Opt-Cmd-F: Search All Windows) go on as before.
+    private func routesPopupKey(_ event: NSEvent, in window: NSWindow?) -> Bool {
         guard let services, let popup = services.popups.window(containing: window), Self.isChord(event.modifierFlags) else { return false }
-        var context = KeyContext(bits: registry.context.subtracting(ActionContext.focusBits))
+        var bits = registry.context.subtracting(ActionContext.focusBits).union(.browserFocused)
+        if popup.addressBar.isEditing { bits.insert(.omnibarFocused) }
+        var context = KeyContext(bits: bits)
         context[KeyContext.windowKind] = .string(KeyContext.WindowKindValue.browserPopup)
         guard let winner = resolve(event, context: context) else { return false }
-        guard WindowKeyTable.isClose(winner.command) else { return false }
-        services.popups.close(popup.page)
-        return true
+        if WindowKeyTable.isClose(winner.command) {
+            services.popups.close(popup.page)
+            return true
+        }
+        switch winner.command {
+        case "focusLocation", "focusBrowserAddressBar":
+            popup.focusAddressBar()
+            return true
+        default:
+            return false
+        }
     }
 
     /// Printable keys typed before a page could take them, and the page
@@ -306,6 +321,8 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
+    /// Browser focus mode's double-Escape exit (``routesFocusModeEscape(_:in:)``).
+    var focusModeEscape = BrowserFocusModeEscapeExit()
 
     /// Set while the Keyboard Shortcuts page records keys: returns whether
     /// it took the key-down (only its own window's keys).

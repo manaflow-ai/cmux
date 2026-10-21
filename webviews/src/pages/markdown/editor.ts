@@ -16,7 +16,7 @@ import { history } from "@milkdown/kit/plugin/history";
 import { commonmark, imageSchema, linkSchema } from "@milkdown/kit/preset/commonmark";
 import { gfm } from "@milkdown/kit/preset/gfm";
 import type { Mark, Node as ProseNode, Schema } from "@milkdown/kit/prose/model";
-import { Plugin, PluginKey, TextSelection, type Transaction } from "@milkdown/kit/prose/state";
+import { Plugin, PluginKey, TextSelection, type EditorState, type Transaction } from "@milkdown/kit/prose/state";
 import { Decoration, DecorationSet, type EditorView, type NodeViewConstructor } from "@milkdown/kit/prose/view";
 import { ParserState, type SerializerState } from "@milkdown/kit/transformer";
 import { $nodeSchema, $prose } from "@milkdown/kit/utils";
@@ -50,8 +50,24 @@ import {
   type RemarkLike,
   type SourceMap,
 } from "./sourceMap";
+import { quoteLines } from "./selectionQuote";
+import {
+  commentDecorations,
+  commentMarkersKey,
+  commentMarkersPlugin,
+  topIndexForLine,
+  type ViewerComment,
+} from "./comments";
 import { imageSize, obsidianSyntaxPlugin } from "./obsidian";
-import { ResizableTableView, tableClipboard, tableKeyDown, type TableWidths } from "./tables";
+import { isPointerSelecting, pointerChanged, pointerSelectPlugin } from "./pointerSelect";
+import {
+  ResizableTableView,
+  tableClipboard,
+  tableDragOutPlugin,
+  tableKeyDown,
+  tableViewAt,
+  type TableWidths,
+} from "./tables";
 
 /** What the editor needs from its page: links, images, code colors, diagrams and labels. */
 export interface MarkdownEditorHost {
@@ -59,6 +75,10 @@ export interface MarkdownEditorHost {
   openLink(href: string): void;
   /** The URL an image source loads from (relative sources go through the host). */
   imageURL(src: string): string;
+  /** Approves every guarded web image in the current document; called only by its visible button. */
+  loadRemoteImages?(): Promise<void>;
+  /** Refreshes blocked image views when the current document receives or loses approval. */
+  observeRemoteImages?(refresh: () => void): () => void;
   /** Code token decorations for a code block; `null` while its grammar loads (then `refresh`). */
   highlight?(code: string, language: string, refresh: () => void): CodeToken[] | null;
   /** Renders a diagram block (mermaid, vega-lite, vega) into `target`. */
@@ -71,11 +91,26 @@ export interface MarkdownEditorHost {
   githubRepository?: string;
   /** Link checks, the link bubble's strings, path completion and copying. */
   links?: LinkHost;
-  /** Column widths the user dragged, kept per file (a view setting, never written to the file). */
+  /**
+   * Column widths the user dragged, kept per file (a view setting, never written to the file: the
+   * host keeps them in the file's extended attribute, MARKDOWN-TABLE-WIDTHS-DESIGN.md).
+   */
   tableWidths?: TableWidths;
+  /** Delete on a comment card: the host forgets comment `id` and sends the list again. */
+  deleteComment?(id: string): void;
 }
 
-export type EditorLabel = "frontmatter" | "html" | "definition" | "source" | "plainText" | "document";
+export type EditorLabel =
+  | "frontmatter"
+  | "html"
+  | "definition"
+  | "source"
+  | "plainText"
+  | "document"
+  | "remoteImageBlocked"
+  | "remoteImageLoad"
+  | "comment"
+  | "deleteComment";
 
 /** One colored token of a code block, by offset into its text. */
 export interface CodeToken {
@@ -236,6 +271,8 @@ export class MarkdownEditor {
   private remark: RemarkLike | null = null;
   private serializeDoc: ((doc: ProseNode) => string) | null = null;
   private baseline: SourceMap = { text: "", blocks: [] };
+  /** The file's viewer comments, drawn again after each load. */
+  private comments: ViewerComment[] = [];
   private readOnly: boolean;
   private eol = "\n";
 
@@ -304,12 +341,15 @@ export class MarkdownEditor {
       .use(autolinkPlugin(() => this.readOnly))
       .use(clipboard)
       .use(rawSchema)
+      .use(pointerSelectPlugin)
+      .use(tableDragOutPlugin)
       .use(activeBlockPlugin)
       .use(taskCheckboxPlugin())
       .use(githubReferencePlugin(() => host.githubRepository))
       .use(obsidianSyntaxPlugin(host))
       .use(userEditPlugin(() => this.options.onUserEdit?.()))
-      .use(codeHighlightPlugin(host));
+      .use(codeHighlightPlugin(host))
+      .use(commentMarkersPlugin());
     if (host.links)
       editor
         .use(brokenLinkPlugin(host.links))
@@ -428,6 +468,29 @@ export class MarkdownEditor {
     this.bubble.current?.editAtSelection();
   }
 
+  /** Forgets every table's column widths in the file (the `resetTableWidths` page command). */
+  resetTableWidths(): void {
+    this.options.host.tableWidths?.clear();
+  }
+
+  /**
+   * Forgets the column widths of the table around `target` (the table's right-click Reset Column
+   * Widths); false when `target` is in no table.
+   */
+  resetTableWidthsAt(target: Element | null): boolean {
+    const view = tableViewAt(target);
+    view?.resetWidths();
+    return !!view;
+  }
+
+  /** The index among the document's tables of the table around `target`, or null. */
+  tableIndexAt(target: Element | null): number | null {
+    const wrapper = target?.closest?.(".tableWrapper");
+    if (!wrapper || !this.view?.dom.contains(wrapper)) return null;
+    const index = [...this.view.dom.querySelectorAll(".tableWrapper")].indexOf(wrapper);
+    return index >= 0 ? index : null;
+  }
+
   /** A click on a task item's box (left of its text) checks or unchecks it. */
   private toggleTask(target: Element | null, event: MouseEvent): boolean {
     const item = target?.closest?.('li[data-item-type="task"]');
@@ -460,10 +523,28 @@ export class MarkdownEditor {
       (kind: RawKind, value: string) => rawNode(schema, kind, value),
     );
     const nodes = sourceMapNodes(map);
-    const doc = schema.topNodeType.create(null, nodes.length ? nodes : [schema.nodes.paragraph.create()]);
-    const tr = view.state.tr.replaceWith(0, view.state.doc.content.size, doc.content);
-    tr.setMeta(LOAD_META, true).setMeta("addToHistory", false);
-    view.dispatch(tr);
+    // Only the blocks that differ are replaced (a reload from disk): the selection maps through the
+    // change and stays on its words, and the blocks that did not change keep their DOM.
+    const before = this.topNodes();
+    const after = nodes.length ? [...nodes] : [schema.nodes.paragraph.create()];
+    let head = 0;
+    while (head < before.length && head < after.length && sameBlock(before[head]!, after[head]!)) head++;
+    let tail = 0;
+    while (
+      tail < before.length - head &&
+      tail < after.length - head &&
+      sameBlock(before[before.length - 1 - tail]!, after[after.length - 1 - tail]!)
+    )
+      tail++;
+    if (head < before.length - tail || head < after.length - tail) {
+      let from = 0;
+      for (let index = 0; index < head; index++) from += before[index]!.nodeSize;
+      let to = from;
+      for (let index = head; index < before.length - tail; index++) to += before[index]!.nodeSize;
+      const tr = view.state.tr.replaceWith(from, to, after.slice(head, after.length - tail));
+      tr.setMeta(LOAD_META, true).setMeta("addToHistory", false);
+      view.dispatch(tr);
+    }
     // The baseline is the document as the editor holds it after its own normalization.
     const current = this.topNodes();
     let index = 0;
@@ -474,6 +555,8 @@ export class MarkdownEditor {
     if (index !== current.length || this.baseline.blocks.some((block) => block.nodes.includes(null as never))) {
       this.baseline = map;
     }
+    // The lines moved with the new text: the markers go where their lines are now.
+    if (this.comments.length) this.setComments(this.comments);
   }
 
   /** The markdown for the current document, and its source map (the next baseline after a save). */
@@ -489,6 +572,44 @@ export class MarkdownEditor {
   /** Makes `map` (a snapshot that was saved) the baseline. */
   commit(map: SourceMap): void {
     this.baseline = map;
+  }
+
+  /**
+   * The selection's text and the source lines that hold it (viewer comments,
+   * viewer-comments-DESIGN.md), null with nothing selected. Lines count in the current document,
+   * which is the file after the next save.
+   */
+  selectionQuote(): { text: string; startLine?: number; endLine?: number } | null {
+    const view = this.view;
+    if (!view || !this.serializeDoc) return null;
+    const { from, to, empty } = view.state.selection;
+    if (empty) return null;
+    const doc = view.state.doc;
+    const text = doc.textBetween(from, to, "\n", "\n");
+    if (!text.trim()) return null;
+    const lines = quoteLines(
+      this.snapshot(),
+      doc.resolve(from).index(0),
+      doc.resolve(Math.max(from, to - 1)).index(0),
+      text,
+    );
+    return lines ? { text, ...lines } : { text };
+  }
+
+  /** Shows `comments` as margin markers (viewer-comments-DESIGN.md "Comments in the viewer"). */
+  setComments(comments: readonly ViewerComment[]): void {
+    this.comments = [...comments];
+    const view = this.view;
+    if (!view || !this.serializeDoc) return;
+    const map = this.comments.length ? this.snapshot() : null;
+    const host = { label: this.options.host.label, deleteComment: this.options.host.deleteComment };
+    const set = commentDecorations(
+      view.state.doc,
+      this.comments,
+      (line) => (map ? topIndexForLine(map, line) : null),
+      host,
+    );
+    view.dispatch(view.state.tr.setMeta(commentMarkersKey, set).setMeta("addToHistory", false));
   }
 
   /** The baseline text: what the file held at the last load or save. */
@@ -534,6 +655,16 @@ export class MarkdownEditor {
   }
 }
 
+/**
+ * Whether a loaded block is the one the editor holds: equal, or a heading that differs only in the
+ * `id` the editor derives after a load (a fresh parse has none yet).
+ */
+function sameBlock(held: ProseNode, loaded: ProseNode): boolean {
+  if (held.eq(loaded)) return true;
+  if (held.type !== loaded.type || held.type.name !== "heading" || !held.content.eq(loaded.content)) return false;
+  return held.attrs.level === loaded.attrs.level && (!loaded.attrs.id || loaded.attrs.id === held.attrs.id);
+}
+
 /** ProseMirror nodes for a transformed mdast root, with Milkdown's parser state. */
 function buildNodes(schema: Schema, root: MdastRoot): ProseNode[] {
   const State = ParserState as unknown as new (schema: Schema) => {
@@ -548,7 +679,7 @@ function buildNodes(schema: Schema, root: MdastRoot): ProseNode[] {
   return nodes;
 }
 
-const activeKey = new PluginKey("cmuxMarkdownActive");
+const activeKey = new PluginKey<DecorationSet>("cmuxMarkdownActive");
 
 const taskCheckboxKey = new PluginKey<DecorationSet>("cmuxMarkdownTaskCheckbox");
 
@@ -630,22 +761,32 @@ function taskCheckboxPlugin() {
   );
 }
 
-/** Marks the top-level block holding the selection `md-active` (diagrams and HTML show source). */
+/** The top-level block holding the selection's head, as a decoration (`md-active`). */
+function activeBlock(state: EditorState): DecorationSet {
+  const { $head, from } = state.selection;
+  // A node selection of a top-level block sits at depth 0, before the block.
+  const start = $head.depth >= 1 ? $head.before(1) : from;
+  const node = state.doc.nodeAt(start);
+  if (!node) return DecorationSet.empty;
+  return DecorationSet.create(state.doc, [Decoration.node(start, start + node.nodeSize, { class: "md-active" })]);
+}
+
+/**
+ * Marks the top-level block holding the selection `md-active` (diagrams and HTML show source).
+ * While the button is down it stays on the block it was on (pointerSelect.ts): a diagram's source
+ * opening under a drag moved the text below it.
+ */
 const activeBlockPlugin = $prose(
   () =>
-    new Plugin({
+    new Plugin<DecorationSet>({
       key: activeKey,
+      state: {
+        init: (_config, state) => activeBlock(state),
+        apply: (tr, previous, _old, state) =>
+          isPointerSelecting(state) && !pointerChanged(tr) ? previous.map(tr.mapping, state.doc) : activeBlock(state),
+      },
       props: {
-        decorations(state) {
-          const { $head, from } = state.selection;
-          // A node selection of a top-level block sits at depth 0, before the block.
-          const start = $head.depth >= 1 ? $head.before(1) : from;
-          const node = state.doc.nodeAt(start);
-          if (!node) return null;
-          return DecorationSet.create(state.doc, [
-            Decoration.node(start, start + node.nodeSize, { class: "md-active" }),
-          ]);
-        },
+        decorations: (state) => activeKey.getState(state),
       },
     }),
 );
@@ -729,32 +870,71 @@ function nodeViews(host: MarkdownEditorHost): Record<string, NodeViewConstructor
     // would write widths into the document, so the editor names its own view here.
     table: (node, view, getPos) => new ResizableTableView(node, view, getPos, host.tableWidths, 100),
     image: (node) => {
-      const img = document.createElement("img");
+      const dom = document.createElement("span");
+      dom.className = "md-image-node";
+      dom.contentEditable = "false";
+      let current = node;
       const apply = (next: ProseNode) => {
-        img.src = host.imageURL(String(next.attrs.src ?? ""));
+        current = next;
+        const source = String(next.attrs.src ?? "");
+        const resolved = host.imageURL(source);
         // Obsidian's size suffix: `![alt|300](src)` or `|300x200`.
         const alt = String(next.attrs.alt ?? "");
         const sized = /^(.*?)\|\s*(\d+(?:\s*x\s*\d+)?)\s*$/.exec(alt);
         const size = imageSize(sized?.[2]);
-        img.alt = sized ? sized[1]!.trim() : alt;
+        const plainAlt = sized ? sized[1]!.trim() : alt;
+        if (!resolved && /^https?:\/\//i.test(source.trim())) {
+          dom.replaceChildren(markdownRemoteImagePlaceholder(host, source, plainAlt));
+          return;
+        }
+        const img = document.createElement("img");
+        if (resolved) img.src = resolved;
+        img.alt = plainAlt;
         if (size.width) img.setAttribute("width", String(size.width));
-        else img.removeAttribute("width");
         if (size.height) img.setAttribute("height", String(size.height));
-        else img.removeAttribute("height");
         if (next.attrs.title) img.title = String(next.attrs.title);
-        else img.removeAttribute("title");
+        dom.replaceChildren(img);
       };
       apply(node);
+      const stop = host.observeRemoteImages?.(() => apply(current));
       return {
-        dom: img,
+        dom,
         update: (next) => {
           if (next.type !== node.type) return false;
           apply(next);
           return true;
         },
+        stopEvent: (event) => event.target instanceof Element && !!event.target.closest("button"),
+        ignoreMutation: () => true,
+        destroy: () => stop?.(),
       };
     },
   };
+}
+
+/** The visible control in place of a remote image. Its click approves the whole document. */
+export function markdownRemoteImagePlaceholder(host: MarkdownEditorHost, source: string, alt: string): HTMLElement {
+  const placeholder = document.createElement("span");
+  placeholder.className = "md-remote-image-placeholder";
+  placeholder.title = source;
+  const label = document.createElement("span");
+  label.textContent = alt || host.label("remoteImageBlocked");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "md-button";
+  button.textContent = host.label("remoteImageLoad");
+  button.addEventListener("mousedown", (event) => event.preventDefault());
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    button.disabled = true;
+    void host.loadRemoteImages?.().catch((error: unknown) => {
+      button.disabled = false;
+      console.warn("cmux markdown remote images", error);
+    });
+  });
+  placeholder.append(label, button);
+  return placeholder;
 }
 
 /** Puts the caret at the start of a node's text, so clicking a preview edits its source. */
@@ -848,6 +1028,7 @@ class RawBlockView {
   private readonly header: HTMLButtonElement;
   private readonly preview: HTMLElement;
   private html = "";
+  private readonly stopRemoteImages: (() => void) | undefined;
 
   constructor(
     private node: ProseNode,
@@ -873,7 +1054,7 @@ class RawBlockView {
     this.preview.className = "md-raw-preview";
     this.preview.contentEditable = "false";
     this.preview.addEventListener("mousedown", (event) => {
-      if ((event.target as Element).closest?.("a[href], summary")) return;
+      if ((event.target as Element).closest?.("a[href], summary, button")) return;
       event.preventDefault();
       selectInside(this.view, this.getPos);
     });
@@ -889,6 +1070,10 @@ class RawBlockView {
     pre.append(this.contentDOM);
     this.dom.append(this.header, this.preview, pre);
     this.renderPreview(node);
+    this.stopRemoteImages = host.observeRemoteImages?.(() => {
+      this.html = "";
+      this.renderPreview(this.node);
+    });
   }
 
   private renderPreview(node: ProseNode): void {
@@ -914,5 +1099,9 @@ class RawBlockView {
 
   ignoreMutation(mutation: MutationRecord | { type: string; target: Node }): boolean {
     return !this.contentDOM.contains(mutation.target) || mutation.type === "attributes";
+  }
+
+  destroy(): void {
+    this.stopRemoteImages?.();
   }
 }

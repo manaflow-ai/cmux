@@ -111,7 +111,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       variant: "no-project",
       card: ".acpmux-composer-box",
     },
-    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "empty", card: ".nt-box" },
+    // The strip heads the New Tab card in the top-of-page templates (Threads here); Cards draws it
+    // under its pill field and Default's stage layout in the footer under the box.
+    { name: "the New Tab composer", entry: "agent-pane.new-tab", variant: "template-threads", card: ".nt-box" },
   ];
   for (const surface of surfaces)
     for (const width of [420, 720])
@@ -188,7 +190,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const page = await open("agent-pane.composer-strip", variant, 720, remember);
       await page.locator(".acpmux-composer-bar .acpmux-model").waitFor();
       const measured = await page.evaluate(() => {
-        const bar = document.querySelector(".acpmux-composer-bar")!;
+        // The controls sit in the box's row and the quiet row under it (ComposerFoot.tsx).
+        const bar = document.querySelector(".acpmux-composer")!;
         const left = (selector: string) => bar.querySelector(selector)?.getBoundingClientRect().left;
         return {
           placeholders: document.querySelectorAll(
@@ -198,7 +201,9 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
           model: left(".acpmux-model"),
           effort: left(".acpmux-effort"),
           access: left(".acpmux-access"),
-          send: left(".acpmux-send"),
+          // Claude desktop's box: no Send until there is a draft (Leo 2026-10-20); the mic is the
+          // trailing control of this empty new chat.
+          mic: left(".acpmux-mic"),
         };
       });
       await page.close();
@@ -208,7 +213,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     const arrived = await controls("reported");
     expect(loading.placeholders).toBe(0);
     expect(arrived.placeholders).toBe(0);
-    for (const name of ["plus", "model", "effort", "access", "send"] as const) {
+    for (const name of ["plus", "model", "effort", "access", "mic"] as const) {
       expect(loading[name]).toBeDefined();
       expect(Math.abs(loading[name]! - arrived[name]!)).toBeLessThanOrEqual(1);
     }
@@ -329,6 +334,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       prompt: rect(
         document.querySelector(".acpmux-composer-box .acpmux-input, .acpmux-composer-box [contenteditable]"),
       ),
+      // The Claude desktop box (composerLocation.css): + and the trailing actions sit beside the
+      // prompt, so the box's columns are the + glyph's 16 px box and the last action's glyph: the
+      // mic in this empty new chat (no Send until there is a draft, Leo 2026-10-20), Send with one.
+      plusGlyph: rect(document.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon")),
+      trailGlyph: rect(
+        [...document.querySelectorAll(".acpmux-composer-inner .acpmux-composer-actions .acpmux-icon")].at(-1),
+      ),
       strip: rect(strip),
       folderIcon: rect(pickers[0]?.querySelector(".acpmux-location-icon")),
       branchChevron: rect(branch.querySelector(".ui-ghost-icon:last-child")),
@@ -368,9 +380,13 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       const prompt = marks.prompt!;
       const folderIcon = marks.folderIcon!;
       const branchChevron = marks.branchChevron!;
-      // A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's ink ends 4 px inside.
-      expect(Math.abs(folderIcon.left + 1.5 - prompt.left)).toBeLessThanOrEqual(2);
-      expect(Math.abs(branchChevron.right - 4 - prompt.right)).toBeLessThanOrEqual(2);
+      // The marks sit over the box's content edges: the prompt's, or + and the last action's
+      // (the mic at rest) where they stand beside it. A 14 px stroke icon's ink starts ~1.5 px inside its box; the chevron's
+      // ink ends 4 px inside.
+      const lead = marks.plusGlyph?.left ?? prompt.left;
+      const trail = marks.trailGlyph?.right ?? prompt.right;
+      expect(Math.abs(folderIcon.left + 1.5 - lead)).toBeLessThanOrEqual(2);
+      expect(Math.abs(branchChevron.right - 4 - trail)).toBeLessThanOrEqual(2);
       expect(marks.text).not.toContain("·");
       // At or under 460 px the computer is its icon (the strip's first step).
       expect(marks.computerLabelShown).toBe(width > 460);
@@ -441,7 +457,8 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
     expect(marks.branchClipped).toBe(false);
   });
 
-  test("focusing a footer control lifts the strip rim without changing its geometry", async () => {
+  // Focus draws no ring (Leo 2026-10-19): a focused footer control leaves the strip's rim at rest.
+  test("focusing a footer control changes neither the strip rim nor its geometry", async () => {
     const page = await open("agent-pane.composer-strip", "project", 420);
     await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
     await page.waitForTimeout(20);
@@ -463,7 +480,7 @@ await requireBrowserLane("composer-location-strip.test.ts", async () => {
       };
     });
     await page.close();
-    expect(after.edge).not.toBe(before.edge);
+    expect(after.edge).toBe(before.edge);
     expect(after.rect).toEqual(before.rect);
   });
 

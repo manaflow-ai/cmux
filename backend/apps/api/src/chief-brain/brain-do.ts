@@ -152,7 +152,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
         sections: [section("chief", () => (this.childOf() ? childPrompt(this.childOf()!) : systemPrompt(this.config())), { tag: false })],
         // A child (subagent) gets hands only: no memory, no Chief management, no spawn (one level deep).
         // Hands come from the "chief-hands" extension (installHands): full, or a compact entry until a hand exists.
-        tools: this.childOf() ? [] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config()), spawnTool(this.spawnHost())],
+        tools: this.childOf() ? [] : [...memoryTools(() => this.memory), ...chiefsTools(this.env, () => this.config(), () => this.effectsAuthorized()), spawnTool(this.spawnHost())],
         hooks: [
           hook(GenerationTask, {
             beforeRequest: async ({ messages }, api) => {
@@ -200,6 +200,10 @@ export class ChiefBrainDO extends DurableObject<Env> {
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env)
     for (const q of [...SCHEMA, ...SPAWN_SCHEMA, IMPORT_SCHEMA]) this.sql.exec(q)
+    const inboxColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_inbox)`).toArray().map((c) => c.name))
+    if (!inboxColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_inbox ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
+    const turnColumns = new Set(this.sql.exec<{ name: string }>(`PRAGMA table_info(cb_turn)`).toArray().map((c) => c.name))
+    if (!turnColumns.has("effect_authorized")) this.sql.exec(`ALTER TABLE cb_turn ADD COLUMN effect_authorized INTEGER NOT NULL DEFAULT 0`)
     this.memory = new Memory(this.sql, Number(env.CHIEF_BRAIN_VIEW_BUDGET ?? "0") || 0)
     const compactCache = new PrefixCache(ttlMs(env.CHIEF_BRAIN_CACHE_TTL), msOr(env.CHIEF_BRAIN_PREFIX_WAIT_MS, PrefixCache.WAIT_MS))
     this.compactor = new Compactor({
@@ -511,7 +515,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   }
 
   /** Logs the new messages, then builds the cache-stable input (frozen view + delta, OptChat 5a) with the turn row in one transaction (a restart resubmits the same bytes). */
-  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number }>, fresh = false): void {
+  openTurn(conversation: string, rows: ReadonlyArray<{ n: number; message: string; seq: number; kind: string; thread_root: string | null; text: string; woke: number; effect_authorized: number }>, fresh = false): void {
     return turnLoop.openTurn(this, conversation, rows, fresh)
   }
 
@@ -544,6 +548,14 @@ export class ChiefBrainDO extends DurableObject<Env> {
     return this.child
   }
 
+  /** A child runs a task an authorized spawn created. A Chief turn may run
+   * effects only while every message delivered to it was owner-authored. */
+  effectsAuthorized(): boolean {
+    if (this.childOf()) return true
+    if (!this.turnId) return false
+    return this.sql.exec<{ effect_authorized: number }>(`SELECT effect_authorized FROM cb_turn WHERE id = ?`, this.turnId).toArray()[0]?.effect_authorized === 1
+  }
+
   /**
    * The hands tools as their own extension: the full `hands` + `agent` pair when the Chief has a hand (or is a
    * child, which works on hands), else one compact `hands` entry (list, pair_code, new_sandbox): about 1.8k fewer
@@ -557,7 +569,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
     // The tools are fixed for a whole turn (a model signs its thinking for the tools list; a change inside the
     // turn makes the next request a 400). The running turn's mode wins, also when the object opens again mid-turn.
     const full = this.childOf() !== null || (v("hands_turn_mode") ?? v("hands_full")) === "1"
-    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action, result) => this.handFoundInTurn(action, result))] })
+    this.registry.install({ name: "chief-hands", tools: full ? [...this.hands()] : [handsEntryTool(this.env, () => ({ ...this.config() }), (action, result) => this.handFoundInTurn(action, result), () => this.effectsAuthorized())] })
   }
 
   /** At a turn boundary only: this turn's hands mode (full once a hand was found), recorded for the whole turn. */
@@ -596,7 +608,7 @@ export class ChiefBrainDO extends DurableObject<Env> {
   /** The hands tools; a child's caller and agent tokens name its own object (`<conversation>:spawn:<n>`), so a hand's session-end revoke reaches it. */
   hands() {
     const c = this.childOf()
-    return handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: c ? childKey(c.conversation, c.n) : this.turnConversation, ledger: (jti: string, o: LedgerOp) => runLedger(this.sql, this.turnId ?? "", jti, 0, o) }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])))
+    return handsTools(this.env, () => ({ ...this.config(), run: this.turnId, conversation: c ? childKey(c.conversation, c.n) : this.turnConversation, ledger: (jti: string, o: LedgerOp) => runLedger(this.sql, this.turnId ?? "", jti, 0, o) }), (r) => (r.type === "run.activity" ? liveOf(this.ctx).activity(r.line) : this.turnId && this.announce(this.turnId, [upsertStep(this.sql, this.turnId, r.step, Date.now())])), () => this.effectsAuthorized())
   }
 
   spawnHost() {

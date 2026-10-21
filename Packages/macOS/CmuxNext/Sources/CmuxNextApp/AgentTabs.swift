@@ -173,6 +173,8 @@ final class AgentTabStore {
     /// so a Cloud or SSH chat reads its folder there; nil answers the page `native.not_connected`. Move to Floating Chat puts a session in Start Agent's panel.
     /// The upload for a chat tab's dropped or pasted files, nil when it takes none (``CloudUploads``).
     var uploader: (@MainActor (_ tab: String) -> AgentPaneUploader?)?
+    /// A background task's terminal beside chat tab `chat` (``AgentProcessTerminal``); false when none opened.
+    var openProcess: (@MainActor (_ chat: String, _ viewer: AgentPaneProcessViewer) -> Bool)?
     var gitLink: (@MainActor (String) -> AgentPaneGitLink?)?, openFiles: (@MainActor (_ chat: String, _ folder: String, _ target: String?) -> Void)?, moveToFloatingChat: (@MainActor (String) -> Bool)?
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
@@ -443,6 +445,7 @@ final class AgentTabStore {
         if model.newTab != nil { view.showsLoadingState = false }
         pageChats.seed(view)
         model.onComposerSetting = { [weak pageSettings] path, show in try await pageSettings?.setComposer(path, show) }
+        model.onDisplaySetting = { [weak pageSettings] path, value in try await pageSettings?.setDisplay(path, value) }
         customization.start()
         return view
     }

@@ -32,9 +32,14 @@ extension AgentCLIUpdateActions {
                       let index = intent.jobs.firstIndex(where: { $0["terminal"]?.stringValue == status.terminalID.rawValue }),
                       var job = intent.jobs[index].objectValue else { continue }
                 intent.outcomeRevisions[status.terminalID] = status.revision
+                // An end observation settles the job even when it has no process result.
                 job["state"] = .string(status.state.rawValue)
-                if case .exit(let code) = status.outcome { job["exit_code"] = .number(Double(code)) }
-                if case .signal(let number) = status.outcome { job["signal"] = .number(Double(number)) }
+                switch status.outcome {
+                case .exit(let code): job["exit_code"] = .number(Double(code))
+                case .signal(let number): job["signal"] = .number(Double(number))
+                case .unknown: job["outcome"] = "unknown"
+                case nil: break
+                }
                 intent.jobs[index] = .object(job)
                 // Any exit, even one whose outcome is unknown, ends the process: it settles.
                 if status.state == .exited, let key { await settle(key, in: nil) }
