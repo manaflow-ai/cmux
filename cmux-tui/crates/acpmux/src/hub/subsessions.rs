@@ -787,13 +787,16 @@ impl Hub {
                 row[key] = json!(crate::secret_scan::mask(text));
             }
         }
-        // The running turn's prompt and the last turn's text too.
+        // The running turn's prompt (below, masked before its cut) and the last turn's text.
         for pointer in ["/lastTurn/errorText", "/lastTurn/prompt", "/turn/prompt"] {
             if let Some(slot) = row.pointer_mut(pointer)
                 && let Some(text) = slot.as_str()
             {
                 *slot = json!(crate::secret_scan::mask(text));
             }
+        }
+        if let Some(t) = s.turn().filter(|t| row["turn"]["turnId"] == t.turn_id.as_str()) {
+            row["turn"]["prompt"] = json!(t.masked_preview);
         }
         row
     }

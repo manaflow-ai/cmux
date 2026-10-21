@@ -183,6 +183,9 @@ pub struct TurnInfo {
     pub started_at: u64,
     pub client: String,
     pub prompt_preview: String,
+    /// `prompt_preview` masked before its cut, for the sub-session tools
+    /// (`subsession_row`): a secret across the cut leaves no head there.
+    pub masked_preview: String,
     /// Stable turn identifier, assigned when the prompt is accepted and
     /// carried by `queued`, `user_message`, `turn_started` and `turn_result`.
     pub turn_id: String,

@@ -585,6 +585,7 @@ impl Hub {
                     *session.turn.lock().unwrap() = Some(TurnInfo {
                         started_at: now_ms(),
                         client,
+                        masked_preview: crate::secret_scan::mask(&prompt),
                         prompt_preview: prompt,
                         turn_id: turn_id.clone(),
                         prompt_id: prompt_id.clone(),

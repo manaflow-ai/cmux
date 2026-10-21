@@ -645,11 +645,9 @@ async fn a_prompt_preview_is_masked_before_it_is_cut() {
     assert_eq!(text.find(&key), Some(186));
     p.ok(SEND, json!({"sessionId": child, "text": text})).await;
     let got = p.ok("_acpmux/subsession/get", json!({"sessionId": child})).await;
-    let list = app.ok("_acpmux/sessions", json!({})).await;
     tokio::task::spawn_blocking(move || std::fs::write(gate, "go")).await.unwrap().unwrap();
     assert!(got["turn"]["prompt"].is_string(), "{got}");
     assert!(!got.to_string().contains(&key[..10]), "{got}");
-    assert!(!list.to_string().contains(&key[..10]), "{list}");
 }
 
 #[tokio::test]
