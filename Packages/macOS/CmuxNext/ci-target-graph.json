@@ -276,7 +276,6 @@
         "CmuxNextTerminal",
         "CmuxNextTerminalFind",
         "CmuxNextTerminalGeometry",
-        "CmuxNextUpdateEverything",
         "CmuxNextUpdater",
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
@@ -344,7 +343,6 @@
         "CmuxNextTabs",
         "CmuxNextTasks",
         "CmuxNextTerminalGeometry",
-        "CmuxNextUpdateEverything",
         "CmuxNextVSCodeServer",
         "CmuxNextWakeups",
         "CmuxNextWorkspaceNaming"
@@ -1405,20 +1403,6 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextTerminalGeometry",
       "targets": [],
-      "packages": []
-    },
-    "CmuxNextUpdateEverything": {
-      "kind": "regular",
-      "path": "Packages/macOS/CmuxNext/Sources/CmuxNextUpdateEverything",
-      "targets": [
-        "CmuxNextActions",
-        "CmuxNextCompat",
-        "CmuxNextDaemon",
-        "CmuxNextDaemonService",
-        "CmuxNextDesign",
-        "CmuxNextRemote",
-        "CmuxNextUpdater"
-      ],
       "packages": []
     },
     "CmuxNextUpdater": {
