@@ -18,9 +18,7 @@
 //! 100 MB) and in total (`terminal.persistence.maxTotalBytes`, default
 //! 2 GB). Past a cap the oldest files go first.
 
-use std::collections::hash_map::DefaultHasher;
 use std::fs;
-use std::hash::{Hash, Hasher};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -62,9 +60,11 @@ impl Segments {
 }
 
 fn generation_key(generation: &str) -> String {
-    let mut hasher = DefaultHasher::new();
-    generation.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    // A stable digest (std's hasher may change between Rust releases, and
+    // file names must outlive a daemon upgrade).
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(generation.as_bytes());
+    digest[..8].iter().map(|byte| format!("{byte:02x}")).collect()
 }
 
 fn terminal_directory(directory: &Path, terminal_id: &TerminalPublicId) -> PathBuf {
@@ -156,13 +156,23 @@ fn append_frame(
         Some((file_start, path)) => {
             let len = fs::metadata(&path)?.len();
             if len < SEGMENT_FILE_BYTES {
-                if verified.get(&path) != Some(&len) {
-                    let whole = frame_extent(&path, file_start).map_or(0, |(whole, _)| whole);
-                    if whole < len {
-                        fs::OpenOptions::new().write(true).open(&path)?.set_len(whole)?;
+                // A file that cannot be checked (open or read error) is left
+                // as it is, and the frame goes to a new file.
+                let checked = if verified.get(&path) == Some(&len) {
+                    Some(len)
+                } else {
+                    frame_extent(&path, file_start).map(|(whole, _)| whole)
+                };
+                match checked {
+                    Some(whole) => {
+                        if whole < len {
+                            fs::OpenOptions::new().write(true).open(&path)?.set_len(whole)?;
+                        }
+                        path
                     }
+                    None => terminal_directory
+                        .join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation))),
                 }
-                path
             } else {
                 terminal_directory
                     .join(format!("{}-{start:020}.{SUFFIX}", generation_key(generation)))
