@@ -61,7 +61,8 @@ fn harness() -> (Harness, Arc<Mutex<Vec<String>>>) {
     (h, lines)
 }
 
-fn spawner(h: &Harness, harness: &str) -> Arc<Spawner> {
+fn spawner(h: &Harness, lines: &Arc<Mutex<Vec<String>>>, harness: &str) -> Arc<Spawner> {
+    let sink = lines.clone();
     Arc::new(Spawner::new(
         h.chat.clone(),
         h.agents.clone(),
@@ -77,7 +78,7 @@ fn spawner(h: &Harness, harness: &str) -> Arc<Spawner> {
             claude_md: None,
         },
         h.tx.clone(),
-        Arc::new(|_: &str| {}),
+        Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned())),
     ))
 }
 
@@ -117,11 +118,14 @@ fn idle(session: &str, harness: &str) -> cmux_chief::acp::SessionSummary {
 /// acpmux reports it.
 fn run_until(
     h: &mut Harness,
-    lines: &Mutex<Vec<String>>,
+    lines: &Arc<Mutex<Vec<String>>>,
     sub_harness: &str,
     done: impl Fn(&Harness) -> bool,
 ) {
-    let sp = spawner(h, sub_harness);
+    // The host keeps its Spawner for its life; the queue's starter holds it
+    // weakly, so the test keeps it too, or a queued restart never starts.
+    let sp = spawner(h, lines, sub_harness);
+    let _keep = sp.clone();
     h.brain.set_sub_starter(Some(sp.queue_starter()));
     h.connect();
     let worker =
