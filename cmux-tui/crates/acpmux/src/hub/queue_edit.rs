@@ -24,7 +24,8 @@ fn stricter(a: Control, b: Control) -> Control {
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, index?}`. Answers
     /// `{sessionId, promptId, op, ok}`, and `send_now` also how it was sent (`sent`: `steer`,
-    /// `interrupt` or `next`). `ok` is false when the prompt no longer waits.
+    /// `interrupt` or `next`). `ok` is false when the prompt no longer waits. `send_now` of a
+    /// prompt already steered into the turn stops the agent's step (`send_steer_now`).
     pub async fn queue_edit(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -64,7 +65,10 @@ impl Hub {
                 json!(self.move_queued(session, prompt_id, index as usize))
             }
             "send_now" => {
-                let sent = self.send_queued_now(session, prompt_id, control).await?;
+                let sent = match self.send_queued_now(session, prompt_id, control).await? {
+                    None => self.send_steer_now(session, control).await?,
+                    sent => sent,
+                };
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
@@ -189,6 +193,33 @@ impl Hub {
             return Ok(None);
         }
         self.cancel_turn(session, &running).await;
+        Ok(Some("interrupt"))
+    }
+
+    /// Send now for a prompt steered into the running turn that the agent has not read yet
+    /// (Claude Code reads a steer when its current step ends): the step stops, and Claude Code
+    /// reads the steer at once as one more turn of the same prompt, which runs on. Unlike Stop
+    /// it ends no turn and gives no grace (`cancel.rs`). Only Claude Code's adapter stops just
+    /// the step (`claude_stdio` `steerNow`): any other agent would take the cancel as a Stop, so
+    /// it gets `None`. With no steer waiting unread the adapter stops nothing.
+    async fn send_steer_now(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        control: Control,
+    ) -> Result<Option<&'static str>, RpcError> {
+        if session.turn().is_none() || !session.steering.load(Ordering::SeqCst) {
+            return Ok(None);
+        }
+        let Some(child) = session.child.lock().await.clone() else { return Ok(None) };
+        if child.claude_state().await.is_none() {
+            return Ok(None);
+        }
+        let Some(sid) = session.meta().agent_session_id else { return Ok(None) };
+        self.check_steer(session, control)?;
+        child
+            .notify(method::SESSION_CANCEL, json!({"sessionId": sid, "_meta": {"steerNow": true}}))
+            .await
+            .map_err(|e| RpcError::internal(e.to_string()))?;
         Ok(Some("interrupt"))
     }
 }

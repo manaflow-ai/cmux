@@ -88,7 +88,9 @@ impl Hub {
         let fallback = (!opts.steer_only).then(|| blocks.clone());
         let wire_blocks = super::turns::acp_prompt_blocks(session, &blocks)?;
         let mut params = json!({"sessionId": agent_sid, "prompt": wire_blocks});
-        params["_meta"] = json!({"steer": true});
+        // A send-now (`interrupt`) stops the agent's step, so the agent reads it at once; the
+        // turn runs on. Claude Code's adapter does that (`claude_stdio`), others read it later.
+        params["_meta"] = json!({"steer": true, "interrupt": opts.interrupt});
         let mut r = match agent_prompt(session, &child, params, turn_id, true).await {
             Err(e) if e.message.starts_with(crate::claude_stdio::STEER_NO_TURN) => {
                 let Some(blocks) = fallback else { return Err(e) };
