@@ -102,6 +102,7 @@ impl Hub {
             return;
         }
         let kind = update.get("sessionUpdate").and_then(Value::as_str).unwrap_or("");
+        self.note_activity(session, update);
         // A mode or option change goes through the one setter below.
         let mut mode_write = None;
         let mut reported_tools = None;
