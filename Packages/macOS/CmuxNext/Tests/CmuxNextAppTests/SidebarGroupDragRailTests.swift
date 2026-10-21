@@ -65,7 +65,7 @@ import Testing
 
     /// Each open group with members: its rail as the list draws it now (nil: none), and where its rows put it.
     static func rails(_ list: SidebarListView) -> [(group: GroupID, shown: (frame: CGRect, alpha: CGFloat)?, expected: CGRect)] {
-        let expected = SidebarGroupLine.lines(list.displayed.rows, colors: list.groups) { list.frame(for: $0) }
+        let expected = SidebarGroupLine.lines(list.displayed.rows, colors: list.groups, joined: false) { list.frame(for: $0) }
         let shown = list.groupLineViews.shown
         return expected.map { ($0.group, shown[$0.group], $0.frame) }
     }

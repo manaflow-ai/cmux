@@ -75,6 +75,10 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// waiting for input, error, done, as agents and OSC 7501 programs report them). Off by default:
     /// the row says Working (one spinner) or Ready (the blue dot) only (Lawrence 2026-10-18).
     public var detailedStatusIcons = false
+    /// `sidebar.groupLineJoinsHeader`: a group's members' line runs into its header bar as one
+    /// shape. Off by default: the line starts a small cut below the bar, as Chrome's tab groups
+    /// do (Leo 2026-10-19).
+    public var groupLineJoinsHeader = false
     /// `sidebar.showTimestamps`: workspace rows show when they last changed (a time today, else an
     /// age such as `3d`) on the name's line. Off by default (Lawrence 2026-10-19: "By default in the
     /// sidebar, we should never show timestamps"); the hover card keeps its times either way.

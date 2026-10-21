@@ -316,7 +316,7 @@ extension SidebarListViewComponents {
             drag.heldKeys = []
             // A lifted group's line rode on the card; the applies under the flight left it out while its rows were
             // hidden. It shows with its rows, in this transaction (u2455: it came back only at the next click).
-            groupLineViews.showMissing(groupLines(displayed), in: self, above: decorations)
+            showMissingGroupLines(displayed)
         }
         updateHover()
         // The rows the ticks patched meanwhile show their new content now, together (`SidebarRowHold`).
@@ -474,7 +474,7 @@ extension SidebarListViewComponents {
         let gapFrame = layout.gapHeight > 0 ? layout.gapY.map { NSRect(x: inset, y: $0, width: max(0, bounds.width - inset * 2), height: layout.gapHeight) } : nil
         decorations.frame = bounds
         decorations.setGap(gapFrame, animated: true)
-        let lines = groupLineViews.update(groupLines(layout), from: groupLines(layout, current: true), in: self, above: decorations, animated: true)
+        let lines = updateGroupLines(layout, from: groupLines(layout, current: true), animated: true)
         Motion.sidebar.animate(.move, in: self, { lines.changes() }, completion: { [leaving = lines.leaving] in leaving.forEach { $0.removeFromSuperview() } })
     }
 
