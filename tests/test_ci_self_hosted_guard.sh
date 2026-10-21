@@ -579,6 +579,13 @@ done
 printf 'dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5  %s\n' "$last"
 EOF
   chmod +x "$bin_dir/shasum"
+  # The helper pins a digest per platform; the fake shasum above answers the
+  # Darwin one, so report Darwin here too or a Linux guard host sees a mismatch.
+  cat > "$bin_dir/uname" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in -m) echo arm64 ;; *) echo Darwin ;; esac
+EOF
+  chmod +x "$bin_dir/uname"
 
   if ! RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
     echo "FAIL: sentry-cli helper behavior test should install pinned CLI"
