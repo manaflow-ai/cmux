@@ -19,7 +19,7 @@ type AgentParam = (typeof AGENT_ALLOWED_PARAMS)[number];
 
 /** The charset each parameter's value must match, as the shared schema states it. */
 export const AGENT_PARAM_PATTERNS: Record<AgentParam, RegExp> = {
-  harness: /^[a-z0-9-]{1,32}$/,
+  harness: /^[a-z0-9-]{1,64}$/,
   session: /^(?!\.+$)[A-Za-z0-9._-]{1,200}$/,
   host: /^(?!\.+$)[A-Za-z0-9._-]{1,64}$/,
   name: /^(?!\.+$)[A-Za-z0-9._-]{1,64}$/,
