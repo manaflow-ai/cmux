@@ -77,7 +77,31 @@ export type AcpmuxSessionStart = {
   cwd?: string;
 };
 
-export type QueuedPrompt = { id: string; prompt: string; next?: boolean };
+/// Where a sent prompt is on its way (plans/cmux-next/composer-delivery-DESIGN.md): `sending` until
+/// acpmux records it, `delivered` once it did, `read` once the agent started on it, else `failed`.
+export type PromptDeliveryState = "sending" | "delivered" | "read" | "failed";
+/// The hop a send stopped at: the pane could not reach acpmux, acpmux refused it or never answered,
+/// or the agent's turn for it failed.
+export type PromptDeliveryHop = "connection" | "acpmux" | "agent";
+export type PromptDelivery = {
+  state: PromptDeliveryState;
+  promptId: string;
+  sessionId: string;
+  /// When the pane wrote `session/prompt`, acpmux recorded it, and the agent started on it.
+  sentAt: number;
+  acceptedAt?: number;
+  readAt?: number;
+  failedAt?: number;
+  /// No answer for a while: the row says it is still sending.
+  slow?: boolean;
+  hop?: PromptDeliveryHop;
+  code?: string;
+  error?: string;
+  /// The machine acpmux runs on, when it is not this one.
+  connection?: string;
+};
+
+export type QueuedPrompt = { id: string; prompt: string; next?: boolean; sending?: boolean };
 /// An image a prompt sent: `_acpmux/attachment {sessionId, id}` reads its bytes back.
 export type PromptImage = { id: string; mimeType: string; name?: string };
 
@@ -92,6 +116,8 @@ export type AcpmuxRow = {
   streaming?: boolean;
   pending?: boolean;
   failed?: boolean;
+  /// A prompt this pane sent: where it is on its way (PromptDelivery).
+  delivery?: PromptDelivery;
   items?: AcpmuxActivity[];
   /// A plan row's todo list (cx-ncc.80): the agent's latest `plan` update in its turn.
   plan?: AcpmuxPlanEntry[];
