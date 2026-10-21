@@ -97,16 +97,30 @@ class Api:
             raise
 
     def status(self, sha: str) -> dict | None:
-        data = json.loads(self.gh(f"repos/{self.repo}/commits/{sha}/status?per_page=100"))
-        return next((s for s in data.get("statuses") or [] if s.get("context") == CONTEXT), None)
+        data = self.json(f"repos/{self.repo}/commits/{sha}/status?per_page=100")
+        return next((s for s in data.get("statuses") or [] if isinstance(s, dict) and s.get("context") == CONTEXT),
+                    None)
+
+    def json(self, *args: str) -> dict:
+        """A JSON object answer; anything else refuses (an unreadable answer proves nothing)."""
+        text = self.gh(*args)
+        try:
+            data = json.loads(text)
+        except ValueError:
+            data = None
+        if not isinstance(data, dict):
+            raise Refused(f"gh api {args[0]} answered no JSON object: {text.strip()[:120]!r}")
+        return data
 
     def tip(self, branch: str) -> str:
-        return self.gh(f"repos/{self.repo}/branches/{branch}", "--jq", ".commit.sha").strip()
+        sha = self.gh(f"repos/{self.repo}/branches/{branch}", "--jq", ".commit.sha").strip()
+        if not re.fullmatch(r"[0-9a-f]{40}", sha):
+            raise Refused(f"the {branch} tip read answered {sha[:60]!r}, not a commit sha")
+        return sha
 
     def compare(self, base: str, tip: str) -> dict:
-        return json.loads(self.gh(f"repos/{self.repo}/compare/{base}...{tip}", "--jq",
-                                  "{status, ahead_by, files: [(.files // [])[] | .filename, "
-                                  "(.previous_filename // empty)]}"))
+        return self.json(f"repos/{self.repo}/compare/{base}...{tip}", "--jq",
+                         "{status, ahead_by, files: [(.files // [])[] | .filename, (.previous_filename // empty)]}")
 
     def dispatch(self, number: str, branch: str) -> None:
         self.gh("-X", "POST", f"repos/{self.repo}/actions/workflows/{WORKFLOW}/dispatches",

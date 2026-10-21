@@ -1275,6 +1275,9 @@ class InstalledHelperRegression(unittest.TestCase):
                   touch "$MERGE_MARKER"
                   exit 0
                 fi
+                if [ "$1" = api ] && printf '%s' "$*" | grep -q 'contents/scripts/ci/check-paths.txt'; then
+                  echo 'gh: Not Found (HTTP 404)' >&2; exit 1
+                fi
                 if [ "$1" = api ] && printf '%s' "$*" | grep -q '/contents/'; then
                   printf '%s\\n' 'HTTP/2.0 200'; exit 0
                 fi
@@ -1343,6 +1346,9 @@ class WorkflowPresenceRegression(unittest.TestCase):
                     pass
                 elif a[:2] == ['pr', 'merge']:
                     Path(os.environ['MERGE_MARKER']).touch()
+                elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
+                    print('gh: Not Found (HTTP 404)', file=sys.stderr)
+                    sys.exit(1)
                 elif a[0] == 'api' and any('/contents/' in arg for arg in a):
                     present = x['app_workflow'] if any('ci-macos.yml' in arg for arg in a) else x['workflow']
                     code = 200 if present else x['probe_status']
@@ -2214,6 +2220,9 @@ FIXTURE_GH = "#!/usr/bin/env python3\n" + textwrap.dedent(r"""
         Path(os.environ['MERGE_MARKER']).write_text(joined)
     elif a[:2] == ['run', 'view']:
         print(x['logs'][a[a.index('--job') + 1]])
+    elif a[0] == 'api' and any('contents/scripts/ci/check-paths.txt' in arg for arg in a):
+        print('gh: Not Found (HTTP 404)', file=sys.stderr)
+        sys.exit(1)
     elif a[0] == 'api' and any('/contents/' in arg for arg in a):
         print('HTTP/2.0 200')
     else:
