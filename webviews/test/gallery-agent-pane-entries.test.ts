@@ -28,35 +28,35 @@ type Case = {
   shows?: (page: Page) => Promise<boolean>;
 };
 
-const has = (selector: string) => async (page: Page) => (await page.locator(selector).count()) > 0;
-
-const CASES: Case[] = [
-  { entry: "session-sidebar", variant: "search-filtered", play: "steps" },
-  { entry: "session-sidebar", variant: "search-clears", play: "steps" },
-  { entry: "start-folder", variant: "home-question", play: "steps" },
-  { entry: "start-folder", variant: "root-refused", play: "steps" },
-  { entry: "permission-panel", variant: "allowance", play: "error" },
-  { entry: "bottom-stack", variant: "pr-queue", play: "steps" },
-  { entry: "header-tools", variant: "pull-request-status", play: "steps" },
-  { entry: "header-tools", variant: "pull-request-merge", play: "steps" },
-  { entry: "dictation", variant: "hide", play: "steps" },
-  { entry: "harness-health-notice", variant: "dismissed", play: "error", shows: has(".acpmux-composer") },
-  { entry: "harness-health-notice", variant: "sudo-update", shows: has(".acpmux-composer") },
-  { entry: "file-search", variant: "escape", play: "steps", shows: has(".acpmux-composer") },
-  {
-    entry: "home-lists",
-    variant: "empty",
-    shows: async (page) => (await page.getByText("What should we build in atlas-web?").count()) > 0,
-  },
-  {
-    entry: "reply-image",
-    variant: "local",
-    shows: (page) =>
-      page.evaluate(() => [...document.images].some((image) => image.complete && image.naturalWidth > 0)),
-  },
-];
-
 await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
+  const has = (selector: string) => async (page: Page) => (await page.locator(selector).count()) > 0;
+
+  const CASES: Case[] = [
+    { entry: "session-sidebar", variant: "search-filtered", play: "steps" },
+    { entry: "session-sidebar", variant: "search-clears", play: "steps" },
+    { entry: "start-folder", variant: "home-question", play: "steps" },
+    { entry: "start-folder", variant: "root-refused", play: "steps" },
+    { entry: "permission-panel", variant: "allowance", play: "error" },
+    { entry: "bottom-stack", variant: "pr-queue", play: "steps" },
+    { entry: "header-tools", variant: "pull-request-status", play: "steps" },
+    { entry: "header-tools", variant: "pull-request-merge", play: "steps" },
+    { entry: "dictation", variant: "hide", play: "steps" },
+    { entry: "harness-health-notice", variant: "dismissed", play: "error", shows: has(".acpmux-composer") },
+    { entry: "harness-health-notice", variant: "sudo-update", shows: has(".acpmux-composer") },
+    { entry: "file-search", variant: "escape", play: "steps", shows: has(".acpmux-composer") },
+    {
+      entry: "home-lists",
+      variant: "empty",
+      shows: async (page) => (await page.getByText("What should we build in atlas-web?").count()) > 0,
+    },
+    {
+      entry: "reply-image",
+      variant: "local",
+      shows: (page) =>
+        page.evaluate(() => [...document.images].some((image) => image.complete && image.naturalWidth > 0)),
+    },
+  ];
+
   setDefaultTimeout(240_000);
   try {
     await (await chromium.launch({ headless: true })).close();
@@ -99,7 +99,9 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
           await page.waitForFunction(
             (play) => {
               const root = document.documentElement.dataset;
-              return root.galleryReady === "error" || (root.galleryReady === "1" && (!play || Boolean(root.galleryPlay)));
+              return (
+                root.galleryReady === "error" || (root.galleryReady === "1" && (!play || Boolean(root.galleryPlay)))
+              );
             },
             Boolean(item.play),
             { timeout: 90_000 },
