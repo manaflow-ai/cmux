@@ -25,6 +25,7 @@ extension PageWebView {
           html: getComputedStyle(document.documentElement).backgroundColor,
           body: document.body ? getComputedStyle(document.body).backgroundColor : null,
           painted_ms: document.documentElement.dataset.cmuxPainted ? Number(document.documentElement.dataset.cmuxPainted) : null,
+          device_pixel_ratio: window.devicePixelRatio,
           active: document.activeElement && document.activeElement !== document.body
             ? { tag: document.activeElement.tagName.toLowerCase(), value: 'value' in document.activeElement ? String(document.activeElement.value) : null }
             : null,
@@ -143,17 +144,20 @@ extension PageWebView {
             el.dispatchEvent(new MouseEvent(type, { bubbles: type !== 'mouseenter', clientX: x, clientY: y, view: window }));
           }
         }
-        return JSON.stringify({ x, y, hit });
+        return JSON.stringify({ x, y, w: r.width, h: r.height, hit });
         """
         let page = chromiumSession?.page
         let native = page != nil
         guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
               case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
-              case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
+              case .number(let x)? = point["x"], case .number(let y)? = point["y"],
+              case .number(let width)? = point["w"], case .number(let height)? = point["h"] else { return ["hovered": false] }
         guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
         if let page {
-            // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them
-            // (Chromium applies the page's zoom itself, as link hints rely on).
+            // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
+            // Chromium scales it by the browser zoom, the embedding frame's CSS zoom and the pinch
+            // scale itself (`InputHandler::ScaleFactor`). scripts/cmux-next/page-hover-zoom-live.py checks it at
+            // UI scales 0.85 to 1.5.
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
                 "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
             ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
@@ -163,7 +167,7 @@ extension PageWebView {
                 return ["hovered": false, "error": "the element is not hovered after the move"]
             }
         }
-        return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
+        return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y), "width": .number(width), "height": .number(height)]
     }
 
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
