@@ -16,9 +16,12 @@ extension SidebarModel {
     public func followTopItems(lanes: AgentLaneStore = .shared, chief: ChiefSidebar = .shared) -> Task<Void, Never> {
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         Task { [weak self] in
-            for await items in ObservationStream({ Self.topItems(lanes: lanes, chief: chief) }) {
+            for await (items, placed) in ObservationStream({ [weak self] in
+                (Self.topItems(lanes: lanes, chief: chief), self?.layout.firstItem(with: .builtIn(.chief)) != nil)
+            }) {
                 guard let self else { return }
                 if transientTopItems != items { transientTopItems = items }
+                if chief.isPlaced != placed { chief.isPlaced = placed } // the layout is every window's, so any window's feed tells
             }
         }
     }
