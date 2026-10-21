@@ -1,8 +1,9 @@
 //! Threads of a headless daemon must not grow with its terminals (perf100
 //! tui lane). One Chief daemon had 1743 threads on 2026-10-20: four per
 //! terminal (`surface-<id>-host`, `-host-frames`, `-frames`,
-//! `terminal-host-reaper`) and one per browser surface. The host reaper is
-//! shared now, so each terminal costs at most three.
+//! `terminal-host-reaper`) and one per browser surface. The render frame
+//! producer and the host reaper are shared now, so each terminal costs at
+//! most its two host-stream threads.
 //!
 //! The test starts a headless daemon, opens `TERMINALS` terminals running
 //! `cat` with the app's streams (an event subscription and an attach per
@@ -21,9 +22,8 @@ use cmux_tui_core::platform::transport;
 
 const TERMINALS: usize = 24;
 /// Threads each terminal may add to the daemon. Today: the host stream
-/// reader, its demultiplexer and the render frame producer. Before
-/// perf100: 4.
-const MAX_THREADS_PER_TERMINAL: f64 = 3.25;
+/// reader and its demultiplexer. Before perf100: 4.
+const MAX_THREADS_PER_TERMINAL: f64 = 2.25;
 /// Threads each attach connection (the app opens one per visible terminal)
 /// may add. Measured before any change; lower it when the connection
 /// threads are shared.
