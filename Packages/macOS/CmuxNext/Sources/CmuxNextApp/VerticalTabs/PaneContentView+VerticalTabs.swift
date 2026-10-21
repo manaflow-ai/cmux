@@ -54,13 +54,14 @@ extension PaneContentView {
     }
 
     /// Lays the list out on the pane's leading edge and returns the width it takes from the content
-    /// (its resting width: a list expanded on hover draws over the content and moves nothing).
+    /// (its resting width: a list expanded on hover draws over the content and moves nothing). A narrow
+    /// pane gives the list at most half its width, so its content never shrinks to nothing.
     func layoutVerticalList() -> CGFloat {
         guard verticalTabs != nil, let list = verticalList, !list.isHidden else { return 0 }
-        let reserved = list.reservedWidth
+        let reserved = min(list.reservedWidth, (bounds.width / 2).rounded(.down))
         let width = list.isHoverExpanded ? max(reserved, VerticalTabListView.expandedWidth) : reserved
         let frame = NSRect(x: 0, y: 0, width: min(width, bounds.width), height: bounds.height)
         if list.frame != frame { list.frame = frame }
-        return min(reserved, bounds.width)
+        return reserved
     }
 }

@@ -76,9 +76,13 @@ enum VerticalTabsHandlers {
         controller.workspace?.workspace.id ?? controller.daemon.store.workspace(containing: controller.pane.handle)?.id
     }
 
-    /// A pane that can show a tab bar at all: not an app's pane, not the Home Chief pane.
+    /// A pane that can show a vertical list at all: not an app's pane, not a pinned dock's (the pane's
+    /// snapshot shows no list there, so its menu offers no vertical tabs rows either).
     private static func takesVerticalTabs(_ controller: PaneController) -> Bool {
-        !controller.isAppPane && !controller.isPinnedDockPane
+        guard !controller.isAppPane else { return false }
+        let column = controller.daemon.store.workspace(containing: controller.pane.handle)?.screens.lazy.flatMap(\.columns)
+            .first { $0.layout.paneIDs.contains(controller.pane.handle) }
+        return column?.dock?.isPinned != true
     }
 }
 
