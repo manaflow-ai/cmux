@@ -13,11 +13,11 @@ import { isDeniedPath, isImagePath, isImageUrl, linkPath, textLinks } from "../c
 export type ThumbItem = { src: string; alt: string; label?: string };
 
 // One image of an image-only paragraph: an optional label of one to three words ending in `:`
-// (`Before:`, `**After:**`, `Dark mode:`), then a Markdown image or a bare token that must itself be
-// an image. A label is words only, so a sentence ending in `:` ("I saved it here: /tmp/a.png") is
+// (`Before:`, `**After:**`, `__After__:`, `Dark mode:`), then a Markdown image or a bare token
+// that must itself be an image. A label is words only, so a sentence ending in `:` ("I saved it here: /tmp/a.png") is
 // prose and keeps its text.
 const IMAGE_TOKEN =
-  /\s*(?:((?:\*\*|__)?[A-Za-z0-9][A-Za-z0-9'’-]*(?: [A-Za-z0-9'’-]+){0,2}:(?:\*\*|__)?)\s+)?(?:!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|(\S+))\s*/y;
+  /\s*(?:((?:\*\*|__)?[A-Za-z0-9][A-Za-z0-9'’-]*(?: [A-Za-z0-9'’-]+){0,2}(?:\*\*|__)?:(?:\*\*|__)?)\s+)?(?:!\[([^\]]*)\]\(((?:[^()\s]|\([^()\s]*\))+)\)|(\S+))\s*/y;
 
 /// The source a bare token draws as an image: an absolute, home or `./` path or `file://` URL of a
 /// raster image, or an https image address. Anything else (a word, a deny-listed path) is undefined.
@@ -41,11 +41,7 @@ export function imageOnlyItems(text: string): ThumbItem[] | undefined {
       IMAGE_TOKEN.lastIndex = at;
       const match = IMAGE_TOKEN.exec(line);
       if (!match || match[0].length === 0) return undefined;
-      const label =
-        match[1]
-          ?.replace(/^(?:\*\*|__)|(?:\*\*|__)$/g, "")
-          .replace(/:$/, "")
-          .trim() || undefined;
+      const label = match[1]?.replace(/\*\*|__|:/g, "").trim() || undefined;
       const src = match[3] ?? bareImageSource(match[4]!);
       if (!src) return undefined;
       items.push({ src, alt: match[2] || label || "", ...(label ? { label } : {}) });

@@ -59,6 +59,7 @@ describe("image-only paragraphs", () => {
     ["a sentence before a Markdown image is prose", "Here is what it looks like now: ![](/tmp/a.png)", undefined],
     ["a two-word label", "Dark mode: /tmp/a.png", [["/tmp/a.png", "Dark mode"]]],
     ["an underscored label", "__Before__: /tmp/a.png", [["/tmp/a.png", "Before"]]],
+    ["a bold label with the colon outside", "**After**: /tmp/a.png", [["/tmp/a.png", "After"]]],
     ["a non-image path", "/tmp/build.log", undefined],
     ["a deny-listed image", "~/.ssh/key.png", undefined],
     ["a plain http image", "http://example.com/a.png", undefined],
