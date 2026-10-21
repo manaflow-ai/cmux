@@ -36,6 +36,16 @@ To put a session's chat in front of the user without moving their focus, run
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
 
+When a sub-session asks a question (its AskUserQuestion or other ask),
+`wait_for_sessions` returns and its row lists it under `questions`. Tell the
+user what it asks. Only when the user turned on Settings > Agents >
+Sub-sessions > Let Sessions Answer Their Sub-sessions' Questions (off by
+default) may you answer one marked `answerable` yourself with
+`answer_question` (keys: each item's `id` or `prompt`); otherwise it is
+refused (`subsessions.answers_off`, `subsessions.not_a_question`). A
+permission request or a plan approval is never a question: only the user
+allows it, in cmux NEXT, so tell the user which sub-session waits.
+
 ## 2. Pick a harness and a model: `-m HARNESS[/MODEL]`
 
 One flag. The head is a family (`claude`, `codex`, `opencode`, `pi`, `omp`, `prime`,
@@ -96,6 +106,17 @@ acpmux session kill --purge NAME                   # delete (only sessions you c
 `send` on a busy or blocked session never refuses: the prompt queues and the
 output says `queued behind …`.
 
+Start an agent for a task (its own worktree, its brief, shown in the app) with
+one command; running it again reuses the session and worktree and sends nothing:
+
+```bash
+acpmux new -n NAME --worktree REPO[@BASE] --prompt-file BRIEF.md --report-to ME --group "GROUP" -d
+```
+
+Never script `git worktree add` + `acpmux new` + `acpmux send` by hand. Which
+surface for what (CLI, `cmux-subsessions` MCP, cmux MCP): `cmux-tui/crates/acpmux/docs/agent-surfaces.md`
+in the cmux repository.
+
 ## 4. Wait for things
 
 ```bash
@@ -120,6 +141,11 @@ acpmux session allow NAME [OPTION]           # or: acpmux session deny NAME
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
 ```
+
+`acpmux pending --json` gives each request a `needsYou` link
+(`cmux://needs-you/<permissionId>`). Put it in a reply to point the user at an
+open ask instead of restating it; cmux draws it as a chip that opens the ask in
+its Needs you list.
 
 `--policy ask` sends every request to a human or to you; the other policies
 answer locally. Rules sit above the policy and match tool kind, title, and

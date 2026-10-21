@@ -15,6 +15,14 @@ public import Foundation
 /// - `browser.list {}`: the installed browsers, by opaque id. Passive.
 /// - `browser.openIn {url, browserId}`: open a validated http(s) URL in one of them. Spends a
 ///   user gesture.
+/// - `image.reveal {src, name, path?}`: show an image the viewer holds in Finder: the file `path`
+///   names when it is one inside the roots of a local chat, else a copy of the `data:` image `src`
+///   (``AgentPaneImageCopies``). Spends one user gesture.
+/// - `image.openInPane {src, name}`: open a copy of a `data:` image in a cmux browser pane. Spends
+///   a user gesture.
+/// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
+///   the pull request bars link to (its hover card). Only a plain
+///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
@@ -22,9 +30,15 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case loadMedia(String)
     case listBrowsers
     case openIn(url: URL, browserId: String)
+    case revealImage(src: String, name: String, path: String?)
+    case openImageInPane(src: String, name: String)
+    case inspectPullRequest(URL)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
-    public static let methods: Set<String> = ["link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn"]
+    public static let methods: Set<String> = [
+        "link.inspect", "link.openPath", "image.load", "media.load", "browser.list", "browser.openIn", "image.reveal",
+        "image.openInPane", "pr.inspect",
+    ]
 
     /// Each method's exact param keys (all required; `link.inspect` takes either list).
     static let knownParams: [String: Set<String>] = [
@@ -34,18 +48,41 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "media.load": ["src"],
         "browser.list": [],
         "browser.openIn": ["url", "browserId"],
+        "image.reveal": ["src", "name", "path"],
+        "image.openInPane": ["src", "name"],
+        "pr.inspect": ["url"],
     ]
 
     /// Most paths or URLs in one `link.inspect` (one reply's chips).
     static let maximumInspect = 64
     /// Longest URL any method takes (the same cap as a link a browser opens from a click).
     static let maximumURL = 2048
+    /// Longest `data:` image the viewer actions take (base64 of ``AgentPaneImageCopies/maximumBytes``).
+    static let maximumImageSource = AgentPaneImageCopies.maximumBytes / 3 * 4 + 64
+    /// Longest image name (its alt text) the viewer actions keep: a longer one is cut to it, not
+    /// refused, since alt text has no length limit (``AgentPaneImageCopies/fileName(_:data:type:)``
+    /// cuts it again to fit a file name).
+    static let maximumImageName = 512
+
+    /// `name` cut to at most ``maximumImageName`` UTF-8 bytes, on a character boundary.
+    static func imageName(_ name: String) -> String {
+        guard name.utf8.count > maximumImageName else { return name }
+        var bytes = 0
+        var end = name.startIndex
+        for index in name.indices {
+            let next = name.index(after: index)
+            bytes += name[index..<next].utf8.count
+            guard bytes <= maximumImageName else { break }
+            end = next
+        }
+        return String(name[..<end])
+    }
 
     /// Whether the request only reads (it does not count as the page being touched).
     var isPassive: Bool {
         switch self {
-        case .inspect, .listBrowsers, .loadImage, .loadMedia: true
-        case .openPath, .openIn: false
+        case .inspect, .listBrowsers, .loadImage, .loadMedia, .inspectPullRequest: true
+        case .openPath, .openIn, .revealImage, .openImageInPane: false
         }
     }
 
@@ -87,6 +124,24 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             guard let raw = text("url", Self.maximumURL), let url = Self.webURL(raw),
                   let id = text("browserId", 64) else { return nil }
             self = .openIn(url: url, browserId: id)
+        case "image.reveal", "image.openInPane":
+            // `src` is the image itself; the name may be empty (an image without alt text).
+            guard let src = text("src", Self.maximumImageSource), src.hasPrefix("data:"),
+                  let raw = params["name"] as? String, !raw.utf8.contains(0) else { return nil }
+            let name = Self.imageName(raw)
+            guard method == "image.reveal" else {
+                self = .openImageInPane(src: src, name: name)
+                return
+            }
+            if params["path"] != nil {
+                guard let path = text("path", AgentPaneReplyPaths.maximumLength) else { return nil }
+                self = .revealImage(src: src, name: name, path: path)
+            } else {
+                self = .revealImage(src: src, name: name, path: nil)
+            }
+        case "pr.inspect":
+            guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
+            self = .inspectPullRequest(url)
         default:
             return nil
         }
@@ -100,5 +155,27 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
               url.user == nil, url.password == nil,
               let host = url.host(percentEncoded: false), !host.isEmpty else { return nil }
         return url
+    }
+
+    /// `text` as a GitHub pull request, `https://github.com/<owner>/<repo>/pull/<n>` (a trailing
+    /// slash or one of its tabs, as `/files`, names the same one), rebuilt from its parts. Nil for
+    /// anything else, so nothing but that URL ever reaches `gh`: no other host, no user info, no
+    /// query or fragment, and no part that starts with `-`.
+    static func pullRequestURL(_ text: String) -> URL? {
+        guard text.utf8.count <= maximumURL, let url = URL(string: text), url.scheme == "https",
+              url.host(percentEncoded: false)?.lowercased() == "github.com", url.port == nil,
+              url.user == nil, url.password == nil, url.query == nil, url.fragment == nil else { return nil }
+        let parts = url.path(percentEncoded: true).split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard parts.count == 4 || parts.count == 5, parts[2] == "pull", !parts[0].allSatisfy({ $0 == "." }),
+              !parts[1].allSatisfy({ $0 == "." }) else { return nil }
+        func only(_ part: String, _ allowed: (Unicode.Scalar) -> Bool, max: Int) -> Bool {
+            !part.isEmpty && part.unicodeScalars.count <= max && part.unicodeScalars.allSatisfy(allowed)
+        }
+        let name: (Unicode.Scalar) -> Bool = { $0.isASCII && (CharacterSet.alphanumerics.contains($0) || "_.-".unicodeScalars.contains($0)) }
+        let digit: (Unicode.Scalar) -> Bool = { ("0"..."9").contains($0) }
+        guard only(parts[0], name, max: 100), only(parts[1], name, max: 100), !parts[0].hasPrefix("-"), !parts[1].hasPrefix("-"),
+              only(parts[3], digit, max: 10), !parts[3].hasPrefix("0") else { return nil }
+        if parts.count == 5, !only(parts[4], { ("a"..."z").contains($0) }, max: 20) { return nil }
+        return URL(string: "https://github.com/\(parts[0])/\(parts[1])/pull/\(parts[3])")
     }
 }

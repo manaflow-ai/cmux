@@ -342,9 +342,10 @@ public final class TerminalSession {
         input.takeOverSize(setLatest: setLatest)
     }
 
-    /// A click in the surface: a disconnected terminal re-attaches.
+    /// A click in the surface: a disconnected terminal re-attaches now, also
+    /// one waiting out its backoff between retries.
     func surfaceClicked() {
-        guard case .disconnected(_, reconnecting: false) = model.connection else { return }
+        guard case .disconnected = model.connection else { return }
         input.reconnect()
     }
 

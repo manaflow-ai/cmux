@@ -1,10 +1,14 @@
 import type { AcpmuxRow } from "../model";
+import { continuesTurn } from "../turnStart";
 import { SUBAGENTS, type Subagent } from "./subagentFold";
 
 /// A subagent's line in an open group (SubagentListRow in SubagentGroup.tsx).
 export const SUBAGENT_ROW = "subagent";
 /// The child view's "Subagent of" pill (SubagentOfRow in SubagentGroup.tsx).
 export const SUBAGENT_OF = "subagentOf";
+/// A subagent's one line where it ended, while running ones sit in the tray (SubagentDoneLine.tsx,
+/// runningTray.ts).
+export const SUBAGENT_DONE = "subagentDone";
 
 /// Every subagent the rows list, nested views' included.
 export function subagentsIn(
@@ -53,9 +57,15 @@ export const isSubagentGroup = (row: AcpmuxRow) => row.kind === SUBAGENTS;
 /// turn they start open (App.tsx), after Codex and Claude Code. An earlier turn's group stays as
 /// it was, its agent still running in the background.
 export function runningGroups(rows: readonly AcpmuxRow[], views: Record<string, AcpmuxRow[]> = {}): string[] {
-  // The turn starts after its prompt; a prompt still waiting to send starts none.
+  // The turn starts after its prompt; a prompt still waiting to send starts none, nor does a steer.
   let start = rows.length;
-  while (start > 0 && (rows[start - 1]!.kind !== "user" || rows[start - 1]!.pending || rows[start - 1]!.failed))
+  while (
+    start > 0 &&
+    (rows[start - 1]!.kind !== "user" ||
+      rows[start - 1]!.pending ||
+      rows[start - 1]!.failed ||
+      continuesTurn(rows[start - 1]!))
+  )
     start -= 1;
   const found: string[] = [];
   for (const list of [rows.slice(start), ...Object.values(views)])

@@ -1,14 +1,12 @@
 //! Sub-sessions: an agent session starts, messages, watches and stops its own
 //! child sessions (Lawrence 2026-10-18, after the Claude app's `ccd_session`).
 //!
-//! A sub-session is a normal session (it resumes, forks, moves and lists like
-//! any other) with one more field, [`SubsessionLink`]: the parent session's
-//! id (`startedBy`), its short name among the parent's children, and its
-//! depth (1 under a root). Agents get the tools from the `cmux-subsessions`
-//! MCP server (`subsession_mcp.rs`, every local session by default,
-//! `agent_tools.rs`); the server reaches these methods over the unix socket
-//! with the session's caller token, so the daemon, not a request field, says
-//! which session acts (`hub/person.rs` (a)).
+//! A sub-session is a normal session (it resumes, forks, moves and lists like any other) with one
+//! more field, [`SubsessionLink`]: the parent session's id (`startedBy`), its short name among the
+//! parent's children, and its depth (1 under a root). Agents get the tools from the
+//! `cmux-subsessions` MCP server (`subsession_mcp.rs`, every local session by default,
+//! `agent_tools.rs`); the server reaches these methods over the unix socket with the session's
+//! caller token, so the daemon, not a request field, says which session acts (`hub/person.rs` (a)).
 //!
 //! Limits, decided here and nowhere else:
 //! - Width: a session has at most `maxChildren` open children (not closed).
@@ -27,23 +25,20 @@
 //!   the index lock before the session is created, so concurrent starts
 //!   never pass the limit.
 //!
-//! What a child may do is never wider than its parent: it runs the parent's
-//! permission policy; on the same harness family it starts in the parent's
-//! current mode (the start gate's inherit rule), on another family in the
-//! person's default start mode only when the parent runs with full access,
-//! else in that harness's own (asking) mode. What the tools read back of a
-//! child (its title, last reply and error) is masked (`secret_scan`).
+//! What a child may do is never wider than its parent: it runs the parent's permission policy; on
+//! the same harness family it starts in the parent's current mode (the start gate's inherit rule),
+//! on another family in the person's default start mode only when the parent runs with full access,
+//! else in that harness's own (asking) mode. What the tools read back of a child (its title, last
+//! reply, error and running prompt) is masked (`secret_scan`).
 //!
-//! A chat the person starts from a suggested task (`offers.rs`) becomes the
-//! offering chat's sub-session too ([`Hub::offer_link`]), so the agent that
-//! suggested it reads and waits on it with the same tools; only the person
-//! prompts, stops or closes it (`subsession_write_target`).
+//! A chat the person starts from a suggested task (`offers.rs`) becomes the offering chat's
+//! sub-session too ([`Hub::offer_link`]), so the agent that suggested it reads and waits on it with
+//! the same tools; only the person prompts, stops or closes it (`subsession_write_target`).
 //!
-//! With `worktree: true` a child works in a new git worktree of its folder's
-//! repository (`subsession_worktree.rs`, laid out as the app's
-//! `git.worktree.create`), made in the daemon without running anything from
-//! that repository: its files are checked out without the repository's
-//! config. A start that fails after it is made removes it again.
+//! With `worktree: true` a child works in a new git worktree of its folder's repository
+//! (`subsession_worktree.rs`, laid out as the app's `git.worktree.create`), made in the daemon
+//! without running anything from that repository: its files are checked out without the
+//! repository's config. A start that fails after it is made removes it again.
 //!
 //! The index of open children per parent is a leaf lock: nothing else is
 //! locked while it is held, so it may be taken under any other lock.
@@ -56,6 +51,7 @@ use std::collections::BTreeSet;
 pub const SETTING_ENABLED: &str = "agents.subsessions.enabled";
 pub const SETTING_MAX_CHILDREN: &str = "agents.subsessions.maxChildren";
 pub const SETTING_MAX_DEPTH: &str = "agents.subsessions.maxDepth";
+pub const SETTING_ANSWER_QUESTIONS: &str = "agents.subsessions.answerQuestions";
 /// The settings catalog source of those keys: their defaults and ranges have
 /// one definition, shared with the app's Settings.
 const CATALOG_SOURCE: &str =
@@ -71,6 +67,7 @@ pub struct NumberSetting {
 /// The catalog rows the daemon reads.
 pub struct Catalog {
     pub enabled: bool,
+    pub answer_questions: bool,
     pub max_children: NumberSetting,
     pub max_depth: NumberSetting,
 }
@@ -84,7 +81,7 @@ pub fn catalog() -> &'static Catalog {
     })
 }
 
-/// The three agents.subsessions rows of a settings source file, or None when one is missing.
+/// The agents.subsessions rows of a settings source file, or None when one is missing.
 fn parse_catalog(source: &str) -> Option<Catalog> {
     let doc: Value = serde_json::from_str(source).ok()?;
     let row = |key: &str| -> Option<Value> {
@@ -103,6 +100,7 @@ fn parse_catalog(source: &str) -> Option<Catalog> {
     };
     Some(Catalog {
         enabled: row(SETTING_ENABLED)?["default"].as_bool()?,
+        answer_questions: row(SETTING_ANSWER_QUESTIONS)?["default"].as_bool()?,
         max_children: number(SETTING_MAX_CHILDREN)?,
         max_depth: number(SETTING_MAX_DEPTH)?,
     })
@@ -304,6 +302,10 @@ struct KeptWorktree {
     folder: PathBuf,
     made: crate::subsession_worktree::Worktree,
     kept: bool,
+    /// A decision trusts `folder` (a person's, an agent's own, or cmux's for a folder it made),
+    /// not an auto-trust rule alone (`ensure_folder_trusted`): the worktree is recorded as
+    /// trusted too.
+    source_decided: bool,
 }
 
 impl KeptWorktree {
@@ -322,7 +324,7 @@ impl Drop for KeptWorktree {
     }
 }
 
-fn refused(reason: &str, message: String, data: Value) -> RpcError {
+pub(super) fn refused(reason: &str, message: String, data: Value) -> RpcError {
     let mut data = data;
     data["reason"] = json!(reason);
     RpcError::invalid_params(message).with_data(data)
@@ -541,6 +543,13 @@ impl Hub {
             ));
         }
         if let Some(kept) = worktree {
+            // The folder it was made from is trusted by a decision, so its worktree is too. A
+            // folder only an auto-trust rule trusts gets no record: a Web client reads a record
+            // as a person's answer, and the rule still answers the pane for the worktree's own
+            // folder when it covers it.
+            if kept.source_decided {
+                self.trust_made_worktree(&kept.made.cwd).await;
+            }
             kept.keep();
         }
         let link = child.meta().subsession.clone();
@@ -575,8 +584,12 @@ impl Hub {
             )));
         }
         let mut cwd = req.cwd.clone().unwrap_or_else(|| pm.cwd.clone());
+        // A folder nobody answered the trust question for waits on a card in the parent's chat
+        // instead of failing (`trust_wait.rs`).
+        let decided = self.ensure_folder_trusted(parent, &cwd, &harness, &short).await?;
         let worktree = if req.worktree {
-            let kept = self.subsession_worktree(pm, &cwd, &short).await?;
+            let mut kept = self.subsession_worktree(pm, &cwd, &short).await?;
+            kept.source_decided = decided;
             cwd = kept.made.cwd.clone();
             Some(kept)
         } else {
@@ -698,6 +711,7 @@ impl Hub {
                 folder: folder2,
                 made,
                 kept: false,
+                source_decided: false,
             })
         })
         .await
@@ -771,6 +785,7 @@ impl Hub {
             "queued": pick("queued"),
             // Non-null from the moment a prompt is accepted to its turn's end.
             "turn": pick("turn"),
+            "questions": self.subsession_questions(s), // ancestors may answer them
         });
         if with_reply {
             row["lastReply"] = json!(self.last_reply(s));
@@ -784,6 +799,11 @@ impl Hub {
         }
         if let Some(text) = row["lastTurn"]["errorText"].as_str() {
             row["lastTurn"]["errorText"] = json!(crate::secret_scan::mask(text));
+        }
+        // The running turn's prompt is the child's text too (a parent may
+        // have pasted a key into it, or named a file whose name is one).
+        if let Some(text) = row["turn"]["prompt"].as_str() {
+            row["turn"]["prompt"] = json!(crate::secret_scan::mask(text));
         }
         row
     }
@@ -1012,6 +1032,8 @@ impl Hub {
 
     /// The text of the session's last agent message (its own, not a
     /// harness subagent's), from the newest records; null before any.
+    /// Secrets are masked (`secret_scan`) before the text is cut at
+    /// `MAX_REPLY_CHARS`, so a cut never leaves a secret's head unmasked.
     pub fn last_reply(&self, s: &Session) -> Option<String> {
         let last = s.meta().last_seq;
         let after = last.saturating_sub(4000);
@@ -1047,8 +1069,11 @@ impl Hub {
         if reply.is_empty() {
             return None;
         }
-        let mut cut: String = reply.chars().take(MAX_REPLY_CHARS).collect();
-        if reply.chars().count() > MAX_REPLY_CHARS {
+        // Mask before the cut: a cut through a secret leaves a head the
+        // scanner no longer recognizes, and that head would go out unmasked.
+        let masked = crate::secret_scan::mask(reply);
+        let mut cut: String = masked.chars().take(MAX_REPLY_CHARS).collect();
+        if masked.chars().count() > MAX_REPLY_CHARS {
             cut.push('…');
         }
         Some(cut)

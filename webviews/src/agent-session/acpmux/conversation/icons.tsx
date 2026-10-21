@@ -166,6 +166,43 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Two checks, the second offset: a delivered message to another agent (MessageCard), as a messaging
+ *  app marks one, and a prompt the agent has read (a message's read receipt). */
+export const DoubleCheck = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M1.75 8.4 4.3 10.9 9.2 5.2" />
+    <path d="M7.4 10.6l.3.3 4.9-5.7" />
+  </Svg>
+);
+
+/** A pushpin, filled when the message is pinned. */
+export const Pin = ({ filled, ...p }: CvIconProps & { filled?: boolean }) => (
+  <Svg {...p}>
+    <path
+      d="M9.6 2.4 13.6 6.4 12.5 7.2 10.4 9.3 10.5 11.6 9.6 12.5 3.5 6.4 4.4 5.5 6.7 5.6 8.8 3.5Z"
+      fill={filled ? "currentColor" : "none"}
+    />
+    <path d="M6.5 9.5 2.5 13.5" />
+  </Svg>
+);
+
+/** A speaker with sound waves: Read aloud. */
+export const Speaker = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
+    <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
+  </Svg>
+);
+
+/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
+ * agent's current step to end (PendingSteer.tsx). */
+export const Clock = (p: CvIconProps) => (
+  <Svg {...p}>
+    <circle cx="8" cy="8" r="5.5" />
+    <path d="M8 5v3.2l2 1.3" />
+  </Svg>
+);
+
 /** Thread summary toggle in the title bar: two rings with bars. */
 export const SummaryToggle = (p: CvIconProps) => (
   <Svg {...p}>
@@ -199,8 +236,17 @@ export const GitHubMark = ({ size = 16, className, style }: CvIconProps) => (
   </svg>
 );
 
-/** Open-ended ring used as the "working" spinner. `cv-spinner` turns it (conversation.css). */
-export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIconProps) => (
+/** The running mark of a transcript row. Agent work (the default) draws the working look the
+ * app picks (`data-working-look` on the root, conversation.css): a breathing dot, the turning ring,
+ * or a still dot while the row's words shimmer. `loading` (a check or a page loading, not agent
+ * work) always draws the turning ring. `cv-spinner` turns the ring on the shared clock. */
+export const Spinner = ({
+  size = 16,
+  className,
+  style,
+  strokeWidth = 1.5,
+  loading = false,
+}: CvIconProps & { loading?: boolean }) => (
   <svg
     className={className ? `cv-spinner ${className}` : "cv-spinner"}
     style={style}
@@ -209,8 +255,16 @@ export const Spinner = ({ size = 16, className, style, strokeWidth = 1.5 }: CvIc
     viewBox="0 0 16 16"
     fill="none"
     aria-hidden="true"
+    data-working={loading ? undefined : ""}
   >
-    <path d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63" stroke="currentColor" strokeWidth={strokeWidth} strokeLinecap="round" />
+    <path
+      className="cv-spinner__arc"
+      d="M8 2.75a5.25 5.25 0 1 1-4.55 2.63"
+      stroke="currentColor"
+      strokeWidth={strokeWidth}
+      strokeLinecap="round"
+    />
+    {!loading && <circle className="cv-spinner__dot" cx="8" cy="8" r="3" />}
   </svg>
 );
 

@@ -1,6 +1,9 @@
-// An opened shell call: a "Shell" card with the command line, its output (the end of a long one,
-// with Show all output) and, when the command failed, its exit code.
+// An opened shell call: a "Shell" card with the folder it ran in (a leading `cd ~/wt/lanes/x &&`
+// reads as "x" beside the label), the command line, its output (the end of a long one, with Show
+// all output) and, when the command failed, its exit code; a caller's `footer` closes the card.
+import type { ReactNode } from "react";
 import { useT } from "../i18n";
+import { commandFolder } from "./commandFolder";
 import { CopyButton } from "./CopyButton";
 import { menuPartRef } from "./menuParts";
 import { OutputMore, useOutput } from "./toolOutput";
@@ -11,6 +14,8 @@ export function ShellBlock({
   output,
   exitCode,
   reveal,
+  cut,
+  footer,
 }: {
   id?: string;
   /** Bumped when Find in Chat reveals the call: shows the whole output, not only its end. */
@@ -18,18 +23,35 @@ export function ShellBlock({
   command?: string;
   output?: string;
   exitCode?: number;
+  /** The output starts after the beginning of what the command printed (a read tail). */
+  cut?: boolean;
+  /** The card's last line, under the exit code (a background task's Open in terminal). */
+  footer?: ReactNode;
 }) {
   const t = useT();
   const shown = useOutput(output, reveal);
+  const { folder, rest } = command ? commandFolder(command) : { folder: undefined, rest: undefined };
   return (
     <div className="cv-shell" id={id} ref={menuPartRef({ command, output: shown.text })}>
       <div className="cv-shell__label">
-        {t("shell.label")}
+        <span className="cv-shell__title">
+          {t("shell.label")}
+          {folder && (
+            <span
+              className="cv-shell__folder"
+              data-find-skip
+              /* tooltip-allow: the full `cd …` prefix shows nowhere else (the command line drops it) */
+              title={command!.slice(0, command!.length - rest!.length).trim()}
+            >
+              {folder}
+            </span>
+          )}
+        </span>
         {shown.text && <CopyButton text={shown.text} label={t("turn.copy")} />}
       </div>
       <pre className="cv-shell__body selectable">
-        {command && <span className="cv-shell__command">$ {command}</span>}
-        {shown.cut && (
+        {rest && <span className="cv-shell__command">$ {rest}</span>}
+        {(shown.cut || Boolean(cut && shown.shown)) && (
           <span className="cv-output-cut" aria-hidden="true">
             …
           </span>
@@ -40,6 +62,7 @@ export function ShellBlock({
       {exitCode !== undefined && exitCode !== 0 && (
         <div className="cv-shell__exit">{t("shell.exit", { code: exitCode })}</div>
       )}
+      {footer}
     </div>
   );
 }

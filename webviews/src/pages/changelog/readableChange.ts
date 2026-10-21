@@ -185,3 +185,30 @@ export function titleTail(full: string, title: string): string {
     .replace(/^\((.*)\)$/u, "$1")
     .trim();
 }
+
+/** The area a commit subject names, lowercased: "sidebar" from "cmux-next sidebar: …" or
+    "fix(sidebar): …", undefined when it names none (the product's own label is not an area).
+    The Updated card groups an update's changes by it (updateSummary.ts). */
+export function changeArea(subject: string): string | undefined {
+  let text = subject.split(/\s+/).filter(Boolean).join(" ");
+  let area: string | undefined;
+  for (let match = CONVENTIONAL.exec(text)?.groups; match; match = CONVENTIONAL.exec(text)?.groups) {
+    const kind = match.type!.toLowerCase();
+    if (kind !== "cmux-next" && kind !== "cmuxnext") {
+      const scope = (match.scope ?? "").split(",")[0]?.trim().toLowerCase();
+      area = scope && !PRODUCT_WORDS.has(scope) ? scope : undefined;
+      text = match.rest!;
+      break;
+    }
+    text = match.rest!;
+  }
+  for (let label = LABEL.exec(text)?.groups; label; label = LABEL.exec(text)?.groups) {
+    const words = label
+      .area!.toLowerCase()
+      .split(" ")
+      .filter((w) => !PRODUCT_WORDS.has(w));
+    if (words.length) area = words.join(" ");
+    text = label.rest!;
+  }
+  return area;
+}

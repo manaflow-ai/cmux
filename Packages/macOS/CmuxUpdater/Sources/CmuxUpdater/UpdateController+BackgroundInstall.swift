@@ -43,6 +43,7 @@ extension UpdateController {
         }
         if case .installing(let installing) = model.state, installing.isAutoUpdate {
             log.append("background install: installing the update Sparkle staged silently")
+            driver.quitInstallItem = nil
             model.setState(.installing(.init(retryTerminatingApplication: {}, dismiss: {})))
             installing.retryTerminatingApplication()
             armStagedInstallWatchdog()
@@ -68,8 +69,9 @@ extension UpdateController {
     }
 
     /// Cancels the staged update's pending installer (Sparkle would install it when the app
-    /// quits) without skipping its version. No-op without one.
-    public func cancelStagedUpdate() {
+    /// quits) without skipping its version. No-op without one; returns whether one was cancelled.
+    @discardableResult
+    public func cancelStagedUpdate() -> Bool {
         driver.cancelStaged()
     }
 
@@ -100,9 +102,26 @@ extension UpdateController {
         set { driver.feedOverride = newValue }
     }
 
+    /// The release ring (`updates.channel`) whose appcast items are offered; the next check
+    /// uses it. Only the cmux-next feed has rings.
+    public var ring: UpdateRing {
+        get { driver.ring }
+        set { driver.ring = newValue }
+    }
+
     /// Builds at or below this `sparkle:version` are not offered (the build a rollback left).
     public var skipsBuildsThrough: String? {
         get { driver.skipsBuildsThrough }
         set { driver.skipsBuildsThrough = newValue }
+    }
+
+    /// How long after its `pubDate` an update that lists no Sparkle deltas is held back from a
+    /// scheduled check, so the delta its feed lists minutes later is downloaded instead of the
+    /// full archive. A held update is taken by the next scheduled check either way, and a check
+    /// the person starts never waits. Nil (the default) offers every update at once; set it only
+    /// for a feed that lists deltas after the full archive (the cmux-next nightly).
+    public var pendingDeltaWindow: TimeInterval? {
+        get { driver.pendingDeltaWait?.window }
+        set { driver.pendingDeltaWait = newValue.map(PendingDeltaWait.init(window:)) }
     }
 }

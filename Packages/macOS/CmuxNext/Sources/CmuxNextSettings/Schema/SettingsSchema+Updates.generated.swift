@@ -2,6 +2,9 @@
 // schemas/settings/source/updates.json. Do not edit; edit the JSON and rerun.
 
 extension UpdatesSettings {
+    /// `updates.channel`: Release ring inside the one cmux NEXT appcast: each choice allows its own sparkle:channel tag plus every slower one (stable < nightly < canary < dev). Design: cmuxterm-hq docs/release-rings.md.
+    public nonisolated static let channelPath = ["updates", "channel"]
+    public nonisolated static let channelDefault: UpdatesChannelSetting = .nightly
     /// `updates.checkAutomatically`.
     public nonisolated static let checkAutomaticallyPath = ["updates", "checkAutomatically"]
     public nonisolated static let checkAutomaticallyDefault = true
@@ -45,6 +48,21 @@ nonisolated enum UpdateSettingsSchema {
     static var descriptors: [SettingDescriptor] {
         let group = SettingsText.keyed("settings.group.updates", "Updates")
         return [
+            SettingDescriptor(
+                UpdatesSettings.channelPath,
+                section: .general,
+                group: group,
+                title: SettingsText.keyed("settings.updates.channel", "Update Channel"),
+                help: SettingsText.keyed("settings.updates.channel.help", "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."),
+                kind: .choice([
+                    SettingChoice(UpdatesChannelSetting.stable.rawValue, SettingsText.keyed("settings.choice.updatesChannelStable", "Stable")),
+                    SettingChoice(UpdatesChannelSetting.nightly.rawValue, SettingsText.keyed("settings.choice.updatesChannelNightly", "Nightly")),
+                    SettingChoice(UpdatesChannelSetting.canary.rawValue, SettingsText.keyed("settings.choice.updatesChannelCanary", "Canary")),
+                    SettingChoice(UpdatesChannelSetting.dev.rawValue, SettingsText.keyed("settings.choice.updatesChannelDev", "Dev")),
+                ]),
+                default: .string(UpdatesSettings.channelDefault.rawValue),
+                keywords: ["update", "channel", "ring", "release", "stable", "nightly", "canary", "beta", "dev"]
+            ),
             SettingDescriptor(
                 UpdatesSettings.checkAutomaticallyPath,
                 section: .general,

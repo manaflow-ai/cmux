@@ -5,8 +5,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser } from "playwright";
+import { galleryFrame, warmGalleryFrame } from "./support/galleryFrame";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { warmViteServer } from "./support/warmDevServer";
 
 await requireBrowserLane("status-glyphs.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -30,7 +30,7 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
   const CODEX_WAITING = 1;
   const CODEX_DONE = 3;
   const url = (variant: string, scheme: string) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}/gallery/frame.html?entry=ui.status-glyphs&variant=${variant}&colorScheme=${scheme}`;
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame("ui.status-glyphs", { variant, colorScheme: scheme })}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -40,8 +40,8 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
       logLevel: "error",
     });
     await vite.listen();
-    await warmViteServer(vite, "/gallery/frame.html");
     browser = await chromium.launch({ headless: true });
+    await warmGalleryFrame(vite, "ui.status-glyphs", { browser });
   });
 
   afterAll(async () => {
@@ -205,16 +205,30 @@ await requireBrowserLane("status-glyphs.test.ts", async () => {
     }
   }
 
-  for (const [variant, scheme] of [
-    ["sheet", "light"],
-    ["sheet", "dark"],
-    ["wallpaper", "dark"],
+  // The Static set and its hq#1957 competitors (Dots and Pictograms, Debug only): each draws the six
+  // states with its own glyphs, held to the same rules.
+  const capital = (name: string) => name[0]!.toUpperCase() + name.slice(1);
+  const SET_NAMES: Record<string, string[]> = {
+    static: NAMES,
+    dots: NAMES.map((name) => `dots${capital(name)}`),
+    pictograms: NAMES.map((name) => `pictograms${capital(name)}`),
+  };
+  for (const [variant, scheme, set] of [
+    ["sheet", "light", "static"],
+    ["sheet", "dark", "static"],
+    ["wallpaper", "dark", "static"],
+    ["dots", "light", "dots"],
+    ["dots", "dark", "dots"],
+    ["dots-wallpaper", "dark", "dots"],
+    ["pictograms", "light", "pictograms"],
+    ["pictograms", "dark", "pictograms"],
+    ["pictograms-wallpaper", "dark", "pictograms"],
   ] as const) {
     for (const scale of [1, 2]) {
       test(`${variant} ${scheme} @${scale}x: six static glyphs, apart by shape, crisp, still, theme-colored`, async () => {
         const { pixels, glyphs: drawn } = await glyphs(variant, scheme, scale);
         expect(pixels).toBe(10 * scale);
-        expect(drawn.map((glyph) => glyph.name)).toEqual(NAMES);
+        expect(drawn.map((glyph) => glyph.name)).toEqual(SET_NAMES[set]!);
         for (const glyph of drawn) {
           // Never animated: no running animation, no transition.
           expect(`${glyph.name}: ${glyph.animations} ${glyph.motion}`).toBe(`${glyph.name}: 0 none 0s`);

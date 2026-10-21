@@ -596,6 +596,7 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     for (key, value) in TURN_SETTINGS_ENV {
         settings["env"][key] = json!(value);
     }
+    settings["permissions"]["allow"] = json!(crate::approval::turn_allowed_tools());
     let settings = pretty(&settings)?;
     write_private(
         &paths.session.join(".claude").join("settings.json"),

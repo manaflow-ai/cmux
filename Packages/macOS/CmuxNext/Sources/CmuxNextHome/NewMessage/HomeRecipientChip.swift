@@ -27,7 +27,7 @@ final class HomeRecipientChip: NSView {
         setAccessibilityRole(.button)
         setAccessibilityLabel(HomeConversationStrings.removeRecipient(token.text))
         setAccessibilityIdentifier("cmux.home.newMessage.token")
-        if !token.isValid { toolTip = HomeConversationStrings.unknownRecipient(token.text) }
+        if !token.isValid { themedToolTip = HomeConversationStrings.unknownRecipient(token.text) }
         applyColors()
     }
 

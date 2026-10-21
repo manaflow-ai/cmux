@@ -130,7 +130,12 @@ export const downloadPath = (env: Env, a: DownloadArgs): string => {
 type Caller = { readonly principal: Principal; readonly actor: string; readonly user: string }
 
 /** Bearer -> principal with SSO policy and the install's grant; installs need `risk` in their grant. */
-export const callerOf = async (request: Request, env: Env, risk: "read" | "mutate-shared"): Promise<Caller | Fail> => {
+export const callerOf = async (request: Request, env: Env, risk: "read" | "mutate-shared", admitted?: Principal): Promise<Caller | Fail> => {
+  // A self-hosted server (backend/apps/home-server) passes the principal its Tailscale admission built; the Worker never does.
+  if (admitted) {
+    const actor = homeConversation.actorOf(admitted)
+    return actor && admitted.user ? { principal: admitted, actor, user: admitted.user } : { status: 403, code: "auth.forbidden", message: "no user" }
+  }
   const auth = request.headers.get("authorization") ?? ""
   const authenticated = await authenticate(env, auth.startsWith("Bearer ") ? auth.slice(7) : undefined)
   if (!authenticated?.user) return { status: 401, code: "auth.unauthenticated", message: "sign in first" }
@@ -199,8 +204,8 @@ const derivedMissing = (slot: UploadSlot): Response | null => {
 // --- Routes ---
 
 /** POST /v1/home/attachments/intent */
-export const handleAttachmentIntent = async (request: Request, env: Env, presign: Presigner = presignUrl): Promise<Response> => {
-  const caller = await callerOf(request, env, "mutate-shared")
+export const handleAttachmentIntent = async (request: Request, env: Env, presign: Presigner = presignUrl, admitted?: Principal): Promise<Response> => {
+  const caller = await callerOf(request, env, "mutate-shared", admitted)
   if (isFail(caller)) return failure(caller)
   const off = configured(env)
   if (off) return failure(off)
@@ -325,8 +330,8 @@ export const handleAttachmentDerived = async (request: Request, env: Env, varian
 }
 
 /** POST /v1/home/attachments/commit {conversation, slot}: after a presigned PUT; HEADs size and SHA-256 before the object is usable. */
-export const handleAttachmentCommit = async (request: Request, env: Env): Promise<Response> => {
-  const caller = await callerOf(request, env, "mutate-shared")
+export const handleAttachmentCommit = async (request: Request, env: Env, admitted?: Principal): Promise<Response> => {
+  const caller = await callerOf(request, env, "mutate-shared", admitted)
   if (isFail(caller)) return failure(caller)
   const off = configured(env)
   if (off) return failure(off)
@@ -355,8 +360,8 @@ export const handleAttachmentCommit = async (request: Request, env: Env): Promis
 }
 
 /** POST /v1/home/attachments/url {conversation, hash, message_id?, part_index?, variant?} */
-export const handleAttachmentUrl = async (request: Request, env: Env): Promise<Response> => {
-  const caller = await callerOf(request, env, "read")
+export const handleAttachmentUrl = async (request: Request, env: Env, admitted?: Principal): Promise<Response> => {
+  const caller = await callerOf(request, env, "read", admitted)
   if (isFail(caller)) return failure(caller)
   const off = configured(env)
   if (off) return failure(off)

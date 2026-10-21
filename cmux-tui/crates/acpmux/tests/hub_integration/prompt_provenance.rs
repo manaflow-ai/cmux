@@ -2,7 +2,8 @@
 //! `session/prompt` names the agent that sent it (`cmux agent message`). The recorded
 //! `user_message` carries it as `_meta.provenance`, a queued prompt keeps it until it runs, a
 //! steer records it, and an edit of the waiting prompt drops it. Only the unix socket may
-//! send it.
+//! send it, except the app pane's reply in place: from a chat here, to the chat that sent it
+//! the message `replyTo` names.
 
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
@@ -217,6 +218,130 @@ async fn a_provenance_from_any_origin_but_the_unix_socket_is_refused() {
     assert!(local.records(&session, "user_message").await.is_empty(), "a refused prompt ran");
 }
 
+/// The app pane's reply in place (IncomingMessageCard.tsx): chat `from` answers message `msg-0`
+/// of thread `thread-1`, which chat `to` sent it, under the addresses `cmux agent message` uses
+/// (`acp:<id>`) and with no name: acpmux signs it with the chat's own.
+fn app_reply(from: &str, to: &str) -> Value {
+    json!({"kind": "agent_message", "from": format!("acp:{from}"), "to": format!("acp:{to}"),
+           "msgId": "m-reply", "threadId": "thread-1", "replyTo": "msg-0"})
+}
+
+#[tokio::test]
+async fn the_app_pane_may_send_a_reply_from_a_chat_here_and_nothing_else() {
+    let hub = hub();
+    let mut local = Client::open(&hub);
+    let sender = local.new_session(json!({"harness": "fake"})).await;
+    let replier = local.new_session(json!({"harness": "fake"})).await;
+    // The message the reply answers: `sender`'s agent message `msg-0` to `replier`, as
+    // `cmux agent message` addresses one.
+    let message = json!({"kind": "agent_message", "from": format!("acp:{sender}"), "fromName": "builder",
+                         "to": format!("acp:{replier}"), "msgId": "msg-0", "threadId": "thread-1"});
+    local
+        .call("session/prompt", prompt(&replier, "msg-0", "Rebase on main.", Some(&message)))
+        .await;
+    let mut app = Client::open_as(&hub, Origin::LocalApp);
+    // The pane shows the chat the message came to; it holds the sender's chat unseen to reply.
+    let shown = app.call("_acpmux/attach", json!({"sessionId": replier, "limit": 0})).await;
+    app.call("_acpmux/attach", json!({"sessionId": sender, "limit": 0, "visible": false})).await;
+
+    // A reply from the chat the message came to, to the chat that sent it: recorded with the
+    // replying chat's address, so the sender's chat links it back, and signed with its name.
+    let reply = app_reply(&replier, &sender);
+    app.call("session/prompt", prompt(&sender, "p-reply", "Rebased; tests pass.", Some(&reply)))
+        .await;
+    let ran = local.user_message(&sender, "p-reply").await;
+    assert_eq!(ran["text"], "Rebased; tests pass.", "{ran}");
+    // Signed with the replying chat's own name: its title, its name or its id.
+    let own_name = ran.pointer("/_meta/provenance/fromName").cloned().unwrap_or_default();
+    let info = local.call("_acpmux/info", json!({"sessionId": replier})).await;
+    let names: Vec<&str> =
+        [&shown["session"]["title"], &shown["session"]["name"], &info["title"], &info["name"]]
+            .into_iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .chain([replier.as_str()])
+            .collect();
+    assert!(own_name.as_str().is_some_and(|n| names.contains(&n)), "{own_name} not in {names:?}");
+    let mut signed = reply.clone();
+    signed["fromName"] = own_name.clone();
+    assert_eq!(ran.pointer("/_meta/provenance"), Some(&signed), "{ran}");
+
+    // Not a reply, a reply to a message the chat never got, a sender that is no chat here, the
+    // prompt's own chat as its sender, a `to` that is not the prompt's chat, or a bare id for
+    // either address: refused.
+    let mut no_reply_to = app_reply(&replier, &sender);
+    no_reply_to.as_object_mut().unwrap().remove("replyTo");
+    let mut unknown_message = app_reply(&replier, &sender);
+    unknown_message["replyTo"] = json!("msg-never-sent");
+    let mut bare_from = app_reply(&replier, &sender);
+    bare_from["from"] = json!(replier);
+    let mut bare_to = app_reply(&replier, &sender);
+    bare_to["to"] = json!(sender);
+    let refused = [
+        no_reply_to,
+        unknown_message,
+        app_reply("nobody", &sender),
+        app_reply(&sender, &sender),
+        app_reply(&replier, &replier),
+        bare_from,
+        bare_to,
+    ];
+    for bad in refused {
+        let value = app.reply("session/prompt", prompt(&sender, "p-bad", "hi", Some(&bad))).await;
+        assert_eq!(
+            value.pointer("/error/data/reason"),
+            Some(&json!("provenance.origin_refused")),
+            "{bad}: {value}"
+        );
+    }
+    let ran = local.records(&sender, "user_message").await;
+    assert_eq!(ran.len(), 1, "a refused reply ran: {ran:?}");
+
+    // Default deny for what the pane signs (cx-kybz1 review): a `from` chat this pane does not
+    // show (not attached, or only held unseen), or a thread that is not the message's.
+    let message_to = |to: &str| {
+        json!({"kind": "agent_message", "from": format!("acp:{sender}"), "fromName": "builder",
+               "to": format!("acp:{to}"), "msgId": "msg-0", "threadId": "thread-1"})
+    };
+    let unattached = local.new_session(json!({"harness": "fake"})).await;
+    let unseen = local.new_session(json!({"harness": "fake"})).await;
+    for chat in [&unattached, &unseen] {
+        let got = message_to(chat);
+        local.call("session/prompt", prompt(chat, "msg-0", "Rebase on main.", Some(&got))).await;
+    }
+    app.call("_acpmux/attach", json!({"sessionId": unseen, "limit": 0, "visible": false})).await;
+    let mut wrong_thread = app_reply(&replier, &sender);
+    wrong_thread["threadId"] = json!("thread-other");
+    let unscoped = [app_reply(&unattached, &sender), app_reply(&unseen, &sender), wrong_thread];
+    for bad in unscoped {
+        let value = app.reply("session/prompt", prompt(&sender, "p-bad", "hi", Some(&bad))).await;
+        assert_eq!(
+            value.pointer("/error/data/reason"),
+            Some(&json!("provenance.origin_refused")),
+            "{bad}: {value}"
+        );
+    }
+    let ran = local.records(&sender, "user_message").await;
+    assert_eq!(ran.len(), 1, "a refused reply ran: {ran:?}");
+
+    // A name the pane picks never signs the reply: acpmux records the chat's own instead, so a
+    // stale title after a rename is not refused either.
+    let mut posing = app_reply(&replier, &sender);
+    posing["fromName"] = json!("Chief");
+    app.call("session/prompt", prompt(&sender, "p-posing", "Named.", Some(&posing))).await;
+    let ran = local.user_message(&sender, "p-posing").await;
+    assert_eq!(ran.pointer("/_meta/provenance/fromName"), Some(&own_name), "{ran}");
+
+    // A remote browser may not send even a reply.
+    let mut web = Client::open_as(&hub, Origin::Web);
+    let value = web.reply("session/prompt", prompt(&sender, "p-web", "hi", Some(&reply))).await;
+    assert_eq!(
+        value.pointer("/error/data/reason"),
+        Some(&json!("provenance.origin_refused")),
+        "{value}"
+    );
+}
+
 #[tokio::test]
 async fn a_queued_prompt_keeps_its_provenance_until_it_runs() {
     let hub = hub();
@@ -287,4 +412,41 @@ async fn a_steer_records_its_provenance() {
     assert_eq!(steered.pointer("/_meta/provenance"), Some(&p), "{steered}");
     let own = c.user_message(&session, "p-turn").await;
     assert!(own.pointer("/_meta/provenance").is_none(), "{own}");
+}
+
+// A steer names its pasted blocks (`_meta.cmux.pasted`) as a prompt does: UTF-16 ranges of its
+// text.
+#[tokio::test]
+async fn a_steer_records_its_pasted_ranges() {
+    let hub = hub_env(json!({"FAKE_CODEX_STEER": "1"}));
+    let mut c = Client::open(&hub);
+    let session = c.new_session(json!({"harness": "fake"})).await;
+    let turn = c.send("session/prompt", prompt(&session, "p-turn", "work", None)).await;
+    c.until(|v| {
+        v.pointer("/params/update/content/text")
+            .and_then(Value::as_str)
+            .is_some_and(|t| t.starts_with("turn: "))
+    })
+    .await;
+    let mut params = prompt(&session, "p-steer", "🦀 also", None);
+    params["prompt"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type": "text", "text": "a log", "_meta": {"cmux": {"pasted": true}}}));
+    params["_meta"]["acpmux"]["steer"] = json!(true);
+    let steer = c.send("session/prompt", params).await;
+    let mut answered = Vec::new();
+    while answered.len() < 2 {
+        let value = c
+            .until(|v| v.get("id") == Some(&json!(turn)) || v.get("id") == Some(&json!(steer)))
+            .await;
+        assert!(value.get("error").is_none(), "{value}");
+        answered.push(value);
+    }
+
+    let steered = c.user_message(&session, "p-steer").await;
+    assert_eq!(steered["steer"], true, "{steered}");
+    assert_eq!(steered["text"], "🦀 also\na log", "{steered}");
+    // 🦀 is two UTF-16 units: "🦀 also" is 7, and the paste starts after its "\n".
+    assert_eq!(steered["pasted"], json!([{"start": 8, "end": 13}]), "{steered}");
 }

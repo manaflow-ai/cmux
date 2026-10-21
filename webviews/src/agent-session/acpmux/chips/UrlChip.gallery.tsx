@@ -20,7 +20,12 @@ export default componentEntry<UrlChipProps>({
   id: "agent-pane.url-chip",
   title: "URL chips",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/chips/LinkChips.tsx#UrlChip"],
+  covers: [
+    "agent-session/acpmux/chips/LinkChips.tsx#UrlChip",
+    // Its hover card.
+    "agent-session/acpmux/chips/LinkHoverCard.tsx#LinkHoverCard",
+    "agent-session/acpmux/chips/PullRequestCard.tsx#PullRequestCardBody",
+  ],
   load: () => import("./LinkChips").then((module) => module.UrlChip),
   styles: () =>
     Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),

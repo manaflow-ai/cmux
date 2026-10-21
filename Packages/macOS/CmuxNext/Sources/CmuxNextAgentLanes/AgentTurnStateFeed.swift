@@ -42,6 +42,7 @@ public final class AgentTurnStateFeed {
         socket = socketPath
         self.turns = turns
         self.lanes = lanes
+        lanes.socketPath = socketPath
         source = host ?? AgentTurnStateStore.localSource
         if let host { turns.mirroredHosts.insert(host) }
     }
@@ -153,6 +154,7 @@ public final class AgentTurnStateFeed {
             turns.replace(states: states, lastMessages: lastMessages, muted: muted, titles: titles,
                           generatedTitles: generatedTitles, details: details, source: source)
             if self.lanes.lanes != lanes { self.lanes.lanes = lanes }
+            if !self.lanes.live { self.lanes.live = true }
         case .change(let session, let state, let lastMessage, let muted, let title, let generatedTitle, let detail, let lane):
             // Most session records leave the indicator as it was: the store writes (and so
             // redraws the tabs and rows that read this session) only what differs.
@@ -170,6 +172,7 @@ public final class AgentTurnStateFeed {
         // Titles stay: a tab keeps reading as its chat while the watch reconnects.
         turns.clearLive(source: source)
         lanes.lanes = [:]
+        lanes.live = false
         logger.info("agent turn states: watch closed")
         reconnect?.cancel()
         reconnect = Task { [weak self] in

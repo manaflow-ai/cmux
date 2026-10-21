@@ -201,7 +201,9 @@ nxmot (MacBook Pro, 120 Hz).
 | --- | --- | --- |
 | `hover` | 0.08 s | hover and pressed fills easing in (tabs, chips, buttons, toolbar, menu and palette rows, sidebar rows, New Tab rows; `ChromeHover.fade`); tab bar trailing buttons and the tab x fading in on hover; sidebar hover buttons; divider and resize-handle hover; refused-drop dim. Instant under Reduce Motion |
 | `hoverOut` | 0 s | a hover or pressed fill clearing: instant, as in Edge, so a fast sweep leaves no trail (about 0.12 s in Debug Settings leaves a short one). A press shows at once. Sidebar rows are the exception: their fill and hover buttons fade out with `hover` too, in place (Leo 2026-10-13: moving between workspace rows snapped). Instant under Reduce Motion |
-| `focus` | 0.10 s | pane focus ring and inactive dim |
+| `focus` | 0.10 s | pane focus ring |
+| `paneDim` | 0.15 s | the veil over an unfocused pane easing in and out when focus moves (Leo 2026-10-21: a short ease, not a jump) |
+| `focusFlash` | 0.50 s | the focus ring shown at once on a pane focus moved to without a click (a link open, the pane after a close, an agent handoff), fading out; Debug toggle `focus.flashOnMove`, off by default |
 | `fadeIn` | 0.12 s | palette, find bar, notices, hover card, group editor, sidebar pill appear |
 | `fadeOut` | 0.08 s | palette close (with a shrink to `Motion.panelCloseScale` 0.98 about the center), find bar, notices, hover card, sidebar pill hide |
 | `crossfade` | 0.10 s | hover card thumbnail swap; the Reduce Motion ceiling |
@@ -310,7 +312,8 @@ rest).
 | Pane close, move | one frame | one frame (unchanged) | 0 | 0 | - |
 | Pane ratio, equalize, width presets, pane zoom | display-link spring 0.34/0.88 | `move` | 292 / 483 ms | 192 / 250 ms | 258 ms (column width preset) |
 | Drop-zone overlay | display-link spring 0.20/0.90 | `track` | 192 / 250 ms | 117 / 167 ms | - |
-| Focus ring and inactive dim | CATransaction 0.16 s | `focus` | 160 ms | 100 ms | - |
+| Focus ring | CATransaction 0.16 s | `focus` | 160 ms | 100 ms | - |
+| Inactive pane dim | CATransaction 0.16 s | `paneDim` | 160 ms | 150 ms | - |
 | Divider hover | CATransaction 0.12 s | `hover` | 120 ms | 80 ms | - |
 | Pane attention flash | keyframes 0.9 s (0.35 s fade reduced) | `flash` 1.0 s (0.5 s reduced; none when off) | 900 ms | 1000 ms | - |
 | Programmatic window close | window fade 0.18 s ease-in | instant (the windows work on this branch made it close in the same turn as the transition) | 180 ms | 0 | - |

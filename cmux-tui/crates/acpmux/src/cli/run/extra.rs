@@ -310,11 +310,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         println!(
                             "peer:     {} {} ({} sessions) {}",
                             p.get("name").and_then(Value::as_str).unwrap_or(""),
-                            if p.get("connected").and_then(Value::as_bool).unwrap_or(false) {
-                                "connected"
-                            } else {
-                                "offline"
-                            },
+                            crate::peer_link::state_label(&p, crate::store::now_ms()),
                             p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                             p.get("url").and_then(Value::as_str).unwrap_or("")
                         );
@@ -419,13 +415,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 println!("no peers (add one: acpmux peer add sandbox-a ws://host:47811 --token T)");
             }
             for p in peers {
-                let connected = p.get("connected").and_then(Value::as_bool).unwrap_or(false);
+                let state = crate::peer_link::state_label(&p, crate::store::now_ms());
                 let build = p.get("remoteBuild").and_then(Value::as_str).unwrap_or("");
                 let outdated = p.get("outdated").and_then(Value::as_bool).unwrap_or(false);
                 println!(
                     "{:<16} {:<10} {:>3} sessions  {:<24} {}{}{}",
                     p.get("name").and_then(Value::as_str).unwrap_or(""),
-                    if connected { "connected" } else { "offline" },
+                    state,
                     p.get("sessions").and_then(Value::as_u64).unwrap_or(0),
                     p.get("url").and_then(Value::as_str).unwrap_or(""),
                     if build.is_empty() { String::new() } else { format!("build {build}") },

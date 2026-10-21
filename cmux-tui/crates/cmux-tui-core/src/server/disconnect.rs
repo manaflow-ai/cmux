@@ -106,13 +106,18 @@ pub(super) fn disconnect_client(mux: &Arc<Mux>, client: u64, send_detached: bool
 /// asked. Its `detached` events carry `reason:"disconnected-by"` and `by`, so
 /// the viewer does not reconnect automatically.
 pub(super) fn kick_client(mux: &Arc<Mux>, client: u64, by: TerminalDetachActor) -> bool {
-    disconnect_client_with_notice(
+    let placements = mux.terminal_placements_of_client(client);
+    let kicked = disconnect_client_with_notice(
         mux,
         client,
         true,
         None,
         &DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) },
-    )
+    );
+    // Disconnected on purpose: the grids of its terminals follow the
+    // remaining views now, not after a departed view's hold.
+    mux.release_terminal_grid_holds(&placements);
+    kicked
 }
 
 fn disconnect_client_with_notice(
@@ -220,6 +225,7 @@ pub(super) fn detach_own_view(
     by: TerminalDetachActor,
 ) {
     mux.detach_terminal_own_view(placement, owner);
+    mux.release_terminal_grid_holds(&[placement]);
     let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
     let mut event = detached_event_json(placement, &notice, None);
     event["scope"] = json!("view");
@@ -252,6 +258,7 @@ pub fn detach_size_participant(
     };
     if let Some(view) = view {
         mux.detach_terminal_sub_view(placement, client, &view);
+        mux.release_terminal_grid_holds(&[placement]);
         let notice = DetachNotice { reason: detach_reason::DISCONNECTED_BY, by: Some(by) };
         mux.control_clients.send_surface_event(
             client,

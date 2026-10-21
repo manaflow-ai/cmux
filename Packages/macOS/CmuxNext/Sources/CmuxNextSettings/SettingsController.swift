@@ -51,6 +51,7 @@ public final class SettingsController {
     public internal(set) var teamPolicy: TeamPolicyLayer = .none
 
     @ObservationIgnored let applier: SettingsApplier
+    @ObservationIgnored private var diagnosticToasts: SettingsDiagnosticToasts?
     @ObservationIgnored private var watcher: ConfigFileWatcher?
     @ObservationIgnored private var reloadTask: Task<Void, Never>?
     @ObservationIgnored private var reloadRequested = false
@@ -95,9 +96,15 @@ public final class SettingsController {
         self.managedWatchFiles = managedWatchFiles
     }
 
-    /// Loads the file now and starts watching it.
-    public func start() {
+    /// Loads the file now and starts watching it. `announcingDiagnostics`: the app also tells the
+    /// person about a value it ignores (`SettingsDiagnosticToasts`); tests leave it off.
+    public func start(announcingDiagnostics: Bool = false) {
         guard watcher == nil else { return }
+        if announcingDiagnostics, diagnosticToasts == nil {
+            let toasts = SettingsDiagnosticToasts(registry: applier.registry)
+            diagnosticToasts = toasts
+            toasts.follow(self)
+        }
         let watcher = ConfigFileWatcher(url: file.url) { [weak self] in
             Task { @MainActor in self?.requestReload() }
         }

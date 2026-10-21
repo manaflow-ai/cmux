@@ -224,3 +224,32 @@ test("one ask reads a bounded number of pages; a run of rows that draw nothing l
   expect(snapshot().canLoadOlder).toBe(false);
   client.close();
 });
+
+test("history whose very first record is larger than an older page loads to the top and stops", async () => {
+  // The chat's first prompt carried a 600 KB paste: the oldest page is that one record alone.
+  const big = `Question 1 ${"x".repeat(600 * 1024)}`;
+  const history = records([
+    ["mux", "user_message", { text: big, promptId: "p-1" }],
+    ["mux", "turn_started", {}],
+    ["in", "agent_message_chunk", say("Answer 1")],
+    done,
+    ...turn(2),
+    ...turn(3),
+  ]);
+  const { client, snapshot } = await open(history);
+  await scrollToTop(client, snapshot);
+  expect(questions(snapshot().rows)).toEqual([big, "Question 2", "Question 3"]);
+  expect(snapshot().canLoadOlder).toBe(false);
+  client.close();
+});
+
+test("an oversized record that draws no row at the very top still ends the history", async () => {
+  // A 600 KB prompt was queued and dropped before the first turn: the oldest page draws nothing.
+  const history = records([queued("q-0", 600), ["mux", "dequeued", { promptId: "q-0" }], ...turn(1), ...turn(2)]);
+  const { client, snapshot } = await open(history);
+  const asks = await scrollToTop(client, snapshot);
+  expect(asks).toBeLessThan(40);
+  expect(questions(snapshot().rows)).toEqual(["Question 1", "Question 2"]);
+  expect(snapshot().canLoadOlder).toBe(false);
+  client.close();
+});

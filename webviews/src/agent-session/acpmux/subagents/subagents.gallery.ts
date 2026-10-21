@@ -1,12 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample prompts, subagent names and tasks), not shipped UI.
-// A batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
+// With Debug Settings agentPane.debug.subagentTray off (the tray above the composer is the default,
+// SubagentTray.gallery.ts), a batch of subagents inline in the transcript (SubagentGroup.tsx): the group row in each state,
 // as the snapshot rows the pane receives after direct.ts folds a session's subagent updates; an
 // open group's list (SubagentListRow), opened by a click; and the summary card at the pane's top
 // right (summary/SummaryCard.tsx), which shows itself for a chat with subagents and lists them with
 // their live state from the same groups. It is not a popover: a click elsewhere leaves it open. A
 // list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
-// parent, then its rows, nested groups included.
-import { agentPaneEntry } from "../../../gallery/format";
+// parent, then its rows, nested groups included. A pane the app opened on a subagent shows it read
+// only: a line naming the chat where the composer would be (SubagentPaneFooter.tsx).
+import { agentPaneEntry, type AgentPaneVariant } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
 import type { PlayContext } from "../../../gallery/play";
@@ -199,6 +201,17 @@ const openGroup = (count: number) => async (ctx: PlayContext) => {
   if (ctx.document.activeElement !== disclosure) throw new Error("subagent disclosure lost focus while opening");
 };
 
+/** These variants show the group card in the transcript and the agents pill, which Debug Settings
+ * agentPane.debug.subagentTray off keeps; the tray, the default, is SubagentTray.gallery.ts. The
+ * summary card is the same either way. */
+const groupCards = (variants: Record<string, AgentPaneVariant>): Record<string, AgentPaneVariant> =>
+  Object.fromEntries(
+    Object.entries(variants).map(([name, variant]) => [
+      name,
+      { ...variant, theme: { subagentTray: false, ...variant.theme } },
+    ]),
+  );
+
 export default agentPaneEntry({
   id: "agent-pane.subagents",
   title: "Subagents",
@@ -209,6 +222,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx",
     "agent-session/acpmux/subagents/AgentsPill.tsx#AgentsPill",
+    "agent-session/acpmux/subagents/SubagentPaneFooter.tsx#SubagentPaneFooter",
     "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
     "agent-session/acpmux/summary/SummaryCard.tsx#SummaryCard",
     "agent-session/acpmux/summary/SummaryBody.tsx#SummaryBody",
@@ -216,7 +230,7 @@ export default agentPaneEntry({
     "agent-session/acpmux/summary/SubagentStack.tsx#SubagentStack",
     "agent-session/acpmux/summary/SubagentStatusList.tsx#SubagentStatusList",
   ],
-  variants: {
+  variants: groupCards({
     "agents-pill": {
       note: "The agents pill while two of four subagents run (after Codex's phone app). It opens Active and Completed, a dot per agent in the color its name has in the open group; a click on an agent opens it.",
       height: 640,
@@ -379,6 +393,19 @@ export default agentPaneEntry({
         );
       },
     },
+    "own-pane": {
+      note: "A pane the app opened on a subagent (a subagent: reveal): its view, read only, with a line naming the chat in place of the composer.",
+      height: 640,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
+        page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent-pane-footer"),
+        );
+        if (ctx.document.querySelector(".acpmux-composer")) throw new Error("a subagent's own pane drew the composer");
+      },
+    },
     summary: {
       note: "The summary card at the top right: every subagent with its state and time: waiting, then running, then ended.",
       snapshot: MIXED,
@@ -494,5 +521,5 @@ export default agentPaneEntry({
         );
       },
     },
-  },
+  }),
 });

@@ -101,7 +101,7 @@ public nonisolated enum RefusalStrings {
     /// A feature with no implementation in this build.
     static var notInThisVersion: String { text("handlers.refusal.notInThisVersion", "Not available in this version of cmux yet.") }
     /// The local daemon has not answered yet (first connection or a restart).
-    static var daemonConnecting: String {
+    public static var daemonConnecting: String {
         text("handlers.refusal.daemonConnecting", "cmux is still starting its background service. Try again in a moment.")
     }
     /// The local daemon could not start (the window shows why).
@@ -176,9 +176,6 @@ public nonisolated enum RefusalStrings {
     }
     /// A canvas zoom that is already at its limit (or at actual size).
     public static var canvasZoomLimit: String { text("handlers.refusal.canvasZoomLimit", "the canvas is already at that zoom") }
-    public static var simulatorUnported: String { text("handlers.refusal.simulatorUnported", "needs simulator panes, which cmux-next does not have yet") }
-    public static var filesPaneUnported: String { text("handlers.refusal.filesPaneUnported", "needs the Files panel as a pane (not in cmux-next yet)") }
-    public static var findPaneUnported: String { text("handlers.refusal.findPaneUnported", "needs the Find panel as a pane (not in cmux-next yet)") }
     public static var controlListenerNotRunning: String {
         text("handlers.refusal.controlListenerNotRunning", "The CLI listener is not running in this app.")
     }

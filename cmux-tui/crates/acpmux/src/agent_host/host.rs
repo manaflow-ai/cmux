@@ -712,7 +712,7 @@ impl State {
             self.write_codex_line(l);
         }
         for m in split.hub {
-            self.push(Entry::In { msg: m.to_value() });
+            self.push(Entry::In { msg: crate::codex_app_server::into_value(m) });
         }
     }
 

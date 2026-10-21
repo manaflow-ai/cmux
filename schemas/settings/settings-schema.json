@@ -17,7 +17,8 @@
               "window.titlebar",
               "window.titlebarButtons",
               "app.globalHotKey",
-              "app.startAgentGlobalHotKey"
+              "app.startAgentGlobalHotKey",
+              "app.hideDockIconWithoutWindows"
             ],
             "title" : {
               "key" : "settings.group.window",
@@ -28,9 +29,11 @@
             "key" : "settings.group.tabs",
             "rows" : [
               "tabs.newTabTemplate",
+              "tabs.terminalFirst",
               "tabs.newTabPosition",
               "tabs.plusButton",
               "tabs.barPosition",
+              "browser.toolbarPosition",
               "tabs.barOrder",
               "tabs.overflow",
               "appearance.metrics.tabMaxWidth",
@@ -39,7 +42,8 @@
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying"
+              "tabs.newTabNowPlaying",
+              "sidebar.showChats"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -65,7 +69,8 @@
               "layout.minimumPaneHeight",
               "layout.newPanePlacement",
               "layout.tileBrowsers",
-              "layout.linkPlacement"
+              "layout.linkPlacement",
+              "layout.mainPane"
             ],
             "title" : {
               "key" : "settings.group.columns",
@@ -177,6 +182,7 @@
           {
             "key" : "settings.group.updates",
             "rows" : [
+              "updates.channel",
               "updates.checkAutomatically",
               "updates.checkIntervalSeconds",
               "updates.downloadAutomatically",
@@ -309,6 +315,7 @@
           {
             "key" : "settings.group.motion",
             "rows" : [
+              "ui.calm",
               "ui.animations.enabled",
               "ui.animations.sidebar",
               "ui.animations.tabs",
@@ -353,7 +360,8 @@
               "appearance.backgroundRotation",
               "appearance.paneBackgrounds",
               "appearance.backgroundOpacity",
-              "appearance.backgroundBlur"
+              "appearance.backgroundBlur",
+              "appearance.inactiveWindowDim"
             ],
             "title" : {
               "key" : "settings.group.windowBackground",
@@ -405,7 +413,7 @@
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
-              "sidebar.showChats",
+              "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
               "sidebar.showSpaces",
@@ -419,6 +427,8 @@
               "sidebar.groupHeader.unreadCount",
               "sidebar.minimalMode",
               "sidebar.cards.tips",
+              "sidebar.priorityView.enabled",
+              "sidebar.priorityView.shown",
               "sidebar.side",
               "sidebar.spacesPosition",
               "sidebar.spacesVisibility",
@@ -724,6 +734,7 @@
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
               "agentPane.display.code.scale",
+              "agentPane.display.inspector.placement",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.editedFiles.show",
@@ -738,16 +749,6 @@
             "title" : {
               "key" : "settings.group.agentChat",
               "text" : "Agent Chat"
-            }
-          },
-          {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
             }
           },
           {
@@ -774,7 +775,10 @@
           {
             "key" : "settings.group.sessions",
             "rows" : [
-              "sessions.keepAwake"
+              "sessions.keepAwake",
+              "sessions.resumeAgents",
+              "sessions.allowFullAccess",
+              "sessions.promptSuggestions"
             ],
             "title" : {
               "key" : "settings.group.sessions",
@@ -794,14 +798,15 @@
             }
           },
           {
-            "key" : "settings.group.chiefPet",
+            "key" : "settings.group.folderTrust",
             "rows" : [
-              "home.chiefPetEnabled",
-              "home.chiefPetMascot"
+              "agents.trust.autoTrust",
+              "agents.trust.projectRoots",
+              "agents.trust.ownOrgs"
             ],
             "title" : {
-              "key" : "settings.group.chiefPet",
-              "text" : "Chief Pet"
+              "key" : "settings.group.folderTrust",
+              "text" : "Folder Trust"
             }
           }
         ],
@@ -817,8 +822,51 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "chiefs",
           "computerUse"
+        ]
+      },
+      {
+        "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+          {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
+            "key" : "settings.group.chiefPet",
+            "rows" : [
+              "home.chiefPetEnabled",
+              "home.chiefPetMascot"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefPet",
+              "text" : "Chief Pet"
+            }
+          }
+        ],
+        "id" : "chief",
+        "lead" : [
+          "chiefs",
+          "chiefPet"
+        ],
+        "symbol" : "crown",
+        "title" : {
+          "key" : "settings.category.chief",
+          "text" : "Chief"
+        },
+        "trail" : [
+
         ]
       },
       {
@@ -839,7 +887,8 @@
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
               "notifications.dockBadge",
-              "notifications.dockBounce"
+              "notifications.dockBounce",
+              "notifications.showPreviews"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -869,6 +918,8 @@
               "notifications.attention.blinkCount",
               "notifications.attention.duration",
               "notifications.attention.persist",
+              "notifications.attention.flash",
+              "notifications.attention.flashOnTyping",
               "notifications.attention.showOnTab",
               "notifications.attention.showOnSidebar",
               "notifications.attention.moveToTop"
@@ -1201,6 +1252,16 @@
             "title" : {
               "key" : "settings.group.phone",
               "text" : "Phone Access"
+            }
+          },
+          {
+            "key" : "settings.group.messagesServer",
+            "rows" : [
+              "home.server"
+            ],
+            "title" : {
+              "key" : "settings.group.messagesServer",
+              "text" : "Messages Server"
             }
           }
         ],
@@ -1927,6 +1988,57 @@
     },
     {
       "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.window",
+        "text" : "Window"
+      },
+      "help" : {
+        "key" : "settings.app.hideDockIconWithoutWindows.help",
+        "text" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "app.hideDockIconWithoutWindows",
+      "keywords" : [
+        "dock",
+        "icon",
+        "menu bar",
+        "background",
+        "app switcher",
+        "command tab",
+        "accessory",
+        "windows"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "app",
+        "hideDockIconWithoutWindows"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.app.hideDockIconWithoutWindows",
+        "text" : "Hide Dock Icon When No Windows Are Open"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "cards",
         "default",
         "composer",
@@ -2033,6 +2145,57 @@
       "title" : {
         "key" : "settings.tabs.newTabTemplate",
         "text" : "New Tab Template"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.tabs.terminalFirst.help",
+        "text" : "When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "tabs.terminalFirst",
+      "keywords" : [
+        "terminal",
+        "classic",
+        "new tab",
+        "split",
+        "cmd-t",
+        "cmd-d",
+        "new tab page",
+        "default"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "tabs",
+        "terminalFirst"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.tabs.terminalFirst",
+        "text" : "New Tabs and Splits Open a Terminal"
       },
       "validation" : "portable"
     },
@@ -2248,6 +2411,75 @@
     },
     {
       "accepts" : [
+        "top",
+        "bottom"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.top",
+            "text" : "Top"
+          },
+          "value" : "top"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.bottom",
+            "text" : "Bottom"
+          },
+          "value" : "bottom"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "top",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.tabs",
+        "text" : "Tabs"
+      },
+      "help" : {
+        "key" : "settings.browser.toolbarPosition.help",
+        "text" : "Where the address bar row of browser and Markdown panes sits. At the bottom, its suggestions and menus open upward."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.toolbarPosition",
+      "keywords" : [
+        "omnibar",
+        "address bar",
+        "toolbar",
+        "url bar",
+        "browser",
+        "markdown",
+        "top",
+        "bottom",
+        "position",
+        "layout"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "toolbarPosition"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.toolbarPosition",
+        "text" : "Browser Toolbar Position"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "aboveToolbar",
         "belowToolbar"
       ],
@@ -2280,7 +2512,7 @@
       },
       "help" : {
         "key" : "settings.tabs.barOrder.help",
-        "text" : "In a browser pane with the tab bar at the top: the tab bar above the address bar, or below it."
+        "text" : "In a browser pane with the tab bar and the address bar on the same edge: the tab bar above the address bar, or below it."
       },
       "kept_on_reset_all" : false,
       "key" : "tabs.barOrder",
@@ -2799,7 +3031,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.tabs",
@@ -3375,6 +3607,90 @@
       "title" : {
         "key" : "settings.shortcuts.showModifierHoldHints",
         "text" : "Show Shortcuts When Holding a Modifier"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "stable",
+        "nightly",
+        "canary",
+        "dev"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelStable",
+            "text" : "Stable"
+          },
+          "value" : "stable"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelNightly",
+            "text" : "Nightly"
+          },
+          "value" : "nightly"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelCanary",
+            "text" : "Canary"
+          },
+          "value" : "canary"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.updatesChannelDev",
+            "text" : "Dev"
+          },
+          "value" : "dev"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "nightly",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.updates",
+        "text" : "Updates"
+      },
+      "help" : {
+        "key" : "settings.updates.channel.help",
+        "text" : "Canary and Dev get builds before they reach Nightly. Stable gets only builds that have run a week without problems, so switching to it may mean no updates for a while."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "updates.channel",
+      "keywords" : [
+        "update",
+        "channel",
+        "ring",
+        "release",
+        "stable",
+        "nightly",
+        "canary",
+        "beta",
+        "dev"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "updates",
+        "channel"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.updates.channel",
+        "text" : "Update Channel"
       },
       "validation" : "portable"
     },
@@ -4147,6 +4463,156 @@
         true,
         false
       ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.resumeAgents.help",
+        "text" : "Terminal agents reopen their session after a crash or restart."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.resumeAgents",
+      "keywords" : [
+        "resume",
+        "restore",
+        "restart",
+        "reboot",
+        "crash",
+        "claude",
+        "codex",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "resumeAgents"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.resumeAgents",
+        "text" : "Resume Agents After Restart"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "destructive",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.allowFullAccess.help",
+        "text" : "Off, cmux won't switch an agent into a mode that skips approvals."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.allowFullAccess",
+      "keywords" : [
+        "bypass",
+        "permissions",
+        "yolo",
+        "full access",
+        "dangerous",
+        "approve",
+        "safety"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "allowFullAccess"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.allowFullAccess",
+        "text" : "Allow Full-Access Modes"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sessions",
+        "text" : "Agent Sessions"
+      },
+      "help" : {
+        "key" : "settings.sessions.promptSuggestions.help",
+        "text" : "Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sessions.promptSuggestions",
+      "keywords" : [
+        "suggestions",
+        "prompt",
+        "follow-up",
+        "tasks",
+        "child chats",
+        "subagents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sessions",
+        "promptSuggestions"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sessions.promptSuggestions",
+        "text" : "Suggest Follow-Up Tasks"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
       "agent_refusal" : "network",
       "agent_settable" : false,
       "consumers" : [
@@ -4528,6 +4994,179 @@
       "title" : {
         "key" : "settings.agents.subsessions.maxDepth",
         "text" : "Deepest Nesting"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.autoTrust.help",
+        "text" : "Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.autoTrust",
+      "keywords" : [
+        "trust",
+        "folder",
+        "repository",
+        "prompt",
+        "agents"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "autoTrust"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.autoTrust",
+        "text" : "Trust My Own Folders Without Asking"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "/Users/ada/src",
+          "~/notes"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.projectRoots.help",
+        "text" : "Everything inside these folders is trusted. Use full paths or ~/ paths."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.projectRoots",
+      "keywords" : [
+        "trust",
+        "project",
+        "roots",
+        "folders",
+        "workspace"
+      ],
+      "kind" : "folder_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "projectRoots"
+      ],
+      "refuses" : [
+        "/Users/ada/src",
+        [
+          "relative/path"
+        ],
+        [
+          1
+        ]
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.projectRoots",
+        "text" : "Trusted Project Roots"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        [
+
+        ],
+        [
+          "ws-1",
+          "2B7F0C3A-workspace"
+        ]
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : [
+
+      ],
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.folderTrust",
+        "text" : "Folder Trust"
+      },
+      "help" : {
+        "key" : "settings.agents.trust.ownOrgs.help",
+        "text" : "A repository is trusted when all of its GitHub remotes belong to these users or organizations."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agents.trust.ownOrgs",
+      "keywords" : [
+        "trust",
+        "github",
+        "organization",
+        "owner",
+        "remote",
+        "repository"
+      ],
+      "kind" : "string_list",
+      "page_hidden" : false,
+      "path" : [
+        "agents",
+        "trust",
+        "ownOrgs"
+      ],
+      "refuses" : [
+        "ws-1",
+        [
+          1
+        ],
+        [
+          ""
+        ],
+        {
+
+        }
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agents.trust.ownOrgs",
+        "text" : "Trusted GitHub Owners"
       },
       "validation" : "portable"
     },
@@ -5328,7 +5967,7 @@
       },
       "help" : {
         "key" : "settings.layout.linkPlacement.help",
-        "text" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
+        "text" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
       },
       "kept_on_reset_all" : false,
       "key" : "layout.linkPlacement",
@@ -5360,6 +5999,75 @@
       "title" : {
         "key" : "settings.layout.linkPlacement",
         "text" : "Open Links and Files"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "agent-chats",
+        "off"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.mainPaneAgentChats",
+            "text" : "Agent Chats"
+          },
+          "value" : "agent-chats"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.mainPaneOff",
+            "text" : "Off"
+          },
+          "value" : "off"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "agent-chats",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.columns",
+        "text" : "Columns"
+      },
+      "help" : {
+        "key" : "settings.layout.mainPane.help",
+        "text" : "Agent Chats keeps an agent chat as the main pane: links, files, subagents and side chats it opens appear as tabs in a column on its right, and closing that column gives the chat its full width back."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "layout.mainPane",
+      "keywords" : [
+        "main",
+        "pane",
+        "chat",
+        "agent",
+        "right",
+        "column",
+        "side",
+        "link",
+        "subagent",
+        "tab"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "layout",
+        "mainPane"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "general",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.layout.mainPane",
+        "text" : "Main Pane"
       },
       "validation" : "portable"
     },
@@ -10671,6 +11379,64 @@
       "default" : 0,
       "default_label" : null,
       "group" : {
+        "key" : "settings.group.windowBackground",
+        "text" : "Window Background"
+      },
+      "help" : {
+        "key" : "settings.appearance.inactiveWindowDim.help",
+        "text" : "How much more theme color covers a window while another one is in front. 0 keeps the same look."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "appearance.inactiveWindowDim",
+      "keywords" : [
+        "inactive",
+        "unfocused",
+        "focus",
+        "dim",
+        "opacity",
+        "transparency",
+        "background"
+      ],
+      "kind" : "number",
+      "page_hidden" : false,
+      "path" : [
+        "appearance",
+        "inactiveWindowDim"
+      ],
+      "range" : {
+        "max" : 1,
+        "min" : 0,
+        "placeholder" : 0,
+        "step" : 0.05,
+        "unit" : "fraction"
+      },
+      "refuses" : [
+        -1,
+        2,
+        "1"
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.appearance.inactiveWindowDim",
+        "text" : "Dim Inactive Windows"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        0,
+        1,
+        0.5
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : 0,
+      "default_label" : null,
+      "group" : {
         "key" : "settings.group.appearanceTuning",
         "text" : "Appearance Tuning"
       },
@@ -11565,7 +12331,7 @@
       },
       "help" : {
         "key" : "settings.focus.inactiveTabStyle.help",
-        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."
+        "text" : "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."
       },
       "kept_on_reset_all" : false,
       "key" : "focus.inactiveTabStyle",
@@ -12667,6 +13433,87 @@
       "title" : {
         "key" : "settings.focusRing.showWhenSinglePane",
         "text" : "Show With One Pane"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.off",
+            "text" : "Off"
+          },
+          "value" : "off"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.calm",
+            "text" : "Calm"
+          },
+          "value" : "calm"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.still",
+            "text" : "Still"
+          },
+          "value" : "still"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "off",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.motion",
+        "text" : "Motion"
+      },
+      "help" : {
+        "key" : "settings.ui.calm.help",
+        "text" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "ui.calm",
+      "keywords" : [
+        "calm",
+        "quiet",
+        "focus",
+        "zen",
+        "reduce motion",
+        "reduced motion",
+        "hover",
+        "no hover",
+        "highlight",
+        "distraction",
+        "busy",
+        "noise",
+        "minimal",
+        "still"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "ui",
+        "calm"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.ui.calm",
+        "text" : "Calm Mode"
       },
       "validation" : "portable"
     },
@@ -15616,7 +16463,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : false,
+      "default" : true,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.diffViewer",
@@ -16918,6 +17765,79 @@
       "title" : {
         "key" : "settings.agentPane.display.codeSize",
         "text" : "Chat Code Size"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "push",
+        "overlay"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorPush",
+            "text" : "Push"
+          },
+          "value" : "push"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorOverlay",
+            "text" : "Overlay"
+          },
+          "value" : "overlay"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "overlay",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.inspector.help",
+        "text" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.inspector.placement",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "inspector",
+        "panel",
+        "side",
+        "right",
+        "overlay",
+        "push",
+        "details"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "inspector",
+        "placement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.inspector",
+        "text" : "Inspector"
       },
       "validation" : "portable"
     },
@@ -20196,17 +21116,19 @@
       },
       "help" : {
         "key" : "settings.sidebar.showChats.help",
-        "text" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."
+        "text" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showChats",
       "keywords" : [
-        "sidebar",
+        "new tab",
         "chats",
         "all chats",
         "agents",
         "conversations",
-        "history"
+        "history",
+        "threads",
+        "console"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -20223,7 +21145,58 @@
       "summary" : null,
       "title" : {
         "key" : "settings.sidebar.showChats",
-        "text" : "Show All Chats"
+        "text" : "Show All Chats on New Tab"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.sessionTree.help",
+        "text" : "Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.sessionTree",
+      "keywords" : [
+        "sidebar",
+        "tree",
+        "nested",
+        "parent",
+        "child",
+        "pull request",
+        "keycap",
+        "sessions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "sessionTree"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.sessionTree",
+        "text" : "Session Tree"
       },
       "validation" : "portable"
     },
@@ -20954,6 +21927,112 @@
       "title" : {
         "key" : "settings.sidebar.cards.tips",
         "text" : "Show Tips"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : false,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.enabled.help",
+        "text" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.enabled",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "attention",
+        "agents",
+        "chats",
+        "needs you",
+        "activity",
+        "bell",
+        "inbox"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : {
+        "key" : "settings.sidebar.priorityView.enabled.summary",
+        "text" : "Agent chats that need you, at the top of the sidebar"
+      },
+      "title" : {
+        "key" : "settings.sidebar.priorityView.enabled",
+        "text" : "Priority View"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.sidebar",
+        "text" : "Sidebar"
+      },
+      "help" : {
+        "key" : "settings.sidebar.priorityView.shown.help",
+        "text" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "sidebar.priorityView.shown",
+      "keywords" : [
+        "sidebar",
+        "priority",
+        "activity",
+        "bell",
+        "show",
+        "hide"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "sidebar",
+        "priorityView",
+        "shown"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.sidebar.priorityView.shown",
+        "text" : "Show Priority View"
       },
       "validation" : "portable"
     },
@@ -29787,6 +30866,93 @@
     },
     {
       "accepts" : [
+        "hosted",
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net:7320"
+        },
+        {
+          "selfHosted" : "https://100.101.102.103/"
+        }
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.homeServer.hosted",
+            "text" : "cmux Cloud"
+          },
+          "value" : "hosted"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hosted",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.messagesServer",
+        "text" : "Messages Server"
+      },
+      "help" : {
+        "key" : "settings.home.server.help",
+        "text" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.server",
+      "keywords" : [
+        "server",
+        "self-hosted",
+        "tailscale",
+        "messages",
+        "chat",
+        "cloud",
+        "home"
+      ],
+      "kind" : "choice_or_url",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "server"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        "selfHosted",
+        1,
+        {
+          "selfHosted" : "ftp://mini.tail1234.ts.net"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net/path"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net?x=1"
+        },
+        {
+          "selfHosted" : "not a url"
+        },
+        {
+          "selfHosted" : 7320
+        },
+        {
+          "__other__" : "http://mini.tail1234.ts.net"
+        },
+        {
+          "__extra__" : "x",
+          "selfHosted" : "http://mini.tail1234.ts.net"
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.server",
+        "text" : "Server"
+      },
+      "url_key" : "selfHosted",
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "imessage",
         "theme"
       ],
@@ -30179,7 +31345,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "focus",
+      "default" : "click",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.dismissal",
@@ -30977,6 +32143,78 @@
     },
     {
       "accepts" : [
+        "always",
+        "whenUnlocked",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.previewsAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsWhenUnlocked",
+            "text" : "When Unlocked"
+          },
+          "value" : "whenUnlocked"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "whenUnlocked",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.showPreviews.help",
+        "text" : "Whether a banner shows what the agent said, or only where and what state."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.showPreviews",
+      "keywords" : [
+        "preview",
+        "privacy",
+        "message",
+        "lock screen",
+        "banner"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "showPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.showPreviews",
+        "text" : "Show Message in Banners"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         true,
         false
       ],
@@ -31187,7 +32425,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : "blink",
+      "default" : "steady",
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",
@@ -31476,6 +32714,99 @@
         "key" : "settings.group.attention",
         "text" : "Attention Ring"
       },
+      "help" : {
+        "key" : "settings.attention.flash.help",
+        "text" : "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flash",
+      "keywords" : [
+        "ring",
+        "flash",
+        "blink",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flash"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flash",
+        "text" : "Flash the Pane When Read"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
+      "help" : null,
+      "kept_on_reset_all" : false,
+      "key" : "notifications.attention.flashOnTyping",
+      "keywords" : [
+        "ring",
+        "flash",
+        "keystroke",
+        "unread"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "attention",
+        "flashOnTyping"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.attention.flashOnTyping",
+        "text" : "Flash When Typing Reads It"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.attention",
+        "text" : "Attention Ring"
+      },
       "help" : null,
       "kept_on_reset_all" : false,
       "key" : "notifications.attention.showOnTab",
@@ -31554,7 +32885,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.attention",

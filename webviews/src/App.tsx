@@ -81,6 +81,7 @@ import {
 } from "./diff-viewer/page-effects";
 import { useDiffComments } from "./diff-viewer/useDiffComments";
 import {
+  registerDiffViewerThemes,
   useDeferredHydration,
   useDiffLanguageChanges,
   useDiffTransport,
@@ -103,6 +104,8 @@ export function App({ config, initialStatus }: ConfigProps) {
     [payload.labels],
   );
   const appearance = useMemo(() => resolveDiffViewerAppearance(payload.appearance), [payload.appearance]);
+  // Before the highlight pool below is created on this render: its workers resolve these themes.
+  registerDiffViewerThemes(appearance);
   const transport = useDiffTransport(payload.transport);
   const [activeSessionSource, setActiveSessionSource] = useState<DiffSource | null>(
     validDiffSource(payload.sessionSource) ? payload.sessionSource : null,
@@ -748,37 +751,43 @@ export function App({ config, initialStatus }: ConfigProps) {
           {state.findOpen ? (
             <FindBar controller={find} label={label} query={state.findQuery} requestToken={state.findRequest} />
           ) : null}
-          {state.items.length > 0 ? (
+          {/* The highlight pool mounts with the viewer, not with its first files: its workers load
+              Shiki and the theme while the patch streams, so the first rows draw as soon as their
+              files are parsed. A soft refresh keeps it (and its warm workers); a status-only page
+              (an empty diff, an error) has no pool. */}
+          {state.items.length > 0 || !state.status.statusOnly ? (
             <WorkerPoolContextProvider poolOptions={workerPoolOptions} highlighterOptions={highlighterOptions}>
               <WorkerRenderOptionsSync codeViewRef={codeViewRef} highlighterOptions={highlighterOptions} />
-              <CodeView
-                ref={codeViewRef}
-                className="code-view-root"
-                containerRef={viewerContainerRef}
-                items={presentedItems}
-                onScroll={handleCodeViewScroll}
-                options={renderedCodeViewOptions}
-                renderCustomHeader={(item) => (
-                  <FileHeader
-                    item={item as DiffItem}
-                    label={label}
-                    onCopyPath={(path) => {
-                      copyText(path, copyFallbackRef.current).then(
-                        () => dispatch({ type: "set-copy-feedback", message: label("copiedFilePath") }),
-                        () => dispatch({ type: "set-copy-feedback", message: label("copyFailedFilePath") }),
-                      );
-                    }}
-                    onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
-                    onToggleCollapsed={() => toggleItemCollapsed(item.id)}
-                    onToggleViewed={() => toggleViewed(item.id)}
-                    stage={stageAction}
-                    viewedState={viewedStateOf(item as DiffItem)}
-                  />
-                )}
-                renderAnnotation={(annotation, item) =>
-                  renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)
-                }
-              />
+              {state.items.length > 0 ? (
+                <CodeView
+                  ref={codeViewRef}
+                  className="code-view-root"
+                  containerRef={viewerContainerRef}
+                  items={presentedItems}
+                  onScroll={handleCodeViewScroll}
+                  options={renderedCodeViewOptions}
+                  renderCustomHeader={(item) => (
+                    <FileHeader
+                      item={item as DiffItem}
+                      label={label}
+                      onCopyPath={(path) => {
+                        copyText(path, copyFallbackRef.current).then(
+                          () => dispatch({ type: "set-copy-feedback", message: label("copiedFilePath") }),
+                          () => dispatch({ type: "set-copy-feedback", message: label("copyFailedFilePath") }),
+                        );
+                      }}
+                      onLoadDiff={() => dispatch({ type: "expand-item", itemId: item.id })}
+                      onToggleCollapsed={() => toggleItemCollapsed(item.id)}
+                      onToggleViewed={() => toggleViewed(item.id)}
+                      stage={stageAction}
+                      viewedState={viewedStateOf(item as DiffItem)}
+                    />
+                  )}
+                  renderAnnotation={(annotation, item) =>
+                    renderCommentAnnotation(annotation as CommentAnnotation, item as DiffItem)
+                  }
+                />
+              ) : null}
             </WorkerPoolContextProvider>
           ) : null}
         </main>
