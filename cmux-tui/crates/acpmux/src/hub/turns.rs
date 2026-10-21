@@ -605,6 +605,8 @@ impl Hub {
                 self.write_turn_result(session, msg, git);
             }
         }
+        // A turn's end may have made a worktree idle (`worktree_care.rs`).
+        self.care_nudge("turn_end");
         self.reset_stream(session);
         // Nobody showing it: the sidebar dot and `wait --until done` see it.
         if !self.shown(session) {
