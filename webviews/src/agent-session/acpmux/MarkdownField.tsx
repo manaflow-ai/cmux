@@ -249,10 +249,8 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
   };
   const composing = useRef(false);
   const touched = useRef(false);
-  // Focus and a caret asked for before the editor exists are applied once it does: a new editor's
-  // selection is at the start, so a remounted prompt took focus with the caret before its text.
+  // Focus asked for before the editor exists is applied once it does.
   const pendingFocus = useRef(false);
-  const pendingCaret = useRef<number | undefined>(undefined);
   const surfacePlugins = useRef(plugins);
   const lines = useRef(multiline);
   const empty = useRef<HTMLSpanElement>(null);
@@ -404,8 +402,6 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         if (known.current) setDocument(known.current);
         showPlaceholder(known.current);
         applyAttributes();
-        if (pendingCaret.current !== undefined) handle.current?.setCaret(pendingCaret.current);
-        pendingCaret.current = undefined;
         if (pendingFocus.current) view.current.focus();
         window.dispatchEvent(new window.Event(COMPOSER_READY_EVENT));
       });
@@ -460,10 +456,7 @@ export const MarkdownField = React.forwardRef<MarkdownFieldHandle, MarkdownField
         },
         setCaret: (offset) => {
           const current = view.current;
-          if (!current) {
-            pendingCaret.current = offset;
-            return;
-          }
+          if (!current) return;
           const { doc } = current.state;
           const first = doc.firstChild;
           // Inside the first paragraph when it is one; past a longer offset (or another block), the end.
