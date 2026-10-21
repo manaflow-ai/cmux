@@ -26,7 +26,6 @@ enum UpdateHandlers {
                 do { try updater.installAvailableUpdate() } catch { registry?.refuse(String(describing: error)) }
             })
         }
-        updater.pulledWatch.stateDirectories = stateDirectories // the pulled-build banner's Roll Back
         // Drop back (destructive: every entrypoint confirms; the CLI passes --confirm).
         registry.bind("updates.rollback", run: { [weak registry] _ in
             guard let registry else { return }
