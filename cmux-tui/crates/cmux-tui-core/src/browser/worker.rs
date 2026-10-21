@@ -191,12 +191,14 @@ pub(super) fn start_surface_thread(
 /// The sending side of a browser surface's command queue. Each send kicks
 /// the surface's worker lane (`serial_lanes.rs`), which replaced the
 /// `browser-surface-<id>-worker` thread (perf100 tui lane: 353 such threads,
-/// each parked for good, in one Chief daemon). Dropping a sender kicks too,
-/// so the lane sees the queue disconnect after the last one goes.
+/// each parked for good, in one Chief daemon). Dropping the last sender
+/// kicks too, so the lane sees the queue disconnect.
 pub(crate) struct BrowserCommandTx {
     /// `None` only inside `drop`.
     tx: Option<SyncSender<SequencedBrowserCommand>>,
     lane: Arc<OnceLock<Lane>>,
+    /// One per sender; `Arc::into_inner` names the last one to drop.
+    live: Option<Arc<()>>,
 }
 
 impl BrowserCommandTx {
@@ -205,7 +207,7 @@ impl BrowserCommandTx {
     ) -> (Self, (Receiver<SequencedBrowserCommand>, Arc<OnceLock<Lane>>)) {
         let (tx, rx) = sync_channel(capacity);
         let lane = Arc::new(OnceLock::new());
-        (Self { tx: Some(tx), lane: lane.clone() }, (rx, lane))
+        (Self { tx: Some(tx), lane: lane.clone(), live: Some(Arc::new(())) }, (rx, lane))
     }
 
     /// Same contract as `SyncSender::try_send`, whose error carries the
@@ -228,16 +230,16 @@ impl BrowserCommandTx {
 
 impl Clone for BrowserCommandTx {
     fn clone(&self) -> Self {
-        Self { tx: self.tx.clone(), lane: self.lane.clone() }
+        Self { tx: self.tx.clone(), lane: self.lane.clone(), live: self.live.clone() }
     }
 }
 
 impl Drop for BrowserCommandTx {
     fn drop(&mut self) {
-        // Disconnect first: the kicked lane must see the queue closed when
-        // this was the last sender.
+        // Disconnect first: the kicked lane must see the queue closed.
         drop(self.tx.take());
-        if let Some(lane) = self.lane.get() {
+        let last = self.live.take().is_some_and(|live| Arc::into_inner(live).is_some());
+        if last && let Some(lane) = self.lane.get() {
             lane.kick();
         }
     }
