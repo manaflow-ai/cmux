@@ -37,34 +37,7 @@ enum LaunchWarmup {
         thread.qualityOfService = .userInitiated
         thread.start()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
-        let bundles = Thread { ResourceBundleWarmup.run() }
-        bundles.name = "cmux-next resource bundle warm-up"
-        bundles.qualityOfService = .userInitiated
-        bundles.start()
-    }
-}
-
-/// Opens every SwiftPM resource bundle in the app (`Contents/Resources/*.bundle`, 55 of them)
-/// and loads its string table, on the warm-up thread. A module's first `Bundle.module` read
-/// (any `String(localized:bundle: .module)`) otherwise creates the bundle on the main thread,
-/// and `CFBundleCreate` lists the bundle's folder to find its version: on a cold file cache
-/// (after an update) that held the main thread 2 s+ (Sentry MainThreadStall in
-/// `_CFBundleGetBundleVersionForURL` from `DaemonRecoveryStrings.retryNow` while the connecting
-/// screen built). NSBundle keeps one instance per path, so the later `Bundle.module` read gets
-/// this one; `bundles` holds them for the life of the process all the same.
-nonisolated enum ResourceBundleWarmup {
-    private static let bundles = Mutex<[Bundle]>([])
-
-    static func run(resources: URL? = Bundle.main.resourceURL) {
-        guard let resources,
-              let names = try? FileManager.default.contentsOfDirectory(atPath: resources.path) else { return }
-        let opened = names.filter { $0.hasSuffix(".bundle") }.sorted().compactMap { name -> Bundle? in
-            guard let bundle = Bundle(url: resources.appending(path: name, directoryHint: .isDirectory)) else { return nil }
-            // Loads the Localizable table of the preferred language (a file read per bundle).
-            _ = bundle.localizedString(forKey: "cmux.warmup", value: nil, table: nil)
-            return bundle
-        }
-        bundles.withLock { $0 = opened }
+        Bundle.warmResourceBundlesInBackground()
     }
 }
 
