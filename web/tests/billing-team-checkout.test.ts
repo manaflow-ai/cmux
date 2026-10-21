@@ -15,6 +15,7 @@ const dbClientModule = await import("../db/client");
 const realCloseCloudDbForTests = dbClientModule.closeCloudDbForTests;
 const realCreateAwsRdsIamPool = dbClientModule.createAwsRdsIamPool;
 const stripeModule = await import("../services/billing/stripe");
+const stackModule = await import("../app/lib/stack");
 
 let currentUser: ReturnType<typeof fixtureStackUser> | null = null;
 let dbRows: BillingDbRows = emptyBillingDbRows();
@@ -29,6 +30,7 @@ const originalTeamPortalConfiguration = process.env.STRIPE_TEAM_PORTAL_CONFIGURA
 const originalVercel = process.env.VERCEL;
 
 mock.module("../app/lib/stack", () => ({
+  ...stackModule,
   getStackServerApp: () => ({ getUser }),
   isStackConfigured: () => true,
   stackServerApp: { getUser },

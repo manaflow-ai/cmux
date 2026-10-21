@@ -527,15 +527,16 @@ async function stripeTeamCheckout(
 
     const customerId =
       stripeBillingStatus.customerId ?? await stripeCustomerForTeam(team, stackUserId);
+    const memberCount = await checkoutTeamSeatCount(team);
     const session = await stripe().checkout.sessions.create({
       mode: "subscription",
       line_items: [
         {
           price: await resolveTeamPrice(interval),
-          quantity: await checkoutTeamSeatCount(team),
+          quantity: memberCount,
           adjustable_quantity: {
             enabled: true,
-            minimum: 1,
+            minimum: memberCount,
           },
         },
       ],
