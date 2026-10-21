@@ -23,6 +23,20 @@ enum CloudPresenter {
         handle.onAction = { copy(body) }
     }
 
+    /// Shows a report as a toast: the title and `summary`, with a Copy
+    /// details action that copies `details` (the raw report) and only on a
+    /// click; the toast stays 12 s.
+    static func show(_ title: String, summary: String, details: String, in window: NSWindow?) {
+        guard let window else {
+            Logger(subsystem: "com.cmuxterm.app.next", category: "cloud").info("cloud result with no window: \(title, privacy: .public)")
+            return
+        }
+        let toast = CmuxToast(id: resultToastID, message: CloudStrings.result(title, summary),
+                              action: CmuxToast.Action(title: CloudStrings.copyDetails), duration: .seconds(12))
+        let handle = CmuxToastCenter.shared.show(toast, in: window)
+        handle.onAction = { copy(details) }
+    }
+
     /// One short line: the body itself, else its first non-empty line with "…".
     static func summary(_ body: String, limit: Int = 120) -> String {
         let lines = body.split(whereSeparator: \.isNewline).map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
