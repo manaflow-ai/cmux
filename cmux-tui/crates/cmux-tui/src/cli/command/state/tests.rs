@@ -588,3 +588,38 @@ fn every_state_mutation_takes_an_explicit_idempotency_key() {
     };
     assert_eq!(plan.idempotency_key.as_deref(), Some("mutation_retry"));
 }
+
+/// workspace-description-v1, workspace-status-v1, tab-mark-unread-v1 and a
+/// workspace close that names its closed groups, each from the CLI.
+#[test]
+fn workspace_notes_task_lane_unread_mark_and_closed_ids() {
+    assert_eq!(
+        sent(&["workspace", WS, "update", "--description", "notes", "--task-status", "review"]),
+        (
+            "workspace.update".into(),
+            json!({"workspace": WS, "description": "notes", "task_status": "review"})
+        )
+    );
+    assert_eq!(
+        sent(&["workspace", WS, "update", "--clear-description", "--clear-task-status"]),
+        (
+            "workspace.update".into(),
+            json!({"workspace": WS, "description": null, "task_status": null})
+        )
+    );
+    assert!(
+        rejects(&["workspace", WS, "update", "--task-status", "later"]).contains("--task-status")
+    );
+    assert_eq!(
+        sent(&["tab", TAB, "update", "--marked-unread", "true"]),
+        ("tab.update".into(), json!({"tab": TAB, "marked_unread": true}))
+    );
+    assert!(
+        rejects(&["tab", TAB, "update", "--marked-unread", "true", "--zoom", "2"])
+            .contains("not both")
+    );
+    assert_eq!(
+        sent(&["workspace", WS, "close", "--report-closed-ids"]),
+        ("workspace.close".into(), json!({"workspace": WS, "report_closed_ids": true}))
+    );
+}
