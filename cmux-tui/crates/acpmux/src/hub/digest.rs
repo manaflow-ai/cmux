@@ -12,7 +12,8 @@
 //! - Agents go in together: when an agent message's turn starts, the agent messages waiting
 //!   right behind it under the same rules join that turn (`take_joined`), each as it was sent,
 //!   oldest first, under a line naming its sender (`digest_blocks`), up to
-//!   [`DIGEST_MAX_BYTES`] of text; the rest goes in together as the next turn. A joined prompt
+//!   [`DIGEST_MAX_BYTES`] of text; the rest goes in together as the next turn. A slash command
+//!   (`/compact`) runs only as a turn's first words, so it goes in alone and ends the run. A joined prompt
 //!   leaves the queue with a `dequeued` record naming the turn (`joinedTurnId`), and its
 //!   `session/prompt` answers with that turn's answer (`joined_reply`). When that turn fails,
 //!   the joined messages go back to the head of the queue, held, once (`requeue_joined`):
@@ -188,7 +189,8 @@ impl Hub {
         turn_id: &str,
         digest: &DigestTurn,
     ) -> Vec<Part> {
-        if head.agent.is_none() {
+        // A slash command (`/compact`) runs only as a turn's first words: it goes in alone.
+        if head.agent.is_none() || super::forum::slash_command(&head.blocks).is_some() {
             return Vec::new();
         }
         let mut bytes = blocks_bytes(&head.blocks);
@@ -206,6 +208,7 @@ impl Hub {
                     continue;
                 }
                 let joins = q.run.agent.is_some()
+                    && super::forum::slash_command(&q.run.blocks).is_none()
                     && !unclaimed.iter().any(|(id, _)| *id == q.prompt_id)
                     && !q.steer
                     && !q.sent_now

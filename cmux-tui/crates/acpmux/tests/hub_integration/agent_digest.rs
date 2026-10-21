@@ -351,3 +351,21 @@ async fn a_message_that_went_in_with_others_takes_a_reply_in_place() {
     let answered = app.request(method::SESSION_PROMPT, params).await;
     assert!(answered.is_ok(), "{answered:?}");
 }
+
+/// An agent's slash command (`/compact`) runs only as a turn's first words: it goes in alone,
+/// and the agent messages around it go in together before and after it.
+#[tokio::test]
+async fn an_agent_slash_command_goes_in_alone() {
+    let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = busy(&mut c).await;
+    queue(&mut c, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    queue(&mut c, from_agent(&id, "p-b", "lane-b", "from b")).await;
+    queue(&mut c, from_agent(&id, "p-cmd", "lane-a", "/compact")).await;
+    queue(&mut c, from_agent(&id, "p-c", "lane-c", "from c")).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let echoes = echoes_until(&mut c, "from c").await;
+    assert_eq!(echoes.len(), 3, "{echoes:?}");
+    assert!(echoes[0].contains("[agent message 2 of 2] from lane-b"), "{echoes:?}");
+    assert_eq!(echoes[1], "echo: /compact");
+    assert_eq!(echoes[2], "echo: from c");
+}
