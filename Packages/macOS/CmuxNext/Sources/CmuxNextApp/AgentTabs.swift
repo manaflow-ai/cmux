@@ -238,9 +238,7 @@ final class AgentTabStore {
 
     /// True when a pane of `daemon` can get a new agent chat tab: this build has the page, this
     /// Mac has an install id, and the daemon holds agent session tabs.
-    func canHost(on daemon: DaemonService) -> Bool {
-        canHostChat && localHost != nil && holdsTabs(daemon)
-    }
+    func canHost(on daemon: DaemonService) -> Bool { canHostChat && localHost != nil && holdsTabs(daemon) }
 
     /// The tab showing acpmux session `session` of `host` (default this Mac), if any.
     func tab(showing session: String, host: String? = nil) -> String? {
@@ -383,10 +381,7 @@ final class AgentTabStore {
             let key = resolve(provisional)
             (newTabPages[key]?.handler ?? blankChatHandler?(key))?.open(key, request)
         }
-        model.onRunAttach = { [weak self] request in
-            guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }
-            try await runAttach(resolve(provisional), request)
-        }
+        model.onRunAttach = { [weak self] request in guard let self, let runAttach else { throw AgentPaneHostError.daemonStopped }; try await runAttach(resolve(provisional), request) }
         model.onTypeAhead = { [weak self] text in self.map { $0.pageHandler(provisional)?.typeAhead($0.resolve(provisional), text) } }
         model.onNewTabInputReady = { [weak self] token in self.map { $0.newTabPages[$0.resolve(provisional)]?.handler.inputReady($0.resolve(provisional), token) } }
         model.onRememberNewTab = { [weak self, weak model] pick in
@@ -498,7 +493,5 @@ final class AgentTabStore {
         if next != registry.context { registry.context = next }
     }
 
-    func stopCustomizationWhenUnused() {
-        if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() }
-    }
+    func stopCustomizationWhenUnused() { if views.isEmpty, standaloneViews.allObjects.isEmpty { customization.stop() } }
 }
