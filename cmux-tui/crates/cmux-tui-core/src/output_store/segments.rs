@@ -141,10 +141,15 @@ fn append_frame(
     let mut encoder = GzEncoder::new(Vec::new(), Compression::fast());
     encoder.write_all(bytes)?;
     let compressed = encoder.finish()?;
+    // Append to the newest file while it is small and ends with a whole
+    // frame; after a cut frame (a crash) a new file starts, so the frames
+    // written after it stay readable.
     let file = match generation_files(terminal_directory, generation).last() {
-        Some((_, path))
-            if fs::metadata(path).map(|metadata| metadata.len()).unwrap_or(u64::MAX)
-                < SEGMENT_FILE_BYTES =>
+        Some((file_start, path))
+            if fs::metadata(path).map(|metadata| metadata.len()).is_ok_and(|len| {
+                len < SEGMENT_FILE_BYTES
+                    && frame_extent(path, *file_start).is_some_and(|(whole, _)| whole == len)
+            }) =>
         {
             path.clone()
         }
@@ -214,6 +219,18 @@ pub(super) fn read_after(
             if end <= after {
                 continue;
             }
+            if let Some(window) = window.as_mut() {
+                if end <= window.next_offset {
+                    // Already in the window (an overlapping older frame).
+                    continue;
+                }
+                if start > window.next_offset {
+                    // A gap (bytes lost in a crash): the window ends before
+                    // it, and the next read starts after it.
+                    window.truncated = true;
+                    break 'files;
+                }
+            }
             let window = window.get_or_insert_with(|| OutputWindow {
                 start_offset: start.max(after),
                 next_offset: start.max(after),
@@ -225,7 +242,9 @@ pub(super) fn read_after(
                 window.truncated = true;
                 break 'files;
             }
-            let skip = usize::try_from(after.saturating_sub(start)).unwrap_or(usize::MAX);
+            // Bytes before the window's end (or the cursor) are skipped.
+            let skip =
+                usize::try_from(window.next_offset.saturating_sub(start)).unwrap_or(usize::MAX);
             let piece = bytes.get(skip..).unwrap_or_default();
             let take = piece.len().min(room);
             window.bytes.extend_from_slice(piece.get(..take).unwrap_or(piece));
@@ -237,6 +256,44 @@ pub(super) fn read_after(
         }
     }
     window
+}
+
+/// The frames of a segment file read from their headers only (seeks, no
+/// decompression): (bytes of whole frames, offset after the last frame).
+/// A cut frame (a crash during a write) ends the walk.
+fn frame_extent(path: &Path, file_start: u64) -> Option<(u64, u64)> {
+    use std::io::{Seek, SeekFrom};
+    let mut file = fs::File::open(path).ok()?;
+    let len = file.metadata().ok()?.len();
+    let mut at = 0_u64;
+    let mut end = file_start;
+    let mut header = [0_u8; FRAME_HEADER_BYTES];
+    while len - at >= FRAME_HEADER_BYTES as u64 {
+        file.seek(SeekFrom::Start(at)).ok()?;
+        file.read_exact(&mut header).ok()?;
+        let start = u64::from_le_bytes(header[0..8].try_into().ok()?);
+        let compressed = u64::from(u32::from_le_bytes(header[8..12].try_into().ok()?));
+        let raw = u32::from_le_bytes(header[12..16].try_into().ok()?);
+        let next = at + FRAME_HEADER_BYTES as u64 + compressed;
+        if next > len || raw > MAX_FRAME_RAW_BYTES {
+            break;
+        }
+        end = end.max(start.checked_add(u64::from(raw))?);
+        at = next;
+    }
+    Some((at, end))
+}
+
+/// The offset after the last stored frame of `generation` (at least the
+/// first offset its newest file names).
+pub(super) fn stream_end(
+    directory: &Path,
+    terminal_id: &TerminalPublicId,
+    generation: &str,
+) -> Option<u64> {
+    let files = generation_files(&terminal_directory(directory, terminal_id), generation);
+    let (file_start, path) = files.last()?;
+    frame_extent(path, *file_start).map(|(_, end)| end).or(Some(*file_start))
 }
 
 /// Raw bytes a rebuild replays at most (the newest frames).

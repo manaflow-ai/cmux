@@ -213,6 +213,37 @@ impl LogState {
     fn next_offset(&self) -> u64 {
         self.tail_start + self.tail.len() as u64
     }
+
+    /// The first byte not yet in a segment file (full mode), else the end.
+    fn unflushed_start(&self) -> u64 {
+        if self.pending.is_empty() { self.next_offset() } else { self.pending_start }
+    }
+
+    /// Kept bytes at or after `after`, at most `budget`, from memory.
+    fn memory_window(&self, after: u64, budget: usize) -> OutputWindow {
+        let end = self.next_offset();
+        // Unflushed bytes (full mode) can reach further back than the tail;
+        // they always end at the stream end.
+        let from_pending = !self.pending.is_empty()
+            && self.pending_start < self.tail_start
+            && self.pending_start + self.pending.len() as u64 == end;
+        let source_start = if from_pending { self.pending_start } else { self.tail_start };
+        let start = after.clamp(source_start, end);
+        let skip = usize::try_from(start - source_start).unwrap_or(usize::MAX);
+        let available = usize::try_from(end - start).unwrap_or(usize::MAX);
+        let take = available.min(budget);
+        let bytes = if from_pending {
+            self.pending.get(skip..skip.saturating_add(take)).unwrap_or_default().to_vec()
+        } else {
+            self.tail.iter().skip(skip).take(take).copied().collect()
+        };
+        OutputWindow {
+            start_offset: start,
+            next_offset: start + take as u64,
+            bytes,
+            truncated: take < available,
+        }
+    }
 }
 
 /// One terminal's output log.
@@ -310,14 +341,23 @@ impl OutputStore {
             return log.clone();
         }
         // A terminal this daemon re-adopted continues its stream where the
-        // last snapshot left it (a client's cursor stays meaningful).
-        let start = self
+        // last snapshot or stored segment frame left it (a client's cursor
+        // stays meaningful, and no stored offset is used twice). Segments
+        // flush more often than snapshots, and a snapshot can be gone (the
+        // total cap) while its segments stay. Only frame headers are read.
+        let snapshot_end = self
             .resume
             .lock()
             .unwrap_or_else(PoisonError::into_inner)
             .remove(terminal_id)
             .filter(|(resumed, _)| resumed.as_str() == generation.as_ref())
-            .map_or(0, |(_, end)| end);
+            .map(|(_, end)| end);
+        let segment_end = self
+            .directory
+            .as_deref()
+            .filter(|_| self.full.enabled())
+            .and_then(|directory| segments::stream_end(directory, terminal_id, generation));
+        let start = snapshot_end.into_iter().chain(segment_end).max().unwrap_or(0);
         let log = Arc::new(TerminalLog {
             terminal_id: terminal_id.clone(),
             state: Mutex::new(LogState {
@@ -422,41 +462,33 @@ impl OutputStore {
         let log =
             self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
         let budget = usize::try_from(max_bytes.max(1)).unwrap_or(usize::MAX);
-        let (generation, end, unflushed_start) = {
+        // Two tries: the writer can flush the unflushed bytes into a segment
+        // between the segment read and the memory read.
+        for _ in 0..2 {
+            let (generation, end, unflushed_start) = {
+                let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+                (state.generation.clone(), state.next_offset(), state.unflushed_start())
+            };
+            if self.full.enabled()
+                && after < unflushed_start
+                && let Some(directory) = self.directory.as_deref()
+                && let Some(mut window) =
+                    segments::read_after(directory, terminal_id, &generation, after, budget)
+            {
+                window.truncated |= window.next_offset < end;
+                return Some(window);
+            }
             let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-            let unflushed_start =
-                if state.pending.is_empty() { state.next_offset() } else { state.pending_start };
-            (state.generation.clone(), state.next_offset(), unflushed_start)
-        };
-        if self.full.enabled()
-            && after < unflushed_start
-            && let Some(directory) = self.directory.as_deref()
-            && let Some(mut window) =
-                segments::read_after(directory, terminal_id, &generation, after, budget)
-        {
-            window.truncated |= window.next_offset < end;
-            return Some(window);
+            if self.full.enabled()
+                && after < state.tail_start
+                && state.unflushed_start() != unflushed_start
+            {
+                continue;
+            }
+            return Some(state.memory_window(after, budget));
         }
         let state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
-        let end = state.next_offset();
-        // The unflushed bytes (full mode) reach further back than the tail.
-        let from_pending = !state.pending.is_empty() && state.pending_start < state.tail_start;
-        let source_start = if from_pending { state.pending_start } else { state.tail_start };
-        let start = after.clamp(source_start, end);
-        let skip = usize::try_from(start - source_start).unwrap_or(usize::MAX);
-        let available = usize::try_from(end - start).unwrap_or(usize::MAX);
-        let take = available.min(budget);
-        let bytes = if from_pending {
-            state.pending.get(skip..skip.saturating_add(take))?.to_vec()
-        } else {
-            state.tail.iter().skip(skip).take(take).copied().collect()
-        };
-        Some(OutputWindow {
-            start_offset: start,
-            next_offset: start + take as u64,
-            bytes,
-            truncated: take < available,
-        })
+        Some(state.memory_window(after, budget))
     }
 
     /// The person cleared this terminal's history: drop the stored output
