@@ -40,6 +40,7 @@ import { AcpmuxDirectClient, type AcpmuxHostConfig, harnessBlock, type HarnessBl
 import { postNative } from "./native";
 import { NativeError } from "./nativeError";
 import { errorMessage } from "./transportErrors";
+import { LOST_PROMPT_CONNECT_MS, LOST_PROMPT_SHOW_MS, clientWaiter, lostPrompt } from "./lostPrompt";
 import { pageHostClient, startHostEvents } from "./pageHost";
 import { FOCUS_LOCATION_EVENT, NewTabPage, newTabHost, type NewTabHost } from "./NewTabPage";
 import { setDeviceChats } from "./newtab/deviceChats";
@@ -4684,6 +4685,8 @@ function AcpmuxPane() {
     window.addEventListener(NEW_TAB_CLOSE_EVENT, discardUnsent);
     let retryTimer: number | undefined;
     let retryDelay = 250;
+    // Each connected client, for a prompt the connection before it lost (lostPrompt.ts).
+    const connectedClients = clientWaiter<AcpmuxDirectClient>();
     // Once a daemon was lost, handshakes only look for one: the user may have stopped it.
     // Looking is cheap, so a daemon started again elsewhere is found within seconds.
     const RECONNECT_MAX_DELAY_MS = 2_000;
@@ -4914,6 +4917,7 @@ function AcpmuxPane() {
           return;
         }
         directClient.current = client;
+        connectedClients.connected(client);
         setClientEpoch((epoch) => epoch + 1);
         // The minimap's prompt bookmarks live in acpmux's session (threadMinimap/bookmarks.ts).
         setBookmarkTransport({
@@ -4987,14 +4991,30 @@ function AcpmuxPane() {
             }
             throw error;
           };
+          // The connection went before acpmux took the prompt: the host sends it again on the next
+          // one. The sender (the composer) holds it until it shows there; "Not sent" only when it
+          // never does.
+          const resent = async (error: unknown): Promise<string | undefined> => {
+            const lost = lostPrompt(error);
+            if (!lost) throw error;
+            const next = await connectedClients.next(client, LOST_PROMPT_CONNECT_MS);
+            if (next && (await next.awaitResent(lost.sessionId, lost.promptId, LOST_PROMPT_SHOW_MS))) {
+              accepted?.();
+              return lost.sessionId;
+            }
+            (next ?? directClient.current ?? client).notice(
+              translate("prompt.notSent", { reason: errorMessage(error) }),
+            );
+            throw error;
+          };
           // A harness switch holds the prompt in its own row until its session is ready, and
           // hands it back to the composer when the switch fails.
           const held = harnessSwitch.send(text, attachments, () => promptLanded.current(), promptId);
           if (held) {
             accepted?.();
-            return held.catch((error: unknown) =>
-              refused(error, (error as { handedBack?: unknown }).handedBack === true),
-            );
+            return held
+              .catch(resent)
+              .catch((error: unknown) => refused(error, (error as { handedBack?: unknown }).handedBack === true));
           }
           // A prompt acpmux held goes with the gesture its first send kept.
           const kept = heldPrompt.take();
@@ -5009,6 +5029,7 @@ function AcpmuxPane() {
           await persistSession(sessionId);
           const turn = client
             .send(text, attachments, kept?.promptId, accepted, kept?.ticket, steer)
+            .catch(resent)
             .catch((error: unknown) => refused(error, Boolean(accepted)));
           // The prompt is written; a Quick Composer hand-off can close this page now.
           promptLanded.current();
