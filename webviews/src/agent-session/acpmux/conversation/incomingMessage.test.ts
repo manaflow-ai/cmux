@@ -3,7 +3,7 @@
 // the prompt's text (an adopted Claude session's history, `client: "adopt"`). incomingMessage.ts
 // reads them.
 import { expect, test } from "bun:test";
-import { incomingPrompt } from "./incomingMessage";
+import { incomingPrompt, renderedReply } from "./incomingMessage";
 
 const adopted = { client: "adopt" };
 
@@ -161,4 +161,49 @@ test("numeric entities decode", () => {
     adopted,
   );
   expect(message?.kind === "message" && message.message.text).toBe("\u00a9 \u{1F600} &#0;");
+});
+
+test("a reply in place reaches the sender's chat as the replying chat's message, linked and answerable", () => {
+  // Chat `parent` answers message m-1 from `child-3` in place (direct.ts `reply`); acpmux records
+  // it in child-3's chat with the replying chat's address and its own name (`app_reply_fits`).
+  const text = renderedReply({
+    from: "acp:parent",
+    fromName: "Fix the\ngrid\u200b",
+    msgId: "m-2",
+    replyTo: "m-1",
+    text: "Merged; thanks.\nShip it.",
+  });
+  expect(text).toBe(
+    rendered("Merged; thanks.\nShip it.", {
+      id: "m-2",
+      from: "Fix the grid (acp:parent)",
+      replyTo: "m-1",
+      reply: false,
+    }),
+  );
+  const recorded = {
+    kind: "agent_message",
+    from: "acp:parent",
+    fromName: "Fix the grid",
+    to: "acp:child-3",
+    msgId: "m-2",
+    threadId: "t-1",
+    replyTo: "m-1",
+  };
+  // Its name opens the replying chat, and its ids let child-3's chat reply in turn.
+  expect(incomingPrompt(text, { _meta: { provenance: recorded } })).toEqual({
+    kind: "message",
+    message: {
+      name: "Fix the grid",
+      sessionId: "parent",
+      msgId: "m-2",
+      threadId: "t-1",
+      text: "Merged; thanks.\nShip it.",
+      raw: text,
+    },
+  });
+  // Without a title the address stands in.
+  expect(renderedReply({ from: "acp:parent", msgId: "m-2", replyTo: "m-1", text: "hi" }).split("\n")[0]).toBe(
+    "[cmux agent message] from acp:parent",
+  );
 });

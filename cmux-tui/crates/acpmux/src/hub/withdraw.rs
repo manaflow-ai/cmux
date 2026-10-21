@@ -99,25 +99,20 @@ enum Decision {
     Retract(Found),
 }
 
-/// The names a chat may sign a reply with (`fromName`): its title, its name and its id, each as
-/// the pane writes one (direct.ts `senderName`): on one line, without control, bidi or
-/// zero-width marks, at most `MAX_NAME_CHARS` characters.
-fn sender_names(session: &Session) -> Vec<String> {
+/// The name a reply from `session` is signed with (`fromName`): its title, else its name, else
+/// its id, on one line, without control, bidi or zero-width marks, at most `MAX_NAME_CHARS`
+/// characters, as `prompt_provenance::of` takes one. acpmux writes it; the pane never picks one.
+fn sender_name(session: &Session) -> Option<String> {
     let meta = session.meta();
-    [meta.title.unwrap_or_default(), meta.name, session.id.clone()]
-        .iter()
-        .map(|raw| {
-            let line = raw.split_whitespace().collect::<Vec<_>>().join(" ");
-            let shown: String = line.chars().filter(|c| !unshown_mark(*c)).collect();
-            let name: String =
-                shown.trim().chars().take(crate::prompt_provenance::MAX_NAME_CHARS).collect();
-            name.trim().to_owned()
-        })
-        .filter(|name| !name.is_empty())
-        .collect()
+    [meta.title.unwrap_or_default(), meta.name, session.id.clone()].iter().find_map(|raw| {
+        let shown: String = raw.chars().filter(|c| !unshown_mark(*c)).collect();
+        let line = shown.split_whitespace().collect::<Vec<_>>().join(" ");
+        let name: String = line.chars().take(crate::prompt_provenance::MAX_NAME_CHARS).collect();
+        Some(name.trim().to_owned()).filter(|name| !name.is_empty())
+    })
 }
 
-/// A character direct.ts `senderName` drops from a name.
+/// A character a provenance field may not hold: a control, or a bidi or zero-width mark.
 fn unshown_mark(c: char) -> bool {
     c.is_control()
         || matches!(
@@ -129,7 +124,7 @@ fn unshown_mark(c: char) -> bool {
 impl Hub {
     /// The provenance of a `session/prompt` to chat `to` from a connection of `origin`
     /// (`prompt_provenance::of`); the app pane's reply in place must answer a message a chat
-    /// this connection `shows` got from `to` (`app_reply_fits`).
+    /// this connection `shows` got from `to`, and is recorded as `app_reply_fits` signs it.
     pub(crate) fn prompt_provenance(
         &self,
         params: &Value,
@@ -144,45 +139,48 @@ impl Hub {
             _ => Sender::Other,
         };
         let provenance = crate::prompt_provenance::of(params, sender)?;
-        if sender == Sender::App
-            && provenance.as_ref().is_some_and(|p| !self.app_reply_fits(p, to, shows))
-        {
-            return Err(crate::prompt_provenance::origin_refused());
+        match provenance {
+            Some(p) if sender == Sender::App => match self.app_reply_fits(&p, to, shows) {
+                Some(signed) => Ok(Some(signed)),
+                None => Err(crate::prompt_provenance::origin_refused()),
+            },
+            other => Ok(other),
         }
-        Ok(provenance)
     }
 
-    /// Whether the app pane's reply in place (`prompt_provenance.rs`, `Sender::App`) answers a
-    /// real message, signed only as what the pane may speak for. Default deny; each must hold:
-    /// - `from` is a chat here other than `to` that this connection `shows` (attached and not
+    /// The app pane's reply in place (`prompt_provenance.rs`, `Sender::App`) as recorded, when it
+    /// answers a real message as what the pane may speak for; `None` refuses it. Default deny;
+    /// each must hold:
+    /// - `from` is `acp:<id>` and `to` is `acp:<to>`, the addresses `cmux agent message` uses
+    ///   (`agent_message_prompt.rs` `provenance`), so the sender's chat links the reply back;
+    /// - `<id>` is a chat here other than `to` that this connection `shows` (attached and not
     ///   held unseen): the chat the pane draws, not any chat that got the message;
     /// - its log holds a `user_message` that `to` sent it as an agent message under the id the
     ///   reply names (`replyTo`);
-    /// - `threadId` is that message's thread (its `threadId`, else its `msgId`);
-    /// - `fromName`, when given, is the chat's own title, name or id (`sender_names`), never a
-    ///   name the pane picks.
+    /// - `threadId` is that message's thread (its `threadId`, else its `msgId`).
     ///
-    /// The pane cannot then put words in a chat's mouth beyond answering, as that chat, what it
-    /// was sent.
+    /// `fromName` is never the pane's: acpmux signs the reply with the chat's own name
+    /// (`sender_name`), so a renamed chat's reply is never refused for a stale title. The pane
+    /// cannot then put words in a chat's mouth beyond answering, as that chat, what it was sent.
     pub(crate) fn app_reply_fits(
         &self,
         provenance: &Value,
         to: &str,
         shows: &dyn Fn(&str) -> bool,
-    ) -> bool {
+    ) -> Option<Value> {
         let field = |k: &str| provenance.get(k).and_then(Value::as_str).unwrap_or_default();
-        let (from, reply_to, thread) = (field("from"), field("replyTo"), field("threadId"));
-        if field("to") != to || from == to || reply_to.is_empty() || thread.is_empty() {
-            return false;
-        }
-        let Ok(session) = self.resolve(from) else { return false };
-        if session.id != from || !shows(&session.id) {
-            return false;
-        }
-        if let Some(name) = provenance.get("fromName").and_then(Value::as_str)
-            && !sender_names(&session).iter().any(|n| n == name)
+        let (reply_to, thread) = (field("replyTo"), field("threadId"));
+        let from = field("from").strip_prefix("acp:")?;
+        if field("to").strip_prefix("acp:") != Some(to)
+            || from == to
+            || reply_to.is_empty()
+            || thread.is_empty()
         {
-            return false;
+            return None;
+        }
+        let session = self.resolve(from).ok()?;
+        if session.id != from || !shows(&session.id) {
+            return None;
         }
         let mut answered = false;
         let _ = self.store.scan(&session.id, 0, &mut |e: EventRecord| {
@@ -196,7 +194,16 @@ impl Hub {
                 && p("from").is_some_and(|f| f.strip_prefix("acp:").unwrap_or(f) == to);
             !answered
         });
-        answered
+        if !answered {
+            return None;
+        }
+        let mut signed = provenance.clone();
+        let fields = signed.as_object_mut()?;
+        match sender_name(&session) {
+            Some(name) => fields.insert("fromName".to_owned(), Value::String(name)),
+            None => fields.remove("fromName"),
+        };
+        Some(signed)
     }
 
     /// `_acpmux/prompt_withdraw`; see the module docs.

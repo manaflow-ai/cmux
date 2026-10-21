@@ -42,7 +42,7 @@ import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
 import { OFFER_RESULT, offersShown } from "./offer/offersShown";
-import { incomingPrompt, type IncomingMessage } from "./conversation/incomingMessage";
+import { incomingPrompt, renderedReply, type IncomingMessage } from "./conversation/incomingMessage";
 import { startedCardsShown } from "./started/startedSessions";
 import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
@@ -3328,11 +3328,15 @@ export class AcpmuxDirectClient {
       .catch(() => undefined);
   }
   /// Reply in place to another agent's message (conversation/IncomingMessageCard.tsx): `text`
-  /// goes to the chat that sent it as this chat's message in the same thread. It is the prompt
-  /// send_to_session sends (acpmux session_mcp.rs: an `agent_message` provenance whose message id
-  /// is the prompt id), with `threadId` the message's thread and `replyTo` the message, so the
-  /// sender's chat draws it as this chat's reply. Sent unseen, as a started task's prompt is.
-  /// Resolves once acpmux took it; rejects with its refusal.
+  /// goes to the chat that sent it as this chat's message in the same thread, the way the cmux
+  /// daemon hands an acpmux chat a `cmux agent message` (cmux-tui-core agent_message_acpmux.rs):
+  /// an `agent_message` provenance from and to the chats' `acp:<id>` addresses, whose message id
+  /// is the prompt id, with `threadId` the message's thread and `replyTo` the message, and the text
+  /// wrapped as cmux renders a message (incomingMessage.ts `renderedReply`). The sender's chat then
+  /// draws it as this chat's reply, its name a link back. acpmux checks the reply answers a message
+  /// this chat got and signs it with this chat's own name (hub/withdraw.rs `app_reply_fits`).
+  /// Sent unseen, as a started task's prompt is. Resolves once acpmux took it; rejects with its
+  /// refusal.
   async reply(message: Pick<IncomingMessage, "sessionId" | "msgId" | "threadId">, text: string): Promise<void> {
     const from = this.selectedSessionId;
     // `cmux agent message` names its sender `acp:<id>`; acpmux's chat id is the bare one.
@@ -3342,21 +3346,25 @@ export class AcpmuxDirectClient {
     const msgId = `m-${crypto.randomUUID()}`;
     const provenance = {
       kind: "agent_message",
-      from,
-      fromName: senderName(
-        this.summary?.sessionId === from ? (this.summary?.title ?? this.summary?.name) : undefined,
-        from,
-      ),
-      to,
+      from: `acp:${from}`,
+      to: `acp:${to}`,
       msgId,
       threadId: message.threadId ?? message.msgId,
       replyTo: message.msgId,
     };
+    const title = this.summary?.sessionId === from ? (this.summary?.title ?? this.summary?.name) : undefined;
+    const rendered = renderedReply({
+      from: provenance.from,
+      fromName: typeof title === "string" ? title : undefined,
+      msgId,
+      replyTo: message.msgId,
+      text: body,
+    });
     const accepted = new Promise<void>((resolve) => this.replyAccepts.set(msgId, resolve));
     const sent = this.offerChildren.prompting(to, () =>
       this.request("session/prompt", {
         sessionId: to,
-        prompt: promptBlocks(body, []),
+        prompt: promptBlocks(rendered, []),
         _meta: { acpmux: { promptId: msgId, provenance } },
       }),
     );
@@ -4164,32 +4172,6 @@ export class AcpmuxDirectClient {
     }
     this.pending.clear();
   }
-}
-
-/// A reply's sender name (`fromName`): the chat's title on one line, at most 64 characters, as
-/// acpmux takes one (prompt_provenance.rs: no control, bidi or zero-width mark); the chat's id
-/// without a title.
-function senderName(title: unknown, sessionId: string): string {
-  const unshown = (c: string) => {
-    const code = c.codePointAt(0) ?? 0;
-    return (
-      code < 0x20 ||
-      (code >= 0x7f && code <= 0x9f) ||
-      (code >= 0x200b && code <= 0x200f) ||
-      (code >= 0x202a && code <= 0x202e) ||
-      (code >= 0x2066 && code <= 0x2069) ||
-      code === 0xfeff
-    );
-  };
-  const line = typeof title === "string" ? title.replace(/\s+/g, " ") : "";
-  const name = Array.from(line)
-    .filter((c) => !unshown(c))
-    .join("")
-    .trim();
-  return Array.from(name || sessionId)
-    .slice(0, 64)
-    .join("")
-    .trim();
 }
 
 /// The params field that carries a pick's gesture ticket, or nothing without one.

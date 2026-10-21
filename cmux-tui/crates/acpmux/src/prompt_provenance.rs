@@ -8,9 +8,10 @@
 //! Only the unix socket may send it (`remote_guard.rs` refuses every other origin with
 //! `provenance.origin_refused`), so a remote client cannot pass its words off as an agent's.
 //! One exception: the app's own pane (`Origin::LocalApp`) may send a reply: `replyTo` names an
-//! agent message that chat `from` (a chat of this daemon) got from the prompt's chat `to`
-//! (`Hub::app_reply_fits`). It is the person's answer to that message, typed in place in the
-//! chat it came to (IncomingMessageCard.tsx), so it lands in the sender's chat in its thread.
+//! agent message that chat `from` (`acp:<id>`, a chat of this daemon) got from the prompt's chat
+//! `to` (`acp:<id>`) (`Hub::app_reply_fits`), and acpmux signs it with that chat's own name. It
+//! is the person's answer to that message, typed in place in the chat it came to
+//! (IncomingMessageCard.tsx), so it lands in the sender's chat in its thread.
 //! A queued prompt keeps it, across a restart too (`queue.rs`); an edit of a waiting prompt
 //! (`_acpmux/queue_edit`) drops it: the person rewrote the prompt.
 //!
