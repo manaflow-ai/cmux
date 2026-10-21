@@ -54,3 +54,21 @@ test("keeps a coordination message visible beside settled tool calls", () => {
   expect(groups.some((group) => group.type === "message")).toBe(true);
   expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
 });
+
+test("keeps a sub-session card visible beside settled tool calls", () => {
+  const start: AcpmuxActivity = {
+    kind: "tool",
+    text: "mcp__cmux-subsessions__start_session",
+    tool: {
+      id: "start",
+      title: "mcp__cmux-subsessions__start_session",
+      status: "completed",
+      inputSummary: JSON.stringify({ name: "tests", prompt: "Run the tests" }),
+      output: "Started sub-session tests (sessionId 0199a-child, depth 1).",
+    },
+  };
+  const items = [start, command("command", "bun test")];
+  const groups = toolGroups(items);
+  expect(groups.some((group) => group.type === "subsession")).toBe(true);
+  expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
+});
