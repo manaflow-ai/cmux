@@ -701,7 +701,10 @@ async fn collect_once(
 /// The assistant reply of one turn, read from the session's log: the last
 /// assistant item between that turn's start and its result.
 async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only: a page ends at the daemon's byte limit, and raw harness
+    // lines would crowd the turn out of it.
+    let page = json!({"sessionId": id, "limit": 5000, "kinds": ["transcript"]});
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     Ok(reply_of_turn(&events, turn))
 }
@@ -737,7 +740,10 @@ pub(crate) async fn last_replies(
     id: &str,
     count: usize,
 ) -> Result<Vec<String>> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only: a page ends at the daemon's byte limit, and raw harness
+    // lines would crowd the turn out of it.
+    let page = json!({"sessionId": id, "limit": 5000, "kinds": ["transcript"]});
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);
