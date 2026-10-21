@@ -53,6 +53,7 @@
   --cv-meta-gap: 4px; /* a message to its meta row */
   --cv-meta-row: 24px; /* the meta row's line */
   --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
+  --cv-live-gap: 10px; /* over the running turn's live line, inside its row: 16px under a reply */
   --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
@@ -110,16 +111,24 @@
   overflow-wrap: break-word;
   -webkit-font-smoothing: antialiased;
 }
-/* The bubble's glass (Leo 2026-10-20: tinted glass, never a solid fill): the theme's text at a low
-   strength over transparent, so the window's backdrop shows through, and the composer's hairline
-   rim so it holds its shape on a busy wallpaper. The shared glass primitive (#22815, `ui-glass`)
-   replaces this block when it lands. */
+/* The bubble's glass (Leo 2026-10-20: tinted glass, never a solid fill): the liquid glass
+   (.ui-glass, UserBubble.tsx; ui/glass/glass.css) tinted with the theme's text at a low strength
+   over transparent, so the window's backdrop shows through, with the composer's hairline as the
+   glass's edge so it holds its shape on a busy wallpaper. Under Plain glass that is the whole look,
+   as before the lens; under Lens the lens bends the wallpaper at its rim under a specular line.
+   It keeps no backdrop blur of its own: a long transcript repeats it, and the lens frosts it. Reduce
+   Transparency makes it the same grey, opaque. */
 .cv-user__bubble {
-  background: var(--cv-bubble);
-  box-shadow: inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-composer-edge, transparent);
+  --glass-tint: var(--cv-bubble);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--cv-fg) 5%, var(--glass-surface));
+  --glass-edge: var(--acpmux-composer-edge, transparent);
+  --glass-backdrop: none;
 }
 .acpmux-shell .cv-user__bubble {
-  background: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  --glass-tint: color-mix(in srgb, var(--agent-text) 12%, transparent);
+  /* glass-opaque-allow: the Reduce Transparency fill only (glass.css applies it under that setting) */
+  --glass-opaque: color-mix(in srgb, var(--agent-text) 12%, var(--glass-surface));
 }
 
 /* The images a prompt sent, above its bubble. */
@@ -1422,7 +1431,8 @@ pre.cv-math-source {
 }
 /* "Thinking" in the muted color. No mark blinks before it or before "Working for": the word itself
    shimmers, as in the Codex and ChatGPT apps, a band of the theme accent crossing it on the shared
-   clock (ui/spinnerClock.ts). Reduce Motion, the static status look and agent motion off hold it
+   clock (ui/spinnerClock.ts), over the tool rows' quieter color so the band shows (in the muted
+   color, close to the reply's, it did not). Reduce Motion, the static status look and agent motion off hold it
    still in the muted color. */
 .cv-thinking {
   flex: 0 1 auto;
@@ -1432,16 +1442,34 @@ pre.cv-math-source {
   white-space: nowrap;
   color: var(--cv-text-muted);
 }
-/* The running turn's line as its last row (`below`) is as tall as the footer that takes its place
-   when the turn ends (the meta row), so the end never moves the answer over it. */
+/* The running turn's line as its last row (`below`): its words stand 16px under a reply (the reply
+   keeps the footer's 4px meta gap) and 20px under a tool row, as the Codex and Claude desktop apps
+   space it, never flush under the text (Leo, 2026-10-21: "THE RUNNING A COMMAND IS WAY TOO CLOSE").
+   The gap comes out of the row's bottom padding, so the line's row is the chat's last footer's
+   32px (its 24px line and the 8px message gap) and the turn's end, which swaps one for the other,
+   moves nothing. */
 .cv-worked.is-below {
-  height: var(--cv-meta-row);
-  padding-top: 2px;
+  height: calc(var(--cv-meta-row) + var(--cv-message-gap));
+  padding-top: calc(var(--cv-live-gap) + 2px);
 }
-/* Its row drops the transcript row's 34px floor (.acpmux-row), so it is the footer's 32px and its
-   estimate's (model.ts fallbackRowHeight), not 2px taller. */
+/* Its time is quieter than its words, as the tool rows' time is. */
+.cv-worked.is-below .cv-worked__time {
+  color: var(--cv-text-dim);
+}
+/* Its "⌃B to run in background" shows only while the pointer is on the line. */
+.cv-worked.is-below .cv-command__bg {
+  animation: none;
+  opacity: 0;
+  transition: opacity var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out);
+}
+.cv-worked.is-below:hover .cv-command__bg {
+  opacity: 1;
+}
+/* Its row drops the transcript row's 34px floor and bottom padding (.acpmux-row), so it is the
+   last footer's 32px and its estimate's (model.ts fallbackRowHeight). */
 .acpmux-row:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
   min-height: 0;
+  padding-bottom: 0;
 }
 /* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
 .cv-worked.is-quiet {
@@ -1451,9 +1479,9 @@ pre.cv-math-source {
   :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {
     background: linear-gradient(
         100deg,
-        var(--cv-text-muted) 35%,
+        var(--cv-text-dim) 35%,
         color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text)) 50%,
-        var(--cv-text-muted) 65%
+        var(--cv-text-dim) 65%
       )
       0 0 / 250% 100%;
     -webkit-background-clip: text;
@@ -2954,9 +2982,11 @@ button.cv-received__name:focus-visible {
 }
 
 /* Jump to latest (App.tsx JumpToLatest): a glass circle centered above the composer, at the
-   transcript stage's bottom edge, shown while the reader is scrolled up. Glass like the mobile
-   app's: the page reads through a blur, under a thin ring and a soft shadow. Its accent dots say a
-   reply is streaming below. It fades in and out with the pane's motion tokens. */
+   transcript stage's bottom edge, shown while the reader is scrolled up. The liquid glass
+   (.ui-glass, ui/glass/glass.css): the lens bends the wallpaper across the whole disc, under the
+   glass's rim in its own ring tone and a soft shadow; Plain glass keeps the look from before the
+   lens (the page at 72% through the shared blur), and Reduce Transparency makes it opaque. Its
+   accent dots say a reply is streaming below. It fades in and out with the pane's motion tokens. */
 .acpmux-jump-latest {
   position: absolute;
   left: 50%;
@@ -2970,12 +3000,8 @@ button.cv-received__name:focus-visible {
   padding: 0;
   border: 0;
   border-radius: 50%;
-  background-color: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
-  -webkit-backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  backdrop-filter: var(--surface-blur, blur(20px) saturate(1.4));
-  box-shadow:
-    inset 0 0 0 var(--cmux-hairline, 0.5px) var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent)),
-    var(--elevation-2);
+  --glass-edge: var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent));
+  --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
   cursor: default;
   opacity: 0;
@@ -2991,8 +3017,15 @@ button.cv-received__name:focus-visible {
   pointer-events: auto;
   transform: translate3d(-50%, 0, 0);
 }
+:root:not([data-glass="lens"], [data-glass="spectrum"]) .acpmux-jump-latest {
+  --glass-tint: color-mix(in srgb, var(--agent-page-bg) 72%, transparent);
+}
+/* Hover lays a wash of the text over the glass, in every mode. */
 .acpmux-jump-latest:hover {
-  background-color: color-mix(in srgb, var(--agent-page-bg) 60%, var(--agent-text) 6%);
+  background-image: linear-gradient(
+    color-mix(in srgb, var(--agent-text) 6%, transparent),
+    color-mix(in srgb, var(--agent-text) 6%, transparent)
+  );
 }
 .acpmux-jump-latest:focus-visible {
   outline: 2px solid var(--agent-accent);
@@ -3154,18 +3187,6 @@ button.cv-received__name:focus-visible {
   --acpmux-fade-top: 0px;
   --acpmux-fade-bottom: 0px;
 }
-@media (prefers-reduced-transparency: reduce) {
-  .acpmux-jump-latest {
-    background-color: var(--agent-page-bg);
-    -webkit-backdrop-filter: none;
-    backdrop-filter: none;
-  }
-}
-:root[data-reduce-transparency] .acpmux-jump-latest {
-  background-color: var(--agent-page-bg);
-  -webkit-backdrop-filter: none;
-  backdrop-filter: none;
-}
 
 /* The agent's todo list (PlanList.tsx, cx-ncc.80): a quiet card, as in Claude desktop. A filled
    check is done, a thin spinner runs and a dashed circle waits; no heading, strike-through or bold. */
@@ -3318,47 +3339,14 @@ button.cv-received__name:focus-visible {
 }
 
 /* ---------- Where a Claude Code session started (SessionStartNote.tsx) ---------- */
-/* Two quiet tool-height lines: the short facts, then how the chat compacts with Learn more and
-   its dismiss. What either opens (the full facts, the explanation) wraps under it, indented to
-   the lines' text. */
-.cv-session-start__compaction .cv-tool__text {
-  flex: 1;
-}
-.cv-session-start__more {
-  all: unset;
-  cursor: pointer;
-  color: var(--cv-text-dim);
-}
-.cv-session-start__more:hover {
-  color: var(--agent-text);
-}
-.cv-session-start__more:focus-visible {
-  outline: 2px solid var(--agent-accent, currentColor);
-  outline-offset: 1px;
-  border-radius: 3px;
-}
+/* One quiet tool-height line of short facts; the full facts wrap under it on a click, indented
+   to the line's text. */
 .cv-session-start__detail {
   padding: 0 0 4px 22.5px;
   line-height: 18px;
   font-size: var(--text-detail);
   color: var(--cv-text-dim);
   overflow-wrap: anywhere;
-}
-.cv-session-start__dismiss {
-  all: unset;
-  flex: none;
-  display: flex;
-  padding: 3px;
-  border-radius: 4px;
-  cursor: pointer;
-  color: var(--cv-text-dim);
-}
-.cv-session-start__dismiss:hover {
-  color: var(--agent-text);
-}
-.cv-session-start__dismiss:focus-visible {
-  outline: 2px solid var(--agent-accent, currentColor);
-  outline-offset: 1px;
 }
 
 /* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
