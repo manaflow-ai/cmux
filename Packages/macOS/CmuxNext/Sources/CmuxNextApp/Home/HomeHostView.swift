@@ -27,7 +27,9 @@ final class HomeHostView: NSView {
     private var settingsView: HomeChiefSettingsView { settings.content }
     /// The Chief pet's rows in the popover's Appearance section.
     private let petRows: ChiefPetSettingsRows
-    private var isChief = false
+    private(set) var isChief = false { didSet { if isChief != oldValue { watchHeaderPanels() } } }
+    /// The header's top-right panel toggles follow their panels (HomeHostView+HeaderPanels.swift).
+    var headerPanelsWatch: Task<Void, Never>?
     private var engineWatch: Task<Void, Never>?
     private var agentsWatch: Task<Void, Never>?
     private var shortcutsWatch: Task<Void, Never>?
@@ -37,7 +39,7 @@ final class HomeHostView: NSView {
     static func defaultTileAvatar(mascot: String?) -> HomeChiefAvatar { ChiefPetSettingsRows.avatarURL(of: mascot).map(HomeChiefAvatar.picture) ?? .chiefDefault }
     private var firstPage: Task<Void, Never>?
     /// Which brain answers this conversation (this Mac's or a paired server's).
-    private var control: HomeChiefControl
+    private(set) var control: HomeChiefControl
     /// The settings panel shows a cloud Chief's brain, and whether the Cloud service hosts it
     /// (else a paired server runs it).
     private var showsCloud = false
@@ -67,6 +69,10 @@ final class HomeHostView: NSView {
                                            invocation: ActionInvocation(arguments: ["conversation": .string(conversation)], origin: .user))
         }
         loadAvatar()
+        // The header's top-right toggles (Memory, Right Sidebar): each runs its panel's action.
+        transcript.onHeaderPanel = { [weak self] id in
+            if let self { HomeHeaderPanels.toggle(id, headerPanelContext) }
+        }
         petRows.onMascot = { [weak self] in self?.loadAvatar() }  // a new character redraws the header at once
         petRows.install(in: self, addRow: { [settingsView] in settingsView.addAppearanceRow($0, control: $1) },
                         open: { [weak self] in self?.toggleChiefSettings(openOnly: true) ?? false })
@@ -277,6 +283,7 @@ final class HomeHostView: NSView {
             hostWatch?.cancel()
             agentsWatch?.cancel()
             shortcutsWatch?.cancel()
+            headerPanelsWatch?.cancel()
             settings.close()
             firstPage?.cancel()
             transcript.stop()
@@ -323,6 +330,7 @@ final class HomeHostView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         openPendingSettings()
+        watchHeaderPanels()
     }
 
     override func viewDidHide() {
