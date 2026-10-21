@@ -550,7 +550,7 @@ checked. Socket canvas verbs never animate.
 | `canvas overview` | `canvas.overview`: toggle the fit-all overview zoom. |
 | `canvas zoom <in\|out\|reset>` | `canvas.zoom`: step the viewport magnification. Any other word is a usage error before the request is sent. |
 | `canvas set-viewport --x <n> --y <n> [--zoom <n>]` | `canvas.set_viewport`: center the viewport on a canvas point and optionally set its magnification. `--x` and `--y` are required and numeric; `--zoom` must be numeric and the app rejects a non-positive value with `invalid_params`. |
-| `canvas new-pane [--type terminal\|browser\|simulator]` | `canvas.new_pane`: create a free-floating pane, `terminal` by default, and focus it. Any other `--type` is a usage error. The reply adds `surface_id` and `surface_ref`, so the text form prints `OK surface:<n>`. |
+| `canvas new-pane [--type terminal\|browser\|simulator\|chief]` | `canvas.new_pane`: create a free-floating pane, `terminal` by default, and focus it. Any other `--type` is a usage error. The reply adds `surface_id` and `surface_ref`, so the text form prints `OK surface:<n>`. |
 | `canvas join <surface> <target>`, `canvas join <surface> --target <target>` | `canvas.join`: move `<surface>` into the pane that hosts `<target>` as a tab, then focus the moved surface. Both must be canvas panes of the workspace. |
 | `canvas break <surface>` | `canvas.break`: tear a surface out of its multi-tab pane into its own pane, focus it and scroll it into view. |
 | `canvas select-tab <surface>` | `canvas.select_tab`: select a surface as its pane's visible tab and move keyboard focus to it. |
@@ -1254,7 +1254,7 @@ the expected text without connecting to a cmux socket.
 - `cmux list-workspaces --json --help` -> `List workspaces`
 - `cmux --id-format uuids list-workspaces --help` -> `List workspaces`
 - `cmux canvas --help` -> `Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]`
-- `cmux canvas --help` -> `new-pane [--type terminal|browser|simulator]`
+- `cmux canvas --help` -> `new-pane [--type terminal|browser|simulator|chief]`
 <!-- cli-contract-help-probes:end -->
 
 For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
