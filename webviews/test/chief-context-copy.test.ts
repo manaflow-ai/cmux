@@ -90,10 +90,20 @@ await requireBrowserLane("chief-context-copy.test.ts", async () => {
             const context = document.querySelector<HTMLElement>(".cv-user__context")!;
             const summary = context.querySelector("summary")!;
             const label = summary.querySelector<HTMLElement>(".cv-user__context-label");
-            // The label's drawn text: a range over its text nodes, not its box.
+            // The label's drawn text: a range over its text nodes, not its box, cut to the box. A
+            // truncated label's range still spans the whole string past its ellipsis, where
+            // overflow: hidden draws nothing.
             const range = document.createRange();
             range.selectNodeContents(label ?? summary);
-            const text = range.getBoundingClientRect();
+            const glyphs = range.getBoundingClientRect();
+            const box = (label ?? summary).getBoundingClientRect();
+            const text = {
+              left: Math.max(glyphs.left, box.left),
+              right: Math.min(glyphs.right, box.right),
+              top: glyphs.top,
+              bottom: glyphs.bottom,
+              height: glyphs.height,
+            };
             const lineHeight = parseFloat(getComputedStyle(label ?? summary).lineHeight) || 18;
             const copy = context.querySelector<HTMLElement>(".cv-user__context-copy");
             const row = context.closest(".acpmux-row")!;
