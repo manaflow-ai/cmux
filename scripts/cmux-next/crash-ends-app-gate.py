@@ -114,18 +114,27 @@ def run(kind):
         limit = opts.exception_seconds if kind == "exception" else opts.frozen_seconds
         args = ["--expect-reporting"] if kind == "exception" else ["--crash", "frozen"]
         started = time.time()
+        # No --app-pid: the app is this script's child, so it stays a zombie (alive to kill -0) until
+        # it is reaped here; process.wait times the end.
         result = subprocess.run([sys.executable, os.path.join(HERE, "exception-report-e2e.py"), "--socket", sock,
-                                 "--phase", "raise", "--app-pid", str(pid), "--end-within", str(limit)] + args,
-                                timeout=limit + 120)
+                                 "--phase", "raise"] + args, timeout=limit + 120)
+        try:
+            process.wait(max(limit - (time.time() - started), 0.1))
+        except subprocess.TimeoutExpired:
+            pass
+        elapsed = time.time() - started
         if process.poll() is None:
             text = sample(pid, os.path.join(opts.out, f"frozen-{kind}.txt"), seconds=2)
             main = text.split("com.apple.main-thread", 1)[-1][:1600] if text else ""
-            print(f"crash-ends-app-gate: {kind}: the app still runs {time.time() - started:.0f} s after the crash; "
+            print(f"crash-ends-app-gate: {kind}: the app still runs {elapsed:.0f} s after the crash; "
                   f"main thread:\n{main}", flush=True)
             return f"{kind}: the crash froze the app instead of ending it within {limit:.0f} s"
         if result.returncode != 0:
             return f"{kind}: exception-report-e2e.py exited {result.returncode}"
-        print(f"crash-ends-app-gate: {kind}: ended in {time.time() - started:.1f} s (exit status {process.returncode})", flush=True)
+        # A frozen crash that ended early never blocked: the deadline was not tested.
+        if kind == "frozen" and elapsed < 8:
+            return f"frozen: the app ended after {elapsed:.1f} s, before the crash deadline: its trap did not block"
+        print(f"crash-ends-app-gate: {kind}: ended in {elapsed:.1f} s (exit status {process.returncode})", flush=True)
         return None
     finally:
         if process.poll() is None:
