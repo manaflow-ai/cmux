@@ -412,8 +412,14 @@ public final class AgentPaneView: NSView {
     /// Pushes this view's scope tokens to the page (and to the area WebKit
     /// shows before the page paints); again when `surfaceKind` changes. The page gets a push
     /// only when its theme differs from the last one it got; `force` pushes it anyway (a page
-    /// that just loaded has none).
+    /// that just loaded has none). It runs in this view's scope (`performWithTheme`): whether the
+    /// window is see-through here comes from that scope's picture and tint, not the app's (a
+    /// workspace's picture at background-opacity 1 painted the chat opaque over it).
     public func applyTheme(force: Bool = false) {
+        performWithTheme { applyThemeInScope(force: force) }
+    }
+
+    private func applyThemeInScope(force: Bool) {
         themeFollower.rebind()
         let tokens = themeTokens
         let surface = surfaceKind
