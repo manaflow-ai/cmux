@@ -156,8 +156,13 @@ public struct ThemeTokens: Hashable, Sendable {
         let worstSurface = [pressed, selection].map { $0.composited(over: bg) }
             .min { fg.contrast(with: $0) < fg.contrast(with: $1) }!
         let primary = readable(fg, over: worstSurface, minimum: minimumTextContrast)
-        let secondary = muted(primary, toward: bg, upTo: 0.38, over: worstSurface, minimum: minimumTextContrast)
-        let tertiary = muted(primary, toward: bg, upTo: 0.55, over: worstSurface, minimum: minimumMarkContrast)
+        // In a see-through window the quieter inks also hold over the tint on the worst desktop for
+        // the theme (sidebar sweep 2026-10-21); the tint stays the opacity asked for (#22566).
+        let inkSurface = ([worstSurface] + seeThroughSurfaces(bg: bg, opacity: input.backgroundOpacity, isDark: isDark,
+                                                             fills: [pressed, selection]))
+            .min { primary.contrast(with: $0) < primary.contrast(with: $1) } ?? worstSurface
+        let secondary = muted(primary, toward: bg, upTo: 0.38, over: inkSurface, minimum: minimumTextContrast)
+        let tertiary = muted(primary, toward: bg, upTo: 0.55, over: inkSurface, minimum: minimumMarkContrast)
 
         // The config's selection fill, when text reads on it. Many themes select by inverse video
         // (the foreground as the fill, with a dark `selection-foreground`); chrome and pages draw
@@ -234,6 +239,15 @@ public struct ThemeTokens: Hashable, Sendable {
             candidate = color.mixed(toward: pole, step)
         }
         return candidate
+    }
+
+    /// What text sits on in a window of `opacity` below 1: the background at that opacity over
+    /// the worst desktop for the theme (black behind a light theme, white behind a dark one),
+    /// alone and under each of `fills`. Empty for an opaque window.
+    static func seeThroughSurfaces(bg: ThemeRGB, opacity: Double, isDark: Bool, fills: [ThemeRGB]) -> [ThemeRGB] {
+        guard opacity < 1 else { return [] }
+        let tint = bg.withAlpha(opacity).composited(over: isDark ? .white : .black)
+        return [tint] + fills.map { $0.composited(over: tint) }
     }
 
     /// `color` mixed toward `target` as far as `limit` allows while keeping

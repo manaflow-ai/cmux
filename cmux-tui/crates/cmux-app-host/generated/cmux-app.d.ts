@@ -380,14 +380,15 @@ declare namespace Cmux {
   type SshPresenceProof = { install: Cmux.InstallId; nonce: string; signature: string; app_attest?: string }
   type SsoConnection = { id: Cmux.SsoConnectionId; kind: "oidc"; state: "draft" | "active" | "disabled"; domains: Array<Cmux.EmailDomain>; oidc: { issuer: string; client_id: string; scopes: Array<string>; authorization_endpoint: string | null; token_endpoint: string | null; jwks_uri: string | null }; secret_set: boolean; secret_generation?: number; jit: { enabled: boolean; default_role: "member" | "admin" }; created_at: number; updated_at: number }
   type SsoConnectionId = string
-  type StashCreateResult = { stash_id: Cmux.StateId; tab_ids: Array<string /* tab_… */>; skipped: Array<string /* tab_… */> }
+  type StashCreateResult = { stash_id: Cmux.StateId; tab_ids: Array<string /* tab_… */>; skipped: Array<string /* tab_… */>; workspace_ids?: Array<string /* workspace_… */> }
   type StashDeleteResult = { stash_id: Cmux.StateId; remaining: number }
   type StashImportGroup = { name?: string; created_ms?: string; tabs: Array<Cmux.StashImportTab> }
   type StashImportResult = { stash_ids: Array<Cmux.StateId>; imported_tabs: number; skipped_tabs: number }
   type StashImportTab = { url: string; title?: string }
   type StashRestoreResult = { stash_id: Cmux.StateId; workspace_id: string /* workspace_… */ | null; workspace_ids: Array<string /* workspace_… */>; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */>; remaining: number }
   type StashSnapshot = { id: Cmux.StateId; name: string | null; created_at_ms: string; member_count: number; members: Array<Cmux.StashTab> }
-  type StashTab = { id: Cmux.StateId; url: string; title: string | null; browser_profile_id: string | null; workspace_id: string /* workspace_… */ | null }
+  type StashTab = { id: Cmux.StateId; kind: "tab" | "workspace"; url: string | null; title: string | null; browser_profile_id: string | null; workspace_id: string /* workspace_… */ | null; name?: string | null; tab_count?: number; tabs?: Array<Cmux.StashWorkspaceTab> }
+  type StashWorkspaceTab = { kind: "terminal" | "browser" | "conversation" | "remote_terminal"; title: string | null; url: string | null }
   type StateDelete = { kind: "state_delete"; sequence: number; resource: Cmux.StateResourceKind; id: string }
   type StateDeleteResult = { id: Cmux.StateId; deleted: boolean }
   type StateEntitySnapshot = unknown
@@ -1462,7 +1463,7 @@ interface CmuxGlobal {
   }
   stash: {
     /** `stash.create` (mutation, scope `stash:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; tabs?: Array<string /* tab_… */>; workspace?: string /* workspace_… */ }, Cmux.MutationResult<Cmux.StashCreateResult>>
+    create: CmuxOp<{ machine?: string; session?: string; tabs?: Array<string /* tab_… */>; workspace?: string /* workspace_… */; workspaces?: Array<string /* workspace_… */>; name?: string }, Cmux.MutationResult<Cmux.StashCreateResult>>
     /** `stash.delete` (mutation, scope `stash:write`) */
     delete: CmuxOp<{ machine?: string; session?: string; stash: Cmux.StateId; members?: Array<Cmux.StateId> }, Cmux.MutationResult<Cmux.StashDeleteResult>>
     /** `stash.import` (mutation, scope `stash:write`) */

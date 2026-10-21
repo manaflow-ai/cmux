@@ -89,7 +89,13 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
+        // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
+        // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
+        KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
     ]
+
+    /// The sidebar list has the keyboard with two or more rows selected.
+    public static let sidebarMultiSelection = WhenClause.has(KeyContext.sidebarMultiSelection)
 
     /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.
     public static let onHome = WhenClause.or([
