@@ -2066,14 +2066,24 @@ export class AcpmuxDirectClient {
     this.summary = detail;
     this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
     this.queue = [];
-    const opener = await this.fetchTurnOpener(
-      sessionId,
-      mergeEventRecords(page, this.events),
-      result?.hasMore === true,
-    );
+    // The reads the chat draws with, at once rather than one after another: each is a round trip,
+    // as slow as the attach on a busy daemon, and the chat shows only once they are in (its asks,
+    // the turn's opener and a handoff come with its rows, so nothing lands under them a moment
+    // later). Leo 2026-10-21, a 690-turn chat after a restart: "I LOAD IN AND IT'S A BLACK SCREEN".
+    this.permissions.select(sessionId);
+    if (this.handoffSupported) this.handoff.select(sessionId);
+    const [opener] = await Promise.all([
+      this.fetchTurnOpener(sessionId, mergeEventRecords(page, this.events), result?.hasMore === true),
+      this.permissions.refresh().catch(() => {}),
+      this.handoffSupported
+        ? this.handoff.refresh().catch(() => {
+            /* No mutation until a recovery read succeeds. */
+          })
+        : undefined,
+    ]);
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     this.turnOpener = opener;
-    // Merged after the read: live events that landed meanwhile are kept.
+    // Merged after the reads: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
     // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
@@ -2081,9 +2091,6 @@ export class AcpmuxDirectClient {
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
-    this.permissions.select(sessionId);
-    await this.permissions.refresh().catch(() => {});
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
     if (Array.isArray(detail.pending)) {
       const groupedIds = new Set(
         this.permissions.state.supported
@@ -2107,15 +2114,6 @@ export class AcpmuxDirectClient {
       this.pendingPermission = asks[0];
       this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
     }
-    if (this.handoffSupported) {
-      this.handoff.select(sessionId);
-      try {
-        await this.handoff.refresh();
-      } catch {
-        /* No mutation until a recovery read succeeds. */
-      }
-    }
-    if (generation !== this.selectionGeneration) return [];
     this.emit("attached");
     return page;
   }
@@ -3051,6 +3049,12 @@ export class AcpmuxDirectClient {
     this.streamingAssistantMessageId = undefined;
   }
 
+  /// The selected chat's rows are in, from its attach or a kept tail, or no chat is selected: what
+  /// the pane draws now is the chat, not a transcript still waiting on acpmux.
+  private chatRead(): boolean {
+    return !this.selectedSessionId || this.drewKeptTail || this.attachedGeneration === this.selectionGeneration;
+  }
+
   private emit(connection = "connected"): void {
     acpmuxPerf.timed("client.emit", () => this.emitNow(connection));
   }
@@ -3130,6 +3134,7 @@ export class AcpmuxDirectClient {
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
+      ...(this.chatRead() ? { chatRead: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
