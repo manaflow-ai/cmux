@@ -2586,6 +2586,9 @@ export function VirtualTranscript({
         aria-busy={seeking || undefined}
         data-fade-top={renderScroll.top > 0.5 || undefined}
         data-fade-bottom={(!renderFollowing && layout.totalHeight - renderScroll.top - height > 0.5) || undefined}
+        // Jump to latest stands in that band: the fade reaches past it, so rows (a date line) pass
+        // out of sight behind it instead of reading through its glass.
+        data-jump-shown={(jumpButton && behind) || undefined}
         // Under the bottom stack: rows there stay out of sight (conversation.css), and focus or Find
         // scroll a row into view above it.
         data-docked={dockSpace > 0 || undefined}
