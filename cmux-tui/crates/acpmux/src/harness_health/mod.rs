@@ -266,6 +266,33 @@ fn codex_login_in_file(env: &BTreeMap<String, String>) -> bool {
     }
 }
 
+/// Why starting harness `id` may read the login keychain, or None. A
+/// caller that starts a harness to ask its sign-in (`cmux setup harness`)
+/// skips it then, as this check does (cx-hh0vu): its profile env names a
+/// Keychain item, it is Claude Code (whose login may be its keychain item;
+/// `claude_auth` reads every other source), or it is Codex and Codex may
+/// keep its login there (not `codex_login_in_file`, or a Codex home set by
+/// a reference).
+pub fn keychain_sign_in(id: &str, profile: &crate::config::HarnessProfile) -> Option<&'static str> {
+    if crate::config::profiles::has_keychain_refs(&profile.env) {
+        return Some("its profile's env names a Keychain item");
+    }
+    let s = Subject::of(id, profile, None)?;
+    match s.family.as_str() {
+        family if family.starts_with("claude") => {
+            return Some("Claude Code may keep its login in its keychain item");
+        }
+        "codex" => {}
+        _ => return None,
+    }
+    if s.unresolved.iter().any(|k| k == "CODEX_HOME") {
+        return Some("its Codex home is not known until it starts");
+    }
+    let env = crate::login_env::effective_for(Some("codex"), &s.env);
+    (!codex_login_in_file(&env))
+        .then_some("Codex's `cli_auth_credentials_store` does not keep its login in a file")
+}
+
 static SIGN_IN: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
     regex::Regex::new(r"(?i)\b(not (logged|signed) in|log ?in|sign ?in|unauthenticated|authentication required|auth required|unauthorized)\b")
         .expect("sign-in pattern") // crash-allow: constant pattern
@@ -472,6 +499,7 @@ fn local(s: Subject, home: &Path) -> HarnessHealth {
 #[cfg(test)]
 mod tests {
     use super::codex_login_in_file;
+    use serde_json::json;
     use std::collections::BTreeMap;
 
     fn home_with(n: usize, config: Option<&str>) -> (std::path::PathBuf, BTreeMap<String, String>) {
@@ -505,5 +533,29 @@ mod tests {
             assert_eq!(codex_login_in_file(&env), file, "{config:?}");
             let _ = std::fs::remove_dir_all(dir);
         }
+    }
+
+    /// A harness whose start may read the keychain is named, so a caller
+    /// that asks a harness its sign-in does not start it (cx-hh0vu).
+    #[test]
+    fn keychain_sign_in_names_keychain_references_and_a_codex_keychain_login() {
+        let (keyring, keyring_env) =
+            home_with(10, Some("cli_auth_credentials_store = \"keyring\"\n"));
+        let (file, file_env) = home_with(11, None);
+        for (argv, env, keychain) in [
+            ("gemini", json!({"API_KEY": "${keychain:cmux-harness/gemini/API_KEY}"}), true),
+            ("gemini", json!({"API_KEY": "${env:API_KEY}"}), false),
+            ("claude-agent-acp", json!({}), true),
+            ("codex-acp", json!({"CODEX_HOME": keyring_env["CODEX_HOME"]}), true),
+            ("codex-acp", json!({"CODEX_HOME": file_env["CODEX_HOME"]}), false),
+            ("codex-acp", json!({"CODEX_HOME": "${env:SOME_CODEX_HOME}"}), true),
+        ] {
+            let profile: crate::config::HarnessProfile =
+                serde_json::from_value(json!({"argv": [argv], "env": env})).unwrap();
+            let why = super::keychain_sign_in(argv, &profile);
+            assert_eq!(why.is_some(), keychain, "{argv} {env}: {why:?}");
+        }
+        let _ = std::fs::remove_dir_all(keyring);
+        let _ = std::fs::remove_dir_all(file);
     }
 }
