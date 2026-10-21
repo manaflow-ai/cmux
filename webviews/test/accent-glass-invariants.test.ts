@@ -15,6 +15,8 @@
 // a baseline line no stage reports any more is printed so it can be dropped.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
+// gallery-frame-every-entry: it scans every web entry, so it warms the frame for all of them once;
+// each stage still passes its own entryPath.
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import fs from "node:fs";
 import path from "node:path";
