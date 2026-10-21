@@ -405,8 +405,15 @@ fn a_respawned_terminal_resumes_its_agent_session() {
     let _exclusive = exclusive_process_test();
     let harness = agent_harness("respawn-agent", None);
     let (terminal_id, surface) = respawn_after_agent_start(&harness, "agent");
+    // The pane's `claude` shim (claude_wrapper, cfdde0b6ce7) adds its hooks
+    // as `--settings <file>` before the resume's own arguments, and a long
+    // line wraps: compare the stand-in's output without whitespace.
+    let resumed = |text: &str| {
+        let compact = text.split_whitespace().collect::<String>();
+        compact.rsplit_once("resumed:").is_some_and(|(_, args)| args.contains("--resumeabc-123"))
+    };
     let deadline = Instant::now() + test_timeout(Duration::from_secs(15));
-    while !screen(&harness, surface).contains("resumed:--resume abc-123") {
+    while !resumed(&screen(&harness, surface)) {
         assert!(Instant::now() < deadline, "the resume did not run: {}", screen(&harness, surface));
         std::thread::sleep(Duration::from_millis(50));
     }

@@ -3,13 +3,16 @@
 // no daemon connection of its own: it reads and writes through the host's page relay to the Chief
 // owner (`cmux.chief.profile.*`) and the host's harness center (`cmux.chief.backend.*`), as Home's
 // editor does; the person's click on Save, Undo or a backend is the gesture the host confirms.
+// A Chief with no picture of its own wears the chosen pet character (`home.chiefPetMascot`, orb
+// by default, whether or not the pet floats), as every other Chief surface does: never a letter.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChiefPage } from "../../home-channels/ChiefPage";
 import { ChiefHost, HostChiefEditor } from "../../home-channels/chiefEditing";
 import { chiefBackend, chiefBackendLabel, DEFAULT_CHIEF_BACKEND, type HomeChief } from "../../home-channels/types";
 import { formatString, type Strings } from "../../shared/i18n";
-import { useStore } from "../context";
+import { useRowState, useStore } from "../context";
 import { locale, t } from "../strings";
+import { CHIEF_PET_MASCOT, CHIEF_PET_MASCOTS } from "./ChiefPetCard";
 
 type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 
@@ -32,6 +35,8 @@ export function ChiefsCard() {
   const store = useStore();
   const host = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
   const strings = useMemo(settingsStrings, []);
+  const character = useRowState(CHIEF_PET_MASCOT).value;
+  const mascot = (CHIEF_PET_MASCOTS.find((entry) => entry.id === character) ?? CHIEF_PET_MASCOTS[0]!).art;
   const [chiefs, setChiefs] = useState<HomeChief[] | undefined>();
   const [pictures, setPictures] = useState<ReadonlyMap<string, string>>(new Map());
   const [unavailable, setUnavailable] = useState(false);
@@ -127,11 +132,11 @@ export function ChiefsCard() {
               }}
             >
               <span className="chiefs-picture" aria-hidden="true">
-                {pictures.get(chief.id) ? (
-                  <img src={pictures.get(chief.id)} alt="" />
-                ) : (
-                  <span className="chiefs-initial">{(chief.name.trim()[0] ?? "?").toUpperCase()}</span>
-                )}
+                <img
+                  src={pictures.get(chief.id) ?? mascot}
+                  alt=""
+                  data-mascot={pictures.has(chief.id) ? undefined : ""}
+                />
               </span>
               <span className="row-main">
                 <span className="row-label">

@@ -20,7 +20,9 @@ pull request into BRANCH, and returns the `run:` text that event can execute:
   - reusable workflows a kept job calls (`uses: ./.github/workflows/X.yml`),
     with the caller's literal `with:` inputs bound, and local composite actions;
   - ci-guards.yml's guard steps that `scripts/ci/guards-local.sh` runs (its
-    default `ci` group, `--group X` or `--all`), through run_ci_guards.py's plan.
+    default `ci` group, `--group X`, `--all`, or `--feat-routes FILE`: the groups
+    detect_linux_guard_changes.classify_feat can route a feat-cmux-next change
+    to), through run_ci_guards.py's plan.
 
 The registry validator adds what those steps reach indirectly (the
 verify-local.py recipe, workload profiles) and the runner lanes they invoke.
@@ -392,11 +394,14 @@ def guards_local_texts(root: Path, run: str) -> list[str]:
             args = match.group("args").split()
         groups: list[str] = []
         everything = False
+        feat_routes = False
         for index, arg in enumerate(args):
             if arg in ("&&", "||", "|", ";"):
                 break
             if arg == "--all":
                 everything = True
+            elif arg == "--feat-routes" or arg.startswith("--feat-routes="):
+                feat_routes = True
             elif arg == "--group" and index + 1 < len(args):
                 groups.append(args[index + 1])
             elif arg.startswith("--group="):
@@ -411,6 +416,11 @@ def guards_local_texts(root: Path, run: str) -> list[str]:
         # A group from a shell variable is routed at run time: any group may run.
         everything = everything or any("$" in group for group in groups)
         wanted = None if everything else (set(groups) or set(run_ci_guards.FAST_GROUPS))
+        if feat_routes and wanted is not None:
+            # Routed by the change's paths at run time: any group the feat-cmux-next router can pick may run.
+            import detect_linux_guard_changes  # noqa: PLC0415
+
+            wanted |= set(detect_linux_guard_changes.FEAT_ROUTED)
         texts += [step.run for unit in units
                   if wanted is None or unit.group in wanted or unit.job in wanted
                   for step in unit.steps]

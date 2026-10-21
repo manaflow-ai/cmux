@@ -484,6 +484,11 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
+  /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
+  /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
+  /// in one frame (AgentPaneView+Loading.swift).
+  drewKeptTail?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
@@ -668,24 +673,25 @@ export function editedCardHeight(files: number, plain = 0): number {
 /// What edits without a diff list as in the edited-files card: each path they name, once
 /// (toolPaths.ts), and one entry with no path for each call that names none ("Unknown file"). A
 /// Write whose old contents are unknown (`contentsUnknown`) lists its diff's path the same way.
-/// Never the tool input itself.
-export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string }[] {
-  const out: { key: string; path?: string }[] = [];
-  const seen = new Set<string>();
+/// `failed`: only calls that failed named it, so it lists as failed. Never the tool input itself.
+export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string; path?: string; failed?: true }[] {
+  const out: { key: string; path?: string; failed?: true }[] = [];
+  const at = new Map<string, number>();
   items.forEach((item, index) => {
-    if (!item.tool) return;
+    // An edit still waiting for its permission has changed nothing yet.
+    if (!item.tool || item.tool.status === "pending") return;
     const diffs = item.tool.diffs ?? [];
-    // A Write still waiting for its permission, or one that failed, wrote nothing.
-    const wrote = item.tool.status !== "pending" && item.tool.status !== "failed";
-    const paths = diffs.length
-      ? diffs.filter((diff) => wrote && contentsUnknown(diff)).map((diff) => diff.path)
-      : editedPaths(item.tool);
-    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}` });
-    for (const path of paths)
-      if (!seen.has(path)) {
-        seen.add(path);
-        out.push({ key: `path-${path}`, path });
-      }
+    const failed = item.tool.status === "failed";
+    const mark = failed ? { failed: true as const } : {};
+    const paths = diffs.length ? diffs.filter(contentsUnknown).map((diff) => diff.path) : editedPaths(item.tool);
+    if (!diffs.length && !paths.length) out.push({ key: `unknown-${item.tool.id}-${index}`, ...mark });
+    for (const path of paths) {
+      const listed = at.get(path);
+      if (listed === undefined) {
+        at.set(path, out.length);
+        out.push({ key: `path-${path}`, path, ...mark });
+      } else if (!failed) out[listed] = { key: `path-${path}`, path };
+    }
   });
   return out;
 }
@@ -696,9 +702,13 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
 /// The space under a message row: the meta gap over its turn's footer (`.acpmux-row--before-footer`,
 /// which also drops the row's 34px floor), else the message gap.
 const messageBelow = (beforeFooter: boolean) => (beforeFooter ? META_GAP : MESSAGE_GAP);
-/// A reply right over its turn's footer: App.tsx marks the same rows `acpmux-row--before-footer`.
-const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
-  row.kind === "assistant" && next?.kind === "turnSummary";
+/// A reply right over its turn's footer, or over the running turn's line drawn as its last row
+/// (`below`), which the footer takes the place of at its height when the turn ends: the reply keeps
+/// the one gap, so the end moves nothing (the message gap there slid the reply down 4px at every
+/// turn's end). App.tsx marks the same rows `acpmux-row--before-footer`.
+export const isBeforeFooter = (row: AcpmuxRow, next: AcpmuxRow | undefined) =>
+  row.kind === "assistant" &&
+  (next?.kind === "turnSummary" || ((next?.kind === WORKING || next?.kind === THINKING) && next.below === true));
 /// A row that draws nothing (a turn's bookkeeping, conversation/turns.ts).
 const drawsNothing = (row: AcpmuxRow) => row.incoming?.kind === "hidden";
 /// The row after `index` that draws something.
