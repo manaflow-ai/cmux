@@ -1,7 +1,8 @@
 import Foundation
 
 /// Set Up GitHub on This Machine. Keys live in Resources/Cloud.xcstrings with every app locale.
-extension CloudStrings {
+/// Nonisolated: ``CloudGitHubSetup`` (nonisolated) reads them.
+nonisolated extension CloudStrings {
     static func gitHubConfirmTitle(_ machine: String) -> String {
         String(format: String(localized: "cloud.github.confirmTitle", defaultValue: "Set Up GitHub on %@?", table: "Cloud", bundle: .module), machine)
     }

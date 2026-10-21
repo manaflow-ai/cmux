@@ -9,7 +9,7 @@ import Testing
 @MainActor @Suite(.serialized)
 struct CloudGitHubSetupTests {
     /// Names a person could have, and names written to break out of a shell string.
-    static let hostileValues = [
+    nonisolated static let hostileValues = [
         "O'Brien; rm -rf ~",
         "O'Brien'; touch \"$PWNED\"; echo '",
         "$(touch \"$PWNED\")",
