@@ -109,6 +109,9 @@ const subscribe = (listener: () => void) => {
 /// The live state.
 export const useInspectorState = (): State => useSyncExternalStore(subscribe, current, current);
 export const inspectorState = current;
+/// Whether it is open, alone: a pane that needs only that is not drawn again on every drag step.
+const openNow = () => current().open;
+export const useInspectorOpen = (): boolean => useSyncExternalStore(subscribe, openNow, openNow);
 
 export function setInspectorOpen(open: boolean) {
   write(OPEN_KEY, open ? "1" : "0");

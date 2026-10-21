@@ -6,7 +6,7 @@
 // that it counts the work still going in the background, as Claude's phone app does ("Working… · 5
 // running tasks"): "· 2 agents · 1 command · 3 sessions", only subagents still running, background
 // commands that have not ended (the process registry's and the transcript's,
-// summary/backgroundWork.ts) and chats the agent started that are running. Each count opens what it
+// inspector/processes.ts `backgroundCommands`) and chats the agent started that are running. Each count opens what it
 // counts. The counts follow on the same fixed-height line, so one that comes or goes moves neither
 // the label nor the rows below. With the running tray on (the default, subagents/runningTray.ts)
 // the tray above the composer is the count, and App.tsx counts nothing here. Before them, as Claude

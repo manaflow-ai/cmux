@@ -327,9 +327,10 @@ public final class LayoutRootView: NSView {
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas, animated: animated || reflows) {
                     needsFrames = true
                 }
-                // The focus ring of a split's new pane appears with the pane.
+                // The focus ring of a split's new pane appears with the pane; the focus flash still
+                // runs, so the pane after a close or a link's new pane shows where focus went.
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
-                                  animated: chromeAnimated && !structureChanged)
+                                  animated: chromeAnimated && !structureChanged, flashAnimated: chromeAnimated)
             } else if chromeChanged {
                 view.updateChrome(focused: snapshot.focused, dimsInactive: snapshot.dimsInactive, attention: snapshot.attention,
                                   animated: chromeAnimated)

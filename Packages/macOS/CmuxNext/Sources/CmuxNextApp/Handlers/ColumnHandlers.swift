@@ -91,7 +91,7 @@ enum ColumnHandlers {
               let pane = FocusNavigation.mostRecent(next.root.panes, recency: content.recentPanes) ?? next.root.panes.first else {
             return ctx.refuseQuietly(RefusalStrings.noColumnInDirection(RefusalStrings.direction(forward ? .right : .left)))
         }
-        PaneHandlers.focus(pane, in: content)
+        PaneHandlers.focusByKey(pane, in: content)
     }
 
     /// Moves the whole column one place: `move-column` (every pane in it, one

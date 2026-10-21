@@ -1,13 +1,13 @@
 // The tray of running work at the foot of the chat (runningTray.ts): a part of the bottom stack
 // right above the composer (bottomStack.css), so it never scrolls away with history and the
 // transcript keeps its last row above it. It is the one place running background work shows, in a
-// turn and between turns. Each running subagent, background command (summary/backgroundWork.ts,
-// the process registry's merged with the transcript's) and chat the agent started is one line
-// (AgentLine.tsx, the summary card's rows too): its icon in the theme's accent, its name, what it
-// does now, how long it has run (ticking) and its state, Running or Waiting. A click opens it: a
-// subagent's pane or view (App.tsx `showSubagent`), a command's terminal (processTerminal.ts), a
-// chat. A running subagent, and a command the registry lists, keeps its stop button. An agent
-// another one spawned sits right under it.
+// turn and between turns. Each running subagent, background command (inspector/processes.ts
+// `backgroundCommands`, the process registry's merged with the transcript's) and chat the agent
+// started is one line (AgentLine.tsx, the summary card's rows too): its icon in the theme's accent,
+// its name, what it does now, how long it has run (ticking) and its state, Running or Waiting. A
+// click opens it: a subagent's pane or view (App.tsx `showSubagent`), a command's terminal
+// (processTerminal.ts), a chat. A running subagent, and a command the registry lists, keeps its
+// stop button. An agent another one spawned sits right under it.
 //
 // One item is its line alone. Several get a header first, as the Codex and Claude desktop apps
 // head their running agents: "2 subagents running · 1 command", the time since the first started
@@ -20,8 +20,8 @@ import { memo, useId, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
+import type { BackgroundCommand } from "../inspector/processes";
 import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
-import type { BackgroundCommand } from "../summary/backgroundWork";
 import { subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { AgentLine } from "./AgentLine";
 import { elapsed, StopButton, useNow } from "./SubagentGroup";

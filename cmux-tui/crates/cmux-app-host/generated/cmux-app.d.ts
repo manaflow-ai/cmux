@@ -1095,9 +1095,9 @@ interface CmuxGlobal {
     /** `notification.ack` (mutation, scope `notification:write`) */
     ack: CmuxOp<{ machine?: string; session?: string; client_id: string; notifications: Array<string /* notification_… */>; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationAckResult>>
     /** `notification.clear` (mutation, scope `notification:write`) */
-    clear: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationClearResult>>
+    clear: CmuxOp<{ machine?: string; session?: string; terminal_id?: string /* terminal_… */; workspace_id?: string /* workspace_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationClearResult>>
     /** `notification.create` (mutation, scope `notification:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; desktop?: boolean; reply?: boolean; terminal_id?: string /* terminal_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
+    create: CmuxOp<{ machine?: string; session?: string; title: string; subtitle?: string; body: string; level?: Cmux.NotificationLevel; desktop?: boolean; reply?: boolean; terminal_id?: string /* terminal_… */; workspace_id?: string /* workspace_… */; expected_revision?: string }, Cmux.MutationResult<Cmux.NotificationSnapshot>>
     /** `notification.list` (read, scope `notification:read`) */
     list: CmuxOp<{ machine?: string; session?: string; limit?: number }, Array<Cmux.NotificationSnapshot>>
   }
@@ -1131,7 +1131,7 @@ interface CmuxGlobal {
     /** `pane.rename` (mutation, scope `workspace:write`) */
     rename: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; name: string | null; expected_revision?: string }, Cmux.MutationResult<Cmux.PaneSnapshot>>
     /** `pane.run` (mutation, scope `workspace:execute`) */
-    run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    run: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep" | "shell"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `pane.split` (mutation, scope `workspace:write`) */
     split: CmuxOp<{ machine?: string; session?: string; workspace?: string; screen?: string; pane: string; correlation_key?: string; direction: "left" | "right" | "up" | "down"; ratio?: number; viewport_width?: number; cwd?: string; argv?: Array<string>; shell?: string; focus?: boolean; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     split_ratio: {
@@ -1686,7 +1686,7 @@ interface CmuxGlobal {
     /** `workspace.rename` (mutation, scope `workspace:write`) */
     rename: CmuxOp<{ machine?: string; session?: string; workspace: string; name?: string; expected_revision?: string; source?: "user" | "auto"; expected_generation?: string; expected_name_revision?: string; release?: boolean }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
     /** `workspace.run` (mutation, scope `workspace:execute`) */
-    run: CmuxOp<{ machine?: string; session?: string; workspace: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
+    run: CmuxOp<{ machine?: string; session?: string; workspace: string; correlation_key?: string; argv?: Array<string>; shell?: string; cwd?: string; name?: string; on_exit?: "close" | "keep" | "shell"; cols?: number; rows?: number; expected_revision?: string }, Cmux.MutationResult<Cmux.CreatedTerminalPath>>
     /** `workspace.update` (mutation, scope `workspace:write`) */
     update: CmuxOp<{ machine?: string; session?: string; workspace: string; title?: string | null; color?: string | null; icon?: string | null; description?: string | null; task_status?: "todo" | "working" | "needs-attention" | "review" | "done" | null; expected_revision?: string }, Cmux.MutationResult<Cmux.WorkspaceSnapshot>>
   }

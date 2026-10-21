@@ -217,7 +217,9 @@ impl Hub {
                 {
                     // Each keeps its time: a later fork through it cuts Claude's
                     // transcript there (`fork_at.rs`), and a replay plays it then.
-                    let marked = parent_meta.bookmarks.contains(&e.seq) && e.kind == "user_message";
+                    // A prompt's mark, or an answer's Pin (its `turn_result`), follows it.
+                    let marked = parent_meta.bookmarks.contains(&e.seq)
+                        && matches!(e.kind.as_str(), "user_message" | "turn_result");
                     let (copy, _) = self.append_at(&new, &e.dir, &e.kind, e.msg, None, Some(e.at));
                     if marked {
                         new.meta

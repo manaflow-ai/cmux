@@ -296,7 +296,6 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
-    "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
     "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
     "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
@@ -429,18 +428,16 @@ export default agentPaneEntry({
     },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
     // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
-    // The + is a bare glyph: its tooltip says what its menu adds (files, screenshots, mentions...).
+    // The + is a bare glyph: its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21).
     "plus-tooltip": {
-      note: "Play: hover the +; the tooltip says what its menu adds.",
+      note: 'Play: hover the +; the tooltip reads "Add files and more".',
       snapshot: chat(finished),
       play: async (ctx) => {
         const selector = ".acpmux-composer-plus .acpmux-picker-button";
         await ctx.waitFor(() => ctx.document.querySelector(selector));
         await ctx.hover({ selector });
         await ctx.waitFor(
-          () =>
-            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Add files") ??
-            false,
+          () => ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent === "Add files and more",
         );
       },
     },
