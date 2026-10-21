@@ -155,7 +155,7 @@ pub(crate) fn add_git_config(env: &mut BTreeMap<String, String>, inherited: Opti
 
 /// The program to exec: `program` when absolute, else the first match on PATH's absolute
 /// folders (a relative folder such as `.` would find one in the chat's folder). Never a
-/// program inside `cwd`.
+/// program inside `cwd`, unless `cwd` holds the person's home.
 fn frozen_program(program: &str, cwd: &Path) -> Result<String, String> {
     let path = Path::new(program);
     let found = if path.is_absolute() {
@@ -174,7 +174,12 @@ fn frozen_program(program: &str, cwd: &Path) -> Result<String, String> {
     };
     let real = std::fs::canonicalize(&found).map_err(|e| format!("{}: {e}", found.display()))?;
     let cwd = std::fs::canonicalize(cwd).unwrap_or_else(|_| cwd.to_path_buf());
-    if real.starts_with(&cwd) {
+    // A folder that holds the person's home (the home itself, `/`) holds their own install of
+    // Claude Code too (`~/.local/bin`): that is not one the folder planted.
+    let holds_home = dirs::home_dir()
+        .and_then(|home| std::fs::canonicalize(home).ok())
+        .is_some_and(|home| home.starts_with(&cwd));
+    if real.starts_with(&cwd) && !holds_home {
         return Err(format!("{} is inside the chat's folder", real.display()));
     }
     Ok(found.to_string_lossy().into_owned())
@@ -258,8 +263,10 @@ impl Hub {
         if session.meta().restricted == restricted {
             return true;
         }
+        // Held until the agent has ended: no turn starts on the old agent meanwhile (a turn
+        // takes `turn_lock` before `spawn_lock`, so this only tries).
+        let Ok(_turn) = session.turn_lock.try_lock() else { return false };
         let busy = session.turn().is_some()
-            || session.turn_lock.try_lock().is_err()
             || session.queued() > 0
             || !session.pending_permissions().is_empty();
         if busy {
@@ -473,6 +480,10 @@ mod tests {
         assert!(frozen_program("./claude", &dir).is_err());
         let frozen = frozen_program(&program.to_string_lossy(), &elsewhere).unwrap();
         assert_eq!(frozen, program.to_string_lossy());
+        // A folder holding the person's home (here `/`) holds their own install too.
+        if dirs::home_dir().is_some_and(|home| home.canonicalize().is_ok()) {
+            assert!(frozen_program(&program.to_string_lossy(), Path::new("/")).is_ok());
+        }
         let _ = std::fs::remove_dir_all(&root);
     }
 

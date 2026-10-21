@@ -228,6 +228,18 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     let plan = app.call("session/set_mode", json!({"sessionId": s, "modeId": "plan"})).await;
     assert!(plan.get("error").is_none(), "Plan asks too: {plan}");
 
+    // Only the app's own pane runs a chat restricted: a peer forwarding for its pane is refused,
+    // and the chat stays as it was.
+    let mut peer = Client::new(&hub, Origin::Peer);
+    let r = local.new_session(&work, "fclaude").await;
+    let other = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    let p = json!({"sessionId": other, "prompt": [{"type": "text", "text": "x"}],
+                   "_meta": {"acpmux": {"via": "app"}}});
+    assert_eq!(reason(&peer.call("session/prompt", p).await), "trust.untrusted");
+    let marks =
+        app.call("_acpmux/events", json!({"sessionId": other, "kinds": ["restricted"]})).await;
+    assert!(marks["result"]["events"].as_array().is_some_and(Vec::is_empty), "{marks}");
+
     // Other harnesses keep the refusal.
     assert_eq!(reason(&app.new_session(&work, "fcodex").await), "trust.untrusted");
 

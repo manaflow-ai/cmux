@@ -60,6 +60,9 @@ pub(super) async fn check(
     }
     let Some(paths) = hub.trust_gate() else { return Ok(Verdict::Trusted) };
     let web = for_web(origin, params);
+    // Only the app's own pane opens or runs a restricted chat (`hub/restricted.rs`): never a
+    // Web client, and never a peer forwarding for its pane.
+    let pane = origin == Origin::LocalApp;
     if m == method::SESSION_NEW {
         if params
             .pointer("/_meta/acpmux/peer")
@@ -68,7 +71,7 @@ pub(super) async fn check(
         {
             return Ok(Verdict::Trusted);
         }
-        return check_new(hub, &paths, params, origin.web_class(), web).await;
+        return check_new(hub, &paths, params, origin.web_class(), web, pane).await;
     }
     if m == method::MUX_PREWARM {
         return check_prewarm(hub, &paths, params, web).await.map(|()| Verdict::Trusted);
@@ -84,7 +87,7 @@ pub(super) async fn check(
         let (family, claude) = resolve_harness(hub, harness).await;
         let meta = source.meta();
         // A restricted chat hands off to a restricted Claude Code chat only (`hub/restricted.rs`).
-        let restrictable = meta.restricted && claude && !web;
+        let restrictable = meta.restricted && claude && pane;
         return folder_answered(
             paths.clone(),
             meta.cwd.to_string_lossy().into_owned(),
@@ -122,7 +125,7 @@ pub(super) async fn check(
     // A chat in a folder the person did not trust runs restricted (`hub/restricted.rs`); a fork
     // into another folder only when its chat already does (the fork takes its restriction).
     let restrictable =
-        !web && (fork_cwd.is_none() || meta.restricted) && hub.restrictable(&meta).await;
+        pane && (fork_cwd.is_none() || meta.restricted) && hub.restrictable(&meta).await;
     if folder_answered(paths, cwd.clone(), family, web, restrictable).await? == Verdict::Trusted {
         // Trusted since: the chat's next agent starts without the restrictions.
         if meta.restricted && fork_cwd.is_none() {
@@ -131,11 +134,20 @@ pub(super) async fn check(
         return Ok(Verdict::Trusted);
     }
     // A chat that was not restricted yet becomes so before its next agent starts; one that
-    // cannot (a turn runs, its agent did not end) is refused as before.
+    // cannot yet (a turn runs, its agent did not end) says so, and the next prompt tries again.
     if meta.restricted || hub.set_restricted(&session, true).await {
         return Ok(Verdict::Restricted);
     }
-    Err(refusal(Level::Untrusted, &cwd))
+    Err(not_restricted_yet(&cwd))
+}
+
+/// A chat that runs restricted from its next agent on, but whose agent could not end now. Not
+/// a trust refusal: the pane keeps Send on, so the person sends again once the chat is idle.
+fn not_restricted_yet(cwd: &str) -> RpcError {
+    RpcError::invalid_params(format!(
+        "restricted.busy: the folder is not trusted, and this chat runs restricted once it is idle; send again then ({cwd})"
+    ))
+    .with_data(json!({"reason": "restricted.busy", "cwd": cwd}))
 }
 
 /// `web`: the prompt came from a Web client or a peer forwarding for one.
@@ -169,6 +181,7 @@ async fn check_new(
     params: &Value,
     remote: bool,
     web: bool,
+    pane: bool,
 ) -> Result<Verdict, RpcError> {
     let cwd = params.get("cwd").and_then(Value::as_str).map(str::to_owned);
     let meta = params.get("_meta").and_then(|v| v.get("acpmux"));
@@ -201,8 +214,10 @@ async fn check_new(
         .and_then(|m| m.get("preset"))
         .or_else(|| params.get("preset"))
         .is_some_and(|p| !p.is_null());
+    // Adopting a chat that exists keeps the refusal: it was not started restricted.
+    let adopting = meta.and_then(|m| m.get("adopt")).is_some_and(|a| !a.is_null());
     let (family, claude) = resolve_harness(hub, &family).await;
-    let restrictable = !remote && !web && !preset && claude;
+    let restrictable = pane && !remote && !web && !preset && !adopting && claude;
     folder_answered(paths.clone(), cwd, family, web, restrictable).await
 }
 

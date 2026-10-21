@@ -317,8 +317,8 @@ export function useFolderTrustAsk(
   const restricted =
     ask?.state === "decided" &&
     ask.level === "untrusted" &&
-    notRestricted !== chatKey &&
-    (ask.restricted === true || chat.restricted === true);
+    // acpmux's own mark (the chat's summary) wins over an earlier refusal.
+    (chat.restricted === true || (notRestricted !== chatKey && ask.restricted === true));
   const shownAsk = useMemo(
     () =>
       ask?.state === "decided" && Boolean(ask.restricted) !== restricted
