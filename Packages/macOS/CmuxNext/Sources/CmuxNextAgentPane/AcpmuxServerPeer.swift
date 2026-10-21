@@ -327,6 +327,14 @@ nonisolated enum AcpmuxServerPeer {
         return descriptor
     }
 
+    /// Who answers on `socketPath`, read from a connection's own peer facts and closed at once
+    /// (nothing is written). Nil when nothing answers or the facts cannot be read.
+    static func socketPeer(socketPath: String) -> UnixSocketPeer? {
+        guard let descriptor = try? connect(socketPath) else { return nil }
+        defer { Darwin.close(descriptor) }
+        return UnixSocketPeer(descriptor: descriptor)
+    }
+
     /// The peer's pid (`LOCAL_PEERPID`).
     private static func peerPID(_ descriptor: Int32) -> pid_t? {
         var pid: pid_t = 0

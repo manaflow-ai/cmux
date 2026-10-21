@@ -136,6 +136,9 @@ test("a steer the agent has not read yet shows one check: delivered when the ste
 test("a read steer reads Read by the agent when the chat names no agent", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "landed", text: "Also this" }, {});
   expect(labels()).toEqual(["Read by the agent", "just now", "·", "Copy"]);
+  // The same two checks as any read prompt, and no "Steered · the agent read it" line.
+  expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("true");
+  expect(host.textContent).not.toContain("Steer");
 });
 
 test("Retry under a prompt sends it again (shown under every prompt)", async () => {

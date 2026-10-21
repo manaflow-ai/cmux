@@ -59,6 +59,19 @@ function digestReply(messages: unknown[]): Pick<IncomingMessage, "sessionId" | "
   return { sessionId: from.slice(4), msgId: last.msgId, ...threadId };
 }
 
+/// The message's first line of text as it reads, its spaces collapsed and its Markdown marks
+/// (a heading's or quote's or list item's lead, emphasis, code ticks) dropped: the closed line's
+/// preview.
+export function messagePreview(text: string): string {
+  const line = text.split("\n").find((part) => part.trim()) ?? "";
+  return line
+    .replace(/^\s*(?:#{1,6}\s+|>\s*|[-*+]\s+(?:\[[ xX]\]\s+)?)/, "")
+    .replace(/(\*\*|__|`)/g, "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
 /// What a `user_message` is when not the person's own as recorded, or undefined when it is.
 export function incomingPrompt(
   text: string,

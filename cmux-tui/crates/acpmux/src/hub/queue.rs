@@ -590,12 +590,21 @@ impl Hub {
             self.store.scan_kinds(&session.id, Self::QUEUE_KINDS, &mut |e: EventRecord| {
                 let settled = unstarted.read(&e, &waiting);
                 waiting.retain(|q| q.msg.get("turnId").is_none_or(|t| !settled.contains(t)));
+                let turn_id = e.msg.get("turnId");
+                // Queued or run again under another turn id (a daemon that had not restored it
+                // took its id as new): that copy is the prompt's, so this one does not run too.
+                if matches!(e.kind.as_str(), "queued" | "user_message" | "turn_started")
+                    && let Some(id) = e.msg.get("promptId")
+                {
+                    waiting.retain(|q| {
+                        q.msg.get("promptId") != Some(id) || q.msg.get("turnId") == turn_id
+                    });
+                }
                 if matches!(e.kind.as_str(), "queued" | "user_message")
                     && let Some(id) = e.msg.get("promptId").and_then(Value::as_str)
                 {
                     recorded.insert(id.to_owned());
                 }
-                let turn_id = e.msg.get("turnId");
                 match e.kind.as_str() {
                     "queued" => waiting.push(e),
                     "agent_pair_held"
