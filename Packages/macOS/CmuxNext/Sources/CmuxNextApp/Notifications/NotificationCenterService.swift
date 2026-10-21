@@ -173,10 +173,30 @@ final class NotificationCenterService {
     }
 
     /// A mouse-down landed in `window` at `location` (window coordinates,
-    /// after AppKit dispatched it).
+    /// after AppKit dispatched it): reads the pane under the pointer, never
+    /// another one, so a ring stays until its own pane is clicked. A click
+    /// outside the panes (sidebar, titlebar, tab bar gaps) reads nothing.
     func noteMouseDown(in window: NSWindow?, at location: NSPoint) {
-        guard let tab = focusedTab(in: window) else { return }
+        guard let tab = clickedTab(in: window, at: location) else { return }
         interacted(.click, tabID: tab)
+    }
+
+    /// The selected tab of the pane under `location` in `window`. A window
+    /// that is not a workspace window (a page's own window), or one showing a
+    /// top page, reads the tab that has the keyboard, which the click gave it.
+    func clickedTab(in window: NSWindow?, at location: NSPoint) -> String? {
+        guard let services, let window else { return nil }
+        guard let controller = services.windows.controllers.first(where: { $0.window === window }),
+              controller.state.page == nil, let content = controller.content else { return focusedTab(in: window) }
+        let root = content.layoutView
+        let point = root.convert(location, from: nil)
+        let hits = content.layoutModel.visiblePanes.filter { root.frame(of: $0)?.contains(point) == true }
+        // Overlapping panes (a docked column over the strip): the click focused the front one.
+        let focused = controller.focus.state.pane
+        guard let pane = hits.first(where: { $0.rawValue == focused }) ?? hits.first,
+              let model = content.paneModel(key: pane.rawValue), !model.tabs.isEmpty else { return nil }
+        let selected = controller.state.selection.selection(in: model.id)
+        return (model.tabs.first { $0.id == selected } ?? model.tabs[min(max(model.defaultTabIndex, 0), model.tabs.count - 1)]).id
     }
 
     /// A window's settled focus changed (window key, app active, workspace or
