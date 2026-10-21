@@ -1171,7 +1171,14 @@ In a turn that asks, the turn session runs with acpmux policy `ask` instead of
   card's buttons (`question.answer` on the card in the conversation it was
   posted in, a side conversation included; only the owner's answer counts, and
   another participant's answer closes that card, so the owner gets a fresh
-  one) or with a message `allow` or `deny`. The line shows a line break as
+  one) or with a typed answer, read loosely (case, punctuation and emoji
+  ignored): `allow`, `ALLOW...`, `yes`, `ok`, 👍 or ✅ answer the oldest card;
+  `deny`, `no`, 👎 or ❌ deny it; `allow all` / `deny all` answer every pending
+  card; `allow for this turn` also lets the rest of the turn run; `allow for
+  1h` (or `30m`, `2 hours`, at most a day) also lets the owner's own gated
+  turns (a paired device, Home) run until then, never another participant's.
+  A message with anything else in it ("yes, and check CI") is a message. One
+  line confirms what was answered ("Allowed: run `ls`"). The line shows a line break as
   `⏎` and a cut as "… (cut)". A client that draws no card shows its line and
   options, and an owner that refuses the part gets the same two lines and the
   arguments as text.

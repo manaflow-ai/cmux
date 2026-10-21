@@ -228,11 +228,11 @@ impl Brain {
                 labelled(summary, &text)
             };
             let by_owner = self.settings.membership.is_owner_message(summary, &message);
-            match crate::approval::Answer::parse(&text) {
+            match crate::approval::Reply::parse(&text) {
                 // An answer to this conversation's pending approval (only a
                 // person answers one, never another Chief).
-                Some(answer) if by_owner && self.has_approval(Some(conversation)) => {
-                    self.answer_approval(answer, &message, Some(conversation));
+                Some(reply) if by_owner && self.has_approval(Some(conversation)) => {
+                    self.answer_approval(reply, &message, Some(conversation));
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &labelled) {
                         (self.log)(&format!("logging an approval failed: {e}"));
                     }

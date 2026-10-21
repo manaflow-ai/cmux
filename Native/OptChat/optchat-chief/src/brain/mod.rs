@@ -677,6 +677,13 @@ pub struct Brain {
     /// Requests of the running turn denied again because they repeat one
     /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
     repeat_denials: u32,
+    /// The owner answered "allow for this turn": the running turn's later
+    /// requests run without asking (until it ends or another participant
+    /// joins it).
+    turn_allowed: bool,
+    /// The owner answered "allow for 1h": until this wall clock (ms), the
+    /// owner's own gated turns (a paired device, Home) run without asking.
+    allow_until: Option<u64>,
     /// A remote-origin turn was stopped for a newer message: the turn that
     /// answers both keeps its origin.
     remote_taint: bool,
@@ -804,6 +811,8 @@ impl Brain {
             turn_why: None,
             turn_denied: Vec::new(),
             repeat_denials: 0,
+            turn_allowed: false,
+            allow_until: None,
             remote_taint: false,
             approvals: VecDeque::new(),
             after_turn: None,

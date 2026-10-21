@@ -178,6 +178,10 @@ impl Brain {
             {
                 self.turn_why = Some(why);
             }
+            // "Allow for this turn" was the owner's word on the owner's turn.
+            if non_owner {
+                self.turn_allowed = false;
+            }
             self.turn_ask = self.turn_why.is_some();
             self.interrupt.set_gate(self.turn_ask);
         }

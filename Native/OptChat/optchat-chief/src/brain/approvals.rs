@@ -7,7 +7,9 @@ use cmux_conversation::{Message, Origin};
 use serde_json::{Value, json};
 
 use super::{Brain, reply_entry};
-use crate::approval::{Answer, Pending, is_memory_tool, option_for, question, tool_name};
+use crate::approval::{
+    Answer, Pending, Reply, Scope, describe, is_memory_tool, option_for, question, tool_name,
+};
 
 /// A turn that asks again for a request it was denied this many times is
 /// stopped: the model is not left looping on a refused tool.
@@ -88,12 +90,33 @@ impl Brain {
             }
             return;
         }
+        // The owner allowed the rest of this turn, or for a while.
+        if let Some(standing) = self.standing_allow() {
+            self.respond(&pending, Answer::Allow, standing, None);
+            return;
+        }
         let key = format!(
             "approval:{}:{}",
             self.state.turn.as_ref().map_or("", |t| t.key.as_str()),
             pending.permission_id
         );
         self.ask_person(pending, &key);
+    }
+
+    /// The trace's approver when an earlier answer of the owner covers the
+    /// running turn's requests: "allow for this turn", or an "allow for 1h"
+    /// window, which covers only the owner's own gated turns (a paired
+    /// device, Home), never another participant's.
+    fn standing_allow(&self) -> Option<&'static str> {
+        if self.turn_allowed {
+            return Some("the owner (allowed for this turn)");
+        }
+        let owners = matches!(
+            self.turn_why,
+            Some(crate::approval::Why::Device(_) | crate::approval::Why::Home)
+        );
+        let open = self.allow_until.is_some_and(|until| (self.clock)() < until);
+        (owners && open).then_some("the owner (allowed for a while)")
     }
 
     /// The name of the paired device that sent one of `items` (its
@@ -332,30 +355,77 @@ impl Brain {
             .any(|p| p.conversation.as_deref() == conversation)
     }
 
-    /// A person in `conversation` (None: main) answered that conversation's
-    /// oldest pending approval with `message`; another conversation's
-    /// approvals are never answered from here.
+    /// The owner in `conversation` (None: main) answered with `reply`: the
+    /// conversation's oldest pending approval, or all of them (and, for
+    /// "allow for this turn" or "allow for 1h", the later requests too);
+    /// another conversation's approvals are never answered from here. One
+    /// short line says what was answered.
     pub(super) fn answer_approval(
         &mut self,
-        answer: Answer,
+        reply: Reply,
         message: &Message,
         conversation: Option<&str>,
     ) {
-        let Some(k) = self
+        let mut answered = Vec::new();
+        while let Some(k) = self
             .approvals
             .iter()
             .position(|p| p.conversation.as_deref() == conversation)
-        else {
+        {
+            let Some(pending) = self.approvals.remove(k) else {
+                break;
+            };
+            answered.push(pending);
+            if reply.scope == Scope::Oldest {
+                break;
+            }
+        }
+        if answered.is_empty() {
             return;
-        };
-        let Some(pending) = self.approvals.remove(k) else {
-            return;
-        };
+        }
+        if reply.answer == Answer::Allow {
+            match reply.scope {
+                Scope::Turn => self.turn_allowed = true,
+                Scope::For(ms) => self.allow_until = Some((self.clock)().saturating_add(ms)),
+                Scope::Oldest | Scope::Pending => {}
+            }
+        }
         let install = message
             .origin
             .as_ref()
             .map(|Origin::Remote { install }| install.clone());
-        self.respond(&pending, answer, &message.author, install.as_deref());
+        for pending in &answered {
+            self.respond(pending, reply.answer, &message.author, install.as_deref());
+        }
+        let label = match (reply.answer, reply.scope) {
+            (Answer::Deny, _) => "Denied".to_owned(),
+            (Answer::Allow, Scope::Turn) => "Allowed for this turn".to_owned(),
+            (Answer::Allow, Scope::For(ms)) => format!("Allowed for {}", window(ms)),
+            (Answer::Allow, _) => "Allowed".to_owned(),
+        };
+        let what = answered
+            .iter()
+            .map(|p| {
+                let action = describe(&p.tool, p.request.pointer("/toolCall/rawInput"));
+                match &p.child {
+                    Some(child) => format!("{child}: {action}"),
+                    None => action,
+                }
+            })
+            .collect::<Vec<_>>()
+            .join("; ");
+        let Some(target) = conversation
+            .map(str::to_owned)
+            .or_else(|| self.state.conversation.clone())
+        else {
+            return;
+        };
+        let key = format!("approval-answered:{}", message.id);
+        self.state
+            .outbox
+            .push(reply_entry(target, &key, &format!("{label}: {what}")));
+        self.save();
+        self.flush_outbox();
     }
 
     /// Denies the running turn's pending approvals (`why` is the trace's
@@ -415,5 +485,15 @@ impl Brain {
                 (self.log)(&format!("recording an approval in the trace: {e}"));
             }
         }
+    }
+}
+
+/// A window's length the way a person writes it: "1h", "30m", "1h 30m".
+fn window(ms: u64) -> String {
+    let minutes = ms / 60_000;
+    match (minutes / 60, minutes % 60) {
+        (0, m) => format!("{m}m"),
+        (h, 0) => format!("{h}h"),
+        (h, m) => format!("{h}h {m}m"),
     }
 }

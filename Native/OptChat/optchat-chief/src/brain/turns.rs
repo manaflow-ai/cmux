@@ -470,6 +470,7 @@ impl Brain {
         self.turn_ask = self.turn_why.is_some();
         self.turn_denied.clear();
         self.repeat_denials = 0;
+        self.turn_allowed = false;
         self.clear_turn_approvals();
         self.interrupt.set_gate(self.turn_ask);
         // The shared rule (cmux_chief::policy::turn_policy, the corpus's
@@ -1266,6 +1267,7 @@ impl Brain {
         self.turn_why = None;
         self.turn_denied.clear();
         self.repeat_denials = 0;
+        self.turn_allowed = false;
         self.clear_turn_approvals();
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
@@ -1582,6 +1584,7 @@ impl Brain {
         self.turn_why = None;
         self.turn_denied.clear();
         self.repeat_denials = 0;
+        self.turn_allowed = false;
         self.denial_stopped = None;
         self.clear_turn_approvals();
         self.interrupt.set_gate(false);

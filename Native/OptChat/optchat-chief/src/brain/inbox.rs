@@ -266,12 +266,12 @@ impl Brain {
             // An answer to a pending approval of the running turn: it
             // answers, is logged, and is not a new message (it neither
             // queues nor interrupts the turn).
-            match crate::approval::Answer::parse(&text) {
-                Some(answer)
+            match crate::approval::Reply::parse(&text) {
+                Some(reply)
                     if self.settings.membership.is_owner_message(summary, &message)
                         && self.has_approval(None) =>
                 {
-                    self.answer_approval(answer, &message, None);
+                    self.answer_approval(reply, &message, None);
                     if let Err(e) = self.chat.append(optchat_core::Kind::User, &text) {
                         (self.log)(&format!("logging an approval failed: {e}"));
                     }

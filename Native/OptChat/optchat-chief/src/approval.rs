@@ -89,22 +89,114 @@ pub fn is_memory_tool(request: &Value) -> bool {
     MEMORY_TOOLS.contains(&tool_name(request).as_str())
 }
 
-/// A person's answer in a chat message: `allow` or `deny` (any case, alone).
+/// A person's answer: allow or deny.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Answer {
     Allow,
     Deny,
 }
 
-impl Answer {
-    pub fn parse(text: &str) -> Option<Answer> {
-        match text.trim().to_ascii_lowercase().as_str() {
-            "allow" => Some(Answer::Allow),
-            "deny" => Some(Answer::Deny),
-            _ => None,
-        }
-    }
+/// How far a typed answer reaches.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Scope {
+    /// The conversation's oldest pending request.
+    Oldest,
+    /// Every pending request of the conversation.
+    Pending,
+    /// Every pending request, and the running turn's later ones.
+    Turn,
+    /// Every pending request, and for this many ms the later requests of
+    /// the owner's own gated turns (a paired device, Home).
+    For(u64),
+}
 
+/// A chat message that answers approvals: "allow", "ALLOW...", "yes",
+/// "👍", "allow all", "allow for this turn", "allow for 1h". Anything
+/// else in the message makes it a message, not an answer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reply {
+    pub answer: Answer,
+    pub scope: Scope,
+}
+
+/// The longest window `allow for ...` opens.
+const MAX_WINDOW_MS: u64 = 24 * 60 * 60 * 1000;
+
+impl Reply {
+    pub fn parse(text: &str) -> Option<Reply> {
+        let mut normal = String::new();
+        for c in text.chars() {
+            match c {
+                '\u{1f44d}' | '\u{2705}' | '\u{2714}' => normal.push_str(" allow "),
+                '\u{1f44e}' | '\u{274c}' | '\u{1f6ab}' => normal.push_str(" deny "),
+                c if c.is_alphanumeric() => normal.extend(c.to_lowercase()),
+                _ => normal.push(' '),
+            }
+        }
+        let words: Vec<&str> = normal.split_whitespace().collect();
+        let (first, rest) = words.split_first()?;
+        let answer = match *first {
+            "allow" | "allowed" | "approve" | "approved" | "yes" | "y" | "yep" | "yeah" | "ok"
+            | "okay" | "sure" => Answer::Allow,
+            "deny" | "denied" | "reject" | "no" | "n" | "nope" => Answer::Deny,
+            _ => return None,
+        };
+        let mut scope = Scope::Oldest;
+        let mut dangling_for = false;
+        let mut k = 0;
+        while k < rest.len() {
+            let word = rest[k];
+            k += 1;
+            match word {
+                "please" | "pls" | "thanks" | "it" | "to" | "of" | "the" | "this" | "rest" => {}
+                "all" | "them" | "everything" => {
+                    if scope == Scope::Oldest {
+                        scope = Scope::Pending;
+                    }
+                }
+                "for" => dangling_for = true,
+                "turn" => {
+                    scope = Scope::Turn;
+                    dangling_for = false;
+                }
+                _ => {
+                    // A duration: "1h", "30m", "2 hours", "an hour".
+                    let digits = word
+                        .find(|c: char| !c.is_ascii_digit())
+                        .unwrap_or(word.len());
+                    let (count, unit) = if matches!(word, "a" | "an" | "one") {
+                        k += 1;
+                        (1, rest.get(k - 1).copied())
+                    } else if digits == 0 {
+                        return None;
+                    } else if digits == word.len() {
+                        k += 1;
+                        (word.parse::<u64>().ok()?, rest.get(k - 1).copied())
+                    } else {
+                        (word[..digits].parse::<u64>().ok()?, Some(&word[digits..]))
+                    };
+                    let unit_ms: u64 = match unit? {
+                        "h" | "hr" | "hrs" | "hour" | "hours" => 60 * 60 * 1000,
+                        "m" | "min" | "mins" | "minute" | "minutes" => 60 * 1000,
+                        _ => return None,
+                    };
+                    scope = Scope::For(count.saturating_mul(unit_ms).min(MAX_WINDOW_MS));
+                    dangling_for = false;
+                }
+            }
+        }
+        if dangling_for {
+            return None;
+        }
+        // Deny reaches only what is pending.
+        if answer == Answer::Deny && scope != Scope::Oldest {
+            scope = Scope::Pending;
+        }
+        Some(Reply { answer, scope })
+    }
+}
+
+impl Answer {
     pub fn as_str(self) -> &'static str {
         match self {
             Answer::Allow => "allow",
@@ -164,6 +256,24 @@ pub fn describe(tool: &str, input: Option<&Value>) -> String {
             (Some(id), None) => format!("tell subagent {id}"),
             _ => "tell a subagent".to_owned(),
         },
+        "mcp__optchat__send" => {
+            let files = input
+                .and_then(|i| i.get("attachments"))
+                .and_then(Value::as_array)
+                .map_or(0, Vec::len);
+            let text =
+                field("text").map(|t| format!("send you \u{201c}{}\u{201d}", one_line(&t, 80)));
+            match (text, files) {
+                (Some(t), 0) => t,
+                (Some(t), 1) => format!("{t} with a file from this Mac"),
+                (Some(t), n) => format!("{t} with {n} files from this Mac"),
+                (None, 0) => "send you a message".to_owned(),
+                (None, _) => "send you files from this Mac".to_owned(),
+            }
+        }
+        "mcp__optchat__control" if field("action").is_none_or(|a| a == "status") => {
+            "check on its subagents".to_owned()
+        }
         "mcp__optchat__control" => match (field("action"), field("id")) {
             (Some(a), Some(id)) => format!("{a} subagent {id}"),
             (Some(a), None) => format!("change subagents ({a})"),
