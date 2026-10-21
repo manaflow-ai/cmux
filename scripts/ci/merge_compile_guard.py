@@ -23,8 +23,7 @@ token can post any status, and a workflow on another branch or a tag any run, so
 that run. A Release compile that finished red (any conclusion but success, skipped, neutral or
 cancelled) stays a refusal, even with a rerun queued: the fleet compiles on Linux with the pool
 SDK, not Xcode 26 Release. The pass covers what `cmux-ci compile-check --app`
-compiles (#22845 sat queued over an hour after its fleet pass, with 60 minis offline), and the
-test targets the change reaches (`package-test-lane.sh compile-tests` on a fleet Mac).
+compiles (#22845 sat queued over an hour after its fleet pass, with 60 minis offline).
 
 A compile the router skipped (iOS, packages outside the CmuxNext graph, forks) or a head cmux-next
 never ran on does not apply, and neither does a PR that changes no Swift. The command is read the

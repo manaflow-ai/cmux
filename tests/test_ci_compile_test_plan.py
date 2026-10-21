@@ -12,7 +12,8 @@ scripts/ci/compile_test_plan.py picks what the check compiles from the
 changed files: the CmuxNext test targets that depend on a changed target (the
 SwiftPM target graph cmux_next_route.py already reads), and the macOS-tested
 local packages whose sources or path dependencies changed. package-test-lane.sh
-`compile-tests MERGE_BASE` builds that plan on a fleet Mac.
+`compile-tests MERGE_BASE` builds that plan on a fleet Mac, as the advisory
+fleet-test-compile.yml check; fleet/compile-check stays the app compile.
 """
 
 from __future__ import annotations
@@ -104,6 +105,9 @@ class CompileTestPlanTests(unittest.TestCase):
     def test_changes_that_compile_no_test_are_an_empty_plan(self) -> None:
         self.assertEqual(self.plan(["docs/ci/merge-freeze.md", "web/app/page.tsx", "README.md"]), {})
         self.assertEqual(self.plan([f"{CMUXNEXT}/README.md"]), {})
+        # CI and app-host changes compile no package test: the advisory check queues no Mac.
+        self.assertEqual(self.plan(["scripts/ci/cmux_next_route.py", "scripts/cmux-next/prepush-gate.py",
+                                    "App/CmuxNextApp.swift", "webviews/src/app.tsx"]), {})
 
     def test_cli_prints_one_line_per_package(self) -> None:
         with tempfile.TemporaryDirectory() as scratch:

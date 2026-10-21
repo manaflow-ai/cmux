@@ -37,9 +37,10 @@
 #             can break: scripts/ci/compile_test_plan.py over `git diff
 #             MERGE_BASE_SHA HEAD` (the CmuxNext test targets that depend on a
 #             changed target, and the lane's packages whose sources or path
-#             dependencies changed). fleet-compile-check.yml runs it beside the
-#             app compile, so fleet/compile-check covers test targets (#23360,
-#             #23163). Exit 0 when every planned target compiled (or none was
+#             dependencies changed). fleet-test-compile.yml runs it on pull
+#             requests as an advisory check (fleet/compile-check compiles only
+#             the app, which links no test target: #23360, #23163). Exit 0
+#             when every planned target compiled (or none was
 #             planned), 1 after "compile-tests: a test target did not
 #             compile", anything else when there is no verdict.
 #
