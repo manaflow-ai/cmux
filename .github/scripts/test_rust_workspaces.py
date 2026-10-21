@@ -86,6 +86,10 @@ class RustWorkspacesTests(unittest.TestCase):
         # own's tests read fixtures from the tree through CARGO_MANIFEST_DIR.
         self.write("ws/crates/own/tests/t.rs", 'let dir = Path::new(env!("CARGO_MANIFEST_DIR"))\n    .join("../../../fixtures");\n')
         self.write("fixtures/f.json", "{}\n")
+        # term's build script reads a token file through a const; its tests name a
+        # "../" path that does not exist, which must not count.
+        self.write("term/build.rs", 'const TOKENS: &str = "../tokens/t.json";\nconst NOPE: &str = "../escape";\nfn main() {}\n')
+        self.write("tokens/t.json", "{}\n")
         # vws: a virtual workspace (no [package] at its root) with a lockfile and toolchain pin.
         self.write("vws/Cargo.toml", '[workspace]\nmembers = ["m"]\n')
         self.write("vws/Cargo.lock", "# lock\n")
@@ -214,6 +218,7 @@ class RustWorkspacesTests(unittest.TestCase):
             "proto/v1_y.json": ["solo"],         # a concat! prefix: its directory
             "fixtures/f.json": ["ws/crates/own"],  # CARGO_MANIFEST_DIR joined with a path
             "docs/vws-protocol.json": ["vws"],   # the entry's inputs
+            "tokens/t.json": ["term"],           # a "../" const naming a tracked file
         }
         for path, planned in cases.items():
             with self.subTest(path=path):

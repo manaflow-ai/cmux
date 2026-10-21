@@ -19,8 +19,8 @@ workspaces a change between --base and HEAD reaches: a file under the workspace,
 or under a package it uses by path (any dependency kind of its own members; normal
 and build dependencies further down), the manifest such a package inherits from, a
 file those packages' sources read from elsewhere in the tree (an `include_str!`,
-`include_bytes!` or `CARGO_MANIFEST_DIR` join of a literal path), or a path in the
-entry's `inputs`. With no usable base, or when the list or
+`include_bytes!` or `CARGO_MANIFEST_DIR` join of a literal path, or any "../..."
+literal naming a tracked path), or a path in the entry's `inputs`. With no usable base, or when the list or
 this check changes, it plans every one. `run` lints and tests one workspace:
 `cargo clippy --workspace --all-targets -- -D warnings`, then `cargo test --workspace`,
 with --locked when it tracks a Cargo.lock; both run, and either failing fails it.
@@ -54,6 +54,9 @@ DEPENDENCY_TABLES = ("dependencies", "dev-dependencies", "build-dependencies")
 # A literal path a source file reads: include_str!("p"), include_bytes!(concat!("p", ...)),
 # relative to the file; or env!("CARGO_MANIFEST_DIR") joined with "p", relative to the package.
 INCLUDE = re.compile(r'include_(?:str|bytes)!\(\s*(concat!\(\s*)?"([^"]+)"')
+# Any other "../..." string literal: a helper's join or a build script's const. It counts
+# when it names a tracked path from the source's directory or one above it.
+PARENT_LITERAL = re.compile(r'"((?:\.\./)+[^"\s{}*]+)"')
 MANIFEST_DIR = re.compile(
     r'(?:env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*\)?\s*\.join\(\s*|concat!\(\s*env!\(\s*"CARGO_MANIFEST_DIR"\s*\)\s*,\s*)"([^"]+)"')
 
@@ -67,7 +70,9 @@ class Tree:
 
     def __init__(self, repo: Path):
         self.repo = repo
-        self.sources = [path for path in git(repo, "ls-files", "-z", "--", "*.rs").split("\0") if path]
+        tracked = [path for path in git(repo, "ls-files", "-z").split("\0") if path]
+        self.sources = [path for path in tracked if path.endswith(".rs")]
+        self.tracked = set(tracked) | {str(parent) for path in tracked for parent in PurePosixPath(path).parents}
         self.manifests: dict[str, dict] = {}
         for path in git(repo, "ls-files", "-z", "--", "*Cargo.toml", "Cargo.toml").split("\0"):
             if PurePosixPath(path).name == "Cargo.toml" and (repo / path).is_file():
@@ -164,8 +169,13 @@ class Tree:
                 read = [(PurePosixPath(source).parent, literal if not prefix or literal.endswith("/")
                          else str(PurePosixPath(literal).parent)) for prefix, literal in INCLUDE.findall(text)]
                 read += [(PurePosixPath(directory), literal) for literal in MANIFEST_DIR.findall(text)]
-                for base, literal in read:
-                    path = os.path.normpath(str(base / literal.lstrip("/")))
+                paths = {os.path.normpath(str(base / literal.lstrip("/"))) for base, literal in read}
+                for literal in PARENT_LITERAL.findall(text):
+                    for base in (PurePosixPath(source).parent, *PurePosixPath(source).parent.parents):
+                        path = os.path.normpath(str(base / literal))
+                        if path in self.tracked:
+                            paths.add(path)
+                for path in paths:
                     if not path.startswith("..") and not any(under(path, d) for d in directories):
                         found.add(path)
         return found
