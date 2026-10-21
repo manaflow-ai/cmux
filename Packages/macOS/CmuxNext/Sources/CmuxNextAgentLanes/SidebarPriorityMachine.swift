@@ -46,7 +46,8 @@ public struct SidebarPriorityMachine {
     }
 
     /// The tab's chat as a lane: an unread warning is a question or permission prompt, an unread
-    /// error a failed turn or a gone agent, any other unread notice a result nobody has seen.
+    /// error a failed turn or a gone agent, any other unread notice a result nobody has seen. It
+    /// has no folder or pull requests, so it is never Red CI (``AgentPriorityChats/failingChecks``).
     private func lane(_ tab: TabModel, ref: AgentSessionRef, session: String) -> AgentActivityLane {
         let notice = tab.hasUnread ? tab.notification : nil
         let state: AgentActivityLane.State = switch notice?.level {
@@ -58,11 +59,27 @@ public struct SidebarPriorityMachine {
         let createdAtMs = notice.flatMap { marker in
             marker.createdAtMs ?? store.notifications.last { $0.notification == marker.notification }?.createdAtMs
         }
+        // A notice posted before the app connected has no time here: it counts from when the app
+        // first saw it, so each new notice is a new state (a read or snooze mark on the last one
+        // no longer holds).
+        let since = createdAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) }
+            ?? notice.map { Self.firstSeen("\(session)#\($0.notification.rawValue)") }
         let title = tab.displayTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         return AgentActivityLane(id: session, name: session, title: title.isEmpty ? ref.harness ?? session : title, peer: name,
-                                 parent: nil, state: state, since: createdAtMs.map { Date(timeIntervalSince1970: Double($0) / 1000) },
+                                 parent: nil, state: state, since: since,
                                  error: state == .failed ? text : nil, harness: ref.harness, step: state == .failed ? nil : text,
                                  unread: notice != nil && state == .idle)
+    }
+
+    /// When the app first saw each untimed notice, by session and notice (bounded).
+    private static var seen: [String: Date] = [:]
+
+    private static func firstSeen(_ key: String) -> Date {
+        if let date = seen[key] { return date }
+        if seen.count >= 4096 { seen.removeAll() }
+        let now = Date()
+        seen[key] = now
+        return now
     }
 
     private static func strength(_ lane: AgentActivityLane) -> Int {

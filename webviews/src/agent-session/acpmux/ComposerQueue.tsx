@@ -281,6 +281,12 @@ export function ComposerQueue({
         }, 500),
       );
     });
+  // The open edit ends unsaved, its images all kept; focus goes back to its row.
+  const cancel = (index: number) => {
+    draft.current = undefined;
+    setEditing(undefined);
+    focusRow(index);
+  };
   const save = (entry: QueuedEntry, text: string) => {
     const images = entry.images ?? [];
     const kept = images.filter((image) => !dropped.has(image.id));
@@ -420,12 +426,7 @@ export function ComposerQueue({
           entry={entry}
           label={t("composer.queueEdit")}
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
-          onDone={(text) => {
-            if (text !== undefined) return save(entry, text);
-            draft.current = undefined;
-            setEditing(undefined);
-            focusRow(index);
-          }}
+          onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
       ) : (
         <button
@@ -467,6 +468,7 @@ export function ComposerQueue({
             ? () => save(entry, draft.current?.id === entry.id ? draft.current.text : entry.prompt)
             : undefined
         }
+        onCancel={editing === entry.id ? () => cancel(index) : undefined}
       />
     </>
   );

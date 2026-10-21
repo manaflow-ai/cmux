@@ -106,7 +106,9 @@ public final class SidebarPriorityFeed {
     /// again after it: a wake that leaves the rows as they were (the bell off) emits nothing.
     private func scheduleNextChange() {
         let now = Date()
-        guard let next = ranking.nextChange(lanes, marks: marks.state, now: now) else { return nextChange.cancel() }
+        guard let next = ranking.nextChange(lanes, marks: marks.state, now: now, failingChecks: failingChecks) else {
+            return nextChange.cancel()
+        }
         // Rounded up and a little late, so the wake never lands just before the change.
         let milliseconds = Int64((max(1, next.timeIntervalSince(now)) * 1000).rounded(.up)) + 50
         nextChange.schedule(after: .milliseconds(milliseconds)) { @MainActor [weak self] in
@@ -114,6 +116,10 @@ public final class SidebarPriorityFeed {
             self?.scheduleNextChange()
         }
     }
+
+    /// The chats with a pull request whose checks fail (Red CI), as the session tree's pull request
+    /// reads last answered (`AgentPriorityChats.failingChecks`): no GitHub read of its own.
+    private var failingChecks: Set<String> { chats.failingChecks }
 }
 
 /// Bumped at each time-only change of the Priority rows; observed, so a bump redraws.

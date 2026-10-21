@@ -40,12 +40,16 @@ public final class AgentPriorityChats {
     private let ranking = AgentPriorityRanking()
     /// `_acpmux/archive` for a session on the acpmux socket at the first argument.
     private let archiveRequest: @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void
+    /// Whether a chat's pull request checks fail (Red CI), by default the session tree feed's answer.
+    private let checksFailing: @MainActor (AgentActivityLane) -> Bool
 
     public init(marks: AgentPriorityMarks = .shared, stores: [AgentLaneStore] = [.shared, .chief], machines: Machines = .none,
+                checksFailing: (@MainActor (AgentActivityLane) -> Bool)? = nil,
                 archive: @escaping @Sendable (_ socketPath: String, _ sessionId: String) async throws -> Void) {
         self.marks = marks
         self.stores = stores
         self.machines = machines
+        self.checksFailing = checksFailing ?? { SidebarSessionTreeFeed.shared.checksFailing($0) }
         self.archiveRequest = archive
     }
 
@@ -81,10 +85,19 @@ public final class AgentPriorityChats {
         stores.lazy.compactMap { $0.lanes[id] }.first ?? lanes.first { $0.id == id }
     }
 
-    /// The rows as the Priority view ranks them now, each named by its machine.
+    /// The chats with a pull request whose checks fail (Red CI). Only this Mac's and the Chief
+    /// home's: the session tree reads pull requests from a lane's folder and opened URLs, which
+    /// another machine's chat tab does not carry, so a remote row is never Red CI.
+    public var failingChecks: Set<String> {
+        var seen = Set<String>()
+        return Set(stores.flatMap { $0.lanes.values }.filter { seen.insert($0.id).inserted && checksFailing($0) }.map(\.id))
+    }
+
+    /// The rows as the Priority view ranks them now, Red CI included and each named by its
+    /// machine, so a row's menu and the palette read the state the row shows.
     public func entries(now: Date = Date()) -> [SidebarPriorityEntry] {
         let all = chats()
-        return ranking.entries(all.lanes, marks: marks.state, now: now) { all.tags[$0.id] }
+        return ranking.entries(all.lanes, marks: marks.state, now: now, failingChecks: failingChecks) { all.tags[$0.id] }
     }
 
     /// The chat's row, nil when the view does not list it (archived, snoozed, idle too long).

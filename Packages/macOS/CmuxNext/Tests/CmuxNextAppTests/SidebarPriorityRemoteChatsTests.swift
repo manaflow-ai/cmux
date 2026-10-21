@@ -40,11 +40,13 @@ struct SidebarPriorityRemoteChatsTests {
     }
 
     /// The view's rows (`panel`) and the chats its row actions write through.
-    static func feed(local: [AgentActivityLane], machines: AgentPriorityChats.Machines)
+    static func feed(local: [AgentActivityLane], machines: AgentPriorityChats.Machines,
+                     checksFailing: @escaping @MainActor (AgentActivityLane) -> Bool = { _ in false })
         -> (panel: @MainActor () -> SidebarPriorityPanel?, chats: AgentPriorityChats) {
         let store = AgentLaneStore()
         store.lanes = Dictionary(uniqueKeysWithValues: local.map { ($0.id, $0) })
-        let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], machines: machines) { _, _ in }
+        let chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store], machines: machines,
+                                       checksFailing: checksFailing) { _, _ in }
         let feed = SidebarPriorityFeed(settings: .init(enabled: { true }, shown: { true }),
                                        hooks: .init(shortcut: { nil }, open: { _ in }, rowAction: { _ in }, toggleShown: {}), chats: chats)
         return ({ feed.panel() }, chats)
@@ -101,5 +103,27 @@ struct SidebarPriorityRemoteChatsTests {
         entries = try #require(feed.panel()).entries
         #expect(entries.first { $0.id == "mac" }?.machine == "cosmic-gray", "sidebar.showLocalMachine tags this Mac's rows")
         #expect(entries.first { $0.id == "peer-asks" }?.machine == "Studio Mini")
+    }
+
+    @Test func aRemoteRowIsNeverRedCIAndMarksReadAsItsNoticeAllows() throws {
+        let vm = Self.tree([
+            Self.chatTab(1, session: "vm-asks", host: "install:vm", title: "Fix", notice: (41, .warning, unread: true)),
+            Self.chatTab(2, session: "vm-done", host: "install:vm", title: "Bump", notice: (42, .info, unread: true)),
+            Self.chatTab(3, session: "vm-quiet", host: "install:vm", title: "Read"),
+        ])
+        // Every chat's checks "fail": only this Mac's chat can be Red CI; a remote tab has no pull request.
+        let feed = Self.feed(local: [Self.lane("mac-working", .working, ago: 5)],
+                             machines: .init(remote: { [SidebarPriorityMachine(name: "gpu-box", store: vm)] }, peer: { _ in nil }, local: { nil }),
+                             checksFailing: { _ in true })
+        let entries = try #require(feed.panel()).entries
+        let row = { (id: String) in entries.first { $0.id == id } }
+        #expect(row("mac-working")?.state == .ciFailing)
+        #expect(feed.chats.failingChecks == ["mac-working"])
+        #expect(row("vm-asks")?.state == .needsYou && row("vm-asks")?.canMarkRead == false)
+        #expect(row("vm-done")?.state == .done && row("vm-done")?.canMarkRead == true)
+        #expect(row("vm-quiet")?.state == .idle && row("vm-quiet")?.canMarkRead == false)
+        // Marking the remote result read drops it to idle until that machine posts a new notice.
+        #expect(feed.chats.markRead("vm-done"))
+        #expect(try #require(feed.panel()).entries.first { $0.id == "vm-done" }?.state == .idle)
     }
 }
