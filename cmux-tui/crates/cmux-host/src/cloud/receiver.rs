@@ -165,6 +165,8 @@ impl<H: Http> CloudClient<H> {
             self.clear_token();
             return Err(UNAVAILABLE.into());
         }
+        // Check before the required-field adapter normalizes policy into Value.
+        let _: UniqueJson = serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
         let read: ReadResponse<RequiredPolicy> =
             serde_json::from_slice(&bytes).map_err(|_| UNAVAILABLE)?;
         if read.op != POLICY_OP
