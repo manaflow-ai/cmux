@@ -133,3 +133,24 @@ test("before the session says where it runs there is no line", async () => {
   ));
   expect(line()).toBeNull();
 });
+
+test("a local worktree chat leaves the branch to the worktree pill; a remote one keeps it", async () => {
+  const worktree = { ...local, worktree: "/Users/leo/Projects/cmux-wt/inspector" } as Summary;
+  await render(({ EnvironmentLine }) => <EnvironmentLine summary={worktree} machineName="cosmic-gray" />);
+  expect(line()!.querySelector(".acpmux-env-line__branch")).toBeNull();
+  expect(line()!.getAttribute("aria-label")).toBe("Environment: cosmic-gray · cmux");
+  await render(({ EnvironmentLine }) => (
+    <EnvironmentLine
+      summary={{ ...worktree, peer: "huge-blue", host: "huge-blue" } as Summary}
+      peerKinds={{ "huge-blue": "ssh" }}
+    />
+  ));
+  expect(line()!.querySelector(".acpmux-env-line__branch")?.textContent).toBe("feat/inspector");
+});
+
+test("the root folder reads /", async () => {
+  await render(({ EnvironmentLine }) => (
+    <EnvironmentLine summary={{ cwd: "/", branch: "main" } as Summary} machineName="cosmic-gray" />
+  ));
+  expect(line()!.querySelector(".acpmux-env-line__folder")?.textContent).toBe("/");
+});
