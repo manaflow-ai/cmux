@@ -1,4 +1,5 @@
 mod plugin_generation;
+use super::output_cleanup::pruned_gap;
 use super::*;
 use base64::Engine;
 use flate2::bufread::GzDecoder;
@@ -13,7 +14,7 @@ pub(crate) mod salvage;
 const JOURNAL_RECORD_SCHEMA_VERSION: u32 = 1;
 const MAX_JOURNAL_PAGE_SIZE: usize = 1024;
 pub(crate) const MAX_JOURNAL_SEGMENT_UNCOMPRESSED_BYTES: usize = 16 * 1024 * 1024;
-const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
+pub(crate) const MAX_JOURNAL_SEGMENT_COMPRESSED_BYTES: usize = 32 * 1024 * 1024;
 pub(crate) const MAX_JOURNAL_CONTENT_BYTES: usize = 256 * 1024;
 const MIGRATION_EVENT_ID: &str = "event_session_journal_v9_migration";
 const MIGRATION_EVENT_KIND: &str = "session.journal.migrated";
@@ -291,7 +292,8 @@ impl JournalRestoreCursor {
                 break;
             };
             self.note_segment_decoded();
-            let decoded = decode_journal_segment(self.load_segment(&segment_id)?)?;
+            let row = self.load_segment(&segment_id)?;
+            let decoded = decode_journal_segment(&self.connection, row)?;
             if let Some(previous_end) = self.previous_segment_end {
                 anyhow::ensure!(
                     decoded.start_sequence == previous_end + 1,
@@ -339,7 +341,13 @@ impl JournalRestoreCursor {
             }
         }
         anyhow::ensure!(
-            self.active_sequence == self.target_head || !records.is_empty(),
+            self.active_sequence == self.target_head
+                || !records.is_empty()
+                || pruned_gap(
+                    &self.connection,
+                    self.active_sequence,
+                    self.target_head.saturating_add(1)
+                )?,
             "session journal contains a gap after sequence {}",
             self.active_sequence
         );
@@ -411,13 +419,20 @@ impl JournalRestoreCursor {
     ) -> anyhow::Result<()> {
         let expected = self.active_sequence.saturating_add(1);
         anyhow::ensure!(
-            record.sequence == expected,
+            record.sequence == expected
+                || (record.sequence > expected
+                    && pruned_gap(&self.connection, self.active_sequence, record.sequence)?),
             "session journal contains a gap before sequence {}",
             record.sequence
         );
         self.active_sequence = record.sequence;
         records.push(record);
         Ok(())
+    }
+
+    /// Every sequence after `last` through the head is a pruned range.
+    pub(crate) fn tail_is_pruned(&self, last: u64) -> anyhow::Result<bool> {
+        pruned_gap(&self.connection, last, self.target_head.saturating_add(1))
     }
 
     pub(crate) fn finish(mut self) -> anyhow::Result<()> {
@@ -586,6 +601,7 @@ pub(crate) fn create_session_journal_schema(transaction: &Transaction<'_>) -> an
     }
     ensure_session_journal_content_schema(transaction)?;
     ensure_journal_event_index_schema(transaction)?;
+    transaction.execute_batch(output_cleanup::PRUNED_RANGES_SCHEMA)?;
     Ok(())
 }
 
@@ -1389,17 +1405,21 @@ pub(crate) fn query_session_journal_after(
         .map(|row| decode_record(row?))
         .collect::<anyhow::Result<Vec<_>>>()?;
     records.extend(active);
-    let mut expected_sequence = sequence.saturating_add(1);
+    let mut previous = sequence;
     for record in &records {
         anyhow::ensure!(
-            record.sequence == expected_sequence,
+            record.sequence == previous.saturating_add(1)
+                || (record.sequence > previous.saturating_add(1)
+                    && pruned_gap(connection, previous, record.sequence)?),
             "session journal contains a gap before sequence {}",
             record.sequence
         );
-        expected_sequence = expected_sequence.saturating_add(1);
+        previous = record.sequence;
     }
     anyhow::ensure!(
-        sequence == head_sequence || !records.is_empty(),
+        sequence == head_sequence
+            || !records.is_empty()
+            || pruned_gap(connection, sequence, head_sequence.saturating_add(1))?,
         "session journal contains a gap after sequence {sequence}"
     );
     Ok(SessionJournalPage { head_sequence, records })
@@ -1567,7 +1587,7 @@ fn archived_non_output_after(
             continue;
         }
         let segment = load_journal_segment(connection, segment_id)?;
-        let decoded = decode_journal_segment(segment)?;
+        let decoded = decode_journal_segment(connection, segment)?;
         for record in decoded.records.into_iter().filter(|r| {
             r.sequence > sequence && r.sequence <= through && r.kind != "terminal.output"
         }) {
@@ -1617,7 +1637,7 @@ fn backfill_legacy_journal_segment_kinds(connection: &Connection) -> anyhow::Res
     };
     for segment_id in ids {
         let segment = load_journal_segment(connection, &segment_id)?;
-        let kinds = decode_journal_segment(segment)?
+        let kinds = decode_journal_segment(connection, segment)?
             .records
             .into_iter()
             .map(|record| record.kind)
@@ -1653,7 +1673,7 @@ fn load_journal_segment(
         .with_context(|| format!("load journal segment {segment_id}"))
 }
 
-fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
+pub(super) fn query_journal_head(connection: &Connection) -> anyhow::Result<u64> {
     let head_sequence = connection.query_row(
         "SELECT MAX(
            COALESCE((SELECT MAX(sequence) FROM session_journal), 0),
@@ -1696,7 +1716,7 @@ pub(crate) fn query_session_journal_sequences(
         .collect::<Result<Vec<_>, _>>()?;
     drop(segment_statement);
     for segment in segments {
-        for record in decode_journal_segment(segment)?.records {
+        for record in decode_journal_segment(connection, segment)?.records {
             if requested_set.contains(&record.sequence) {
                 records.insert(record.sequence, record);
             }
@@ -1795,9 +1815,9 @@ fn query_session_journal_after_subjects(
     Ok(SessionJournalSubjectPage { head_sequence, scanned_through, records })
 }
 
-type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
+pub(super) type JournalSegmentRow = (String, i64, i64, i64, String, Vec<u8>, i64, Vec<u8>);
 
-fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
+pub(super) fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1810,13 +1830,19 @@ fn journal_segment_row(row: &Row<'_>) -> rusqlite::Result<JournalSegmentRow> {
     ))
 }
 
-struct DecodedJournalSegment {
+pub(super) struct DecodedJournalSegment {
     start_sequence: u64,
     end_sequence: u64,
-    records: Vec<SessionJournalRecord>,
+    pub(super) records: Vec<SessionJournalRecord>,
 }
 
-fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJournalSegment> {
+/// A segment that output cleanup re-encoded keeps its sequence range but
+/// holds fewer records: every missing run must be a pruned range of
+/// `connection` (see `output_cleanup::pruned`). Any other gap is an error.
+pub(super) fn decode_journal_segment(
+    connection: &Connection,
+    row: JournalSegmentRow,
+) -> anyhow::Result<DecodedJournalSegment> {
     let (
         segment_id,
         start_sequence,
@@ -1889,15 +1915,23 @@ fn decode_journal_segment(row: JournalSegmentRow) -> anyhow::Result<DecodedJourn
         "journal segment {segment_id} record count is invalid"
     );
     anyhow::ensure!(
-        records.first().map(|record| record.sequence) == Some(start_sequence)
-            && records.last().map(|record| record.sequence) == Some(end_sequence),
+        records.first().is_some_and(|record| record.sequence >= start_sequence)
+            && records.last().is_some_and(|record| record.sequence <= end_sequence),
         "journal segment {segment_id} sequence range is invalid"
     );
-    for pair in records.windows(2) {
+    // A whole segment checks no pruned range; one with fewer records than
+    // its range checks each missing run once.
+    anyhow::ensure!(start_sequence > 0, "journal segment {segment_id} sequence range is invalid");
+    let mut previous = start_sequence - 1;
+    let after_end = end_sequence.saturating_add(1);
+    for sequence in records.iter().map(|record| record.sequence).chain([after_end]) {
         anyhow::ensure!(
-            pair[1].sequence == pair[0].sequence.saturating_add(1),
+            sequence == previous.saturating_add(1)
+                || (sequence > previous.saturating_add(1)
+                    && pruned_gap(connection, previous, sequence)?),
             "journal segment {segment_id} contains a sequence gap"
         );
+        previous = sequence;
     }
     Ok(DecodedJournalSegment { start_sequence, end_sequence, records })
 }
@@ -1928,7 +1962,7 @@ fn archived_records_after(
     let mut records = Vec::new();
     let mut previous_end = None;
     for segment in &mut segments {
-        let decoded = decode_journal_segment(segment?)?;
+        let decoded = decode_journal_segment(connection, segment?)?;
         let start_sequence = decoded.start_sequence;
         let end_sequence = decoded.end_sequence;
         if let Some(previous_end) = previous_end {
@@ -1953,7 +1987,7 @@ fn archived_records_after(
     Ok(records)
 }
 
-type StoredRecordRow = (
+pub(super) type StoredRecordRow = (
     i64,
     String,
     i64,
@@ -1975,7 +2009,7 @@ type StoredRecordRow = (
     Option<i64>,
 );
 
-fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
+pub(super) fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     Ok((
         row.get(0)?,
         row.get(1)?,
@@ -1999,7 +2033,7 @@ fn stored_record_row(row: &Row<'_>) -> rusqlite::Result<StoredRecordRow> {
     ))
 }
 
-fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
+pub(super) fn decode_record(row: StoredRecordRow) -> anyhow::Result<SessionJournalRecord> {
     let (
         sequence,
         event_id,
