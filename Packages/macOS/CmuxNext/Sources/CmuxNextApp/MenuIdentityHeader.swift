@@ -12,13 +12,16 @@ import CmuxNextDesign
 /// choice as the color row did.
 @MainActor
 enum MenuIdentityHeader {
-    /// Puts the header at the top of `menu`. `rename` is the menu's rename action; its row leaves the
-    /// menu, and without it (a multi-row selection) the header shows only the swatches. The color
-    /// choices are the rows of the submenu whose rows each set a group color; `current` rings one
-    /// when the rows carry no state (the group menu). A menu with neither is left as it is.
+    /// Puts the header at the top of `menu`. `rename` is the menu's rename action: given a `name`, its
+    /// row leaves the menu for the field; with no `name` (a multi-row selection) the row stays and the
+    /// header shows only the swatches. The color choices are the rows of the submenu whose rows each
+    /// set a group color; for the group menu `current` names the ringed one, for the workspace menu
+    /// the row whose state is on. A menu with neither is left as it is.
     static func install(in menu: NSMenu, registry: ActionRegistry, target: ActionTargetRef, name: String?, rename: ActionID,
                         current: GroupColor? = nil) {
-        let renameIndex = name == nil ? nil : menu.items.firstIndex { ActionRegistry.menuRun(of: $0)?.id == rename }
+        // A rename that can't run on this target (no daemon support yet) keeps its disabled row, not a dead field.
+        let renames = ActionTargetReasons.canPerform(rename, invocation: ActionInvocation(target: target), in: registry)
+        let renameIndex = name == nil || !renames ? nil : menu.items.firstIndex { ActionRegistry.menuRun(of: $0)?.id == rename }
         let colorIndex = menu.items.firstIndex { item in
             (item.submenu?.items.filter { color(of: $0) != nil }.count ?? 0) >= 2
         }
@@ -34,7 +37,8 @@ enum MenuIdentityHeader {
                 registry.perform(rename, invocation: ActionInvocation(target: target, arguments: ["name": .string(newName)]))
             }
         }
-        let ringed = current ?? choices.first { $0.state == .on }.flatMap(color(of:))
+        // The group menu names its color (none for a custom `#RRGGBB` one); the workspace rows carry it as their state.
+        let ringed = rename == "workspaceGroup.rename" ? current : choices.first { $0.state == .on }.flatMap(color(of:))
         let strip = choices.isEmpty ? nil : SwatchStrip(title: colorTitle ?? "", choices: choices, current: ringed)
         let header = NSMenuItem()
         header.view = MenuIdentityHeaderView(field: field, strip: strip)
@@ -159,6 +163,16 @@ final class NameField: NSTextField, NSTextFieldDelegate {
             commit()
             closeMenu()
             return true
+        case #selector(NSResponder.moveUp(_:)), #selector(NSResponder.moveDown(_:)):
+            // The arrows leave the field for the menu's rows (the name typed so far is kept).
+            window?.makeFirstResponder(nil)
+            return true
+        case #selector(NSResponder.cancelOperation(_:)):
+            // Escape puts the name back and closes the menu, as Escape on any menu does.
+            stringValue = original
+            done = true
+            closeMenu()
+            return true
         default:
             return false
         }
@@ -176,7 +190,6 @@ final class NameField: NSTextField, NSTextFieldDelegate {
 final class SwatchStrip: NSView {
     private let choices: [NSMenuItem]
     private let current: GroupColor?
-    private var swatches: [NSRect] = []
     private var hovered: Int?
     /// The scope of the view whose menu this is (`themeRows(in:)`); nil until a themed menu hands it.
     private var menuScope: ThemeScope?
@@ -220,13 +233,12 @@ final class SwatchStrip: NSView {
         return performWithTheme { Palette.textTertiary }
     }
 
-    override func layout() {
-        super.layout()
-        // From the leading edge, past the ring's reach.
-        var x: CGFloat = 3
-        swatches = choices.map { _ in
-            defer { x += Self.diameter + Self.gap }
-            return NSRect(x: x, y: (bounds.height - Self.diameter) / 2, width: Self.diameter, height: Self.diameter)
+    /// The swatches' rects, from the leading edge past the ring's reach. Read from the bounds each
+    /// time: the header sets this view's frame by hand, so no layout pass is promised.
+    private var swatches: [NSRect] {
+        choices.indices.map { index in
+            NSRect(x: 3 + CGFloat(index) * (Self.diameter + Self.gap), y: (bounds.height - Self.diameter) / 2,
+                   width: Self.diameter, height: Self.diameter)
         }
     }
 

@@ -5,7 +5,7 @@ extension NSMenu {
     /// (follow-up to #19754). NSMenu always highlights in the system accent and only follows light
     /// and dark, so every row becomes a `ThemedMenuRowView` that draws its own highlight: a faint
     /// wash of the theme's accent (`Palette.menuHighlight`) in the label's ink. Separators and rows that already have a
-    /// view (the workspace color swatches) are left as they are; such a view that is a
+    /// view (the workspace and group menus' name and color header) are left as they are; such a view that is a
     /// `ThemedMenuItemView` is handed the scope to draw in. Call it last, once the menu is
     /// built, with the scope of the view that was right-clicked.
     ///
