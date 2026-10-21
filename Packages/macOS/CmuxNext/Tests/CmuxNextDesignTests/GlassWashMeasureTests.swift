@@ -60,7 +60,7 @@ import UniformTypeIdentifiers
 
     @Test func measureGlassKeyAndInactive() async throws {
         guard WindowScreenshotTests.hostShowsWindows() else { print("GLASSWASH no window server"); return }
-        print("GLASSWASH liquidGlass=\(Glass.isLiquidGlassAvailable) os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
+        print("GLASSWASH active=\(NSApp.isActive) liquidGlass=\(Glass.isLiquidGlassAvailable) os=\(ProcessInfo.processInfo.operatingSystemVersionString)")
         NSApp.setActivationPolicy(.accessory)
         NSApp.activate(ignoringOtherApps: true)
         let frame = CGRect(x: 200, y: 200, width: 240, height: 160)
@@ -144,12 +144,16 @@ import UniformTypeIdentifiers
             }
         }
         let data = try JSONEncoder().encode(samples)
-        try data.write(to: Self.repoRoot.appendingPathComponent("glass-wash-measure.json"))
-        writeSheet(sheet, to: Self.repoRoot.appendingPathComponent("glass-wash-measure.png"))
+        try data.write(to: FileManager.default.temporaryDirectory.appendingPathComponent("glass-wash-measure.json"))
+        let sheetURL = FileManager.default.temporaryDirectory.appendingPathComponent("glass-wash-measure.png")
+        writeSheet(sheet, to: sheetURL)
+        // The CI log is where a PR run's measurement comes back.
+        print("GLASSWASH-JSON " + (String(data: data, encoding: .utf8) ?? ""))
+        if let png = try? Data(contentsOf: sheetURL) { print("GLASSWASH-PNG " + png.base64EncodedString()) }
     }
 
     func writeSheet(_ rows: [[CGImage]], to url: URL) {
-        let cell = 96
+        let cell = 48
         let columns = rows.map(\.count).max() ?? 0
         guard columns > 0, let context = CGContext(data: nil, width: cell * columns, height: cell * rows.count, bitsPerComponent: 8,
                                                    bytesPerRow: 0, space: CGColorSpace(name: CGColorSpace.sRGB)!,
