@@ -51,7 +51,7 @@ grep -q -- "--- retry, alone ---" "$WORK/out" || fail "broken's log must carry i
 grep -q -- "--timeout 30000 ./test/steady.test.ts" "$WORK/state/calls" || fail "bun must get a 30 s test default"
 
 # With broken gone, the flaky file alone decides nothing: the lane passes.
-git -C "$repo" rm -q webviews/test/broken.test.ts
+git -C "$repo" rm -qf webviews/test/broken.test.ts # staged, never committed: rm needs -f
 rm -f "$WORK/state/flaky-ran" "$WORK/state/calls"
 run env > "$WORK/out" 2>&1 || fail "a file that passes alone must not fail the lane: $(tail -5 "$WORK/out")"
 
