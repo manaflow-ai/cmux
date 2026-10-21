@@ -278,24 +278,31 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
     await page.close();
   });
 
-  test("the summary lists the chat's background tasks and how each stands", async () => {
+  test("the summary lists the chat's background tasks: running ones first, the finished folded", async () => {
     const page = await browser!.newPage({ viewport: { width: 900, height: 760 } });
     await page.goto(url(CHAT));
     await page.getByText("Dev server stopped.").waitFor();
     await page.getByRole("button", { name: "Chat summary" }).click();
     const section = page.getByRole("region", { name: "Background tasks" });
     await section.waitFor({ timeout: 5_000 });
-    const rows = await section
-      .locator(".acpmux-summary-row")
-      .evaluateAll((items) =>
-        items.map((item) => [
-          item.querySelector(".acpmux-summary-text")?.textContent,
-          item.querySelector(".acpmux-summary-meta")?.textContent,
-        ]),
-      );
-    expect(rows).toEqual([
+    const rows = () =>
+      section
+        .locator(".acpmux-summary-task")
+        .evaluateAll((items) =>
+          items.map((item) => [
+            item.querySelector(".acpmux-summary-text")?.textContent,
+            item.querySelector(".acpmux-summary-meta")?.textContent,
+          ]),
+        );
+    // The running one says how long it has run; the ended ones wait behind one row.
+    const running = await rows();
+    expect(running.map(([command]) => command)).toEqual(["cargo watch -x test"]);
+    expect(running[0]![1]).toMatch(/^\d+[smh]/);
+    const finished = section.getByRole("button", { name: "2 finished" });
+    await finished.click();
+    expect(await finished.getAttribute("aria-expanded")).toBe("true");
+    expect((await rows()).slice(1)).toEqual([
       ["npm run dev", "Stopped"],
-      ["cargo watch -x test", "Running"],
       ["pytest -x", "Finished"],
     ]);
     await page.close();

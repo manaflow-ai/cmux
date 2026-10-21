@@ -1281,6 +1281,15 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
+/* A command in flight leads with the terminal glyph (WorkingFor.tsx), still, like the tool rows'. */
+.cv-worked__glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-inline-end: 6px;
+  color: var(--cv-text-muted);
+}
 /* "Thinking" stays still in the muted color. No mark blinks before it or before "Working for". */
 .cv-thinking {
   color: var(--cv-text-muted);
@@ -1598,6 +1607,22 @@ pre.cv-math-source {
 }
 .cv-command__stopped {
   color: var(--cv-text-dim);
+}
+/* "⌃B to run in background" on a running command (BackgroundHint.tsx), at the row's right edge.
+   It fades in after a moment, so a quick command never shows it; opacity only, so it runs under
+   Reduce Motion too. */
+.cv-command__bg {
+  flex: none;
+  margin-left: auto;
+  color: var(--cv-text-dim);
+  font-size: var(--text-detail);
+  white-space: nowrap;
+}
+/* Quick commands end before the hint shows. */
+@media (prefers-reduced-motion: no-preference) {
+  .cv-command__bg {
+    animation: cv-enter-fade var(--agent-motion-in, 180ms) var(--agent-ease-out, ease-out) 1.5s both;
+  }
 }
 /* A message to another agent: sender to recipient over the message's first line (MessageCard.tsx). */
 .cv-message {
@@ -3142,6 +3167,51 @@ button.cv-received__name:focus-visible {
 }
 .cv-user__send-now:disabled {
   opacity: 0.5;
+}
+/* Reply on another agent's message (IncomingMessageCard.tsx): the editor under the opened
+   message and its Details, and a quiet line once sent or when it was not. */
+.cv-message__note {
+  color: var(--cv-text-muted);
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+}
+.cv-message__note.is-failed {
+  color: var(--agent-danger);
+}
+.cv-message__reply {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 0 8px 13px;
+}
+.cv-message__reply > .cv-user__edit {
+  width: 100%;
+}
+.cv-received__replied {
+  display: block;
+  margin: 0 0 6px 13px;
+}
+/* Its Reply sits after the chevron, inside the line's padding, and shows while the line is hovered or holds the focus, so the
+   line reads as before. */
+.cv-received__reply {
+  all: unset;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  margin-left: 8px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
+  color: var(--cv-text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+.cv-received:hover .cv-received__reply,
+.cv-received:focus-within .cv-received__reply {
+  opacity: 1;
+}
+.cv-received__reply:hover,
+.cv-received__reply:focus-visible {
+  color: var(--cv-text);
 }
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {

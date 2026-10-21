@@ -16,6 +16,7 @@ import { CopyButton } from "./CopyButton";
 import { experimentArm } from "../../../experiments/experiment";
 import { hoverActions } from "../../../ui/hoverActions.experiment";
 import { menuPartRef } from "./menuParts";
+import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { toolDuration } from "./toolGroups";
@@ -66,10 +67,11 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
   const files = useMemo(() => (open && hasDiff ? toolFiles([tool]) : []), [open, hasDiff, tool]);
   const cwd = useContext(SessionCwdContext);
   const label = toolLabel(tool, item.text, (command) => t("tools.ranCommand", { command }), cwd);
-  const running = tool.status === "pending" || tool.status === "in_progress" || tool.background?.state === "running";
+  const foreground = tool.status === "pending" || tool.status === "in_progress";
+  const running = foreground || tool.background?.state === "running";
   const failed = tool.status === "failed";
   // A shell that went on in the background says how it stands there, and its time once it ended.
-  const background = !failed && tool.status !== "pending" && tool.status !== "in_progress" && tool.background;
+  const background = !failed && !foreground && tool.background;
   const backgroundTime = background ? toolDuration(t, tool) : undefined;
   // Only a call with a command line is a shell; an MCP call can also say "execute".
   const shell = tool.kind === "execute" && Boolean(tool.command);
@@ -110,6 +112,7 @@ export function ToolRow({ item }: { item: AcpmuxActivity }) {
             strokeWidth={1.2}
             className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
           />
+          {foreground && shell && <BackgroundHint />}
         </button>
       ) : (
         <div className={`cv-tool${running ? " is-live" : " is-strong"}`}>{content}</div>

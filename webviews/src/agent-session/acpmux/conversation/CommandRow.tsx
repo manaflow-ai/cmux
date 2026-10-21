@@ -7,6 +7,7 @@ import { useId, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { menuPartRef } from "./menuParts";
+import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { BackgroundMark } from "./BackgroundMark";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
@@ -22,7 +23,9 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
     () => setOpen(true),
   );
   const detailsId = useId();
-  const running = isRunning(tool) || tool.background?.state === "running";
+  // Running in the foreground; a call that went on in the background shows BackgroundMark instead.
+  const foreground = isRunning(tool);
+  const running = foreground || tool.background?.state === "running";
   const failed = isFailed(tool);
   const duration = toolDuration(t, tool);
   const exited = tool.exitCode !== undefined && tool.exitCode !== 0;
@@ -49,7 +52,8 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           {after && <span data-find-skip>{after}</span>}
         </span>
         <span className="cv-command__meta">
-          {isRunning(tool) ? (
+          {foreground && <BackgroundHint />}
+          {foreground ? (
             <Spinner size={12} />
           ) : tool.background ? (
             <BackgroundMark background={tool.background} />
