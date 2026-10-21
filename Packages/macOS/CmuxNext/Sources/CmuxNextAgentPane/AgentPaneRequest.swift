@@ -148,8 +148,11 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// native palette actions can stay capability-gated with the pane.
     case checkpointAvailability(Bool)
     /// `pane.painted`: the document drew its first frame after the handshake
-    /// (once per document).
-    case painted
+    /// (once per document). `fromKeptTail` is the page's own account of what it
+    /// drew there: a chat it took from a kept tail (tailCache.ts), which is
+    /// already on screen in that frame, or a chat read cold, which the pane's
+    /// loading state fades in. An older page says nothing, which means cold.
+    case painted(fromKeptTail: Bool)
     /// The composer's mic: `dictation.toggle`, `.start`, `.stop`, `.cancel`,
     /// `dictation.openSettings` with `{permission}`, or `dictation.audio` with `{enabled}`.
     case dictation(AgentPaneDictationCommand)

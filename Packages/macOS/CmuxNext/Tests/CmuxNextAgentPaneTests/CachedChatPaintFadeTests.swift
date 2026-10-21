@@ -11,6 +11,11 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct CachedChatPaintFadeTests {
+    /// No daemon: nothing here gets as far as a handshake.
+    private actor NoHost: AgentPaneHostProviding {
+        func handshake(sessionId: String?) async throws -> AgentPaneHandshake { throw AgentPaneHostError.daemonStopped }
+    }
+
     @Test func aPaintReportCarriesWhetherThePageDrewAKeptTail() {
         let cached = AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]])
         guard case .painted(let fromKeptTail) = cached else { return #expect(Bool(false), "pane.painted did not parse") }
@@ -29,11 +34,11 @@ struct CachedChatPaintFadeTests {
     }
 
     @Test func theModelKeepsWhatTheFirstPaintSaidItDrew() async {
-        let cached = AgentPaneModel()
+        let cached = AgentPaneModel(host: NoHost())
         _ = await cached.respond(to: AgentPaneRequest(body: ["method": "pane.painted", "params": ["drewKeptTail": true]]))
         #expect(cached.hasPainted)
         #expect(cached.paintedFromKeptTail)
-        let cold = AgentPaneModel()
+        let cold = AgentPaneModel(host: NoHost())
         _ = await cold.respond(to: AgentPaneRequest(body: ["method": "pane.painted"]))
         #expect(cold.hasPainted)
         #expect(!cold.paintedFromKeptTail)

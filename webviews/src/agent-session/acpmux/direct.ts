@@ -977,6 +977,10 @@ export class AcpmuxDirectClient {
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
   /// `sessions` holds the daemon's list: its first page has been read.
   private listedSessions = false;
+  /// This page drew a chat from a kept tail (`drawKeptTail`), so those rows were on screen before
+  /// any attach answered. The pane's host reads it in the first-paint report and shows such a chat
+  /// in one frame instead of fading it in (tailCache.ts, AgentPaneView+Loading.swift).
+  private drewKeptTail = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -1448,6 +1452,9 @@ export class AcpmuxDirectClient {
     this.pendingSecret = undefined;
     // The replayed `queued` records carry each prompt's whole text; acpmux's list gives the order.
     this.queue = mergeQueue(this.queue, listed?.queue ?? kept.queue);
+    // What the pane's host needs to know before it shows this page: these rows are already drawn,
+    // so the page needs no fade in (AgentPaneView+Loading.swift).
+    this.drewKeptTail = true;
     return this.lastSeq;
   }
 
@@ -3046,6 +3053,7 @@ export class AcpmuxDirectClient {
       connection,
       origin: this.origin,
       ...(this.listedSessions ? { listedSessions: true as const } : {}),
+      ...(this.drewKeptTail ? { drewKeptTail: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.

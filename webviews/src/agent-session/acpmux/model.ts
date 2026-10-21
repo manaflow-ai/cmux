@@ -476,6 +476,11 @@ export type AcpmuxSnapshot = {
   /// The client has read the daemon's chat list once: `sessions` is the daemon's, not the empty
   /// list a connection starts with (newtab/chatStore.ts publishes only such a list).
   listedSessions?: true;
+  /// This page drew the chat from a kept tail (tailCache.ts) rather than from acpmux's attach, so
+  /// its rows were on screen in the frame the open landed on. The pane's host reads it in the
+  /// page's first-paint report: a chat read cold fades in over the loading state, this one shows
+  /// in one frame (AgentPaneView+Loading.swift).
+  drewKeptTail?: true;
   sessionId?: string;
   isWorking: boolean;
   /// The running turn's tokens so far, its model calls added up, subagents' included (direct.ts
