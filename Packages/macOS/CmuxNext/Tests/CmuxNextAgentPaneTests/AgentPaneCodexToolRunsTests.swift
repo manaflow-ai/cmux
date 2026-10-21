@@ -6,8 +6,8 @@ import Testing
 /// runs Codex-style for comparison and troubleshooting.
 @Suite(.serialized)
 struct AgentPaneCodexToolRunsTests {
-    @Test func turnFooterActionsDefaultRight() {
-        #expect(AgentPaneTunables.turnActionsPlacement.defaultValue == .right)
+    @Test func turnFooterActionsDefaultLeft() {
+        #expect(AgentPaneTunables.turnActionsPlacement.defaultValue == .left)
         #expect(AgentPaneTunables.turnActionsPlacement.descriptor.key == "agentPane.debug.turnActionsPlacement")
     }
 
