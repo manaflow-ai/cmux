@@ -707,6 +707,18 @@ fn offset_of_seq(path: &Path, before: u64) -> Result<u64> {
     let mut file = crate::config::private_state_file(path)?;
     let len = file.seek(SeekFrom::End(0))?;
     let mut buf = vec![0u8; PROBE];
+    // A segment whose last record is before `before` (every older segment of a page) needs no
+    // search: its end is the offset.
+    if len > PROBE as u64 {
+        file.seek(SeekFrom::Start(len - PROBE as u64))?;
+        file.read_exact(&mut buf)?;
+        let body = buf.strip_suffix(b"\n").unwrap_or(&buf);
+        if let Some(nl) = body.iter().rposition(|&b| b == b'\n')
+            && record_seq(&body[nl + 1..]).is_some_and(|seq| seq < before)
+        {
+            return Ok(len);
+        }
+    }
     // The first line starting at or after `pos`: its offset and seq; None past the end, or when
     // no line starts in the probe (a line over 64 KiB) or its header does not read.
     let mut line_at = |pos: u64| -> Result<Option<(u64, Option<u64>)>> {
