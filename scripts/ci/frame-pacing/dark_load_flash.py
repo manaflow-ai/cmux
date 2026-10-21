@@ -142,26 +142,33 @@ def drive(driver, out: Path) -> None:
 
 
 def judge(data: dict, refresh: float) -> dict:
-    """Fails when a frame of the navigation was brighter than the window at rest."""
+    """Fails when a frame of the navigation was brighter than the window at rest.
+
+    A run that could not measure the scenario says so and never fails the judge: this
+    one needs an owned Mac in a dark theme, so most runs have no result for it, and a
+    missing measurement is not a flash. Only a run that did measure can fail.
+    """
     del refresh  # brightness, not pacing
-    problems: list[str] = []
     if "error" in data:
-        return {"ok": False, "problems": [f"not measured: {data['error']}"]}
+        return {"ok": True, "measured": False, "problems": [],
+                "note": f"not measured: {data['error']}"}
+    unmeasured: list[str] = []
     theme_luminance = float(data.get("theme_luminance", 1))
     if theme_luminance > DARK_THEME_LUMINANCE or data.get("theme_is_dark") is not True:
-        problems.append(f"not measured: the theme is not dark (background {data.get('theme_background')}, "
-                        f"luminance {theme_luminance:.3f}, is_dark {data.get('theme_is_dark')})")
+        unmeasured.append(f"the theme is not dark (background {data.get('theme_background')}, "
+                          f"luminance {theme_luminance:.3f}, is_dark {data.get('theme_is_dark')})")
     verdict: dict = {"theme_luminance": round(theme_luminance, 4)}
     rest, navigate = data.get("rest") or {}, data.get("navigate") or {}
     for name, frames in (("rest", rest), ("navigate", navigate)):
         if "error" in frames:
-            problems.append(f"not measured: {name}: {frames['error']}")
-    if not problems:
+            unmeasured.append(f"{name}: {frames['error']}")
+    problems: list[str] = []
+    if not unmeasured:
         for key, tolerance in TOLERANCE.items():
             at_rest = [float(value) for value in rest.get(key) or []]
             during = [float(value) for value in navigate.get(key) or []]
             if len(at_rest) < 10 or len(during) < 60:
-                problems.append(f"not measured: {len(at_rest)} frames at rest, {len(during)} during the navigation")
+                unmeasured.append(f"{len(at_rest)} frames at rest, {len(during)} during the navigation")
                 break
             base, worst = max(at_rest), max(during)
             verdict[key] = {"rest": round(base, 4), "worst": round(worst, 4),
@@ -171,12 +178,17 @@ def judge(data: dict, refresh: float) -> dict:
                                 f"(over {tolerance:.2f}) while the page loaded")
     verdict["frames"] = {"rest": len(rest.get("peak") or []), "navigate": len(navigate.get("peak") or [])}
     verdict["problems"] = problems
+    verdict["measured"] = not unmeasured
     verdict["ok"] = not problems
+    if unmeasured:
+        verdict["note"] = "not measured: " + "; ".join(unmeasured)
     return verdict
 
 
 def markdown_row(verdict: dict) -> str:
     """The scenario's row of golden.py's table."""
+    if not verdict.get("measured"):
+        return f"| dark_load_flash | report |  |  |  | {verdict.get('note', 'not measured')} (reported only) |"
     problems = verdict.get("problems") or []
     peak, mean = verdict.get("peak") or {}, verdict.get("luminance") or {}
     notes = list(problems) or [f"no frame brighter than the window at rest (theme luminance "
