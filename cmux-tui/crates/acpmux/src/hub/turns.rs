@@ -187,6 +187,13 @@ impl Hub {
                     ended = Some(json!({"stopReason": "cancelled", "status": "withdrawn"}));
                     return false;
                 }
+                // It went in with an earlier agent message's turn (`digest.rs`): that turn's.
+                ("dequeued", Some(id))
+                    if rec.msg.get("turnId").and_then(Value::as_str) == Some(id)
+                        && rec.msg.get("joinedTurnId").is_some_and(Value::is_string) =>
+                {
+                    turn_id = rec.msg["joinedTurnId"].as_str().map(str::to_owned);
+                }
                 _ => {}
             }
             true
@@ -209,6 +216,26 @@ impl Hub {
         client: &str,
         steer: bool,
         opts: PromptOptions,
+    ) -> Result<Value, RpcError> {
+        // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
+        // wait again when it failed.
+        let joined = super::digest::DigestTurn::default();
+        let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
+        if result.is_err() {
+            self.requeue_joined(session, &joined);
+        }
+        joined.answer.send_replace(Some(result.clone()));
+        result
+    }
+
+    async fn run_prompt_joined(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: Vec<Value>,
+        client: &str,
+        steer: bool,
+        opts: PromptOptions,
+        joined: &super::digest::DigestTurn,
     ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
@@ -253,6 +280,7 @@ impl Hub {
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
@@ -262,6 +290,7 @@ impl Hub {
             trust_gate,
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
+            agent: agent.as_deref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -282,7 +311,7 @@ impl Hub {
             return Err(e);
         }
         // What its queue entry holds now (`queue_edit.rs` may edit a prompt that waited).
-        let (mut blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
+        let (blocks, control, trust_gate) = (run.blocks.clone(), run.control, run.trust_gate);
         let text = prompt_text(&blocks);
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
@@ -297,6 +326,23 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // An agent message's turn takes the agent messages waiting behind it (`digest.rs`), once
+        // the turn has started, so none leaves the queue for a turn that never runs.
+        let mut provenance = run.provenance.clone();
+        let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        let (blocks, text) = if parts.is_empty() {
+            (blocks, text)
+        } else {
+            let sender = run.agent.clone().unwrap_or_default();
+            let head =
+                super::digest::Part { prompt_id: prompt_id.clone(), sender, run: run.clone() };
+            let parts: Vec<_> = std::iter::once(head).chain(parts).collect();
+            provenance = Some(super::digest::digest_provenance(&parts));
+            let blocks = super::digest::digest_blocks(&parts);
+            let text = prompt_text(&blocks);
+            (blocks, text)
+        };
+        let mut blocks = blocks;
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -308,7 +354,7 @@ impl Hub {
         session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
-        let msg = crate::prompt_provenance::marked(msg, run.provenance.as_ref());
+        let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks);
         if !waiting {
             accept(
@@ -590,6 +636,10 @@ impl Hub {
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
                 self.write_turn_result(session, msg, git);
+                // The chat works again: agent messages a failed turn held go in (`digest.rs`).
+                if status == "completed" {
+                    self.release_held_agent_messages(session);
+                }
             }
             Err(e) => {
                 self.append(
