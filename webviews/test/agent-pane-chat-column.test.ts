@@ -577,8 +577,11 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true);
-    // Streaming: the whole thought's text (in the live viewport), with nothing to open.
-    await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
+    // Streaming: the Codex-style turn (Debug toggle agentPane.debug.codexToolRuns, on by default)
+    // draws no row for the thought yet; the turn's live line at its foot says "Thinking"
+    // (Thinking.tsx), with nothing to open.
+    await page.locator(".cv-worked.is-below .cv-thinking", { hasText: "Thinking" }).waitFor();
+    expect(await page.getByText("Step 60: check the retry path.", { exact: false }).count()).toBe(0);
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
     await page.mouse.wheel(0, -1600);
@@ -621,11 +624,14 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   });
 
   // While it streams, a long thought holds Codex's seven-line viewport with its newest line in view
-  // (Debug toggle agentPane.debug.liveThoughtViewport, on by default).
+  // (Debug toggle agentPane.debug.liveThoughtViewport, on by default). Only a turn drawn without the
+  // Codex-style runs shows a thought while it streams (the test above), so these push
+  // agentPane.debug.codexToolRuns off with the theme, as the app sends it.
   const liveThought = async (attributes: Record<string, string> = {}) => {
     const chat = newChat();
     thinks(chat, THOUGHT);
     const page = await open(chat, 900, 700, false, true, attributes);
+    await page.evaluate(() => window.cmuxAcpmuxBridge!.applyTheme({ isDark: false, codexToolRuns: false }));
     const text = page.locator(".cv-thought__text");
     await text.waitFor({ state: "attached" });
     await text.scrollIntoViewIfNeeded();
