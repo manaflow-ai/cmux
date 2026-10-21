@@ -205,6 +205,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When on, Cmd-T, Cmd-D and Cmd-Shift-D open a terminal, as in cmux classic, instead of the New Tab page.</string>
+			<key>pfm_name</key>
+			<string>tabs.terminalFirst</string>
+			<key>pfm_title</key>
+			<string>New Tabs and Splits Open a Terminal</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-T and the + button put the new tab. New Tab to the Right in a tab's menu always puts it after that tab.</string>
@@ -622,6 +634,24 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>every-merge</string>
+			<key>pfm_description</key>
+			<string>Every Merge: changes to the web UI arrive minutes after they land, without waiting for the next app update. Off: the web UI this app shipped with.</string>
+			<key>pfm_name</key>
+			<string>updates.web</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>every-merge</string>
+				<string>nightly</string>
+				<string>off</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Web UI Updates</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
 			<string>A downloaded update installs as cmux quits. Terminals keep running.</string>
@@ -779,6 +809,18 @@
 			<string>sessions.allowFullAccess</string>
 			<key>pfm_title</key>
 			<string>Allow Full-Access Modes</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Agents can suggest next tasks, which you start as child chats beside the current one. Agents started after the change get it.</string>
+			<key>pfm_name</key>
+			<string>sessions.promptSuggestions</string>
+			<key>pfm_title</key>
+			<string>Suggest Follow-Up Tasks</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -1140,7 +1182,7 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
-			<string>top</string>
+			<string>afterCurrent</string>
 			<key>pfm_description</key>
 			<string>Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.</string>
 			<key>pfm_name</key>
@@ -4171,11 +4213,11 @@
 			<key>pfm_default</key>
 			<true/>
 			<key>pfm_description</key>
-			<string>Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar.</string>
+			<string>On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only.</string>
 			<key>pfm_name</key>
 			<string>sidebar.showChats</string>
 			<key>pfm_title</key>
-			<string>Show All Chats</string>
+			<string>Show All Chats on New Tab</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
@@ -6371,6 +6413,22 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<string>hosted</string>
+			<key>pfm_description</key>
+			<string>Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login. Also accepts a dictionary {"selfHosted": "http(s)://host[:port]"} in a raw profile.</string>
+			<key>pfm_name</key>
+			<string>home.server</string>
+			<key>pfm_range_list</key>
+			<array>
+				<string>hosted</string>
+			</array>
+			<key>pfm_title</key>
+			<string>Server</string>
+			<key>pfm_type</key>
+			<string>string</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<string>imessage</string>
 			<key>pfm_description</key>
 			<string>iMessage shows your messages in blue and the Chief's in gray. Theme uses your theme's accent and surface colors.</string>
@@ -6772,6 +6830,28 @@
 			<string>notifications.attention.persist</string>
 			<key>pfm_title</key>
 			<string>Keep Ring Until Read</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes.</string>
+			<key>pfm_name</key>
+			<string>notifications.attention.flash</string>
+			<key>pfm_title</key>
+			<string>Flash the Pane When Read</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_name</key>
+			<string>notifications.attention.flashOnTyping</string>
+			<key>pfm_title</key>
+			<string>Flash When Typing Reads It</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
