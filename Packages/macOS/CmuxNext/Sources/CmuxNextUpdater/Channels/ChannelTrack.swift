@@ -96,7 +96,7 @@ nonisolated public struct ChannelTrack: Equatable, Sendable {
                               installedBuild: String, keptBuilds: Set<String>, followed: UpdateRing,
                               limit: Int = 10) -> [ChannelTrack] {
         let pulledByBuild = Dictionary(pulled.map { ($0.build, $0) }, uniquingKeysWith: { first, _ in first })
-        let nightly = index.prefix(limit).map { entry in
+        let nightly = index.prefix(max(0, limit)).map { entry in
             ChannelBuild(build: entry.build, shortVersion: entry.shortVersion, date: entry.date, commit: entry.head,
                          health: pulledByBuild[entry.build] != nil ? .pulled : health(verdict: verdicts[entry.build]),
                          pulledReason: pulledByBuild[entry.build]?.reason,

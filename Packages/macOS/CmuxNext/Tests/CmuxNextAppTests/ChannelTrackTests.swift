@@ -67,6 +67,17 @@ struct ChannelTrackTests {
         #expect(verdicts == ["300": "pass"])
     }
 
+    @Test(arguments: [
+        ("https://files-next.cmux.com/nightly-next/next/notes/", "https://files-next.cmux.com/nightly-next/next/"),
+        // A DEV build's notes and the legacy NIGHTLY feed sit one folder up; verdicts and pulls do not.
+        ("https://files-next.cmux.com/nightly-next/notes/", "https://files-next.cmux.com/nightly-next/next/"),
+        ("https://127.0.0.1:8080/feed/notes/", "https://127.0.0.1:8080/feed/"),
+    ])
+    func verdictsAndPullsAreReadBesideTheCmuxNextAppcast(notesBase: String, folder: String) throws {
+        let base = try #require(URL(string: notesBase))
+        #expect(UpdaterService.channelFolder(notesBase: base).absoluteString == folder)
+    }
+
     @Test func theIndexDecodesWithAndWithoutItsCommit() throws {
         let json = #"[{"build":"3","date":"d","head":"abc1234","highlights":1,"shortVersion":"s"},{"build":"2","date":"d","highlights":0,"shortVersion":"s"}]"#
         let entries = try JSONDecoder().decode([ReleaseNotesIndexEntry].self, from: Data(json.utf8))
