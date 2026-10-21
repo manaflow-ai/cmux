@@ -141,7 +141,7 @@
    },
    "textSecondary": {
     "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over inkWorst); steps of 0.01. inkWorst = the lowest-contrast for textPrimary (each inks candidate's, see textPrimary) of worst and bg, and with background-opacity < 1 also of tint, over(pressedFill,tint) and over(selectionFill,tint), tint = over(alpha(bg, background-opacity), dark ? white : black)",
-    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156,239-247 (ThemeTokens.derive)"
+    "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:253-254,276-294 (ThemeTokens.inks, ThemeTokens.seeThroughSurfaces, ThemeTokens.muted)"
    },
    "textTertiary": {
     "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over inkWorst (see textSecondary))",

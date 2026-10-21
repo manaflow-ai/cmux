@@ -1,6 +1,6 @@
 {
 "generator": "plans/cmux-next/spec-proposals/visuals/tools/derive_theme_tokens.py --theme-ink-vectors (do not edit)",
-"checkedBy": "CmuxNextDesignTests ThemeInkVectorsTests (Swift), cmux-theme-tokens ink_vectors (Rust), webviews/test/theme-ink-vectors.test.ts (web, this tool)",
+"checkedBy": "CmuxNextDesignTests ThemeInkVectorsTests (Swift), cmux-theme-tokens derive_matches_the_swift_ink_vectors (Rust), webviews/test/theme-ink-vectors.test.ts (web, this tool)",
 "lift": 0.14,
 "cases": [
 {"theme":"ghostty/themes/0x96f","input":{"background":"#262427","foreground":"#FCFCFA"},"isDark":true,"textPrimary":"#FCFCFA","textSecondary":"#B1B0B0","textTertiary":"#8F8E8E","opaqueOverlayFill":"#39373A"},

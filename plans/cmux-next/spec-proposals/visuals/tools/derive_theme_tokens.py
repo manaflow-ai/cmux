@@ -308,7 +308,7 @@ def theme_ink_vectors():
                 **{n:t[n].css() for n in ('textPrimary','textSecondary','textTertiary')},
                 'opaqueOverlayFill':opaque_overlay_fill(t,dark,OVERLAY_LIFT).css()})
     head={'generator':'plans/cmux-next/spec-proposals/visuals/tools/derive_theme_tokens.py --theme-ink-vectors (do not edit)',
-          'checkedBy':'CmuxNextDesignTests ThemeInkVectorsTests (Swift), cmux-theme-tokens ink_vectors (Rust), webviews/test/theme-ink-vectors.test.ts (web, this tool)',
+          'checkedBy':'CmuxNextDesignTests ThemeInkVectorsTests (Swift), cmux-theme-tokens derive_matches_the_swift_ink_vectors (Rust), webviews/test/theme-ink-vectors.test.ts (web, this tool)',
           'lift':OVERLAY_LIFT}
     # One theme per line keeps the file short and its diffs readable.
     return ('{\n'+''.join('%s: %s,\n'%(json.dumps(k),json.dumps(v)) for k,v in head.items())
