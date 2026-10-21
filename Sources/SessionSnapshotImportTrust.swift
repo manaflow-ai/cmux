@@ -34,9 +34,10 @@ struct SessionSnapshotImportTrustReport: Equatable, Sendable {
 ///
 /// - Built-in agents (a known `RestorableAgentKind`, or a built-in Vault
 ///   registration id) are rebuilt from kind, session id, and working
-///   directory only. Launch argv, permission mode, and registration content
-///   from the file are discarded, so the resume command is the one cmux
-///   generates. They auto-resume only when the working directory is an
+///   directory. Arbitrary launch argv, permission mode, and registration
+///   content from the file are discarded. A bounded provider marker may be
+///   retained for Codex/Claude so cmux can re-enter Subrouter rather than
+///   replaying a dead endpoint or silently switching providers. They auto-resume only when the working directory is an
 ///   existing local directory not flagged as needing remote trust.
 /// - Custom agent registrations stay attached for manual restore, but the
 ///   terminal is marked as not running an agent so nothing auto-resumes.
@@ -254,9 +255,42 @@ enum SessionSnapshotImportTrust {
             kind: agent.kind,
             sessionId: agent.sessionId,
             workingDirectory: agent.workingDirectory,
-            launchCommand: nil,
+            launchCommand: sanitizedProviderLaunchCommand(agent),
             registration: registration
         )
+    }
+
+    private static func sanitizedProviderLaunchCommand(
+        _ agent: SessionRestorableAgentSnapshot
+    ) -> AgentLaunchCommandSnapshot? {
+        guard let launch = agent.launchCommand else { return nil }
+        switch agent.kind {
+        case .codex:
+            let routing = SubrouterCodexResumeRouting()
+            guard routing.providerEvidence(in: launch.arguments, launcher: launch.launcher)
+                == .provider("subrouter") else { return nil }
+            return AgentLaunchCommandSnapshot(
+                launcher: "codex",
+                arguments: ["codex", "-c", #"model_provider="subrouter""#],
+                source: "sanitized-provider-identity"
+            )
+        case .claude:
+            let routing = SubrouterClaudeResumeRouting()
+            guard routing.provesRoutedLaunch(
+                launcher: launch.launcher,
+                environment: launch.environment
+            ) else { return nil }
+            var environment = routing.capturedEnvironment(in: launch.environment)
+            environment.merge(routing.capturedAccountEnvironment(in: launch.environment)) { _, retained in retained }
+            return AgentLaunchCommandSnapshot(
+                launcher: "claude",
+                arguments: ["claude"],
+                environment: environment.isEmpty ? nil : environment,
+                source: "sanitized-provider-identity"
+            )
+        default:
+            return nil
+        }
     }
 
     /// Marks a file-provided binding as an untrusted session import. Returns
