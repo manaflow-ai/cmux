@@ -1,13 +1,14 @@
 // l10n-allow-file: gallery fixtures (sample sessions, pull requests and commands), not shipped UI.
 // The Inspector (Debug Settings `agent.inspector`, on by default) as the real ChatInspector renders it
 // in its panel at the right of a chat: a full chat with every section, its Context and Connectors
-// open, its Changes with line breakdowns, failing checks and owners, its subagents' list open, its
-// finished tasks open, a Cloud chat before its first usage report, and the panel over the chat
-// (Overlay). Light and dark come from the gallery's theme switch.
+// open, its Changes with line breakdowns, failing checks and owners, its subagents' list open with
+// the chats its agent started, its finished tasks open (a background Bash only the transcript knows
+// among them), a Cloud chat before its first usage report, and the panel over the chat (Overlay). Light and dark come from the gallery's theme switch.
 import type { ComponentProps } from "react";
 import { componentEntry } from "../../../gallery/format";
 import type { Play } from "../../../gallery/play";
 import { activity, chat, CWD, tool } from "../../../gallery/fixtures/acpmux";
+import type { StartedSession } from "../started/startedSessions";
 import type { Subagent } from "../subagents/subagentFold";
 import { sessionSummary } from "../summary/sessionSummary";
 import { ChatInspector, InspectorPanel, type InspectorPlacement } from "./ChatInspector";
@@ -112,6 +113,20 @@ const agents: Subagent[] = Array.from({ length: 43 }, (_, index) => ({
   ...(index < 3 ? { action: "Reading ChatInspector.tsx" } : { endedAt: started - index * 100_000 }),
 }));
 
+/// Chats the agent started: one waits on the person, one runs on a Cloud VM, one is done.
+const sessions: StartedSession[] = [
+  { sessionId: "child-1", title: "Rename the settings keys", state: "waiting", createdAt: started - 600_000 },
+  { sessionId: "child-2", title: "Run the e2e suite on build-01", state: "running", createdAt: started - 500_000 },
+  { sessionId: "child-3", title: "Draft the release notes", state: "idle", createdAt: started - 400_000 },
+];
+
+/// A background Bash the transcript knows but the registry does not list (an older acpmux), still
+/// running and so without Stop; and one that finished.
+const transcriptTasks: NonNullable<Props["transcriptTasks"]> = [
+  { id: "call-pytest", command: "pytest -x --lf", state: "running", startedAt: started - 45_000 },
+  { id: "call-gen", command: "bun scripts/pages/gen-strings.mjs", state: "completed", startedAt: started - 700_000 },
+];
+
 const summary = {
   ...local.summary!,
   usage: { used: 94_000, size: 200_000 },
@@ -136,6 +151,9 @@ const full: Props = {
   agents,
   statuses,
   processes,
+  transcriptTasks,
+  sessions,
+  onOpenSession: () => undefined,
   onStopProcess: async () => undefined,
   onOpenUrl: () => undefined,
   onOpenOutput: () => undefined,
@@ -155,6 +173,7 @@ export default componentEntry<Props>({
   widths: { narrow: 320, normal: 420 },
   covers: [
     "agent-session/acpmux/inspector/ChatInspector.tsx",
+    "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
     "agent-session/acpmux/inspector/InspectorSection.tsx",
@@ -166,7 +185,7 @@ export default componentEntry<Props>({
   load: async () => GalleryInspector,
   variants: {
     full: {
-      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, six pull requests, a dev server on :5173, 43 subagents, background tasks with three finished, and its outputs.",
+      note: "A chat on this Mac with every section: its environment with Save and Remote Control, 47% of the context window, one connector to reconnect, six pull requests, a dev server on :5173, 43 subagents and three chats it started, background tasks (one only the transcript knows, without Stop) with four finished, and its outputs.",
       props: full,
     },
     "context-connectors-open": {
@@ -183,18 +202,18 @@ export default componentEntry<Props>({
       },
     },
     "subagents-open": {
-      note: "A click on the avatar row opens the list of the chat's subagents: Active, then Done.",
+      note: "A click on the avatar row opens the list of the chat's subagents and the chats it started: Active, then Done.",
       props: full,
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /Show 43 subagents/ });
+        await ctx.click({ role: "button", name: /Show 46 subagents/ });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
       },
     },
     "tasks-finished": {
-      note: "Background tasks: the running watcher with how long it has run and Stop, then the three finished commands, open.",
+      note: "Background tasks: the running watcher with how long it has run and Stop, the transcript's pytest without Stop, then the four finished commands, open.",
       props: full,
       play: async (ctx) => {
-        await ctx.click({ role: "button", name: /3 finished/ });
+        await ctx.click({ role: "button", name: /4 finished/ });
         await ctx.waitFor(() => /cargo build/.test(text(ctx)));
       },
     },
