@@ -90,6 +90,7 @@ extension SidebarViewComponents {
         let selectionChanged = lastState?.selection != state.selection || lastState?.selected != state.selected
         let rowsChanged = lastState?.sectionsRevision != state.sectionsRevision || lastState?.filter != state.filter || chromeChanged || profileChanged
             || state.preferences.changesList(from: lastState?.preferences) || lastState?.tree != state.tree
+            || lastState?.pullRequests != state.pullRequests
             || lastState?.history != state.history
         let listChanged = rowsChanged || selectionChanged
         let previous = lastState == nil ? nil : lastSections

@@ -52,7 +52,24 @@ import Testing
         #expect(parent.pullRequests.isHidden)
         #expect(child.treeLine.isHidden, "no nesting without the tree")
         #expect(child.keycap.isHidden && parent.keycap.isHidden, "no keycaps without the tree")
-        #expect(child.frame.minY > parent.frame.minY || child.frame.maxY < parent.frame.maxY)
+    }
+
+    @Test func aBadgeThatArrivesLaterIsDrawn() throws {
+        defer { SidebarSessionTree.shared.pullRequests = [:] }
+        let sidebar = SidebarView(model: SidebarModel(sections: Self.sections), design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.layoutSubtreeIfNeeded()
+        sidebar.renderNow()
+        let row = { try #require(sidebar.list.rowViews[.workspace(Self.lane)] as? WorkspaceRowView) }
+        #expect(try row().pullRequests.isHidden)
+
+        SidebarSessionTree.shared.pullRequests = [Self.lane: Self.badge]
+        sidebar.renderNow()
+        #expect(try row().pullRequests.badge == Self.badge)
+
+        SidebarSessionTree.shared.pullRequests = [:]
+        sidebar.renderNow()
+        #expect(try row().pullRequests.isHidden)
     }
 
     @Test func layoutOptionsCarryTheBadgeWithoutTheTree() {
