@@ -36,7 +36,7 @@ export interface HeaderState {
   /// The "..." menu offers Move to Floating Chat (Start Agent's floating chat is on, cx-b9qi).
   readonly floatingChat: boolean;
   /// Debug Settings' Side sessions (/btw) is on (`agentPane.debug.sideSessions`): the composer offers `/btw`
-  /// (aside/sideSessions.ts). Anything but `true` is off, so an app that never sends it keeps it off.
+  /// (aside/sideSessions.ts). Off until the app sends it; an update that leaves it out keeps its value.
   readonly sideSessions: boolean;
   /// The header offers the session side rail (Debug Settings `agent.sessionRail`, cx-ncc.101).
   readonly sessionRail: boolean;
@@ -88,7 +88,7 @@ export function setHeaderState(value: unknown): void {
     sideTabs: typeof raw.sideTabs === "boolean" ? raw.sideTabs : current.sideTabs,
     lit: Array.isArray(raw.lit) ? raw.lit.filter((id): id is string => typeof id === "string") : current.lit,
     floatingChat: typeof raw.floatingChat === "boolean" ? raw.floatingChat : current.floatingChat,
-    sideSessions: raw.sideSessions === true,
+    sideSessions: typeof raw.sideSessions === "boolean" ? raw.sideSessions : current.sideSessions,
     sessionRail: typeof raw.sessionRail === "boolean" ? raw.sessionRail : current.sessionRail,
     browserOpensPreview:
       typeof raw.browserOpensPreview === "boolean" ? raw.browserOpensPreview : current.browserOpensPreview,
