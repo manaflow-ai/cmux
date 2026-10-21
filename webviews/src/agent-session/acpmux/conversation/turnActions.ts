@@ -41,6 +41,10 @@ export type TurnActions = {
     /// `release`: the release an alias runs, when the harness named it (retryModelSections.ts).
     models: readonly RetryModel[];
     current?: string;
+    /// The harness's name and its curated top models (topModels/): the menu lists models in the
+    /// composer picker's order, the rest under More models.
+    harness?: string;
+    top?: readonly string[];
     retry: (rowId: string, prompt: string, model: string) => void;
   };
   /// Re-run the current harness's declared login command after an authentication failure.

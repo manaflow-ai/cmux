@@ -262,8 +262,8 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         }
         content = controller
         // One synchronous swap: the old view leaves (its panes stay mounted, paused) and the new
-        // one draws in the same frame, its sidebar row already listed (a parked one's is) and selected.
-        sidebar.sameTurn.syncNow(rows: controller !== kept)
+        // one draws in the same frame, its sidebar row already listed (a listed one pays no walk of every row) and selected.
+        sidebar.sameTurn.syncNow(rows: controller !== kept && !sidebar.model.lists(SidebarWorkspaceID(workspace.id)))
         root.show(controller.contentView)
         // The workspace's theme first, so the chrome repaints once: only the room's own views (sidebar,
         // titlebar, backdrop) run their theme hook, and their layer colors blend from the ones on

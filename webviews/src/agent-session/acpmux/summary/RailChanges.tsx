@@ -85,6 +85,7 @@ export function RailChanges({
                         {t("rail.checksFailing")}
                       </span>
                     ) : checks && CHECK_LABELS[checks] ? (
+                      // tooltip-allow: the checks mark shows no text; its label is for screen readers only
                       <span className="acpmux-rail-pr__checks" data-checks={checks} title={t(CHECK_LABELS[checks]!)}>
                         <span className="acpmux-rail-sr">{t(CHECK_LABELS[checks]!)}</span>
                       </span>
