@@ -131,7 +131,7 @@ pub const DIGEST_KIND: &str = "agent_digest";
 pub(super) async fn joined_reply(joined: &Joined, prompt_id: &str) -> Answer {
     let mut answer = joined.answer.clone();
     let answer = match answer.wait_for(Option::is_some).await {
-        Ok(answer) => answer.clone().expect("waited for an answer"),
+        Ok(answer) => answer.clone().unwrap_or_else(|| Err(RpcError::internal("no answer"))),
         Err(_) => Err(RpcError::internal("the turn this prompt joined was dropped")),
     };
     answer.map(|mut v| {
