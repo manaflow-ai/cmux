@@ -31,9 +31,16 @@ final class TerminalLaunchFrames {
     @discardableResult
     func show(_ key: String, on session: TerminalSession, in content: NSView, reveal: LaunchReveal = .shared) -> Bool {
         guard let image = images.take(key) else { return false }
-        // Not laid out yet (zero): the pane takes the launch snapshot's size, which the frame was saved at.
+        // The surface's size in this pane: its own frame is a placeholder until the pane lays it out
+        // (this transaction does anyway). A pane not laid out yet (zero) takes the launch snapshot's
+        // size, which the frame was saved at.
+        let laidOut = content.bounds.size != .zero
+        if laidOut {
+            session.view.frame = content.bounds
+            session.view.layoutSubtreeIfNeeded()
+        }
         let size = session.surfaceView.bounds.size
-        guard size == .zero || (abs(image.size.width - size.width) < 1 && abs(image.size.height - size.height) < 1),
+        guard !laidOut || (abs(image.size.width - size.width) < 1 && abs(image.size.height - size.height) < 1),
               let frame = image.cgImage(forProposedRect: nil, context: nil, hints: nil),
               TerminalLaunchFrame(frame).show(on: session) else { return false }
         reveal.release(content)

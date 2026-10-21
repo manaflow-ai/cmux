@@ -65,12 +65,13 @@ import Testing
     }
 
     @Test func aTerminalShownAtQuitShowsItsLastFrameFromTheFirstLaunchFrame() async throws {
-        let directory = try await Self.saved(["tab-1": Self.frame(Self.size)])
-        defer { try? FileManager.default.removeItem(at: directory) }
         let reveal = LaunchReveal(deadline: .seconds(60))
         let pane = Pane(reveal: reveal)
         defer { pane.close() }
         try #require(pane.session.surfaceView.surface != nil, "libghostty created no surface")
+        // Saved at quit at the terminal's size in this pane (the pane less its scroller, if any).
+        let directory = try await Self.saved(["tab-1": Self.frame(pane.session.surfaceView.bounds.size)])
+        defer { try? FileManager.default.removeItem(at: directory) }
         let frames = TerminalLaunchFrames(directory: directory)
         #expect(frames.show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 1, "the pane shows its terminal's last frame at once")
@@ -81,11 +82,13 @@ import Testing
     }
 
     @Test func aFrameOfAnotherSizeIsNotShown() async throws {
-        let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: 640, height: 240))])
-        defer { try? FileManager.default.removeItem(at: directory) }
         let reveal = LaunchReveal(deadline: .seconds(60))
         let pane = Pane(reveal: reveal)
         defer { pane.close() }
+        // Saved in a wider window.
+        let surface = pane.session.surfaceView.bounds.size
+        let directory = try await Self.saved(["tab-1": Self.frame(NSSize(width: surface.width + 160, height: surface.height))])
+        defer { try? FileManager.default.removeItem(at: directory) }
         #expect(!TerminalLaunchFrames(directory: directory).show("tab-1", on: pane.session, in: pane.content, reveal: reveal))
         #expect(pane.content.alphaValue == 0, "the pane waits for its first live frame, as before")
         #expect(pane.held == nil)
