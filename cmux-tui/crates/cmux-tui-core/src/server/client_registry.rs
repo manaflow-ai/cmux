@@ -440,6 +440,7 @@ impl ClientRegistry {
                 writer,
                 origin: Default::default(),
                 person: false,
+                owner_plugin: false,
                 #[cfg(unix)]
                 machine_catalog: None,
             },
