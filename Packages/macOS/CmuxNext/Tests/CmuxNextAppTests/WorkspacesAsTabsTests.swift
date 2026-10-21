@@ -52,7 +52,8 @@ import Testing
 
     /// The default keymap is the same with the prototype off: no default Cmd-Shift-[ / ] entry is unscoped.
     @Test func theShippedKeymapDoesNotChange() {
-        #expect(KeyBindingDefaults.tabSwitching.filter { $0.command.rawValue.hasSuffix("SidebarTab") && $0.keys.first?.modifiers == [.command, .shift] }.isEmpty)
+        let workspaceKeys = KeyBindingDefaults.tabSwitching.filter { $0.command.rawValue.hasSuffix("SidebarTab") && $0.keys.first?.modifiers == [.command, .shift] }
+        #expect(workspaceKeys.isEmpty)
         for binding in KeyBindingDefaults.workspacesAsTabs {
             #expect(binding.when?.evaluate(KeyContext([KeyContext.surfaceKind: .string("terminal")])) == false)
         }
