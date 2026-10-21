@@ -4,12 +4,16 @@
 
 mod common;
 
+use std::sync::Arc;
 use std::sync::mpsc::channel;
+use std::time::Duration;
 
 use cmux_conversation::Op;
 use common::*;
 use optchat_chief::brain::Input;
-use optchat_chief::state::{HostState, StateFile};
+use optchat_chief::state::{HostState, StateFile, SubStatus};
+use optchat_chief::subagents::{Spawner, SubagentSettings};
+use optchat_chief::tools::Orchestrator;
 
 /// chief.stop, as the host's control socket sends it.
 fn owner_stop(h: &mut Harness) {
@@ -90,11 +94,6 @@ fn a_stopped_turn_that_closes_open_work_posts_no_done_marker() {
 /// owner's stop ends each stopped subagent's background processes too.
 #[test]
 fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
-    use optchat_chief::subagents::{Spawner, SubagentSettings};
-    use optchat_chief::tools::Orchestrator;
-    use std::sync::Arc;
-    use std::time::Duration;
-
     let mut h = Harness::new(default_script());
     h.agents.hold(true);
     h.connect();
@@ -135,4 +134,103 @@ fn owner_stop_ends_the_background_processes_of_the_subagents_it_stops() {
     let inner = h.agents.inner.lock().unwrap();
     assert!(inner.cancels.contains(&session), "{:?}", inner.cancels);
     assert_eq!(inner.killed_processes, vec![session]);
+}
+
+fn spawner(h: &Harness) -> Arc<Spawner> {
+    Arc::new(Spawner::new(
+        h.chat.clone(),
+        h.agents.clone(),
+        SubagentSettings {
+            harness: "claude".into(),
+            policy: "approve-all".into(),
+            model: None,
+            effort: None,
+            preset: Some("optchat-sub-h0me".into()),
+            cwd: h.dir.path().join("subagent"),
+            prefix: "optchat-sub-h0me".into(),
+            parent: optchat_chief::brain::PARENT.into(),
+            claude_md: None,
+        },
+        h.tx.clone(),
+        Arc::new(|_: &str| {}),
+    ))
+}
+
+fn run<T: Send + 'static>(h: &mut Harness, f: impl FnOnce() -> T + Send + 'static) -> T {
+    let worker = std::thread::spawn(f);
+    while !worker.is_finished() {
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+    while let Ok(input) = h.rx.recv_timeout(Duration::from_millis(80)) {
+        h.brain.step(input);
+    }
+    worker.join().unwrap()
+}
+
+fn status(h: &Harness, id: &str) -> SubStatus {
+    h.brain.state().sub(id).expect(id).1.status
+}
+
+/// The Home stop button (or Esc) while the Chief works sends chief.stop:
+/// it stops the Chief's turn only. Every subagent at work goes on; only its
+/// own stop or a cancel stops it (host.log 2026-10-20: "the owner stopped
+/// subagents a51, a60, a62, ..." ~48 times after Home messages).
+#[test]
+fn chief_stop_leaves_subagents_at_work_running() {
+    let mut h = Harness::new(default_script());
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["build the thing".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("Started a1"), "{spawned}");
+    assert_eq!(status(&h, "a1"), SubStatus::Running);
+    let before = h.agents.inner.lock().unwrap().cancels.clone();
+
+    let (reply, answer) = channel();
+    h.brain.step(Input::Stop { reply });
+    let answer = answer.try_recv().expect("chief.stop answers at once");
+    assert!(answer.get("subagents").is_none(), "{answer}");
+    assert_eq!(status(&h, "a1"), SubStatus::Running, "a1 goes on");
+    assert_eq!(
+        h.agents.inner.lock().unwrap().cancels,
+        before,
+        "no subagent session was cancelled"
+    );
+}
+
+/// A subagent the user stopped is no longer at work, even when its session
+/// never ends its turn: it frees its slot at once (#7: a51, a60, a62 stayed
+/// "at work" after their stop).
+#[test]
+fn a_stopped_subagent_frees_its_slot_even_when_its_turn_never_ends() {
+    let mut h = Harness::new(default_script());
+    h.brain.set_max_live(Some(1));
+    h.agents.hold(true);
+    let sp = spawner(&h);
+    h.brain.set_sub_starter(Some(sp.queue_starter()));
+    let a = sp.clone();
+    let spawned = run(&mut h, move || {
+        a.spawn(vec!["one".into(), "two".into()], None)
+    })
+    .unwrap();
+    assert!(spawned.contains("a2: queued"), "{spawned}");
+    // The agent never sees the cancel: a1's turn never ends.
+    h.agents.inner.lock().unwrap().ignore_cancels = usize::MAX;
+    let (reply, answer) = channel();
+    h.brain.step(Input::StopSubagent {
+        name: "a1".into(),
+        reply,
+    });
+    let answer = answer
+        .try_recv()
+        .expect("chief.stop {name} answers at once");
+    assert_eq!(answer["stopped"], true, "{answer}");
+    run(&mut h, || ());
+    assert_ne!(status(&h, "a2"), SubStatus::Queued, "a2 got a1's slot");
 }
