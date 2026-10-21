@@ -1727,6 +1727,71 @@ mod tests {
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
     }
 
+    /// The phone roams to a new TURN allocation. The Mac replays what it
+    /// sent recently once on the new route, not once per event of the roam:
+    /// the phone's first datagram from the new relay changes the route (a
+    /// replay), and its announcement of the new address arrives right after.
+    /// A second copy of the same burst overflowed a socket buffer on CI
+    /// (Linux caps them at `rmem_max`, about 208 KB), and a datagram that was
+    /// in neither copy waited out TCP's 1 s retransmission inside the
+    /// tunnel: the `stalled 1.0s` flake of
+    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`.
+    #[tokio::test]
+    async fn a_roam_replays_recent_datagrams_once_on_the_new_route() {
+        let old_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let new_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let (old, new) = (old_relay.local_addr().unwrap(), new_relay.local_addr().unwrap());
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[old.to_string()],
+                peer_relayed: &[old.to_string()],
+                peer_relayed_tls: &[old.to_string()],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
+        underlay.authenticated(udp_from(old));
+        // Recent data, each datagram distinct.
+        for n in 0..20u8 {
+            let mut datagram = vec![n; 200];
+            datagram[0] = 4;
+            underlay.send(&datagram);
+        }
+        // The roam: the phone's network changed, its first datagram comes
+        // from the new relay, then it announces that relay.
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: Vec::new(),
+            relayed: Vec::new(),
+            relayed_tls: Vec::new(),
+        });
+        underlay.authenticated(udp_from(new));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![new.to_string()],
+            relayed: vec![new.to_string()],
+            relayed_tls: vec![new.to_string()],
+        });
+        let mut copies = std::collections::HashMap::<u8, usize>::new();
+        let mut buffer = [0u8; 2048];
+        while let Ok(Ok((len, _))) =
+            tokio::time::timeout(Duration::from_millis(200), new_relay.recv_from(&mut buffer)).await
+        {
+            if len == 200 {
+                *copies.entry(buffer[1]).or_default() += 1;
+            }
+        }
+        assert_eq!(copies.len(), 20, "every recent datagram reaches the new route: {copies:?}");
+        assert!(copies.values().all(|&n| n == 1), "replayed more than once: {copies:?}");
+    }
+
     #[test]
     fn no_stun_answer_means_udp_looks_blocked() {
         let stun: SocketAddr = "198.51.100.1:3478".parse().unwrap();
