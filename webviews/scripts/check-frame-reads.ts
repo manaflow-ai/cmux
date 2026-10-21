@@ -30,8 +30,6 @@ const LAYOUT_READS = new Set([
  */
 export const FRAME_READS_PENDING = new Map<string, string>([
   ["test/agent-pane-scrollbar-full-height.test.ts", "composer-scroll's #23257 changes this file"],
-  ["test/thread-minimap-feel.test.ts", "#23092 (newtab-resize-anim) changes this file"],
-  ["test/thread-minimap-motion.test.ts", "#23092 (newtab-resize-anim) changes this file"],
 ]);
 
 const isFrameCall = (node: ts.Node): node is ts.CallExpression =>

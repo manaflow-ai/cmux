@@ -74,7 +74,10 @@ pub(super) const GUIDES: &[Guide] = &[
         text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
         app_agent_open {session, group}, CLI `cmux agent open SESSION [--group G]`) opens that \
         session's chat in a new workspace, in sidebar group G (made when missing) when given; \
-        the workspace the user looks at stays. Open a link: \
+        the workspace the user looks at stays. agent.openSessionTab (MCP app_agent_open_tab \
+        {session, target}, CLI `cmux agent open-tab SESSION [--target T]`) opens it as a tab of the \
+        target pane (a pane or tab id; default the focused pane) and selects it only with focus: \
+        true; a session a tab already shows gets no second tab. Open a link: \
         workspace_open_url {url, workspace} loads it in a browser tab on the workspace's right \
         side and keeps the keyboard focus, but it navigates a browser tab already there, so \
         when the user's page must stay use browser_profile_open {url, profile: \"default\", pane, \
@@ -100,6 +103,7 @@ pub(super) const GUIDES: &[Guide] = &[
             "login",
             "signin",
             "harness",
+            "outdated",
             "peer",
             "enroll",
             "machine",
@@ -115,9 +119,12 @@ pub(super) const GUIDES: &[Guide] = &[
         SSH_TARGET [--name NAME]` adds an ssh machine as an acpmux peer (`cmux acp host \
         setup`), updates a peer on an older build (`cmux acp host update`), and is ok when the \
         peer is connected and current; it uses key-only ssh, and a host it cannot reach comes \
-        back as needs_user with the ssh command to try. `cmux setup status` lists every peer \
-        with connected and outdated. Every `cmux setup` command prints one JSON object: state \
-        is ok, changed, planned, needs_user or failed.",
+        back as needs_user with the ssh command to try. `cmux setup harness [ID ...]` reports \
+        whether each harness (default: every configured or found one) is installed, signed in \
+        and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
+        harness login ID`. `cmux setup status` lists every peer with connected and outdated, \
+        and every harness. Every `cmux setup` command prints one JSON object: state is ok, \
+        changed, planned, needs_user or failed.",
     },
 ];
 

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useLayoutEffect, us
 import { createPortal } from "react-dom";
 // Send's iMessage colors (--cmux-messages-blue); build-agent-pane-web.sh inlines the sheet.
 import "../../theme/messages.css";
-import type { ConnectKind } from "./environments";
+import type { ConnectKind, OffloadKind } from "./environments";
 import { useEscapingList } from "../../ui/popupHost";
 import type { AcpmuxSnapshot, QueueEdit } from "./model";
 import {
@@ -64,7 +64,12 @@ import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
 import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
-import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
+import {
+  appendAttachments,
+  AttachmentStrip,
+  attachmentErrorText,
+  useAttachmentIntake,
+} from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
@@ -173,6 +178,9 @@ type Props = {
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
   onQueueLost?(text: string): void;
+  /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
+  /// Stable: each queued thumbnail reads once.
+  queueImage?(id: string): Promise<string | undefined>;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -232,6 +240,9 @@ type Props = {
   onBrowseFolder?(): Promise<string | undefined>;
   /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
   onConnect?(kind: ConnectKind): void;
+  /// A started chat's Move to Cloud or Bring Back Local (see ComposerContext), as `offloads` lists them.
+  onOffload?(kind: OffloadKind): void;
+  offloads?: readonly OffloadKind[];
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
   /// This Mac's name for the location row.
@@ -277,6 +288,7 @@ export function Composer({
   onQueueRemove,
   onQueueChange,
   onQueueLost,
+  queueImage,
   draft,
   leading,
   permissionAccess,
@@ -298,6 +310,8 @@ export function Composer({
   onNewWorktree,
   onBrowseFolder,
   onConnect,
+  onOffload,
+  offloads,
   onRefreshMachines,
   localName,
   environments,
@@ -460,16 +474,17 @@ export function Composer({
       },
       attach(attachment) {
         // A pick past the most the composer holds says so, as a dropped file does.
-        const held = attachmentsRef.current.filter((chip) => chip.id !== attachment.id);
-        if (held.length >= MAX_ATTACHMENTS) {
+        const held = attachmentsRef.current;
+        const next = appendAttachments(held, [attachment]);
+        if (next.length > MAX_ATTACHMENTS) {
           setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
           return;
         }
         // Ahead of the render, so each of several picks attached at once counts the ones before it.
-        attachmentsRef.current = [...held, attachment];
+        attachmentsRef.current = next;
         setAttachments((current) => {
-          const kept = current.filter((chip) => chip.id !== attachment.id);
-          return kept.length >= MAX_ATTACHMENTS ? current : [...kept, attachment];
+          const next = appendAttachments(current, [attachment]);
+          return next.length > MAX_ATTACHMENTS ? current : next;
         });
       },
       detach(ids) {
@@ -1299,6 +1314,8 @@ export function Composer({
       onNewWorktree={onNewWorktree}
       onBrowseFolder={onBrowseFolder}
       onConnect={onConnect}
+      {...(onOffload ? { onOffload } : {})}
+      {...(offloads ? { offloads } : {})}
       summary={snapshot.summary}
       sessions={snapshot.sessions}
       peers={snapshot.peers}
@@ -1388,6 +1405,7 @@ export function Composer({
         onRemove={onQueueRemove}
         onChange={onQueueChange}
         onLost={onQueueLost}
+        readImage={queueImage}
         onLeave={() => field.current?.focus()}
       />
       {context}
