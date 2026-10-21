@@ -919,10 +919,12 @@ fn deliver(hub: &Hub, conn: &Conn, ev: HubEvent) {
             return;
         }
         if rec.dir == "mux" && rec.kind == "purged" {
-            conn.send(&Message::notification(
-                method::MUX_SESSION_CHANGED,
-                json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq}),
-            ));
+            // `replaced`: the same chat came back under this id (`Session::replaced`).
+            let mut params = json!({"sessionId": ev.session_id, "session": {"sessionId": ev.session_id}, "kind": "purged", "recordKind": "purged", "seq": rec.seq});
+            if rec.msg.get("replaced") == Some(&Value::Bool(true)) {
+                params["replaced"] = Value::Bool(true);
+            }
+            conn.send(&Message::notification(method::MUX_SESSION_CHANGED, params));
             return;
         }
         if rec.dir != "mux" {

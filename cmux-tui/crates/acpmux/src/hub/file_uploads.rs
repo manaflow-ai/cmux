@@ -12,7 +12,8 @@
 //! resets the link and every chat on it). 10 MiB is 13.4 MiB of base64, leaving room for the rest
 //! of the request.
 //!
-//! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]), and
+//! A chat's files go when the chat is deleted (`_acpmux/kill` with purge, [`remove_session`]; not
+//! when Bring Back replaces its closed copy under the same id, `transfer_in.rs`), and
 //! any file goes once it is older than `uploadsMaxAgeDays` (default 30; 0 keeps them), read from
 //! the UUIDv7 name of its folder ([`sweep`], at the daemon's start and every day after). A folder
 //! the daemon did not name that way is never deleted.
@@ -175,8 +176,10 @@ pub async fn handle(hub: &super::Hub, params: Value) -> Result<Value, RpcError> 
     let answer = tokio::task::spawn_blocking(move || put(&id, &params))
         .await
         .map_err(|e| RpcError::internal(e.to_string()))??;
-    // A purge while the file was written may have deleted the folder before it: the file goes too.
-    if session.purged.load(std::sync::atomic::Ordering::SeqCst) {
+    // A purge while the file was written may have deleted the folder before it: the file goes too,
+    // unless the chat came back under this id and keeps its folder.
+    use std::sync::atomic::Ordering::SeqCst;
+    if session.purged.load(SeqCst) && !session.replaced.load(SeqCst) {
         let id = session.id.clone();
         let _ = tokio::task::spawn_blocking(move || remove_session(&id)).await;
         return Err(RpcError::invalid_params("no such chat"));
