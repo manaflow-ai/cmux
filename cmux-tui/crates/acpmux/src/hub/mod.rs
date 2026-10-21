@@ -63,7 +63,7 @@ mod session;
 pub(crate) mod session_pages;
 mod settings_watch;
 pub use session::{Session, live_tags};
-pub(super) use session::{prompt_text, short_text};
+pub(super) use session::{newest_first, prompt_text, short_text};
 mod shutdown;
 mod spawn;
 mod start_defaults;
@@ -97,6 +97,7 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+mod subsession_guard;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 mod drafts;
@@ -1106,23 +1107,6 @@ impl Hub {
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {
         self.store.session_dir(id)
     }
-}
-
-/// `sessions` newest first. Each session's `updated_at` is read once: other
-/// tasks move it at any time (every logged event), and a key that is read
-/// again on each comparison is not a total order, which makes Rust's sort
-/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
-/// the list is the same for the same values.
-fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
-    let mut keyed: Vec<_> = sessions
-        .into_iter()
-        .map(|s| {
-            let at = s.meta.lock().unwrap_or_else(|e| e.into_inner()).updated_at;
-            (at, s)
-        })
-        .collect();
-    keyed.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
-    keyed.into_iter().map(|(_, s)| s).collect()
 }
 
 /// Add `fields` under `_meta.acpmux` of an object, keeping any `_meta` the
