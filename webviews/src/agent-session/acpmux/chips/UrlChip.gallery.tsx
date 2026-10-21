@@ -113,6 +113,40 @@ export default componentEntry<UrlChipProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-pr-card__kinds"));
       },
     },
+    // A red the base branch already has: the card says how many of the failures are not this pull
+    // request's, and its dot drops from danger to warning when none of them are.
+    "pull-request-base-reds": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          review: "",
+          mergeable: "mergeable",
+          checks: { state: "failing", passed: 98, total: 100, failingOnBase: 1 },
+          checkList: [
+            { name: "cmux-next / cmux-next generated files", state: "failed", onBase: true },
+            { name: "cmux-next web / web lint (fast)", state: "failed" },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
+    "pull-request-all-reds-on-base": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          review: "approved",
+          mergeable: "mergeable",
+          checks: { state: "failing", passed: 98, total: 100, failingOnBase: 2 },
+          checkList: [
+            { name: "cmux-next / cmux-next generated files", state: "failed", onBase: true },
+            { name: "cmux-next web / web lint (fast)", state: "failed", onBase: true },
+          ],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
+      play: openCard,
+    },
     "pull-request-no-tests": {
       chipHost: prHost({
         pullRequest: pullRequest({
