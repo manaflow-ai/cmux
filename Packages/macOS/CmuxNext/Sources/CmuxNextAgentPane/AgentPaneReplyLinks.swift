@@ -28,6 +28,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     /// Shows a folder (in Finder: nothing in it runs).
     public var revealFolder: @MainActor (URL) -> Void = { NSWorkspace.shared.revealInBackground([$0]) }
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
+    /// What the user's GitHub CLI says about a pull request (`pr.inspect`); nil when it can't say.
+    public var pullRequest: @MainActor (URL) async -> AgentPanePullRequest? = { _ in nil }
     var fetcher: any AgentPaneImageFetching = AgentPaneSafeFetch()
     /// The fetch for web video and audio (``AgentPaneSafeFetch/media``).
     var mediaFetcher: any AgentPaneImageFetching = AgentPaneSafeFetch.media
@@ -36,6 +38,11 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     var home = NSHomeDirectory()
 
     public init() {}
+
+    /// `pr.inspect`'s reply: the pull request, or `null` when the host can't read it.
+    func respondToPullRequest(_ url: URL) async -> [String: Any] {
+        AgentPaneReply.success(["pullRequest": await pullRequest(url)?.json.foundationObject ?? NSNull()])
+    }
 }
 
 extension AgentPaneModel {
@@ -78,6 +85,8 @@ extension AgentPaneModel {
             return await loadReplyMedia(src)
         case .listBrowsers:
             return AgentPaneReply.success(["browsers": replyLinks.choices.list(from: replyLinks.browsers)])
+        case .inspectPullRequest(let url):
+            return await replyLinks.respondToPullRequest(url)
         case .openIn(let url, let browserId):
             if browserId == "cmux" {
                 guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
