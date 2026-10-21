@@ -38,6 +38,12 @@ impl Memory for OptChat {
     }
 }
 
+/// The Chief tools a turn another person started may call only with
+/// some arguments (`approval::CHIEF_TOOLS`, by their socket names).
+const TURN_GATED: [&str; 9] = [
+    "send", "reply", "react", "stop", "sleep", "spawn", "tell", "control", "profile",
+];
+
 /// Section 9's subagent tools, answered by the host (subagents.rs).
 pub trait Orchestrator: Send + Sync {
     /// Starts one subagent per task, in `cwd` when it exists on this host;
@@ -86,6 +92,12 @@ pub trait Orchestrator: Send + Sync {
         let _ = queue;
         self.tell_keyed(id, message, key)
     }
+    /// Whether the running turn may call Chief tool `tool` with `input`
+    /// (`Brain::turn_gate`); a host with no turns allows it.
+    fn turn_gate(&self, _tool: &str, _input: &Value) -> Result<(), String> {
+        Ok(())
+    }
+
     /// `control(action, ...)`: see, interrupt, answer, pause, resume,
     /// cancel, restart, reorder subagents and set the live cap.
     fn control(&self, request: ControlCall) -> Result<String, String> {
@@ -931,8 +943,7 @@ impl Call {
 
 /// The host's per-Chief settings over the socket (`optchat-chief settings`):
 /// `Some((key, value))` sets one, None shows them all. Not a model tool:
-/// the MCP server never offers it, and the host refuses turning
-/// `remote.autoApprove` on during remote-origin work.
+/// the MCP server never offers it.
 pub type Control = Arc<dyn Fn(ControlRequest) -> Result<String, String> + Send + Sync>;
 
 /// What `optchat-chief settings` and `chief agents spawn` ask the host.
@@ -1185,7 +1196,20 @@ fn connection(conn: UnixStream, served: &Served) {
                     || role() == crate::turn_caller::Role::Subagent;
                 let grant = served.chief.as_ref().map(|c| c.grant());
                 let grant = grant.as_ref();
-                let answer = match Call::parse(tool, &req) {
+                // The turn's settings allow the Chief's tools with no
+                // permission request; a turn another person started is
+                // held to its input rules here.
+                let gated = if subagent || !TURN_GATED.contains(&tool) {
+                    Ok(())
+                } else {
+                    let mut input = req.as_object().cloned().unwrap_or_default();
+                    input.remove("tool");
+                    input.remove("from");
+                    served.orchestrator.as_ref().map_or(Ok(()), |o| {
+                        o.turn_gate(&format!("mcp__optchat__{tool}"), &Value::Object(input))
+                    })
+                };
+                let answer = match gated.and_then(|()| Call::parse(tool, &req)) {
                     // A subagent tells another subagent (acp-chief-issues.md
                     // #11), as the one its session is; never as the Chief.
                     Ok(Call::Tell {

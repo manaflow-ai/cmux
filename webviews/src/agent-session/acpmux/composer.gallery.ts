@@ -5,6 +5,7 @@
 import { agentPaneEntry } from "../../gallery/format";
 import { minutesAgo } from "../../gallery/clock";
 import { assistant, CATALOG, chat, CWD, noChat, session, summary, user } from "../../gallery/fixtures/acpmux";
+import type { SessionPullRequest } from "./sessionList";
 import { composerStatePlays } from "./composerStatePlays";
 
 const working = [user("Add retries", 1), assistant("Reading the helper…", 0.5, { streaming: true })];
@@ -20,6 +21,22 @@ const steering = (steers: boolean) => {
   const running = chat(working, { isWorking: true });
   return { ...running, summary: { ...running.summary!, steering: steers } };
 };
+
+// A new chat in CWD beside a recent chat there with a PR (the suggested prompt's source).
+const suggesting = (pr: Pick<SessionPullRequest, "state" | "checks">) =>
+  noChat(
+    [
+      session({
+        sessionId: "older",
+        title: "Retry failed uploads",
+        cwd: CWD,
+        updatedAt: Date.now() - 60 * 60 * 1000,
+        turnCount: 6,
+        pullRequest: { number: 4182, title: "Retry failed uploads with backoff", ...pr } as SessionPullRequest,
+      }),
+    ],
+    { summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" } },
+  );
 
 // A chat started without a project lives in cmux's agent home, one UUID folder per chat.
 const AGENT_HOME = "/Users/you/Library/Application Support/cmux/agent-home/6b16a112-289d-4467-9675-8e6feee99481";
@@ -119,6 +136,52 @@ function footerChat(mode: "default" | "full-access") {
   };
 }
 
+// A chat on a Claude profile acpmux lists under its own id (claude-sr2), its models by id only.
+function profileIdsChat() {
+  const base = chat(finished, { harness: "claude-sr2" });
+  return {
+    ...base,
+    catalog: [
+      ...CATALOG,
+      {
+        id: "claude-sr2",
+        name: "Claude Code (sr2)",
+        models: ["claude-opus-5-5", "claude-sonnet-5-5"].map((id) => ({ id, name: id })),
+      },
+    ],
+    summary: {
+      ...base.summary!,
+      usage: { used: 84_000, size: 200_000 },
+      modes: {
+        currentModeId: "bypassPermissions",
+        availableModes: [
+          { id: "default", name: "Default", description: "Ask before sensitive actions." },
+          { id: "bypassPermissions", name: "Bypass permissions", description: "Run actions without asking." },
+        ],
+      },
+      configOptions: [
+        {
+          id: "effort",
+          name: "Reasoning",
+          category: "thought_level",
+          currentValue: "default",
+          options: ["default", "low", "medium", "high", "xhigh", "max"].map((value) => ({ value })),
+        },
+        {
+          id: "fast-mode",
+          name: "Fast mode",
+          category: "model_config",
+          currentValue: "off",
+          options: [
+            { value: "off", name: "Off" },
+            { value: "on", name: "On" },
+          ],
+        },
+      ],
+    },
+  };
+}
+
 // A new chat in a project on `branch`, before its first send.
 const onBranch = (branch: string) =>
   noChat([session({ sessionId: "older", title: "An older chat" })], {
@@ -168,6 +231,8 @@ export default agentPaneEntry({
     "agent-session/acpmux/Composer.tsx#Composer",
     "agent-session/acpmux/ComposerFoot.tsx#ComposerFoot",
     "agent-session/acpmux/conversation/SteerMark.tsx#SteerMark",
+    "agent-session/acpmux/conversation/PendingSteer.tsx#PendingSteer",
+    "agent-session/acpmux/conversation/icons.tsx#Clock",
     "agent-session/acpmux/ComposerPickers.tsx#ComposerPickers",
     "agent-session/acpmux/ComposerPickers.tsx#Picker",
     "agent-session/acpmux/ComposerContext.tsx#ComposerContext",
@@ -185,6 +250,23 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    // Leo 2026-10-18: an idle new chat suggests the open PR another chat in this checkout made, Tab
+    // to take it (promptSuggestion.ts).
+    "new-chat-suggest-open": {
+      note: "A new chat beside a chat with an open PR: the empty prompt suggests continuing it, with a Tab keycap.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: suggesting({ state: "open", checks: "passing" }),
+    },
+    "new-chat-suggest-failing": {
+      note: "The same PR with failing checks: the suggestion is to fix them.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: suggesting({ state: "open", checks: "failing" }),
+    },
+    "new-chat-suggest-draft": {
+      note: "A draft PR: the suggestion is to finish it.",
+      ready: { newSession: true, cwd: CWD },
+      snapshot: suggesting({ state: "draft", checks: "pending" }),
     },
     "new-chat-reasoning": {
       note: "Play: a new chat on a harness no chat has shown here yet names the level acpmux starts it on (Medium) before its session reports, never nothing.",
@@ -257,6 +339,22 @@ export default agentPaneEntry({
       snapshot: noChat([session({ sessionId: "older", title: "An older chat" })], {
         summary: { sessionId: "", cwd: CWD, harness: "claude", model: "claude-opus-5-5", effort: "high" },
       }),
+    },
+    // Leo's nightly (2026-10-20): a Claude chat on a second Claude profile (claude-sr2) whose
+    // acpmux list names its models by id, on Claude Code's own level, with fast mode offered. The
+    // chip names Opus 5.5 and Medium, not "claude-opus-5-5" and "Reasoning".
+    "footer-profile-ids": {
+      note: "A chat on a second Claude profile whose models carry only their ids, on the agent's default level: the footer names the model by its catalog short name (Opus 5.5) and the level it resolves to (Medium).",
+      snapshot: profileIdsChat(),
+      play: async (ctx) => {
+        const text = (selector: string) => ctx.document.querySelector(selector)?.textContent?.trim() ?? "";
+        await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-model .acpmux-picker-button").includes("Opus 5.5"));
+        await ctx.waitFor(() => text(".acpmux-composer-foot .acpmux-effort .acpmux-picker-button") === "Medium");
+        await ctx.waitFor(() => !text(".acpmux-composer-foot").includes("claude-opus-5-5"));
+        await ctx.waitFor(() =>
+          ctx.document.querySelector(".acpmux-context")?.getAttribute("title")?.startsWith("Context: 42% used"),
+        );
+      },
     },
     "footer-full-access": {
       note: "Full access keeps its name in the bar: a mode that is not the default always says what it is.",
@@ -471,18 +569,17 @@ export default agentPaneEntry({
       note: "A turn running: Send becomes Stop.",
       snapshot: chat(working, { isWorking: true }),
     },
-    // Leo 2026-10-18: the empty prompt mid-turn teaches its keys, as Claude's "↵ to send, ⌘↵ to
-    // queue for later" does.
+    // Leo 2026-10-20: the empty prompt mid-turn teaches its keys, as Claude's composer does.
     "working-hint-steer": {
-      note: "A turn running for an agent that steers: the empty prompt says ↵ queues and ⌘↵ steers.",
+      note: "A turn running for an agent that steers: the empty prompt says ↵ steers and ⌘↵ queues.",
       snapshot: steering(true),
     },
-    "working-hint-interrupt": {
-      note: "The same for an agent that cannot steer: the empty prompt says ↵ queues and ⌘↵ interrupts.",
+    "working-hint-queue": {
+      note: "The same for an agent that cannot steer: nothing sent stops the turn, so the empty prompt says it queues.",
       snapshot: steering(false),
     },
     "working-stop": {
-      note: "Play: stop a running turn; the circular control returns to Send after the host acknowledges cancellation.",
+      note: "Play: stop a running turn; Stop leaves after the host acknowledges cancellation, and with no draft the mic alone keeps the right edge.",
       snapshot: chat(working, { isWorking: true }),
       afterCall: { "chat.cancel": chat(working, { isWorking: false }) },
       checks: {
@@ -493,16 +590,25 @@ export default agentPaneEntry({
       },
       play: async (ctx) => {
         await ctx.click({ role: "button", name: "Stop" });
-        await ctx.waitFor(() => ctx.document.querySelector('button[aria-label="Send"]'));
+        await ctx.waitFor(() => !ctx.document.querySelector(".acpmux-cancel"));
       },
     },
     "working-steer": {
-      note: "A prompt typed while the turn runs: Steer beside Send puts it into the turn now (⌘Return); Send queues it for after the turn (Return); Esc on an empty prompt stops the turn.",
+      note: "A prompt typed while the turn runs: one ↵ control puts it into the turn now, as Return does (read when the agent's current step ends); ⌘Return queues it for after the turn; Stop sits left of the mic, as in Claude's desktop app.",
       snapshot: steering(true),
       ready: { draft: "Use the new tokenizer instead" },
+      play: async (ctx) => {
+        await ctx.waitFor(() => {
+          const steer = ctx.document.querySelector(".acpmux-steer-now");
+          return steer?.getAttribute("aria-label") === "Steer now" && steer.textContent?.trim() === "";
+        });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('.acpmux-composer-actions > button[aria-label="Stop"] + .acpmux-fit-mic'),
+        );
+      },
     },
-    "working-interrupt": {
-      note: "The same for an agent that cannot steer: Interrupt stops the turn and sends the prompt next (⌘Return).",
+    "working-queue": {
+      note: "The same for an agent that cannot steer: no ↵ control; Return and ⌘Return queue the prompt.",
       snapshot: steering(false),
       ready: { draft: "Use the new tokenizer instead" },
     },
@@ -572,7 +678,7 @@ export default agentPaneEntry({
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: Steering while the agent has not read it, and Steered once it has. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
+      note: "Under a steer's bubble: Steering while the agent has not read it, with a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on), and Steered once it has. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
       snapshot: chat(
         [
           user("Add retries", 6),
@@ -580,7 +686,7 @@ export default agentPaneEntry({
           assistant("Using the cache dir now.", 4),
           user("Stop and fix the space thing first", 3, { continues: true }),
           assistant("Fixing the space handling…", 2),
-          user("Also keep the old flag working", 1, { steer: "waiting" }),
+          user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
           assistant("Reading the flag parser…", 0.5, { streaming: true }),
         ],
         { isWorking: true },

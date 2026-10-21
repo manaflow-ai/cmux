@@ -217,8 +217,14 @@ pub mod method {
     pub const MUX_SUBAGENT_STOP: &str = "_acpmux/subagent_stop";
     pub const MUX_QUEUE_REMOVE: &str = "_acpmux/queue_remove";
     pub const MUX_QUEUE_EDIT: &str = "_acpmux/queue_edit";
+    /// To the agent adapter, `{sessionId}`: stop the agent's current step so it reads the steers
+    /// that wait for it, and keep the turn (Send now on a steer, `hub/queue_edit.rs`). Answers
+    /// `{interrupted}`, false when no steer waits; an agent without it answers an error.
+    pub const MUX_STEP_NOW: &str = "_acpmux/step_now";
     /// An agent message's sender takes it back (`hub/withdraw.rs`).
     pub const MUX_PROMPT_WITHDRAW: &str = "_acpmux/prompt_withdraw";
+    /// Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
+    pub const MUX_AGENT_PAIR_RESUME: &str = "_acpmux/agent_pair_resume";
     pub const MUX_INFO: &str = "_acpmux/info";
     pub const MUX_EVENTS: &str = "_acpmux/events";
     /// Durable inter-session mailbox: send, page/wait, and recipient-only ack.

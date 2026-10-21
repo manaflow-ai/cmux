@@ -25,6 +25,16 @@
       "message": "สแนปช็อต Cloud VM ต้องใช้คีย์ idempotency",
       "action": "ลองอีกครั้งด้วย Idempotency-Key แบบคงที่ที่ยาวไม่เกิน 128 อักขระ"
     },
+    "snapshotInProgress": {
+      "title": "สแนปชอตยังดำเนินการอยู่",
+      "message": "สแนปชอตที่ใช้คีย์ idempotency นี้ยังทำงานอยู่สำหรับ Cloud VM นี้",
+      "action": "รอให้สแนปชอตแรกเสร็จ แล้วลองอีกครั้งด้วยคีย์ idempotency เดิม"
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "คีย์ลองใหม่ของสแนปชอตถูกใช้แล้ว",
+      "message": "คีย์ idempotency นี้ถูกใช้กับคำขอสแนปชอตอื่นบน Cloud VM นี้แล้ว",
+      "action": "ใช้คีย์ idempotency ใหม่สำหรับสแนปชอตที่มีชื่ออื่น"
+    },
     "snapshotQuota": {
       "title": "ถึงขีดจำกัดสแนปช็อตแล้ว",
       "message": "Cloud VM นี้ถึงขีดจำกัดสแนปช็อตแล้ว",

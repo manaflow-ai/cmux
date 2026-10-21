@@ -101,6 +101,11 @@ pub struct SessionMeta {
     pub agent_info: Option<Value>,
     #[serde(default)]
     pub agent_capabilities: Option<Value>,
+    /// The agent took prompts mid-turn at its last start (`_meta.steering.supported`). Kept so a
+    /// session the daemon adopts after a restart (`hub/hosts.rs`), which never initializes its
+    /// agent again, still steers instead of stopping the turn for every prompt sent now.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub steering: bool,
     #[serde(default)]
     pub modes: Option<Value>,
     #[serde(default)]
@@ -498,6 +503,11 @@ pub trait Store: Send + Sync {
     /// Where handoff records live: `handoffs/` beside `sessions/`, or none
     /// (in memory) for the memory store.
     fn handoff_dir(&self) -> Option<PathBuf> {
+        None
+    }
+    /// Where each peer's last-known sessions are saved: `peers/` beside
+    /// `sessions/`, or none (in memory) for the memory store.
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
         None
     }
 }
@@ -907,6 +917,10 @@ impl Store for LocalStore {
 
     fn handoff_dir(&self) -> Option<PathBuf> {
         self.root.parent().map(|home| home.join("handoffs"))
+    }
+
+    fn peer_cache_dir(&self) -> Option<PathBuf> {
+        self.root.parent().map(|home| home.join("peers"))
     }
 }
 
