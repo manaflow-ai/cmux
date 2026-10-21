@@ -166,7 +166,7 @@ pub(in crate::cli) fn run(
     match command {
         ChatCommand::Send { target, text } => send(global, target, text, idempotency_key, origin),
         ChatCommand::Read { target, after, limit } => read(global, target, *after, *limit),
-        ChatCommand::New(chat) => super::chat_control::new(global, chat, idempotency_key, origin),
+        ChatCommand::New(chat) => super::chat_control::new(global, chat, origin),
         ChatCommand::State { target } => super::chat_control::state(global, target),
         ChatCommand::Interrupt { target } => super::chat_control::interrupt(global, target, origin),
     }
@@ -324,7 +324,8 @@ fn send(
 /// Whether a `chat.send` receipt reports a message that was stored but
 /// could not be handed to its chat.
 pub(in crate::cli) fn delivery_failed(receipt: &Value) -> bool {
-    receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed"
+    (receipt["action"] == "chat.send" && receipt["result"]["state"] == "failed")
+        || (receipt["action"] == "chat.new" && receipt["result"]["prompt"]["state"] == "failed")
 }
 
 fn read(global: &GlobalArgs, target: &str, after: u64, limit: usize) -> Result<Value, CallFailure> {
@@ -613,6 +614,17 @@ pub(super) mod acp {
                     json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": meta}}),
                 )
                 .await
+        })
+    }
+
+    /// Ends the session and deletes its record (`_acpmux/kill` with purge).
+    pub(in crate::cli) fn kill(session: &str) -> Result<(), String> {
+        block_on(async {
+            let client = acpmux::deliver::connect().await?;
+            client
+                .request(acpmux::rpc::method::MUX_KILL, json!({"sessionId": session, "purge": true}))
+                .await?;
+            Ok(())
         })
     }
 

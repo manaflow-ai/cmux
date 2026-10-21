@@ -132,9 +132,10 @@ pub(super) const TOOLS: &[AgentTool] = &[
         description: "Start a cmux agent chat that shows in the app (`cmux agents chat new`): \
             in pane (a pane_ id), in workspace's active pane (a ws_ id), or in a new workspace \
             when neither is given. Nothing takes the person's focus or switches the shown \
-            workspace. harness, model, effort, mode and policy pick how it runs; acpmux \
-            refuses a mode or policy this caller may not choose. A prompt is sent once the \
-            chat shows, as agents_chat_send sends it. Answers {action, origin, result: {chat, \
+            workspace. harness, model, effort and mode pick how it runs (acpmux refuses a \
+            mode this caller may not start in); policy is ask, approve-reads or deny-all, \
+            since a person chooses approve-edits or approve-all in cmux. A prompt is sent \
+            once the chat shows, as agents_chat_send sends it. A retry starts another chat. Answers {action, origin, result: {chat, \
             opened, tab, pane, workspace, prompt}}; opened false (with open_error) means the \
             chat runs but no tab shows it yet.",
     },
@@ -177,6 +178,7 @@ impl AgentTool {
             Verb::DialogList
                 | Verb::DialogAnswer
                 | Verb::ChatRead
+                | Verb::ChatNew
                 | Verb::ChatState
                 | Verb::ChatInterrupt
         )
@@ -348,7 +350,7 @@ impl AgentTool {
                     ("model", "The model, as the harness names it."),
                     ("effort", "Thinking effort: default, low, medium, high, xhigh or max."),
                     ("mode", "The harness mode to start in."),
-                    ("policy", "ask, approve-reads, approve-edits, approve-all or deny-all."),
+                    ("policy", "ask, approve-reads or deny-all."),
                     ("cwd", "The chat's folder, an absolute path."),
                     ("name", "The chat's name (and a new workspace's)."),
                 ] {

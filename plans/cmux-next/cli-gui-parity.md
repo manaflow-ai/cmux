@@ -29,7 +29,7 @@ Gaps the issue named, and what this change does:
 | Send to an existing chat | `agents chat send` | unchanged; `agents chat continue <chat> [text]` nudges |
 | Read a chat's state | transcript only (`agents chat read`) | `agents chat state <chat>`, MCP `agents_chat_state` |
 | Stop a chat's turn | `cmux acp session cancel` (any chat, no session scope) | `agents chat interrupt <chat>`, MCP `agents_chat_interrupt` (this session's chats, never the caller's own) |
-| Screenshot a pane or tab | person only | agents may capture panes and tabs; browser pixels stay refused to automation (use `cmux browser page screenshot`, which masks secrets) |
+| Screenshot a pane or tab | person only | agents may capture terminal and page panes and tabs (the window alone, no overlay or floating window); browser and agent-chat pixels stay refused (`cmux browser page screenshot` and `cmux agents chat read` mask secrets) |
 
 `window.screenshot` stays person only: a window can show a browser page beside
 anything else.

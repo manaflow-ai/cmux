@@ -688,6 +688,47 @@ fn an_agent_starts_a_chat_in_a_workspace_and_drives_it_without_the_app() {
     assert_eq!(code, Some(3), "{outside}");
     assert_eq!(error_of(&outside)["code"], "chat.out_of_scope", "{outside}");
 
+    // In a pane of that workspace, named by its pane_ id.
+    let output = as_caller().args(["--json", "agents", "snapshot"]).output().unwrap();
+    let snapshot: Value = serde_json::from_slice(&output.stdout).unwrap_or_else(|_| {
+        panic!("snapshot: {}", String::from_utf8_lossy(&output.stderr))
+    });
+    let daemon_snapshot = snapshot.get("daemon").unwrap_or(&snapshot);
+    let workspace_id = daemon_snapshot["workspaces"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|item| {
+            item["extra"]["key"].as_str().is_some_and(|key| uuid_form(key) == workspace)
+        })
+        .map(|item| item["id"].clone())
+        .unwrap_or_else(|| panic!("no workspace {workspace} in {snapshot}"));
+    let screen_ids: Vec<Value> = daemon_snapshot["screens"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|screen| screen["workspace_id"] == workspace_id)
+        .map(|screen| screen["id"].clone())
+        .collect();
+    let pane = daemon_snapshot["panes"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|pane| screen_ids.contains(&pane["screen_id"]))
+        .and_then(|pane| pane["id"].as_str())
+        .unwrap_or_else(|| panic!("no pane of {workspace_id} in {snapshot}"))
+        .to_owned();
+    let (code, in_pane) =
+        chat_json(as_caller(), &["new", "--pane", &pane, "--cwd", work.to_str().unwrap()]);
+    assert_eq!(code, Some(0), "{in_pane}");
+    let second = in_pane["result"]["chat"].as_str().unwrap_or_else(|| panic!("{in_pane}"));
+    let (code, _) = chat_json(as_caller(), &["state", second]);
+    assert_eq!(code, Some(0), "a chat started in a pane is in this session's scope");
+
+    // An agent never starts a chat that approves edits without asking.
+    let (code, policy) = chat_json(as_caller(), &["new", "--policy", "approve-all"]);
+    assert_eq!(code, Some(2), "{policy}");
+
     // A workspace this session does not have starts nothing.
     let (code, unknown) = chat_json(as_caller(), &["new", "--workspace", "ws_nope", "--", "hi"]);
     assert_eq!(code, Some(3), "{unknown}");

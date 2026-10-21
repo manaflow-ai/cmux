@@ -41,7 +41,8 @@ enum AgentSessionWorkspace {
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         if let target = try existingPane(invocation, services: context.services) {
-            let task = try open(session: session, in: target.pane, of: target.daemon, host: host, services: context.services)
+            let task = try open(session: session, in: target.pane, of: target.daemon, host: host,
+                                changesView: invocation.allowsViewChange, services: context.services)
             context.services.registry.track(result: task)
             return
         }
@@ -60,6 +61,7 @@ enum AgentSessionWorkspace {
         let found = services.machines.allWorkspaces.first { workspace, _ in
             workspace.id == id || workspace.resourceID?.rawValue == id || workspace.key?.rawValue == id.lowercased()
         }
+        // The workspace's active screen is its first unless a window shows another one of it.
         guard let (workspace, daemon) = found, let screen = workspace.screens.first,
               let pane = screen.panes.first(where: { $0.handle == screen.defaultPane }) ?? screen.panes.first else {
             throw ActionFailure(message: RefusalStrings.noWorkspace(id), isNotFound: true)
@@ -76,7 +78,7 @@ enum AgentSessionWorkspace {
     /// Opens a tab on `session` in an existing `pane` of `daemon` without showing it or moving
     /// focus (see the type), and hands back its ids.
     static func open(session: String, in pane: PaneModel, of daemon: DaemonService, host: String?,
-                     services: AppServices) throws -> ActionResultWork {
+                     changesView: Bool = false, services: AppServices) throws -> ActionResultWork {
         guard services.agentTabs.canHostChat else { throw ActionFailure(message: MiscHandlerStrings.quickChatUnavailable) }
         let workspace = services.machines.allWorkspaces.first { candidate, _ in
             candidate.screens.contains { $0.panes.contains { $0 === pane } }
@@ -86,8 +88,10 @@ enum AgentSessionWorkspace {
         return Task { @MainActor in
             do {
                 let created = try await pending.value()
-                // Selected wherever the pane is shown, never shown now.
-                for window in services.windows.controllers {
+                // Selected for when the pane is shown. A window that shows the pane's workspace
+                // now keeps its tab unless the run may change the view (a person, `focus: true`).
+                for window in services.windows.controllers
+                where changesView || workspace == nil || window.state.workspaceID != workspace?.id {
                     window.state.selection.select(created.key, in: pane.id)
                 }
                 let tab = daemon.store.tab(id: created.key)

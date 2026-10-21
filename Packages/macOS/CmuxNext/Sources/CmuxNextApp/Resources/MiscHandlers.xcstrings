@@ -12510,6 +12510,137 @@
         }
       }
     },
+    "handlers.screenshot.chatNeedsMaskedRead": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "An agent chat is read through `cmux agents chat read`, which hides secrets, not captured"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "تُقرأ دردشة الوكيل عبر `cmux agents chat read`، الذي يخفي الأسرار، ولا تُلتقط صورتها"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chat agenta čita se putem `cmux agents chat read`, koji skriva tajne, a ne snima"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agentchat læses via `cmux agents chat read`, som skjuler hemmeligheder, og optages ikke"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Agent-Chat wird über `cmux agents chat read` gelesen, das Geheimnisse verbirgt, nicht aufgenommen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chat de agente se lee con `cmux agents chat read`, que oculta los secretos; no se captura"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Un chat d’agent se lit avec `cmux agents chat read`, qui masque les secrets ; il ne se capture pas"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una chat dell’agente si legge con `cmux agents chat read`, che nasconde i segreti, non si cattura"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "エージェントチャットはキャプチャせず、秘密を隠す `cmux agents chat read` で読み取ります"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែករបស់ភ្នាក់ងារត្រូវបានអានតាម `cmux agents chat read` ដែលលាក់អាថ៌កំបាំង មិនមែនថតទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "에이전트 채팅은 캡처하지 않고 비밀을 숨기는 `cmux agents chat read`로 읽습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En agentchat leses via `cmux agents chat read`, som skjuler hemmeligheter, og tas ikke opp"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czat agenta odczytuje się przez `cmux agents chat read`, które ukrywa sekrety, a nie przechwytuje"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um chat de agente é lido com `cmux agents chat read`, que oculta segredos, e não capturado"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента читается через `cmux agents chat read`, который скрывает секреты, а не снимается"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชทของเอเจนต์อ่านผ่าน `cmux agents chat read` ซึ่งซ่อนความลับ ไม่ใช่จับภาพ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bir ajan sohbeti yakalanmaz, sırları gizleyen `cmux agents chat read` ile okunur"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чат агента читається через `cmux agents chat read`, який приховує секрети, а не знімається"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cuộc trò chuyện của tác nhân được đọc qua `cmux agents chat read`, công cụ ẩn bí mật, không chụp ảnh"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天通过会隐藏机密的 `cmux agents chat read` 读取，而不是截图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "代理聊天透過會隱藏機密的 `cmux agents chat read` 讀取，而不是截圖"
+          }
+        }
+      }
+    },
     "handlers.screenshot.tabNotShown": {
       "extractionState": "manual",
       "localizations": {

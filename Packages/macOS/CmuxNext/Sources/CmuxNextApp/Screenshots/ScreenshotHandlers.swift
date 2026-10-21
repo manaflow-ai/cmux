@@ -24,12 +24,15 @@ import Foundation
 /// also copies the image.
 ///
 /// Agents and scripts may capture panes and tabs (#23026), never browser
-/// pixels: a browser tab, or a pane whose shown tab is one, is refused to any
-/// run that is not a person's, which uses the browser host's guarded capture
-/// (`cmux browser page screenshot`, masked for other sessions) instead. A
-/// terminal's or an agent chat's pixels show nothing its text reads
-/// (`cmux terminal … screen read`, `cmux agents chat read`) do not.
-/// `window.screenshot` stays a person's only (`isPersonOnly`).
+/// pixels or an agent chat's: a browser or chat tab, or a pane whose shown tab
+/// is one, is refused to any run that is not a person's. Browser pages go
+/// through the browser host's guarded capture (`cmux browser page screenshot`,
+/// masked for other sessions) and chats through `cmux agents chat read`, which
+/// masks secrets. Their capture is the window alone (``AppWindowImage``
+/// `contentOnly`): no overlay panel, floating window or Chromium page, any of
+/// which can show a page over the pane. A terminal's pixels show nothing
+/// `cmux terminal … screen read` does not. `window.screenshot` stays a
+/// person's only (`isPersonOnly`).
 enum ScreenshotHandlers {
     /// The capture gave no image; the message says why.
     static let unavailableCode = "screenshot.unavailable"
@@ -51,28 +54,26 @@ enum ScreenshotHandlers {
                 if invocation.target == nil { throw ActionFailure(message: MiscHandlerStrings.noPane) }
                 return
             }
-            if invocation.origin != .user, let id = pane.stripModel.selectedID, pane.tab(id)?.kind == .browser {
-                throw ActionFailure(message: ScreenshotStrings.browserNeedsGuardedCapture)
+            if invocation.origin != .user, let id = pane.stripModel.selectedID, let shown = pane.tab(id) {
+                try refuseToAutomation(shown)
             }
             guard let window = pane.view.window, pane.isVisible, !pane.view.isHiddenOrHasHiddenAncestor else {
                 throw ActionFailure(message: ScreenshotStrings.paneNotShown)
             }
             let view = pane.view
             start(output: output, invocation: invocation, context: context) {
-                try await shown(window, crop: view, services: context.services)
+                try await shown(window, crop: view, contentOnly: invocation.origin != .user, services: context.services)
             }
         })
         registry.bind("tab.screenshot", run: { invocation in
             let output = try ScreenshotOutput(invocation)
             let (tab, controller) = try resolveTab(invocation, services: context.services)
-            if invocation.origin != .user, tab.kind == .browser {
-                throw ActionFailure(message: ScreenshotStrings.browserNeedsGuardedCapture)
-            }
+            if invocation.origin != .user { try refuseToAutomation(tab) }
             if let controller, let window = controller.view.window, controller.isVisible, controller.currentTabKey == tab.id,
                !controller.view.contentHost.isHiddenOrHasHiddenAncestor {
                 let view = controller.view.contentHost
                 start(output: output, invocation: invocation, context: context) {
-                    try await shown(window, crop: view, services: context.services)
+                    try await shown(window, crop: view, contentOnly: invocation.origin != .user, services: context.services)
                 }
                 return
             }
@@ -84,6 +85,14 @@ enum ScreenshotHandlers {
                 try await offscreenPage(tab, services: context.services)
             }
         })
+    }
+
+    /// Refuses `tab`'s pixels to a run that is not a person's: a browser page (masked
+    /// only by the browser host's capture) or an agent chat (masked only by `agents chat read`).
+    private static func refuseToAutomation(_ tab: TabModel) throws {
+        if tab.kind == .browser { throw ActionFailure(message: ScreenshotStrings.browserNeedsGuardedCapture) }
+        // An app page tab (Settings, App Store) shows no chat; every other conversation tab does.
+        if tab.kind == .conversation, tab.page == nil { throw ActionFailure(message: ScreenshotStrings.chatNeedsMaskedRead) }
     }
 
     /// The tab the run names (target or `tab` argument, in any workspace),
@@ -111,8 +120,9 @@ enum ScreenshotHandlers {
     }
 
     /// `window` as on screen, cropped to `crop`'s frame when given.
-    private static func shown(_ window: NSWindow, crop view: NSView?, services: AppServices) async throws -> Capture {
-        let full = try await AppWindowImage(services: services).capture(window)
+    private static func shown(_ window: NSWindow, crop view: NSView?, contentOnly: Bool = false,
+                              services: AppServices) async throws -> Capture {
+        let full = try await AppWindowImage(services: services).capture(window, contentOnly: contentOnly)
         let size = window.frame.size
         let scale = size.width > 0 ? Double(full.width) / size.width : Double(window.backingScaleFactor)
         guard let view else { return Capture(image: full, scale: scale, method: "window") }

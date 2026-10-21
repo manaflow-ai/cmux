@@ -24,6 +24,9 @@ use super::super::mcp::{self, CallFailure, FailureKind};
 use super::super::{GlobalArgs, UsageError};
 use super::chat::{self, ChatCommand};
 
+/// The permission policies an agent may start a chat with.
+pub(in crate::cli) const AGENT_POLICIES: [&str; 3] = ["ask", "approve-reads", "deny-all"];
+
 /// What `continue` sends when no text is given.
 pub(in crate::cli) const CONTINUE_TEXT: &str = "Continue.";
 
@@ -43,7 +46,7 @@ pub(in crate::cli) struct NewChat {
     pub effort: Option<String>,
     /// The harness mode to start in; acpmux decides whether a caller may.
     pub mode: Option<String>,
-    /// Permission policy: ask, approve-reads, approve-edits, approve-all, deny-all.
+    /// Permission policy: ask, approve-reads or deny-all (``AGENT_POLICIES``).
     pub policy: Option<String>,
     /// The chat's folder, absolute; the caller's folder when absent.
     pub cwd: Option<String>,
@@ -121,6 +124,17 @@ pub(in crate::cli) fn parse_new(words: &[&str]) -> Result<NewChat, UsageError> {
     if chat.workspace.is_some() && chat.pane.is_some() {
         return Err(UsageError::new("agents chat new: name --workspace or --pane, not both"));
     }
+    // A policy that approves edits or everything without asking is a person's choice in
+    // cmux; an agent may only start chats that ask, approve reads, or deny.
+    if let Some(policy) = &chat.policy
+        && !AGENT_POLICIES.contains(&policy.as_str())
+    {
+        return Err(UsageError::new(format!(
+            "agents chat new: --policy {policy:?} is chosen by a person in cmux; an agent may \
+             pick {}",
+            AGENT_POLICIES.join(", ")
+        )));
+    }
     if let Some(cwd) = &chat.cwd
         && !cwd.starts_with('/')
     {
@@ -149,6 +163,8 @@ fn not_run(code: &str, message: impl Into<String>) -> CallFailure {
 /// name the place.
 struct Place {
     key: String,
+    /// The app makes the workspace: a chat it never shows reaches nothing.
+    new_workspace: bool,
     arguments: Map<String, Value>,
 }
 
@@ -164,58 +180,52 @@ fn place(global: &GlobalArgs, chat: &NewChat) -> Result<Place, CallFailure> {
         if let Some(cwd) = &chat.cwd {
             arguments.insert("cwd".into(), json!(cwd));
         }
-        return Ok(Place { key, arguments });
+        return Ok(Place { key, new_workspace: true, arguments });
     }
     let snapshot = mcp::agent_resource(global, super::snapshot_plan())
         .map_err(|error| CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None })?;
-    let workspaces = snapshot["workspaces"].as_array().cloned().unwrap_or_default();
-    let (found, argument) = match (&chat.workspace, &chat.pane) {
-        (Some(id), _) => (
-            workspaces.iter().find(|workspace| {
+    let list = |name: &str| snapshot[name].as_array().cloned().unwrap_or_default();
+    let (workspaces, screens, panes) = (list("workspaces"), list("screens"), list("panes"));
+    let by_id = |items: &[Value], id: &Value| items.iter().find(|item| &item["id"] == id).cloned();
+    // The app gets the ids the snapshot names, never the caller's spelling.
+    let (scope, found) = match (&chat.workspace, &chat.pane) {
+        (Some(id), _) => {
+            let workspace = workspaces.iter().find(|workspace| {
                 workspace["id"] == id.as_str()
                     || workspace["extra"]["key"]
                         .as_str()
                         .is_some_and(|key| chat::workspace_key(key) == chat::workspace_key(id))
-            }),
-            ("workspace", format!("workspace:{id}")),
-        ),
-        (None, Some(id)) => (
-            workspaces.iter().find(|workspace| {
-                names(workspace, id)
-                    || snapshot["panes"].as_array().into_iter().flatten().any(|pane| {
-                        pane["id"] == id.as_str()
-                            && (pane["workspace_id"] == workspace["id"]
-                                || pane["workspace"] == workspace["id"])
-                    })
-            }),
-            ("pane", format!("pane:{id}")),
-        ),
+            });
+            ("workspace", workspace.map(|workspace| (workspace.clone(), workspace["id"].clone())))
+        }
+        (None, Some(id)) => {
+            // A pane names its screen, and the screen its workspace.
+            let pane = panes.iter().find(|pane| pane["id"] == id.as_str());
+            let found = pane.and_then(|pane| {
+                let screen = by_id(&screens, &pane["screen_id"])?;
+                let workspace = by_id(&workspaces, &screen["workspace_id"])?;
+                Some((workspace, pane["id"].clone()))
+            });
+            ("pane", found)
+        }
         (None, None) => unreachable!("handled above"),
     };
     let target = chat.workspace.as_deref().or(chat.pane.as_deref()).unwrap_or_default();
-    let Some(key) = found.and_then(|workspace| workspace["extra"]["key"].as_str()) else {
+    let named = found.and_then(|(workspace, id)| {
+        Some((workspace["extra"]["key"].as_str()?.to_owned(), id.as_str()?.to_owned()))
+    });
+    let Some((key, id)) = named else {
         return Err(CallFailure {
             kind: FailureKind::NotRun,
             error: json!({"code": "selector.not_found",
-                          "message": format!("no {} {target:?} in this cmux session", argument.0),
-                          "details": {"scope": argument.0, "selector": target},
+                          "message": format!("no {scope} {target:?} in this cmux session"),
+                          "details": {"scope": scope, "selector": target},
                           "retryable": false}),
             idempotency_key: None,
         });
     };
-    arguments.insert(argument.0.into(), json!(argument.1));
-    Ok(Place { key: key.to_owned(), arguments })
-}
-
-/// Whether `value` holds the string `id` anywhere (a workspace's nested
-/// screens and panes).
-fn names(value: &Value, id: &str) -> bool {
-    match value {
-        Value::String(text) => text == id,
-        Value::Array(items) => items.iter().any(|item| names(item, id)),
-        Value::Object(fields) => fields.values().any(|field| names(field, id)),
-        _ => false,
-    }
+    arguments.insert(scope.into(), json!(format!("{scope}:{id}")));
+    Ok(Place { key, new_workspace: false, arguments })
 }
 
 /// A workspace key in the dashed UUID form acpmux takes for
@@ -229,12 +239,7 @@ fn uuid_form(key: &str) -> String {
 }
 
 /// `chat new`: the chat, its tab, and its first prompt.
-pub(in crate::cli) fn new(
-    global: &GlobalArgs,
-    chat: &NewChat,
-    idempotency_key: Option<&str>,
-    origin: &str,
-) -> Result<Value, CallFailure> {
+pub(in crate::cli) fn new(global: &GlobalArgs, chat: &NewChat, origin: &str) -> Result<Value, CallFailure> {
     let place = place(global, chat)?;
     let cwd = match &chat.cwd {
         Some(cwd) => cwd.clone(),
@@ -271,17 +276,13 @@ pub(in crate::cli) fn new(
 
     // The tab, in the background: `agent.openSessionWorkspace` never takes focus.
     let mut params = app::action_run_params("agent.openSessionWorkspace", ActionName::Any, origin);
+    let new_workspace = place.new_workspace;
     let mut arguments = place.arguments;
     arguments.insert("session".into(), json!(session));
     params.insert("args".into(), Value::Object(arguments));
     params.insert("background".into(), json!(true));
-    match mcp::agent_app(
-        global,
-        "action.run",
-        Value::Object(params),
-        app::WAITING_RUN_TIMEOUT,
-        idempotency_key,
-    ) {
+    // No key: a retry starts another chat, so it must not get the first one's tab.
+    match mcp::agent_app(global, "action.run", Value::Object(params), app::WAITING_RUN_TIMEOUT, None) {
         Ok(run) => {
             result["opened"] = json!(true);
             for field in ["tab", "pane", "workspace"] {
@@ -290,9 +291,14 @@ pub(in crate::cli) fn new(
                 }
             }
         }
+        Err(error) if new_workspace => {
+            // No workspace has the chat's key, so no chat verb could ever reach it: it ends.
+            let _ = chat::acp::kill(&session);
+            return Err(CallFailure { kind: FailureKind::NotRun, error, idempotency_key: None });
+        }
         Err(error) => {
-            // The chat exists and `chat send|read` reach it; the receipt says
-            // why no tab shows it, so the caller can `agent open` it later.
+            // The chat runs in that workspace and `chat send|read` reach it; the receipt
+            // says why no tab shows it, so the caller can `agent open` it later.
             result["opened"] = json!(false);
             result["open_error"] = error;
         }
@@ -325,7 +331,7 @@ pub(in crate::cli) fn state(global: &GlobalArgs, target: &str) -> Result<Value, 
         ("status", "status"),
         ("harness", "harness"),
         ("model", "model"),
-        ("mode", "mode"),
+        ("currentModeId", "mode"),
         ("effort", "effort"),
         ("policy", "policy"),
         ("cwd", "cwd"),
@@ -336,7 +342,8 @@ pub(in crate::cli) fn state(global: &GlobalArgs, target: &str) -> Result<Value, 
             state.insert(to.into(), value.clone());
         }
     }
-    let running = info["status"] == "running" || info.get("turn").is_some_and(|turn| !turn.is_null());
+    // acpmux clears the turn before it reports the turn's end, then sets the status.
+    let running = info.get("turn").is_some_and(|turn| !turn.is_null());
     state.insert("running".into(), json!(running));
     Ok(json!({"schema_version": 1, "action": "chat.state", "result": state}))
 }

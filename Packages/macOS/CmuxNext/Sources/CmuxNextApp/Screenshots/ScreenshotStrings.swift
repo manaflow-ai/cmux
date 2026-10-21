@@ -52,6 +52,13 @@ enum ScreenshotStrings {
                defaultValue: "A browser page is captured only through `cmux browser page screenshot`, which hides secrets from other sessions",
                table: "MiscHandlers", bundle: .module)
     }
+    /// An agent or script asked for an agent chat's pixels (#23026): its text comes masked
+    /// through `cmux agents chat read`.
+    static var chatNeedsMaskedRead: String {
+        String(localized: "handlers.screenshot.chatNeedsMaskedRead",
+               defaultValue: "An agent chat is read through `cmux agents chat read`, which hides secrets, not captured",
+               table: "MiscHandlers", bundle: .module)
+    }
     static func pageFailed(_ reason: String) -> String {
         String(format: String(localized: "handlers.screenshot.pageFailed", defaultValue: "The page could not be captured off screen (%@)",
                               table: "MiscHandlers", bundle: .module), reason)
