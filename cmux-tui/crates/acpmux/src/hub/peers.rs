@@ -560,6 +560,32 @@ impl Hub {
         super::session_pages::sort_session_summaries(&mut v);
         v
     }
+
+    /// Adds each connected peer's harnesses, labelled `peer/agent`, to the
+    /// models catalog `cat`. A daemon asking a peer says so (`peers: false`)
+    /// and is answered with that peer's own harnesses only: asked onward, the
+    /// request went round the peer mesh without end, each hop holding a whole
+    /// catalog for up to 600 s (huge-blue and cosmic-gray, 2026-10-21: ~1 GB
+    /// an hour). The marker, not the link's origin, says it: a link without
+    /// the peer token is served as a Web client.
+    pub async fn add_peer_models(&self, cat: &mut Value) {
+        for peer in self.connected_peers() {
+            let Ok(remote) = peer.request("_acpmux/models", json!({"peers": false})).await else {
+                continue;
+            };
+            let Some(hs) = remote.get("harnesses").and_then(Value::as_array) else { continue };
+            for h in hs {
+                let mut h = h.clone();
+                let agent = h.get("harness").and_then(Value::as_str).unwrap_or("").to_owned();
+                h["harness"] = Value::String(format!("{}/{}", peer.name, agent));
+                h["peer"] = Value::String(peer.name.clone());
+                h["isDefault"] = Value::Bool(false);
+                if let Some(arr) = cat.get_mut("harnesses").and_then(Value::as_array_mut) {
+                    arr.push(h);
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
