@@ -20,7 +20,7 @@
 // and hold in every chat tab (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useChatDisplay } from "../chatDisplay";
 import { useHeaderState } from "../header/headerState";
 import { useT } from "../i18n";
@@ -47,13 +47,7 @@ import {
   type InspectorSections,
 } from "./inspectorState";
 import { OutputsSection, outputLinks, type OutputLink } from "./OutputsSection";
-import {
-  backgroundCommands,
-  splitServers,
-  type InspectorProcess,
-  type InspectorServer,
-  type ProcessRegistry,
-} from "./processes";
+import { inspectorLists, type InspectorProcess, type ProcessRegistry } from "./processes";
 import { ServersSection } from "./ServersSection";
 import { SubagentsSection, subagentCounts } from "./SubagentsSection";
 import { TasksSection } from "./TasksSection";
@@ -158,6 +152,7 @@ export function useChatInspector({
   const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
   // The section a running line's count asked for, scrolled to once drawn.
   const [revealed, setRevealed] = useState<{ section: InspectorSectionId; at: number }>();
+  const clearRevealed = useCallback(() => setRevealed(undefined), []);
   const openedOutputAt = useRef(0);
   // An output's diff opens beside the chat. When that split leaves too little room to push the
   // chat, the Inspector would cover it, so it steps aside until the toggle opens it again.
@@ -181,7 +176,6 @@ export function useChatInspector({
     if (shown) setInspectorOpen(false);
     else {
       setSuppressed(false);
-      setRevealed(undefined);
       setInspectorOpen(true);
     }
   };
@@ -233,6 +227,7 @@ export function useChatInspector({
           sessions={sessions?.list}
           onOpenSession={sessions?.onOpen}
           revealed={revealed}
+          onRevealed={clearRevealed}
           onStopProcess={onStopProcess}
           sections={sections}
           onSection={setInspectorSection}
@@ -317,6 +312,7 @@ export function ChatInspector({
   sessions = [],
   onOpenSession,
   revealed,
+  onRevealed,
   onStopProcess,
   sections,
   onSection,
@@ -354,6 +350,8 @@ export function ChatInspector({
   onOpenSession?: (sessionId: string) => void;
   /// The section a running line's count opened: scrolled into view (`at` tells one ask from the next).
   revealed?: { section: InspectorSectionId; at: number };
+  /// The reveal has scrolled: the caller forgets it.
+  onRevealed?: () => void;
   onStopProcess?: (id: string) => Promise<unknown>;
   /// Which sections are open; uncontrolled without `onSection`.
   sections?: InspectorSections;
@@ -374,20 +372,17 @@ export function ChatInspector({
   // As the composer's context ring reads it (ComposerPickers ContextRing).
   const percent = known ? Math.round(Math.min(1, Math.max(0, usage.used / usage.size)) * 100) : 0;
   const tokens = new Intl.NumberFormat(undefined, { notation: "compact", maximumFractionDigits: 1 });
-  const servers: InspectorServer[] = splitServers(processes).servers;
-  // Every command but the running servers; all processes are passed, so a transcript task a
-  // server stands for is not listed again.
-  const serving = new Set(servers.map((server) => server.id));
-  const commands = backgroundCommands(processes, transcriptTasks, listed).filter(
-    (command) => !command.processId || !serving.has(command.processId),
-  );
+  const { servers, tasks: commands } = inspectorLists(processes, transcriptTasks, listed);
   const body = useRef<HTMLDivElement>(null);
+  // Once: then it is done, so the palette or another pane opening the Inspector again does not jump
+  // back to this section.
   useEffect(() => {
     if (!revealed) return;
     body.current
       ?.querySelector<HTMLElement>(`[data-section="${revealed.section}"]`)
       ?.scrollIntoView?.({ block: "nearest" });
-  }, [revealed]);
+    onRevealed?.();
+  }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = made?.pullRequests ?? [];
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];

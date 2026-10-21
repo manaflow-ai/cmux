@@ -30,12 +30,10 @@ let scheduled = false;
 let inFlight = false;
 /// The policy is asked once, with the first chip or image (an empty inspect when there is none).
 let policyAsked = false;
-let version = 0;
 let notificationScheduled = false;
 const listeners = new Set<() => void>();
 
 function changed() {
-  version += 1;
   if (!listeners.size || notificationScheduled) return;
   notificationScheduled = true;
   queueMicrotask(() => {
@@ -83,6 +81,8 @@ function ask(path?: string, url?: string) {
     paths.clear();
     asking.clear();
     sites.clear();
+    // Hooks that read a forgotten key re-render and ask for it again.
+    changed();
   }
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
@@ -98,33 +98,35 @@ function ask(path?: string, url?: string) {
   }
 }
 
-const snapshot = () => version;
-
 function subscribe(listener: () => void) {
   listeners.add(listener);
   return () => listeners.delete(listener);
 }
 
+/// Each hook reads the store through its snapshots, never beside them: the React Compiler caches a
+/// plain read of these maps by its arguments, so a host answer that only notified the listeners never
+/// reached the image (a local image stayed its alt text).
+const useStore = <T>(read: () => T): T => useSyncExternalStore(subscribe, read, read);
+
 /// The host's answer for `path` (undefined while it is asked, or when the host had none), whether
 /// the host has answered, and the policy.
 export function usePathInfo(path: string): { info: PathInfo | undefined; answered: boolean; policy: ReplyPolicy } {
-  useSyncExternalStore(subscribe, snapshot, snapshot);
   ask(path);
-  return { info: paths.get(path) ?? undefined, answered: !asking.has(path), policy };
+  const info = useStore(() => paths.get(path) ?? undefined);
+  const answered = useStore(() => !asking.has(path));
+  return { info, answered, policy: useStore(() => policy) };
 }
 
 /// What cmux already has for `url` (nothing while it is asked, or when it has nothing).
 export function useSiteInfo(url: string | undefined): SiteInfo | undefined {
-  useSyncExternalStore(subscribe, snapshot, snapshot);
   if (url) ask(undefined, url);
-  return url ? (sites.get(url) ?? undefined) : undefined;
+  return useStore(() => (url ? (sites.get(url) ?? undefined) : undefined));
 }
 
 /// `agentPane.images.remote` and `agentPane.links.outsideRoots` as the host last said.
 export function useReplyPolicy(): ReplyPolicy {
-  useSyncExternalStore(subscribe, snapshot, snapshot);
   ask();
-  return policy;
+  return useStore(() => policy);
 }
 
 /// Tests start from nothing.
