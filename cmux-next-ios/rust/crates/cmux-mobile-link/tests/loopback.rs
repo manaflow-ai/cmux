@@ -370,6 +370,20 @@ async fn wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls() {
     assert_eq!(turn.stream_connections(), 1);
 }
 
+/// TEMPORARY (reverted before landing): over_tls 60 times in a row.
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn over_tls_repeats() {
+    for round in 0..60 {
+        let turn = TestTurn::start().await;
+        let mac = with_turn(&turn, DialOptions { block_udp: true, ..options() });
+        let run = exercise_turn(options(), mac).await;
+        assert_eq!(run.mac, Some(LinkPath::TurnTls), "round {round}: {run:?}");
+        assert_eq!(run.phone, LinkPath::TurnTls, "round {round}: {run:?}");
+        assert_eq!(turn.stream_connections(), 1, "round {round}");
+        eprintln!("over_tls round {round} ok");
+    }
+}
+
 /// Once a client's `connect` returns, the fake routes signals to it: a dial
 /// sent right then is never refused as `not_owner` (on a loaded runner
 /// `wireguard_mac_with_udp_blocked_takes_its_own_turn_over_tls` once lost
