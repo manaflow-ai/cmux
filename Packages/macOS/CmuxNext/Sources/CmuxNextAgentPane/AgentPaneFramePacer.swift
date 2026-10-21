@@ -146,6 +146,8 @@ import CmuxNextWakeups
             fallback.schedule(after: .nanoseconds(Int64(wait * 1e9))) { [weak self] in self?.hiddenIntervalPassed() }
             return
         }
+        // A late `delivered()` can take a hidden wait's deadline; the flag goes with this call.
+        waitingWhileHidden = false
         pending = false
         inFlight = true
         lastCall = now()
