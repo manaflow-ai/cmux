@@ -54,6 +54,7 @@ impl Brain {
         let Some(conversation) = turn.conversation.clone() else {
             return;
         };
+        self.desk_note_activity(&update.turn, &update.live);
         // Live frames first (`chief-live-v1`), with the conversation and the
         // run (the turn key); display only, like the run.
         if !update.live.is_empty()
