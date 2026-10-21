@@ -49,6 +49,8 @@ mod seen;
 mod session_offers;
 #[path = "hub_integration/status_indicator.rs"]
 mod status_indicator;
+#[path = "hub_integration/steer_now.rs"]
+mod steer_now;
 #[path = "hub_integration/steer_only.rs"]
 mod steer_only;
 #[path = "hub_integration/stop.rs"]

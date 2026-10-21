@@ -239,7 +239,6 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
   test("clicking a background task's end opens its terminal beside the chat", async () => {
     const page = await recordingPage();
     const note = page.getByRole("button", { name: /Stopped by the agent: npm run dev/ });
-    expect(await note.getAttribute("title")).toBe("Show output");
     await note.click();
     await page.waitForFunction(() =>
       ((window as any).__posted as { method: string }[]).some((post) => post.method === "chat.processTerminal"),

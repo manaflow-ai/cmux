@@ -1,17 +1,9 @@
 import CmuxHomeCore
 import CmuxNextHome
 import CmuxNextHomeEngine
+import CmuxNextHostedChief
 import Foundation
 import Observation
-
-/// One of the user's Chiefs, as UserDO's `chief.list` reports it.
-struct HomeChiefRecord: Hashable, Sendable {
-    var id: String
-    var name: String
-    var isDefault: Bool
-    var rev: Int
-    var mainConversation: String?
-}
 
 /// The people and Chiefs behind the Home page's New Message and New Chief
 /// (home-messaging.md 4.2 and 16): the members of the user's team
@@ -58,8 +50,8 @@ final class HomeDirectory {
     func refreshChiefs() async {
         if let reply = try? await call("v1/read", ["op": "chief.list", "params": ["include_archived": true]]),
            let value = try? Self.value(reply) {
-            chiefs = Self.chiefs(from: value)
-            archivedChiefs = Self.archivedChiefIDs(from: value)
+            chiefs = HomeChiefRecord.list(from: value)
+            archivedChiefs = HomeChiefRecord.archivedIDs(from: value)
         }
     }
 
@@ -73,7 +65,7 @@ final class HomeDirectory {
                                        "idempotency_key": "chief-create-" + UUID().uuidString.lowercased(), "origin": "user"]
             return try Self.value(try await self.call("v1/ops", body))
         }
-        guard let record = Self.chief(value) else { throw FeedServiceError.badReply }
+        guard let record = HomeChiefRecord.parse(value) else { throw FeedServiceError.badReply }
         chiefs.removeAll { $0.id == record.id }
         chiefs.append(record)
         return record
@@ -128,21 +120,5 @@ final class HomeDirectory {
             return HomeContact(id: ParticipantID(id), name: name, source: .team)
         }
         .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
-    }
-
-    static func chiefs(from value: Any?) -> [HomeChiefRecord] {
-        ((value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []).compactMap(chief)
-    }
-
-    static func archivedChiefIDs(from value: Any?) -> Set<String> {
-        let list = (value as? [String: Any])?["chiefs"] as? [[String: Any]] ?? []
-        return Set(list.compactMap { $0["archived_at"] is String ? $0["id"] as? String : nil })
-    }
-
-    static func chief(_ value: Any?) -> HomeChiefRecord? {
-        guard let object = value as? [String: Any], let id = object["id"] as? String,
-              (object["archived_at"] as? String) == nil else { return nil }
-        return HomeChiefRecord(id: id, name: object["display_name"] as? String ?? "", isDefault: object["is_default"] as? Bool ?? false,
-                               rev: (object["rev"] as? NSNumber)?.intValue ?? 0, mainConversation: object["main_conversation"] as? String)
     }
 }

@@ -3,7 +3,8 @@
 // written around days and the update, not builds:
 //  - After an update: "What's new since your last update", every human change of the span's
 //    builds once (New / Improved / Fixed / Security, a hero when one has media), then every
-//    change folded with its pull request.
+//    change by area with its pull request, internal work folded "Under the hood". The span's
+//    nightly reels come first, one card each.
 //  - Then one section per release day ("Today", "Yesterday", "Oct 6"), its builds merged; the
 //    build numbers are small and selectable, never a headline.
 //  - A run of builds with no human change says "Maintenance and fixes", never a blank row.
@@ -15,7 +16,7 @@ import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
 import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
-import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, type PartsContext } from "./ReleaseParts";
+import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, ReelCards, type PartsContext } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
 import type { IndexEntry, ReleaseNotes } from "./types";
 
@@ -80,7 +81,8 @@ function SpanSection({ s, fresh, ctx }: { s: ChangelogSnapshot; fresh: IndexEntr
           {span.to}
         </span>
       </div>
-      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} />
+      <ReelCards builds={fresh} reels={s.reels} strings={ctx.strings} />
+      <SectionBody view={view} pending={pending} ctx={ctx} unpublished={fresh.length === 0} open />
     </section>
   );
 }
@@ -169,22 +171,25 @@ function SectionBody({
   ctx,
   unpublished = false,
   heroTitled = true,
+  open = false,
 }: {
   view: ReturnType<typeof mergedView>;
   pending: boolean;
   ctx: PartsContext;
   unpublished?: boolean;
   heroTitled?: boolean;
+  /** The update's own section lists its changes open; a day folds them. */
+  open?: boolean;
 }) {
   if (pending && view.count === 0 && view.changes.length === 0)
     return <div className="clj-placeholder" aria-busy="true" />;
   return (
     <>
       {view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
-      {view.count === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
+      {view.count === 0 && view.changes.length === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
       <Groups view={view} ctx={ctx} />
-      <ChangesFold changes={view.changes} internal={view.internalChanges} strings={ctx.strings} />
+      <ChangesFold changes={view.changes} hidden={view.underTheHood} strings={ctx.strings} open={open} />
     </>
   );
 }

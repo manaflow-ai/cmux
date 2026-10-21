@@ -31,13 +31,23 @@ public actor ImportedDataStore {
             .appending(path: String(safe) + ".json")
     }
 
-    public func save(_ batch: ImportBatch) throws {
+    /// Saves `batch`, replacing its source's earlier one. Returns the earlier
+    /// batch when it was in another profile (a re-import moved the source):
+    /// its file is gone, and the caller takes its bookmarks and pages out of that profile.
+    @discardableResult
+    public func save(_ batch: ImportBatch) throws -> ImportBatch? {
         let file = batchFile(batch.source)
         try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
         try encoder.encode(batch).write(to: file, options: .atomic)
+        var displaced: ImportBatch?
+        for old in sources() where old.sourceKey == batch.source.sourceKey && old.targetProfileID != batch.source.targetProfileID {
+            displaced = (try? Data(contentsOf: batchFile(old))).flatMap { try? decoder.decode(ImportBatch.self, from: $0) }
+            try? FileManager.default.removeItem(at: batchFile(old))
+        }
         var records = sources().filter { $0.sourceKey != batch.source.sourceKey }
         records.append(batch.source)
         try encoder.encode(records).write(to: sourcesFile, options: .atomic)
+        return displaced
     }
 
     /// Every source mapping saved so far.
@@ -49,6 +59,12 @@ public actor ImportedDataStore {
     /// The proposed profile id already given to a source, so re-imports keep it.
     public func proposedProfileID(for sourceKey: String) -> String? {
         sources().first { $0.sourceKey == sourceKey }?.proposedProfileID
+    }
+
+    /// Sources an import put into another profile than their own (source key to that profile).
+    public func movedSources() -> [String: String] {
+        let moved = sources().filter { $0.targetProfileID != $0.proposedProfileID }
+        return Dictionary(moved.map { ($0.sourceKey, $0.targetProfileID) }, uniquingKeysWith: { first, _ in first })
     }
 
     /// Sources whose data still sits in the default profile (imports made
@@ -74,6 +90,70 @@ public actor ImportedDataStore {
             try? FileManager.default.removeItem(at: from)
         }
         records[index] = moved
+        try encoder.encode(records).write(to: sourcesFile, options: .atomic)
+    }
+
+    /// Keep in Sync's sources: those whose history is read again on change.
+    public func syncedSources() -> [ImportSourceRecord] {
+        sources().filter { $0.syncedHistoryFile != nil }
+    }
+
+    /// Keep in Sync: replaces one source's saved pages with a fresh read
+    /// (less any a Clear History removed) and returns its record and the pages
+    /// that are new or changed since the last read; nil when the source is
+    /// unknown, no longer synced or its data was removed (nothing is written then).
+    public func replaceHistory(_ sourceKey: String, with read: [ImportedHistoryEntry]) throws
+        -> (record: ImportSourceRecord, changed: [ImportedHistoryEntry])? {
+        guard let record = sources().first(where: { $0.sourceKey == sourceKey && $0.syncedHistoryFile != nil }),
+              let data = try? Data(contentsOf: batchFile(record)), var batch = try? decoder.decode(ImportBatch.self, from: data) else { return nil }
+        let cleared = record.clearedRanges ?? []
+        let pages = read.filter { page in !cleared.contains { $0.contains(page.lastVisit) } }
+        let old = Set(batch.history)
+        let changed = pages.filter { !old.contains($0) }
+        guard !changed.isEmpty || pages.count != batch.history.count else { return (record, []) }
+        batch.history = pages
+        batch.importedAt = Date()
+        try encoder.encode(batch).write(to: batchFile(record), options: .atomic)
+        return (record, changed)
+    }
+
+    /// Turns Keep in Sync off for every source in `profile`, or for one source.
+    public func stopSync(profile: String? = nil, sourceKey: String? = nil) throws {
+        var records = sources()
+        for index in records.indices where (profile == nil || records[index].targetProfileID == profile)
+            && (sourceKey == nil || records[index].sourceKey == sourceKey) {
+            records[index].syncedHistoryFile = nil
+        }
+        try encoder.encode(records).write(to: sourcesFile, options: .atomic)
+    }
+
+    /// Remove Imported Data: deletes every batch saved into `profile` and
+    /// stops its sync; returns them so the caller takes their pages and
+    /// bookmarks out of the live browser. The mapping stays, so importing
+    /// again reuses the same profile.
+    public func removeImported(profile: String) throws -> [ImportBatch] {
+        let removed = batches(profile: profile)
+        try? FileManager.default.removeItem(at: directory.appending(path: profile, directoryHint: .isDirectory))
+        try stopSync(profile: profile)
+        return removed
+    }
+
+    /// Clear History: drops the saved imported pages of `profile` (nil: every
+    /// profile) last visited at or after `since` (nil: all), so a cleared page
+    /// does not come back at the next launch, and fences that time off from
+    /// later Keep in Sync reads.
+    public func forgetHistory(profile: String?, since: Date?) throws {
+        let range = DateInterval(start: since ?? .distantPast, end: Date())
+        var records = sources()
+        for index in records.indices where profile == nil || records[index].targetProfileID == profile {
+            records[index].clearedRanges = (records[index].clearedRanges ?? []) + [range]
+            guard let data = try? Data(contentsOf: batchFile(records[index])),
+                  var batch = try? decoder.decode(ImportBatch.self, from: data) else { continue }
+            let kept = batch.history.filter { !range.contains($0.lastVisit) }
+            guard kept.count != batch.history.count else { continue }
+            batch.history = kept
+            try encoder.encode(batch).write(to: batchFile(records[index]), options: .atomic)
+        }
         try encoder.encode(records).write(to: sourcesFile, options: .atomic)
     }
 
