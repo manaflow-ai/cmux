@@ -369,14 +369,16 @@
   align-items: center;
   gap: 6px;
   min-width: 0;
+  overflow: hidden;
   color: var(--agent-muted);
   font-size: var(--text-detail);
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* `repo #N` stays whole (Claude's); the failing checks at the end give way first. */
 .acpmux-chat-inspector-pr__ref {
-  flex: 0 1 auto;
-  min-width: 0;
+  flex: 0 0 auto;
+  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
 }
