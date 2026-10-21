@@ -102,11 +102,12 @@ enum DebugFocus {
         if let pane = state.pane, layoutFocus != pane { problems.append("layout focus \(layoutFocus ?? "nil") != model pane \(pane)") }
         let expected: FocusEvent.Responder? = switch resolved {
         case .terminal(let pane, _): .content(pane: pane)
-        case .browserPage(let pane, _):
+        // A Chromium browser tab or cmux page has the keys in its own window.
+        case .browserPage(let pane, _), .page(let pane, _):
             controller.focusApplier.focusedChildWindowPageID == nil ? .content(pane: pane) : nil
         case .addressBar(let pane, _): .addressBar(pane: pane)
         case .findBar(let pane, _): .findBar(pane: pane)
-        case .agentPage(let pane, _), .page(let pane, _), .conversation(let pane, _): .content(pane: pane)
+        case .agentPage(let pane, _), .conversation(let pane, _): .content(pane: pane)
         case .devTools: nil
         case .sidebar: .sidebar
         case .sidebarField: .sidebarField
