@@ -69,6 +69,9 @@ public final class ActionRegistry {
     /// here) and then calls `perform(_:invocation:)` again. When nil, the
     /// handler runs with what it has.
     @ObservationIgnored public var argumentCollector: (@MainActor (ActionID, ActionInvocation) -> Void)?
+    /// Asks for one argument inline, also an optional one (the palette installs itself here), then
+    /// calls `perform(_:invocation:)` again with it (`ask(_:_:_:)`).
+    @ObservationIgnored public var argumentAsker: (@MainActor (ActionID, ActionInvocation, ActionArgumentAsk) -> Void)?
     /// Called while a choices submenu (`ContextMenuEntry.choices`) is open:
     /// with the hovered value (action, argument name, value, target), and
     /// with a nil value when the menu closes. The App previews themes here.
@@ -360,7 +363,7 @@ public final class ActionRegistry {
     /// A target of an argument's kind supplies that argument when the
     /// action does not act on that kind itself: right-clicking a browser
     /// profile and choosing New Tab with Browser Profile… uses that profile,
-    /// while Merge Workspace into… (which acts on a workspace) still asks
+    /// while Merge Workspace Into… (which acts on a workspace) still asks
     /// for the other workspace, unless the argument names the target itself
     /// (`isSuppliedByTarget`: New Workspace in Space… on a right-clicked Space).
     static func target(of invocation: ActionInvocation, supplies argument: ActionArgument, for descriptor: ActionDescriptor) -> Bool {

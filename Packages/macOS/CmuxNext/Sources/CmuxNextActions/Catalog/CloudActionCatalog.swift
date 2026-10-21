@@ -231,16 +231,16 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "cloudDiagnostics",
-                title: String(localized: "action.cloudDiagnostics", defaultValue: "Cloud Diagnostics…", bundle: .module),
+                title: String(localized: "action.cloudDiagnostics", defaultValue: "Cloud Diagnostics", bundle: .module),
                 keywords: ["vm", "debug"], category: .cloud, symbol: "stethoscope", surfaces: [.menu],
                 cliName: "cloud diagnostics", mainMenu: .help
             ),
             ActionDescriptor(
                 id: "openTeamPicker",
-                title: String(localized: "action.openTeamPicker", defaultValue: "Team Picker", bundle: .module),
+                title: String(localized: "action.openTeamPicker", defaultValue: "Team Picker…", bundle: .module),
                 keywords: ["team", "account", "switch"],
                 defaultShortcut: Shortcut("t", modifiers: [.option, .shift, .command]), category: .cloud,
-                symbol: "person.2", surfaces: [.palette, .keyboard], cliName: "cloud team-picker"
+                symbol: "person.2", surfaces: [.palette, .keyboard], arguments: [CatalogArgument.cloudTeam], cliName: "cloud team-picker"
             ),
             ActionDescriptor(
                 id: "palette.auth.signIn",

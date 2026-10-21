@@ -189,7 +189,8 @@ final class PaneToolbar {
         }
         menu.addItem(.separator())
         menu.addItem(showInTabBarItem(registry: registry))
-        return menu
+        // Every row in the theme's highlight, like the sidebar's ⋮ menus and the strip's plus.
+        return menu.themeRows(in: view.themeScope.fullStrength)
     }
 
     /// Show in Tab Bar: one checked row per action the list may pin; choosing one pins or unpins it.

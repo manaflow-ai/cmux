@@ -402,6 +402,10 @@ jobs:
           python3 scripts/whats-new/test_community.py
           python3 tests/test_cmux_next_release_notes.py
 
+      - name: Test the server bootstrap candidate renderer
+        if: ${{ !cancelled() && matrix.group == 'preflight' }}
+        run: python3 scripts/server-release/test_render.py
+
       - name: Test the /release changelog line classifier
         if: ${{ !cancelled() && matrix.group == 'preflight' }}
         run: python3 tests/test_release_changelog_lines.py
@@ -579,6 +583,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_install_git_hooks.py
 
+      - name: Validate the advisory post-edit checks
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_post_edit_checks.py
+
       - name: Validate post-edit formatting touches only the edited file
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_format_post_edit.py
@@ -690,6 +698,10 @@ jobs:
       - name: Validate the pull request status comment
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_pr_status.py
+
+      - name: Validate the gallery advisory's state ranking and receipt
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_gallery_select.py
 
       - name: Validate the feat-cmux-next PR merge-tree publisher
         if: ${{ !cancelled() && matrix.group == 'ci' }}
@@ -1422,6 +1434,10 @@ jobs:
       - name: Validate runner capability resolution
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_runner_capability_resolver.py
+
+      - name: Validate every macOS job names its job class
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_runner_routing_table.py
 
       - name: Validate evidence collection reporting
         if: ${{ !cancelled() && matrix.group == 'ci' }}

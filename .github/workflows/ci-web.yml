@@ -385,6 +385,8 @@ jobs:
           fi
           status=0
           bun run check:browser-lanes || status=1
+          # A new fixed-time wait in a test makes it flaky on a slow runner: a test rule, not style.
+          bun run check:fixed-waits || status=1
           bun run typecheck || status=1
           # The generated protocol must match the daemon's IR: a wire-format check, not style.
           bun run acpmux-protocol:check || status=1
@@ -461,14 +463,23 @@ jobs:
           done
           exit "$failed"
 
+  # The runner capability map (.github/runners.json), for jobs that pick a
+  # size from it. Resolves in parallel with web-subarea-scope.
+  runners:
+    if: ${{ inputs.web == 'true' }}
+    uses: ./.github/workflows/resolve-runners.yml
+
   # React Doctor is independent of the per-file browser tests. Keep it on its
   # own required lane so the long-running shard 1 does not serialize this
   # diagnostic after the test suite.
   react-doctor:
-    needs: web-subarea-scope
+    needs: [web-subarea-scope, runners]
     if: ${{ inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 10
+    # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
+    # 2026-10-20 (runs 39505208959, 39506071754), which failed
+    # react-apps-check. It takes the 16 vCPU size from the capability map.
+    runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}
+    timeout-minutes: 15
     defaults:
       run:
         working-directory: webviews
