@@ -43,14 +43,14 @@ export const MOTION_SPRINGS = {
 /**
  * The cmux-next fade tokens the webviews use, in ms at speed "fast" (MotionTunables.fadeDefaults),
  * on the motion scale (MOTION_MS). Under Reduce Motion a fade is at most `crossfade` long: Swift's
- * crossfade (0.1 s), the Reduce Motion ceiling, not a step of the scale. `highlight` is a settled
- * row's long fade out (1.2 s), not a transition either.
+ * crossfade, the scale's quick step (80 ms), as in design-tokens.json. `highlight` is a settled
+ * row's long fade out (1.2 s), not a transition.
  */
 export const MOTION_FADES = {
   hover: MOTION_MS.quick,
   fadeIn: MOTION_MS.micro,
   fadeOut: MOTION_MS.quick,
-  crossfade: 100,
+  crossfade: MOTION_MS.quick,
   highlight: 1200,
 } as const;
 

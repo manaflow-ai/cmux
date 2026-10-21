@@ -18,7 +18,7 @@ describe("motion scale", () => {
   });
 
   test("the generated TypeScript and CSS copies are the JSON's", () => {
-    expect(MOTION_MS).toEqual(Object.fromEntries(SCALE.steps.map((step) => [step.name, step.ms])));
+    expect(Object.entries(MOTION_MS)).toEqual(SCALE.steps.map((step) => [step.name, step.ms]));
     expect(MOTION_EASE_OUT).toBe(`cubic-bezier(${SCALE.easeOut.join(", ")})`);
     const desktop = fs.readFileSync(path.join(SRC, "pages/shared/desktop.css"), "utf8");
     for (const step of SCALE.steps) expect(desktop).toContain(`--cmux-motion-${step.name}: ${step.ms}ms;`);

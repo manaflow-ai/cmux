@@ -145,3 +145,22 @@ test("a live resize reads no row on its frames, then once when the size settles"
   await new Promise((resolve) => setTimeout(resolve, 200));
   expect(reads()).toEqual(before.map((count) => count + 1));
 });
+
+// A row arriving resizes the list itself, and the observer reports that size after the effect read
+// it. That is no resize: the next row arriving right after (two tabs closed in a row) still animates.
+test("the list's own size change from a row arriving leaves the next change animated", async () => {
+  await act(async () => root.render(createElement(Probe, { keys: ["one"], tick: 0 })));
+  const list = host.firstElementChild as HTMLElement;
+  list.style.setProperty("--agent-motion-in", "10ms");
+  list.style.setProperty("--agent-motion-move", "10ms");
+  const tick = resizeCallbacks[0] as unknown as (entries: unknown[]) => void;
+  const measured = [{ borderBoxSize: [{ inlineSize: 100, blockSize: 20 }] }];
+  tick(measured); // the observer's first call: the size the list mounted at
+
+  await act(async () => root.render(createElement(Probe, { keys: ["one", "two"], tick: 1 })));
+  const first = animationCalls;
+  expect(first).toBeGreaterThan(0);
+  tick(measured); // the list's new height, as the effect just read it
+  await act(async () => root.render(createElement(Probe, { keys: ["one", "two", "three"], tick: 2 })));
+  expect(animationCalls).toBeGreaterThan(first);
+});

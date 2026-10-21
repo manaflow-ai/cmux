@@ -59,8 +59,17 @@ function isLoad(before: readonly string[], after: readonly string[]): boolean {
   return false;
 }
 
-function measure(root: HTMLElement, elements: HTMLElement[], keys: readonly string[]): Places {
+type Size = { width: number; height: number };
+
+/// Reads each row's place in the list, and the list's own size into `size`.
+function measure(
+  root: HTMLElement,
+  elements: HTMLElement[],
+  keys: readonly string[],
+  size: { current: Size | null },
+): Places {
   const origin = root.getBoundingClientRect();
+  size.current = { width: origin.width, height: origin.height };
   return new Map(
     elements.map((element, index) => {
       const rect = element.getBoundingClientRect();
@@ -89,6 +98,9 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
   const observed = useRef<{ root: HTMLElement; observer: ResizeObserver; settle: () => void } | null>(null);
   // The list resized since its places were read: they are read again when the size settles.
   const stale = useRef(false);
+  // The list's size when its places were last read. A row arriving or leaving resizes the list
+  // itself; the observer then reports the size just read, which leaves the places current.
+  const measuredSize = useRef<Size | null>(null);
   useLayoutEffect(() => {
     // A page hidden mid-motion (another New Tab opened over it) ends its motion there: WebKit
     // suspends a hidden page's animations, and this one would finish when the page shows again.
@@ -126,15 +138,19 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
           stale.current = false;
           const elements = [...root.querySelectorAll<HTMLElement>(`:scope > ${rows}`)];
           if (shown.current !== "" && elements.length === shownKeys.current.length)
-            places.current = measure(root, elements, shownKeys.current);
+            places.current = measure(root, elements, shownKeys.current, measuredSize);
         };
         let first = true;
-        const observer = new ResizeObserver(() => {
+        const observer = new ResizeObserver((entries) => {
           // The observer's first call is the size the list mounted at, which the effect just read.
           if (first) {
             first = false;
             return;
           }
+          const box = entries?.at(-1)?.borderBoxSize?.[0];
+          const read = measuredSize.current;
+          if (box && read && Math.abs(box.inlineSize - read.width) < 0.5 && Math.abs(box.blockSize - read.height) < 0.5)
+            return;
           stale.current = true;
           if (timer !== undefined) clearTimeout(timer);
           timer = setTimeout(remeasure, RESIZE_SETTLE_MS);
@@ -165,7 +181,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     // (Leo 2026-10-20), so it takes its places at once too (shared/pageReveal.ts).
     if (isAgentMotionOff() || !entranceAllowed(root.ownerDocument)) {
       cancelRunning(running);
-      places.current = measure(root, elements, currentKeys);
+      places.current = measure(root, elements, currentKeys, measuredSize);
       stale.current = false;
       shown.current = signature;
       shownKeys.current = currentKeys;
@@ -180,7 +196,7 @@ export function useListMotion(list: RefObject<HTMLElement | null>, rows: string,
     // Reads: where each row is drawn now (running slides included), then its new place.
     const drawn = new Map(elements.map((element, index) => [currentKeys[index], drawnShift(element)] as const));
     if (shown.current !== signature) cancelRunning(running);
-    const after = measure(root, elements, currentKeys);
+    const after = measure(root, elements, currentKeys, measuredSize);
     places.current = after;
     stale.current = false;
     shown.current = signature;

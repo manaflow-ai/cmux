@@ -20,9 +20,11 @@ const reducedMotion = () =>
 
 /// Text revealed `count` characters at a time; each step fades in for FADE_MS from `born`.
 export type Reveal = { id: number; count: number; born: number };
-/// How long newly revealed text fades in (acp-streaming.md "Reveal animation"): the motion scale's
-/// micro step, the default of the `--agent-motion-in` fade `.cv-fresh` runs (composerStates.css).
-export const FADE_MS = MOTION_MS.micro;
+/// How long newly revealed text keeps its fade (acp-streaming.md "Reveal animation"). `.cv-fresh`
+/// runs the host's `--agent-motion-in`: the scale's micro step at speed "fast", 180ms at the default
+/// speed. The span outlives the longest of those (the standard step), so no fade is cut before it
+/// ends; the animation fills `both`, so a span kept longer draws the same.
+export const FADE_MS = MOTION_MS.standard;
 
 type Shown = { length: number; fresh: Reveal[]; now: number };
 /// React commits at most this often while revealing; fades run every display frame on the
