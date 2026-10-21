@@ -6,7 +6,7 @@
 // `edit.send`), Escape or Cancel puts the bubble back. Edit shows only on a prompt the chat can fork
 // before (`editableTurns`), so it is never dead. A prompt with versions (an edit made it, or replaced
 // it) shows < n/m > before them, always (branches.ts, cx-ncc.61). Fork forks the chat through the
-// turn before the prompt, as Edit does, and keeps the prompt to send again. The row is Claude's whole
+// prompt's own turn, as its right-click Fork does. The row is Claude's whole
 // row (GUI push 2026-10-20), not the `hover-actions` experiment's one action. The images a prompt
 // sent show above its bubble, each opening the image viewer (Leo, 2026-10-13: they vanished once sent).
 import { useContext, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -23,7 +23,7 @@ import { usePromptRowMark } from "../threadMinimap/promptMarks";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const t = useT();
-  const { edit, branches, fork, forkSeq, forkAny } = useContext(TurnActionsContext);
+  const { edit, branches, fork, forkSeq, forkAny, promptTurns } = useContext(TurnActionsContext);
   const now = useMinuteClock();
   const language = usePaneLanguage();
   const branch = branches?.of.get(row.id);
@@ -31,7 +31,9 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   const [copied, setCopied] = useState(false);
   const mark = usePromptRowMark(row);
   const through = edit?.seqs.get(row.id);
-  const forks = fork !== undefined && through !== undefined && (forkAny || through === forkSeq);
+  // Fork goes through the prompt's own turn, as its right-click Fork does, so the new chat keeps it.
+  const own = promptTurns?.get(row.id);
+  const forkThrough = fork && own !== undefined && (forkAny || own === forkSeq) ? own : undefined;
   // An open editor stays while the chat changes under it (a reconnect, a turn starting), so the
   // draft is kept; Send waits until the prompt can be forked before again. A resend that fails
   // (the fork refused, the reader opened another chat) leaves the draft open too.
@@ -84,14 +86,10 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               </button>
             </span>
           )}
-          <time
-            className="cv-user__time"
-            dateTime={new Date(row.at).toISOString()}
-            title={new Date(row.at).toLocaleString(language)}
-          >
+          <time className="cv-user__time" dateTime={new Date(row.at).toISOString()}>
             {relativeTime(row.at, now, language)}
           </time>
-          {!row.pending && (
+          {!row.pending && row.steer !== "waiting" && (
             <span
               className="cv-user__delivered"
               role="img"
@@ -126,13 +124,13 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               <Pencil size={14} />
             </button>
           )}
-          {forks && (
+          {forkThrough !== undefined && (
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={t("turn.fork")}
               title={t("turn.fork")}
-              onClick={() => fork!(through!)}
+              onClick={() => fork!(forkThrough)}
             >
               <TurnFork size={14} />
             </button>

@@ -376,7 +376,7 @@
 }
 /* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
 .cv-user__time {
-  margin-right: 4px;
+  margin-inline-end: 4px;
   color: var(--cv-text-dim);
   font-size: var(--text-caption);
   font-variant-numeric: tabular-nums;
@@ -384,7 +384,7 @@
 }
 .cv-user__delivered {
   display: inline-flex;
-  margin-right: 4px;
+  margin-inline-end: 4px;
   color: var(--cv-text-dim);
 }
 /* < n/m > between a prompt's versions (cx-ncc.61), before Copy and Edit, as Claude's. */
@@ -1645,7 +1645,7 @@ pre.cv-math-source {
   justify-content: flex-start;
   gap: 8px;
   min-height: 28px;
-  padding-left: 2px;
+  padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
   font-size: 13px;
@@ -1654,8 +1654,7 @@ pre.cv-math-source {
    right edge, the actions after the time. */
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
-  padding-right: 2px;
-  padding-left: 0;
+  padding-inline: 0 2px;
 }
 .cv-turn-action-group {
   display: inline-flex;
