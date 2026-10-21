@@ -22,6 +22,8 @@
 
 use super::*;
 
+pub(super) mod revive;
+
 use std::path::PathBuf;
 use std::sync::LazyLock;
 use std::sync::atomic::AtomicU64;
@@ -264,7 +266,7 @@ impl Hub {
     /// Before a session's harness starts: its folder back, when cleanup
     /// reclaimed the worktree it is in. Logged as `worktree_restored`, or
     /// `worktree_restore_failed` (the start goes on). A folder still gone is
-    /// added back from its branch, or the start fails (`worktree_revive.rs`).
+    /// added back from its branch, or the start fails (`revive.rs`).
     pub(super) async fn ready_to_start(&self, session: &Arc<Session>) -> Result<(), RpcError> {
         self.care_restore_for(session).await;
         self.revive_worktree(session, &CARE.restoring).await?;

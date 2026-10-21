@@ -8,9 +8,24 @@
 //! HEAD through a loose ref, else `packed-refs`. Anything it cannot read
 //! leaves that part `None`; it never fails the session.
 
+use serde::{Deserialize, Serialize};
 use std::fs::File;
 use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
+
+/// Where a session's folder came from in git (`SessionMeta::worktree`; `hub/worktree_care/revive.rs`).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct WorktreeOrigin {
+    /// The session's `cwd` this was read for.
+    pub cwd: PathBuf,
+    /// The worktree's top folder (`cwd` or a folder above it).
+    pub root: PathBuf,
+    /// The repository's common git directory.
+    pub common_dir: PathBuf,
+    /// The branch checked out there.
+    pub branch: String,
+}
 
 /// The git state of a folder at one moment.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -67,7 +82,7 @@ impl GitState {
 }
 
 /// The linked worktree `dir` is in, canonical: its top folder and the repository's common git
-/// directory, which outlives the worktree (`hub/worktree_revive.rs` adds it back from there).
+/// directory, which outlives the worktree (`hub/worktree_care/revive.rs` adds it back from there).
 /// `None` outside a repository, in a main checkout (its git directory goes with it) or in a
 /// submodule.
 pub fn linked_worktree(dir: &Path) -> Option<(PathBuf, PathBuf)> {

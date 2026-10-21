@@ -1,5 +1,5 @@
 //! A chat whose agent process died comes back by itself (`hub/auto_resume/revive.rs`,
-//! `hub/worktree_revive.rs`): on 2026-10-20 lane `chief-fix` sat `disconnected` for hours after
+//! `hub/worktree_care/revive.rs`): on 2026-10-20 lane `chief-fix` sat `disconnected` for hours after
 //! its agent closed mid-turn, two coordinator messages held behind it, and a reclaim job had
 //! deleted the worktrees of three such lanes.
 use super::*;

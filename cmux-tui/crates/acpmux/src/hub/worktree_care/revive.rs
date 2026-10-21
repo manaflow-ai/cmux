@@ -15,17 +15,16 @@
 //! A missing folder with no record (not a linked worktree, or never started here) is left as it
 //! was: acpmux never makes a folder that git did not.
 
-use super::{Hub, Session};
-use crate::git_state::{GitState, linked_worktree};
+use crate::git_state::{GitState, WorktreeOrigin, linked_worktree};
+use crate::hub::{Hub, Session};
 use crate::rpc::RpcError;
-use crate::store::WorktreeOrigin;
 use serde_json::json;
 use std::path::Path;
 use std::process::{Command, Stdio};
 use std::sync::Arc;
 
 /// The worktree record for `cwd` on `branch`, read from the folder (blocking).
-pub(super) fn origin_of(cwd: &Path, branch: Option<&str>) -> Option<WorktreeOrigin> {
+pub(in crate::hub) fn origin_of(cwd: &Path, branch: Option<&str>) -> Option<WorktreeOrigin> {
     let (root, common_dir) = linked_worktree(cwd)?;
     let branch = branch?.to_owned();
     Some(WorktreeOrigin { cwd: cwd.to_path_buf(), root, common_dir, branch })

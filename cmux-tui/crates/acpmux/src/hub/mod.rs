@@ -111,7 +111,6 @@ mod warm;
 mod web_control;
 mod web_token;
 pub(crate) mod worktree_care;
-mod worktree_revive;
 mod xai;
 pub use web_control::Control;
 pub(crate) use web_control::ModeWrite;

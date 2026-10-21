@@ -18,12 +18,12 @@ const GIT_READ_LIMIT: Duration = Duration::from_secs(2);
 
 /// The `turn_result` fields for the session folder's git state now:
 /// `gitBranch` and `gitHead`, each absent when it cannot be read. The linked
-/// worktree it is in is kept on the session (`worktree_revive.rs`).
+/// worktree it is in is kept on the session (`worktree_care/revive.rs`).
 pub(super) async fn turn_git(session: &Session) -> Map<String, Value> {
     let cwd = session.meta.lock().unwrap_or_else(|e| e.into_inner()).cwd.clone();
     let read = tokio::task::spawn_blocking(move || {
         let git = GitState::read(&cwd);
-        let worktree = super::worktree_revive::origin_of(&cwd, git.branch.as_deref());
+        let worktree = super::worktree_care::revive::origin_of(&cwd, git.branch.as_deref());
         (git, worktree)
     });
     let (git, worktree) = match tokio::time::timeout(GIT_READ_LIMIT, read).await {
