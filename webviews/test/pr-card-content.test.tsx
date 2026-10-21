@@ -89,10 +89,12 @@ function pullRequest(extra: Record<string, unknown> = {}) {
 }
 
 let teardown: (() => Promise<void>) | undefined;
-afterEach(async () => {
+/** Unmounts the card a test drew, so the test can draw another. */
+async function unmount() {
   await teardown?.();
   teardown = undefined;
-});
+}
+afterEach(unmount);
 
 /** Renders the card body against a host that answers `pr.inspect` with `answer`. */
 async function card(answer: Record<string, unknown>) {
@@ -228,4 +230,69 @@ test("no answer yet: the card says it is reading and keeps asking the app, not G
   // What the chat already knows is still there.
   expect(body.textContent).toContain("manaflow-ai/cmux#22777");
   expect(calls.every((method) => method === "pr.inspect")).toBe(true);
+});
+
+test("the state is a pill in its own colour: open, merged, closed, draft", async () => {
+  for (const [state, label] of [
+    ["open", "Open"],
+    ["merged", "Merged"],
+    ["closed", "Closed"],
+    ["draft", "Draft"],
+  ] as const) {
+    const { body } = await card({ pullRequest: pullRequest({ state, mergeable: "" }), fetchedAt: Date.now() / 1000 });
+    const pills = [...body.querySelectorAll(".acpmux-pr-card__state")];
+    expect(pills.map((pill) => [pill.getAttribute("data-state"), pill.textContent])).toEqual([[state, label]]);
+    await unmount();
+  }
+  // Each state sets the pill's colour; the pill tints its fill and its text from it.
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  for (const state of ["open", "merged", "closed"])
+    expect(styles).toMatch(new RegExp(`\\.acpmux-pr-card__state\\[data-state=${state}\\]\\{--pr-state:`));
+  expect(styles).toMatch(/\.acpmux-pr-card__state\{[^}]*background:color-mix\(in srgb,var\(--pr-state\)/);
+});
+
+test("checks that also fail on the base branch read muted, not as this pull request's failures", async () => {
+  const failing = (n: number) => Array.from({ length: n }, (_, i) => ({ name: `check ${i}`, state: "failed" }));
+  // Every failure is a base red: "(base)", and the line's state is `base`, not `failing`.
+  const all = await card({
+    pullRequest: pullRequest({
+      state: "merged",
+      checks: { state: "failing", passed: 118, total: 122 },
+      checkList: failing(4),
+      failingOnBase: 4,
+    }),
+    fetchedAt: Date.now() / 1000,
+  });
+  const allChecks = all.body.querySelector(".acpmux-pr-card__checks")!;
+  expect(allChecks.textContent).toBe("118 of 122 checks passed, 4 failing (base)");
+  expect(allChecks.getAttribute("data-state")).toBe("base");
+  await unmount();
+  // Some are: the count of them, and the line stays failing.
+  const some = await card({
+    pullRequest: pullRequest({
+      checks: { state: "failing", passed: 118, total: 122 },
+      checkList: failing(4),
+      failingOnBase: 1,
+    }),
+    fetchedAt: Date.now() / 1000,
+  });
+  const someChecks = some.body.querySelector(".acpmux-pr-card__checks")!;
+  expect(someChecks.textContent).toBe("118 of 122 checks passed, 4 failing, 1 on base");
+  expect(someChecks.getAttribute("data-state")).toBe("failing");
+  await unmount();
+  // The host does not say (it does not send `failingOnBase` yet): the plain failing line.
+  const none = await card({
+    pullRequest: pullRequest({ checks: { state: "failing", passed: 118, total: 122 }, checkList: failing(4) }),
+    fetchedAt: Date.now() / 1000,
+  });
+  expect(none.body.querySelector(".acpmux-pr-card__checks")?.textContent).toBe("118 of 122 checks passed, 4 failing");
+  // A base-only line has no alarm colour on its dot.
+  const { readFileSync } = await import("node:fs");
+  const path = await import("node:path");
+  const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/styles.css"), "utf8");
+  const baseDot = /\.acpmux-pr-card__checks\[data-state=base\]::before\{([^}]*)\}/.exec(styles)?.[1] ?? "";
+  expect(baseDot).not.toBe("");
+  expect(baseDot).not.toContain("danger");
 });

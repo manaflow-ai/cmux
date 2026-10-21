@@ -3,9 +3,11 @@
 // but "github.com · https://github.com/.../pull/22777, Open", while the older, richer card said
 // "GitHub rate limit · resets 9:11 PM" where the pull request should have been.
 //
-// The card reads: the state pill (draft, open, merged, closed, and conflicts beside it),
-// `owner/repo#N`, the title, the author with a monogram, when GitHub last saw it change,
-// `base ← head`, the checks summed, the review decision and labels, and the files with `+/−`.
+// The card reads: the title (in the link card's head when it has one, cut to two lines), the state
+// pill (open green, merged purple, closed red, draft grey, and conflicts beside it), `owner/repo#N`,
+// the author with a monogram, when GitHub last saw it change, `base ← head`, the checks summed
+// (failures that also fail on the base branch read muted, not as this pull request's), the review
+// decision and labels, and the files with `+/−`.
 // Hovering (or focusing) the `+/−` breaks those lines down by kind — Code, Tests, Mocks, Docs,
 // Evals, Generated — from the one classifier the diff viewer groups by (src/fileKinds.ts), and
 // says so when code changed with no test.
@@ -13,7 +15,7 @@
 // Nothing here calls GitHub. The host answers from its own cache and reads gh in the background
 // (pullRequestStore.ts, AgentReplyPullRequests); when its answer is not fresh the card prints how
 // old it is instead of an error.
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { FILE_KINDS, kindTotals, missingTests, type FileKind } from "../../../fileKinds";
 import { usePaneLanguage, useT, type PaneLanguage, type StringKey, type Translate } from "../i18n";
 import { Icon } from "../icons/Icon";
@@ -61,7 +63,19 @@ export function pullRequestRef(href: string): { repo: string; number: number; ur
 export type KnownPullRequest = { repo: string; number: number; title?: string; state?: string };
 
 /// The card's content; its frame (AnchoredCard) belongs to the caller. `open` asks the host.
-export function PullRequestCardBody({ url, known, open }: { url: string; known: KnownPullRequest; open: boolean }) {
+/// `head` draws the caller's head row around the title (LinkHoverCard: icon, title, Open, Open in);
+/// without it the title is the body's first row.
+export function PullRequestCardBody({
+  url,
+  known,
+  open,
+  head,
+}: {
+  url: string;
+  known: KnownPullRequest;
+  open: boolean;
+  head?: (title: string) => ReactNode;
+}) {
   const t = useT();
   // Every age in the card is worded in the pane's own language, like a message's time
   // (UserBubble): without it Intl falls back to the host's ICU default and a Japanese pane reads
@@ -77,66 +91,79 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
   // unparsed date to `Intl.DateTimeFormat`, which raises RangeError on NaN, and a raise in here
   // takes the whole card down over one string the host passed through from GitHub.
   const updatedAt = read?.updatedAt == null ? Number.NaN : Date.parse(read.updatedAt);
+  const reference = `${known.repo}#${known.number}`;
   return (
-    <div className="acpmux-pr-card__body">
-      <div className="acpmux-pr-card__facts">
-        <Icon name="git.pullrequest" size={13} />
-        {state && (
-          <span className="acpmux-pr-card__state" data-state={state}>
-            {BADGES[state] ? t(BADGES[state]!) : state}
-          </span>
-        )}
-        {read?.mergeable === "conflicting" && (
-          <span className="acpmux-pr-card__state" data-state="conflicts">
-            {t("header.prConflicts")}
-          </span>
-        )}
-        <span className="acpmux-pr-card__ref">
-          {known.repo}#{known.number}
-        </span>
-      </div>
-      {title && <div className="acpmux-pr-card__title">{title}</div>}
-      {read?.author && (
-        <div className="acpmux-pr-card__who">
-          <Monogram login={read.author} />
-          <span className="acpmux-pr-card__author">{read.author}</span>
-          {Number.isFinite(updatedAt) && (
-            <span className="acpmux-pr-card__when">
-              {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
+    <>
+      {head?.(title || reference)}
+      <div className="acpmux-pr-card__body">
+        {!head && title && <div className="acpmux-pr-card__title">{title}</div>}
+        <div className="acpmux-pr-card__facts">
+          {!head && <Icon name="git.pullrequest" size={13} />}
+          {state && (
+            <span className="acpmux-pr-card__state" data-state={state}>
+              {BADGES[state] ? t(BADGES[state]!) : state}
             </span>
           )}
+          {read?.mergeable === "conflicting" && (
+            <span className="acpmux-pr-card__state" data-state="conflicts">
+              {t("header.prConflicts")}
+            </span>
+          )}
+          <span className="acpmux-pr-card__ref">{reference}</span>
         </div>
-      )}
-      {read?.baseRef && read.headRef && (
-        <div className="acpmux-pr-card__branches">
-          <span className="acpmux-pr-card__branch">{read.baseRef}</span>
-          <span aria-hidden="true">←</span>
-          <span className="acpmux-pr-card__branch">{read.headRef}</span>
-        </div>
-      )}
-      <Checks read={read} t={t} />
-      <Review read={read} t={t} />
-      <Changes read={read} t={t} />
-      <Freshness answer={answer} now={now} t={t} language={language} />
-    </div>
+        {read?.author && (
+          <div className="acpmux-pr-card__who">
+            <Monogram login={read.author} />
+            <span className="acpmux-pr-card__author">{read.author}</span>
+            {Number.isFinite(updatedAt) && (
+              <span className="acpmux-pr-card__when">
+                {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
+              </span>
+            )}
+          </div>
+        )}
+        {read?.baseRef && read.headRef && (
+          <div className="acpmux-pr-card__branches">
+            <span className="acpmux-pr-card__branch">{read.baseRef}</span>
+            <span aria-hidden="true">←</span>
+            <span className="acpmux-pr-card__branch">{read.headRef}</span>
+          </div>
+        )}
+        <Checks read={read} t={t} />
+        <Review read={read} t={t} />
+        <Changes read={read} t={t} />
+        <Freshness answer={answer} now={now} t={t} language={language} />
+      </div>
+    </>
   );
 }
 
-/// The checks summed: how many passed, and how many are failing.
+/// The checks summed: how many passed, and how many are failing. Failures that also fail on the
+/// base branch (`failingOnBase`) are not this pull request's doing: when every failure is one, the
+/// line reads muted with "(base)"; when only some are, it says how many.
 function Checks({ read, t }: { read: LinkedPullRequest | undefined; t: Translate }) {
   const checks = read?.checks;
   if (!checks) return null;
   if (checks.total === 0) return <div className="acpmux-pr-card__checks">{t("header.prNoChecks")}</div>;
-  const failed = read?.checkList?.filter((check) => check.state === "failed").length || 0;
+  const listed = read?.checkList?.filter((check) => check.state === "failed").length || 0;
+  if (listed === 0 && checks.state !== "failing")
+    return (
+      <div className="acpmux-pr-card__checks" data-state={checks.state}>
+        {t("prCard.checks", { passed: checks.passed, total: checks.total })}
+      </div>
+    );
+  const failed = listed || checks.total - checks.passed;
+  const onBase = Math.min(Math.max(0, read?.failingOnBase ?? 0), failed);
+  const counts = { passed: checks.passed, total: checks.total, failed };
+  if (onBase > 0 && onBase === failed)
+    return (
+      <div className="acpmux-pr-card__checks" data-state="base">
+        {t("prCard.checksFailingBase", counts)}
+      </div>
+    );
   return (
     <div className="acpmux-pr-card__checks" data-state={checks.state}>
-      {failed > 0 || checks.state === "failing"
-        ? t("prCard.checksFailing", {
-            passed: checks.passed,
-            total: checks.total,
-            failed: failed || checks.total - checks.passed,
-          })
-        : t("prCard.checks", { passed: checks.passed, total: checks.total })}
+      {onBase > 0 ? t("prCard.checksFailingSomeBase", { ...counts, onBase }) : t("prCard.checksFailing", counts)}
     </div>
   );
 }

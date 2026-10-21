@@ -144,6 +144,43 @@ export default componentEntry<UrlChipProps>({
       props: { href: PULL_REQUEST, children: "manaflow-ai/cmux#22777" },
       play: openCard,
     },
+    // Merged with four red checks that are red on the base branch too: the checks line reads muted
+    // "(base)", not as this pull request's failures. (The host does not send `failingOnBase` yet.)
+    "pull-request-merged-base-reds": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "merged",
+          mergeable: "",
+          review: "approved",
+          checks: { state: "failing", passed: 118, total: 122 },
+          checkList: [
+            { name: "cmux-next / web lint (fast)", state: "failed" },
+            { name: "cmux-next / package tests", state: "failed" },
+            { name: "cmux-next / generated files", state: "failed" },
+            { name: "cmux-next / gallery", state: "failed" },
+          ],
+          failingOnBase: 4,
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
+      play: openCard,
+    },
+    "pull-request-closed": {
+      chipHost: prHost({
+        pullRequest: pullRequest({
+          state: "closed",
+          mergeable: "",
+          review: "",
+          labels: [],
+          checks: { state: "passing", passed: 100, total: 100 },
+          checkList: [],
+        }),
+        fetchedAt: GALLERY_NOW / 1000 - 20,
+      }),
+      props: { href: PULL_REQUEST, children: "#22777" },
+      play: openCard,
+    },
     "long-url": {
       props: {
         href: "https://example.test/research/2026/agent-session/gallery/fixtures?view=transcript&sort=recent&filter=public",

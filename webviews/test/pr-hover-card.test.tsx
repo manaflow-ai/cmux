@@ -149,8 +149,14 @@ test("a pull request chip in a reply opens the same card", async () => {
   await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
   const card = element.querySelector<HTMLElement>(".cv-link-preview.acpmux-pr-card");
   expectFullCard(card);
-  // It keeps the link card's Open.
+  // It keeps the link card's Open, and its title sits in the head beside the GitHub mark.
   expect(card!.querySelector("button")?.textContent).toContain("Open");
+  const head = card!.querySelector<HTMLElement>(".cv-link-preview__head")!;
+  expect(head.querySelector(".cv-link-preview__icon svg")).not.toBeNull();
+  expect(head.querySelector(".cv-link-preview__site")?.textContent).toBe(TITLE);
+  // No address line: the head and owner/repo#N already say where it is (Leo 2026-10-21).
+  expect(card!.querySelector(".cv-link-preview__target")).toBeNull();
+  expect(card!.textContent).not.toContain("https://");
   await act(async () => root.unmount());
   host.done();
 });
@@ -180,7 +186,7 @@ test("an inline link opens the same card: favicon, page title, host, the address
   expect(card.querySelector(".cv-link-preview__icon img")).not.toBeNull();
   expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe("Example Guide");
   expect(card.querySelector(".cv-link-preview__target")?.textContent).toBe(
-    "docs.example.test · https://docs.example.test/guide?page=2&token=•••",
+    "https://docs.example.test/guide?page=2&token=•••",
   );
   expect([...card.querySelectorAll("button")].map((button) => button.textContent)).toEqual(
     expect.arrayContaining([expect.stringContaining("Open"), expect.stringContaining("Open in")]),

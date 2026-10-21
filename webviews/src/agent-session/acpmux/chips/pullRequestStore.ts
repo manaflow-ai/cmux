@@ -37,6 +37,9 @@ export type LinkedPullRequest = HeaderPullRequest & {
   readonly labels?: readonly string[];
   readonly baseRef?: string;
   readonly headRef?: string;
+  /** How many of the failing checks also fail on the base branch's head, so are not this pull
+   *  request's doing. The host does not send it yet; the card reads it once it does. */
+  readonly failingOnBase?: number;
 };
 
 /** What the host has for one link: the pull request, and when gh last answered about it. */

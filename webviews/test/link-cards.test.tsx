@@ -202,7 +202,7 @@ test("a pull request chip keeps its text when the pull request's title comes in;
   expect(chip.link.innerHTML).toBe(before);
   expect(chip.link.querySelector(".cv-chip__title, img")).toBeNull();
   const card = await chip.hover();
-  expect(card.querySelector(".acpmux-pr-card__title")?.textContent).toBe(
+  expect(card.querySelector(".cv-link-preview__site")?.textContent).toBe(
     "cmux-next updates: pulled-build banner (staged)",
   );
   // Hovering changes nothing in the line either.
