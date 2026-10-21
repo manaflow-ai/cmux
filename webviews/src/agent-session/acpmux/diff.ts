@@ -200,6 +200,20 @@ export function turnFiles(rows: AcpmuxRow[]): TurnFile[] {
   );
 }
 
+/// The last activity row whose tool calls changed the file at `path` (one of its spellings: the same
+/// canonical path, model.ts `pathKey`), and the file's path in that row's turn, where its diff opens.
+/// Undefined when no diff names it.
+export function lastChange(rows: readonly AcpmuxRow[], path: string): { rowId: string; path: string } | undefined {
+  const diffs = (row: AcpmuxRow) =>
+    row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool?.diffs ?? []) : [];
+  const canonical = rows.flatMap(diffs).find((diff) => diff.path === path && diff.canonical)?.canonical;
+  const isIt = (file: PathRef) => file.path === path || (canonical !== undefined && file.canonical === canonical);
+  const row = [...rows].reverse().find((candidate) => diffs(candidate).some(isIt));
+  if (!row) return undefined;
+  const file = turnFiles(turnRows([...rows], row.id)).find(isIt);
+  return { rowId: row.id, path: file?.path ?? path };
+}
+
 /// The paths the turn's edits changed with no diff `turnFiles` counts: an edit whose call carried
 /// none, and a file a Write rewrote with old contents unknown. A checkpoint file at one of them is
 /// still a tool call's change (turnCheckpoint.ts `turnDisplay`), not one made outside them. Not a

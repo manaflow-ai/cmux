@@ -19,7 +19,9 @@ export type FileUndo =
   /// No full before and after text: "Cannot undo this edit".
   | { kind: "cannot" };
 
-export type EditedFile = { path: string; added: number; removed: number; undo: FileUndo };
+/// `path`: the path Undo names the file by (`undoPath`); `key`: the file's `pathKey`, which the card
+/// finds it by.
+export type EditedFile = { path: string; key?: string; added: number; removed: number; undo: FileUndo };
 export type TurnChanges = { turnId: string; files: EditedFile[] };
 
 /// The tool-call diffs of `rows` per file (model.ts `pathKey`: its canonical path, else its path), in
@@ -37,12 +39,19 @@ export function diffsByPath(rows: readonly AcpmuxRow[]): Map<string, AcpmuxFileD
   return byPath;
 }
 
-/// What Undo can do for a file the turn changed with `diffs` (in order).
-export function fileUndo(diffs: readonly AcpmuxFileDiff[]): FileUndo {
+/// The path Undo names a file by: the first absolute spelling its diffs used (the agent's own, so
+/// never another letter case of it), else its canonical path, else `file.path`. A file edited at
+/// `./x` and then at `/repo/x` undoes as `/repo/x`.
+export function undoPath(file: { path: string; canonical?: string }, diffs: readonly AcpmuxFileDiff[]): string {
+  return diffs.find((diff) => diff.path.startsWith("/"))?.path ?? file.canonical ?? file.path;
+}
+
+/// What Undo can do for a file the turn changed with `diffs` (in order), named `path` to the host.
+export function fileUndo(diffs: readonly AcpmuxFileDiff[], path = diffs[0]?.path): FileUndo {
   const first = diffs[0];
   const last = diffs[diffs.length - 1];
   // The host takes absolute paths only; a path as the agent wrote it (`~/x`, `src/x`) is not one.
-  if (!first || !last || !first.path.startsWith("/")) return { kind: "cannot" };
+  if (!first || !last || !path?.startsWith("/")) return { kind: "cannot" };
   // A diff marked as part of its file (a reopened Codex hunk) has no whole-file text to restore.
   if (diffs.some((diff) => diff.fragment)) return { kind: "cannot" };
   for (let index = 1; index < diffs.length; index++)
@@ -53,8 +62,8 @@ export function fileUndo(diffs: readonly AcpmuxFileDiff[]): FileUndo {
   return { kind: "revert", before: first.oldText, after: last.newText };
 }
 
-/// The card's files: `counts` (the display's paths and line counts) with each file's Undo. Undo
-/// names each file by `path`, the agent's spelling, never the canonical path it is matched by.
+/// The card's files: `counts` (the display's paths and line counts) with each file's Undo, named by
+/// `undoPath`.
 export function turnChanges(
   turnId: string,
   rows: readonly AcpmuxRow[],
@@ -63,12 +72,17 @@ export function turnChanges(
   const byPath = diffsByPath(rows);
   return {
     turnId,
-    files: counts.map((file) => ({
-      path: file.path,
-      added: file.additions,
-      removed: file.deletions,
-      undo: fileUndo(byPath.get(pathKey(file)) ?? []),
-    })),
+    files: counts.map((file) => {
+      const diffs = byPath.get(pathKey(file)) ?? [];
+      const path = undoPath(file, diffs);
+      return {
+        path,
+        key: pathKey(file),
+        added: file.additions,
+        removed: file.deletions,
+        undo: fileUndo(diffs, path),
+      };
+    }),
   };
 }
 

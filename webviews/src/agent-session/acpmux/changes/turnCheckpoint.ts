@@ -172,21 +172,25 @@ export function outsideRepository<File extends PathRef>(
 ): File[] {
   const top = root?.replace(/\/+$/, "");
   if (top === undefined) return [];
+  // A canonical path is composed (NFC); git prints the root as stored, which may be decomposed.
+  const under = (file: File) =>
+    file.canonical ? file.canonical.startsWith(`${top.normalize("NFC")}/`) : file.path.startsWith(`${top}/`);
   return toolFiles.filter((file) => {
     const key = pathKey(file);
     return (
       key.startsWith("/") &&
-      !key.startsWith(`${top}/`) &&
+      !under(file) &&
       !checkpointFiles.some((checkpointFile) => changedByTools(checkpointFile, [file]))
     );
   });
 }
 
-/// A loaded checkpoint's files, each with its canonical path: `${root}/${path}`, as git names the
-/// repository (`rev-parse --show-toplevel`), which acpmux's canonical paths match.
+/// A loaded checkpoint's files, each with its canonical path: `${root}/${path}` as git names the
+/// repository (`rev-parse --show-toplevel`, its real path), composed (NFC) as acpmux's canonical
+/// paths are: git prints names as stored, and a folder created decomposed stays so.
 function checkpointFiles(changeSet: ChangeSet): TurnFile[] {
   const files = changeSetFiles(changeSet);
-  return changeSet.root ? files.map((file) => ({ ...file, canonical: file.path })) : files;
+  return changeSet.root ? files.map((file) => ({ ...file, canonical: file.path.normalize("NFC") })) : files;
 }
 
 /// What the Last turn view shows. A checkpoint that loads replaces the tool calls' edits, unless

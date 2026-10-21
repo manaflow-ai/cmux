@@ -147,7 +147,10 @@ function Card({
     : total === 1
       ? t("edited.one")
       : t("tools.edited.files", { n: total });
-  const status = (path: string) => fileStatus(undoState, path);
+  // The host answers for the path Undo sent (turnChanges/model.ts `undoPath`), which may be another
+  // spelling of the row's.
+  const status = (file: TurnFile) =>
+    fileStatus(undoState, changes.files.find((edited) => edited.key === pathKey(file))?.path ?? file.path);
   return (
     <div className="acpmux-edited">
       <div className="acpmux-edited-head">
@@ -209,7 +212,7 @@ function Card({
         />
       )}
       {single && undoState.phase === "done" && (
-        <FileStatus status={status(single.path)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
+        <FileStatus status={status(single)} path={single.path} rowId={row.id} onOpenDiff={onOpenDiff} t={t} />
       )}
       {single && diffOpen && (
         <div className="acpmux-edited-diff">
@@ -248,7 +251,7 @@ function Card({
             <Counts additions={file.additions} deletions={file.deletions} />
           </>
         );
-        const done = undoState.phase === "done" ? status(file.path) : undefined;
+        const done = undoState.phase === "done" ? status(file) : undefined;
         return (
           <div className="acpmux-edited-entry" key={entry.key}>
             {onOpenDiff ? (

@@ -464,9 +464,10 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
 
 /// The canonical path acpmux recorded beside an item's path (hub/tool_paths.rs), as `canonical`:
 /// a `diff` item's or location's `_meta.acpmux.canonicalPath`, or a diff this page placed again.
+/// Composed (NFC), as every canonical path the page compares is (turnCheckpoint.ts `checkpointFiles`).
 function canonicalOf(item: any): { canonical?: string } {
   const canonical = item?._meta?.acpmux?.canonicalPath ?? item?.canonical;
-  return typeof canonical === "string" && canonical ? { canonical } : {};
+  return typeof canonical === "string" && canonical ? { canonical: canonical.normalize("NFC") } : {};
 }
 
 /// A call's locations with their canonical paths read (`canonicalOf`).

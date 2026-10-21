@@ -3,8 +3,10 @@
 //! folder link and the real folder, `Notes.txt` and `notes.txt` on a volume
 //! that ignores case. For a file that exists in a git repository it is
 //! `$(git rev-parse --show-toplevel)/<path>`, the path a turn checkpoint names
-//! the file by. The hub records it beside each tool call path
-//! (`hub/tool_paths.rs`); clients compare only these.
+//! the file by, up to Unicode normalization: this path is NFC, and git may
+//! print a folder stored decomposed as it is stored, so a client normalizes
+//! the checkpoint side to NFC before comparing. The hub records it beside
+//! each tool call path (`hub/tool_paths.rs`); clients compare only these.
 
 use std::path::{Path, PathBuf};
 
@@ -12,13 +14,17 @@ use std::path::{Path, PathBuf};
 /// a session working in `cwd`: absolute (a leading `~` is the home folder),
 /// with `.`, `..`, doubled slashes and symlinks resolved the way the OS opens
 /// it (`hand::policy::resolve`), and on macOS each existing component spelled
-/// as the volume stores it, NFC (`realpath` keeps the typed letter case on a
-/// volume that ignores case; Swift `AcpmuxPathPolicy.canonical` does the
-/// same). A component that is not there yet keeps the spelling given, so a
+/// as the volume stores it, NFC (`realpath` already returns the stored letter
+/// case; reading each stored name keeps that true when the realpath fallback
+/// runs). A component that is not there yet keeps the spelling given, so a
 /// call before the file exists and one after it names it the same way: the
 /// file is stored as it was spelled. None for an empty or non-UTF-8 path, a
-/// relative one with no `cwd`, or one a dangling link breaks.
+/// relative one with no `cwd`, or one a dangling link breaks. None on
+/// Windows, where the resolved form `\\?\C:\...` never matches git's `C:/...`.
 pub fn canonical_path(path: &str, cwd: Option<&Path>) -> Option<String> {
+    if cfg!(windows) {
+        return None;
+    }
     let path = match path.strip_prefix('~') {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => {
             dirs::home_dir()?.join(rest.trim_start_matches('/'))
@@ -105,7 +111,8 @@ fn stored_name(path: &Path) -> Option<std::ffi::OsString> {
     (!name.is_empty()).then(|| std::ffi::OsString::from_vec(name.to_vec()))
 }
 
-#[cfg(test)]
+// canonical_path is None on Windows.
+#[cfg(all(test, unix))]
 mod tests {
     use super::*;
 
