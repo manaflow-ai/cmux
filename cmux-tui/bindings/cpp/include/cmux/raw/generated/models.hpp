@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67";
+inline constexpr std::string_view kProtocolIrSha256 = "22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -292,6 +292,7 @@ struct CloudMuxSubscribeRequest;
 struct CloudMuxUnsubscribeRequest;
 struct CloudParticipantAvatarGetRequest;
 struct CloudRequestsListRequest;
+struct CloudSelfhostInfoRequest;
 struct CloudSessionClearRequest;
 struct CloudSessionSetRequest;
 struct CloudSessionStatusRequest;
@@ -1833,6 +1834,10 @@ struct CloudRequestsListRequest {
     friend bool operator==(const CloudRequestsListRequest&, const CloudRequestsListRequest&) = default;
 };
 
+struct CloudSelfhostInfoRequest {
+    friend bool operator==(const CloudSelfhostInfoRequest&, const CloudSelfhostInfoRequest&) = default;
+};
+
 struct CloudSessionClearRequest {
     friend bool operator==(const CloudSessionClearRequest&, const CloudSessionClearRequest&) = default;
 };
@@ -1844,10 +1849,11 @@ struct CloudSessionNeededEvent {
 };
 
 struct CloudSessionSetRequest {
-    std::string access_token{};
+    std::optional<std::string> access_token{};
     std::string api_base_url{};
+    Field<std::string> auth{};
     Field<std::string> client_version{};
-    std::uint64_t expires_at{};
+    std::optional<std::uint64_t> expires_at{};
     friend bool operator==(const CloudSessionSetRequest&, const CloudSessionSetRequest&) = default;
 };
 
@@ -7547,6 +7553,12 @@ template <>
 struct Codec<CloudRequestsListRequest> {
     static Result<Json> encode(const CloudRequestsListRequest& value);
     static Result<CloudRequestsListRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<CloudSelfhostInfoRequest> {
+    static Result<Json> encode(const CloudSelfhostInfoRequest& value);
+    static Result<CloudSelfhostInfoRequest> decode(const Json& value);
 };
 
 template <>
