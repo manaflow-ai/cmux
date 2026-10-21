@@ -570,9 +570,10 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if json_out {
                     let mut out = json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted});
                     if superseding {
-                        out["replaced"] = accepted.get("replaced").cloned().unwrap_or(json!(0));
+                        // null when the daemon did not report it (one that predates the key).
+                        out["replaced"] = accepted.get("replaced").cloned().unwrap_or(Value::Null);
                         out["replacedPromptIds"] =
-                            accepted.get("replacedPromptIds").cloned().unwrap_or(json!([]));
+                            accepted.get("replacedPromptIds").cloned().unwrap_or(Value::Null);
                     }
                     print_json(&out);
                 } else {

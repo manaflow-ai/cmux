@@ -16,6 +16,9 @@ mod lost_start;
 #[path = "supersede.rs"]
 pub(super) mod supersede;
 
+/// A session's prompt ids and their outcomes (`Session::prompts`, `prompt_ledger.rs`).
+pub(super) type PromptLedger = std::collections::VecDeque<(String, PromptOutcome)>;
+
 /// A prompt waiting for the running turn to end.
 #[derive(Debug, Clone)]
 pub struct QueuedPrompt {
@@ -76,6 +79,8 @@ pub(super) struct Slot<'a> {
     pub(super) agent: Option<&'a str>,
     /// Its `_meta.acpmux.supersede` key (`supersede.rs`).
     pub(super) supersede: Option<&'a str>,
+    /// Set to the prompts it replaced when it queues (`enqueue`), for its acceptance.
+    pub(super) replaced: &'a std::sync::OnceLock<Vec<String>>,
 }
 
 /// What a prompt's `session/prompt` answers.
@@ -263,6 +268,12 @@ impl Hub {
         let withdraw = Arc::new(Notify::new());
         let joined = Arc::new(StdMutex::new(None));
         let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        // The sender's prompts under its key leave under the lock that puts this one in
+        // (`supersede.rs`), with the ledger pinned first as `remove_queued_because` pins it.
+        let superseded = p.supersede.map(|key| {
+            let gone = supersede::take(session, &mut queue, key, p.agent, p.prompt_id);
+            (gone, session.prompts.lock().unwrap_or_else(|e| e.into_inner()))
+        });
         // Ahead of the prompts a failed turn holds: a prompt sent after the failure runs first.
         // The person's prompt goes ahead of every agent message waiting too (`digest.rs`), behind
         // the person's own and a prompt sent now.
@@ -300,6 +311,10 @@ impl Hub {
         let order: Vec<String> = queue.iter().map(|q| q.prompt_id.clone()).collect();
         let ahead = at + 1 < queue.len();
         drop(queue);
+        if let Some((gone, mut ledger)) = superseded {
+            let ids = self.settle_superseded(session, gone, &mut ledger, p.prompt_id);
+            let _ = p.replaced.set(ids);
+        }
         // `prompt`, `control`, `trustGate`, the provenance and the sending agent let a new daemon
         // run it (`restore_queues`).
         let mut queued = json!({"text": p.text, "client": p.client, "position": position, "promptId": p.prompt_id, "turnId": turn_id, "prompt": p.blocks, "control": p.control.as_str(), "trustGate": p.trust_gate});
@@ -518,18 +533,6 @@ impl Hub {
         prompt_id: &str,
         reason: Option<&str>,
     ) -> bool {
-        let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
-        self.remove_queued_with(session, prompt_id, why)
-    }
-
-    /// `remove_queued`, with the fields of `why` in its `queue_removed` record (`superseded`:
-    /// `supersede.rs`).
-    pub(super) fn remove_queued_with(
-        &self,
-        session: &Arc<Session>,
-        prompt_id: &str,
-        why: Value,
-    ) -> bool {
         let (removed, mut ledger) = {
             let mut queue = session.queue.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let Some(i) = queue.iter().position(|q| q.prompt_id == prompt_id) else {
@@ -540,6 +543,22 @@ impl Hub {
             session.queued.fetch_sub(1, Ordering::SeqCst);
             (queue.remove(i), ledger)
         };
+        let why = reason.map_or_else(|| json!({}), |reason| json!({"reason": reason}));
+        self.settle_removed(session, removed, &mut ledger, why);
+        true
+    }
+
+    /// A prompt taken out of the queue (`remove_queued_because`, `supersede.rs`): its
+    /// `queue_removed` record, with the fields of `why`, and its waiting `session/prompt` answers
+    /// withdrawn. `ledger` was pinned before it left the queue.
+    pub(super) fn settle_removed(
+        &self,
+        session: &Arc<Session>,
+        removed: QueuedPrompt,
+        ledger: &mut PromptLedger,
+        why: Value,
+    ) {
+        let prompt_id = removed.prompt_id.as_str();
         let mut msg =
             json!({"promptId": prompt_id, "turnId": removed.turn_id, "queued": session.queued()});
         if let (Some(msg), Value::Object(why)) = (msg.as_object_mut(), why) {
@@ -551,13 +570,11 @@ impl Hub {
             if let Some((_, outcome)) = ledger.iter().find(|(id, _)| id == prompt_id) {
                 outcome.send_replace(Some(Ok(withdrawn_reply(prompt_id, &removed.turn_id))));
             }
-            prompt_ledger::prune(&mut ledger);
+            prompt_ledger::prune(ledger);
         }
-        drop(ledger);
         session.queue_moved.notify_waiters();
         // A stored permit: the waiting task sees it even before it polls.
         removed.withdraw.notify_one();
-        true
     }
 
     /// At load: puts back every prompt the log shows queued but never dequeued, started or

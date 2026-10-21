@@ -144,8 +144,12 @@ pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
     let steered = accepted.get("steer") == Some(&json!(true));
     let mut lines = vec![if steered { "steered" } else { "queued" }.to_owned()];
     if supersede {
-        let replaced = accepted.get("replaced").and_then(Value::as_u64).unwrap_or(0);
-        lines.push(format!("replaced {replaced} queued"));
+        // An older daemon (or a peer running one) ignores the key and says nothing.
+        lines.push(match accepted.get("replaced").and_then(Value::as_u64) {
+            Some(n) => format!("replaced {n} queued"),
+            None => "replaced ? queued (the daemon did not report it; it may predate --supersede)"
+                .to_owned(),
+        });
     }
     lines
 }
@@ -942,6 +946,14 @@ mod prompt_tests {
         assert_eq!(removed[0]["promptId"], old.id.as_str());
         assert_eq!(removed[0]["reason"], "superseded");
         drop(dir);
+    }
+
+    /// A daemon that predates the key says nothing about it: the count is unknown, not 0.
+    #[test]
+    fn an_unreported_count_is_unknown() {
+        let lines = sent_lines(&json!({"queued": true}), true);
+        assert_eq!(lines[0], "queued");
+        assert!(lines[1].starts_with("replaced ? queued"), "{lines:?}");
     }
 
     #[test]

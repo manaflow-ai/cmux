@@ -201,7 +201,8 @@ impl Hub {
         let control = opts.control;
         let trust_gate = opts.trust_gate;
         let mut on_accepted = opts.on_accepted;
-        // The prompts this one replaced (`supersede.rs`), named in its acceptance.
+        // The prompts this one replaced (`supersede.rs`), named in its acceptance: set where it
+        // is committed (queued, started, or steered in), never before a refusal.
         let supersede = opts.supersede.clone();
         let replaced = std::sync::OnceLock::<Vec<String>>::new();
         let mut accept = |mut v: Value| {
@@ -237,10 +238,6 @@ impl Hub {
         }
         // Who sent it, as the queue knows its prompts' senders (`digest.rs`).
         let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
-        if let Some(key) = supersede.as_deref() {
-            let gone = self.supersede_queued(session, key, agent.as_deref(), &prompt_id);
-            let _ = replaced.set(gone);
-        }
         if steer_now {
             let turn_id = running.map(|t| t.turn_id).unwrap_or_default();
             let opts = PromptOptions { prompt_id: Some(prompt_id), on_accepted: None, ..opts };
@@ -262,6 +259,7 @@ impl Hub {
             provenance: opts.provenance.as_ref(),
             agent: agent.as_deref(),
             supersede: supersede.as_deref(),
+            replaced: &replaced,
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -343,6 +341,11 @@ impl Hub {
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
         self.append_prompt(session, msg, &blocks);
         if !waiting {
+            // Started at once: only prompts a failed turn holds can wait under its key.
+            if let Some(key) = supersede.as_deref() {
+                let _ =
+                    replaced.set(self.supersede_queued(session, key, agent.as_deref(), &prompt_id));
+            }
             accept(
                 json!({"sessionId": session.id, "promptId": prompt_id, "turnId": turn_id, "queued": false}),
             );
