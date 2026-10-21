@@ -3026,15 +3026,15 @@ button.cv-received__name:focus-visible {
   padding: 0 3px;
   border-radius: 3px;
   font-family: var(--cv-font);
-  font-size: 10px;
+  font-size: var(--text-caption);
   line-height: 14px;
   color: var(--cv-text-muted);
   box-shadow: inset 0 0 0 1px var(--cv-rule);
 }
 .cv-message__note {
   color: var(--cv-text-muted);
-  font-size: 12px;
-  line-height: 18px;
+  font-size: var(--text-detail);
+  line-height: var(--text-detail--line-height);
 }
 .cv-message__note.is-failed {
   color: var(--agent-danger);

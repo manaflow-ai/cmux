@@ -642,7 +642,8 @@ const MessageRow = memo(
           <IncomingMessageLine
             id={row.id}
             message={row.incoming.message}
-            images={row.images} onOpen={openOfferChat}
+            images={row.images}
+            onOpen={openOfferChat}
             onReply={replyToMessage}
           />
         </div>
