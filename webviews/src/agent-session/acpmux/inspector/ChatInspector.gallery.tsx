@@ -144,7 +144,7 @@ const full: Props = {
   remoteControl: { on: false, set: () => undefined },
 };
 
-const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-inspector")?.textContent ?? "";
+const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
 export default componentEntry<Props>({
   id: "agent-pane.chat-inspector",
@@ -178,7 +178,7 @@ export default componentEntry<Props>({
       props: full,
       play: async (ctx) => {
         await ctx.waitFor(() => /already on base/.test(text(ctx)));
-        await ctx.hover({ selector: ".acpmux-inspector-pr__counts" });
+        await ctx.hover({ selector: ".acpmux-chat-inspector-pr__counts" });
         await ctx.waitFor(() => /Generated/.test(ctx.document.body.textContent ?? ""));
       },
     },
@@ -187,7 +187,7 @@ export default componentEntry<Props>({
       props: full,
       play: async (ctx) => {
         await ctx.click({ role: "button", name: /Show 43 subagents/ });
-        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-inspector-subagents__list") !== null);
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-chat-inspector-subagents__list") !== null);
       },
     },
     "tasks-finished": {

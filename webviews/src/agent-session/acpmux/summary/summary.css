@@ -171,7 +171,7 @@
 /* The summary card's Background tasks (SummaryTasks.tsx): a command's row opens its terminal, Stop sits beside it; the finished ones fold into one row. */
 .acpmux-summary-task{display:flex;align-items:center;gap:2px}
 .acpmux-summary-task>.acpmux-summary-row{flex:1 1 auto;min-width:0}
-.acpmux-summary-task>.acpmux-inspector-stop{margin-right:4px}
+.acpmux-summary-task>.acpmux-chat-inspector-stop{margin-right:4px}
 .acpmux-summary-task[data-state=failed]>.acpmux-summary-row>svg{color:var(--agent-danger)}
 .acpmux-summary-finished{display:flex;align-items:center;gap:6px}
 /* A card with nothing to list: one quiet line, and Attach files or folders when Sources has none (SummaryBody.tsx). */

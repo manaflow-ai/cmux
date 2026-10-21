@@ -99,7 +99,7 @@ export function ChangesSection({
 }) {
   const newest = [...pullRequests].reverse();
   return (
-    <ul className="acpmux-inspector-list acpmux-inspector-scroll" data-section="changes">
+    <ul className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll" data-section="changes">
       {newest.map((pr) => (
         <PullRequestRow key={pr.url} pr={pr} live={statuses[pr.url] ?? {}} onOpenBeside={onOpenBeside} />
       ))}
@@ -127,27 +127,27 @@ function PullRequestRow({
   const onBase = Math.min(Math.max(0, live.failingOnBase ?? 0), Math.max(0, failing));
   const stateLabel = t(STATE_LABELS[state] ?? "chatInspector.changes.open");
   return (
-    <li className="acpmux-inspector-pr" data-state={state}>
-      <a className="acpmux-inspector-pr__link" href={pr.url}>
+    <li className="acpmux-chat-inspector-pr" data-state={state}>
+      <a className="acpmux-chat-inspector-pr__link" href={pr.url}>
         {/* tooltip-allow: the state icon shows no text; its label is for screen readers only */}
-        <span className="acpmux-inspector-pr__icon" title={stateLabel}>
+        <span className="acpmux-chat-inspector-pr__icon" title={stateLabel}>
           <Icon name="git.pullrequest" size={ROW_ICON} row />
-          <span className="acpmux-inspector-sr-only">{stateLabel}</span>
+          <span className="acpmux-chat-inspector-sr-only">{stateLabel}</span>
         </span>
-        <span className="acpmux-inspector-pr__text">
-          <span className="acpmux-inspector-pr__title">{title || `#${pr.number}`}</span>
-          <span className="acpmux-inspector-pr__line">
-            <span className="acpmux-inspector-pr__ref">{`${repoName} #${pr.number}`}</span>
+        <span className="acpmux-chat-inspector-pr__text">
+          <span className="acpmux-chat-inspector-pr__title">{title || `#${pr.number}`}</span>
+          <span className="acpmux-chat-inspector-pr__line">
+            <span className="acpmux-chat-inspector-pr__ref">{`${repoName} #${pr.number}`}</span>
             {live.additions !== undefined && live.deletions !== undefined && (
               <LineTotals additions={live.additions} deletions={live.deletions} breakdown={live.breakdown} />
             )}
             {ended ? (
-              <span className="acpmux-inspector-pr__state">{stateLabel}</span>
+              <span className="acpmux-chat-inspector-pr__state">{stateLabel}</span>
             ) : failing !== 0 ? (
-              <span className="acpmux-inspector-pr__checks" data-checks="failing">
+              <span className="acpmux-chat-inspector-pr__checks" data-checks="failing">
                 {failing > 0 ? t("chatInspector.changes.failing", { count: failing }) : t("rail.checksFailing")}
                 {onBase > 0 && (
-                  <span className="acpmux-inspector-pr__base">
+                  <span className="acpmux-chat-inspector-pr__base">
                     {" "}
                     {t("chatInspector.changes.failingOnBase", { count: onBase })}
                   </span>
@@ -155,41 +155,41 @@ function PullRequestRow({
               </span>
             ) : checks && CHECK_LABELS[checks] ? (
               // tooltip-allow: the checks mark shows no text; its label is for screen readers only
-              <span className="acpmux-inspector-pr__checks" data-checks={checks} title={t(CHECK_LABELS[checks]!)}>
-                <span className="acpmux-inspector-sr-only">{t(CHECK_LABELS[checks]!)}</span>
+              <span className="acpmux-chat-inspector-pr__checks" data-checks={checks} title={t(CHECK_LABELS[checks]!)}>
+                <span className="acpmux-chat-inspector-sr-only">{t(CHECK_LABELS[checks]!)}</span>
               </span>
             ) : null}
           </span>
         </span>
       </a>
       {live.owner && (
-        <span className="acpmux-inspector-pr__owner">
-          <span className="acpmux-inspector-sr-only">{t("chatInspector.changes.ownerLabel")} </span>
+        <span className="acpmux-chat-inspector-pr__owner">
+          <span className="acpmux-chat-inspector-sr-only">{t("chatInspector.changes.ownerLabel")} </span>
           {live.owner}
         </span>
       )}
       <Menu>
         <MenuButton
-          className="acpmux-inspector-icon-button acpmux-inspector-pr__more"
+          className="acpmux-chat-inspector-icon-button acpmux-chat-inspector-pr__more"
           label={t("chatInspector.changes.more", { reference })}
           aria-haspopup="menu"
         >
           <Icon name="action.more" size={14} />
         </MenuButton>
         <MenuPopup
-          className="acpmux-inspector-menu"
+          className="acpmux-chat-inspector-menu"
           label={t("chatInspector.changes.actions", { reference })}
           align="end"
         >
           {onOpenBeside && (
-            <MenuItem className="acpmux-inspector-menu__item" onSelect={() => onOpenBeside(pr.url)}>
+            <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => onOpenBeside(pr.url)}>
               {t("chatInspector.changes.openBeside")}
             </MenuItem>
           )}
-          <MenuItem className="acpmux-inspector-menu__item" onSelect={() => void copyText(pr.url)}>
+          <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => void copyText(pr.url)}>
             {t("chatInspector.changes.copyLink")}
           </MenuItem>
-          <MenuItem className="acpmux-inspector-menu__item" onSelect={() => void copyText(reference)}>
+          <MenuItem className="acpmux-chat-inspector-menu__item" onSelect={() => void copyText(reference)}>
             {t("chatInspector.changes.copyReference")}
           </MenuItem>
         </MenuPopup>
@@ -214,11 +214,11 @@ function LineTotals({
   if (kinds.length === 0) return counts;
   return (
     <Tooltip /* tooltip-allow: it splits the totals by kind of file, which the row does not show */
-      className="acpmux-inspector-breakdown"
+      className="acpmux-chat-inspector-breakdown"
       label={
-        <span className="acpmux-inspector-breakdown__rows">
+        <span className="acpmux-chat-inspector-breakdown__rows">
           {kinds.map((kind) => (
-            <span key={kind} className="acpmux-inspector-breakdown__row">
+            <span key={kind} className="acpmux-chat-inspector-breakdown__row">
               <span>{t(KIND_LABELS[kind])}</span>
               <Counts additions={breakdown![kind]!.additions} deletions={breakdown![kind]!.deletions} />
             </span>
@@ -226,7 +226,7 @@ function LineTotals({
         </span>
       }
     >
-      <span className="acpmux-inspector-pr__counts">{counts}</span>
+      <span className="acpmux-chat-inspector-pr__counts">{counts}</span>
     </Tooltip>
   );
 }

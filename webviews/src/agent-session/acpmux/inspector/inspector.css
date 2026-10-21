@@ -3,7 +3,7 @@
    side, with a shadow. Its width comes from the viewer's drag (inline style); it fades in, and the
    width never animates. Sections are hairline cards a step lighter than the page; rows are 28px;
    a long list scrolls inside its section. */
-.acpmux-inspector {
+.acpmux-chat-inspector {
   position: relative;
   flex: none;
   min-width: 0;
@@ -16,10 +16,10 @@
   font-size: var(--text-control);
   line-height: 18px;
 }
-.acpmux-inspector[data-placement="push"] {
+.acpmux-chat-inspector[data-placement="push"] {
   border-left: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
-.acpmux-inspector[data-placement="overlay"] {
+.acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
   z-index: var(--layer-overlay);
   top: 0;
@@ -28,19 +28,19 @@
   box-shadow: var(--elevation-2);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-inspector {
-    animation: acpmux-inspector-in 120ms var(--acpmux-motion-ease, ease-out);
+  .acpmux-chat-inspector {
+    animation: acpmux-chat-inspector-in 120ms var(--acpmux-motion-ease, ease-out);
   }
 }
-@keyframes acpmux-inspector-in {
+@keyframes acpmux-chat-inspector-in {
   from {
     opacity: 0;
   }
 }
-.acpmux-inspector[data-resizing] {
+.acpmux-chat-inspector[data-resizing] {
   user-select: none;
 }
-.acpmux-inspector__resize {
+.acpmux-chat-inspector__resize {
   position: absolute;
   z-index: var(--layer-raised);
   top: 0;
@@ -49,7 +49,7 @@
   width: 6px;
   cursor: col-resize;
 }
-.acpmux-inspector__resize::after {
+.acpmux-chat-inspector__resize::after {
   content: "";
   position: absolute;
   top: 0;
@@ -59,11 +59,11 @@
   background: transparent;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
-.acpmux-inspector__resize:hover::after,
-.acpmux-inspector[data-resizing] .acpmux-inspector__resize::after {
+.acpmux-chat-inspector__resize:hover::after,
+.acpmux-chat-inspector[data-resizing] .acpmux-chat-inspector__resize::after {
   background: var(--agent-border);
 }
-.acpmux-inspector__body {
+.acpmux-chat-inspector__body {
   flex: 1 1 auto;
   min-height: 0;
   display: flex;
@@ -73,7 +73,7 @@
   overflow-x: hidden;
   overflow-y: auto;
 }
-.acpmux-inspector-section {
+.acpmux-chat-inspector-section {
   flex: none;
   min-width: 0;
   padding: 4px;
@@ -81,8 +81,8 @@
   border-radius: 10px;
   background: color-mix(in srgb, var(--agent-text) 3%, var(--agent-page-bg));
 }
-.acpmux-inspector-section .ui-disclosure-trigger,
-.acpmux-inspector-section__head {
+.acpmux-chat-inspector-section .ui-disclosure-trigger,
+.acpmux-chat-inspector-section__head {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -94,7 +94,7 @@
   text-align: left;
   cursor: default;
 }
-.acpmux-inspector-section .ui-disclosure-trigger {
+.acpmux-chat-inspector-section .ui-disclosure-trigger {
   margin: 0;
   border: 0;
   background: none;
@@ -104,22 +104,22 @@
   appearance: none;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
-.acpmux-inspector-section .ui-disclosure-trigger:hover {
+.acpmux-chat-inspector-section .ui-disclosure-trigger:hover {
   background: var(--acpmux-menu-hover);
 }
-.acpmux-inspector-section .ui-disclosure-trigger:focus-visible {
+.acpmux-chat-inspector-section .ui-disclosure-trigger:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-.acpmux-inspector-section__title {
+.acpmux-chat-inspector-section__title {
   flex: none;
   font-weight: 500;
 }
-.acpmux-inspector-section__fold {
+.acpmux-chat-inspector-section__fold {
   flex: none;
   color: var(--agent-muted);
 }
-.acpmux-inspector-section__meta {
+.acpmux-chat-inspector-section__meta {
   flex: 0 1 auto;
   min-width: 0;
   display: inline-flex;
@@ -129,17 +129,17 @@
   color: var(--agent-muted);
   font-variant-numeric: tabular-nums;
 }
-.acpmux-inspector-section__value {
+.acpmux-chat-inspector-section__value {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.acpmux-inspector-section__disclosure,
-.acpmux-inspector-section .ui-disclosure-panel {
+.acpmux-chat-inspector-section__disclosure,
+.acpmux-chat-inspector-section .ui-disclosure-panel {
   min-width: 0;
 }
-.acpmux-inspector-meter {
+.acpmux-chat-inspector-meter {
   flex: none;
   display: block;
   width: 36px;
@@ -148,7 +148,7 @@
   overflow: hidden;
   background: color-mix(in srgb, var(--agent-text) 14%, transparent);
 }
-.acpmux-inspector-meter > span {
+.acpmux-chat-inspector-meter > span {
   display: block;
   height: 100%;
   min-width: 2px;
@@ -156,18 +156,18 @@
   background: var(--agent-accent);
 }
 /* A section's list scrolls past about eight rows instead of growing the panel without end. */
-.acpmux-inspector-scroll {
+.acpmux-chat-inspector-scroll {
   max-height: 260px;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.acpmux-inspector-list {
+.acpmux-chat-inspector-list {
   min-width: 0;
   margin: 0;
   padding: 0;
   list-style: none;
 }
-.acpmux-inspector-row {
+.acpmux-chat-inspector-row {
   display: flex;
   align-items: center;
   gap: 8px;
@@ -185,62 +185,62 @@
   white-space: nowrap;
   cursor: default;
 }
-.acpmux-inspector-row > svg {
+.acpmux-chat-inspector-row > svg {
   flex: none;
   color: var(--agent-muted);
 }
-.acpmux-inspector-row--button {
+.acpmux-chat-inspector-row--button {
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
-.acpmux-inspector-row--button:hover:not(:disabled) {
+.acpmux-chat-inspector-row--button:hover:not(:disabled) {
   background: var(--acpmux-menu-hover);
 }
-.acpmux-inspector-row--button:focus-visible,
-.acpmux-inspector-row__link:focus-visible,
-.acpmux-inspector-link:focus-visible {
+.acpmux-chat-inspector-row--button:focus-visible,
+.acpmux-chat-inspector-row__link:focus-visible,
+.acpmux-chat-inspector-link:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-.acpmux-inspector-row__name {
+.acpmux-chat-inspector-row__name {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.acpmux-inspector-row__link {
+.acpmux-chat-inspector-row__link {
   color: inherit;
   text-decoration: none;
 }
-.acpmux-inspector-row__link:hover {
+.acpmux-chat-inspector-row__link:hover {
   text-decoration: underline;
 }
-.acpmux-inspector-row__detail {
+.acpmux-chat-inspector-row__detail {
   flex: 0 1000 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   color: var(--agent-muted);
 }
-.acpmux-inspector-row__end {
+.acpmux-chat-inspector-row__end {
   flex: none;
   margin-left: auto;
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
-.acpmux-inspector-row__end[data-state="failed"] {
+.acpmux-chat-inspector-row__end[data-state="failed"] {
   color: var(--agent-danger, var(--agent-muted));
 }
-.acpmux-inspector-row .acpmux-diff-counts {
+.acpmux-chat-inspector-row .acpmux-diff-counts {
   opacity: 0.8;
 }
-.acpmux-inspector-note {
+.acpmux-chat-inspector-note {
   margin: 0;
   padding: 4px 8px 6px;
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
-.acpmux-inspector-link {
+.acpmux-chat-inspector-link {
   padding: 0 2px;
   border: 0;
   border-radius: 4px;
@@ -250,23 +250,23 @@
   font-size: var(--text-detail);
   cursor: default;
 }
-.acpmux-inspector-link:hover {
+.acpmux-chat-inspector-link:hover {
   color: var(--agent-text);
   text-decoration: underline;
 }
-.acpmux-inspector-switch {
+.acpmux-chat-inspector-switch {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   align-items: center;
   gap: 8px;
 }
-.acpmux-inspector-switch__input {
+.acpmux-chat-inspector-switch__input {
   flex: none;
   margin: 0 0 0 auto;
   accent-color: var(--agent-accent);
 }
-.acpmux-inspector-icon-button {
+.acpmux-chat-inspector-icon-button {
   flex: none;
   display: grid;
   place-items: center;
@@ -279,21 +279,21 @@
   color: var(--agent-muted);
   cursor: default;
 }
-.acpmux-inspector-icon-button:hover {
+.acpmux-chat-inspector-icon-button:hover {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
-.acpmux-inspector-icon-button:focus-visible {
+.acpmux-chat-inspector-icon-button:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-.acpmux-inspector-icon-button:disabled {
+.acpmux-chat-inspector-icon-button:disabled {
   opacity: 0.4;
 }
-.acpmux-inspector-stop[data-state="failed"] {
+.acpmux-chat-inspector-stop[data-state="failed"] {
   color: var(--agent-danger);
 }
-.acpmux-inspector-sr-only {
+.acpmux-chat-inspector-sr-only {
   position: absolute;
   width: 1px;
   height: 1px;
@@ -305,7 +305,7 @@
   border: 0;
 }
 /* Changes: a pull request per row, its menu at the end. */
-.acpmux-inspector-pr {
+.acpmux-chat-inspector-pr {
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -313,10 +313,10 @@
   border-radius: 7px;
   transition: background-color var(--acpmux-motion-hover, 80ms) var(--acpmux-motion-ease, ease-out);
 }
-.acpmux-inspector-pr:hover {
+.acpmux-chat-inspector-pr:hover {
   background: var(--acpmux-menu-hover);
 }
-.acpmux-inspector-pr__link {
+.acpmux-chat-inspector-pr__link {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
@@ -328,38 +328,38 @@
   text-decoration: none;
   cursor: default;
 }
-.acpmux-inspector-pr__link:focus-visible {
+.acpmux-chat-inspector-pr__link:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-.acpmux-inspector-pr__icon {
+.acpmux-chat-inspector-pr__icon {
   flex: none;
   display: inline-flex;
   margin-top: 3px;
   color: var(--agent-muted);
 }
-.acpmux-inspector-pr[data-state="open"] .acpmux-inspector-pr__icon {
+.acpmux-chat-inspector-pr[data-state="open"] .acpmux-chat-inspector-pr__icon {
   color: var(--agent-success, var(--acpmux-add));
 }
-.acpmux-inspector-pr[data-state="merged"] .acpmux-inspector-pr__icon {
+.acpmux-chat-inspector-pr[data-state="merged"] .acpmux-chat-inspector-pr__icon {
   color: var(--agent-ansi-5, var(--agent-accent));
 }
-.acpmux-inspector-pr[data-state="closed"] .acpmux-inspector-pr__icon {
+.acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon {
   color: var(--agent-danger);
 }
-.acpmux-inspector-pr__text {
+.acpmux-chat-inspector-pr__text {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-.acpmux-inspector-pr__title {
+.acpmux-chat-inspector-pr__title {
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.acpmux-inspector-pr__line {
+.acpmux-chat-inspector-pr__line {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -369,33 +369,33 @@
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
-.acpmux-inspector-pr__ref {
+.acpmux-chat-inspector-pr__ref {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.acpmux-inspector-pr__counts,
-.acpmux-inspector-pr__line .acpmux-diff-counts {
+.acpmux-chat-inspector-pr__counts,
+.acpmux-chat-inspector-pr__line .acpmux-diff-counts {
   flex: none;
 }
-.acpmux-inspector-pr__state,
-.acpmux-inspector-pr__checks {
+.acpmux-chat-inspector-pr__state,
+.acpmux-chat-inspector-pr__checks {
   flex: 0 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   margin-left: auto;
 }
-.acpmux-inspector-pr__checks[data-checks="failing"] {
+.acpmux-chat-inspector-pr__checks[data-checks="failing"] {
   color: var(--agent-danger);
 }
-.acpmux-inspector-pr__base {
+.acpmux-chat-inspector-pr__base {
   color: var(--agent-muted);
   opacity: 0.75;
 }
-.acpmux-inspector-pr__checks[data-checks="passing"],
-.acpmux-inspector-pr__checks[data-checks="pending"] {
+.acpmux-chat-inspector-pr__checks[data-checks="passing"],
+.acpmux-chat-inspector-pr__checks[data-checks="pending"] {
   flex: none;
   width: 7px;
   height: 7px;
@@ -403,10 +403,10 @@
   border-radius: 50%;
   background: var(--agent-success, var(--acpmux-add));
 }
-.acpmux-inspector-pr__checks[data-checks="pending"] {
+.acpmux-chat-inspector-pr__checks[data-checks="pending"] {
   background: var(--agent-warning, var(--agent-muted));
 }
-.acpmux-inspector-pr__owner {
+.acpmux-chat-inspector-pr__owner {
   flex: none;
   max-width: 40%;
   margin-top: 6px;
@@ -420,37 +420,37 @@
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.acpmux-inspector-pr__more {
+.acpmux-chat-inspector-pr__more {
   margin-top: 4px;
 }
-.acpmux-inspector-breakdown__rows {
+.acpmux-chat-inspector-breakdown__rows {
   display: grid;
   gap: 2px;
 }
-.acpmux-inspector-breakdown__row {
+.acpmux-chat-inspector-breakdown__row {
   display: flex;
   justify-content: space-between;
   gap: 12px;
 }
 /* Servers and Background tasks. */
-.acpmux-inspector-task,
-.acpmux-inspector-server {
+.acpmux-chat-inspector-task,
+.acpmux-chat-inspector-server {
   display: flex;
   align-items: center;
   gap: 8px;
   min-height: 26px;
   padding: 2px 4px 2px 8px;
 }
-.acpmux-inspector-task > svg {
+.acpmux-chat-inspector-task > svg {
   flex: none;
   color: var(--agent-muted);
 }
-.acpmux-inspector-server {
+.acpmux-chat-inspector-server {
   align-items: flex-start;
   padding-top: 5px;
   padding-bottom: 5px;
 }
-.acpmux-inspector-server__dot {
+.acpmux-chat-inspector-server__dot {
   flex: none;
   width: 7px;
   height: 7px;
@@ -458,13 +458,13 @@
   border-radius: 50%;
   background: var(--agent-success, var(--acpmux-add));
 }
-.acpmux-inspector-server__text {
+.acpmux-chat-inspector-server__text {
   flex: 1 1 auto;
   min-width: 0;
   display: flex;
   flex-direction: column;
 }
-.acpmux-inspector-server__line {
+.acpmux-chat-inspector-server__line {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -472,7 +472,7 @@
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
-.acpmux-inspector-port {
+.acpmux-chat-inspector-port {
   display: inline-flex;
   align-items: center;
   gap: 2px;
@@ -485,33 +485,33 @@
   font-variant-numeric: tabular-nums;
   cursor: default;
 }
-button.acpmux-inspector-port:hover {
+button.acpmux-chat-inspector-port:hover {
   background: var(--acpmux-menu-hover);
   color: var(--agent-text);
 }
-button.acpmux-inspector-port:focus-visible {
+button.acpmux-chat-inspector-port:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-.acpmux-inspector-task__command {
+.acpmux-chat-inspector-task__command {
   flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   white-space: nowrap;
   text-overflow: ellipsis;
 }
-.acpmux-inspector-task__time,
-.acpmux-inspector-task__state {
+.acpmux-chat-inspector-task__time,
+.acpmux-chat-inspector-task__state {
   flex: none;
   color: var(--agent-muted);
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
 }
-.acpmux-inspector-task[data-state="failed"] .acpmux-inspector-task__state,
-.acpmux-inspector-task[data-state="lost"] .acpmux-inspector-task__state {
+.acpmux-chat-inspector-task[data-state="failed"] .acpmux-chat-inspector-task__state,
+.acpmux-chat-inspector-task[data-state="lost"] .acpmux-chat-inspector-task__state {
   color: var(--agent-danger, var(--agent-muted));
 }
-.acpmux-inspector-fold {
+.acpmux-chat-inspector-fold {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -525,15 +525,15 @@ button.acpmux-inspector-port:focus-visible {
   font-size: var(--text-detail);
   cursor: default;
 }
-.acpmux-inspector-fold:hover {
+.acpmux-chat-inspector-fold:hover {
   color: var(--agent-text);
 }
-.acpmux-inspector-fold:focus-visible {
+.acpmux-chat-inspector-fold:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
 /* Subagents: one row of avatars; running ones breathe. */
-.acpmux-inspector-avatars {
+.acpmux-chat-inspector-avatars {
   display: flex;
   align-items: center;
   gap: 6px;
@@ -548,39 +548,39 @@ button.acpmux-inspector-port:focus-visible {
   font: inherit;
   cursor: default;
 }
-.acpmux-inspector-avatars:hover {
+.acpmux-chat-inspector-avatars:hover {
   background: var(--acpmux-menu-hover);
 }
-.acpmux-inspector-avatars:focus-visible {
+.acpmux-chat-inspector-avatars:focus-visible {
   outline: 1.5px solid var(--agent-text);
   outline-offset: -1.5px;
 }
-.acpmux-inspector-avatars__stack {
+.acpmux-chat-inspector-avatars__stack {
   display: flex;
   align-items: center;
   min-width: 0;
 }
-.acpmux-inspector-avatars__stack > .cv-subagent-avatar + .cv-subagent-avatar {
+.acpmux-chat-inspector-avatars__stack > .cv-subagent-avatar + .cv-subagent-avatar {
   margin-left: -6px;
 }
-.acpmux-inspector-avatars__more {
+.acpmux-chat-inspector-avatars__more {
   flex: none;
   color: var(--agent-muted);
   font-size: var(--text-detail);
 }
 @media (prefers-reduced-motion: no-preference) {
-  .acpmux-inspector-avatars .cv-subagent-avatar[data-state="running"] {
-    animation: acpmux-inspector-breathe 2.4s ease-in-out infinite;
+  .acpmux-chat-inspector-avatars .cv-subagent-avatar[data-state="running"] {
+    animation: acpmux-chat-inspector-breathe 2.4s ease-in-out infinite;
   }
 }
-@keyframes acpmux-inspector-breathe {
+@keyframes acpmux-chat-inspector-breathe {
   50% {
     opacity: 0.62;
   }
 }
-.acpmux-inspector-subagents__list {
+.acpmux-chat-inspector-subagents__list {
   margin-top: 4px;
 }
-.acpmux-inspector-menu {
+.acpmux-chat-inspector-menu {
   min-width: 180px;
 }

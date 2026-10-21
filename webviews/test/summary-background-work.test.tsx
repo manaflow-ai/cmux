@@ -199,7 +199,7 @@ test("the card lists running commands with their time and Stop, and folds the fi
     ["npm run lint", "Failed"],
   ]);
   // Stop only on running rows the registry lists.
-  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-inspector-stop")];
+  const stops = [...section.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-stop")];
   expect(stops.map((stop) => stop.getAttribute("aria-label"))).toEqual(["Stop bun run dev", "Stop tsc --watch"]);
   await act(async () => stops[0]!.click());
   expect(stopped).toEqual(["s1/a"]);

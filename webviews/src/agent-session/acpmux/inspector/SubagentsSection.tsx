@@ -41,27 +41,27 @@ export function SubagentsSection({
   const order = [...agents].sort((a, b) => Number(running(b)) - Number(running(a)) || b.startedAt - a.startedAt);
   const label = listed ? t("chatInspector.subagents.hide") : t("chatInspector.subagents.show", { n: agents.length });
   return (
-    <div className="acpmux-inspector-subagents">
+    <div className="acpmux-chat-inspector-subagents">
       <button
         type="button"
-        className="acpmux-inspector-avatars"
+        className="acpmux-chat-inspector-avatars"
         aria-expanded={listed}
         aria-label={label}
         onClick={() => setListed(!listed)}
       >
-        <span className="acpmux-inspector-avatars__stack" aria-hidden="true">
+        <span className="acpmux-chat-inspector-avatars__stack" aria-hidden="true">
           {order.slice(0, SHOWN).map((agent) => (
             <Avatar key={agent.id} agent={agent} dot />
           ))}
         </span>
         {agents.length > SHOWN && (
-          <span className="acpmux-inspector-avatars__more" aria-hidden="true">
+          <span className="acpmux-chat-inspector-avatars__more" aria-hidden="true">
             +{agents.length - SHOWN}
           </span>
         )}
       </button>
       {listed && (
-        <div className="acpmux-inspector-scroll acpmux-inspector-subagents__list">
+        <div className="acpmux-chat-inspector-scroll acpmux-chat-inspector-subagents__list">
           <SubagentsTab agents={agents} waiting={waiting} onOpen={onOpen} />
         </div>
       )}

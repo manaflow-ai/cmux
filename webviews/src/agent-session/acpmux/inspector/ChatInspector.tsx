@@ -195,7 +195,7 @@ export function useChatInspector({
     button: (
       <button
         type="button"
-        className="acpmux-header-tool acpmux-inspector-toggle"
+        className="acpmux-header-tool acpmux-chat-inspector-toggle"
         aria-label={label}
         aria-pressed={shown}
         title={label}
@@ -249,13 +249,13 @@ export function InspectorPanel({
   return (
     <aside
       ref={frame}
-      className="acpmux-inspector"
+      className="acpmux-chat-inspector"
       data-placement={placement}
       style={{ width }}
       aria-label={t("chatInspector.title")}
     >
       <div
-        className="acpmux-inspector__resize"
+        className="acpmux-chat-inspector__resize"
         aria-hidden="true"
         onPointerDown={(event) => {
           if (event.button !== 0 || !frame.current) return;
@@ -356,9 +356,9 @@ export function ChatInspector({
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = tasks.filter(isRunning).length;
-  const value = (text: string) => <span className="acpmux-inspector-section__value">{text}</span>;
+  const value = (text: string) => <span className="acpmux-chat-inspector-section__value">{text}</span>;
   return (
-    <div className="acpmux-inspector__body">
+    <div className="acpmux-chat-inspector__body">
       <InspectorSection
         id="environment"
         title={t("rail.environment")}
@@ -383,22 +383,24 @@ export function ChatInspector({
           meta={
             <>
               {value(t("rail.percent", { percent }))}
-              <span className="acpmux-inspector-meter" aria-hidden="true">
+              <span className="acpmux-chat-inspector-meter" aria-hidden="true">
                 <span style={{ width: `${percent}%` }} />
               </span>
             </>
           }
         >
-          <ul className="acpmux-inspector-list">
-            <li className="acpmux-inspector-row">
-              <span className="acpmux-inspector-row__name">{t("chatInspector.context.used")}</span>
-              <span className="acpmux-inspector-row__end">
+          <ul className="acpmux-chat-inspector-list">
+            <li className="acpmux-chat-inspector-row">
+              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.used")}</span>
+              <span className="acpmux-chat-inspector-row__end">
                 {t("context.tokens", { used: tokens.format(usage.used), size: tokens.format(usage.size) })}
               </span>
             </li>
-            <li className="acpmux-inspector-row">
-              <span className="acpmux-inspector-row__name">{t("chatInspector.context.left")}</span>
-              <span className="acpmux-inspector-row__end">{tokens.format(Math.max(0, usage.size - usage.used))}</span>
+            <li className="acpmux-chat-inspector-row">
+              <span className="acpmux-chat-inspector-row__name">{t("chatInspector.context.left")}</span>
+              <span className="acpmux-chat-inspector-row__end">
+                {tokens.format(Math.max(0, usage.size - usage.used))}
+              </span>
             </li>
           </ul>
         </InspectorSection>
@@ -418,13 +420,13 @@ export function ChatInspector({
               .join(" · "),
           )}
         >
-          <ul className="acpmux-inspector-list">
+          <ul className="acpmux-chat-inspector-list">
             {mcp.map((server) => (
-              <li key={server.name} className="acpmux-inspector-row">
+              <li key={server.name} className="acpmux-chat-inspector-row">
                 <Icon name="extension" size={12} row />
-                <span className="acpmux-inspector-row__name">{server.name}</span>
+                <span className="acpmux-chat-inspector-row__name">{server.name}</span>
                 {server.status !== "connected" && (
-                  <span className="acpmux-inspector-row__end" data-state={server.status}>
+                  <span className="acpmux-chat-inspector-row__end" data-state={server.status}>
                     {t(
                       server.status === "failed" ? "chatInspector.connectors.needsReconnect" : "rail.connectorPending",
                     )}

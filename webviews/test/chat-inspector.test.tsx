@@ -148,14 +148,15 @@ async function render(container: HTMLElement, snapshot: AcpmuxSnapshot, opened: 
 
 const toggle = (container: HTMLElement) =>
   container.querySelector<HTMLButtonElement>('.acpmux-header-tools button[aria-label="Inspector"]');
-const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-inspector");
+const panel = (container: HTMLElement) => container.querySelector<HTMLElement>("aside.acpmux-chat-inspector");
 const section = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`section.acpmux-inspector-section[data-section="${id}"]`);
+  container.querySelector<HTMLElement>(`section.acpmux-chat-inspector-section[data-section="${id}"]`);
 const sectionIds = (container: HTMLElement) =>
-  [...container.querySelectorAll<HTMLElement>("section.acpmux-inspector-section")].map(
+  [...container.querySelectorAll<HTMLElement>("section.acpmux-chat-inspector-section")].map(
     (element) => element.dataset.section,
   );
-const meta = (element: HTMLElement | null) => element?.querySelector(".acpmux-inspector-section__meta")?.textContent;
+const meta = (element: HTMLElement | null) =>
+  element?.querySelector(".acpmux-chat-inspector-section__meta")?.textContent;
 const head = (element: HTMLElement) => element.querySelector<HTMLElement>("button.ui-disclosure-trigger")!;
 const click = (element: HTMLElement) => act(async () => element.click());
 
@@ -170,7 +171,7 @@ test("the Inspector opens with a first chat: its environment, context use and ou
 
   // Environment: this Mac by its name, never "This computer"; the folder with its parent
   // home-abbreviated and its full path on hover; the branch.
-  const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-inspector-row")];
+  const rows = [...section(container, "environment")!.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-row")];
   expect(rows[0]!.textContent).toBe("Studio");
   expect(rows[0]!.dataset.machine).toBe("local");
   expect(rows[1]!.textContent).toContain("atlas-web");
@@ -181,14 +182,16 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   // Context: 48K of 200K is 24% with a bar, folded until asked; then the tokens.
   const context = section(container, "context")!;
   expect(meta(context)).toContain("24%");
-  expect(context.querySelector(".acpmux-inspector-meter")).not.toBeNull();
+  expect(context.querySelector(".acpmux-chat-inspector-meter")).not.toBeNull();
   expect(context.textContent).not.toContain("tokens");
   await click(head(context));
   expect(section(container, "context")!.textContent).toMatch(/48K of 200K tokens/);
 
   // Outputs: the changed and the created file, each opening its diff by path.
-  const files = [...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-inspector-row")];
-  expect(files.map((file) => file.querySelector(".acpmux-inspector-row__name")?.textContent)).toEqual([
+  const files = [
+    ...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-row"),
+  ];
+  expect(files.map((file) => file.querySelector(".acpmux-chat-inspector-row__name")?.textContent)).toEqual([
     "fetch.ts",
     "retry.ts",
   ]);
@@ -232,7 +235,7 @@ test("a cloud session names its host; no usage and nothing produced have no sect
     ...base,
     summary: { ...base.summary!, host: "build-01", hostKind: "cloud", usage: undefined },
   });
-  const machine = section(container, "environment")!.querySelector<HTMLElement>(".acpmux-inspector-row")!;
+  const machine = section(container, "environment")!.querySelector<HTMLElement>(".acpmux-chat-inspector-row")!;
   expect(machine.textContent).toBe("build-01");
   expect(machine.dataset.machine).toBe("cloud");
   expect(section(container, "context")).toBeNull();
@@ -302,7 +305,9 @@ test("an output whose diff split leaves no room to push the chat closes the Insp
   const container = installDom(true);
   paneWidth = 1200;
   const opened = await render(container, localChat);
-  const files = [...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-inspector-row")];
+  const files = [
+    ...section(container, "outputs")!.querySelectorAll<HTMLButtonElement>("button.acpmux-chat-inspector-row"),
+  ];
   await click(files[0]!);
   expect(opened).toEqual([`${CWD}/src/fetch.ts`]);
   // The diff opens beside the chat and halves the pane.
@@ -336,9 +341,9 @@ test("Connectors counts the connected servers and the ones to reconnect; a harne
   expect(sectionIds(container)).toEqual(["environment", "context", "connectors"]);
   const connectors = section(container, "connectors")!;
   expect(meta(connectors)).toBe("1 connected · 1 to reconnect");
-  expect(connectors.querySelector(".acpmux-inspector-row")).toBeNull();
+  expect(connectors.querySelector(".acpmux-chat-inspector-row")).toBeNull();
   await click(head(connectors));
-  const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-inspector-row")].map(
+  const rows = [...section(container, "connectors")!.querySelectorAll(".acpmux-chat-inspector-row")].map(
     (row) => row.textContent,
   );
   expect(rows).toEqual(["github", "linearNeeds reconnect", "sentryConnecting"]);
@@ -392,24 +397,24 @@ test("Changes lists the pull requests the chat opened or touched, newest first, 
   expect(sectionIds(container)).toEqual(["environment", "context", "changes"]);
   const changes = section(container, "changes")!;
   expect(meta(changes)).toBe("9");
-  const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-inspector-pr")];
+  const rows = [...changes.querySelectorAll<HTMLElement>("li.acpmux-chat-inspector-pr")];
   // All nine: the list scrolls; nothing waits behind a "Show more".
   expect(rows).toHaveLength(9);
-  expect(changes.querySelector(".acpmux-inspector-scroll, .acpmux-inspector-scroll *")).not.toBeNull();
+  expect(changes.querySelector(".acpmux-chat-inspector-scroll, .acpmux-chat-inspector-scroll *")).not.toBeNull();
   expect(changes.textContent).not.toContain("Show");
-  const links = rows.map((row) => row.querySelector<HTMLAnchorElement>("a.acpmux-inspector-pr__link")!);
+  const links = rows.map((row) => row.querySelector<HTMLAnchorElement>("a.acpmux-chat-inspector-pr__link")!);
   expect(links[0]!.getAttribute("href")).toBe("https://github.com/acme/atlas-web/pull/27");
   // The one it only merged, by URL in another repository, is there with its state.
   expect(links[7]!.getAttribute("href")).toBe("https://github.com/acme/billing/pull/7");
   expect(rows[7]!.dataset.state).toBe("merged");
-  expect(links[7]!.querySelector(".acpmux-inspector-pr__ref")?.textContent).toBe("billing #7");
+  expect(links[7]!.querySelector(".acpmux-chat-inspector-pr__ref")?.textContent).toBe("billing #7");
   const folder = rows[8]!;
-  expect(folder.querySelector(".acpmux-inspector-pr__title")?.textContent).toBe("Retry the fetch helper");
+  expect(folder.querySelector(".acpmux-chat-inspector-pr__title")?.textContent).toBe("Retry the fetch helper");
   // Only the pull request whose checks the App reads says how they stand: how many fail.
-  expect(rows[0]!.querySelector(".acpmux-inspector-pr__checks")).toBeNull();
-  expect(folder.querySelector(".acpmux-inspector-pr__checks")?.textContent).toBe("2 failing");
+  expect(rows[0]!.querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
+  expect(folder.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("2 failing");
   // Each row has its ⋯ menu.
-  expect(folder.querySelector("button.acpmux-inspector-pr__more")?.getAttribute("aria-label")).toBe(
+  expect(folder.querySelector("button.acpmux-chat-inspector-pr__more")?.getAttribute("aria-label")).toBe(
     "More for acme/atlas-web#12",
   );
 });
@@ -448,11 +453,11 @@ test("a pull request row shows its line counts, the failing checks already on ba
       />,
     );
   });
-  const row = section(container, "changes")!.querySelector<HTMLElement>("li.acpmux-inspector-pr")!;
-  expect(row.querySelector(".acpmux-inspector-pr__counts")?.textContent).toBe("+120-30");
-  expect(row.querySelector(".acpmux-inspector-pr__checks")?.textContent).toBe("3 failing (2 already on base)");
-  expect(row.querySelector(".acpmux-inspector-pr__base")?.textContent).toBe(" (2 already on base)");
-  expect(row.querySelector(".acpmux-inspector-pr__owner")?.textContent).toBe("Owner inspector");
+  const row = section(container, "changes")!.querySelector<HTMLElement>("li.acpmux-chat-inspector-pr")!;
+  expect(row.querySelector(".acpmux-chat-inspector-pr__counts")?.textContent).toBe("+120-30");
+  expect(row.querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("3 failing (2 already on base)");
+  expect(row.querySelector(".acpmux-chat-inspector-pr__base")?.textContent).toBe(" (2 already on base)");
+  expect(row.querySelector(".acpmux-chat-inspector-pr__owner")?.textContent).toBe("Owner inspector");
 });
 
 test("a pull request the chat closed shows Closed until the App reads it again after the close", async () => {
@@ -469,10 +474,10 @@ test("a pull request the chat closed shows Closed until the App reads it again a
   const closedChat = chat([activity([opened(13, "Retry"), ran("gh pr close 13", 2000)], 2)]);
   try {
     await render(container, closedChat);
-    const row = () => section(container, "changes")!.querySelector<HTMLElement>("li.acpmux-inspector-pr")!;
+    const row = () => section(container, "changes")!.querySelector<HTMLElement>("li.acpmux-chat-inspector-pr")!;
     // That older open read doesn't undo the close.
     expect(row().dataset.state).toBe("closed");
-    expect(row().querySelector(".acpmux-inspector-pr__checks")).toBeNull();
+    expect(row().querySelector(".acpmux-chat-inspector-pr__checks")).toBeNull();
 
     // Later reads: closed, then someone reopened it.
     status("closed", 3000);
@@ -481,7 +486,7 @@ test("a pull request the chat closed shows Closed until the App reads it again a
     status("open", 4000);
     await render(container, closedChat);
     expect(row().dataset.state).toBe("open");
-    expect(row().querySelector(".acpmux-inspector-pr__checks")?.textContent).toBe("Failing");
+    expect(row().querySelector(".acpmux-chat-inspector-pr__checks")?.textContent).toBe("Failing");
 
     // Hiding and showing the Inspector keeps the reopen.
     await click(toggle(container)!);
@@ -513,15 +518,15 @@ test("Subagents is one avatar row with live counts that opens into the list", as
   });
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("3 running · 40 done");
-  const row = subagents.querySelector<HTMLButtonElement>("button.acpmux-inspector-avatars")!;
+  const row = subagents.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-avatars")!;
   expect(row.getAttribute("aria-label")).toBe("Show 43 subagents");
   expect(row.getAttribute("aria-expanded")).toBe("false");
   // Eight avatars, the running ones first, then "+35".
-  expect(row.querySelectorAll(".acpmux-inspector-avatars__stack > *")).toHaveLength(8);
-  expect(row.querySelector(".acpmux-inspector-avatars__more")?.textContent).toBe("+35");
-  expect(subagents.querySelector(".acpmux-inspector-subagents__list")).toBeNull();
+  expect(row.querySelectorAll(".acpmux-chat-inspector-avatars__stack > *")).toHaveLength(8);
+  expect(row.querySelector(".acpmux-chat-inspector-avatars__more")?.textContent).toBe("+35");
+  expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
   await click(row);
   expect(row.getAttribute("aria-expanded")).toBe("true");
   expect(row.getAttribute("aria-label")).toBe("Hide subagents");
-  expect(subagents.querySelector(".acpmux-inspector-subagents__list")).not.toBeNull();
+  expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).not.toBeNull();
 });

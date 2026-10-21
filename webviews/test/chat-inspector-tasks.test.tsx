@@ -90,7 +90,7 @@ async function render(
 }
 
 const section = (container: HTMLElement, id: string) =>
-  container.querySelector<HTMLElement>(`section.acpmux-inspector-section[data-section="${id}"]`);
+  container.querySelector<HTMLElement>(`section.acpmux-chat-inspector-section[data-section="${id}"]`);
 const click = (element: HTMLElement) => act(async () => element.click());
 
 const process = (command: string, state = "running"): InspectorProcess => ({
@@ -158,30 +158,30 @@ test("no section before the first background process; then running ones with ela
   const stopped: string[] = [];
   await render(container, processes, async (id) => void stopped.push(id));
   const tasks = section(container, "tasks")!;
-  const rows = () => [...tasks.querySelectorAll<HTMLElement>(".acpmux-inspector-task")];
+  const rows = () => [...tasks.querySelectorAll<HTMLElement>(".acpmux-chat-inspector-task")];
   // Running first, newest first.
-  expect(rows().map((row) => row.querySelector(".acpmux-inspector-task__command")?.textContent)).toEqual([
+  expect(rows().map((row) => row.querySelector(".acpmux-chat-inspector-task__command")?.textContent)).toEqual([
     "cargo watch -x check",
     "tsc --watch",
   ]);
-  expect(rows().map((row) => row.querySelector(".acpmux-inspector-task__time")?.textContent)).toEqual([
+  expect(rows().map((row) => row.querySelector(".acpmux-chat-inspector-task__time")?.textContent)).toEqual([
     "1m 16s",
     "1h 2m 3s",
   ]);
-  expect(tasks.querySelector(".acpmux-inspector-section__meta")?.textContent).toBe("2 running");
+  expect(tasks.querySelector(".acpmux-chat-inspector-section__meta")?.textContent).toBe("2 running");
 
   // The finished ones fold behind their count; open, each with how long it ran and how it ended.
-  const fold = tasks.querySelector<HTMLButtonElement>("button.acpmux-inspector-fold")!;
+  const fold = tasks.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-fold")!;
   expect(fold.textContent).toBe("2 finished");
   expect(fold.getAttribute("aria-expanded")).toBe("false");
   await click(fold);
-  const finished = [...tasks.querySelectorAll<HTMLElement>("[data-finished] .acpmux-inspector-task")];
-  expect(finished.map((row) => row.querySelector(".acpmux-inspector-task__state")?.textContent)).toEqual([
+  const finished = [...tasks.querySelectorAll<HTMLElement>("[data-finished] .acpmux-chat-inspector-task")];
+  expect(finished.map((row) => row.querySelector(".acpmux-chat-inspector-task__state")?.textContent)).toEqual([
     "Finished",
     "Failed",
   ]);
 
-  const stop = rows()[0]!.querySelector<HTMLButtonElement>("button.acpmux-inspector-stop")!;
+  const stop = rows()[0]!.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-stop")!;
   expect(stop.getAttribute("aria-label")).toBe("Stop cargo watch -x check");
   await click(stop);
   expect(stopped).toEqual(["s1/a"]);
@@ -202,13 +202,13 @@ test("a dev server is listed under Servers with its port, which opens beside the
   );
   expect(section(container, "tasks")).toBeNull();
   const servers = section(container, "servers")!;
-  expect(servers.querySelector(".acpmux-inspector-section__meta")?.textContent).toBe("1 running");
-  const port = servers.querySelector<HTMLButtonElement>("button.acpmux-inspector-port")!;
+  expect(servers.querySelector(".acpmux-chat-inspector-section__meta")?.textContent).toBe("1 running");
+  const port = servers.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-port")!;
   expect(port.textContent).toBe(":5173");
   expect(port.getAttribute("aria-label")).toBe("Open http://localhost:5173");
   await click(port);
   expect(opened).toEqual(["http://localhost:5173"]);
-  await click(servers.querySelector<HTMLButtonElement>("button.acpmux-inspector-stop")!);
+  await click(servers.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-stop")!);
   expect(stopped).toEqual(["s1/a"]);
 });
 
@@ -216,10 +216,10 @@ test("a session whose processes all finished keeps the section with only its cou
   const container = installDom();
   await render(container, processesOf({ processes: [wire("b", "cargo test", "exited", 1_000, 9_000)] }, "s1"));
   const tasks = section(container, "tasks")!;
-  expect(tasks.querySelectorAll(".acpmux-inspector-task")).toHaveLength(0);
-  expect(tasks.querySelector("button.acpmux-inspector-fold")?.textContent).toBe("1 finished");
+  expect(tasks.querySelectorAll(".acpmux-chat-inspector-task")).toHaveLength(0);
+  expect(tasks.querySelector("button.acpmux-chat-inspector-fold")?.textContent).toBe("1 finished");
   // No Stop without a way to stop.
-  expect(tasks.querySelector("button.acpmux-inspector-stop")).toBeNull();
+  expect(tasks.querySelector("button.acpmux-chat-inspector-stop")).toBeNull();
 });
 
 /// A client whose list answers when the test says, and whose updates the test sends.
@@ -298,7 +298,8 @@ test("a refused Stop says so and can be tried again", async () => {
   await render(container, processesOf({ processes: [wire("a", "cargo watch", "running", 1_000)] }, "s1"), async () => {
     if (refuse) throw new Error("refused");
   });
-  const stop = () => section(container, "tasks")!.querySelector<HTMLButtonElement>("button.acpmux-inspector-stop")!;
+  const stop = () =>
+    section(container, "tasks")!.querySelector<HTMLButtonElement>("button.acpmux-chat-inspector-stop")!;
   await act(async () => stop().click());
   expect(stop().getAttribute("data-state")).toBe("failed");
   expect(stop().getAttribute("aria-label")).toBe("Couldn’t stop cargo watch");

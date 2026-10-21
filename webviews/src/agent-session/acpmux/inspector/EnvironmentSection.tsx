@@ -62,33 +62,33 @@ export function EnvironmentSection({
     const { name, parent } = splitFolder(path);
     return (
       <li
-        className="acpmux-inspector-row"
+        className="acpmux-chat-inspector-row"
         // tooltip-allow: the row shows the folder's name; its full path appears nowhere else.
         title={path}
       >
         <Icon name={icon} size={ROW_ICON} row />
-        <span className="acpmux-inspector-row__name">{name}</span>
-        {parent && <span className="acpmux-inspector-row__detail">{parent}</span>}
+        <span className="acpmux-chat-inspector-row__name">{name}</span>
+        {parent && <span className="acpmux-chat-inspector-row__detail">{parent}</span>}
       </li>
     );
   };
   return (
-    <ul className="acpmux-inspector-list" data-section="environment">
-      <li className="acpmux-inspector-row" data-machine={machine.kind}>
+    <ul className="acpmux-chat-inspector-list" data-section="environment">
+      <li className="acpmux-chat-inspector-row" data-machine={machine.kind}>
         <Icon name={machine.icon} size={ROW_ICON} row />
-        <span className="acpmux-inspector-row__name">{machine.name ?? "—"}</span>
+        <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
         {onSave && (
-          <button type="button" className="acpmux-inspector-link acpmux-inspector-row__end" onClick={onSave}>
+          <button type="button" className="acpmux-chat-inspector-link acpmux-chat-inspector-row__end" onClick={onSave}>
             {t("chatInspector.environment.save")}
           </button>
         )}
       </li>
       {cwd && folderRow(cwd, cwd === summary?.worktree ? "git.worktree" : "folder")}
       {repository && (
-        <li className="acpmux-inspector-row">
+        <li className="acpmux-chat-inspector-row">
           <Icon name="brand.github" size={ROW_ICON} row />
           <a
-            className="acpmux-inspector-row__name acpmux-inspector-row__link"
+            className="acpmux-chat-inspector-row__name acpmux-chat-inspector-row__link"
             href={`https://github.com/${repository}`}
           >
             {repository}
@@ -96,20 +96,20 @@ export function EnvironmentSection({
         </li>
       )}
       {summary?.branch && (
-        <li className="acpmux-inspector-row">
+        <li className="acpmux-chat-inspector-row">
           <Icon name="git.branch" size={ROW_ICON} row />
-          <span className="acpmux-inspector-row__name">{summary.branch}</span>
+          <span className="acpmux-chat-inspector-row__name">{summary.branch}</span>
         </li>
       )}
       {worktree && folderRow(worktree, "git.worktree")}
       {remoteControl && (
-        <li className="acpmux-inspector-row">
+        <li className="acpmux-chat-inspector-row">
           <Icon name="device.phone" size={ROW_ICON} row />
-          <label className="acpmux-inspector-switch">
-            <span className="acpmux-inspector-row__name">{t("chatInspector.environment.remoteControl")}</span>
+          <label className="acpmux-chat-inspector-switch">
+            <span className="acpmux-chat-inspector-row__name">{t("chatInspector.environment.remoteControl")}</span>
             <input
               type="checkbox"
-              className="acpmux-inspector-switch__input"
+              className="acpmux-chat-inspector-switch__input"
               aria-label={t("chatInspector.environment.remoteControl")}
               checked={remoteControl.on}
               onChange={(event) => remoteControl.set(event.currentTarget.checked)}

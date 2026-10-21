@@ -25,34 +25,34 @@ export function ServersSection({
   const t = useT();
   const now = useNow(servers.length > 0);
   return (
-    <ul className="acpmux-inspector-list acpmux-inspector-scroll" data-section="servers">
+    <ul className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll" data-section="servers">
       {[...servers]
         .sort((a, b) => b.startedAt - a.startedAt)
         .map((server) => (
-          <li key={server.id} className="acpmux-inspector-server">
-            <span className="acpmux-inspector-server__dot" aria-hidden="true" />
-            <span className="acpmux-inspector-server__text">
-              <span className="acpmux-inspector-task__command">{server.command}</span>
-              <span className="acpmux-inspector-server__line">
+          <li key={server.id} className="acpmux-chat-inspector-server">
+            <span className="acpmux-chat-inspector-server__dot" aria-hidden="true" />
+            <span className="acpmux-chat-inspector-server__text">
+              <span className="acpmux-chat-inspector-task__command">{server.command}</span>
+              <span className="acpmux-chat-inspector-server__line">
                 {server.ports.map((port) => {
                   const url = `http://localhost:${port}`;
                   return onOpenUrl ? (
                     <button
                       key={port}
                       type="button"
-                      className="acpmux-inspector-port"
+                      className="acpmux-chat-inspector-port"
                       aria-label={t("chatInspector.servers.open", { url })}
                       onClick={() => onOpenUrl(url)}
                     >
                       <Icon name="link.web" size={ROW_ICON} row />:{port}
                     </button>
                   ) : (
-                    <span key={port} className="acpmux-inspector-port">
+                    <span key={port} className="acpmux-chat-inspector-port">
                       :{port}
                     </span>
                   );
                 })}
-                <span className="acpmux-inspector-task__time">
+                <span className="acpmux-chat-inspector-task__time">
                   {formatDuration(Math.max(0, now - server.startedAt))}
                 </span>
               </span>

@@ -22,30 +22,30 @@ export function InspectorSection({
 }) {
   const head = (foldable: boolean) => (
     <>
-      <span className="acpmux-inspector-section__title">{title}</span>
+      <span className="acpmux-chat-inspector-section__title">{title}</span>
       {foldable && (
         <Icon
           name={open ? "disclosure.expanded" : "disclosure.collapsed"}
           size={10}
-          className="acpmux-inspector-section__fold"
+          className="acpmux-chat-inspector-section__fold"
         />
       )}
-      {meta && <span className="acpmux-inspector-section__meta">{meta}</span>}
+      {meta && <span className="acpmux-chat-inspector-section__meta">{meta}</span>}
     </>
   );
   return (
-    <section className="acpmux-inspector-section" data-section={id} aria-label={title}>
+    <section className="acpmux-chat-inspector-section" data-section={id} aria-label={title}>
       {onOpenChange ? (
         <Disclosure
           label={head(true)}
           open={open}
           onOpenChange={onOpenChange}
-          className="acpmux-inspector-section__disclosure"
+          className="acpmux-chat-inspector-section__disclosure"
         >
           {children}
         </Disclosure>
       ) : (
-        <div className="acpmux-inspector-section__head">{head(false)}</div>
+        <div className="acpmux-chat-inspector-section__head">{head(false)}</div>
       )}
     </section>
   );

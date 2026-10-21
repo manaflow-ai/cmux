@@ -51,13 +51,17 @@ export function OutputsSection({
 }) {
   const t = useT();
   return (
-    <ul className="acpmux-inspector-list acpmux-inspector-scroll" data-section="outputs">
+    <ul className="acpmux-chat-inspector-list acpmux-chat-inspector-scroll" data-section="outputs">
       {artifacts > 0 && onOpenArtifacts && (
         <li>
-          <button type="button" className="acpmux-inspector-row acpmux-inspector-row--button" onClick={onOpenArtifacts}>
+          <button
+            type="button"
+            className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
+            onClick={onOpenArtifacts}
+          >
             <Icon name="view.grid" size={ROW_ICON} row />
-            <span className="acpmux-inspector-row__name">{t("summary.gallery")}</span>
-            <span className="acpmux-inspector-row__end">{artifacts}</span>
+            <span className="acpmux-chat-inspector-row__name">{t("summary.gallery")}</span>
+            <span className="acpmux-chat-inspector-row__end">{artifacts}</span>
           </button>
         </li>
       )}
@@ -69,15 +73,15 @@ export function OutputsSection({
           <li key={file.path}>
             <button
               type="button"
-              className="acpmux-inspector-row acpmux-inspector-row--button"
+              className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button"
               disabled={!onOpenFile}
               onClick={() => onOpenFile?.(file.path)}
             >
               <Icon name={file.created ? "file.new" : "file.text"} size={ROW_ICON} row />
-              <span className="acpmux-inspector-row__name">{name}</span>
-              {folder && <span className="acpmux-inspector-row__detail">{folder}</span>}
+              <span className="acpmux-chat-inspector-row__name">{name}</span>
+              {folder && <span className="acpmux-chat-inspector-row__detail">{folder}</span>}
               {!file.binary && (
-                <span className="acpmux-inspector-row__end">
+                <span className="acpmux-chat-inspector-row__end">
                   <Counts additions={file.additions} deletions={file.deletions} />
                 </span>
               )}
@@ -87,9 +91,9 @@ export function OutputsSection({
       })}
       {links.map((link) => (
         <li key={link.url}>
-          <a className="acpmux-inspector-row acpmux-inspector-row--button" href={link.url}>
+          <a className="acpmux-chat-inspector-row acpmux-chat-inspector-row--button" href={link.url}>
             <Icon name="link.web" size={ROW_ICON} row />
-            <span className="acpmux-inspector-row__name">{link.label}</span>
+            <span className="acpmux-chat-inspector-row__name">{link.label}</span>
           </a>
         </li>
       ))}

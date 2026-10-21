@@ -40,24 +40,24 @@ export function TasksSection({
   const finished = processes.filter((process) => !isRunning(process)).sort((a, b) => b.startedAt - a.startedAt);
   const now = useNow(running.length > 0);
   return (
-    <div className="acpmux-inspector-scroll" data-section="tasks">
+    <div className="acpmux-chat-inspector-scroll" data-section="tasks">
       {(running.length > 0 || scheduled.length > 0) && (
-        <ul className="acpmux-inspector-list">
+        <ul className="acpmux-chat-inspector-list">
           {running.map((process) => (
-            <li key={process.id} className="acpmux-inspector-task">
+            <li key={process.id} className="acpmux-chat-inspector-task">
               <Icon name="terminal" size={ROW_ICON} row />
-              <span className="acpmux-inspector-task__command">{process.command}</span>
-              <span className="acpmux-inspector-task__time">
+              <span className="acpmux-chat-inspector-task__command">{process.command}</span>
+              <span className="acpmux-chat-inspector-task__time">
                 {formatDuration(Math.max(0, now - process.startedAt))}
               </span>
               {onStop && <StopButton id={process.id} name={process.command} stop={onStop} />}
             </li>
           ))}
           {scheduled.map((wakeup) => (
-            <li key={wakeup.id} className="acpmux-inspector-task">
+            <li key={wakeup.id} className="acpmux-chat-inspector-task">
               <Icon name="task.status.started" size={ROW_ICON} row />
-              <span className="acpmux-inspector-task__command">{wakeup.text}</span>
-              {wakeup.cron && <span className="acpmux-inspector-task__time">{wakeup.cron}</span>}
+              <span className="acpmux-chat-inspector-task__command">{wakeup.text}</span>
+              {wakeup.cron && <span className="acpmux-chat-inspector-task__time">{wakeup.cron}</span>}
             </li>
           ))}
         </ul>
@@ -66,7 +66,7 @@ export function TasksSection({
         <>
           <button
             type="button"
-            className="acpmux-inspector-fold"
+            className="acpmux-chat-inspector-fold"
             aria-expanded={showFinished}
             onClick={() => setShowFinished(!showFinished)}
           >
@@ -74,15 +74,15 @@ export function TasksSection({
             {t("rail.finished", { count: finished.length })}
           </button>
           {showFinished && (
-            <ul className="acpmux-inspector-list" data-finished="">
+            <ul className="acpmux-chat-inspector-list" data-finished="">
               {finished.map((process) => (
-                <li key={process.id} className="acpmux-inspector-task" data-state={process.state}>
+                <li key={process.id} className="acpmux-chat-inspector-task" data-state={process.state}>
                   <Icon name="terminal" size={ROW_ICON} row />
-                  <span className="acpmux-inspector-task__command">{process.command}</span>
-                  <span className="acpmux-inspector-task__time">
+                  <span className="acpmux-chat-inspector-task__command">{process.command}</span>
+                  <span className="acpmux-chat-inspector-task__time">
                     {process.endedAt !== undefined && formatDuration(Math.max(0, process.endedAt - process.startedAt))}
                   </span>
-                  <span className="acpmux-inspector-task__state">
+                  <span className="acpmux-chat-inspector-task__state">
                     {t(ENDED[process.state] ?? "bgTask.state.completed")}
                   </span>
                 </li>
@@ -104,7 +104,7 @@ export function StopButton({ id, name, stop }: { id: string; name: string; stop:
   return (
     <button
       type="button"
-      className="acpmux-inspector-icon-button acpmux-inspector-stop"
+      className="acpmux-chat-inspector-icon-button acpmux-chat-inspector-stop"
       data-state={state}
       disabled={state === "stopping"}
       aria-label={label}
