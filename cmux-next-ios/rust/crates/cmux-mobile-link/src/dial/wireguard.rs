@@ -1320,6 +1320,9 @@ impl Dialer for WireGuardDialer {
             if no_plain_udp(options) && turn.is_none() {
                 return Err(DialError::Transport("no TURN allocation, and plain UDP is off".into()));
             }
+            // Asked for TURN and got none in time: the session takes it once the server answers.
+            let turn_missed =
+                turn.is_none() && super::turn::turn_servers(&options.ice_servers) != (None, None);
             let Gathered { mut endpoints, stun, .. } = gathered;
             let (relayed, relayed_tls) = relayed_of(turn.as_ref());
             endpoints.extend(relayed.iter().cloned());
@@ -1409,6 +1412,9 @@ impl Dialer for WireGuardDialer {
             let guard = Guard { session: Arc::clone(&tunnel.session) };
             let net = tunnel.session.net()?;
             tunnel.session.start_control(&net).await;
+            if turn_missed {
+                tunnel.session.retry_missing_turn();
+            }
             // The media lane's port is bound before the link stream opens, so
             // the Mac's first frames (sent once a browser tab claims the lane)
             // find it.
@@ -1657,6 +1663,46 @@ mod tests {
         let mut initiation = vec![0u8; 148];
         initiation[0] = 1;
         assert_eq!(send_class_of(&initiation, Priority::Bulk), SendClass::Control);
+    }
+
+    /// The phone roams from one TURN allocation to another and announces its
+    /// new relayed address. The Mac's route to the old one is dead, not a
+    /// direct route: the phone's first datagram from the new relay takes the
+    /// route at once, not after the 1 s guard that keeps relayed copies off a
+    /// direct route that still delivers. (Holding the dead route stalled the
+    /// Mac's output about 1 s on such a roam: the CI flake of
+    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`.)
+    #[tokio::test]
+    async fn a_route_to_the_peers_retired_relayed_address_gives_way_to_its_new_one() {
+        let old: SocketAddr = "203.0.113.7:50000".parse().unwrap();
+        let new: SocketAddr = "203.0.113.9:50002".parse().unwrap();
+        let lan = "192.168.1.20:41000".to_owned();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[old.to_string(), lan.clone()],
+                peer_relayed: &[old.to_string()],
+                peer_relayed_tls: &[old.to_string()],
+                peer_version: WG_VERSION,
+                turn: None,
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &DialOptions::default(),
+        );
+        let udp_from = |addr| Origin { path: UDP_PATH, addr: Some(addr) };
+        underlay.authenticated(udp_from(old));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: old }));
+        underlay.apply(Control::PeerEndpoints {
+            endpoints: vec![new.to_string(), lan],
+            relayed: vec![new.to_string()],
+            relayed_tls: vec![new.to_string()],
+        });
+        underlay.authenticated(udp_from(new));
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
     }
 
     #[test]
