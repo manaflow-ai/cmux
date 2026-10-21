@@ -9,7 +9,12 @@
 //!   and lets the start go on;
 //! - Not now refuses the start with `subsessions.trust_declined`, and an agent that asks again
 //!   within minutes is refused without a second card;
-//! - only the person allows the card (a connection that is not the person is refused).
+//! - only the person allows the card (a connection that is not the person is refused);
+//! - with two starts waiting on one folder, each has its own card: one start's Not now leaves
+//!   the other's card up;
+//! - a project root answers only the app's pane: a Web client's start there still waits for a
+//!   person, and an explicit Don't trust wins over the root;
+//! - a settings file that cannot be read trusts nothing by a rule.
 //!
 //! Stand-in agents (fake_agent.py). One test function: the settings file is read from this
 //! process's environment.
@@ -40,9 +45,13 @@ struct Client(mpsc::Sender<String>, mpsc::Receiver<String>, i64);
 
 impl Client {
     fn new(hub: &Arc<Hub>) -> Self {
+        Self::from(hub, Origin::Local)
+    }
+
+    fn from(hub: &Arc<Hub>, origin: Origin) -> Self {
         let (in_tx, in_rx) = mpsc::channel(64);
         let (out_tx, out_rx) = mpsc::channel(4096);
-        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, Origin::Local));
+        tokio::spawn(serve_connection_with(hub.clone(), in_rx, out_tx, origin));
         Client(in_tx, out_rx, 0)
     }
 
@@ -137,15 +146,24 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     .unwrap();
     let mine = root.join("mine");
     let elsewhere = root.join("elsewhere");
-    for folder in ["parent", "mine/app", "elsewhere/a", "elsewhere/b", "elsewhere/c", "elsewhere/d"]
-    {
+    for folder in [
+        "parent",
+        "mine/app",
+        "mine/web",
+        "elsewhere/a",
+        "elsewhere/b",
+        "elsewhere/c",
+        "elsewhere/d",
+        "elsewhere/e",
+    ] {
         std::fs::create_dir_all(root.join(folder)).unwrap();
     }
     std::fs::create_dir_all(root.join("home")).unwrap();
     let settings = root.join("cmux-next.json");
     std::fs::write(
         &settings,
-        json!({"agents": {"trust": {"projectRoots": [mine], "ownOrgs": []}}}).to_string(),
+        json!({"agents": {"trust": {"autoTrust": true, "projectRoots": [mine], "ownOrgs": []}}})
+            .to_string(),
     )
     .unwrap();
     // SAFETY: the only test in this binary; set before any session starts.
@@ -162,12 +180,13 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
     cfg.store.mode = StoreMode::Memory;
     let store = acpmux::store::open(&cfg.store, Path::new("/nonexistent")).unwrap();
     let hub = Hub::new(cfg, store);
-    hub.set_trust_gate(Some(Paths {
+    let paths = Paths {
         claude_json: root.join("home/.claude.json"),
         codex_config: root.join("home/config.toml"),
         record: root.join("home/trust.json"),
         agent_home: None,
-    }));
+    };
+    hub.set_trust_gate(Some(paths.clone()));
     let mut app = Client::new(&hub);
     // The parent runs in a folder of the person's own: the unix socket never asks.
     let new = json!({"cwd": root.join("parent"), "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
@@ -322,5 +341,89 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         assert!(started.get("error").is_none(), "{started}");
     }
     assert_eq!(app.summary(&parent).await["pendingPermissions"], 0);
+
+    // 6. Two starts in one folder, one Not now: only that start's card goes; the other waits on.
+    let first = start_in_background(&hub, &parent, &elsewhere.join("e"), "sixth");
+    let second = start_in_background(&hub, &parent, &elsewhere.join("e"), "seventh");
+    for _ in 0..200 {
+        cards = session.pending_permissions();
+        if cards.len() == 2 {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert_eq!(cards.len(), 2, "two cards: {cards:?}");
+    hub.respond_permission(
+        &session,
+        &cards[0].0,
+        Some("not_now".into()),
+        None,
+        None,
+        Answerer::default(),
+        Control::Local,
+    )
+    .await
+    .unwrap();
+    for _ in 0..200 {
+        if first.is_finished() || second.is_finished() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    let (declined, other) = if first.is_finished() { (first, second) } else { (second, first) };
+    let declined = declined.await.unwrap();
+    assert_eq!(declined["error"]["data"]["reason"], "subsessions.trust_declined", "{declined}");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!other.is_finished(), "the other start still waits");
+    let (card_id, _) = card_of(&hub, &parent);
+    assert_ne!(card_id, cards[0].0);
+    hub.respond_permission(
+        &session,
+        &card_id,
+        Some("trust".into()),
+        None,
+        None,
+        Answerer { person: true, ..Answerer::default() },
+        Control::Local,
+    )
+    .await
+    .unwrap();
+    let started = other.await.unwrap();
+    assert!(started.get("error").is_none(), "{started}");
+    assert_eq!(app.summary(&parent).await["pendingPermissions"], 0);
+
+    // 7. An explicit Don't trust wins over the project root.
+    let app_folder = mine.join("app").to_string_lossy().into_owned();
+    app.ok("acp.trust.set", json!({"cwd": app_folder, "level": "untrusted"})).await;
+    let trust = app.ok("acp.trust.get", json!({"cwd": app_folder})).await;
+    assert_eq!(trust["level"], "untrusted", "{trust}");
+    app.ok("acp.trust.set", json!({"cwd": app_folder, "level": "unknown"})).await;
+
+    // 8. A project root answers the app's pane, never a Web client: a Web client cannot answer
+    //    the question, so its folder needs a decision a person made.
+    let mut web_cfg: Config = serde_json::from_value(json!({
+        "harnesses": {"fake": {"argv": ["python3", FAKE], "family": "claude"}},
+        "defaultHarness": "fake",
+        "permissionPolicy": "ask",
+        "webRoots": [root],
+    }))
+    .unwrap();
+    web_cfg.store.mode = StoreMode::Memory;
+    let web_store = acpmux::store::open(&web_cfg.store, Path::new("/nonexistent")).unwrap();
+    let web_hub = Hub::new(web_cfg, web_store);
+    web_hub.set_trust_gate(Some(paths.clone()));
+    let new_in = |cwd: &Path| json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fake"}}});
+    let mut web = Client::from(&web_hub, Origin::Web);
+    let r = web.call("session/new", new_in(&mine.join("web"))).await;
+    assert_eq!(r["error"]["data"]["reason"], "trust.pending", "{r}");
+    let mut pane = Client::from(&web_hub, Origin::LocalApp);
+    let r = pane.call("session/new", new_in(&mine.join("web"))).await;
+    assert!(r.get("error").is_none(), "the pane starts under a project root: {r}");
+
+    // 9. A settings file that cannot be read trusts nothing by a rule.
+    std::fs::write(&settings, "{ not json").unwrap();
+    let trust = app.ok("acp.trust.get", json!({"cwd": mine.join("web").to_string_lossy()})).await;
+    assert_eq!(trust["level"], "unknown", "{trust}");
+    assert!(trust["auto"].is_null(), "{trust}");
     let _ = std::fs::remove_dir_all(&root);
 }
