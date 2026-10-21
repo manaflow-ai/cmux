@@ -556,9 +556,9 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       );
     });
 
-  /// From the first painted frame without the queue card: how long, in ms, until the last row rests
-  /// `resting` px over the stack's top again with nothing in the transcript moving. Started before
-  /// the card goes; `closed` reads it (Infinity if it never comes back within 600 frames).
+  /// From the first painted frame, once it starts, without the queue card: how long, in ms, until the
+  /// last row rests `resting` px over the stack's top again with nothing in the transcript moving.
+  /// `closed` reads it (Infinity if it never comes back within 600 frames).
   const watchGap = (page: Page, resting: number) =>
     page.evaluate((resting) => {
       const w = window as unknown as { __closed: Promise<number> };
@@ -610,6 +610,7 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       });
       // The turn runs a tool: nothing streams while the prompt is deleted.
       toolCall(`t-${turn}`);
+      await page.locator(".acpmux-queued").waitFor();
       await page.getByText("ls -la").first().waitFor();
       await rest(page);
       const resting = await gapAbove(page);
@@ -639,15 +640,18 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       enqueue(`q-${turn}`, "never mind this one");
       await page.locator(".acpmux-queued").waitFor();
       await rest(page);
-      await watchGap(page, resting);
       if (order === "queue") {
         // acpmux's queue update can come before its `queue_removed` record.
         queue = [];
         changed();
-        // The page has taken the update on its own: the card leaves with it.
+        // The page has taken the update on its own: the card leaves with it. Timed from the record.
         await page.locator(".acpmux-queued").waitFor({ state: "detached" });
+        await watchGap(page, resting);
         emit("mux", "queue_removed", { promptId: `q-${turn}` });
-      } else unqueue("queue_removed", `q-${turn}`);
+      } else {
+        await watchGap(page, resting);
+        unqueue("queue_removed", `q-${turn}`);
+      }
       const after = await closed(page);
       expect({ after: after <= 300, atEnd: (await fromEnd(page)) <= 4 }).toEqual({ after: true, atEnd: true });
       await page.close();
