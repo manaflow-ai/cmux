@@ -185,28 +185,6 @@ struct CoderouterCLIAccountReaderTests {
         #expect(!expected.message.isEmpty)
     }
 
-    @Test("A failed removal never says accounts didn't load")
-    func removalCopyNamesRemoval() async {
-        // An invalid ID is rejected before the CLI runs and classifies as unavailable.
-        do {
-            try await CoderouterCLIAccountReader.remove(
-                accountID: "bad id;",
-                for: Self.cmuxTeamID,
-                name: nil,
-                run: { _ in Data() }
-            )
-            Issue.record("An invalid account ID was accepted")
-        } catch {
-            #expect(CoderouterCLIFailure.classify(error) == .unavailable)
-        }
-        for failure in [CoderouterCLIFailure.unavailable, .outdated, .sessionChanging] {
-            #expect(failure.removalMessage != failure.message)
-        }
-        for failure in [CoderouterCLIFailure.notInstalled, .signInRequired, .notMember, .planRequired, .unreachable] {
-            #expect(failure.removalMessage == failure.message)
-        }
-    }
-
     @Test("Runtime errors do not trigger an unscoped fallback")
     func runtimeFailureDoesNotFallback() async {
         let commands = CommandRecorder()
@@ -217,7 +195,7 @@ struct CoderouterCLIAccountReaderTests {
                 run: { arguments in
                     await commands.append(arguments)
                     throw NSError(domain: "CoderouterCLI", code: 1, userInfo: [
-                        NSLocalizedDescriptionKey: "coderouter: list coderouter accounts: coderouter is temporarily unavailable; retry shortly [HTTP 503]",
+                        NSLocalizedDescriptionKey: "coderouter: server returned HTTP 503",
                     ])
                 }
             )
