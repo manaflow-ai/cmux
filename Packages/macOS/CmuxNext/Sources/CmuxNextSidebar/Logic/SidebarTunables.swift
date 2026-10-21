@@ -117,11 +117,18 @@ public nonisolated enum SidebarTunables {
         help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
         default: false, code: "SidebarTunables.laneFixture")
 
+    /// Every row carries its pull requests' badge, with or without the session tree
+    /// (`SidebarSessionTreeFeed`). On by default; the tree's nesting and keycaps stay opt-in.
+    public static let pullRequestBadges = Tunable<Bool>.toggle(
+        "sidebar.pullRequestBadges", .sidebar, "Rows show their pull requests",
+        help: "A workspace row shows a badge for the pull requests its agent chats opened or its folder's branch has, colored by their state, even with the session tree off.",
+        default: true, code: "SidebarTunables.pullRequestBadges")
+
     /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
     /// `sidebar.sessionTree`); on by default.
     public static let pullRequestCard = Tunable<Bool>.toggle(
         "sidebar.pullRequestCard", .sidebar, "Pull request hover card",
-        help: "Hovering a row's pull request badge (with the session tree on) lists each pull request with its state, repository and size; a click opens it.",
+        help: "Hovering a row's pull request badge lists each pull request with its state, repository and size; a click opens it.",
         default: true, code: "SidebarTunables.pullRequestCard")
 
     /// Leo 2026-10-21 (item D, multi-view): a press on a workspace row selects nothing; the click
@@ -182,6 +189,7 @@ public nonisolated enum SidebarTunables {
             groupExitFraction.descriptor,
             laneStatus.descriptor,
             rowStatus.descriptor,
+            pullRequestBadges.descriptor,
             laneFixture.descriptor,
             sinceLooked.descriptor,
             nowLine.descriptor,
