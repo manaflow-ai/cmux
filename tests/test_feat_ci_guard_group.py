@@ -91,6 +91,20 @@ class OneBaseForTheDiffTheCheckoutAndTheGuards(unittest.TestCase):
         self.assertEqual(runs[0]["env"]["CMUX_GUARDS_BASE_SHA"], expression)
 
 
+class TheBaseCheckoutLeavesTheHeadClean(unittest.TestCase):
+    """The base is checked out at .guard-base inside the head's workspace, an untracked directory, so the
+    ci group's "Run canonical CMUX CI guard profile" refused the head ("checkout has non-ignored source
+    changes") on every run. The job excludes it before the guards run."""
+
+    def test_the_base_checkout_is_excluded_from_the_head(self):
+        workflow = yaml.safe_load((WORKFLOWS / "cmux-next-guards.yml").read_text(encoding="utf-8"))
+        steps = workflow["jobs"]["ci-guard-group"]["steps"]
+        run = next(str(step["run"]) for step in steps if "guards-local.sh" in str(step.get("run", "")))
+        exclude = run.index("/.guard-base/")
+        self.assertIn(".git/info/exclude", run[exclude:exclude + 80])
+        self.assertLess(exclude, run.index("scripts/ci/guards-local.sh"))
+
+
 class TheRoutedGroupsHaveTheirTools(unittest.TestCase):
     """run_ci_guards.py skips `uses:` steps, so the job itself provides what ci-guards.yml's setup steps do:
     bun for preflight-agent-chat, and python3.9 (beside the default python3) for release-tooling's nightly
