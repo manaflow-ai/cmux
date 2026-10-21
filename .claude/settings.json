@@ -12,7 +12,7 @@
           {
             "type": "command",
             "command": "bash \"$CLAUDE_PROJECT_DIR\"/scripts/ci/merge-compile-guard-hook.sh",
-            "timeout": 90
+            "timeout": 120
           }
         ]
       }

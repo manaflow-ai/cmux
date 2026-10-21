@@ -13,6 +13,10 @@
 //!   fetch failed, DNS). No retry while offline: it waits until a
 //!   reachability probe of the model endpoint answers
 //!   ([`wait_online`]), then continues.
+//! - `UsageLimit`: the harness's account is out of usage until a reset
+//!   (a weekly or session limit). A retry there fails the same way, so it
+//!   continues in a new session on the Chief's own harness when that is
+//!   another one ([`Decision::Move`]).
 //!
 //! The classification reads only the end of the run's last reply, where the
 //! harness writes its error (`API Error: ...`, `(turn failed: ...)`), so a
@@ -31,6 +35,8 @@ pub enum StopKind {
     Transient(String),
     /// The request did not reach the model; the error line.
     Network(String),
+    /// The account is out of usage until its limit resets; the error line.
+    UsageLimit(String),
 }
 
 /// What to do about a stop ([`decide`]).
@@ -47,6 +53,9 @@ pub enum Decision {
     },
     /// Continue once the network is back; `attempt` counts from 1.
     WaitOnline { reason: String, attempt: u32 },
+    /// Continue in a new session on another harness (the account of this
+    /// one is out of usage).
+    Move { reason: String },
 }
 
 /// Limits of auto-resume.
@@ -124,6 +133,21 @@ const NETWORK: &[&str] = &[
     "offline",
 ];
 
+/// Error texts of an account that is out of usage until its limit resets
+/// (Claude Code: "You've hit your weekly limit · resets ...", "Claude AI
+/// usage limit reached"). Checked before `TRANSIENT`: a rate limit clears
+/// in seconds, these in hours or days.
+const USAGE_LIMIT: &[&str] = &[
+    "hit your weekly limit",
+    "hit your session limit",
+    "hit your usage limit",
+    "hit your limit",
+    "usage limit reached",
+    "weekly limit reached",
+    "out of extra usage",
+    "credit balance is too low",
+];
+
 /// Error texts of a model or harness failure a retry may clear.
 const TRANSIENT: &[&str] = &[
     "overloaded",
@@ -180,6 +204,11 @@ pub fn classify(report: &str, user_stopped: bool) -> StopKind {
     if NETWORK.iter().any(|p| lower.contains(p)) {
         return StopKind::Network(line.to_owned());
     }
+    // `'` or `’`: Claude Code writes either.
+    let plain = lower.replace('\u{2019}', "'");
+    if USAGE_LIMIT.iter().any(|p| plain.contains(p)) {
+        return StopKind::UsageLimit(line.to_owned());
+    }
     if TRANSIENT.iter().any(|p| lower.contains(p)) {
         return StopKind::Transient(line.to_owned());
     }
@@ -191,6 +220,9 @@ pub fn classify(report: &str, user_stopped: bool) -> StopKind {
 pub fn decide(kind: &StopKind, attempts: u32, policy: &ResumePolicy, online: bool) -> Decision {
     match kind {
         StopKind::Done | StopKind::UserStopped => Decision::Report { gave_up: None },
+        StopKind::UsageLimit(reason) => Decision::Move {
+            reason: reason.clone(),
+        },
         StopKind::Transient(reason) => {
             if attempts >= policy.max_attempts {
                 return Decision::Report {
@@ -248,6 +280,9 @@ pub fn chief_note(d: &Decision) -> Option<String> {
             "stopped after a retryable error. Auto-resume {attempt}: it is told to continue in {}s.",
             delay.as_secs()
         )),
+        Decision::Move { reason: _ } => Some(
+            "stopped: its account hit a usage limit, so it continues in a new session on the Chief's harness.".to_owned(),
+        ),
         Decision::WaitOnline { reason: _, attempt } => Some(format!(
             "stopped after a retryable network error. It is not retried blind: auto-resume {attempt} continues it as soon as the model endpoint answers again (checked every {}s).",
             NETWORK_POLL.as_secs()
@@ -265,6 +300,22 @@ pub fn continue_prompt(_reason: &str, attempt: u32, after_network: bool) -> Stri
     };
     format!(
         "[auto-resume {attempt}] Your last turn stopped on a retryable error. {why} Continue the task from where you stopped. Do not redo finished steps, and do not start duplicate work."
+    )
+}
+
+/// The first prompt of the new session that continues a subagent whose
+/// account ran out of usage: its task, and where its earlier session's chat
+/// is. Like [`continue_prompt`], never the failure text itself.
+pub fn move_prompt(task: &str, from: &str, transcript: Option<&Path>) -> String {
+    let earlier = match transcript {
+        Some(path) => format!(
+            "Read {} first: it is your earlier session's whole chat.",
+            path.display()
+        ),
+        None => "Your earlier session's chat could not be saved; check the state of the work (git status, open PRs) first.".to_owned(),
+    };
+    format!(
+        "[moved] You started this task in a session on {from}, whose account hit a usage limit, so you continue it here. {earlier} Continue from where it stopped. Do not redo finished steps, and do not start duplicate work.\n\nYour task:\n\n{task}"
     )
 }
 
@@ -434,6 +485,24 @@ mod tests {
             "API Error: 502 Bad Gateway",
         ] {
             assert!(matches!(classify(r, false), StopKind::Transient(_)), "{r}");
+        }
+    }
+
+    /// Chief 2026-10-20: a4, a10-a13 stopped on "(turn failed: You've hit
+    /// your weekly limit · resets Oct 25 at 9pm ...)" and were reported as
+    /// done, so nothing moved them to the Chief's new harness.
+    #[test]
+    fn a_used_up_account_is_not_a_real_report() {
+        for r in [
+            "The plan model is written.\n\n(turn failed: You've hit your weekly limit · resets Oct 25 at 9pm (America/Los_Angeles))",
+            "(failed: You've hit your session limit · resets 3am)",
+            "API Error: Claude AI usage limit reached|1792531182",
+        ] {
+            assert_ne!(classify(r, false), StopKind::Done, "{r}");
+            assert!(
+                !matches!(classify(r, false), StopKind::Transient(_)),
+                "a retry on the same account fails again: {r}"
+            );
         }
     }
 

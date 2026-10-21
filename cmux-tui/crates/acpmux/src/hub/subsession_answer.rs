@@ -253,6 +253,7 @@ mod tests {
             reply,
             decision_nonce: super::super::person::new_nonce(),
             ancestor_may_answer: may,
+            prev_status: SessionStatus::Waiting,
         };
         session.permissions.lock().unwrap().pending.insert(id.clone(), entry);
         (id, rx)
