@@ -8,7 +8,8 @@ SUMMARY has a `RESULT FILE LOG` line per file. A failed file lists each of its `
 `FILE > TEST: false`. A file that timed out, or failed without naming a test (it did not load),
 is `FILE: false`; a passing file is `FILE: true`. Results compare by exact name, so a base file
 that crashed or hung says nothing about the tests it never reached: their reds stay the change's.
-A file red again on its retry alone keeps a log of both runs, so it lists both runs' `(fail)` tests.
+A file red again on its retry alone keeps a log of both runs; only the retry's `(fail)` tests count,
+since the base reruns the file once, alone, too.
 """
 from __future__ import annotations
 
@@ -18,6 +19,7 @@ import re
 import sys
 
 FAIL = re.compile(r"^\(fail\) (.+?)(?: \[[0-9.]+m?s\])?$")
+RETRY = "--- retry, alone ---"  # run-webviews-tests.sh's line between a twice-red file's two logs
 
 
 def collect(summary: Path) -> dict[str, bool]:
@@ -34,6 +36,7 @@ def collect(summary: Path) -> dict[str, bool]:
             text = Path(log).read_text(encoding="utf-8", errors="replace")
         except OSError:
             text = ""
+        text = text.rsplit(f"\n{RETRY}\n", 1)[-1]
         named = {m.group(1) for m in map(FAIL.match, text.splitlines()) if m}
         if result != "FAIL" or not named:
             results[file] = False

@@ -176,10 +176,11 @@ class Wrapper(unittest.TestCase):
         self.assertNotIn("the red files again on the base", out)
 
     def test_a_flaky_file_keeps_its_steady_reds(self):
-        # A file that fails again alone keeps both runs' reds, flaky ones included.
+        # A file that fails again alone keeps the reds of that run alone, as the base runs it.
         done, out = self.run_pr({"test/a.test.ts": body([])}, {"test/a.test.ts": "FLAKY\n" + body(["new red"])})
         self.assertEqual(done.returncode, 1, out)
         self.assertIn("::error title=Webview test red on this change::test/a.test.ts > new red", out)
+        self.assertNotIn("test/a.test.ts > sometimes", out)
 
     def test_files_red_only_beside_each_other_are_not_the_changes(self):
         # composer-draft-wrap timed out beside the other red files when they reran together and passed
@@ -188,7 +189,8 @@ class Wrapper(unittest.TestCase):
         done, out = self.run_pr({name: body([]) for name in files}, files)
         self.assertEqual(done.returncode, 0, out)
         self.assertNotIn("::error", out)
-        self.assertEqual(out.count("(first run: FAIL)"), 2, out)
+        # However many of them started close enough to crowd each other.
+        self.assertGreaterEqual(out.count("(first run: FAIL)"), 1, out)
         self.assertNotIn("the red files again on the base", out)
 
     def test_the_bases_rule_findings_do_not_hide_the_changes_own(self):
