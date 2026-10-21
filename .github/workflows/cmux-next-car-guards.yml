@@ -7,7 +7,8 @@ name: cmux-next car guards
 #
 # The train calls this once per car (workflow_call, a matrix in the caller). Each leg uploads
 # its verdict JSON as `car-guards-<car>-<leg>`; the job results are the verdict too.
-#   linux  repo guards (prepush-gate, god files) and focused python, webviews, cargo tests
+#   linux  repo guards (prepush-gate, god files) and focused python, webviews (not the browser
+#          lane), cargo tests; a red also red at the car's base is the base's and passes
 #   mac    focused Swift test targets, one build per package, on a CI Mac (never cosmic-gray
 #          or air-blue); runs only when the plan selects Swift tests
 # A pull request that changes the car guards runs them on itself (base = its merge base).
@@ -31,7 +32,13 @@ on:
         type: string
         default: "{}"
     outputs:
-      # pass, fail, or '' when the plan needed no such leg.
+      # `true` when the plan needs the leg. A needed leg whose status is not `pass` (fail,
+      # error, or '' when it was cancelled or timed out) did not pass: read both.
+      linux_needed:
+        value: ${{ jobs.plan.outputs.linux }}
+      mac_needed:
+        value: ${{ jobs.plan.outputs.mac }}
+      # pass, fail (the car's own red) or error (a runner problem); '' when it did not finish.
       linux:
         value: ${{ jobs.linux.outputs.status }}
       mac:
@@ -60,6 +67,7 @@ on:
       - .github/workflows/cmux-next-car-guards.yml
       - scripts/ci/car_guards.py
       - scripts/ci/nightly-next-car-guard.sh
+      - scripts/ci/car-guard-python.sh
       - scripts/ci/run-webviews-tests.sh
       - scripts/ci/focused_tests.py
       - scripts/ci/focused-tests-extra.json
@@ -68,8 +76,10 @@ on:
 permissions:
   contents: read
 
+# A pull request's newer push replaces its run; a train's car (called or dispatched) never
+# cancels another run's car of the same name.
 concurrency:
-  group: cmux-next-car-guards-${{ inputs.car || github.ref }}
+  group: cmux-next-car-guards-${{ inputs.car && format('{0}-{1}', inputs.car, github.run_id) || github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -153,6 +163,15 @@ jobs:
           fetch-depth: 0
           filter: blob:none
 
+      # The workflow-guard tests' modules, pinned as ci-guards.yml installs them.
+      - name: Prepare the focused python tests' modules
+        run: |
+          set -euo pipefail
+          python3 -m venv "$RUNNER_TEMP/car-guard-venv"
+          "$RUNNER_TEMP/car-guard-venv/bin/python" -m pip install --disable-pip-version-check --no-input \
+            PyYAML==6.0.3 bashlex==0.18
+          echo "$RUNNER_TEMP/car-guard-venv/bin" >> "$GITHUB_PATH"
+
       - name: Setup Bun
         if: ${{ needs.plan.outputs.web == 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
@@ -205,7 +224,7 @@ jobs:
           python3 scripts/ci/car_guards.py run --where linux --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
             --prior "$RUNNER_TEMP/prior.json" --receipt "$RUNNER_TEMP/car-guards.json" > /dev/null
           code=$?
-          echo "status=$([[ $code == 0 ]] && echo pass || echo fail)" >> "$GITHUB_OUTPUT"
+          echo "status=$(case $code in 0) echo pass ;; 1) echo fail ;; *) echo error ;; esac)" >> "$GITHUB_OUTPUT"
           exit "$code"
 
       - name: Upload the verdict
@@ -273,7 +292,7 @@ jobs:
           python3 scripts/ci/car_guards.py run --where mac --base "$BASE" --head "$HEAD_SHA" --car "$CAR" \
             --prior "$RUNNER_TEMP/prior.json" --receipt "$RUNNER_TEMP/car-guards.json" > /dev/null
           code=$?
-          echo "status=$([[ $code == 0 ]] && echo pass || echo fail)" >> "$GITHUB_OUTPUT"
+          echo "status=$(case $code in 0) echo pass ;; 1) echo fail ;; *) echo error ;; esac)" >> "$GITHUB_OUTPUT"
           exit "$code"
 
       - name: Upload the verdict

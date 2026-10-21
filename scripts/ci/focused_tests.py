@@ -33,7 +33,10 @@ Nothing here is a hand list that rots: the map is derived from the tree at the h
           CMUX_WEB_TEST_FILES).
   native  A file in a Native/ cargo workspace (a Cargo.toml beside a Cargo.lock, such as
           Native/OptChat/optchat-chief) selects `cargo test --locked` on that manifest.
-  docs    Markdown and plans/ files need no test; they are listed, not unmapped.
+  docs    Markdown needs no test. A plans/ or docs/ data file goes through the python scan (tests
+          name plans/cmux-next/action-surfaces.json) and is a doc only when no test names it.
+  caps    At most 60 webviews files (nearest by import distance) and 8 Swift test targets per
+          car; more, or a CmuxNext route that selects everything, is deferred to the candidate.
   cargo   The cmux-tui files the change touches. The crates come from cargo_affected.py
           (owners plus reverse dependencies, from cargo metadata), which the runner calls where
           cargo is installed; this map does not repeat it.
@@ -67,6 +70,8 @@ except ModuleNotFoundError:  # Python < 3.11
 EXTRA = "scripts/ci/focused-tests-extra.json"
 PYTHON_TEST_DIRS = ("tests", "scripts/tests")
 WEB_CAP = int(os.environ.get("FOCUSED_WEB_CAP", "60"))
+# More Swift test targets than this is a whole-package run: the candidate's swift test tier.
+SWIFT_CAP = int(os.environ.get("FOCUSED_SWIFT_CAP", "8"))
 REGISTRY = "tests/test-execution.toml"
 IMPORT = re.compile(r"^\s*(?:@testable\s+)?import\s+(?:(?:struct|class|enum|func|protocol)\s+)?([A-Za-z_][A-Za-z0-9_]*)", re.M)
 # A basename this common names many unrelated files; only its full path selects tests.
@@ -88,14 +93,17 @@ def lanes(root: Path) -> dict[str, str]:
         return {}
     text = path.read_text(encoding="utf-8")
     if tomllib:
-        return {t["path"]: t.get("lane", "") for t in tomllib.loads(text).get("test", [])}
+        return {t["path"]: (t.get("lane", ""), bool(t.get("serial"))) for t in tomllib.loads(text).get("test", [])}
     found, current = {}, None
     for line in text.splitlines():  # the registry's flat [[test]] shape, for an old python3
         m = re.match(r'\s*(path|lane)\s*=\s*"([^"]*)"', line)
         if m and m.group(1) == "path":
             current = m.group(2)
+            found[current] = ("", False)
         elif m and current:
-            found[current] = m.group(2)
+            found[current] = (m.group(2), found[current][1])
+        elif current and re.match(r"\s*serial\s*=\s*true", line):
+            found[current] = (found[current][0], True)
     return found
 
 
@@ -199,6 +207,12 @@ class WebTests:
                 return candidate
         return None
 
+    def browser(self, test: str) -> bool:
+        """A file that launches a browser engine (requireBrowserLane, playwright) needs the
+        webviews job's bundles and engines; the car defers it to the candidate's web tier."""
+        text = (self.root / test).read_text(encoding="utf-8", errors="replace")
+        return "requireBrowserLane" in text or "playwright" in text
+
     def for_file(self, path: str) -> list[tuple[int, str]]:
         """(import distance, test) for every test that reaches `path`, nearest first."""
         distance, frontier, found = 0, [path], []
@@ -265,13 +279,17 @@ def plan(root: Path, files: list[str]) -> dict:
     corpus_web = None  # WebTests, read on the first webviews change
     next_tests, next_files = cmux_next_tests(root, files)
     next_package = "Packages/macOS/CmuxNext"
-    if next_files:
-        targets = next_tests if next_tests is not None else sorted(swift_tests.imports(next_package))
-        for target in targets:
+    swift_deferred = ""
+    if next_files and next_tests is None:
+        # The route marks everything (a manifest, the target graph, a file in no target): every
+        # CmuxNext suite is the candidate's swift test tier, not a fast guard.
+        swift_deferred = "cmux_next_route.py selects every CmuxNext test target"
+    elif next_files:
+        for target in next_tests:
             swift.setdefault((next_package, target), "cmux_next_route.py")
     for path in files:
         hit = path in next_files and bool(next_tests is None or next_tests)
-        if is_doc(path):
+        if path.endswith(".md"):
             docs.append(path)
             continue
         if path.startswith(WEB):
@@ -291,9 +309,12 @@ def plan(root: Path, files: list[str]) -> dict:
                 python.setdefault(path, "changed")
                 hit = True
         package = swift_package_root(root, path)
-        if package:
-            for target in swift_tests.imports(package):
-                swift.setdefault((package, target), f"{path} changed")
+        if package and package != next_package:
+            if len(swift_tests.imports(package)) > SWIFT_CAP:
+                swift_deferred = swift_deferred or f"{path} selects every test target of {package}"
+            else:
+                for target in swift_tests.imports(package):
+                    swift.setdefault((package, target), f"{path} changed")
             hit = True
         found = None if path in next_files else swift_package(root, path)
         if found:
@@ -321,17 +342,22 @@ def plan(root: Path, files: list[str]) -> dict:
                 for test in rule.get("python", []):
                     python.setdefault(test, f"{EXTRA}: {rule['prefix']}")
                 hit = True
-        if not hit:
+        if not hit and is_doc(path):
+            docs.append(path)  # a plans/ or docs/ file no test names
+        elif not hit:
             unmapped.append(path)
     # A module most of the suite reaches would make the car's guard the whole web suite: keep the
     # nearest WEB_CAP tests (by import distance, then name). The candidate's web tier runs the rest.
     nearest = sorted(web.items(), key=lambda item: (item[1][0], item[0]))[:WEB_CAP]
     return {
         "files": files,
-        "python": [{"path": p, "lane": registry.get(p, ""), "why": why} for p, why in sorted(python.items())],
-        "swift": [{"package": p, "filter": t, "why": why} for (p, t), why in sorted(swift.items())],
+        "python": [{"path": p, "lane": registry.get(p, ("", False))[0], "serial": registry.get(p, ("", False))[1], "why": why}
+                   for p, why in sorted(python.items())],
+        "swift": [{"package": p, "filter": t, "why": why} for (p, t), why in sorted(swift.items())][:SWIFT_CAP],
+        "swift_dropped": max(0, len(swift) - SWIFT_CAP),
+        "swift_deferred": swift_deferred,
         "cargo": {"changed": bool(cargo), "files": cargo},
-        "web": [{"path": p, "why": why} for p, (_, why) in sorted(nearest)],
+        "web": [{"path": p, "why": why, "browser": corpus_web.browser(WEB + p)} for p, (_, why) in sorted(nearest)],
         "web_dropped": len(web) - len(nearest),
         "native": [{"manifest": m, "why": why} for m, why in sorted(native.items())],
         "docs": docs,

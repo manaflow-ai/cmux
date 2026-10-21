@@ -12,7 +12,8 @@
 # CAR_GUARD_KINDS (default guard,python): the kinds run here, on the train's own runner. The
 # repo guards and focused python tests take seconds and need no toolchain. Focused cargo,
 # webviews and Swift tests need Rust, bun or a Mac: .github/workflows/cmux-next-car-guards.yml
-# runs every kind for a car (workflow_call). CAR_GUARD_RECEIPTS: a directory for each car's
+# runs every kind for a car (workflow_call). The focused python tests run on a python3 with
+# CI's pinned test modules (scripts/ci/car-guard-python.sh). CAR_GUARD_RECEIPTS: a directory for each car's
 # verdict JSON (default: none kept).
 set -euo pipefail
 
@@ -47,8 +48,9 @@ git -C "$repo" worktree add --quiet --detach "$work/tree" "$head" > /dev/null 2>
 }
 
 receipt="$work/verdict.json"
+python="$(bash "$here/car-guard-python.sh")" || exit 2
 set +e
-python3 -I "$here/car_guards.py" run --where linux --root "$work/tree" --base "$base" --head "$head" \
+"$python" -I "$here/car_guards.py" run --where linux --root "$work/tree" --base "$base" --head "$head" \
   --car "$car" --kinds "${CAR_GUARD_KINDS:-guard,python}" --receipt "$receipt" > /dev/null
 code=$?
 set -e
