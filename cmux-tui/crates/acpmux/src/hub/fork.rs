@@ -125,9 +125,17 @@ impl Hub {
                 )
                 .await
                 // The agent's own error is often bare ("Internal error"): say whose fork failed,
-                // and why when the chat has no turn (Claude's ACP adapter fails those).
+                // and why when the chat has no turn (Claude's ACP adapter fails those) or is
+                // working (OMP fails those).
                 .map_err(|e| {
-                    let why = if parent_meta.turn_count == 0 { NOTHING_TO_FORK.to_owned() } else { e.message.clone() };
+                    let working = matches!(session.meta().status, SessionStatus::Running | SessionStatus::Waiting);
+                    let why = if parent_meta.turn_count == 0 {
+                        NOTHING_TO_FORK.to_owned()
+                    } else if working {
+                        format!("the chat is working; fork it when the turn ends ({})", e.message)
+                    } else {
+                        e.message.clone()
+                    };
                     RpcError { message: format!("{} could not fork this chat: {why}", parent_meta.harness), ..e }
                 })?;
             let new_sid = res
