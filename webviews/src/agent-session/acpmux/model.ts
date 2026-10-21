@@ -449,8 +449,19 @@ const metrics = () => currentChatMetrics();
 const USER_BUBBLE_PADDING = 16;
 /// The status line under a queued prompt (`.cv-user__status`: 4px above a 16px line).
 const USER_STATUS_HEIGHT = 20;
+/// The transcript's rhythm (`--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and `--cv-turn-gap`
+/// in conversation/conversation.css): a meta row 4px under its message on a 24px line, 8px between
+/// messages, 24px between turns.
+const META_GAP = 4;
+const META_ROW = 24;
+const MESSAGE_GAP = 8;
+const TURN_GAP = 24;
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), which also carries a steer's read
+/// state; without it (a failed or queued prompt) a steer is its own status line.
+const userMetaHeight = (row: AcpmuxRow) =>
+  row.text && !row.failed && !row.queued ? META_GAP + META_ROW : row.steer ? USER_STATUS_HEIGHT : 0;
 const chromeHeight = (row: AcpmuxRow) =>
-  row.kind === "user" ? USER_BUBBLE_PADDING + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
+  row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).
 const USER_BUBBLE_SHARE = 0.7;
 const USER_BUBBLE_SIDES = 24;
@@ -527,7 +538,8 @@ export function plainEditLabels(items: readonly AcpmuxActivity[]): { key: string
 }
 
 /// First-layout estimates for rows not yet drawn; a drawn row places by its drawn height. Each
-/// includes the row's bottom padding (`.acpmux-row` in styles.css: 16px for messages, 8px else).
+/// includes the row's bottom padding (`.acpmux-row` in styles.css: the message gap for messages,
+/// 8px else; a turn's footer row closes with the turn gap).
 function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   const textLines = Math.max(1, Math.ceil((row.text?.length ?? 0) / Math.max(24, Math.floor(width / 8))));
   if (row.kind === "activity") {
@@ -581,8 +593,9 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
   if (row.kind === "sessionStart") return 37 + 44;
   // The plan card's 24px items inside 8px of padding and 8px margins (conversation/PlanList.tsx).
   if (row.kind === "plan" && row.plan) return 40 + row.plan.length * 24;
+  // A turn's footer: its meta line, then the turn gap.
+  if (row.kind === "turnSummary") return META_ROW + TURN_GAP;
   if (
-    row.kind === "turnSummary" ||
     row.kind === "notice" ||
     row.kind === "backgroundTask" ||
     row.kind === "compaction" ||
@@ -591,7 +604,7 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
     row.kind === "typing"
   )
     return 37;
-  return 24 + chromeHeight(row) + textLines * metrics().lineHeight;
+  return 8 + MESSAGE_GAP + chromeHeight(row) + textLines * metrics().lineHeight;
 }
 
 /// A link target the page opens: absolute http and https only (replyHref.ts).
@@ -744,7 +757,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   const contentWidth = Math.max(80, row.kind === "user" ? USER_BUBBLE_SHARE * width - USER_BUBBLE_SIDES : width);
   let contentHeight = (entry.blocks.length - 1) * BLOCK_GAP;
   for (const block of entry.blocks) contentHeight += blockHeight(block, contentWidth, entry.prepared);
-  return Math.max(34, 16 + chromeHeight(row) + contentHeight);
+  return Math.max(34, MESSAGE_GAP + chromeHeight(row) + contentHeight);
 }
 
 /// A row's estimated height at a width, kept by the row object: rows are immutable (a change is a

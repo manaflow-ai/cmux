@@ -42,6 +42,14 @@
   /* The pane's other mono text (permission commands, preview addresses, the replay clock, the
      Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
+  /* The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: no empty
+     bands). A message's meta row (a prompt's age, ticks, actions and steer; a reply's footer) is one
+     compact line right under it; messages in a turn sit one message gap apart, turns one turn gap.
+     model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
+  --cv-meta-gap: 4px; /* a message to its meta row */
+  --cv-meta-row: 24px; /* the meta row's line */
+  --cv-message-gap: 8px; /* a message (or its meta row) to the next row in its turn */
+  --cv-turn-gap: 24px; /* a turn's footer to the next prompt */
 }
 /* A wider column on a wide pane (Debug Settings agent.chatWidth, chatWidth.ts, cx-ncc.107): `wide` caps
    everything at 960px; `wideBlocks` gives code, diffs, tables, tool output and cards 1120px while
@@ -370,21 +378,33 @@
   background: transparent;
 }
 /* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
-   reached them, as Claude's. */
+   reached them, as Claude's. The row is one compact line right under the bubble; hidden, it keeps
+   only that line, so pointing at a prompt moves nothing. A steer's read state ends it, always shown. */
 .cv-user__actions {
   display: flex;
   align-items: center;
   gap: 2px;
-  margin-top: 4px;
+  height: var(--cv-meta-row);
+  margin-top: var(--cv-meta-gap);
   padding-right: 2px;
-  opacity: 0;
-  transition: opacity 120ms ease-out;
 }
-.cv-user:hover .cv-user__actions,
-.acpmux-row[data-last-prompt] .cv-user__actions,
-.cv-user__actions:focus-within,
-.cv-user__actions--versions {
+.cv-user__actions > :not(.cv-user__steer) {
+  opacity: 0;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .cv-user__actions > :not(.cv-user__steer) {
+    transition: opacity 120ms ease-out;
+  }
+}
+.cv-user:hover .cv-user__actions > *,
+.acpmux-row[data-last-prompt] .cv-user__actions > *,
+.cv-user__actions:focus-within > *,
+.cv-user__actions--versions > * {
   opacity: 1;
+}
+.cv-user__actions > .cv-user__steer {
+  margin: 0 0 0 4px;
+  padding-right: 2px;
 }
 /* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
 .cv-user__time {
@@ -1659,7 +1679,7 @@ pre.cv-math-source {
   align-items: center;
   justify-content: flex-start;
   gap: 8px;
-  min-height: 28px;
+  min-height: var(--cv-meta-row);
   padding-inline-start: 2px;
   color: var(--cv-text-muted);
   font-family: var(--cv-font);
@@ -1670,6 +1690,14 @@ pre.cv-math-source {
 :root[data-turn-actions-placement="right"] .cv-turn-actions {
   justify-content: flex-end;
   padding-inline: 0 2px;
+}
+/* The footer's buttons fit its compact line, as a prompt's do. */
+.cv-turn-actions .cv-iconbtn {
+  height: var(--cv-meta-row);
+  border-radius: 6px;
+}
+.cv-turn-actions .cv-iconbtn:not(.cv-turn-retry-menu) {
+  width: var(--cv-meta-row);
 }
 .cv-turn-action-group {
   display: inline-flex;
@@ -2897,6 +2925,14 @@ pre.cv-math-source {
 }
 .acpmux-row--after-step > .cv-tools {
   margin-top: 0;
+}
+/* A reply's footer hugs it as a prompt's meta row does, and closes the turn with the turn gap. */
+.acpmux-row.acpmux-assistant.acpmux-row--before-footer {
+  padding-bottom: var(--cv-meta-gap);
+}
+.acpmux-row.acpmux-turnSummary {
+  min-height: 0;
+  padding-bottom: var(--cv-turn-gap);
 }
 
 /* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */

@@ -650,7 +650,8 @@ const MessageRow = memo(
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <FailedPrompt row={row} />
-          {row.steer && <SteerMark steer={row.steer} />}
+          {/* A prompt's bubble draws its steer in its meta row (UserBubble.tsx). */}
+          {row.steer && (envelope || row.from === "chief") && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
@@ -1045,6 +1046,7 @@ const RowFrame = React.memo(function RowFrame({
   kind,
   joinsPrevious,
   joinsNext,
+  beforeFooter,
   index,
   setSize,
   top,
@@ -1071,6 +1073,8 @@ const RowFrame = React.memo(function RowFrame({
   joinsPrevious: boolean;
   /// A step row before another: no gap below it, so steps keep one 26px rhythm across rows.
   joinsNext: boolean;
+  /// A reply right over its turn's footer: the footer hugs it (`--cv-meta-gap`), as a meta row.
+  beforeFooter: boolean;
   index: number;
   setSize: number;
   top: number;
@@ -1138,14 +1142,14 @@ const RowFrame = React.memo(function RowFrame({
         row.version,
         acpmuxPerf.timed("row.measure", () => node.getBoundingClientRect().height),
       );
-  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, report]);
+  }, [row.id, row.version, rowWidth, expanded, joinsPrevious, joinsNext, beforeFooter, report]);
   return (
     <article
       ref={ref}
       id={rowDomId(row.id)}
       data-row-id={row.id}
       data-row-card={row.ended ? "true" : undefined}
-      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
+      className={`acpmux-row acpmux-${kind}${joinsPrevious ? " acpmux-row--after-step" : ""}${joinsNext ? " acpmux-row--before-step" : ""}${beforeFooter ? " acpmux-row--before-footer" : ""}${entering ? " acpmux-row--enter" : ""}${olderFade ? " acpmux-row--older" : ""}`}
       data-transcript-active={active ? "true" : undefined}
       data-transcript-selected={selected ? "true" : undefined}
       aria-current={active ? "true" : undefined}
@@ -2612,6 +2616,7 @@ export function VirtualTranscript({
                       kind={kind}
                       joinsPrevious={isStepRow(row) && isStepRow(rows[absoluteIndex - 1])}
                       joinsNext={isStepRow(row) && isStepRow(rows[absoluteIndex + 1])}
+                      beforeFooter={row.kind === "assistant" && rows[absoluteIndex + 1]?.kind === "turnSummary"}
                       index={absoluteIndex}
                       setSize={canLoadOlder ? -1 : rows.length}
                       top={layout.tops[absoluteIndex]}

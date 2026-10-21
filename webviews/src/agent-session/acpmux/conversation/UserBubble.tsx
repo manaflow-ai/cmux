@@ -18,6 +18,7 @@ import { copyText } from "./clipboard";
 import { Check, ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil, TurnFork } from "./icons";
 import { relativeTime } from "./relativeTime";
 import { ImageViewerContext } from "./imageViewerContext";
+import { SteerMark } from "./SteerMark";
 import { TurnActionsContext } from "./turnActions";
 import { BookmarkIcon } from "../threadMinimap/BookmarkIcon";
 import { usePromptRowMark } from "../threadMinimap/promptMarks";
@@ -52,11 +53,13 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
       />
     );
   }
+  // The meta row under the bubble: its age, ticks and actions, and a steer's read state.
+  const actions = Boolean(text) && !row.failed && !row.queued;
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
       <div className="cv-user__bubble selectable">{text}</div>
-      {text && !row.failed && !row.queued && (
+      {actions && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
             <span className="cv-user__versions">
@@ -151,8 +154,12 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               <BookmarkIcon filled={mark.marked} size={14} />
             </button>
           )}
+          {/* A steer's read state ends the row, right under the bubble's edge, and stays shown
+              while the actions before it wait for the pointer. */}
+          {row.steer && <SteerMark steer={row.steer} />}
         </div>
       )}
+      {row.steer && !actions && <SteerMark steer={row.steer} />}
     </>
   );
 }
