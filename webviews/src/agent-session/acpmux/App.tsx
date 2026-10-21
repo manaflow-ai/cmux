@@ -6397,6 +6397,10 @@ function AcpmuxPane() {
         <div
           className="acpmux-main"
           data-new-chat={freshView && !showNewTab ? "" : undefined}
+          // The bottom stack is a box pinned under the transcript while the stage shows it
+          // (bottomStack.css); a new chat's hero, a handoff review, the diff and the inspector lay its
+          // parts in the pane's flow.
+          data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "pinned" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
