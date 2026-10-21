@@ -125,7 +125,7 @@ fn always_identified() -> Vec<&'static str> {
     capabilities
 }
 
-/// `cmux-tui capabilities [--json]`: `always_identified`, sorted, with no
+/// `cmux-tui __daemon-capabilities [--json]`: `always_identified`, sorted, with no
 /// daemon running. Every daemon this binary starts beside the same files (the
 /// app bundle's `bin/`, where `apps-v1` follows `cmux-app-host`) advertises at
 /// least these in `identify`. The app bundle records them in
