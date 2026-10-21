@@ -140,6 +140,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     /// `sidebar.sessionTree`: a workspace started by another's agent lists under it, and rows
     /// carry their pull requests and keycaps. Nil (off) draws the list as before.
     public var sessionTree: SidebarSessionTreeState?
+    /// Each row's pull request badge (`sidebar.pullRequestBadges`), drawn with the tree off too.
+    public var pullRequests: [WorkspaceID: SidebarPullRequestBadge] = [:]
     /// The session tree's keycaps: each workspace's Command-number (`SidebarItemOrder`).
     public var keycaps: [WorkspaceID: Int] = [:]
     /// The session tree's chat history (`SidebarChatHistoryState`): Pinned above the workspaces,
@@ -164,10 +166,8 @@ nonisolated extension SidebarLayoutOptions {
     func rowContent(_ ws: SidebarWorkspace, machine: String?) -> WorkspaceRowContent {
         var content = baseRowContent(ws, machine: machine)
         content.detailedStatus = detailedStatus
-        if let sessionTree {
-            content.keycap = keycaps[ws.id]
-            content.pullRequests = sessionTree.pullRequests[ws.id]
-        }
+        if let sessionTree { content.keycap = keycaps[ws.id] }
+        content.pullRequests = sessionTree?.pullRequests[ws.id] ?? pullRequests[ws.id]
         if !showsTimestamps { (content.time, content.badgeTime) = (nil, nil) }
         // What the agent needs outranks the row's age and one-line status on the name's line; the
         // row view words it (localized on the main actor, so the layout stays nonisolated).

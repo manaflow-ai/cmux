@@ -192,7 +192,7 @@ class PullRequestTiers(unittest.TestCase):
         # CmuxNextSettingsTests reads the schema. Since the bundles are build output
         # (ce0b9e76a9b) the schema is also a web-bundle input, so the test targets that
         # depend on a target shipping a bundle are selected with it, and nothing else.
-        # The graph names those dependents (#23260 and #22683 each added one).
+        # The graph names those dependents (#23260, #22683 and #21818 each added one).
         import cmux_next_route as route_module
         path = "schemas/settings/settings-schema.json"
         result = tiers([path])
