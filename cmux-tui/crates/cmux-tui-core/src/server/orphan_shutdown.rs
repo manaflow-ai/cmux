@@ -2,7 +2,11 @@
 //! live in the cmux-tui crate, `headless/dev_orphan_exit.rs`).
 //!
 //! The registry tells one observer each time a client connects or leaves, so
-//! the watcher can time how long the owner has had no client at all.
+//! the watcher can time how long the owner has had no client at all. The
+//! owner's own journal plugin (the bundled screen detector, which connects
+//! back at start and stays) is not such a client: a connection from that
+//! plugin's process group is marked at accept and not counted (cmux issue
+//! 23086: every DEV owner and Chief owner kept itself alive through it).
 //! [`stop_orphaned_owner`] then stops the OWNER only, the way `server stop`
 //! without `end_terminals` does: no terminal ends and no terminal host is
 //! signalled. The hosts keep running for the next owner of the session to
@@ -39,22 +43,38 @@ impl ClientRegistry {
         self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner).clients.len()
     }
 
+    /// Connected clients other than the owner's own journal plugin.
+    pub(crate) fn user_client_count(&self) -> usize {
+        let state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        state.clients.values().filter(|record| !record.owner_plugin).count()
+    }
+
+    /// Marks `client` as the owner's own plugin. False when it is gone.
+    fn mark_owner_plugin(&self, client: u64) -> bool {
+        let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
+        let Some(record) = state.clients.get_mut(&client) else { return false };
+        record.owner_plugin = true;
+        true
+    }
+
     /// Reserves the daemon handoff for an orphan exit, atomically with the
     /// check that no client is connected. While it is held, a new
-    /// connection is closed at registration. False when a client is
-    /// connected or another handoff runs.
+    /// connection is closed at registration. False when a client other
+    /// than the owner's own plugin is connected or another handoff runs.
     fn begin_orphan_shutdown(&self) -> bool {
         self.begin_owner_shutdown(true)
     }
 
     /// Reserves the daemon handoff for an exit the owner starts itself (an
     /// orphan exit, or the exit of the process it was started for,
-    /// `starter_exit`). With `require_no_clients`, only while no client is
-    /// connected. False when another handoff runs (or a client is connected
-    /// and `require_no_clients`).
+    /// `starter_exit`). With `require_no_clients`, only while no client other
+    /// than the owner's own plugin is connected. False when another handoff
+    /// runs (or such a client is connected and `require_no_clients`).
     pub(super) fn begin_owner_shutdown(&self, require_no_clients: bool) -> bool {
         let mut state = self.state.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        if state.daemon_handoff.is_some() || (require_no_clients && !state.clients.is_empty()) {
+        if state.daemon_handoff.is_some()
+            || (require_no_clients && state.clients.values().any(|record| !record.owner_plugin))
+        {
             return false;
         }
         state.daemon_handoff = Some(DaemonHandoffReservation::Pending(ORPHAN_SHUTDOWN_REQUESTER));
@@ -66,6 +86,12 @@ impl Mux {
     /// Number of connected clients, of any role.
     pub fn client_count(&self) -> usize {
         self.control_clients.client_count()
+    }
+
+    /// Number of connected clients other than the owner's own journal
+    /// plugin: the clients the orphan exit waits on.
+    pub fn user_client_count(&self) -> usize {
+        self.control_clients.user_client_count()
     }
 
     /// Calls `observer` (with no registry lock held) each time a client
@@ -91,6 +117,33 @@ impl Mux {
     }
 }
 
+/// Marks a new local connection whose peer is in the owner's journal plugin
+/// process group, then tells the presence observer again: `register` already
+/// reported the connection as a client before its peer was known. The
+/// supervisor records its child under the same lock it spawns under, so the
+/// plugin's own connection always finds its group here.
+pub(super) fn mark_owner_plugin(mux: &Mux, client: u64, peer_key: Option<&str>) {
+    if is_owner_plugin_peer(mux, peer_key) && mux.control_clients.mark_owner_plugin(client) {
+        mux.control_clients.notify_client_presence();
+    }
+}
+
+#[cfg(unix)]
+fn is_owner_plugin_peer(mux: &Mux, peer_key: Option<&str>) -> bool {
+    let Some(pid) = peer_key.and_then(super::origin_gate::peer_pid) else { return false };
+    let Some(group) = mux.journal_plugin_process_group() else { return false };
+    let Ok(pid) = libc::pid_t::try_from(pid) else { return false };
+    // SAFETY: getpgid only reads kernel metadata for a positive pid; the
+    // peer holds the connection open, so the pid is still its own.
+    unsafe { libc::getpgid(pid) == group }
+}
+
+/// Journal plugins are Unix-only.
+#[cfg(not(unix))]
+fn is_owner_plugin_peer(_mux: &Mux, _peer_key: Option<&str>) -> bool {
+    false
+}
+
 /// Releases the orphan reservation unless the exit committed, also when the
 /// policy check panics, so a stuck fence can never refuse every later
 /// client.
@@ -108,7 +161,8 @@ impl Drop for OrphanFence<'_> {
 }
 
 /// Stops an orphaned owner: the owner loop is asked to leave as on a plain
-/// `server stop`; every terminal and its host keep running. `still_orphaned`
+/// `server stop`; every terminal and its host keep running. Only the owner's
+/// own journal plugin may still be connected. `still_orphaned`
 /// runs under the fence (no client can connect meanwhile) and repeats the
 /// caller's policy check, so a terminal or client that appeared since the
 /// caller looked keeps the owner. `false` changes nothing: a client is
