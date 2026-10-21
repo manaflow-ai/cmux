@@ -1674,6 +1674,38 @@ class FastTierRunner(unittest.TestCase):
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
 
 
+SESSION_LANE_CLAUSE = (
+    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
+    "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SESSION_LANE_RUNNER || "
+)
+# Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
+GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
+    + "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') "
+    "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
+    "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
+    + "(needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || "
+    "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
+    "&& (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') "
+    "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
+    "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
+)
+
+
+class GeneratedFilesRunner(unittest.TestCase):
+    def test_the_session_lane_label_comes_after_the_fork_clause(self):
+        """vars.CI_SESSION_LANE_RUNNER gives generated files the light minis' session runners. A fork
+        pull request must take its hosted label before that variable is read, and with the variable
+        unset the route is the one the job had before it. CMUX_NEXT_RUNNER restates runs-on."""
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["generated-files"]
+        runs_on = job["runs-on"]
+        self.assertIn(SESSION_LANE_CLAUSE, runs_on)
+        self.assertEqual(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE),
+                         runs_on.index(SESSION_LANE_CLAUSE))
+        self.assertEqual(runs_on.replace(SESSION_LANE_CLAUSE, "", 1), GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE)
+        self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], runs_on)
+
+
 class _UnsetIsEmpty(dict):
     def __missing__(self, key):
         return ""

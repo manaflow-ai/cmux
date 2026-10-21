@@ -256,6 +256,21 @@ class FastLaneVariable(unittest.TestCase):
         self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-fast-std-xcode-26.6"}))
 
 
+class SessionLaneVariable(unittest.TestCase):
+    def test_only_an_owned_session_label_is_allowed_beyond_the_policy(self) -> None:
+        # CI_SESSION_LANE_RUNNER is cmux-next generated files' own owned session runner label.
+        name = "CI_SESSION_LANE_RUNNER"
+        for label in ("", "glaeda-session-light-xcode-26.6", "blacksmith-6vcpu-macos-26"):
+            with self.subTest(label=label):
+                self.assertEqual(drifted_runner_variables({name: label}), [])
+        for label in ("glaeda-light-xcode-26.6", "glaeda-fast-light-xcode-26.6", "glaeda-session-nonsense",
+                      "warp-macos-26-arm64-12x"):
+            with self.subTest(label=label):
+                self.assertEqual([found for found, _, _ in drifted_runner_variables({name: label})], [name])
+        # Other runner variables still may not name one.
+        self.assertTrue(drifted_runner_variables({"CI_SIDE_LANE_RUNNER": "glaeda-session-light-xcode-26.6"}))
+
+
 class AwsSideRunnerVariable(unittest.TestCase):
     def test_the_retired_aws_side_runner_must_stay_empty(self) -> None:
         # CI_AWS_SIDE_RUNNER named the glaeda-aws pools, which no longer have

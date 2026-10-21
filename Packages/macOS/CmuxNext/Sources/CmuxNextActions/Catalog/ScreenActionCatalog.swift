@@ -27,7 +27,7 @@ nonisolated enum ScreenActionCatalog: ActionCatalogGroup {
             screen("screen.new", String(localized: "action.screen.new", defaultValue: "New Screen", table: "ScreenActions", bundle: .module),
                    "rectangle.stack.badge.plus", cli: "screen new", keywords: ["window", "create"], surfaces: [.palette],
                    startsTerminal: true),
-            screen("screen.newWith", String(localized: "action.screen.newWith", defaultValue: "New Screen with…", table: "ScreenActions", bundle: .module),
+            screen("screen.newWith", String(localized: "action.screen.newWith", defaultValue: "New Screen With…", table: "ScreenActions", bundle: .module),
                    "rectangle.stack.badge.plus", cli: "screen new-with", keywords: ["window", "create", "name", "directory"],
                    surfaces: [.palette], arguments: [CatalogArgument.nameString, CatalogArgument.colorChoice.optional,
                                                      CatalogArgument.iconString.optional, CatalogArgument.cwdString.optional],

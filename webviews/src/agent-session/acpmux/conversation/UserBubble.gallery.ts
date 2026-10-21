@@ -1,7 +1,9 @@
 // l10n-allow-file: gallery fixtures (sample prompts and replies), not shipped UI.
-// A prompt's bubble (UserBubble.tsx): Copy and Edit under it on hover. Edit shows on a Claude chat's
-// prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons name
-// themselves in a tooltip on hover (the *-tooltip plays).
+// A prompt's bubble (UserBubble.tsx) and an answer's footer (TurnRows.tsx TurnFooter), with their
+// hover rows as Claude Code desktop's: under the prompt its age, read receipt, Copy, Edit, Retry,
+// Fork and Pin; under the answer Copy, Fork, Pin, Read aloud and its age. Edit shows on a Claude
+// chat's prompts after its first turn, which acpmux can fork through (cx-ncc.60). The icon buttons
+// name themselves in a tooltip on hover (the *-tooltip plays).
 import { agentPaneEntry } from "../../../gallery/format";
 import type { PlayContext } from "../../../gallery/play";
 import { assistant, chat, summary, user } from "../../../gallery/fixtures/acpmux";
@@ -38,12 +40,28 @@ export default agentPaneEntry({
   id: "agent-pane.user-bubble",
   title: "Prompt bubble",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/conversation/UserBubble.tsx"],
+  covers: [
+    "agent-session/acpmux/conversation/UserBubble.tsx",
+    "agent-session/acpmux/conversation/MessageActions.tsx",
+    "agent-session/acpmux/conversation/icons.tsx#DoubleCheck",
+    "agent-session/acpmux/conversation/icons.tsx#Pin",
+    "agent-session/acpmux/conversation/icons.tsx#Speaker",
+  ],
   anchors: [{ selector: ".acpmux-composer" }, { selector: ".acpmux-header" }],
   variants: {
     claude: {
       note: "A Claude chat: hover a later prompt for Copy and Edit; the first prompt has Copy only.",
       snapshot: turns(claude),
+    },
+    "prompt-hover": {
+      note: "Hovering the latest prompt shows its row under the bubble's right edge; nothing else shows.",
+      snapshot: turns(claude),
+      play: async (ctx) => ctx.hover({ text: "Now cover it with a test that fakes two timeouts" }),
+    },
+    "answer-hover": {
+      note: "Hovering an answer shows its row under its left edge: Copy, Fork, Pin, Read aloud, its age.",
+      snapshot: turns(claude),
+      play: async (ctx) => ctx.hover({ text: /uploader\.retry\.test\.ts/ }),
     },
     other: {
       note: "Another agent forks only at a chat's end: prompts offer Copy only.",

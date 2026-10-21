@@ -107,7 +107,14 @@ impl Hub {
             // name unleased first (lock order: `peer_leases`, then `peers`).
             let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
             if leases.remove(name).is_some() {
-                // The leased machine's rows go; the saved peer lists its own.
+                // The leased machine's peer goes before its rows: a late
+                // notice of it then finds it gone, or lands before the purge
+                // (`apply_peer_notice` checks under the rows lock). The saved
+                // peer lists its own.
+                let leased = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+                if let Some(leased) = leased {
+                    leased.stop();
+                }
                 self.purge_peer_rows(name);
             }
             self.start_peer(name, &pc)
@@ -145,14 +152,28 @@ impl Hub {
         Ok(())
     }
 
+    /// Remove a saved peer. Refused for a leased one: a lease never touches
+    /// config.json, and it ends with the connection that holds it
+    /// (`peer_lease.rs`).
     pub async fn remove_peer(&self, name: &str) -> Result<(), RpcError> {
-        let peer = self.peers.lock().unwrap().remove(name);
-        let Some(peer) = peer else {
-            return Err(RpcError::not_found(format!("no peer {name:?}")));
-        };
-        peer.stop();
-        self.forget_lease(name);
-        self.forget_peer_cache(name);
+        {
+            // Under the lease lock, so no save of the removed peer's sessions
+            // lands after its cache is gone (`save_peer_cache`).
+            let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+            if leases.contains_key(name) {
+                return Err(RpcError::invalid_params(format!(
+                    "{name:?} is a leased peer; it ends when the connection that leased it closes"
+                )));
+            }
+            let peer = self.peers.lock().unwrap_or_else(|e| e.into_inner()).remove(name);
+            let Some(peer) = peer else {
+                return Err(RpcError::not_found(format!("no peer {name:?}")));
+            };
+            peer.stop();
+            self.forget_peer_cache(name);
+        }
+        // After the peer left the registry: a late notice of it finds it
+        // gone, or its rows go here.
         self.purge_peer_rows(name);
         let mut cfg = self.config.write().await;
         cfg.peers.remove(name);
@@ -180,22 +201,24 @@ impl Hub {
         // Read before `peers` is locked (lock order: `peer_leases`, then `peers`).
         let leased: std::collections::HashSet<String> =
             self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).keys().cloned().collect();
-        let mut v: Vec<Value> = self
+        // Released before the rows are counted (lock order: `remote_sessions`,
+        // then `peers`; `apply_peer_notice`).
+        let listed: Vec<(String, Value)> = self
             .peers
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .values()
-            .map(|p| {
-                let mut s = p.summary();
-                s["sessions"] = json!(
-                    self.remote_sessions
-                        .lock()
-                        .unwrap()
-                        .values()
-                        .filter(|r| r.peer == p.name)
-                        .count()
-                );
-                if leased.contains(&p.name) {
+            .map(|p| (p.name.clone(), p.summary()))
+            .collect();
+        let mut counts: HashMap<String, usize> = HashMap::new();
+        for r in self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner()).values() {
+            *counts.entry(r.peer.clone()).or_default() += 1;
+        }
+        let mut v: Vec<Value> = listed
+            .into_iter()
+            .map(|(name, mut s)| {
+                s["sessions"] = json!(counts.get(&name).copied().unwrap_or(0));
+                if leased.contains(&name) {
                     s["leased"] = Value::Bool(true);
                 }
                 s
@@ -203,6 +226,17 @@ impl Hub {
             .collect();
         v.sort_by_key(|p| p.get("name").and_then(Value::as_str).unwrap_or("").to_owned());
         v
+    }
+
+    /// Whether `generation` is the peer instance registered under `name`.
+    /// Called with the rows lock held (lock order: `remote_sessions`, then
+    /// `peers`).
+    fn is_current(&self, name: &str, generation: u64) -> bool {
+        self.peers
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(name)
+            .is_some_and(|p| p.generation == generation)
     }
 
     pub fn peer_by_name(&self, name: &str) -> Option<Arc<crate::peer::Peer>> {
@@ -285,14 +319,24 @@ impl Hub {
                 continue;
             };
             let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
-            self.apply_peer_notice(&peer, notice);
+            self.apply_peer_notice(&peer, generation, notice);
             if settles {
                 current.mark_settled();
             }
         }
     }
 
-    pub(super) fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
+    pub(super) fn apply_peer_notice(
+        &self,
+        peer: &str,
+        generation: u64,
+        notice: crate::peer::PeerNotice,
+    ) {
+        // `peer_notice_loop` checked the instance without the rows lock: a
+        // peer replaced or removed since (`add_peer`, `remove_peer`,
+        // `end_peer_lease`, each of which unregisters the peer before it
+        // drops its rows) must not add rows back or save them. So every path
+        // that changes rows checks again under the rows lock.
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
         {
@@ -309,6 +353,9 @@ impl Hub {
                     // Keep the last known list, but flag it.
                     let changed: Vec<Value> = {
                         let mut map = self.remote_sessions.lock().unwrap();
+                        if !self.is_current(&peer, generation) {
+                            return;
+                        }
                         map.values_mut()
                             .filter(|r| r.peer == peer)
                             .filter_map(|r| {
@@ -318,7 +365,7 @@ impl Hub {
                             .collect()
                     };
                     if !changed.is_empty() {
-                        self.save_peer_cache(&peer, true);
+                        self.save_peer_cache(&peer, generation, true);
                     }
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
@@ -329,6 +376,9 @@ impl Hub {
                     // ssh tunnel is slow to open), so tell watchers what changed.
                     let (changed, gone) = {
                         let mut map = self.remote_sessions.lock().unwrap();
+                        if !self.is_current(&peer, generation) {
+                            return;
+                        }
                         let mut old: HashMap<String, Value> = map
                             .iter()
                             .filter(|(_, r)| r.peer == peer)
@@ -347,7 +397,7 @@ impl Hub {
                         }
                         (changed, old.into_values().collect::<Vec<_>>())
                     };
-                    self.save_peer_cache(&peer, true);
+                    self.save_peer_cache(&peer, generation, true);
                     for summary in changed {
                         self.announce_remote(&peer, summary, "status");
                     }
@@ -364,13 +414,16 @@ impl Hub {
                     if kind == "purged" {
                         let removed = {
                             let mut map = self.remote_sessions.lock().unwrap();
+                            if !self.is_current(&peer, generation) {
+                                return;
+                            }
                             let key = map
                                 .iter()
                                 .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
                                 .map(|(key, _)| key.clone());
                             key.and_then(|key| map.remove(&key).map(|r| r.summary))
                         };
-                        self.save_peer_cache(&peer, false);
+                        self.save_peer_cache(&peer, generation, false);
                         let _ = self.events.send(HubEvent {
                             session_id: mux_id.clone(),
                             record: EventRecord {
@@ -393,6 +446,9 @@ impl Hub {
                     let id = receipt.qualified_id();
                     {
                         let mut map = self.remote_sessions.lock().unwrap();
+                        if !self.is_current(&peer, generation) {
+                            return;
+                        }
                         let old_id = map
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
@@ -405,7 +461,7 @@ impl Hub {
                             RemoteSession { peer: peer.clone(), summary: summary.clone(), receipt },
                         );
                     }
-                    self.save_peer_cache(&peer, false);
+                    self.save_peer_cache(&peer, generation, false);
                     let _ = self.events.send(HubEvent {
                         session_id: mux_id,
                         record: EventRecord {

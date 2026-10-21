@@ -51,10 +51,7 @@ enum ScreenGroupHandlers {
             if let name = invocation["name"]?.stringValue {
                 return ScreenGroupCommands.update(ref.group.id, name: name, daemon: ref.daemon)
             }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(RefusalStrings.nameArgumentRequired) else { return }
-            RenamePrompt.run(title: ScreenStrings.groupNamePromptTitle, initial: ref.group.name, in: window) { name in
-                ScreenGroupCommands.update(ref.group.id, name: name, daemon: ref.daemon)
-            }
+            ctx.services.registry.ask("screenGroup.rename", invocation, ActionArgumentAsk(argument: "name", initialText: ref.group.name))
         })
         registry.bind("screenGroup.setColor", invoke: { invocation in
             guard let ref = group(invocation, ctx) else { return }
