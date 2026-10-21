@@ -236,6 +236,7 @@ import { archiveRow, markUnreadRow } from "./header/archiveRow";
 import { copyRow } from "./header/copyRow";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
 import { opensBesideRows, sideChatRow } from "./header/sideChatRow";
+import { PendingSteer } from "./conversation/PendingSteer";
 import { Thinking } from "./conversation/Thinking";
 import { type WorkingCounts, WorkingCountsContext, WorkingFor } from "./conversation/WorkingFor";
 import { type HarnessHealth, HarnessHealthNotice, type UpdateOffer, UpdateOfferContext } from "./HarnessHealthNotice";
@@ -669,6 +670,7 @@ const MessageRow = memo(
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <DeliveryFailure row={row} />
+          <PendingSteer row={row} send={editQueued} />
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
