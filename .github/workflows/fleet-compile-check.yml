@@ -32,7 +32,7 @@ jobs:
   compile-check:
     name: fleet compile-check
     if: ${{ github.repository_owner == 'manaflow-ai' && github.ref == 'refs/heads/feat-cmux-next' && vars.CI_COMPILE_CHECK_GATEWAY != '' }}
-    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
+    runs-on: ${{ vars.CI_COMPILE_CHECK_GATEWAY || 'ubuntu-24.04' }}  # the job's if: skips when it is unset
     permissions:
       statuses: write
     timeout-minutes: 35  # the client waits up to 600 + 1200 s plus its own slack
