@@ -37,7 +37,7 @@ extension AppServices {
 
     /// Starts Cloud and keeps the registry context current.
     func startCloud() -> Task<Void, Never> {
-        cloud.confirmWindow = { [weak self] in self?.windows.active?.window }
+        cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.machineAsks) }
         cloud.start()
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
