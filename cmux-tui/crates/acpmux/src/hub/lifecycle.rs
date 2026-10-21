@@ -295,9 +295,9 @@ impl Hub {
                 tracing::warn!(harness = agent, mode = %mode, "start mode skipped: {}", err.message);
                 self.append(&session, "mux", "start_default_skipped", json!({"modeId": mode, "error": err.message}));
             }
-            if mode_eligible {
-                self.note_unenforced_policy(&session);
-            }
+            // Every chat, eligible or not: a preset's or a pinned profile's policy holds too.
+            let default = self.config.read().await.permission_policy;
+            self.note_unenforced_policy(&session, default);
             Ok(())
         }
         .await;
@@ -388,6 +388,7 @@ impl Hub {
         session.backgrounds_work.store(moves, Ordering::SeqCst);
         // A fresh agent: what acpmux set on the last one is replayed, not assumed.
         self.fresh_agent(session, profile.preset_digest.clone());
+        session.closing.store(false, Ordering::SeqCst);
         // A pooled session claimed for this id (`pool/`): its host already
         // runs with the harness initialized and its session created.
         if let Some(pooled) = self.pool_take_claimed(&session.id) {
