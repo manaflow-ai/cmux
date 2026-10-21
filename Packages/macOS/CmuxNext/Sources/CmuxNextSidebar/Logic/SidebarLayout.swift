@@ -250,12 +250,16 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
             let flat = o.flattensMachines && section.machine != nil && !Self.keepsHeaderInOneList(section)
             if flat && nodes.isEmpty && !gapHere && (listsAnyMachineRow || shownEmptyMachine) { continue }
             if flat && nodes.isEmpty { shownEmptyMachine = true }
-            // Consecutive computers in one list read as one list: no gap. A block brings its own padding.
+            // Consecutive computers in one list read as one list: no gap. A block brings its own top padding; under
+            // it the next row follows by the row spacing, as under any row (Leo 2026-10-21: no gap after the pins).
             if firstSection && blockHeight > 0 { y -= m.topPadding }
-            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.topPadding : m.sectionSpacing }
+            if !firstSection && !(flat && previousWasMachine) && blockHeight == 0 { y += previousWasBlock ? m.rowSpacing : m.sectionSpacing }
             firstSection = false
             if section.machine != nil { chats.placePinned(&y) }
-            previousWasBlock = blockHeight > 0 && nodes.isEmpty
+            // This section's own rows under its block (its groups, a drop's gap or its empty drop zone).
+            let rowsUnderBlock = blockHeight > 0
+                && (!nodes.isEmpty || gapHere || (emptyDropZone && docID.map(o.emptyDocSections.contains) == true))
+            previousWasBlock = blockHeight > 0 && !rowsUnderBlock
             // Only a headerless computer joins the next one: rows after a headed section (a remote group,
             // the Chief's) never read as its members.
             previousWasMachine = section.machine != nil && flat
@@ -265,7 +269,7 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                     group: nil, siblingIndex: 0, parentIndex: nil, isLastInGroup: false,
                     isCollapsed: false, childCount: 0, groupColor: nil
                 ))
-                y += blockHeight
+                y += blockHeight + (rowsUnderBlock ? m.rowSpacing : 0)
             }
             // Headers stay for the pinned area and for one section per
             // computer (`sidebar.groupByComputer`, opt-in), never in one list.
@@ -419,8 +423,8 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                             }
                         }
                     }
+                    // The next row follows the last member by the row spacing alone (Leo 2026-10-21: no padding after groups).
                     openGapIfNeeded(section: section.id, group: group.id, index: members.count)
-                    y += m.groupBottomPadding
                 }
             }
             // Group by Folder lists groups and document items (links, tabs, apps) as they are.
@@ -456,7 +460,6 @@ public nonisolated struct SidebarLayout: Hashable, Sendable {
                 ))
                 y += m.groupHeaderHeight + m.rowSpacing
                 for index in indices { emit(index, nodes[index]) }
-                y += m.groupBottomPadding
             }
             openGapIfNeeded(section: section.id, group: nil, index: nodes.count)
         }

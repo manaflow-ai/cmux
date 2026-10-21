@@ -213,13 +213,14 @@ class SidebarItemRowView: NSView {
         // The glyph lines up with the text of workspace rows (their inset plus the pill inset).
         // A pinned workspace row's pin leads, and its icon and title follow it.
         let pinSide = Metrics.smallIconSize
-        let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinSide + Metrics.space2 : 0)
+        let pinFrame = info.leadingPin ? pinGlyphFrame(side: pinSide, leading: inset * 2, height: b.height) : .zero
+        let lead = (style == .chip ? Metrics.space2 : inset * 2) + (info.leadingPin ? pinFrame.maxX - inset * 2 + Metrics.space2 : 0)
             + (style == .chip ? 0 : CGFloat(info.indent) * Metrics.space3)
         let iconFrame = style.isIconOnly
             ? NSRect(x: (b.width - side) / 2, y: (b.height - side) / 2, width: side, height: side)
             : NSRect(x: lead, y: (b.height - side) / 2, width: side, height: side)
         pin.isHidden = !info.leadingPin
-        pin.frame = NSRect(x: inset * 2, y: (b.height - pinSide) / 2, width: pinSide, height: pinSide)
+        pin.frame = pinFrame
         // Icon-only items keep their pill around the glyph (a full-width fill reads
         // as a selected row); the profile avatar's pill and click fill its square.
         let pillFrame = style.isIconOnly ? (showsAvatar ? b : iconFrame)
@@ -294,6 +295,18 @@ class SidebarItemRowView: NSView {
 
     /// The cache key of the pin's ink (`SidebarGlyphInk`).
     private static let pinGlyph = "pin|\(IconName.statePinned.rawValue)"
+
+    /// The leading pin's frame: its drawn ink, not its square, starts at `leading` (where an unpinned workspace
+    /// row's icon or title starts) and centers on the row, on the device pixel grid. The pin's square leaves a
+    /// margin on each side of its ink, so the square at the rows' inset drew the pin in from them (Leo 2026-10-21).
+    private func pinGlyphFrame(side: CGFloat, leading: CGFloat, height: CGFloat) -> NSRect {
+        let scale = window?.backingScaleFactor ?? 2
+        let snap = { (value: CGFloat) in (value * scale).rounded() / scale }
+        guard let image = pin.image, let ink = SidebarGlyphInk.shared.box(of: image, glyph: Self.pinGlyph) else {
+            return NSRect(x: leading, y: snap((height - side) / 2), width: side, height: side)
+        }
+        return NSRect(x: snap(leading - ink.minX), y: snap(height / 2 - ink.midY), width: side, height: side)
+    }
 
     /// The pin's drawn ink in the row's coordinates; nil without a pin (tests).
     var pinInkFrame: CGRect? {
