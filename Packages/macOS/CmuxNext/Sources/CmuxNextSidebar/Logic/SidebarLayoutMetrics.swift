@@ -121,6 +121,8 @@ public nonisolated struct SidebarLayoutOptions: Hashable, Sendable {
     public var minimal = false
     /// Expanded rows (`sidebar.density`), unless minimal: `WorkspaceRowContent(expanded:)`.
     public var expanded = false
+    /// Workspaces as tabs (`SidebarTunables.workspacesAsTabs`): every workspace row is one line.
+    public var workspacesAsTabs = false
     /// Row badges draw each state apart (`sidebar.detailedStatusIcons`), not Working or Ready only.
     public var detailedStatus = false
     /// Rows show when they last changed (`sidebar.showTimestamps`): an expanded row's age and a

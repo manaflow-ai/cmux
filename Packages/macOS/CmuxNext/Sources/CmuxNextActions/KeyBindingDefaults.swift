@@ -64,6 +64,9 @@ public nonisolated struct KeyBindingDefaults {
         }
     }
 
+    /// Workspaces as tabs (`sidebar.workspacesAsTabs`, a Debug tunable, off).
+    public static let workspacesAsTabs: [KeyBinding] = []
+
     /// Scoped defaults that replace a global default key in their context:
     /// placed after the catalog's defaults, so in their context they win and
     /// elsewhere the global key runs. Any page adds its own keys here with a
