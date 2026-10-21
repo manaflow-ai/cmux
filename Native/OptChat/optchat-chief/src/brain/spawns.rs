@@ -1252,9 +1252,11 @@ impl Brain {
                 SubStatus::Done => "finished, report not read yet",
                 SubStatus::Reported => "finished",
             };
+            // A record from before 2026-10-21 carries its workspace's `aN · ` id prefix.
             let title = sub
                 .title
                 .split_once(" · ")
+                .filter(|(id, _)| *id == sub.id)
                 .map_or(sub.title.as_str(), |(_, t)| t);
             let you = if sub.id == caller { " (you)" } else { "" };
             let workspace = sub

@@ -275,10 +275,7 @@ fn a_finished_subagents_workspace_keeps_its_name_without_a_check_mark() {
     );
     assert_eq!(
         *recorder.opened.lock().unwrap(),
-        vec![(
-            "a1 · Sidebar group drag".to_owned(),
-            "Sidebar & tabs".to_owned()
-        )]
+        vec![("Sidebar group drag".to_owned(), "Sidebar & tabs".to_owned())]
     );
     let renamed = recorder.renamed.lock().unwrap().clone();
     assert!(

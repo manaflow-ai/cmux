@@ -17,7 +17,7 @@ struct ChiefWorkspaceRowsTests {
     @Test func theMachineIDRuleMatchesTheLocalChiefReach() throws {
         #expect(CmuxNextSidebar.MachineID(Self.chief.machineID).isLocalChief)
         #expect(!CmuxNextSidebar.MachineID.local.isLocalChief)
-        let server = try ServerReach(hostID: "host_7f3a", installID: "inst_7f3a", name: "mini", route: .unix("/tmp/s.sock"))
+        let server = try ServerReach(hostID: "host_7f3a0001", installID: "inst_7f3a0001", name: "mini", route: .unix("/tmp/s.sock"))
         #expect(!server.isLocalChief)
         #expect(!CmuxNextSidebar.MachineID(server.machineID).isLocalChief)
     }
@@ -57,7 +57,7 @@ struct ChiefWorkspaceRowsTests {
             return SidebarLayout.machineLabel(section, options: options)
         }
         #expect(label(SidebarMachine(id: CmuxNextSidebar.MachineID(Self.chief.machineID), name: "Chief", kind: .server)) == nil)
-        #expect(label(SidebarMachine(id: CmuxNextSidebar.MachineID("server-host_7f3a"), name: "mini", kind: .server)) == "mini")
+        #expect(label(SidebarMachine(id: CmuxNextSidebar.MachineID("server-host_7f3a0001"), name: "mini", kind: .server)) == "mini")
     }
 
     @Test func aChiefWorkspacesHoverCardSaysWhoStartedIt() throws {
