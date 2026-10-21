@@ -121,7 +121,7 @@ async fn a_bookmark_marks_only_a_prompt_or_answer_and_survives_a_daemon_restart(
 }
 
 #[tokio::test]
-async fn a_fork_keeps_the_bookmarks_of_the_prompts_it_copies() {
+async fn a_fork_keeps_the_bookmarks_of_the_prompts_and_answers_it_copies() {
     let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = new_session(&mut c, "fork-marks").await;
     for text in ["first", "second"] {
@@ -135,6 +135,8 @@ async fn a_fork_keeps_the_bookmarks_of_the_prompts_it_copies() {
     let prompts = seqs(&mut c, &id, "user_message").await;
     c.request(SET, json!({"sessionId": id, "seq": prompts[1], "bookmarked": true})).await.unwrap();
     let through = *seqs(&mut c, &id, "turn_result").await.last().unwrap();
+    // The last answer's Pin is a mark on its `turn_result`.
+    c.request(SET, json!({"sessionId": id, "seq": through, "bookmarked": true})).await.unwrap();
 
     let f = c
         .request("acp.session.fork", json!({"sessionId": id, "throughSeq": through}))
@@ -144,12 +146,13 @@ async fn a_fork_keeps_the_bookmarks_of_the_prompts_it_copies() {
     // The fork numbers its copy of the history itself: the mark follows the prompt.
     let copied = seqs(&mut c, &fid, "user_message").await;
     assert_eq!(copied.len(), 2, "{copied:?}");
+    let answer = *seqs(&mut c, &fid, "turn_result").await.last().unwrap();
     let forked = c.request(GET, json!({"sessionId": fid})).await.unwrap();
-    assert_eq!(forked["bookmarks"], json!([copied[1]]), "{forked}");
+    assert_eq!(forked["bookmarks"], json!([copied[1], answer]), "{forked}");
     // The two chats mark on their own from here.
     c.request(SET, json!({"sessionId": fid, "seq": copied[0], "bookmarked": true})).await.unwrap();
     let parent = c.request(GET, json!({"sessionId": id})).await.unwrap();
-    assert_eq!(parent["bookmarks"], json!([prompts[1]]), "{parent}");
+    assert_eq!(parent["bookmarks"], json!([prompts[1], through]), "{parent}");
     drop(hub);
 }
 

@@ -51,7 +51,11 @@ async function draw(row: AcpmuxRow, actions: object) {
       <TurnActionsContext.Provider value={actions}>
         <UserBubble row={row} text={row.text ?? ""} />
       </TurnActionsContext.Provider>,
-  test("a read prompt's row reads its age, Read by the agent, Copy, Edit and Fork, in Claude's order", async () => {
+    ),
+  );
+}
+
+test("a read prompt's row reads its age, Read by the agent, Copy, Edit and Fork, in Claude's order", async () => {
   const forked: number[] = [];
   const row: AcpmuxRow = {
     id: "user-4",
@@ -87,9 +91,9 @@ test("a prompt still being sent has no receipt, and one that cannot fork offers 
   expect(labels()).toEqual(["now", "Copy"]);
 });
 
-test("a steer the agent has not read yet shows one check: Delivered", async () => {
+test("a steer the agent has not read yet shows one check: delivered when the step ends", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "waiting", text: "Also this" }, {});
-  expect(labels()).toEqual(["now", "Delivered", "Copy"]);
+  expect(labels()).toEqual(["now", "Delivered when the current step ends", "Copy"]);
   expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("false");
   // No "Steering" / "Steered" line under the bubble any more.
   expect(host.textContent).not.toContain("Steer");
@@ -109,9 +113,6 @@ test("Retry under a prompt sends it again (shown on the last ended turn's prompt
   const retry = host.querySelector<HTMLButtonElement>('.cv-message-retry button[aria-label="Retry"]')!;
   act(() => retry.click());
   expect(sent).toEqual([["user-4", "Cover it"]]);
-});
-
-opy"]);
 });
 
 test("the relative time words a prompt's age in the pane's language", async () => {

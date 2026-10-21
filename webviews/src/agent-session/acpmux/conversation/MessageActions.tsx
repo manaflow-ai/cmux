@@ -1,5 +1,5 @@
-// The buttons of a message's action row, shared by a prompt's (UserBubble.tsx), another agent's
-// message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
+// The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
+// the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
 // draws them: the message's age ("8 minutes ago", its date and time on hover), a prompt's read
 // receipt, Copy, Retry, Fork from here (its title and what it does), Pin and Read aloud. The rows
 // show on hover or keyboard focus only (conversation.css).
@@ -66,8 +66,8 @@ export function ForkButton({ onFork }: { onFork(): void }) {
   );
 }
 
-/// Pins the message (row `rowId`): kept with the chat by acpmux, listed in the thread minimap.
-/// Nothing for a message acpmux has not logged yet.
+/// Pins the message (row `rowId`): kept with the chat by acpmux; a pinned prompt also shows in the
+/// thread minimap. Nothing for a message acpmux has not logged yet.
 export function PinButton({ rowId }: { rowId: string }) {
   const t = useT();
   const mark = useRowMark({ id: rowId });
@@ -158,6 +158,20 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
         <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />
       )}
     </span>
+  );
+}
+
+/// The row under a prompt the Chief sent (ChiefPromptBubble): its age, its read receipt, Copy,
+/// Retry and Pin, as under the person's own bubble.
+export function PromptActions({ row, text }: { row: AcpmuxRow; text: string }) {
+  return (
+    <div className="cv-user__actions">
+      <MessageTime at={row.at} className="cv-user__time" />
+      <ReadReceipt row={row} />
+      <CopyButton text={text} />
+      <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
+      <PinButton rowId={row.id} />
+    </div>
   );
 }
 

@@ -143,7 +143,7 @@ import type { ChangesSource } from "./changes/model";
 import { RevealedMarkdown } from "./conversation/RevealedMarkdown";
 import { WriteKeys, type GitWriteOp } from "./changes/gitWrite";
 import { ToolRows, TurnFooter, WorkedFor } from "./conversation/TurnRows";
-import { ReceivedActions } from "./conversation/MessageActions";
+import { PromptActions, ReceivedActions } from "./conversation/MessageActions";
 import { EditedFilesCard } from "./conversation/EditedFilesCard";
 import { loadHighlightedCode } from "./conversation/CodeBlock";
 import { loadEditDiffHunks } from "./conversation/EditDiff";
@@ -646,7 +646,10 @@ const MessageRow = memo(
             </details>
           )}
           {envelope || row.from === "chief" ? (
-            <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
+            <>
+              <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
+              <PromptActions row={row} text={envelope ? envelope.task : (row.text ?? "")} />
+            </>
           ) : (
             <UserBubble row={row} text={row.text ?? ""} />
           )}
@@ -2499,19 +2502,20 @@ export function VirtualTranscript({
   }, []);
   // A turn's footer (TurnFooter) shows for the turn the reader points at: anywhere after its prompt
   // to its footer. Marked on the mounted rows, so a hover renders nothing.
-  let lastTurnId: string | undefined;
-  for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
-    if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
   // The last ended turn's prompt offers Retry under its bubble (UserBubble.tsx); turns.ts names
   // it on the turn's footer while it may be sent again.
-  const retryPromptId = rows.find((row) => row.id === lastTurnId)?.retryRowId;
+  let retryPromptId: string | undefined;
+  for (let index = rows.length - 1; index >= 0; index -= 1)
+    if (rows[index]!.kind === "turnSummary") {
+      retryPromptId = rows[index]!.retryRowId;
+      break;
+    }
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
-      node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
       node.toggleAttribute("data-retryable", node.dataset.rowId === retryPromptId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  }, [lastTurnId, retryPromptId]);
+  }, [retryPromptId]);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
