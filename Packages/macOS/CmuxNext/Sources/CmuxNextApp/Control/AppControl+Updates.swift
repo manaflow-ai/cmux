@@ -6,6 +6,7 @@ import Foundation
 import AppKit
 import CmuxNextBridge
 import CmuxNextSidebar
+import CmuxNextUpdateEverything
 import WebKit
 #endif
 
@@ -133,6 +134,20 @@ extension AppControl {
                 case let action:
                     throw ControlError.invalidParams("debug.update_surfaces: unknown action \(action)")
                 }
+            },
+            // `debug.update_everything {action}`: Update Everything's surfaces with a fixed plan, for
+            // captures. "confirm" (default) opens its confirmation, "progress" its progress toast.
+            // Nothing updates.
+            .mainActor("debug.update_everything") { [weak services = appServices] call in
+                guard let window = services?.windows.active?.window else {
+                    throw ControlError.invalidParams("debug.update_everything: no active window")
+                }
+                switch call.params["action"]?.stringValue ?? "confirm" {
+                case "confirm": UpdateEverythingPreview.confirm(in: window)
+                case "progress": UpdateEverythingPreview.progress(in: window)
+                case let action: throw ControlError.invalidParams("debug.update_everything: unknown action \(action)")
+                }
+                return .value(.null)
             },
             .mainActor("debug.update_indicator") { call in
                 updater.debugIndicatorPhase = UpdateIndicatorPhase(debugParams: call.params)
