@@ -72,6 +72,25 @@ struct AgentPaneUnsentPromptTests {
         _ = await pane.inbox.frame(containing: #""id":\#(id)"#)
     }
 
+    /// Settles once: the first of two racing waits wins.
+    nonisolated final class Once: Sendable {
+        private let done = Mutex(false)
+        func claim() -> Bool { done.withLock { taken in defer { taken = true }; return !taken } }
+    }
+
+    /// `inbox`'s first frame containing `needle`, or nil after `seconds`: a frame that never comes
+    /// fails the test with what it waited for, instead of holding the whole test run until it is
+    /// killed.
+    static func frame(_ inbox: AgentPaneRelayedAllowTests.PageInbox, containing needle: String,
+                      within seconds: Double = 10) async -> String? {
+        await withCheckedContinuation { (done: CheckedContinuation<String?, Never>) in
+            let once = Once()
+            // task-owner: two racing waits, each settles `done` at most once; the loser ends alone
+            Task { let frame = await inbox.frame(containing: needle); if once.claim() { done.resume(returning: frame) } }
+            Task { try? await Task.sleep(for: .seconds(seconds)); if once.claim() { done.resume(returning: nil) } }
+        }
+    }
+
     /// The first run sends a prompt; the daemon takes it but the app ends before acpmux's
     /// acknowledgement. The relaunch sends it once, as a resend of the same prompt id, and no
     /// later connection or launch sends it again.
@@ -137,12 +156,14 @@ struct AgentPaneUnsentPromptTests {
         #expect(await pane.transport.send(connection: pane.id, frames: [Self.prompt(id: 1, promptId: "p-5")]) == nil)
         #expect(await daemon.wait { _ in Self.prompts(daemon, peer: 0).count == 1 })
         daemon.pushThenClose([], to: 0)
-        _ = await inbox.frame(containing: "<closed>")
+        try #require(await Self.frame(inbox, containing: "<closed>") != nil, "the daemon's close never reached the page")
 
         let again = try await pane.transport.open(
             AcpmuxConnection(url: daemon.url, dashboardToken: "t", localAppToken: nil, socketPath: Self.daemon))
         #expect(await pane.transport.send(connection: again, frames: [#"{"jsonrpc":"2.0","id":0,"method":"initialize","params":{}}"#]) == nil)
-        await Self.barrier(Pane(server: daemon, transport: pane.transport, inbox: inbox, id: again), id: 2)
+        // Every frame the host sent on the new connection before this request reached the daemon.
+        #expect(await pane.transport.send(connection: again, frames: [#"{"jsonrpc":"2.0","id":2,"method":"_acpmux/status","params":{}}"#]) == nil)
+        try #require(await Self.frame(inbox, containing: #""id":2"#) != nil, "the new connection never answered")
         let resent = Self.prompts(daemon, peer: 1)
         #expect(resent.count == 1, "the prompt the daemon dropped with its connection was not sent again")
         guard let frame = resent.first else { return }
