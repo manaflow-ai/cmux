@@ -62,7 +62,7 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
 
 ## Tasks setup runs
 
-1. `trust [FOLDER] [--level trusted|untrusted|unknown]` (this change).
+1. `trust [FOLDER] [--level trusted|untrusted|unknown]`.
    It writes acpmux's own record (`acpmux::trust`), the answer the pane's
    Trust question and the trust gate read, through the running daemon when
    there is one so a sub-session waiting on the folder goes on at once.
@@ -75,5 +75,37 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
 2. `harness [ID]` (next): `harness doctor` and `login --status` for each
    harness; a missing CLI or sign-in comes back as `needs_user` with the
    login command.
-3. `machine SSH_TARGET` (next): `acp host setup`, and `acp host enroll` once
-   #22823 lands (install, daemon, harness, peers both ways, doctor).
+3. `machine SSH_TARGET [--name NAME]` (this change). It reads the peers
+   from the running acpmux daemon (or acpmux's config without one; it never
+   starts a daemon to check) and matches the peer by name, or without
+   `--name` by ssh host:
+   - connected and on this build: `ok`, nothing runs, not even ssh;
+   - connected on another build: `cmux acp host update NAME`, `changed`,
+     `undo` null (`undo_note`: the old binary is not kept);
+   - not registered: `cmux acp host setup SSH_TARGET --name NAME`,
+     `changed`, `undo` `cmux acp host rm NAME` (acpmux stays installed on
+     the machine);
+   - registered at that host but not connected: `host setup` again (it
+     keeps the remote config and token and re-registers by name), `undo`
+     null;
+   - the name pointed at another ssh host: `host setup` moves it, `undo`
+     `cmux acp host add NAME OLD_URL`.
+
+   Before any change it runs `ssh -o BatchMode=yes -o ConnectTimeout=15
+   TARGET true`; a refusal or timeout is `needs_user` with
+   `user_action.kind` `ssh` and that command. It never asks for a password
+   and never writes a key or `~/.ssh/config`. `--dry-run` runs only that
+   probe and reports the `plan`. The work runs as `cmux acp host
+   setup|update --json` (this executable as a child): acpmux's functions
+   for it are private, print their own JSON and exit the process on a
+   failed update. The result adds `target`, `name`, `daemon`, `before` and
+   `after` (`{name, url, connected, outdated, remote_build, error}`), `ssh`
+   (`{command, reachable, error}`), `plan`, `remote_version`, `reverse`,
+   `error` and `undo_note`. `reverse` is `{supported: false}` today: `host
+   setup` registers the machine here only. Once #22823 lands, the task
+   moves to `acp host enroll` (install, daemon, harness, peers both ways,
+   doctor) and `reverse` reports the way back.
+
+   `cmux setup status` adds a `machine` check: every peer with
+   `connected`, `outdated` and, when it needs one, the `cmux setup machine`
+   command that fixes it.
