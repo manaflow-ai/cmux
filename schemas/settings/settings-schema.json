@@ -42,7 +42,8 @@
               "appearance.metrics.tabPinnedWidth",
               "tabs.cmdWClosesPinnedTabs",
               "tabs.swapCmdTAndCmdN",
-              "tabs.newTabNowPlaying"
+              "tabs.newTabNowPlaying",
+              "sidebar.showChats"
             ],
             "title" : {
               "key" : "settings.group.tabs",
@@ -412,7 +413,6 @@
               "sidebar.bottomBandMaxShare",
               "sidebar.pinnedBandsScroll",
               "sidebar.showWorkspaceTabs",
-              "sidebar.showChats",
               "sidebar.sessionTree",
               "sidebar.showProjects",
               "sidebar.groupBy",
@@ -734,6 +734,7 @@
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
               "agentPane.display.code.scale",
+              "agentPane.display.inspector.placement",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.editedFiles.show",
@@ -748,16 +749,6 @@
             "title" : {
               "key" : "settings.group.agentChat",
               "text" : "Agent Chat"
-            }
-          },
-          {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
             }
           },
           {
@@ -831,7 +822,6 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "chiefs",
           "computerUse"
         ]
       },
@@ -844,6 +834,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
             "key" : "settings.group.chiefPet",
             "rows" : [
               "home.chiefPetEnabled",
@@ -855,14 +855,15 @@
             }
           }
         ],
-        "id" : "chief-pet",
+        "id" : "chief",
         "lead" : [
+          "chiefs",
           "chiefPet"
         ],
-        "symbol" : "pawprint",
+        "symbol" : "crown",
         "title" : {
-          "key" : "settings.category.chiefPet",
-          "text" : "Chief Pet"
+          "key" : "settings.category.chief",
+          "text" : "Chief"
         },
         "trail" : [
 
@@ -886,7 +887,8 @@
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
               "notifications.dockBadge",
-              "notifications.dockBounce"
+              "notifications.dockBounce",
+              "notifications.showPreviews"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -1250,6 +1252,16 @@
             "title" : {
               "key" : "settings.group.phone",
               "text" : "Phone Access"
+            }
+          },
+          {
+            "key" : "settings.group.messagesServer",
+            "rows" : [
+              "home.server"
+            ],
+            "title" : {
+              "key" : "settings.group.messagesServer",
+              "text" : "Messages Server"
             }
           }
         ],
@@ -17758,6 +17770,79 @@
     },
     {
       "accepts" : [
+        "push",
+        "overlay"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorPush",
+            "text" : "Push"
+          },
+          "value" : "push"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorOverlay",
+            "text" : "Overlay"
+          },
+          "value" : "overlay"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "overlay",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.inspector.help",
+        "text" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.inspector.placement",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "inspector",
+        "panel",
+        "side",
+        "right",
+        "overlay",
+        "push",
+        "details"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "inspector",
+        "placement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.inspector",
+        "text" : "Inspector"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -21031,17 +21116,19 @@
       },
       "help" : {
         "key" : "settings.sidebar.showChats.help",
-        "text" : "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."
+        "text" : "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."
       },
       "kept_on_reset_all" : false,
       "key" : "sidebar.showChats",
       "keywords" : [
-        "sidebar",
+        "new tab",
         "chats",
         "all chats",
         "agents",
         "conversations",
-        "history"
+        "history",
+        "threads",
+        "console"
       ],
       "kind" : "toggle",
       "page_hidden" : false,
@@ -21058,7 +21145,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.sidebar.showChats",
-        "text" : "Show All Chats"
+        "text" : "Show All Chats on New Tab"
       },
       "validation" : "portable"
     },
@@ -30779,6 +30866,93 @@
     },
     {
       "accepts" : [
+        "hosted",
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net:7320"
+        },
+        {
+          "selfHosted" : "https://100.101.102.103/"
+        }
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.homeServer.hosted",
+            "text" : "cmux Cloud"
+          },
+          "value" : "hosted"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "hosted",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.messagesServer",
+        "text" : "Messages Server"
+      },
+      "help" : {
+        "key" : "settings.home.server.help",
+        "text" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "home.server",
+      "keywords" : [
+        "server",
+        "self-hosted",
+        "tailscale",
+        "messages",
+        "chat",
+        "cloud",
+        "home"
+      ],
+      "kind" : "choice_or_url",
+      "page_hidden" : false,
+      "path" : [
+        "home",
+        "server"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        "selfHosted",
+        1,
+        {
+          "selfHosted" : "ftp://mini.tail1234.ts.net"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net/path"
+        },
+        {
+          "selfHosted" : "http://mini.tail1234.ts.net?x=1"
+        },
+        {
+          "selfHosted" : "not a url"
+        },
+        {
+          "selfHosted" : 7320
+        },
+        {
+          "__other__" : "http://mini.tail1234.ts.net"
+        },
+        {
+          "__extra__" : "x",
+          "selfHosted" : "http://mini.tail1234.ts.net"
+        }
+      ],
+      "section" : "home",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.home.server",
+        "text" : "Server"
+      },
+      "url_key" : "selfHosted",
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
         "imessage",
         "theme"
       ],
@@ -31964,6 +32138,78 @@
       "title" : {
         "key" : "settings.notifications.dockBounce",
         "text" : "Bounce Dock Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "whenUnlocked",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.previewsAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsWhenUnlocked",
+            "text" : "When Unlocked"
+          },
+          "value" : "whenUnlocked"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "whenUnlocked",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.showPreviews.help",
+        "text" : "Whether a banner shows what the agent said, or only where and what state."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.showPreviews",
+      "keywords" : [
+        "preview",
+        "privacy",
+        "message",
+        "lock screen",
+        "banner"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "showPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.showPreviews",
+        "text" : "Show Message in Banners"
       },
       "validation" : "portable"
     },
