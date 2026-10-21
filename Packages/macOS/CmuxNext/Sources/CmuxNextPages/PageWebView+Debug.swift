@@ -170,14 +170,14 @@ extension PageWebView {
         return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y), "width": .number(width), "height": .number(height)]
     }
 
-    /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
-    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
-    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
-    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }
 
+    /// A left click at `x`,`y` (CSS pixels, as `getBoundingClientRect` gives them) on a Chromium
+    /// page: a trusted DevTools press and release, as a person's click, also in a window that never
+    /// activates (a capture slot), where no AppKit click reaches the page. False on a WebKit page,
+    /// which the caller clicks with AppKit events, or when DevTools refuses either half.
     public func debugPress(x: Double, y: Double) async -> Bool {
         guard let page = chromiumSession?.page else { return false }
         for type in ["mousePressed", "mouseReleased"] {
