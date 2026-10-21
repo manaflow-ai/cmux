@@ -340,6 +340,8 @@ on:
       - scripts/cmux-next/swift-test-with-hang-sampler.sh
       - scripts/cmux-next/ips-crash-summary.py
       - scripts/cmux-next/cef-manifest.json
+      - scripts/cmux-next/check-cef-objc-contract.py
+      - scripts/cmux-next/chromium-objc-contract.json
       - scripts/cmux-next/ensure-cef.sh
       - scripts/cmux-next/build-cef-shim.sh
       - scripts/cmux-next/cmux-tui.pin
