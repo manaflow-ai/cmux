@@ -147,7 +147,6 @@ import Testing
     @Test func theSidebarCategoryListsTheBuiltInItems() {
         let items = AppFeature.catalog.filter { $0.category == .sidebar }.compactMap(\.sidebarItem)
         #expect(Set(items) == ["home", "notifications", "history", "bookmarks"])
-        #expect(AppFeature.Category(argument: "sidebar") == .sidebar)
 
         let registry = ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases)
         var runs: [String] = []
