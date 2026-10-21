@@ -188,15 +188,17 @@ struct CoderouterCLIAccountReaderTests {
     @Test("A failed removal never says accounts didn't load")
     func removalCopyNamesRemoval() async {
         // An invalid ID is rejected before the CLI runs and classifies as unavailable.
-        let error = await #expect(throws: (any Error).self) {
+        do {
             try await CoderouterCLIAccountReader.remove(
                 accountID: "bad id;",
                 for: Self.cmuxTeamID,
                 name: nil,
                 run: { _ in Data() }
             )
+            Issue.record("An invalid account ID was accepted")
+        } catch {
+            #expect(CoderouterCLIFailure.classify(error) == .unavailable)
         }
-        #expect(error.map(CoderouterCLIFailure.classify) == .unavailable)
         for failure in [CoderouterCLIFailure.unavailable, .outdated, .sessionChanging] {
             #expect(failure.removalMessage != failure.message)
         }
