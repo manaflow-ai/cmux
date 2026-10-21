@@ -193,6 +193,16 @@ fn chunk(e: &Value, text: &str) -> bool {
         && e["msg"]["params"]["update"]["content"]["text"] == text
 }
 
+/// The agent's last echo in `session` (the fake agent names each image it got).
+async fn echo(c: &mut Client, session: &str) -> String {
+    let page =
+        c.call("_acpmux/events", json!({"sessionId": session, "kinds": ["transcript"]})).await;
+    let events = page["result"]["events"].as_array().cloned().unwrap_or_default();
+    let texts =
+        events.iter().filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str());
+    texts.filter(|t| t.starts_with("echo: ")).last().unwrap_or_default().to_owned()
+}
+
 /// The session's queue, as every client's list shows it.
 async fn queue(c: &mut Client, session: &str) -> Vec<Value> {
     let attached = c.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
@@ -267,14 +277,14 @@ async fn editing_a_queued_prompts_text_keeps_its_images() {
         {"id": a, "mimeType": "image/png", "name": "first.png"},
         {"id": b, "mimeType": "image/jpeg", "name": "second.jpg"},
     ]);
-    assert_eq!(queued[0]["images"], names, "{queued:#?}");
     // The agent got both images after the edited text, and the sent message names them.
-    let echo = format!("echo: look again image:{a} image:{b}");
-    wait_event(&mut c, &session, "the edited prompt's answer", |e| chunk(e, &echo)).await;
+    assert_eq!(echo(&mut c, &session).await, format!("echo: look again image:{a} image:{b}"));
     let sent = user_messages(&mut c, &session).await;
     let sent = sent.iter().find(|m| m["promptId"] == "q-img").expect("the queued prompt ran");
     assert_eq!(sent["text"], "look again");
     assert_eq!(sent["images"], names, "{sent}");
+    // Its row listed them while it waited.
+    assert_eq!(queued[0]["images"], names, "{queued:#?}");
 }
 
 #[cfg(unix)]
@@ -287,12 +297,11 @@ async fn editing_a_queued_prompt_keeps_only_the_images_it_names() {
         edit_queued(name, json!({"images": [a]})).await
     };
     let names = json!([{"id": a, "mimeType": "image/png", "name": "first.png"}]);
-    assert_eq!(queued[0]["images"], names, "{queued:#?}");
-    let echo = format!("echo: look again image:{a}");
-    wait_event(&mut c, &session, "the edited prompt's answer", |e| chunk(e, &echo)).await;
+    assert_eq!(echo(&mut c, &session).await, format!("echo: look again image:{a}"));
     let sent = user_messages(&mut c, &session).await;
     let sent = sent.iter().find(|m| m["promptId"] == "q-img").expect("the queued prompt ran");
     assert_eq!(sent["images"], names, "{sent}");
+    assert_eq!(queued[0]["images"], names, "{queued:#?}");
 }
 
 #[cfg(unix)]
@@ -319,15 +328,15 @@ async fn a_queued_prompts_images_are_listed_and_read_back_before_it_runs() {
     })
     .await;
 
+    // Its row can show it before it runs (after a reload too: the log names it).
+    let read = c.call("_acpmux/attachment", json!({"sessionId": session, "id": id})).await;
+    assert_eq!(read["result"], json!({"mimeType": "image/png", "data": data}), "{read}");
     let queued = queue(&mut c, &session).await;
     assert_eq!(
         queued[0]["images"],
         json!([{"id": id, "mimeType": "image/png", "name": "shot.png"}]),
         "{queued:#?}"
     );
-    // Its row can show it before it runs (after a reload too: the log names it).
-    let read = c.call("_acpmux/attachment", json!({"sessionId": session, "id": id})).await;
-    assert_eq!(read["result"], json!({"mimeType": "image/png", "data": data}), "{read}");
     // Not to another chat, and an id this one never named reads nothing.
     let refused = c.call("_acpmux/attachment", json!({"sessionId": other, "id": id})).await;
     assert!(refused.get("error").is_some(), "{refused}");
