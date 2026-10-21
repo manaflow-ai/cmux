@@ -134,6 +134,22 @@ class FleetCompileCheck(unittest.TestCase):
             self.assertIn("fleet dev-build workers", why)
             self.assertLess(why.index(run), why.index(COMPILE), why)
 
+    def test_the_fleet_compile_check_refusal_reads_whole_with_several_or_oddly_named_swift_files(self):
+        """The refusal is built from its parts: a second file (" and more") or a path holding " and " can't split it."""
+        base = "Packages/macOS/CmuxNext/Sources/"
+        for swift, what in (([base + "A.swift", base + "B.swift"], f"({base}A.swift and more)"),
+                            ([base + "Find and Replace.swift"], f"({base}Find and Replace.swift)")):
+            why = guard.verdict(pr(), swift, [])
+            self.assertTrue(why.startswith(f"#7 changes Swift {what} and {HEAD[:12]} has no compile result yet."), why)
+            self.assertTrue(why.endswith(f"({HEAD[:12]} has no checks yet; merge once its {COMPILE} passes.)"), why)
+            self.assertEqual(why.count("cmux-ci compile-check"), 1, why)
+
+    def test_a_refusal_names_the_cause_of_its_own_read_not_an_earlier_one(self):
+        guard.run(["false"])
+        self.assertTrue(guard.FAILED)
+        self.assertEqual(guard.run(["true"]), "")
+        self.assertEqual(guard.FAILED, [])
+
     def test_the_workflow_posts_the_status_the_guard_reads_on_the_sha_it_was_given(self):
         text = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
         self.assertIn(f"run-name: {guard.FLEET_TITLE}" + "${{ inputs.sha }}", text)
