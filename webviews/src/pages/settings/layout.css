@@ -782,6 +782,122 @@
   }
 }
 
+/* Chief Pet (ChiefPetCard): the pet's own page, after ChatGPT's Mini & Pets. */
+.chief-pet-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin: 0 2px 12px;
+}
+
+.chief-pet-lede {
+  margin: 0;
+  color: var(--muted-text);
+  font-size: var(--text-detail);
+}
+
+.chief-pet-preview {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 160px;
+  margin-bottom: 26px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+}
+
+.chief-pet-preview[data-enabled="false"] .chief-pet-art {
+  opacity: 0.45;
+}
+
+.chief-pet-art,
+.chief-pet-choice-art img {
+  image-rendering: pixelated;
+  object-fit: contain;
+}
+
+.chief-pet-art {
+  width: 88px;
+  height: 80px;
+}
+
+.chief-pet-rail {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 32px;
+  padding: 0 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  color: var(--text);
+}
+
+.chief-pet-rail i {
+  height: 14px;
+  border-left: 1px solid var(--border-strong);
+}
+
+.chief-pet-up {
+  transform: rotate(180deg);
+}
+
+
+.chief-pet-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
+  gap: 12px;
+}
+
+.chief-pet-choice {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  padding: 18px 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: center;
+  cursor: pointer;
+  transition: border-color var(--motion-hover) var(--motion-ease);
+}
+
+.chief-pet-choice:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+
+.chief-pet-choice[aria-pressed="true"] {
+  border-color: var(--text);
+}
+
+.chief-pet-choice-art {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 76px;
+}
+
+.chief-pet-choice-art img {
+  width: 72px;
+  height: 66px;
+}
+
+.chief-pet-choice strong {
+  font-size: var(--text-body);
+  font-weight: 600;
+}
+
+.chief-pet-choice-help {
+  color: var(--muted-text);
+  font-size: var(--text-caption);
+  line-height: 1.35;
+}
+
 /* An accent's swatch: the color it gives the app theme (AccentPicker draws it, and Art Color's hue
    wheel, inline). */
 .accent-swatch {
