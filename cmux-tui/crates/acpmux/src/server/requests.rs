@@ -491,7 +491,9 @@ async fn dispatch_request(
             let web = super::remote_guard::control_of(conn.origin, conn.auth, &params)
                 == crate::hub::Control::Web;
             crate::prompt_context::apply(mux_meta(&params), web, &mut blocks)?;
-            let provenance = hub.prompt_provenance(&params, conn.origin, &s.id)?;
+            // The app pane signs a reply only as a chat it shows (`Hub::app_reply_fits`).
+            let shows = |id: &str| conn.sub_opts(id).is_some_and(|o| !o.hidden);
+            let provenance = hub.prompt_provenance(&params, conn.origin, &s.id, &shows)?;
             let flag = |k| mux_meta(&params).and_then(|m| m.get(k)).and_then(Value::as_bool);
             let steer = flag("steer").or_else(|| params.get("steer").and_then(Value::as_bool));
             let steer = steer.unwrap_or(false);
