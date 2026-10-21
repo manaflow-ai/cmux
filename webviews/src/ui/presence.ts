@@ -99,14 +99,35 @@ export function usePresence(shown: boolean, edge: EnterEdge, { appear = false }:
 
 /// The keys that arrived after the first render, for a list whose new rows enter (`data-enter` on
 /// the row: ui/popupSurface.css plays it once when the row mounts) while the rows it is drawn with
-/// are simply there. A key stays arrived, so a row that remounts later (a fold reopening) replays
-/// its enter only where the caller asks for it.
-export function useArrivals(keys: readonly string[]): ReadonlySet<string> {
+/// are simply there. A key stays arrived until its row's enter has played (`played`, from the row's
+/// `animationend`), so a row that remounts after that (View all, a fold reopening) is simply there.
+/// `drawn` (default every key) are the rows on screen now: a key that comes while its row is folded
+/// away is not arriving where anyone sees it, so it shows in place when the fold opens. The keys
+/// must outlive a change of record; a list that can draw another chat is keyed by it.
+export function useArrivals(
+  keys: readonly string[],
+  drawn: readonly string[] = keys,
+): {
+  arrived: ReadonlySet<string>;
+  played: (key: string) => void;
+} {
   const [state, setState] = useState(() => ({ seen: new Set(keys), arrived: new Set<string>() }));
+  const played = useCallback((key: string) => {
+    setState((current) => {
+      if (!current.arrived.has(key)) return current;
+      const arrived = new Set(current.arrived);
+      arrived.delete(key);
+      return { seen: current.seen, arrived };
+    });
+  }, []);
   const fresh = keys.filter((key) => !state.seen.has(key));
-  if (fresh.length === 0) return state.arrived;
+  if (fresh.length === 0) return { arrived: state.arrived, played };
   // Follow the keys during render, as usePresence follows `shown`.
-  const next = { seen: new Set([...state.seen, ...fresh]), arrived: new Set([...state.arrived, ...fresh]) };
+  const onScreen = new Set(drawn);
+  const next = {
+    seen: new Set([...state.seen, ...fresh]),
+    arrived: new Set([...state.arrived, ...fresh.filter((key) => onScreen.has(key))]),
+  };
   setState(next);
-  return next.arrived;
+  return { arrived: next.arrived, played };
 }

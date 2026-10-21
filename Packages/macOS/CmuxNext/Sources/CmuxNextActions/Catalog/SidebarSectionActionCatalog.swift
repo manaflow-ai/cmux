@@ -226,13 +226,6 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                 surfaces: [.palette, .keyboard, .contextMenu],
                 surfacePlan: plan(cli: .exempt(.guiOnly), menus: [p(.sidebarBackground, .view, 110)])
             ),
-            // The Priority view's bell (`sidebar.priorityView.shown`), while the view is installed.
-            ActionDescriptor(
-                id: "sidebar.priorityView.toggle", title: t("action.sidebar.priorityView.toggle", "Toggle Priority View"),
-                keywords: ["sidebar", "priority", "activity", "attention", "agents", "chats", "needs you", "bell"],
-                defaultShortcut: Shortcut("k", modifiers: [.option, .command]), category: .sidebar, symbol: "bell",
-                surfaces: [.palette, .keyboard], surfacePlan: plan(cli: .exempt(.guiOnly), exemption: .guiOnly)
-            ),
             // Leo (cx-wab7m): the bottom band's pieces hide the macOS way, Hide on the piece's
             // own menu and Show on the band's (`sidebar.showSpaces`, `sidebar.showProfileControl`).
             ActionDescriptor(

@@ -25,6 +25,10 @@ public nonisolated enum ActionTargetKind: String, CaseIterable, Sendable, Hashab
     case sidebarItem = "sidebar-item"
     /// A sidebar section (`sidebar-section:sec_…`).
     case sidebarSection = "sidebar-section"
+    /// An agent chat by its acpmux session id, as the sidebar's Priority view lists it
+    /// (`agent-chat:<session id>`). It stands in for a focused agent chat
+    /// (`ActionContext.implied(byTargetKind:)`).
+    case agentChat = "agent-chat"
 }
 
 extension ActionTargetKind {
@@ -124,6 +128,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case windowBackground
     /// The sidebar's Now Playing card (u2437): Play/Pause and its hide rows.
     case nowPlayingCard
+    /// A row of the sidebar's Priority view: mark read, pin, snooze and archive its chat.
+    case priorityRow
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -150,6 +156,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .sidebarSection: .sidebarSection
         // The chat's tab (the App passes it).
         case .agentChat: .tab
+        case .priorityRow: .agentChat
         }
     }
 }

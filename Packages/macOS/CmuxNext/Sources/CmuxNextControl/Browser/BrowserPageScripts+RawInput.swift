@@ -114,6 +114,14 @@ extension BrowserPageScripts {
         """)
     }
 
+    /// Whether the focused element (through shadow roots and same-origin frames) takes text:
+    /// `{value: true, at}`, else `{code: not_editable}`.
+    static let focusedEditable = wrap(measure + editing + """
+        const el = cmuxFocused();
+        if (!cmuxEditable(el)) { return { error: 'not editable', code: 'not_editable' }; }
+        return { value: true, at: cmuxAt(el) };
+        """)
+
     /// One key input on the focused element: `down` (keydown), `up` (keyup) or `press` (keydown,
     /// keypress for a printable key or Enter, keyup), with `modifiers` set on each event. A
     /// printable press with no control, alt or meta types its character into an editable focus,
