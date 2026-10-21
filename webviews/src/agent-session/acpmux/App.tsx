@@ -4181,6 +4181,11 @@ function AcpmuxPane() {
     else setImageView({ images: images.map((image, i) => (i === index && path ? { ...image, path } : image)), index });
   }, []);
   useEffect(() => setImageView(undefined), [snapshot.sessionId]);
+  // A queued prompt's image, read from acpmux by its id (ComposerQueue's thumbnails).
+  const readQueuedImage = useCallback(
+    (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
+    [],
+  );
   const readTurn = useCallback(
     ({ rowId }: { rowId: string }) => readTurnFromRows(turnRowsRef.current, rowId, checkpointDiff),
     [],
@@ -6811,6 +6816,7 @@ function AcpmuxPane() {
             onQueueChange={editQueued}
             // A prompt that started while it was edited comes back to the prompt, so the edit is kept.
             onQueueLost={(text) => composerHandle.current?.restore(text, [])}
+            queueImage={readQueuedImage}
             onProject={chooseProject}
             onNewWorktree={freshChat && !quick && !remoteChat ? startInWorktree : undefined}
             onConnect={connectMachine}

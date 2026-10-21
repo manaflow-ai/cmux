@@ -174,6 +174,9 @@ type Props = {
   onQueueChange?(promptId: string, edit: QueueEdit): Promise<boolean>;
   /// The text of an edit whose prompt started meanwhile: it goes back in the prompt.
   onQueueLost?(text: string): void;
+  /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
+  /// Stable: each queued thumbnail reads once.
+  queueImage?(id: string): Promise<string | undefined>;
   /// Text the prompt starts with, such as what a chat opened from another tab inherited.
   /// Each new value fills an empty prompt once, caret at the end; it is never sent by itself.
   draft?: string;
@@ -276,6 +279,7 @@ export function Composer({
   onQueueRemove,
   onQueueChange,
   onQueueLost,
+  queueImage,
   draft,
   leading,
   permissionAccess,
@@ -1388,6 +1392,7 @@ export function Composer({
         onRemove={onQueueRemove}
         onChange={onQueueChange}
         onLost={onQueueLost}
+        readImage={queueImage}
         onLeave={() => field.current?.focus()}
       />
       {context}

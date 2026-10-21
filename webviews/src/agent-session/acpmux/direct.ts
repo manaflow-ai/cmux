@@ -14,6 +14,7 @@ import type {
   PromptImage,
   QueueEdit,
   QueuedPrompt,
+  QueuedPromptImage,
   PromptDelivery,
   PromptDeliveryHop,
   StartSource,
@@ -325,8 +326,57 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   };
 }
 
-function queuedEntry(id: string, prompt: string, next: boolean, sending = false): QueuedPrompt {
-  return { id, prompt, ...(next ? { next } : {}), ...(sending ? { sending } : {}) };
+function queuedEntry(
+  id: string,
+  prompt: string,
+  next: boolean,
+  sending = false,
+  images?: readonly QueuedPromptImage[],
+): QueuedPrompt {
+  return {
+    id,
+    prompt,
+    ...(next ? { next } : {}),
+    ...(sending ? { sending } : {}),
+    ...(images?.length ? { images: [...images] } : {}),
+  };
+}
+
+/// The images a `queued` or `queue_updated` record names (`images`, in its prompt's order), each
+/// with its bytes as a data URL when the record's `prompt` carries them, so its row draws them
+/// without reading them back. acpmux names only the images it could keep: the bytes go with the
+/// names only when the two lists match.
+function recordImages(msg: any): QueuedPromptImage[] {
+  const named = promptImages(msg?.images);
+  const blocks = (Array.isArray(msg?.prompt) ? msg.prompt : []).filter(
+    (block: any) => block?.type === "image" && typeof block.data === "string",
+  );
+  if (blocks.length !== named.length) return named;
+  return named.map((image, index) => ({ ...image, src: `data:${image.mimeType};base64,${blocks[index].data}` }));
+}
+
+/// The images of a prompt this pane sends, from the composer's attachments: its queue row shows
+/// them from the send on, before acpmux names them.
+function attachedImages(attachments: readonly ComposerAttachment[]): QueuedPromptImage[] {
+  return attachments.flatMap((attachment) =>
+    attachment.kind === "image" && attachment.data
+      ? [
+          {
+            id: attachment.id,
+            mimeType: attachment.mimeType,
+            name: attachment.name,
+            src: `data:${attachment.mimeType};base64,${attachment.data}`,
+            local: true,
+          },
+        ]
+      : [],
+  );
+}
+
+/// `images` named by acpmux, each keeping the bytes the pane already had for it.
+function withKnownBytes(images: QueuedPromptImage[], known: readonly QueuedPromptImage[] | undefined) {
+  const bytes = new Map((known ?? []).flatMap((image) => (image.src ? [[image.id, image.src] as const] : [])));
+  return images.map((image) => (bytes.has(image.id) ? { ...image, src: bytes.get(image.id) } : image));
 }
 
 /// How long a send waits for acpmux before its row says it is still sending, and before it fails
@@ -356,7 +406,10 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     const preview = String(entry?.prompt ?? entry?.preview ?? "");
     const had = known.get(id);
     const whole = had !== undefined && oneLine(had.prompt).startsWith(preview.replace(/…$/, ""));
-    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true);
+    // acpmux lists its images (after a reload or a restart too); one that lists none (an older
+    // acpmux) keeps those the pane had.
+    const images = Array.isArray(entry?.images) ? withKnownBytes(promptImages(entry.images), had?.images) : had?.images;
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images);
   });
 }
 
@@ -2054,8 +2107,11 @@ export class AcpmuxDirectClient {
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place.
       const id = String(msg.promptId ?? "");
+      // An edit's record names the images the prompt keeps.
       this.queue = this.queue.map((entry) =>
-        entry.id === id ? queuedEntry(id, String(msg.text ?? ""), entry.next === true) : entry,
+        entry.id === id
+          ? queuedEntry(id, String(msg.text ?? ""), entry.next === true, false, recordImages(msg))
+          : entry,
       );
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
       const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
@@ -2068,13 +2124,23 @@ export class AcpmuxDirectClient {
         this.interrupting = next;
       this.queue = [...this.queue]
         .sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size))
-        .map((entry) => (next === undefined ? entry : queuedEntry(entry.id, entry.prompt, entry.id === next)));
+        .map((entry) =>
+          next === undefined ? entry : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images),
+        );
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
       // A task's result waiting behind the turn draws its received line now (offer/SuggestedTasks.tsx).
       if (this.queuedResult(msg, event.at)) return;
-      if (id)
-        this.queue = [...this.queue.filter((entry) => entry.id !== id), queuedEntry(id, String(msg.text ?? ""), false)];
+      if (id) {
+        // acpmux names the images it kept; a record that names none (an older acpmux) keeps those
+        // this pane sent.
+        const named = recordImages(msg);
+        const images = named.length ? named : this.queue.find((entry) => entry.id === id)?.images;
+        this.queue = [
+          ...this.queue.filter((entry) => entry.id !== id),
+          queuedEntry(id, String(msg.text ?? ""), false, false, images),
+        ];
+      }
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
       if (id && this.optimisticPromptRows.has(id)) {
@@ -3007,7 +3073,10 @@ export class AcpmuxDirectClient {
     };
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
     if (waits) {
-      this.queue = [...this.queue.filter((entry) => entry.id !== promptId), queuedEntry(promptId, text, false, true)];
+      this.queue = [
+        ...this.queue.filter((entry) => entry.id !== promptId),
+        queuedEntry(promptId, text, false, true, attachedImages(attachments)),
+      ];
       // A Retry behind the turn waits in the queue: its failed bubble goes.
       this.rows.delete(rowId);
     }
@@ -3262,7 +3331,7 @@ export class AcpmuxDirectClient {
     if (this.queue.some((queued) => queued.id === promptId && Boolean(queued.sending) !== (next.state === "sending")))
       this.queue = this.queue.map((queued) =>
         queued.id === promptId
-          ? queuedEntry(queued.id, queued.prompt, queued.next === true, next.state === "sending")
+          ? queuedEntry(queued.id, queued.prompt, queued.next === true, next.state === "sending", queued.images)
           : queued,
       );
     return true;
