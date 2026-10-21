@@ -29,6 +29,7 @@ impl Hub {
             keep_harness_mode,
             route,
             subsession,
+            checked_cwd,
         } = req;
         // An adopted session's harness names the head unless one was given.
         let harness = harness.or_else(|| adopt.as_ref().and_then(|a| a.harness.clone()));
@@ -133,9 +134,8 @@ impl Hub {
         meta.subsession = subsession;
         // A pooled session of exactly this shape (`pool/`) gives the session
         // its id; `ensure_child` then takes it instead of starting cold.
-        // A pooled harness started without this session's env: never claimed.
+        // A pooled harness started without this session's env or route: never claimed.
         let pooled = match &adopt {
-            // A pooled harness was started without this chat's route: never claimed.
             None if meta.session_env.is_empty() && route.is_none() => {
                 self.pool_claim(&meta, &profile, &defaults.env).await
             }
@@ -223,7 +223,7 @@ impl Hub {
             return Ok(self.begin_watch(&session, &family, file.clone()));
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
-            Ok(spawn) => self.ensure_child(&session, &spawn).await,
+            Ok(spawn) => self.ensure_checked_child(&session, &spawn, checked_cwd.as_ref()).await,
             Err(e) => Err(e),
         };
         if let Err(e) = spawned {

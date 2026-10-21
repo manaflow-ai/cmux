@@ -398,7 +398,7 @@ async fn dispatch_request(
                     .keeps_harness_mode(conn.is_person(), conn.caller(), &params)
                     .await,
                 route,
-                subsession: None,
+                ..Default::default()
             };
             let s = hub.new_session(req).await?;
             if conn.origin.web_class() {
