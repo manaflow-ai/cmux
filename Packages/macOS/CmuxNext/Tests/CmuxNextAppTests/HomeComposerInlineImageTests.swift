@@ -213,7 +213,8 @@ import UniformTypeIdentifiers
             for x in stride(from: 0, to: rep.pixelsWide, by: 2) {
                 guard let c = rep.colorAt(x: x, y: y)?.usingColorSpace(.sRGB), c.alphaComponent > 0.9 else { continue }
                 let (r, g, b) = (c.redComponent, c.greenComponent, c.blueComponent)
-                if abs(r - 0.2) < 0.08, abs(g - 0.5) < 0.08, abs(b - 0.9) < 0.08 { blue += 1 }
+                // The picture's blue after color management (sRGB 0.2, 0.5, 0.9 draws as about 0.3, 0.7, 0.9).
+                if b > 0.8, r < 0.45, g > 0.4, g < 0.8 { blue += 1 }
                 if r > 0.95, g > 0.95, b > 0.95 { white += 1 }
             }
         }

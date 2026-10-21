@@ -21,7 +21,11 @@ final class ComposeInlineAttachment: NSTextAttachment {
     init(_ a: Attachment, scale: CGFloat) {
         attachmentID = a.id
         model = a
-        super.init(data: nil, ofType: nil)
+        // A file type with the view provider registered for it: TextKit 2 places an attachment's
+        // view only for a provider class registered for its type (`viewProvider(for:...)` alone was
+        // never asked, and the field drew the attachment's image with no remove button).
+        _ = Self.registerViewProvider
+        super.init(data: nil, ofType: Self.fileType)
         let size = Self.size(of: a, scale: scale)
         bounds = CGRect(x: 0, y: Self.baselineOffset, width: size.width, height: size.height)
         allowsTextAttachmentView = true
@@ -155,10 +159,12 @@ final class ComposeInlineAttachment: NSTextAttachment {
         redrawField()
     }
 
-    /// The field places this attachment's view (the thumbnail with its hover remove button).
-    /// AppKit reads this to choose a view over `image(for:...)`, and by default answers from a
-    /// view provider registered for the attachment's file type, which this attachment has none of.
-    override var usesTextAttachmentView: Bool { true }
+    /// The attachments' file type, private to the message box.
+    static let fileType = "com.cmux.compose.inline-attachment"
+    /// Registers `ComposeInlineAttachmentViewProvider` for `fileType`, once.
+    private static let registerViewProvider: Void = {
+        NSTextAttachment.registerViewProviderClass(ComposeInlineAttachmentViewProvider.self, forFileType: fileType)
+    }()
 
     override func viewProvider(for parentView: NSView?, location: any NSTextLocation, textContainer: NSTextContainer?) -> NSTextAttachmentViewProvider? {
         let provider = ComposeInlineAttachmentViewProvider(textAttachment: self, parentView: parentView, textLayoutManager: textContainer?.textLayoutManager, location: location)
