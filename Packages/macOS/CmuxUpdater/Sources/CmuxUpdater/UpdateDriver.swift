@@ -43,6 +43,9 @@ final class UpdateDriver: NSObject, @preconcurrency SPUUserDriver {
     /// Cancels the held installer (Skip on the ready prompt: no skipped version is recorded).
     var stagedCancel: (() -> Void)?
     var installsWhenStaged = false
+    /// The update Sparkle's own silent driver staged (`willInstallUpdateOnQuit`), which never
+    /// reaches ``backgroundItem``; read only while its "Restart to Complete Update" state holds.
+    var quitInstallItem: SUAppcastItem?
     /// Holds a ready update's relaunch while agents are mid-turn or commands are running.
     let relaunchGate: UpdateRelaunchGate
 

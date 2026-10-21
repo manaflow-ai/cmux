@@ -69,8 +69,8 @@ nonisolated enum WorkspaceVerbActionCatalog: ActionCatalogGroup {
             ),
             ActionDescriptor(
                 id: "workspace.clearIcon",
-                title: String(localized: "action.workspace.clearIcon", defaultValue: "Clear Workspace Icon", table: "WorkspaceActions", bundle: .module),
-                keywords: ["emoji", "symbol", "reset"], category: .workspace, symbol: "xmark.circle",
+                title: String(localized: "action.workspace.clearIcon", defaultValue: "Remove Workspace Icon", table: "WorkspaceActions", bundle: .module),
+                keywords: ["emoji", "symbol", "reset", "clear"], category: .workspace, symbol: "xmark.circle",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspace], cliName: "workspace clear-icon"
             ),
             ActionDescriptor(
