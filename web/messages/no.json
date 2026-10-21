@@ -15,6 +15,21 @@
     "benefitSuperpowers": "Planlegging, TDD, underagenter og gjennomgang"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM-forespørselen er forsinket",
+      "message": "Tildeling av en Cloud VM er midlertidig utilgjengelig.",
+      "action": "Vent ett minutt, og prøv deretter på nytt med samme idempotensnøkkel."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Øyeblikksbildeforespørselen trenger en nøkkel for nytt forsøk",
+      "message": "Cloud VM-øyeblikksbilder krever en idempotensnøkkel.",
+      "action": "Prøv på nytt med en fast Idempotency-Key på maksimalt 128 tegn."
+    },
+    "snapshotQuota": {
+      "title": "Grensen for øyeblikksbilder er nådd",
+      "message": "Denne Cloud VM-en har nådd grensen for øyeblikksbilder.",
+      "action": "Slett et eksisterende øyeblikksbilde, og prøv deretter på nytt med samme idempotensnøkkel."
+    },
     "guestInstall": {
       "title": "Oppsettet av Cloud VM ble ikke fullført",
       "reason": "Gjesteoppsettet for Cloud VM ble ikke fullført.",

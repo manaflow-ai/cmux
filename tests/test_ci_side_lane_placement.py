@@ -272,6 +272,15 @@ class SpillToCompatiblePool(unittest.TestCase):
         # Light offline and std offline: the owned pool label, as before.
         self.assertEqual(placement.route_label(LIGHT_SIDE, [runner("light-a-glaeda", labels=(LIGHT,))]), LIGHT)
 
+    def test_the_own_class_keeps_the_run_while_its_idle_runners_cover_every_job(self):
+        light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "abc"]
+        std = [runner(f"mini-{host}-glaeda-3") for host in "abcdefgh"]
+        self.assertEqual(placement.side_route(LIGHT_SIDE, light + std, want=3), LIGHT_SIDE)
+        self.assertEqual(placement.side_route(LIGHT_SIDE, light + std, want=4), SIDE)
+        owned, _, why = placement.decide(env(SIDE_LABEL=LIGHT_SIDE, JOBS="a b c"), light + std)
+        self.assertEqual(owned, ("a", "b", "c"))
+        self.assertIn(LIGHT_SIDE, why)
+
     def test_a_std_job_never_takes_a_light_runner(self):
         light = [runner(f"light-{host}-glaeda-1", labels=(LIGHT, LIGHT_SIDE)) for host in "abcd"]
         std = [runner("mini-a-glaeda-3", busy=True)]
