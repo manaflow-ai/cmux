@@ -36,7 +36,7 @@ struct PageWebViewDebugHoverTests {
 
     @Test func hoverMovesTheMouseToTheElementsCenter() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let (view, page) = try await chromiumPage(center: #"{"x":120.5,"y":40}"#)
+        let (view, page) = try await chromiumPage(center: #"{"x":120.5,"y":40,"hit":true}"#)
         let result = await view.debugHover(".chief-pet-card")
         let moves = page.calls.filter { $0.method == "Input.dispatchMouseEvent" }
         #expect(moves.count == 1)
@@ -46,6 +46,33 @@ struct PageWebViewDebugHoverTests {
         #expect(move.params["y"] as? Double == 40)
         #expect(move.params["button"] as? String == "none")
         #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40])
+        let call = try #require(page.calls.first { ($0.params["expression"] as? String)?.contains("getBoundingClientRect") == true })
+        #expect((call.params["expression"] as? String)?.contains(#"[true,".chief-pet-card"]"#) == true)
+        view.close()
+    }
+
+    /// DevTools mouse input is in view points, so a zoomed page (UI scale, a zoomed agent chat)
+    /// gets its CSS-pixel center times the page zoom.
+    @Test func hoverOfAZoomedPageMovesToTheZoomedCenter() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await chromiumPage(center: #"{"x":120.5,"y":40,"hit":true}"#)
+        view.additionalZoom = 2
+        let zoom = view.pageZoom
+        #expect(zoom != 1)
+        let result = await view.debugHover(".chief-pet-card")
+        let move = try #require(page.calls.first { $0.method == "Input.dispatchMouseEvent" })
+        #expect(move.params["x"] as? Double == 120.5 * zoom)
+        #expect(move.params["y"] as? Double == 40 * zoom)
+        #expect(result == ["hovered": true, "native": true, "x": 120.5, "y": 40])
+        view.close()
+    }
+
+    @Test func hoverOfACoveredElementSendsNothing() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (view, page) = try await chromiumPage(center: #"{"x":120.5,"y":40,"hit":false}"#)
+        let result = await view.debugHover(".chief-pet-card")
+        #expect(!page.calls.contains { $0.method == "Input.dispatchMouseEvent" })
+        #expect(result["hovered"] == false)
         view.close()
     }
 

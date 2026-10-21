@@ -128,28 +128,33 @@ extension PageWebView {
     /// activates, and macOS sends an inactive window no mouse moves. Chromium gets a trusted
     /// DevTools `mouseMoved` (real `:hover`, `mouseenter`); WebKit gets page-script `mouseover`,
     /// `mouseenter` and `mousemove` (React's `onMouseEnter` listens to `mouseover`, so it runs, but
-    /// `:hover` styles do not apply). `{hovered, native, x, y}` in CSS pixels, or `{hovered: false}`
-    /// when nothing matches.
+    /// `:hover` styles do not apply). Scrolling the element into view also scrolls its scrollers.
+    /// `{hovered, native, x, y}` in CSS pixels; `{hovered: false}` when nothing matches or another
+    /// element (an overlay, a clipping scroller) is at the element's center.
     public func debugHover(_ selector: String) async -> JSONValue {
         let script = """
         const el = document.querySelector(selector); if (!el) { return null; }
-        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'instant' });
         const r = el.getBoundingClientRect();
         const x = r.left + r.width / 2, y = r.top + r.height / 2;
-        if (!native) {
+        const hit = el.contains(document.elementFromPoint(x, y));
+        if (hit && !native) {
           for (const type of ['mouseover', 'mouseenter', 'mousemove']) {
             el.dispatchEvent(new MouseEvent(type, { bubbles: type !== 'mouseenter', clientX: x, clientY: y, view: window }));
           }
         }
-        return JSON.stringify({ x, y });
+        return JSON.stringify({ x, y, hit });
         """
-        let native = chromiumSession != nil
+        let page = chromiumSession?.page
+        let native = page != nil
         guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
               case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
               case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
-        if let page = chromiumSession?.page {
+        guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
+        if let page {
+            // DevTools input is in view points; the page's CSS pixels are zoomed by `pageZoom`.
             guard (try? await page.devTools("Input.dispatchMouseEvent", params: [
-                "type": "mouseMoved", "x": x, "y": y, "button": "none", "buttons": 0, "modifiers": 0,
+                "type": "mouseMoved", "x": x * pageZoom, "y": y * pageZoom, "button": "none", "buttons": 0, "modifiers": 0,
             ])) != nil else { return ["hovered": false, "error": "mouse move failed"] }
         }
         return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
