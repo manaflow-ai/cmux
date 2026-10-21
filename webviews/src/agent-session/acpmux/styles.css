@@ -48,13 +48,8 @@
    takes the theme's red (--agent-danger, ANSI 1) and shows the input level in the same circle. Hover and press are in composerStates.css. */
 .acpmux-mic{flex:none;display:grid;place-items:center;width:28px;height:28px;padding:0;border:0;border-radius:50%;background-color:transparent;color:var(--agent-muted);cursor:default}
 .acpmux-mic:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:2px}
-.acpmux-mic[data-state=starting]{color:var(--agent-text)}
-.acpmux-mic[data-state=listening],.acpmux-mic[data-state=finalizing]{color:var(--agent-danger);background:color-mix(in srgb,var(--agent-danger) 16%,transparent)}
-.acpmux-mic-meter{display:flex;align-items:center;gap:2px;height:18px}
-.acpmux-mic-meter span{width:2px;height:18px;border-radius:1px;background:currentColor;transform-origin:center}
-.acpmux-mic[data-state=finalizing] .acpmux-mic-meter{opacity:.55}
 @keyframes acpmux-mic-wait{50%{opacity:.45}}
-@media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}.acpmux-mic-meter span{transition:transform var(--agent-motion-hover) var(--agent-ease-out)}}
+@media (prefers-reduced-motion:no-preference){.acpmux-mic[data-state=starting]{animation:acpmux-mic-wait calc(var(--agent-motion-in) * 10) var(--agent-ease-out) infinite}}
 .acpmux-dictation-notice{display:flex;align-items:center;gap:8px;margin:0 var(--cv-inset) 8px;padding:6px 6px 6px 12px;border-radius:12px;background:var(--acpmux-composer-bg);box-shadow:inset 0 0 0 var(--cmux-hairline, .5px) var(--acpmux-composer-edge);color:var(--agent-text);font-size:12px;line-height:18px}
 /* Static status indicators (cx-sya4n): the mic's wait pulse stops. */
 :root[data-status-indicators=static] .acpmux-mic[data-state=starting]{animation:none}

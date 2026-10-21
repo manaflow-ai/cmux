@@ -1,6 +1,6 @@
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
-import type { DictationField } from "../dictation";
+import { useDictationListening, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../omnibar";
@@ -671,6 +671,8 @@ export function NewTabScreen(props: Props) {
     });
   };
   const placeholder = mode === "search" ? nt("searchPlaceholder") : nt("placeholder");
+  // A dictation waiting for words says so in the empty field, in italic (dictation.css).
+  const dictating = useDictationListening();
   const keyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
     touch();
     if (composing.current || event.nativeEvent.isComposing) return;
@@ -957,7 +959,8 @@ export function NewTabScreen(props: Props) {
               rows={1}
               data-focus-ring="none"
               aria-label={shell ? t("composer.shell") : placeholder}
-              placeholder={shell ? t("composer.shellPlaceholder") : placeholder}
+              placeholder={shell ? t("composer.shellPlaceholder") : dictating ? t("dictation.listening") : placeholder}
+              data-dictation-listening={dictating && !shell ? "" : undefined}
               value={text}
               aria-controls="nt-rows"
               aria-describedby={shell ? undefined : "nt-mode-hint"}
