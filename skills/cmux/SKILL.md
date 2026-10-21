@@ -53,7 +53,7 @@ Every action in the app's registry is also a verb: `cmux action list --noun work
 None of these moves the person's focus; `cmux docs search "show the user"` prints the same guide.
 
 ```bash
-cmux agent open SESSION_ID                             # a new workspace whose selected tab is that agent session's chat
+cmux agent open SESSION_ID                             # that agent session's chat, in a new workspace
 cmux workspace ws_… status set build "tests passing"   # a status line on the workspace's sidebar row (--state, --ttl…)
 cmux workspace ws_… progress set 0.4 --label "3 of 8"
 cmux notify --title "Review ready" --body "PR #123"    # --desktop false: sidebar marker only

@@ -27,10 +27,9 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
 Start a session only when the user asked for one.
 
-A session you start, from either, opens in no tab: the user does not see its
-chat until it is opened. To show it without moving the user's focus, run
-`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`): a new
-workspace whose selected tab is that chat. Post progress on a workspace's
+To put a session's chat in front of the user without moving their focus, run
+`cmux agent open SESSION_ID` (the `cmux` MCP server's `app_agent_open`); a
+`start_session` child also shows in your chat's Subagents summary. Post progress on a workspace's
 sidebar row with `cmux workspace WS status set KEY TEXT`, and ask for
 attention with `cmux notify`. `cmux docs search "show the user"` lists the rest.
 
