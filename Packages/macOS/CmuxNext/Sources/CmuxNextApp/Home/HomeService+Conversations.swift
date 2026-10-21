@@ -26,10 +26,13 @@ extension HomeService {
 
     /// The Chiefs New Message lists before anything is typed: those not chosen yet, the main Chief first.
     func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
-        let chiefs = draft.chiefShortcuts(contacts: contacts())
-        guard let main = chiefRoster.main, let row = homeStore.rows.first(where: { $0.id == main }) else { return chiefs }
-        let isMain = { (chief: HomeContact) in row.summary.participants.contains { $0.id == chief.id } }
-        return chiefs.filter(isMain) + chiefs.filter { !isMain($0) }
+        let contacts = contacts()
+        guard let main = chiefRoster.main, let row = homeStore.rows.first(where: { $0.id == main }) else {
+            return draft.chiefShortcuts(contacts: contacts)
+        }
+        // The main Chief first, before the list's limit cuts it.
+        let isMain = { (contact: HomeContact) in row.summary.participants.contains { $0.id == contact.id } }
+        return draft.chiefShortcuts(contacts: contacts.filter(isMain) + contacts.filter { !isMain($0) })
     }
 
     /// How New Message's list draws `recipient`: a Chief's avatar and where it runs, as the Home

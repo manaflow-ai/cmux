@@ -259,6 +259,17 @@ struct HomeNewMessageTests {
         #expect(field.suggestions.isHidden, "once someone is chosen the list waits for typing")
     }
 
+    @Test func tabWithNothingTypedGoesToTheMessageBoxEvenWithASuggestionHighlighted() {
+        let field = Self.field()
+        var done = 0
+        field.onDone = { done += 1 }
+        field.addButton.performClick(nil)
+        #expect(field.suggestions.highlighted == 0)
+        field.handle(#selector(NSResponder.insertTab(_:)))
+        #expect(done == 1)
+        #expect(field.draft.recipients.isEmpty)
+    }
+
     @Test func escapeWithTheChiefsListedAsksThePageToLeave() {
         let field = Self.field()
         field.idleSuggestions = { [Self.chief] }

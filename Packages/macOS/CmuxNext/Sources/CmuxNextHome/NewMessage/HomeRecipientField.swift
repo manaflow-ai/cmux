@@ -9,8 +9,8 @@ import CmuxNextDesign
 /// removes the last token, Up / Down move through the suggestions. Before
 /// anyone is chosen and while nothing is typed, the list offers the Chiefs
 /// (``idleSuggestions``) with nothing highlighted until Down. Return with
-/// nothing typed chooses the highlighted suggestion, else (and Tab) hands
-/// the keyboard to the message box.
+/// nothing typed chooses the highlighted suggestion, else (and Tab with
+/// nothing typed) hands the keyboard to the message box.
 public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     /// The draft changed (a token added or removed, or the typed text).
     public var onChange: (HomeNewMessageDraft) -> Void = { _ in }
@@ -104,10 +104,11 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     }
 
     /// The typed text becomes a token: the highlighted suggestion, else what it parses as.
-    /// With nothing typed only a highlighted suggestion is chosen.
+    /// `pickWithNothingTyped` (Return): with nothing typed the highlighted suggestion is chosen.
     @discardableResult
-    public func commit() -> Bool {
+    public func commit(pickWithNothingTyped: Bool = false) -> Bool {
         let typed = text.stringValue.trimmingCharacters(in: HomeNewMessageDraft.separators)
+        guard !typed.isEmpty || pickWithNothingTyped else { return false }
         if let pick = suggestions.highlightedItem, !suggestions.isHidden {
             choose(pick)
             return true
@@ -199,7 +200,10 @@ public final class HomeRecipientField: NSView, NSTextFieldDelegate {
     @discardableResult
     func handle(_ selector: Selector) -> Bool {
         switch selector {
-        case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
+        case #selector(NSResponder.insertNewline(_:)):
+            if !commit(pickWithNothingTyped: true) { onDone() }
+            return true
+        case #selector(NSResponder.insertTab(_:)):
             if !commit() { onDone() }
             return true
         case #selector(NSResponder.deleteBackward(_:)), #selector(NSResponder.deleteForward(_:)):

@@ -6,7 +6,7 @@ import CmuxNextDesign
 /// the name ("Chief · Main · Cloud"). The page knows both (the Chief's avatar
 /// and where it runs); a recipient it says nothing about draws its initials
 /// and its source alone.
-public struct HomeRecipientLook: Hashable, Sendable {
+public nonisolated struct HomeRecipientLook: Hashable, Sendable {
     /// The Chief's avatar; nil draws the name's initials.
     public var avatar: HomeChiefAvatar?
     /// Where a Chief runs, after "Chief" under the name; nil shows the source alone.
@@ -24,6 +24,8 @@ final class HomeRecipientAvatarView: NSView {
     private var text = ""
     private var picture: NSImage?
     private var loading: URL?
+    /// Pictures already read, by file: the list rebuilds its rows on every keystroke.
+    private static var pictures: [URL: NSImage] = [:]
 
     nonisolated override var isFlipped: Bool { true }
 
@@ -45,11 +47,17 @@ final class HomeRecipientAvatarView: NSView {
 
     /// The picture file is read off the main thread, then drawn.
     private func load(_ url: URL) {
+        if let cached = Self.pictures[url] {
+            picture = cached
+            return
+        }
         loading = url
         // task-owner: one read of a small avatar file; a later show() drops its result
         Task { [weak self] in
             let data = await Task.detached(priority: .userInitiated) { try? Data(contentsOf: url) }.value
-            guard let self, loading == url, let data, let image = NSImage(data: data), image.isValid else { return }
+            guard let data, let image = NSImage(data: data), image.isValid else { return }
+            Self.pictures[url] = image
+            guard let self, loading == url else { return }
             picture = image
             needsDisplay = true
         }
