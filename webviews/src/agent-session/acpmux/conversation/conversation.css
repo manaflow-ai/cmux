@@ -248,10 +248,20 @@
 }
 /* A sent prompt's way to the agent (PromptDelivery.tsx): a quiet clock or checks under its bubble,
    and a failed prompt's actions and Details. */
+/* Beside the bubble's lower left, out of the layout: a mark appearing or changing never moves a row. */
+.cv-user__bubble {
+  position: relative;
+}
 .cv-user__delivery {
-  justify-content: flex-end;
+  position: absolute;
+  right: calc(100% + 6px);
+  bottom: 2px;
+  margin: 0;
+  padding: 0;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+  user-select: none;
 }
 .cv-user__status--failed {
   flex-direction: column;

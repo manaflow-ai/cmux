@@ -289,7 +289,7 @@ import { chiefDock } from "./chiefDock.experiment";
 import { contextAttachment, floatingStatus, type QuickFloating } from "./FloatingChat";
 import { designSelectionChips, designSelectionRemovals } from "./designSelection";
 import { setFloatingState, useFloatingState } from "./floatingState";
-import { DeliveryFailure, DeliveryMark } from "./conversation/PromptDelivery";
+import { DeliveryFailure } from "./conversation/PromptDelivery";
 import { ReplayScreen } from "./replay/ReplayScreen";
 import { sessionReplay } from "./replay/replay.experiment";
 import { SideQuestion, type SideQuestionState } from "./aside/SideQuestion";
@@ -656,7 +656,6 @@ const MessageRow = memo(
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <DeliveryFailure row={row} />
-          {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
           {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">

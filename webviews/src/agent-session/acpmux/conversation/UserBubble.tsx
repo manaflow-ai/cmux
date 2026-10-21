@@ -15,6 +15,7 @@ import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import { imageLabel } from "../imageLabel";
 import { copyText } from "./clipboard";
+import { DeliveryMark } from "./PromptDelivery";
 import { Check, ChevronLeft, ChevronRight, Copy, ImageIcon, Pencil, TurnFork } from "./icons";
 import { relativeTime } from "./relativeTime";
 import { ImageViewerContext } from "./imageViewerContext";
@@ -55,7 +56,11 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
   return (
     <>
       {row.images && row.images.length > 0 && <SentImages images={row.images} />}
-      <div className="cv-user__bubble selectable">{text}</div>
+      <div className="cv-user__bubble selectable">
+        {text}
+        {/* Where a prompt this pane sent is on its way; a steer's mark says it instead. */}
+        {row.delivery && !row.steer && <DeliveryMark delivery={row.delivery} />}
+      </div>
       {text && !row.failed && !row.queued && (
         <div className={branch ? "cv-user__actions cv-user__actions--versions" : "cv-user__actions"}>
           {branch && branches && (
