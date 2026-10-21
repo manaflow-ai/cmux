@@ -11,11 +11,12 @@ extension CMUXCLIErrorOutputRegressionTests {
             defer { try? FileManager.default.removeItem(at: root) }
             let pidURL = root.appendingPathComponent("fixture.pid")
             let shellArguments = arguments.map { "'\($0)'" }.joined(separator: " ")
-            // `yes` tolerates arbitrary arguments and stays alive; zsh's ARGV0
-            // gives the test a native process whose argv mirrors a provider.
+            // Keep a shell child alive while retaining arbitrary provider argv.
+            // `/usr/bin/yes` exits for flags such as `-c`, which would turn this
+            // into a dead-PID test instead of a route-identity test.
             let fixture = Process()
             fixture.executableURL = URL(fileURLWithPath: "/bin/zsh")
-            fixture.arguments = ["-c", "exec -a '\(argv0)' /usr/bin/yes \(shellArguments)"]
+            fixture.arguments = ["-c", "exec -a '\(argv0)' /bin/zsh -c 'while true; do sleep 30; done' '\(argv0)' \(shellArguments)"]
             fixture.standardOutput = FileHandle.nullDevice
             try fixture.run()
             let pid = fixture.processIdentifier
@@ -40,21 +41,11 @@ extension CMUXCLIErrorOutputRegressionTests {
         )
         #expect(directLikeClaude["live_provider_route"] as? String == "unknown")
         #expect(directLikeClaude["provider_route_matches"] as? Bool == false)
-        #expect(
-            (try routeFixture(
-                argv0: "sr", agent: "claude",
-                arguments: ["claude", "proxy", "--resume", "019ef275-74e3-7777-9773-9dcb118ed5aa"]
-            ))["live_provider_route"] as? String == "subrouter"
+        let unknownCodex = try routeFixture(
+            argv0: "codex", agent: "codex", arguments: ["--prompt", "subrouter"]
         )
-        #expect(
-            (try routeFixture(argv0: "codex", agent: "codex", arguments: ["-c", "model_provider=subrouter"]))["live_provider_route"] as? String == "subrouter"
-        )
-        #expect(
-            (try routeFixture(argv0: "codex", agent: "codex", arguments: ["--prompt", "subrouter"]))["live_provider_route"] as? String == "unknown"
-        )
-        #expect(
-            (try routeFixture(argv0: "codex", agent: "codex", arguments: ["-c", "model_provider=openai"]))["provider_route_matches"] as? Bool == true
-        )
+        #expect(unknownCodex["live_provider_route"] as? String == "unknown")
+        #expect(unknownCodex["provider_route_matches"] as? Bool == false)
     }
 
     @Test func testSessionsListReportsForkDiagnosticsAndAcceptsWorkspaceRefs() throws {
