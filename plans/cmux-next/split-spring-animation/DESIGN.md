@@ -95,11 +95,20 @@ Why these:
 The task asked to resize the PTY "once at rest or at most a few times" and show content clipped.
 Lawrence decided the opposite on 2026-10-18 ("content must move while it animates": every pane
 is laid out live at its spring rect, as a macOS live window resize is, and nothing holds a
-final-size layout under a clip, so nothing jumps at rest). That decision stands. The PTY cost
-is bounded already: `ResizeCoordinator` sends a terminal's grid at most once per echo of the
-previous one (never queued, the newest size wins), so a 375 ms split sends a handful of grids
-per terminal, not one per frame. `aSpringingTerminalResizesItsPTYAtMostOncePerEcho` guards
-that bound.
+final-size layout under a clip, so nothing jumps at rest). That decision stands for the views.
+
+The PTY grid waits for the whole gesture (Lawrence 2026-10-20: "when I do Command-D multiple
+times, the animation is not perfectly fluid"). Before this change, `ResizeCoordinator` sent a
+terminal's grid about once per echo while the split sprang: a handful of grids per terminal per
+split, and more on rapid Cmd-D. Each grid was a PTY reflow and a rebuilt daemon screen at a size
+no frame rests at, so the text re-wrapped under the moving edges and the main thread took the
+rebuilt screens mid-motion. Now a split holds the grids as a close does (close-animation:
+`ScreenContentView.holdsGrids`, `ResizeCoordinator.setHeld`). The hold starts in the key's frame
+and lasts until every pane landed, and a Cmd-D pressed during the motion keeps the same hold.
+Each terminal then sends its newest grid once. Tests:
+`aSplitHoldsTheTerminalGridsUntilItsChainLands` and `fiveRapidSplitsAreOneMotion`. Real window:
+`scripts/measure/split-spring.sh`. Drags and live window resizes stay real time, at most one grid
+per echo (`aSpringingTerminalResizesItsPTYAtMostOncePerEcho`).
 
 ## Tests
 

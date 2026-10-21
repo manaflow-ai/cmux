@@ -38,19 +38,22 @@ import WebKit
 /// far. Check those (or `debug.toast`) instead of looking for the toast in
 /// the PNG.
 enum DebugWindowSnapshot {
-    static func capture(_ params: [String: JSONValue], services: AppServices) -> JSONValue {
+    @MainActor
+    static func capture(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
         let kind = kind(of: window, services: services)
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
             ?? (NSTemporaryDirectory() as NSString).appendingPathComponent("cmux-window-\(kind)-\(window.windowNumber).png")
         do {
-            let (size, method) = try window.writeSnapshot(to: URL(fileURLWithPath: path))
+            let snapshot = try window.snapshotImage()
+            // Read before the encode's await: a sheet may close meanwhile.
             let children = window.visibleChildWindows.count
+            try await NSWindow.encodeSnapshotPNG(snapshot.image, to: URL(fileURLWithPath: path))
             return .object([
-                "path": .string(path), "width": JSONValue(Int(size.width)), "height": JSONValue(Int(size.height)),
-                "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(method.rawValue),
-                "child_windows": JSONValue(method == .composited ? children : 0),
-                "child_windows_failed": JSONValue(method == .composited ? 0 : children),
+                "path": .string(path), "width": JSONValue(snapshot.image.width), "height": JSONValue(snapshot.image.height),
+                "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(snapshot.method.rawValue),
+                "child_windows": JSONValue(snapshot.method == .composited ? children : 0),
+                "child_windows_failed": JSONValue(snapshot.method == .composited ? 0 : children),
                 "refusal_hud": hudMessage(services), "refusal_hud_count": JSONValue(services.refusalHUD.shownCount),
             ])
         } catch {
@@ -76,7 +79,7 @@ enum DebugWindowSnapshot {
     /// a background, non-key window.
     @MainActor
     static func captureAsync(_ params: [String: JSONValue], services: AppServices) async -> JSONValue {
-        if params["webviews"]?.boolValue == false { return capture(params, services: services) }
+        if params["webviews"]?.boolValue == false { return await capture(params, services: services) }
         guard let window = window(params, services: services) else { return .object(["error": .string("no such window")]) }
         let kind = kind(of: window, services: services)
         let path = params["path"]?.stringValue.map { ($0 as NSString).expandingTildeInPath }
@@ -136,13 +139,11 @@ enum DebugWindowSnapshot {
             let floating = window.floatingWindowsSnapshot()
             if let floating { layers.append(.window(floating.image)) }
             let output = WindowImageLayer.composite(base: base.image, window: window, layers: layers) ?? base.image
-            let rep = NSBitmapImageRep(cgImage: output)
-            guard let data = rep.representation(using: .png, properties: [:]) else {
-                throw CocoaError(.fileWriteUnknown)
-            }
-            try data.write(to: URL(fileURLWithPath: path), options: .atomic)
+            // AppKit/WebKit capture and compositing stay on the main actor;
+            // PNG compression and the file write run off-main.
+            try await NSWindow.encodeSnapshotPNG(output, to: URL(fileURLWithPath: path))
             return .object([
-                "path": .string(path), "width": JSONValue(rep.pixelsWide), "height": JSONValue(rep.pixelsHigh),
+                "path": .string(path), "width": JSONValue(output.width), "height": JSONValue(output.height),
                 "kind": .string(kind), "window_number": JSONValue(window.windowNumber), "method": .string(base.method.rawValue),
                 "webviews": JSONValue(webViews.count), "webviews_composited": JSONValue(webViews.count - failed),
                 "webviews_failed": JSONValue(failed), "child_windows": JSONValue(childrenIncluded),

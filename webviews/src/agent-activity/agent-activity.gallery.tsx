@@ -100,7 +100,7 @@ export default componentEntry<Props>({
   area: "Pages",
   height: 560,
   widths: { narrow: 480, normal: 1000, wide: 1400 },
-  covers: ["agent-activity/view.tsx#ActivityView"],
+  covers: ["page:cmux.agent-activity", "agent-activity/view.tsx#ActivityView"],
   load: async () => ActivityGallery,
   styles: async () => {
     await import("../pages/shared/desktop.css");

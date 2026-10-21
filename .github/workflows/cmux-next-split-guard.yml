@@ -7,6 +7,10 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: cmux-next-split-guard-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
 jobs:
   advisory:
     name: split-plan advisory
