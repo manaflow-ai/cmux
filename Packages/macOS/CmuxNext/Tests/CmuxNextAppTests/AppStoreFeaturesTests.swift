@@ -194,6 +194,35 @@ import Testing
                 "a workspace row's ⋮ menu offers the sidebar densities")
     }
 
+    /// Every sidebar item the tab lists is one the sidebar's side offers (the list comes from the
+    /// catalog), off in the default layout and on once the layout holds it; the Chief stays with
+    /// its own sidebar. Channels and Suggested Follow-Up Tasks write their existing keys.
+    @Test func theSidebarOffersEveryListedItemAndTheNewTogglesWriteTheirKeys() async throws {
+        let items = SidebarSectionHandlers.storeItems(chief: nil, document: { .defaults }, registry: ActionRegistry(catalog: []))
+        let listed = Set(AppFeature.catalog.compactMap(\.sidebarItem))
+        #expect(items.names == listed.subtracting(["chief"]))
+        for name in ["search_chats", "new_terminal", "new_browser", "new_agent_chat", "customize"] {
+            #expect(items.names.contains(name) && !items.isShown(name), "\(name) is offered and off by default")
+            let builtIn = try #require(SidebarBuiltIn(rawValue: name))
+            let op = try #require(SidebarLayoutDocument.defaults.addToTopOp(.builtIn(builtIn)))
+            let document = try SidebarLayoutReducer.reduce(.defaults, op).get()
+            let placed = SidebarSectionHandlers.storeItems(chief: nil, document: { document }, registry: ActionRegistry(catalog: []))
+            #expect(placed.isShown(name), "\(name) is on once the sidebar shows it")
+        }
+
+        let (settings, home) = try await Self.make()
+        defer { try? FileManager.default.removeItem(at: home) }
+        let bridge = SettingsAppFeatures(settings: { settings })
+        for id in ["chief.channels", "agents.suggestedTasks"] {
+            let feature = try Self.feature(id)
+            #expect(bridge.isAvailable(feature) && !bridge.isOn(feature))
+            try await bridge.set(feature, on: true)
+            #expect(settings.fileRoot.value(at: feature.path) == .bool(true))
+            try await bridge.set(feature, on: false)
+            #expect(settings.fileRoot.value(at: feature.path) == nil)
+        }
+    }
+
     @Test func aCardFollowsAWriteMadeElsewhere() async throws {
         let (settings, home) = try await Self.make()
         defer { try? FileManager.default.removeItem(at: home) }

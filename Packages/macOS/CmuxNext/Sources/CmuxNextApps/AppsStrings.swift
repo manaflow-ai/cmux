@@ -24,6 +24,7 @@ nonisolated enum AppsStrings {
         switch category {
         case .backgrounds: t("store.feature.category.backgrounds", "Backgrounds")
         case .chief: t("store.feature.category.chief", "Chief")
+        case .agents: t("store.feature.category.agents", "Agents")
         case .newTab: t("store.feature.category.newTab", "New Tab")
         case .sidebar: t("store.feature.category.sidebar", "Sidebar")
         case .media: t("store.feature.category.media", "Media")
