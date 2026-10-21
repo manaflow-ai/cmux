@@ -5,13 +5,13 @@ name: cmux-next Computer Use helper identity
 # and runs scripts/cmux-cua-helper-trust.sh against them, so it needs a Mac. It had no
 # registry entry, so no job ran it (tests/test_pr_lane_coverage.py). This runs it on a
 # macOS runner for every feat-cmux-next pull request and push that touches the helper's
-# build, trust check or bench launcher; nothing else starts a Mac here.
+# build (every scripts/*cmux-cua* file: build, patch, rpath strip), trust check or bench
+# launcher; nothing else starts a Mac here.
 on:
   pull_request:
     branches: [feat-cmux-next]
     paths:
-      - "scripts/build-cmux-cua.sh"
-      - "scripts/cmux-cua-helper-trust.sh"
+      - "scripts/*cmux-cua*"
       - "tests/automation-bench/cua/helper.sh"
       - "tests/fixtures/cua-helper-signatures/**"
       - "tests/test_cmux_cua_build_cache_safety.py"
@@ -20,8 +20,7 @@ on:
   push:
     branches: [feat-cmux-next]
     paths:
-      - "scripts/build-cmux-cua.sh"
-      - "scripts/cmux-cua-helper-trust.sh"
+      - "scripts/*cmux-cua*"
       - "tests/automation-bench/cua/helper.sh"
       - "tests/fixtures/cua-helper-signatures/**"
       - "tests/test_cmux_cua_build_cache_safety.py"
