@@ -11,11 +11,15 @@ import CryptoKit
 ///   first-party site (`https://cmux.com/whats-new/`, https only, no other host).
 /// Every file must sniff as PNG, JPEG, GIF or WebP and fit the size cap. Fetched files are
 /// cached (highlights by hash, documents by path), so the page shows them offline.
+/// The build's nightly reel is a video the page links, never inlines (``reel(build:)``): its URL
+/// only when the build's `reel.json` (scripts/cmux-next/media/reel.py) says `reel.mp4` was built.
 nonisolated public struct ReleaseMediaStore: Sendable {
     public let cache: URL
     public let bundledDirectories: [URL]
     /// The first-party site's What's New folder; nil turns the site source off.
     public let siteBase: URL?
+    /// Where the nightly publishes each build's reel (`<build>/reel.json`); nil turns reels off.
+    public let reelBase: URL?
     private let fetcher: any AppcastFetching
     /// Results of this store's earlier calls (a failure too), so a page asks the network once.
     private let memo = Memo()
@@ -24,8 +28,10 @@ nonisolated public struct ReleaseMediaStore: Sendable {
     static let maxImageBytes = 4 << 20
 
     public init(cache: URL, bundledDirectories: [URL], fetcher: any AppcastFetching = URLSessionAppcastFetcher(deadline: 5),
-                siteBase: URL? = URL(string: "https://cmux.com/whats-new/")) {
+                siteBase: URL? = URL(string: "https://cmux.com/whats-new/"),
+                reelBase: URL? = URL(string: "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/nightly-next/")) {
         self.cache = cache
+        self.reelBase = reelBase
         self.bundledDirectories = bundledDirectories
         self.fetcher = fetcher
         self.siteBase = siteBase
@@ -118,6 +124,25 @@ nonisolated public struct ReleaseMediaStore: Sendable {
               let data = try? await fetcher.fetch(url), Self.admits(data) else { return nil }
         store(data, at: cached)
         return data
+    }
+
+    /// The build's `reel.mp4` when its `reel.json` names it (`"reel": null` when no pull request
+    /// had a clip). Build ids are digits only, so the URL stays in the reel folder. Its own call:
+    /// the notes never wait on the network for it.
+    @concurrent
+    public func reel(build: String) async -> URL? {
+        guard let reelBase, reelBase.scheme == "https", !build.isEmpty, build.allSatisfy({ $0.isASCII && $0.isNumber }) else { return nil }
+        let key = "r:" + build
+        if let known = await memo.value(key) { return known }
+        struct Report: Decodable { let reel: String? }
+        let folder = reelBase.appending(path: build, directoryHint: .isDirectory)
+        var url: URL?
+        if let data = try? await fetcher.fetch(folder.appending(path: "reel.json")), data.count <= 1 << 20,
+           (try? JSONDecoder().decode(Report.self, from: data))?.reel == "reel.mp4" {
+            url = folder.appending(path: "reel.mp4")
+        }
+        await memo.set(key, url)
+        return url
     }
 
     private func store(_ data: Data, at url: URL) {
