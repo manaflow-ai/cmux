@@ -104,7 +104,7 @@ struct ComposeInlineText {
                 after = i + 2 == ns.length ? "\n " : ""
                 if !after.isEmpty { out.replaceCharacters(in: NSRange(location: i + 1, length: 1), with: "") }
             } else {
-                after = next == 0xFFFC && out.attribute(.attachment, at: i + 1, effectiveRange: nil) is ComposeInlineAttachment ? "" : "\n"
+                after = next == 0xFFFC && s.attribute(.attachment, at: i + 1, effectiveRange: nil) is ComposeInlineAttachment ? "" : "\n"
             }
             if !after.isEmpty { out.insert(NSAttributedString(string: after, attributes: attrs), at: i + 1) }
             if i > 0, ns.character(at: i - 1) != 0x0A { out.insert(NSAttributedString(string: "\n", attributes: attrs), at: i) }
