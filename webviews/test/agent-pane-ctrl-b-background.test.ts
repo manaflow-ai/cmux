@@ -4,16 +4,18 @@
 // Ctrl-B, with the composer focused too, asks acpmux `_acpmux/process/background`. A chat whose
 // turn holds no running call keeps Ctrl-B for the composer's caret, and a Codex chat never shows
 // the hint. A running subagent draws no tool row, and takes Ctrl-B by itself. When nothing moved
-// (acpmux found nothing in the foreground, refused, or never answered), a notice above the composer
-// says so until the next key (conversation/backgroundNotice.ts). The page is the pane's dev entry
+// (acpmux found nothing in the foreground, refused, never answered, or the connection closed), a
+// notice above the composer says so until the next key (conversation/backgroundNotice.ts). The page is the pane's dev entry
 // with its browser host, talking JSON-RPC to a stand-in acpmux daemon.
 //
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, beforeEach, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
+import { BACKGROUND_NOTICE_TEXT } from "../src/agent-session/acpmux/conversation/backgroundNotice";
+import { translate } from "../src/agent-session/acpmux/i18n";
 
 await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   setDefaultTimeout(120_000);
@@ -124,10 +126,13 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   /// What the page asked the daemon to background, in order.
   const backgrounded: Record<string, unknown>[] = [];
   /// How the daemon answers a background request: moved the work, found nothing in the foreground,
-  /// refused it (invalid params, as for another harness), or never answers.
-  let backgroundReply: "moved" | "nothing" | "refused" | "silent" = "moved";
+  /// refused it (invalid params, as for another harness), never answers, or closes the connection.
+  let backgroundReply: "moved" | "nothing" | "refused" | "silent" | "closed" = "moved";
+  /// Background requests the daemon has answered.
+  let backgroundAnswers = 0;
   const SILENT = Symbol("silent");
   const REFUSED = Symbol("refused");
+  const CLOSED = Symbol("closed");
   function answer(method: string, params: Record<string, any> | undefined): unknown {
     switch (method) {
       case "initialize":
@@ -145,6 +150,7 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
         backgrounded.push(params ?? {});
         if (backgroundReply === "silent") return SILENT;
         if (backgroundReply === "refused") return REFUSED;
+        if (backgroundReply === "closed") return CLOSED;
         return { backgrounded: backgroundReply === "moved" };
       default:
         return null;
@@ -172,6 +178,8 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
           if (message.id === undefined) return;
           const result = answer(message.method, message.params);
           if (result === SILENT) return;
+          if (result === CLOSED) return ws.close();
+          if (message.method === "_acpmux/process/background") backgroundAnswers += 1;
           if (result === REFUSED)
             ws.send(
               JSON.stringify({
@@ -231,6 +239,14 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
       });
     });
   const ctrlBTaken = (page: Page) => page.evaluate(() => (window as unknown as { ctrlB: boolean[] }).ctrlB);
+  beforeEach(() => {
+    backgrounded.length = 0;
+    backgroundAnswers = 0;
+    backgroundReply = "moved";
+  });
+  /// The notice line, holding notice `kind`'s text.
+  const noticeText = (page: Page, kind: keyof typeof BACKGROUND_NOTICE_TEXT) =>
+    page.locator(".acpmux-background-notice").getByText(translate(BACKGROUND_NOTICE_TEXT[kind]));
   const requested = async () => {
     for (let wait = 0; wait < 50 && backgrounded.length === 0; wait++) await Bun.sleep(50);
     return backgrounded;
@@ -253,61 +269,63 @@ await requireBrowserLane("agent-pane-ctrl-b-background.test.ts", async () => {
   });
 
   test("work that moved shows no notice", async () => {
-    backgrounded.length = 0;
-    backgroundReply = "moved";
     const page = await open(CLAUDE);
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
-    await Bun.sleep(300);
+    for (let wait = 0; wait < 50 && backgroundAnswers === 0; wait++) await Bun.sleep(50);
+    expect(backgroundAnswers).toBe(1);
+    // The answer reaches the page and React draws what it earns within two frames.
+    await page.evaluate(
+      () => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(() => resolve(undefined)))),
+    );
     expect(await page.locator(".acpmux-background-notice").count()).toBe(0);
     await page.close();
   });
 
   test("nothing in the foreground: a notice says so, and the next key clears it", async () => {
-    backgrounded.length = 0;
     backgroundReply = "nothing";
     const page = await open(CLAUDE);
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
-    const notice = page.locator(".acpmux-background-notice");
-    await notice.getByText("Nothing running in the foreground to move").waitFor({ timeout: 5_000 });
+    await noticeText(page, "nothing").waitFor({ timeout: 5_000 });
     await page.keyboard.type("x");
-    await notice.waitFor({ state: "detached", timeout: 2_000 });
-    backgroundReply = "moved";
+    await page.locator(".acpmux-background-notice").waitFor({ state: "detached", timeout: 2_000 });
     await page.close();
   });
 
   test("a refused request: a notice says the chat can't move work", async () => {
-    backgrounded.length = 0;
     backgroundReply = "refused";
     const page = await open(CLAUDE);
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
-    await page
-      .locator(".acpmux-background-notice")
-      .getByText("This chat can't move work to the background")
-      .waitFor({ timeout: 5_000 });
-    backgroundReply = "moved";
+    await noticeText(page, "refused").waitFor({ timeout: 5_000 });
     await page.close();
   });
 
-  test("no answer: after the request's 10 s deadline a notice says the command still runs", async () => {
-    backgrounded.length = 0;
+  test("no answer: after the request's 10 s deadline a notice says the work still runs", async () => {
     backgroundReply = "silent";
     const page = await open(CLAUDE);
     await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
     await composer(page).click();
     await page.keyboard.press("Control+b");
     expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
-    await page
-      .locator(".acpmux-background-notice")
-      .getByText("The agent didn't answer; the command is still running")
-      .waitFor({ timeout: 20_000 });
-    backgroundReply = "moved";
+    await noticeText(page, "timedOut").waitFor({ timeout: 20_000 });
+    await page.close();
+  });
+
+  test("the connection closes mid-request: a notice says it was lost, not that the agent didn't answer", async () => {
+    backgroundReply = "closed";
+    const page = await open(CLAUDE);
+    await page.getByText("⌃B to run in background").waitFor({ timeout: 5_000 });
+    await composer(page).click();
+    await page.keyboard.press("Control+b");
+    expect(await requested()).toEqual([{ sessionId: CLAUDE }]);
+    await noticeText(page, "disconnected").waitFor({ timeout: 5_000 });
+    expect(await noticeText(page, "timedOut").count()).toBe(0);
     await page.close();
   });
 

@@ -1,6 +1,6 @@
 // Ctrl-B's answer earns a notice when nothing moved (conversation/backgroundNotice.ts): acpmux found
-// nothing in the foreground, refused, or never answered. The notice leaves on the next key or click,
-// with a newer request, or when the chat changes. The real pane is covered by
+// nothing in the foreground, refused, never answered, or the connection to it was lost. The notice
+// leaves on the next key or click, with a newer request, or when the chat changes. The real pane is covered by
 // test/agent-pane-ctrl-b-background.test.ts.
 import { afterEach, describe, expect, test } from "bun:test";
 import { act } from "react";
@@ -23,10 +23,9 @@ describe("backgroundNotice", () => {
     expect(backgroundNotice({ answer: { backgrounded: false } })).toBe("nothing");
   });
 
-  test("a refusal: the harness can't, the connection is closed, or there is no acpmux to ask", () => {
+  test("a refusal: acpmux says the chat can't (another harness, a peer's connection)", () => {
     const invalid = new AcpmuxRpcError({ code: -32602, message: "invalid params" });
     expect(backgroundNotice({ error: invalid })).toBe("refused");
-    expect(backgroundNotice({ error: Object.assign(new Error(), { code: "native.not_connected" }) })).toBe("refused");
     expect(backgroundNotice({ error: new Error() })).toBe("refused");
     expect(backgroundNotice({ error: undefined })).toBe("refused");
   });
@@ -35,10 +34,22 @@ describe("backgroundNotice", () => {
     expect(backgroundNotice({ error: Object.assign(new Error(), { code: "native.timed_out" }) })).toBe("timedOut");
   });
 
+  test("a connection that is down when asked is lost, not a refusal", () => {
+    expect(backgroundNotice({ error: Object.assign(new Error(), { code: "native.not_connected" }) })).toBe(
+      "disconnected",
+    );
+  });
+
+  test("a connection that closed mid-request is lost, not a timeout", () => {
+    // direct.ts rejectPending keeps the timeout code other callers read, and names the reason.
+    const interrupted = Object.assign(new Error(), { code: "native.timed_out", reason: "interrupted" });
+    expect(backgroundNotice({ error: interrupted })).toBe("disconnected");
+  });
+
   test("each notice has its own string", () => {
     const keys = Object.values(BACKGROUND_NOTICE_TEXT);
-    expect(keys).toHaveLength(3);
-    expect(new Set(keys).size).toBe(3);
+    expect(keys).toHaveLength(4);
+    expect(new Set(keys).size).toBe(4);
   });
 });
 
@@ -103,13 +114,25 @@ describe("useBackgroundNotice", () => {
     expect(notice()).toBe("timedOut");
   });
 
-  test("a missing request (no acpmux to ask) is a refusal", async () => {
+  test("a missing request (no connection to ask) is a lost connection", async () => {
     await mount("chat-1");
     await act(async () => {
       latest!.track(undefined);
       await Promise.resolve();
     });
-    expect(notice()).toBe("refused");
+    expect(notice()).toBe("disconnected");
+  });
+
+  test("a held key's repeats and a modifier alone leave it", async () => {
+    await mount("chat-1");
+    await track(Promise.resolve({ backgrounded: false }));
+    expect(notice()).toBe("nothing");
+    await act(async () => {
+      dom!.window.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "b", ctrlKey: true, repeat: true }));
+      for (const key of ["Control", "Meta", "Alt", "Shift"])
+        dom!.window.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key }));
+    });
+    expect(notice()).toBe("nothing");
   });
 
   test("the next key or click clears it", async () => {
