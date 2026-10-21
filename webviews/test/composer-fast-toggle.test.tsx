@@ -293,7 +293,9 @@ for (const [name, run] of [
     const named = [...host.querySelectorAll<HTMLElement>("button, [role=button]")].filter((button) =>
       /\b(medium|reasoning|effort)\b/i.test(`${button.textContent} ${button.getAttribute("aria-label") ?? ""}`),
     );
-    expect(named).toEqual([chip()]);
+    // Identity, not a deep compare: a JSDOM element's graph is circular.
+    expect(named.length).toBe(1);
+    expect(named[0] === chip()).toBe(true);
     expect(chip().textContent).toContain("Medium");
   });
 
