@@ -576,16 +576,26 @@ struct MachinesPanelView: View {
         teamName: String?,
         body: (CoderouterCLIAccountReader.Run) async throws -> T
     ) async throws -> T {
-        guard let coordinator = AppDelegate.shared?.auth?.coordinator else {
+        guard let session = coderouterAppSession() else {
             throw CoderouterCLIFailure.signInRequired
         }
-        return try await CoderouterAppCLISession.withSession(
+        return try await session.withSession(
             teamID: scope.teamID,
             teamName: teamName,
             expectedAccountID: scope.identityID,
-            credentials: CoderouterAppCredentialSource(auth: coordinator),
-            executable: CoderouterCLIAccountReader.resolvedExecutable(),
             body: body
+        )
+    }
+
+    /// The CLI session for this app's sign-in, built per operation because
+    /// the auth coordinator and the resolved CLI can change while the panel
+    /// is open. Nil when the app has no auth coordinator.
+    @MainActor
+    private func coderouterAppSession() -> CoderouterAppCLISession? {
+        guard let coordinator = AppDelegate.shared?.auth?.coordinator else { return nil }
+        return CoderouterAppCLISession(
+            credentials: CoderouterAppCredentialSource(auth: coordinator),
+            executable: CoderouterCLIAccountReader.resolvedExecutable()
         )
     }
 
@@ -620,7 +630,7 @@ struct MachinesPanelView: View {
                     let failure = CoderouterCLIFailure.classify(error)
                     Self.coderouterLogger.error("CodeRouter account removal failed (\(String(describing: failure), privacy: .public)): \(error.localizedDescription, privacy: .public)")
                     coderouterStore.state.restore(account, at: previousIndex, for: scope)
-                    viewModel.noteTreeHint(failure.message)
+                    viewModel.noteTreeHint(failure.removalMessage)
                 }
             }
             requestCoderouterRefresh()
@@ -658,12 +668,12 @@ struct MachinesPanelView: View {
         }
         // The terminal runs the CLI directly, as this app's account: `cmux cr`
         // or a login shell's `cr` would use the CLI's own saved sign-in.
-        guard let executable = CoderouterCLIAccountReader.resolvedExecutable() else {
-            viewModel.noteTreeHint(CoderouterCLIFailure.notInstalled.message)
+        guard let session = coderouterAppSession() else {
+            viewModel.noteTreeHint(CoderouterCLIFailure.signInRequired.message)
             return
         }
-        guard let authCoordinator = AppDelegate.shared?.auth?.coordinator else {
-            viewModel.noteTreeHint(CoderouterCLIFailure.signInRequired.message)
+        guard session.executable != nil else {
+            viewModel.noteTreeHint(CoderouterCLIFailure.notInstalled.message)
             return
         }
         let teamName = accountFlow?.availableTeams.first(where: { $0.id == scope.teamID })?.displayName
@@ -671,16 +681,20 @@ struct MachinesPanelView: View {
         Task { @MainActor in
             let sessionDirectory: URL
             do {
-                let credentials = try await CoderouterAppCredentialSource(auth: authCoordinator)
-                    .credentials(expectedAccountID: scope.identityID)
+                let credentials = try await session.credentials.credentials(expectedAccountID: scope.identityID)
+                // A refresh can replace or withdraw the destination while the
+                // session resolves; never launch setup for a stale one.
                 guard currentCoderouterScope == scope else { return }
-                sessionDirectory = try CoderouterAppCLISession.makeSessionDirectory(
+                guard case let .ready(current) = coderouterStore.state.addAvailability(for: scope),
+                      current.organizationID == destination.organizationID else {
+                    viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "Account settings are still loading for this team. Try again in a moment."))
+                    return
+                }
+                sessionDirectory = try session.makeSessionDirectory(
+                    kind: CoderouterAppCLISession.addSession,
                     credentials: credentials,
                     teamID: scope.teamID,
-                    teamName: teamName,
-                    endpoints: .current,
-                    root: CoderouterAppCLISession.addSession.root(),
-                    staleAge: CoderouterAppCLISession.addSession.staleAge
+                    teamName: teamName
                 )
             } catch {
                 viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)
@@ -692,12 +706,17 @@ struct MachinesPanelView: View {
             defer {
                 if !launched { try? FileManager.default.removeItem(at: sessionDirectory) }
             }
-            let command = CoderouterAppCLISession.addAccountCommand(
-                provider: provider,
-                organizationID: destination.organizationID,
-                executable: executable,
-                sessionDirectory: sessionDirectory
-            )
+            let command: String
+            do {
+                command = try session.addAccountCommand(
+                    provider: provider,
+                    organizationID: destination.organizationID,
+                    sessionDirectory: sessionDirectory
+                )
+            } catch {
+                viewModel.noteTreeHint(CoderouterCLIFailure.classify(error).message)
+                return
+            }
             let coordinator = CoderouterSetupWorkspaceCoordinator(
                 managerSource: { @MainActor in
                     if let tabManager, !tabManager.isFinalizedForWindowClose {
