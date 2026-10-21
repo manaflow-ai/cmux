@@ -14,6 +14,7 @@ import CmuxNextDesign
 import CmuxNextMobileHost
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextIcons
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -166,7 +167,7 @@ final class AppServices {
     private(set) lazy var workspaceTodo = WorkspaceTodoPageService(services: self)
     /// The viewers' recents, the cmux picker, the diff, markdown and editor tabs (R89, S4, S6, S7).
     private(set) lazy var viewers = ViewerService(services: self)
-    /// Where a link or path the person opens lands (`layout.linkPlacement`): beside its pane.
+    /// Where a link or path the person opens lands: a tab in its page's pane, a Cmd-click by `layout.linkPlacement`.
     private(set) lazy var linkOpener = LinkOpener(services: self)
     /// A link dragged out of a chat into a pane drop zone (``LinkDragSession``).
     private(set) lazy var linkDrags = LinkDragSession(services: self)
@@ -237,6 +238,12 @@ final class AppServices {
     private(set) lazy var debugSettings = DebugSettingsService(services: self)
     /// Quit: origin, the keep-or-end sheet and the end of the local sessions.
     private(set) lazy var quit = QuitCoordinator(services: self)
+    /// Background mode (cx-ghagp): no window open means no Dock icon or Cmd-Tab entry, and a menu bar item instead.
+    /// Only the process's own services drive it, and not while quitting (window teardown runs inside a quit).
+    private(set) lazy var background = BackgroundActivation(registry: registry, icon: .icon(.appCmux, size: 16)) { [weak self] in
+        guard let self else { return false }
+        return AppProcessRoot.shared.services === self && self.windows.controllers.isEmpty && !self.quit.isQuitting
+            && self.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback }
     /// First-run onboarding, browser import and default-app claims.
     private(set) lazy var onboarding = OnboardingService(services: self)
     /// Agent permission requests (`permissions.request`): the card, the store and the TCC reads.
