@@ -528,7 +528,7 @@ export default agentPaneEntry({
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: Steering while the agent has not read it, Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
+      note: "Under a steer's bubble: nothing while the agent has not read it (it shows as any sent prompt), Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
       snapshot: chat(
         [
           user("Add retries", 6),

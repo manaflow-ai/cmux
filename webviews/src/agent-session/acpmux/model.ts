@@ -712,7 +712,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
   if (row.received) return 26 + 16;
   // Another agent's message: its route line over two lines of the message; a notice is a tool
   // row's line (conversation/IncomingMessageCard.tsx).
-  // Its images' 72px row with 6px below, and a steer's status line, as under a bubble.
+  // Its images' 72px row with 6px below, and a read steer's status line, as under a bubble.
   if (row.incoming?.kind === "message")
     return (
       32 +
@@ -721,7 +721,7 @@ function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, Pre
       8 +
       (row.incoming.message.text.length > 140 ? 12 : 0) +
       (row.images?.length ? 78 : 0) +
-      (row.steer ? USER_STATUS_HEIGHT : 0)
+      (row.steer && row.steer !== "waiting" ? USER_STATUS_HEIGHT : 0)
     );
   if (row.incoming?.kind === "notice") return 26 + 8;
   // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).

@@ -2851,13 +2851,10 @@ pre.cv-math-source {
   margin-top: 0;
 }
 
-/* A steer under its bubble (SteerMark.tsx): "Steering" until the agent reads it, then "Steered". */
+/* A steer under its bubble (SteerMark.tsx): "Steered" once the agent read it, nothing before. */
 .cv-user__steer-label {
   color: var(--cv-text);
   font-weight: 500;
-}
-.cv-user__steer[data-steer="waiting"] .cv-user__steer-label {
-  color: var(--agent-accent);
 }
 /* A steer's read state under another agent's message, in line with its text (App.tsx). */
 .cv-incoming > .cv-user__steer {
