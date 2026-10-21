@@ -1,4 +1,4 @@
-import CmuxNextAgentActivity
+public import CmuxNextAgentActivity
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHomeEngine
