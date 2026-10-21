@@ -227,10 +227,9 @@ await requireBrowserLane("agent-pane-bottom-stack.test.ts", async () => {
 
   /// Every part drawn, inside the chat column, in the stack over the transcript's foot, and over no other part.
   function expectStacked({ main, transcript, stack, parts }: { main: Box; transcript: Box; stack: Box; parts: Box[] }) {
-    // The transcript ends where the stack starts (a no-scroll zone under it, Leo 2026-10-20), and
-    // the stack ends at the pane's bottom.
-    expect({ transcriptToStack: Math.abs(stack.top - transcript.bottom) <= 0.5 }).toEqual({
-      transcriptToStack: true,
+    // The transcript runs to the pane's bottom, under the stack, which ends there too.
+    expect({ transcriptToBottom: Math.abs(main.bottom - transcript.bottom) <= 0.5 }).toEqual({
+      transcriptToBottom: true,
     });
     expect({ stackToBottom: Math.abs(main.bottom - stack.bottom) <= 0.5 }).toEqual({ stackToBottom: true });
     // The chat has started: no location strip, and nothing left where it stood.

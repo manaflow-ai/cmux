@@ -1,7 +1,7 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The wheel over Jump to latest scrolls the transcript (Leo 2026-10-19: "can't scroll when cursor on
 // the jump to bottom"), as in the Claude and Codex apps, and the button still jumps when clicked.
-// The bottom stack under the transcript is a no-scroll zone (Leo 2026-10-20). (wheelPassThrough.ts)
+// The bottom stack is a no-scroll zone (Leo 2026-10-20). (wheelPassThrough.ts)
 //
 // The pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
 // (support/papercutChat.ts). Real Chromium and WebKit (the app's engine) with real wheel events;
@@ -84,28 +84,17 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         await page.close();
       });
 
-      // Leo 2026-10-20: "all of these areas are essentially a no-scroll zone." The bottom stack sits
-      // under the transcript, which ends above it, and the wheel over the card or the gutter beside
-      // it moves neither the transcript nor the stack.
-      test("the bottom stack is a no-scroll zone under the transcript", async () => {
+      // Leo 2026-10-20: "all of these areas are essentially a no-scroll zone." The wheel over the
+      // bottom stack's parts (the composer's card here) moves neither the transcript nor the stack.
+      test("the bottom stack is a no-scroll zone", async () => {
         current = browsers.get(name);
         const page = await pane!.open();
-        const edges = () =>
-          page.evaluate(() => ({
-            view: document.querySelector(".acpmux-scroll")!.getBoundingClientRect().bottom,
-            stack: document.querySelector(".acpmux-composer")!.getBoundingClientRect().top,
-          }));
-        const before = await edges();
-        expect(before.view).toBeLessThanOrEqual(before.stack + 0.5);
+        const card = () =>
+          page.evaluate(() => document.querySelector(".acpmux-composer-box")!.getBoundingClientRect().y);
+        const before = await card();
         expect(await wheelOver(page, ".acpmux-composer-box", -300)).toBe(0);
         expect(await wheelOver(page, ".acpmux-composer-box", 150)).toBe(0);
-        const form = (await page.locator(".acpmux-composer").first().boundingBox())!;
-        await page.mouse.move(form.x + 3, form.y + form.height / 2);
-        const top = await scrollTop(page);
-        await page.mouse.wheel(0, -300);
-        await page.waitForTimeout(400);
-        expect(await scrollTop(page)).toBe(top);
-        expect(await edges()).toEqual(before);
+        expect(await card()).toBe(before);
         await page.close();
       });
 

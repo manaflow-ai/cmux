@@ -1,10 +1,10 @@
 // The wheel over Jump to latest scrolls the transcript (Leo 2026-10-19: "can't scroll when cursor on
 // the jump to bottom"), as it does in the Claude and Codex apps: the button floats over the
 // transcript's foot but is not inside its scroller, so a wheel over it reached nothing. The bottom
-// stack (questions, notices, the queue, the composer and its footer) is a no-scroll zone under the
-// transcript (Leo 2026-10-20: "all of these areas are essentially a no-scroll zone"): the wheel over
-// it scrolls neither the transcript nor the stack, and a part that scrolls itself (a long prompt,
-// the queue, a menu's list) keeps the wheel at its ends too.
+// stack (questions, notices, the queue, the composer and its footer) is a no-scroll zone (Leo
+// 2026-10-20: "all of these areas are essentially a no-scroll zone"): the wheel over its parts
+// scrolls neither the transcript nor the stack, and a part that scrolls itself (a long prompt, the
+// queue, a menu's list) keeps the wheel at its ends too.
 
 /// The event's vertical distance in pixels (a line is 16px, a page the scroller's height).
 export function wheelPixels(event: Pick<WheelEvent, "deltaY" | "deltaMode">, pageHeight: number): number {

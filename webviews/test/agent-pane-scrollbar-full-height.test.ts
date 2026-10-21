@@ -1,12 +1,12 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
-// The transcript ends where the bottom stack starts, a no-scroll zone under it as in the Claude
-// desktop app (Leo 2026-10-20: "all of these areas are essentially a no-scroll zone"): its
-// scrollbar's track ends at the stack's top. Scrolled to the end, the last row sits fully above the
+// The transcript runs the pane's full height and scrolls under the composer, as the Claude and
+// Codex apps do (Leo 2026-10-19): its scrollbar's track reaches the pane's bottom corner instead of
+// stopping above the composer. Scrolled to the end, the last row still sits fully above the
 // composer's card, and a composer that grows (a prompt of several lines) keeps a followed view at
 // its end on every painted frame, with nothing under the card.
 //
-// Before (Leo 2026-10-19 to 2026-10-20): the transcript ran the pane's full height under the stack
-// and its track reached the pane's bottom corner.
+// Before: the transcript ended at the top of the bottom stack, so its track ended about a
+// composer's height (111px here, 211px with a five-line prompt) above the pane's bottom.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -143,9 +143,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       );
       const answer = rows.find((row) => row.textContent?.includes("Answer 40:"));
       return {
-        trackGap: Math.round(
-          document.querySelector(".acpmux-main > .acpmux-dock")!.getBoundingClientRect().top - view.bottom,
-        ),
+        trackGap: Math.round(main.bottom - view.bottom),
         rowAboveCard: Math.round(card.top - last.getBoundingClientRect().bottom),
         answerAboveCard: answer ? Math.round(card.top - answer.getBoundingClientRect().bottom) : null,
         // The chat has no older pages, so the transcript's last row is the last of the set.
@@ -158,19 +156,19 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       };
     });
 
-  test("the transcript's scrollbar ends at the bottom stack, and its end sits above the composer", async () => {
+  test("the transcript's scrollbar runs to the pane's bottom, and its end sits above the composer", async () => {
     const page = await open();
     const drawn = await measure(page);
-    console.log(`scrollbar track bottom to the stack's top: ${drawn.trackGap}px`);
-    // The scroller, and so its scrollbar's track, ends at the stack's top.
+    console.log(`scrollbar track bottom to pane bottom: ${drawn.trackGap}px`);
+    // The scroller, and so its scrollbar's track, reaches the pane's bottom edge.
     expect(Math.abs(drawn.trackGap)).toBeLessThanOrEqual(2);
     // Opened at its latest message: the view is at the end, the last row whole above the card.
     expect({ fromEnd: drawn.fromEnd, lastIsLatest: drawn.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
     expect(drawn.rowAboveCard).toBeGreaterThanOrEqual(-1);
     expect(drawn.answerAboveCard).toBeGreaterThanOrEqual(0);
 
-    // At the end the thumb rests at the track's foot, so the pixel there differs from the page
-    // beside it (a mask over that band would hide both).
+    // The scrollbar paints under the composer too: at the end its thumb rests at the track's foot,
+    // so the pixel there differs from the page beside it (a mask over that band would hide both).
     if (drawn.bar > 0) {
       const shot = await page.screenshot({
         clip: { x: drawn.right - drawn.bar - 12, y: drawn.bottom - 12, width: drawn.bar + 12, height: 8 },

@@ -2670,7 +2670,7 @@ export function VirtualTranscript({
     };
     const inputs = ["wheel", "pointerdown", "touchstart", "keydown"] as const;
     for (const name of inputs) node?.addEventListener(name, reader, { passive: true });
-    // The wheel over Jump to latest scrolls the transcript (wheelPassThrough.ts).
+    // The wheel over Jump to latest and the bottom stack scrolls the transcript (wheelPassThrough.ts).
     // The chat's own transcript only (a replay's sits in its own screen).
     const main = node?.closest(".acpmux-stage")?.parentElement?.closest<HTMLElement>(".acpmux-main");
     const removeWheel = node && main ? installWheelPassThrough(node, main) : undefined;
@@ -6647,10 +6647,9 @@ function AcpmuxPane() {
         <div
           className="acpmux-main"
           data-new-chat={freshView && !showNewTab ? "" : undefined}
-          // The bottom stack is a box pinned under the transcript while the stage shows it
-          // (bottomStack.css); a new chat's hero, a handoff review, the diff and the inspector lay its
-          // parts in the pane's flow.
-          data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "pinned" : undefined}
+          // The transcript runs the pane's height under the bottom stack (bottomStack.css) while the
+          // stage shows it; a new chat's hero, a handoff review, the diff and the inspector keep it in flow.
+          data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
           {!harnessesOpen && showNewTab && !newTab.history && (
