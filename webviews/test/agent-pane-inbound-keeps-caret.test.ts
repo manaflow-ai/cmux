@@ -2,7 +2,8 @@
 // to the start of the prompt mid-sentence when another agent's steer or queued message arrived). In
 // the real agent pane, a stand-in acpmux daemon's chat runs a turn while the person types; another
 // agent's message then queues behind the turn, is sent into it as a steer, and the turn ends. After
-// each, the prompt keeps its text, its selection, its focus and its editor (no remount).
+// each, and after the daemon re-adopts the chat and the connection drops and comes back, the prompt
+// keeps its text, its selection, its focus and its editor (no remount).
 //
 // Real Chromium and WebKit (the app's pane is a WKWebView) from Playwright; skipped where they are
 // not installed (the hosted webviews job).
@@ -28,13 +29,14 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
   const turn = { turnId: "turn-1", promptId: "p-turn", startedAt: Date.now(), prompt: "Refactor the parser" };
   let queue: { promptId: string; prompt: string }[] = [];
   let running = true;
+  let steering = true;
   const summary = () => ({
     sessionId: SESSION,
     cwd: "/home/dev/api",
     title: "Refactor the parser",
     harness: "claude",
     status: running ? "running" : "idle",
-    steering: true,
+    steering,
     queued: queue.length,
     queue,
     ...(running ? { turn } : {}),
@@ -53,7 +55,7 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
   ];
   let seq = opening.length;
 
-  type Socket = { send(data: string): void };
+  type Socket = { send(data: string): void; close(): void };
   let socket: Socket | undefined;
   const event = (kind: string, msg: Record<string, unknown>) =>
     socket!.send(
@@ -149,9 +151,10 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
 
   describe("inbound messages leave the prompt as the person left it", () => {
     test.each(["chromium", "webkit"])(
-      "%s: another agent's queued message, its steer and the turn's end keep the caret mid-text",
+      "%s: another agent's queued message, its steer, the turn's end, a re-adopt and a reconnect keep the caret mid-text",
       async (engine) => {
         running = true;
+        steering = true;
         queue = [];
         const page = await browsers[engine]!.newPage({ viewport: { width: 900, height: 760 } });
         const { port } = vite!.httpServer!.address() as { port: number };
@@ -175,7 +178,8 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
         expect(before).toEqual({ text: "fix the flaky retry test", start: 8, end: 13, focused: true, same: true });
 
         const from = { kind: "agent_message", from: "acp:a162", fromName: "a162", msgId: "m-1" };
-        const steps: [string, () => void][] = [
+        // Each step, and how long the pane gets to take it (a dropped socket reconnects after 250 ms).
+        const steps: [string, () => void, number?][] = [
           [
             "queued",
             () => {
@@ -207,11 +211,22 @@ await requireBrowserLane("agent-pane-inbound-keeps-caret.test.ts", async () => {
               changed("turn_result");
             },
           ],
+          // The daemon re-adopted its sessions while the person typed (2026-10-20, 01:54 to 02:30):
+          // the chat's summary came again with steering off.
+          [
+            "re-adopted",
+            () => {
+              steering = false;
+              changed("adopted");
+            },
+          ],
+          // The connection drops and the pane reconnects and attaches the chat again.
+          ["reconnected", () => socket!.close(), 2500],
         ];
-        for (const [name, step] of steps) {
+        for (const [name, step, settle = 600] of steps) {
           step();
           // Let the pane take the records and draw (and any effect they start run).
-          await page.waitForTimeout(600);
+          await page.waitForTimeout(settle);
           expect({ step: name, ...(await where(page)) }).toEqual({ step: name, ...before });
         }
         await page.close();
