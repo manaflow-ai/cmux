@@ -24,7 +24,7 @@ import Testing
 
     /// One `_acpmux/watch` session summary's lane.
     static func lane(_ session: String, _ state: String) throws -> AgentActivityLane {
-        try #require(AgentActivityLane.of(summary: ["sessionId": session, "name": session, "lane": ["state": state]], title: nil))
+        try #require(AgentActivityLane.of(summary: ["sessionId": session, "name": session, "lane": ["state": state]]))
     }
 
     /// Four chats of four harnesses, one per lane state, and nothing in the turn store.
@@ -48,7 +48,7 @@ import Testing
 
         func sections(_ rows: SidebarMapping.RowSource? = nil) -> [SidebarRowSection] {
             SidebarMapping.shared.sections(store.sidebarSections, machine: SidebarMachine(id: .local, name: "This Mac", kind: .local),
-                                           rowSource: lanes.sidebarRows(rows, turns: turns))
+                                           rowSource: SidebarLaneStatus.applying(rows, lanes: lanes, turns: turns))
         }
     }
 

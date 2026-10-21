@@ -1,13 +1,13 @@
-public import CmuxNextAgentActivity
+import CmuxNextAgentActivity
 public import CmuxNextBridge
 import CmuxNextDesign
-import CmuxNextSidebar
+public import CmuxNextSidebar
 
-extension AgentLaneStore {
-    /// `rows` (the row feed's source, else the mapping itself) with each mapped row's activity
-    /// merged with its lanes in this store (`SidebarLaneStatus`, `sidebar.laneStatus`).
-    public func sidebarRows(_ rows: SidebarMapping.RowSource?, turns: AgentTurnStateStore = .shared) -> SidebarMapping.RowSource {
-        SidebarLaneStatus.applying(rows, lanes: self, turns: turns)
+extension SidebarRowFeed {
+    /// This feed as the mapping's row source, each row's activity merged with this Mac's acpmux
+    /// lanes (`SidebarLaneStatus`, `sidebar.laneStatus`).
+    @MainActor public var laneRowSource: SidebarMapping.RowSource {
+        SidebarLaneStatus.applying(rowSource, lanes: .shared, turns: .shared)
     }
 }
 

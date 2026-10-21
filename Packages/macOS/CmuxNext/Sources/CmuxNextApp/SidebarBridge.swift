@@ -1,6 +1,4 @@
 import AppKit
-import CmuxNextActions
-import CmuxNextAgentActivity
 import CmuxNextAgentLanes
 import CmuxNextBridge
 import CmuxNextCompat
@@ -143,7 +141,7 @@ final class SidebarBridge {
                 machines, registry: registry, window: windowState, creations: creations, hidesHome: Self.hidesHome(layout.document),
                 newTabPages: pages, muted: muted,
                 top: .make(layout, machines: machines, room: windowState.profileID.rawValue), pageFace: services.sidebarPageFace,
-                tabTitle: Self.tabTitle(services), rows: AgentLaneStore.shared.sidebarRows(feed.rowSource))
+                tabTitle: Self.tabTitle(services), rows: feed.laneRowSource)
             // Not the creates' rows (PendingWorkspaceRows): they draw from the press (its redraws below), and a walk reads them as it shows.
             return ((PendingWorkspaceRows.shared.listing(listed, in: windowState.id, machines: machines), services.sidebarCustomization.rowDecorations), launching, failed, SidebarSpaceBar.profiles(machines.local), SidebarProfileKey(windowState.profileID.rawValue),
                     SidebarRows.visibleLayout(layout.document))
