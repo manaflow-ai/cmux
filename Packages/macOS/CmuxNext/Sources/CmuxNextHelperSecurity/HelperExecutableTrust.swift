@@ -71,26 +71,33 @@ public struct HelperExecutableTrust: Sendable {
                 == errSecSuccess,
               let information = information as? [String: Any],
               let team = information[kSecCodeInfoTeamIdentifier as String] as? String else { return nil }
-        return authenticatedTeamIdentifier(team) { _ in true }
+        return authenticatedTeamIdentifier(team) { candidate in
+            guard let requirement = teamRequirement(candidate) else { return false }
+            return SecCodeCheckValidity(code, [], requirement) == errSecSuccess
+        }
     }
 
     static func authenticatedTeamIdentifier(
         _ candidate: String?,
         validatesLiveCode: (String) -> Bool
     ) -> String? {
-        guard let candidate, isRequirementLiteral(candidate) else { return nil }
+        guard let candidate, isRequirementLiteral(candidate), validatesLiveCode(candidate) else { return nil }
         return candidate
     }
 
     private static func validatesCode(_ url: URL, team: String) -> Bool {
-        guard isRequirementLiteral(team) else { return false }
-        var requirement: SecRequirement?
-        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
-        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess,
-              let requirement else { return false }
+        guard let requirement = teamRequirement(team) else { return false }
         var code: SecStaticCode?
         guard SecStaticCodeCreateWithPath(url as CFURL, [], &code) == errSecSuccess, let code else { return false }
         return SecStaticCodeCheckValidity(code, strictFlags, requirement) == errSecSuccess
+    }
+
+    private static func teamRequirement(_ team: String) -> SecRequirement? {
+        guard isRequirementLiteral(team) else { return nil }
+        var requirement: SecRequirement?
+        let text = "anchor apple generic and certificate leaf[subject.OU] = \"\(team)\""
+        guard SecRequirementCreateWithString(text as CFString, [], &requirement) == errSecSuccess else { return nil }
+        return requirement
     }
 
     private static func isRequirementLiteral(_ text: String) -> Bool {

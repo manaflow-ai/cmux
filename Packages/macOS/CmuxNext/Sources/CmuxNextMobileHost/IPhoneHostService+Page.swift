@@ -91,7 +91,7 @@ extension IPhoneHostService {
         guard allowed else { return account == nil ? IPhoneHostStrings.signedOut : IPhoneHostStrings.off }
         switch state.phase {
         case .off: return account == nil ? IPhoneHostStrings.signedOut : IPhoneHostStrings.off
-        case .unavailable(let reason): return reason
+        case .unavailable: return IPhoneHostStrings.unavailable
         case .connecting: return IPhoneHostStrings.connecting
         case .online:
             return [IPhoneHostStrings.online, IPhoneHostStrings.phonesConnected(state.phones.count)].joined(separator: " · ")

@@ -3811,121 +3811,121 @@
         },
         "ar": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "اتصالات iPhone غير متاحة في هذا الإصدار."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iPhone veze nisu dostupne u ovoj verziji."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iPhone-forbindelser er ikke tilgængelige i denne version."
           }
         },
         "de": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iPhone-Verbindungen sind in diesem Build nicht verfügbar."
           }
         },
         "es": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Las conexiones de iPhone no están disponibles en esta compilación."
           }
         },
         "fr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Les connexions iPhone ne sont pas disponibles dans cette version."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Le connessioni da iPhone non sono disponibili in questa build."
           }
         },
         "ja": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "このビルドでは iPhone からの接続を利用できません。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "ការតភ្ជាប់ iPhone មិនមាននៅក្នុងកំណែនេះទេ។"
           }
         },
         "ko": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "이 빌드에서는 iPhone 연결을 사용할 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iPhone-tilkoblinger er ikke tilgjengelige i denne versjonen."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Połączenia z iPhone’a nie są dostępne w tej wersji."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "As conexões do iPhone não estão disponíveis nesta versão."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Подключения iPhone недоступны в этой сборке."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "การเชื่อมต่อจาก iPhone ไม่พร้อมใช้งานในบิลด์นี้"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "iPhone bağlantıları bu sürümde kullanılamıyor."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Підключення iPhone недоступні в цій збірці."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "Kết nối từ iPhone không khả dụng trong bản dựng này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此版本不支持 iPhone 连接。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
-            "state": "needs_review",
+            "state": "translated",
             "value": "此版本不支援 iPhone 連線。"
           }
         }

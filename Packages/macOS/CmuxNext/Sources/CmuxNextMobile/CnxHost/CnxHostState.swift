@@ -7,7 +7,7 @@ public struct CnxHostState: Sendable, Equatable {
     public enum Phase: Sendable, Equatable {
         /// Not running: the toggle is off or nobody is signed in.
         case off
-        /// This build has no `cnx-hostd`, or no service for it.
+        /// This build has no trusted `cnx-hostd`, or no service for it.
         case unavailable(String)
         /// The process is starting or registering the Mac.
         case connecting

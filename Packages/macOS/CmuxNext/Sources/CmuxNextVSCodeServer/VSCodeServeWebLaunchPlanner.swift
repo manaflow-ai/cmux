@@ -12,7 +12,7 @@ public import CmuxNextHelperSecurity
 ///
 /// ```swift
 /// let planner = VSCodeServeWebLaunchPlanner(
-///     homeDirectory: home, environment: [:], isExecutable: { $0.hasSuffix("code-tunnel") },
+///     homeDirectory: home, environment: [:], isExecutable: { $0.hasSuffix("bin/code-server") },
 ///     data: { _ in nil }, contents: { _ in [] }, modificationDate: { _ in nil })
 /// ```
 public struct VSCodeServeWebLaunchPlanner: Sendable {

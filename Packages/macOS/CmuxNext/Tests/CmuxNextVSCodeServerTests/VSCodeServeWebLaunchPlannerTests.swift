@@ -3,9 +3,9 @@ import Foundation
 import Testing
 
 /// Which binary serves VS Code in the browser: a `code-server` that `serve-web` already cached
-/// (most recently used first, from `lru.json`, else the newest), or the app's bundled `code-tunnel`
-/// CLI running `serve-web`. The server's output names its Web UI URL; a folder opens through
-/// that URL's `folder` query.
+/// (most recently used first, from `lru.json`, else the newest). The bundled `code-tunnel` is
+/// refused because it delegates to mutable cached runtime code. The server's output names its Web
+/// UI URL; a folder opens through that URL's `folder` query.
 @Suite struct VSCodeServeWebLaunchPlannerTests {
     static let vscode = URL(fileURLWithPath: "/Applications/Visual Studio Code.app", isDirectory: true)
     static let home = URL(fileURLWithPath: "/Users/me", isDirectory: true)
@@ -24,7 +24,7 @@ import Testing
                 "PATH": "/usr/bin:/bin",
                 "SSH_AUTH_SOCK": "/tmp/agent.sock",
             ],
-            isExecutable: { $0 == "\(Self.cache)/bbb/bin/code-server" || $0 == "\(Self.cache)/aaa/bin/code-server" || $0.hasSuffix("code-tunnel") },
+            isExecutable: { $0 == "\(Self.cache)/bbb/bin/code-server" || $0 == "\(Self.cache)/aaa/bin/code-server" },
             data: { $0.path == "\(Self.cache)/lru.json" ? Data(#"["../evil","bbb","aaa"]"#.utf8) : nil },
             contents: { _ in [] }, modificationDate: { _ in nil }, executableTrust: { _ in true }
         )

@@ -10,8 +10,8 @@ public struct VSCodeServeWebProcessLauncher: VSCodeServeWebLaunching {
     private let startupTimeout: Duration
 
     /// Creates a launcher.
-    /// - Parameter startupTimeout: How long a server may take to print its URL. A first run
-    ///   downloads the server, so the default is a minute (classic cmux's deadline).
+    /// - Parameter startupTimeout: How long a trusted cached server may take to print its URL.
+    ///   The default remains a minute to allow slow starts.
     public init(startupTimeout: Duration = .seconds(60)) {
         self.startupTimeout = startupTimeout
     }
