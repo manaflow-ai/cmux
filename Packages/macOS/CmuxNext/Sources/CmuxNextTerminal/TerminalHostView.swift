@@ -26,7 +26,7 @@ public final class TerminalHostView: NSView {
     private var shellStall: TerminalShellStall?
     /// "Restart Shell Here" above the banner while the shell has ended.
     private let restartButton = TerminalRestartButton()
-    /// "Retry" above the banner once the view stopped retrying its attach.
+    /// "Retry" above the banner once the view's attach kept failing.
     private let retryButton = TerminalRetryButton()
     /// "Sized for <device>" with Take over, bottom-trailing, while another view sets the grid.
     private let sizedForChip = TerminalSizedForChip()
@@ -318,8 +318,7 @@ public final class TerminalHostView: NSView {
     /// (translucent, glass, or over art) the window root paints the one
     /// sheet and the host stays clear, as the panes around it do, unless the
     /// terminal's theme differs from theirs: its background then lies over
-    /// the glass at the window's tint, which over art keeps its own text
-    /// legible (`WindowBackdrop.legibleTintOpacity`). The user's terminal
+    /// the glass at the window's tint (`WindowBackdrop.tintOpacity`). The user's terminal
     /// background (`appearance.surfaces.terminal`) replaces all of these;
     /// the surfaces then draw a transparent default background.
     fileprivate func paintBackground() {

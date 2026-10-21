@@ -15,6 +15,7 @@
 pub mod adopt;
 pub mod adopt_live;
 pub mod adopt_replay;
+pub mod adopt_tools;
 pub mod agent;
 pub mod agent_displays;
 pub mod agent_host;
@@ -63,6 +64,8 @@ pub mod protected_folders;
 pub mod protocol;
 pub mod question_answer;
 pub mod registry;
+pub mod route_account;
+mod route_probe;
 mod router_socket;
 pub mod routes;
 pub mod rpc;

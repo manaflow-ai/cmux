@@ -8,9 +8,16 @@ public import Observation
 @Observable @MainActor
 public final class AgentLaneStore {
     public static let shared = AgentLaneStore()
+    /// The Chief home's lanes (its subagents), apart from this Mac's own: the Priority view reads both.
+    public static let chief = AgentLaneStore()
 
     /// Keyed by session id; empty while the watch is down.
     public var lanes: [String: AgentActivityLane] = [:]
+    /// The acpmux socket whose watch fills the store (set by `AgentTurnStateFeed`), for requests
+    /// about its sessions such as the Priority view's Archive.
+    @ObservationIgnored public var socketPath: String?
+    /// The watch is up and has delivered its page: `lanes` is every session, not a gap.
+    public var live = false
 
     public init() {}
 
@@ -27,12 +34,11 @@ public final class AgentLaneStore {
 }
 
 extension AgentActivityModel {
-    /// Shows `store`'s lanes while `enabled` (Labs preview features: off by default until the
-    /// lanes view is styled), else none.
-    public func follow(_ store: AgentLaneStore, while enabled: @escaping @MainActor @Sendable () -> Bool) -> Task<Void, Never> {
+    /// Shows `store`'s lanes (Leo 2026-10-20: always, not only with Labs preview features on).
+    public func follow(_ store: AgentLaneStore) -> Task<Void, Never> {
         // task-owner: the caller (the page tab cancels it in `close`); event-driven (Observation)
         Task { [weak self] in
-            for await value in ObservationStream({ enabled() ? store.shown : nil }) {
+            for await value in ObservationStream({ store.shown }) {
                 guard let self else { return }
                 lanes = value
             }

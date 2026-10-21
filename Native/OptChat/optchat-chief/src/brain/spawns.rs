@@ -31,10 +31,13 @@ fn now_ms() -> u64 {
     super::now_ms()
 }
 
-/// Only an explicitly persisted approve-all policy authorizes effects from a
-/// completed report. Missing/legacy/unknown policy provenance fails closed.
+/// A report carries another person's influence only when its subagent was
+/// spawned under the spawn floor (policy `ask`, a turn another person
+/// started): the turn that reads it refuses local effects. Any other report
+/// is the owner's work and never holds the owner's next turn (the Chief
+/// never asks, Lawrence 2026-10-20).
 fn report_requires_approval(policy: Option<&str>) -> bool {
-    policy != Some("approve-all")
+    policy == Some(crate::approval::ASK)
 }
 
 impl Brain {
@@ -80,8 +83,12 @@ impl Brain {
             .count()
     }
 
-    /// B4: pauses each cloud peer's VM after `cloud_idle` with no live
-    /// subagent on it, once (the tick runs every minute).
+    /// B4: pauses each cloud peer's VM after `cloud_idle`
+    /// (`cloud.autoPauseIdleSeconds`, 60 s) with no live subagent on it,
+    /// once; [`CLOUD_TICK`](super::control::CLOUD_TICK) runs it. A subagent
+    /// mid-turn (running, a tool, a prompt, a pending tell) is live, so its
+    /// VM never pauses; the pool tool also refuses while a turn or a
+    /// background process runs on the VM, and that pause is tried again.
     pub(super) fn cloud_tick(&mut self) {
         let Some(vms) = self.cloud_vms.clone() else {
             return;
@@ -110,17 +117,70 @@ impl Brain {
             }
             self.cloud_paused.insert(peer.clone());
             self.cloud_idle_since.remove(&peer);
-            (self.log)(&format!("cloud: pausing {peer} (no live cloud subagent)"));
+            (self.log)(&format!(
+                "cloud: pausing {peer} (no live cloud subagent for {} s)",
+                self.cloud_idle.as_secs()
+            ));
             let vms = vms.clone();
             let log = self.log.clone();
+            let tx = self.tx.clone();
             // The pool tool takes seconds: off the brain thread.
             let _ = std::thread::Builder::new()
                 .name("cloud-pause".into())
                 .spawn(move || {
-                    if let Err(e) = vms.pause(&peer) {
-                        log(&format!("cloud: pause {peer}: {e}"));
+                    let began = std::time::Instant::now();
+                    match vms.pause(&peer) {
+                        Ok(()) => log(&format!(
+                            "cloud: paused {peer} in {} ms",
+                            began.elapsed().as_millis()
+                        )),
+                        Err(e) => {
+                            log(&format!("cloud: pause {peer}: {e}"));
+                            let _ = tx.send(super::Input::CloudPauseFailed { peer });
+                        }
                     }
                 });
+        }
+    }
+
+    /// The pool tool refused or failed to pause `peer`: it is not paused,
+    /// and its idle time starts again.
+    pub(super) fn cloud_pause_failed(&mut self, peer: &str) {
+        self.cloud_paused.remove(peer);
+        self.cloud_idle_since.remove(peer);
+    }
+
+    /// The host stops: each cloud VM with no live subagent pauses now, on
+    /// this thread (the process exits next); one with a subagent mid-turn
+    /// keeps running, and its report waits in acpmux for the next host.
+    pub(super) fn cloud_shutdown(&mut self) {
+        let Some(vms) = self.cloud_vms.clone() else {
+            return;
+        };
+        let mut peers: Vec<String> = self
+            .state
+            .spawns
+            .values()
+            .flat_map(|r| r.subs.iter())
+            .filter_map(|s| s.peer.clone())
+            .collect();
+        peers.sort_unstable();
+        peers.dedup();
+        for peer in peers {
+            if self.live_on(&peer) > 0 || self.cloud_paused.contains(&peer) {
+                continue;
+            }
+            let began = std::time::Instant::now();
+            match vms.pause(&peer) {
+                Ok(()) => {
+                    self.cloud_paused.insert(peer.clone());
+                    (self.log)(&format!(
+                        "cloud: host stops: paused {peer} in {} ms",
+                        began.elapsed().as_millis()
+                    ));
+                }
+                Err(e) => (self.log)(&format!("cloud: host stops: pause {peer}: {e}")),
+            }
         }
     }
 
@@ -272,15 +332,21 @@ impl Brain {
     }
 
     pub(super) fn sub_failed(&mut self, id: &str, error: &str) {
+        // A subagent that fails while the spawn floor is up (another
+        // person's turn, or an `ask` child or subagent alive) keeps `ask`:
+        // its failure text then holds the turn that reads it. The owner's own
+        // failures never do (the Chief never asks, 2026-10-20).
+        let floor = self.spawn_policy();
         let Some(sub) = self.state.sub_mut(id) else {
             return;
         };
+        if let Some(floor) = floor
+            && sub.policy.is_none()
+        {
+            sub.policy = Some(floor.to_owned());
+        }
         sub.status = SubStatus::Done;
         sub.awaiting_task = false;
-        // Startup failures may contain harness/repository-controlled text.
-        // They never enter an approve-all Chief turn, regardless of the
-        // policy the session would have used had it started successfully.
-        sub.policy = Some(crate::approval::ASK.to_owned());
         sub.report = Some(format!("(did not start: {error})"));
         sub.stopped = false;
         let spawn = self.state.sub(id).map(|(s, _)| s.clone());
@@ -552,7 +618,8 @@ impl Brain {
             "subagent.auto_resume",
             json!({"id": id, "kind": format!("{kind:?}"), "attempts": attempts, "decision": format!("{decision:?}")}),
         );
-        (self.log)(&format!("subagent {id}: {note}"));
+        // WARN: the error journal (`cmux errors`) harvests host.log lines by level word.
+        (self.log)(&format!("WARN subagent {id}: {note}"));
         match decision {
             Decision::Report { .. } => {
                 if let Some(sub) = self.state.sub_mut(id) {
@@ -609,6 +676,46 @@ impl Brain {
                 });
                 Some((note, true))
             }
+        }
+    }
+
+    /// Re-arms the automatic continues a stopped host planned but never
+    /// sent ([`crate::state::HostState::pending_auto_resumes`]). Each waits
+    /// until the model endpoint answers, so a restart while offline still
+    /// waits for the network, then continues as planned.
+    pub(super) fn rearm_auto_resumes(&mut self) {
+        let Some(policy) = self.resume_policy else {
+            return;
+        };
+        for (id, attempt) in self.state.pending_auto_resumes() {
+            (self.log)(&format!(
+                "subagent {id}: auto-resume {attempt} re-armed after a host restart"
+            ));
+            self.trace.emit(
+                "subagent.auto_resume.rearm",
+                json!({"id": id, "attempt": attempt}),
+            );
+            let (tx, reach) = (self.tx.clone(), self.reach.clone());
+            let settle = policy.backoff(1).min(std::time::Duration::from_secs(15));
+            std::thread::spawn(move || {
+                let online = crate::auto_resume::wait_online(
+                    &*reach,
+                    crate::auto_resume::NETWORK_POLL,
+                    crate::auto_resume::NETWORK_WAIT_MAX,
+                    std::thread::sleep,
+                );
+                if online {
+                    // A bounded pause so a restart loop does not hammer the model.
+                    std::thread::sleep(settle);
+                }
+                let _ = tx.send(super::Input::AutoResume {
+                    id,
+                    attempt,
+                    reason: String::new(),
+                    after_network: false,
+                    online,
+                });
+            });
         }
     }
 
@@ -844,8 +951,13 @@ impl Brain {
             && let Some(peer) = peer.filter(|p| self.cloud_paused.contains(p))
             && let Some(vms) = self.cloud_vms.clone()
         {
+            let began = std::time::Instant::now();
             vms.resume(&peer)
                 .map_err(|e| format!("{id}'s cloud VM {peer} did not resume: {e}"))?;
+            (self.log)(&format!(
+                "cloud: resumed {peer} for a tell to {id} in {} ms",
+                began.elapsed().as_millis()
+            ));
             self.cloud_paused.remove(&peer);
             self.cloud_idle_since.remove(&peer);
         }
@@ -1502,10 +1614,10 @@ mod security_tests {
     use super::report_requires_approval;
 
     #[test]
-    fn unknown_subagent_policy_fails_closed() {
-        assert!(report_requires_approval(None));
+    fn only_a_spawn_floor_report_holds_the_next_turn() {
         assert!(report_requires_approval(Some("ask")));
-        assert!(report_requires_approval(Some("unknown")));
+        assert!(!report_requires_approval(None));
+        assert!(!report_requires_approval(Some("unknown")));
         assert!(!report_requires_approval(Some("approve-all")));
     }
 }
@@ -1539,8 +1651,8 @@ impl Brain {
     }
 
     /// A permission request of subagent session `session_id`, when it is
-    /// one: an ask subagent's goes to a person in the Chief chat (as an ask
-    /// child's), any other's reaches the Chief as a note. True when handled.
+    /// one: an ask subagent's is refused at once (as an ask child's), any
+    /// other's reaches the Chief as a note. True when handled.
     pub(super) fn sub_permission(
         &mut self,
         session_id: &str,

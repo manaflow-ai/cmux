@@ -213,6 +213,12 @@
       "title" : "Global Hot Key",
       "type" : "boolean"
     },
+    "app.hideDockIconWithoutWindows" : {
+      "default" : true,
+      "description" : "cmux keeps running in the menu bar, out of the Dock and the app switcher, until a window opens.",
+      "title" : "Hide Dock Icon When No Windows Are Open",
+      "type" : "boolean"
+    },
     "app.quitBehavior" : {
       "default" : "ask",
       "description" : "Terminals run in cmux-tui and keep running after cmux quits unless you end them.",
@@ -660,6 +666,17 @@
       "title" : "Opacity",
       "type" : "number"
     },
+    "appearance.backgroundRotation" : {
+      "default" : "daily",
+      "description" : "How often a shuffled background turns to its next picture.",
+      "enum" : [
+        "15m",
+        "hourly",
+        "daily"
+      ],
+      "title" : "Change Picture",
+      "type" : "string"
+    },
     "appearance.borders" : {
       "default" : "default",
       "description" : "None removes every border, hairline and separator in the app.",
@@ -811,7 +828,7 @@
     },
     "appearance.experimentalControls" : {
       "default" : false,
-      "description" : "Show the wallpaper grid and live appearance tuner while they are being integrated.",
+      "description" : "Applies Hue and Saturation to the window's tint. Off, they have no effect.",
       "title" : "Experimental Appearance Controls",
       "type" : "boolean"
     },
@@ -2213,7 +2230,7 @@
     },
     "home.chiefPetEnabled" : {
       "default" : false,
-      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session.",
+      "description" : "A small Chief floats over every app and shows agent events above it. Drag it anywhere; click it to message the Chief or reply to a session. While it shows, ⌃⌥⌘C opens its reply box from any app.",
       "title" : "Show Chief Pet",
       "type" : "boolean"
     },
@@ -2413,6 +2430,12 @@
       "default" : true,
       "description" : "Off hides New Row and fits a column's existing rows into it without scrolling.",
       "title" : "Rows",
+      "type" : "boolean"
+    },
+    "layout.scrollAreas" : {
+      "default" : false,
+      "description" : "Side-by-side panes that do not fit scroll sideways instead of shrinking, also in docked columns.",
+      "title" : "Scroll Areas",
       "type" : "boolean"
     },
     "layout.splitSizing" : {
@@ -3006,6 +3029,12 @@
       ],
       "title" : "Keep Mac Awake While Agents Work",
       "type" : "string"
+    },
+    "sessions.resumeAgents" : {
+      "default" : true,
+      "description" : "Terminal agents reopen their session after a crash or restart.",
+      "title" : "Resume Agents After Restart",
+      "type" : "boolean"
     },
     "shortcuts.showModifierHoldHints" : {
       "default" : true,

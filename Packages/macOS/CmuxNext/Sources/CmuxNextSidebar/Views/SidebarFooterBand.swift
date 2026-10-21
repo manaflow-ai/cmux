@@ -122,8 +122,9 @@ final class SidebarFooterBand {
             (x, midY) = (row.itemsMaxX + Metrics.space2, row.frame.midY)
         } else {
             let footer = host.footer.frame
-            // An empty band: the footer row, or the sidebar's bottom when the footer has no height.
-            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY : host.bounds.maxY - SidebarStyle.footerHeight / 2)
+            // An empty band: the footer row, or above the bottom inset when the footer has no height.
+            (x, midY) = (Metrics.space4, footer.height > 0 ? footer.midY
+                : host.bounds.maxY - SidebarStyle.bottomInset - SidebarStyle.footerHeight / 2)
         }
         button.frame = NSRect(x: x, y: (midY - side / 2).rounded(), width: side, height: side)
         return button.frame.maxX
@@ -141,7 +142,13 @@ final class SidebarFooterBand {
     var profileControl: (id: LayoutItemID, view: SidebarItemRowView)? {
         for region in host?.bandRegions ?? [] {
             for row in region.layoutResult.rows {
-                guard case .tile(let id, _) = row.kind, let view = region.itemView(id), view.showsAvatar, !view.isHidden else { continue }
+                // A tile draws the avatar alone; a chip, the avatar and the name.
+                let id: LayoutItemID
+                switch row.kind {
+                case .tile(let tile, _), .chip(let tile, _): id = tile
+                default: continue
+                }
+                guard let view = region.itemView(id), view.showsAvatar, !view.isHidden else { continue }
                 return (id, view)
             }
         }
@@ -173,6 +180,11 @@ final class SidebarFooterBand {
             // Flipped anchor: the menu's top-left goes above the control by
             // the menu's height, so the whole menu shows over the footer.
             let origin = NSPoint(x: 0, y: anchor.isFlipped ? -menu.size.height - gap : anchor.bounds.height + menu.size.height + gap)
+            // The control holds its selected fill while the menu is open
+            // (popUp returns when the menu closes).
+            let control = anchor as? SidebarItemRowView
+            control?.showsMenu = true
+            defer { control?.showsMenu = false }
             menu.popUp(positioning: nil, at: origin, in: anchor)
         }
     }

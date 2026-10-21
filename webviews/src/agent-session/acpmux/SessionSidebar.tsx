@@ -2,6 +2,7 @@ import React, { createContext, memo, useContext, useEffect, useId, useMemo, useR
 import {
   filterSessions,
   groupMark,
+  activityTime,
   sessionMark,
   sessionPlace,
   sortByRecency,
@@ -474,7 +475,7 @@ function FlatView({
         ? []
         : sessions
             .filter((session) => view === "history" || session.status === "closed")
-            .sort((left, right) => (right.updatedAt ?? 0) - (left.updatedAt ?? 0)),
+            .sort((left, right) => (activityTime(right) ?? 0) - (activityTime(left) ?? 0)),
     [sessions, view],
   );
   const now = Date.now();
@@ -494,7 +495,7 @@ function FlatView({
               selected={session.sessionId === selectedId}
               onSelect={onSelect}
               flat
-              trailing={shortAge(session.updatedAt, now, t)}
+              trailing={shortAge(activityTime(session), now, t)}
             />
           ))}
         </ul>
@@ -640,7 +641,13 @@ const SessionRow = memo(function SessionRow({
           {PLACE_GLYPHS[place.kind]}
         </span>
       )}
-      {mark ? (
+      {mark === "input" ? (
+        // A chat waiting on the person says so in amber, like the question card's pill.
+        <span className="acpmux-session-mark acpmux-session-mark-input acpmux-session-mark-labeled" aria-hidden="true">
+          {MARK_GLYPHS.input}
+          {t(MARK_LABELS.input)}
+        </span>
+      ) : mark ? (
         <span
           className={`acpmux-session-mark acpmux-session-mark-${mark}`}
           aria-hidden="true"

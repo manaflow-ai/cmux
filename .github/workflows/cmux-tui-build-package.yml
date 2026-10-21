@@ -138,8 +138,11 @@ jobs:
           PACKAGE_PYPI: ${{ inputs.package_pypi }}
           BUILD_AGENT_PLUGIN: ${{ inputs.build_agent_plugin }}
           DARWIN_BUILDER: ${{ inputs.darwin_builder }}
-          # 8 vCPU: the macOS Rust builds are the largest legs of the matrix.
-          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-8vcpu-ubuntu-2404' }}
+          # The binary legs on Linux run their cargo groups at once
+          # (scripts/ci/cargo-groups.sh), so they take 16 vCPU: on 4 (musl) and
+          # 8 (macOS cross) vCPU a leg took 20-46 min (runs 39336743829, 39337840188).
+          LINUX_DARWIN_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER_DARWIN_CROSS || 'blacksmith-16vcpu-ubuntu-2404' }}
+          LINUX_BUILD_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_BUILD_RUNNER || 'blacksmith-16vcpu-ubuntu-2404') }}
           MACOS_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || (inputs.macos_runner != '' && inputs.macos_runner || vars.CI_PAID_MACOS_OVERFLOW == '1' && vars.MACOS_RUNNER_15 || 'blacksmith-6vcpu-macos-15') }}
           LINUX_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || (inputs.linux_runner != '' && inputs.linux_runner || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404') }}
           LINUX_ARM64_RUNNER: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04-arm' || (inputs.linux_arm64_runner != '' && inputs.linux_arm64_runner || vars.LINUX_ARM64_RUNNER || 'blacksmith-4vcpu-ubuntu-2404-arm') }}
@@ -170,7 +173,7 @@ jobs:
               {
                   "target": "x86_64-unknown-linux-musl",
                   "build_target": "x86_64-unknown-linux-musl",
-                  "runner": os.environ["LINUX_RUNNER"],
+                  "runner": os.environ["LINUX_BUILD_RUNNER"],
                   "cross": True,
                   "ext": "",
                   "compatibility_target": "x86_64-unknown-linux-gnu",
@@ -178,7 +181,7 @@ jobs:
               {
                   "target": "aarch64-unknown-linux-musl",
                   "build_target": "aarch64-unknown-linux-musl",
-                  "runner": os.environ["LINUX_RUNNER"],
+                  "runner": os.environ["LINUX_BUILD_RUNNER"],
                   "cross": True,
                   "ext": "",
                   "compatibility_target": "aarch64-unknown-linux-gnu",
@@ -312,6 +315,11 @@ jobs:
         shell: bash
         run: rustup target add ${{ matrix.target }}
 
+      - name: Test the cargo groups runner
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash tests/test_cargo_groups.sh
+
       - name: Install cargo-zigbuild
         if: matrix.cross == true && runner.os == 'Linux' && !matrix.darwin_on_linux
         shell: bash
@@ -367,11 +375,19 @@ jobs:
             CMUX_TUI_NPM_BOOTSTRAP_VERSION="$CMUX_TUI_DISTRIBUTION_VERSION"
             export CMUX_TUI_NPM_BOOTSTRAP_VERSION
           fi
-          cargo zigbuild -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p cmux-app-host --bin cmux-app-host --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p cmux-relay --bin cmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p chatmux-relay --bin chatmux-relay --release --locked --target ${{ matrix.build_target }}
-          cargo zigbuild -p acpmux --bin acpmux --release --locked --target ${{ matrix.build_target }}
+          # One cargo per package, all at once, each in its own target directory
+          # (building them in one cargo would unify their features). The
+          # binaries end up in target/<triple>/release for "Stage binary".
+          t=${{ matrix.build_target }}
+          # cargo-zigbuild writes its zig wrapper scripts in place (truncate,
+          # then write) when they are missing: each group gets its own copy.
+          zb() { echo "CARGO_ZIGBUILD_CACHE_DIR=$RUNNER_TEMP/cargo-zigbuild-$1 cargo zigbuild --release --locked --target $t"; }
+          ../scripts/ci/cargo-groups.sh "$PWD/target" "$t" \
+            "cmux-tui cmux-tui-hook cmux-tui-host" "$(zb 1) -p cmux-tui --bin cmux-tui --bin cmux-tui-hook --bin cmux-tui-host" \
+            "cmux-app-host" "$(zb 2) -p cmux-app-host --bin cmux-app-host" \
+            "cmux-relay" "$(zb 3) -p cmux-relay --bin cmux-relay" \
+            "chatmux-relay" "$(zb 4) -p chatmux-relay --bin chatmux-relay" \
+            "acpmux" "$(zb 5) -p acpmux --bin acpmux"
 
       - name: Build cmux-tui (macOS cross)
         if: matrix.cross == true && runner.os == 'macOS'
@@ -490,8 +506,8 @@ jobs:
           sha="$(git rev-parse HEAD)"
           ghostty="$(git -C ghostty-next rev-parse HEAD)"
           ./scripts/ci/macos-cross.sh toolchain "$XC_SDK_VERSION"
-          ./scripts/ci/macos-cross.sh hosts "$sha" "$ghostty" "$CMUX_TUI_DISTRIBUTION_VERSION"
-          ./scripts/ci/macos-cross.sh bins "$sha" "$ghostty" "$CMUX_TUI_DISTRIBUTION_VERSION"
+          # hosts and bins in one command: every cargo invocation at once.
+          ./scripts/ci/macos-cross.sh all "$sha" "$ghostty" "$CMUX_TUI_DISTRIBUTION_VERSION"
 
       - name: Build agent screen-detection plugin
         if: inputs.build_agent_plugin && runner.os != 'Windows'

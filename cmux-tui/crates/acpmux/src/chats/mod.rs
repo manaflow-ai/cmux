@@ -104,6 +104,7 @@ impl ChatService {
         let mut state = lock(&service.state);
         state.index.rescan_all();
         service.save(&state.index);
+        state.index.take_structural_change();
         drop(state);
         service
     }
@@ -266,6 +267,7 @@ impl ChatService {
         state.watch_errors = errors;
         let old = std::mem::replace(&mut state.watcher, watcher);
         self.save(&state.index);
+        state.index.take_structural_change();
         self.publish(&mut state, changes);
         drop(state);
         // Stopping a watcher may wait for its event thread: never under the lock.
@@ -277,8 +279,6 @@ impl ChatService {
     /// roots that hold `paths` (all roots when there are none) scan again.
     pub(crate) fn paths_changed(&self, paths: &[PathBuf], rescan: bool) {
         let mut state = lock(&self.state);
-        let before: HashSet<ChatKey> =
-            state.index.chats().into_iter().map(|chat| chat.entry.key()).collect();
         let mut changes = Vec::new();
         if rescan {
             let ids: Vec<String> = state
@@ -299,11 +299,7 @@ impl ChatService {
         changes.extend(state.index.paths_changed(paths));
         // The cache keeps read offsets with their counts, so a restart is
         // correct from any saved state; save only when the chat set changed.
-        let structural = changes.iter().any(|change| match change {
-            ChatChange::Removed { .. } => true,
-            ChatChange::Upsert { chat } => !before.contains(&chat.entry.key()),
-        });
-        if structural {
+        if state.index.take_structural_change() {
             self.save(&state.index);
         }
         self.publish(&mut state, changes);
