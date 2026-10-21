@@ -128,14 +128,18 @@ extension SidebarListView {
                 if path.member != nil, case let .group(group) = section.nodes[path.node] {
                     groups[group.id] = group
                     reconfigure(.group(group.id))
-                    if shownGroupCard == group.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(group.id)) }
+                    // The shown card is this group's or an ancestor's: a parent's card counts its subgroups.
+                    if let shownGroupCard, groupSubtrees[shownGroupCard]?.contains(group.id) ?? (shownGroupCard == group.id) {
+                        hoverCards.contentChanged(WorkspaceHoverCardController.targetID(shownGroupCard))
+                    }
                 }
             }
             if shownCard == ws.id { hoverCards.contentChanged(WorkspaceHoverCardController.targetID(ws.id)) }
             guard let row = displayed.row(for: .workspace(ws.id)), let section = sections[row.section] else { continue }
             let o = options ?? self.options(includeGap: true)
             options = o
-            let content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            var content = o.rowContent(ws, machine: SidebarLayout.machineLabel(section, options: o))
+            content.treeDepth = row.content?.treeDepth ?? 0 // a patch moves no row: it stays where the tree put it
             let m = o.minimal ? metrics.minimal : metrics
             guard m.height(for: content) == row.height else {
                 heightChanged = true

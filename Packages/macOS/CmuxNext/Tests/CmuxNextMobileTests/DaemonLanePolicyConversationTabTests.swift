@@ -4,8 +4,8 @@ import Testing
 
 /// Agent chat tabs from a phone (`new-conversation-tab`): this lane has no agent tab host of
 /// this Mac to set, so it refuses them outright, even with the reviewed `agent_session` and
-/// `split` fields (scripts/cmux-next/gen-phone-lane-fields.py). cnx-hostd is the lane that
-/// forwards them (cnx-ios/rust/crates/cnx-hostd/src/policy.rs).
+/// `split` fields (scripts/cmux-next/gen-phone-lane-fields.py). cmux-mobile-host is the lane that
+/// forwards them (cmux-next-ios/rust/crates/cmux-mobile-host/src/policy.rs).
 struct DaemonLanePolicyConversationTabTests {
     private let policy = DaemonLanePolicy(deviceID: "phone")
 

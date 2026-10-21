@@ -63,10 +63,20 @@ extension AppActions {
                     guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
                     page.open(next)
                 }
-                // The docked Home steps its Messages list; Channels has its own keys (j/k).
+                // The docked Home steps its Messages list, or asks the Channels page to move through
+                // its own list (`home.moveConversation`, the page's Option-Up/Down).
                 guard services.home.dock.isClassic else {
                     return withDock(services) { dock in
-                        guard dock.mode == .messages, let page = dock.messages else { return }
+                        if dock.mode == .channels, let channels = dock.channels {
+                            // task-owner: one page call; ends with its answer (a second at most)
+                            Task { @MainActor in
+                                if await !HomeDockTab.moveConversation(channels, by: offset) {
+                                    registry.refuse(MiscHandlerStrings.channelsCannotStep, quiet: true)
+                                }
+                            }
+                            return
+                        }
+                        guard let page = dock.messages else { return }
                         step(page)
                     }
                 }

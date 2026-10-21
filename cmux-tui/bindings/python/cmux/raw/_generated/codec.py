@@ -259,6 +259,7 @@ MODEL_BY_PATH = {
     'commands/cloud-mux-unsubscribe/request': models.CloudMuxUnsubscribeRequest,
     'commands/cloud-participant-avatar-get/request': models.CloudParticipantAvatarGetRequest,
     'commands/cloud-requests-list/request': models.CloudRequestsListRequest,
+    'commands/cloud-selfhost-info/request': models.CloudSelfhostInfoRequest,
     'commands/cloud-session-clear/request': models.CloudSessionClearRequest,
     'commands/cloud-session-set/request': models.CloudSessionSetRequest,
     'commands/cloud-session-status/request': models.CloudSessionStatusRequest,

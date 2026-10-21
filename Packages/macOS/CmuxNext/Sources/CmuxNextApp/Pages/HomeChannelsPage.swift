@@ -26,6 +26,9 @@ extension PageDescriptor {
 }
 
 extension PageFactory {
+    /// The channels page's engine options.
+    static let homeChannelsEngineOptions = PageEngineOptions.standard
+
     /// The React channels Home (a tab next to the native Home, or the docked Home's Channels view:
     /// only there `cmux.host.home.switchView` answers).
     func homeChannelsWebPage(dock: HomeDockView? = nil) -> PageWebView? {
@@ -36,12 +39,11 @@ extension PageFactory {
                       PageRoute(prefix: ChiefBackendPageRoute.prefix, provider: ChiefBackendPageRoute(center: services.agentHarnesses)),
                       PageRoute(prefix: PageNativeOp.edit, provider: edits)]
         if let dock { routes.append(PageRoute(prefix: HomeSwitchPageRoute.prefix, provider: HomeSwitchPageRoute(dock: dock))) }
-        // Its composers' Cut/Copy/Paste and the selection menu are WebKit hooks (`contextMenuEditor`).
         guard let page = PageWebView(descriptor: .homeChannels, routes: routes,
-                                     options: PageEngineOptions(requiresWebKit: .nativeHooks), surface: .home) else { return nil }
+                                     options: Self.homeChannelsEngineOptions, surface: .home) else { return nil }
         // The composers' right-click Cut, Copy and Paste run as the page view's own edits.
         edits.run = { [weak page] command in
-            if let view = page?.webKitView { NSApp.sendAction(command.selector, to: view, from: nil) }
+            page?.performEdit(command.selector)
         }
         // Selected message text: Copy, Quote in Reply, Search the Web and Look Up, not Copy alone.
         let registry = services.registry
@@ -49,8 +51,9 @@ extension PageFactory {
             PageSelectionMenu(
                 quote: { page?.send(command: PageSelectionMenu.quoteCommand) },
                 search: {
-                    page?.webKitView.evaluateJavaScript("String(getSelection())") { value, _ in
-                        guard let text = value as? String, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+                    // task-owner: one selection read per menu choice; ends with the page's answer
+                    Task { @MainActor in
+                        guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                         _ = registry.perform("browser.selection.search", invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
                     }
                 }).rebuild(menu)

@@ -25,6 +25,7 @@ pub(super) fn handles(cmd: &Command) -> bool {
             | Command::Send { .. }
             | Command::Chats(..)
             | Command::Process(..)
+            | Command::Worktree(..)
             | Command::Attach { .. }
             | Command::Tail { .. }
             | Command::Info { .. }
@@ -314,13 +315,34 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(e) = &args.effort {
                 meta["effort"] = json!(e);
             }
+            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out || args.ephemeral);
+            // Checked before the session exists, so a bad value leaves none behind.
+            let on_permission = OnPermission::parse(&args.on_permission)?;
+            // A route check an agent runs from its shell ("Reply with only: OK",
+            // `probe_prompt.rs`) is a throwaway, never the agent's subagent: a one-shot
+            // one goes as an ephemeral chat does once its reply is printed. A named
+            // one is kept, since the agent may check a worker is up before giving it
+            // its task; only `--ephemeral` purges that.
+            let probe = std::env::var("ACPMUX_SESSION_ID").is_ok_and(|id| !id.is_empty())
+                && crate::probe_prompt::is_probe(&args.prompt.join(" "));
+            let ephemeral = one_shot && (args.ephemeral || (probe && args.name.is_none()));
+            // The daemon purges an ephemeral session when this connection ends
+            // (`server/ephemeral.rs`), however the CLI exits: killed during the
+            // turn, by a caller's timeout, or a lost connection. The kill after
+            // the reply below stays the normal path.
+            if ephemeral {
+                meta["ephemeral"] = json!(true);
+            }
             let mut p = json!({"mcpServers": [], "_meta": {"acpmux": meta}});
             p["cwd"] = json!(cwd);
-            let v = client.request(method::SESSION_NEW, p).await?;
+            let v = if ephemeral || probe {
+                client.request_parentless(method::SESSION_NEW, p).await?
+            } else {
+                client.request(method::SESSION_NEW, p).await?
+            };
             let id = v.get("sessionId").and_then(Value::as_str).unwrap_or("").to_owned();
             let name =
                 v.pointer("/_meta/acpmux/name").and_then(Value::as_str).unwrap_or(&id).to_owned();
-            let one_shot = !args.prompt.is_empty() && (args.quiet || json_out || args.ephemeral);
             if json_out && !one_shot {
                 let info = client
                     .request(method::MUX_INFO, json!({"sessionId": id}))
@@ -336,12 +358,12 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 if one_shot {
                     let opts = CollectOpts {
                         timeout: args.timeout,
-                        on_permission: OnPermission::parse(&args.on_permission)?,
+                        on_permission,
                         stall_secs: args.stall,
                         retries: args.retries,
                     };
                     let outcome = collect_reply(client.clone(), &id, &text, opts, &prompt).await;
-                    if args.ephemeral {
+                    if ephemeral {
                         let _ = client
                             .request(method::MUX_KILL, json!({"sessionId": id, "purge": true}))
                             .await;
@@ -349,7 +371,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     let r = outcome?;
                     if json_out {
                         print_json(
-                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": args.ephemeral}),
+                            &json!({"sessionId": id, "name": name, "reply": r.reply, "stopReason": r.stop_reason, "permissions": r.permissions_asked, "permissionsDenied": r.permissions_denied, "ephemeral": ephemeral}),
                         );
                     } else {
                         println!("{}", r.reply);
@@ -362,7 +384,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 let opts = CollectOpts {
                     timeout: args.timeout,
-                    on_permission: OnPermission::parse(&args.on_permission)?,
+                    on_permission,
                     stall_secs: args.stall,
                     retries: args.retries,
                 };
@@ -388,6 +410,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             session,
             prompt,
             steer,
+            no_steer,
             no_wait,
             quiet,
             timeout,
@@ -396,6 +419,8 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             prompt_id,
         } => {
             let prompt_id = PromptId::new(prompt_id);
+            // A message (--no-wait) steers; a send that waits for its reply queues.
+            let steer = send_steers(steer, no_steer, no_wait);
             let client = connect(true).await?;
             let text = arg_or_stdin(&prompt)?;
             let id = resolve_id(&client, &session).await?;
@@ -408,7 +433,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             let queued = info.get("queued").and_then(Value::as_u64).unwrap_or(0);
             let behind =
                 json!({"permissions": pending, "turns": if running { 1 + queued } else { queued }});
-            if (running || pending > 0) && !steer {
+            // As the hub decides: a running turn of an agent that steers, pending permission or not.
+            let steers_now = steer && running && steering(&info);
+            if (running || pending > 0) && !steers_now {
                 let mut parts = Vec::new();
                 if pending > 0 {
                     parts.push(format!(
@@ -428,10 +455,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if no_wait {
                 // Return once the daemon recorded the prompt, not after a guess.
                 let accepted = queue_prompt(client, &id, &text, steer, None, &prompt_id).await?;
+                let steered = accepted.get("steer") == Some(&json!(true));
                 if json_out {
                     print_json(
-                        &json!({"sessionId": id, "queued": true, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
+                        &json!({"sessionId": id, "queued": !steered, "steered": steered, "queuedBehind": behind, "promptId": prompt_id.id, "accepted": accepted}),
                     );
+                } else if steered {
+                    println!("steered");
                 } else {
                     println!("queued");
                 }
@@ -464,6 +494,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
         }
         Command::Chats(cmd) => crate::cli::chats::run(cmd, json_out).await,
         Command::Process(cmd) => crate::cli::process::run(cmd, json_out).await,
+        Command::Worktree(cmd) => crate::cli::worktree::run(cmd, json_out),
         Command::Attach { session, plain } => {
             let client = connect(true).await?;
             let id = match &session {
@@ -550,5 +581,32 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             Ok(())
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),
+    }
+}
+
+/// Whether `acpmux send` steers: `--steer` always, `--no-steer` never, else a message sent
+/// with `--no-wait` does (inter-session messages land in the running turn instead of waiting
+/// minutes for it to end), while a send that waits for its reply queues: a steer is answered
+/// `steered` as soon as the agent reads it, before the reply. A steer never stops a turn: the
+/// agent reads it at its next tool boundary, and to an agent that does not steer it queues.
+fn send_steers(steer: bool, no_steer: bool, no_wait: bool) -> bool {
+    !no_steer && (steer || no_wait)
+}
+
+/// The agent of the session `info` describes takes a prompt mid-turn.
+fn steering(info: &Value) -> bool {
+    info.get("steering").and_then(Value::as_bool) == Some(true)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::send_steers;
+
+    #[test]
+    fn send_steers_messages_by_default_and_queues_waiting_sends() {
+        assert!(send_steers(false, false, true), "--no-wait steers by default");
+        assert!(!send_steers(false, true, true), "--no-steer opts out");
+        assert!(!send_steers(false, false, false), "a send that waits queues");
+        assert!(send_steers(true, false, false), "--steer steers a waiting send");
     }
 }

@@ -23,7 +23,7 @@ struct VaultRowView: View {
             }
             Spacer(minLength: Metrics.panelInset)
             if row.isLive {
-                Circle().fill(colors.live).frame(width: 6, height: 6).help(VaultStrings.running)
+                Circle().fill(colors.live).frame(width: 6, height: 6).themedHelp(VaultStrings.running)
             }
             Text(row.session.lastActivityAt, style: .relative)
                 .font(Font(Typography.caption)).foregroundStyle(colors.tertiary).monospacedDigit().lineLimit(1)
@@ -35,7 +35,7 @@ struct VaultRowView: View {
         .onTapGesture(count: 2) { actions.perform("vaultOpenSession", row.id) }
         .onTapGesture { actions.select(row.id) }
         .contextMenu { menu }
-        .help(row.session.cwd ?? row.title)
+        .themedHelp(row.session.cwd ?? row.title)
     }
 
     @ViewBuilder private var menu: some View {

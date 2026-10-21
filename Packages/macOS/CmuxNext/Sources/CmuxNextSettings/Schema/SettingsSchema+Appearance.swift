@@ -135,6 +135,15 @@ nonisolated enum AppearanceSettingsSchema {
                 keywords: ["blur", "vibrancy", "liquid glass", "background-blur", "transparency"]
             ),
             SettingDescriptor(
+                WindowBackgroundSetting.inactiveDimPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.inactiveWindowDim", "Dim Inactive Windows"),
+                help: SettingsText.keyed("settings.appearance.inactiveWindowDim.help",
+                                        "How much more theme color covers a window while another one is in front. 0 keeps the same look."),
+                kind: .number(SettingNumber(WindowBackgroundSetting.inactiveDimRange, step: 0.05, unit: .fraction, placeholder: 0)),
+                default: .number(0),
+                keywords: ["inactive", "unfocused", "focus", "dim", "opacity", "transparency", "background"]
+            ),
+            SettingDescriptor(
                 AppearanceTuningSetting.glassTransparencyPath, section: .appearance, group: tuning,
                 title: SettingsText.keyed("settings.appearance.glassTransparency", "Glass Transparency"),
                 help: SettingsText.keyed("settings.appearance.glassTransparency.help",
@@ -238,7 +247,7 @@ nonisolated enum AppearanceSettingsSchema {
                 PaneFocusSettings.inactiveTabStylePath, section: .appearance, group: look,
                 title: SettingsText.keyed("settings.focus.inactiveTabStyle", "Unfocused Pane Tabs"),
                 help: SettingsText.keyed("settings.focus.inactiveTabStyle.help",
-                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet drops the selected pill."),
+                                        "How the other panes' tabs draw subtler when Focused Pane marks tabs: Fade dims them, Tonal steps their text down, Quiet keeps only a faint selected pill."),
                 summary: SettingsText.keyed("settings.focus.inactiveTabStyle.summary", "How tabs in other panes tone down"),
                 kind: .choice([
                     SettingChoice(InactiveTabStyle.fade.rawValue, SettingsText.keyed("settings.choice.fade", "Fade")),

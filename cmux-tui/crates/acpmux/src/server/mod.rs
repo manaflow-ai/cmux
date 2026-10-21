@@ -66,6 +66,11 @@ pub struct Conn {
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
     caller: std::sync::OnceLock<String>,
+    /// The session a first unix `initialize` named with a token that did not prove it.
+    pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
+    /// None once it closed.
+    ephemeral: StdMutex<Option<Vec<String>>>,
 }
 
 impl Conn {
@@ -98,8 +103,9 @@ impl Conn {
             self.challenged.store(true, Ordering::SeqCst);
         }
         let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
-        if let Some(id) = caller.filter(|_| first_local).and_then(|c| hub.proven_caller(c)) {
-            let _ = self.caller.set(id);
+        if let Some((id, token)) = caller.filter(|_| first_local) {
+            let proven = hub.proven_caller((id.clone(), token)).is_some();
+            let _ = if proven { &self.caller } else { &self.unproven_caller }.set(id);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
@@ -723,6 +729,8 @@ async fn serve_connection_from(
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
+        unproven_caller: std::sync::OnceLock::new(),
+        ephemeral: StdMutex::new(Some(Vec::new())),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -769,6 +777,7 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
+    ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -945,9 +954,11 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod agent_messages;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod ephemeral;
 mod fanout;
 pub use conn_auth::ConnAuth;
 mod fork_through;
@@ -955,11 +966,13 @@ mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+mod models_fanout;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
+mod worktrees;
 pub use pending::event_value;
 use pending::{is_permission_ask, peer_permission_pending, permission_pending};
 mod redact;

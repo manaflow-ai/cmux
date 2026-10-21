@@ -68,6 +68,11 @@ scope.mermaid = {
 const { createRoot } = await import("react-dom/client");
 const { Markdown } = await import("../src/agent-session/acpmux/conversation/Markdown");
 const { isChart } = await import("../src/agent-session/acpmux/conversation/DiagramBlock");
+// The page loads the highlighted code card once it has painted (App.tsx); so does this file. Left to
+// load when the first card asks for it, the card was its plain fallback on a fast runner and the
+// highlighted card on a loaded one (react-apps-check, run 39553495850).
+const { loadHighlightedCode } = await import("../src/agent-session/acpmux/conversation/CodeBlock");
+await loadHighlightedCode();
 
 const settle = async (ms = 60) => {
   await act(async () => {
@@ -75,11 +80,24 @@ const settle = async (ms = 60) => {
   });
 };
 
+/// Settles until `ready` holds, at most `tries` times: a loaded runner gets more settles, not a
+/// longer fixed wait.
+async function settleUntil(ready: () => boolean, tries = 50) {
+  for (let attempt = 0; attempt < tries && !ready(); attempt++) await settle();
+}
+
 async function show(source: string, streaming = false) {
   root ??= createRoot(host);
   act(() => root!.render(<Markdown streaming={streaming}>{source}</Markdown>));
   await settle();
 }
+
+/// The lines a code card in `element` shows. The highlighted card (HighlightedCode.tsx) draws them in
+/// its `<diffs-container>`'s shadow root, which `textContent` leaves out, once Pierre has highlighted.
+const codeLines = (element: Element | null | undefined) =>
+  [...(element?.querySelector("diffs-container")?.shadowRoot?.querySelectorAll("[data-line]") ?? [])].map(
+    (line) => line.textContent ?? "",
+  );
 
 const FLOW = "flowchart LR\n  Start --> Check{Valid?}\n  Check -->|Yes| Done";
 
@@ -110,8 +128,11 @@ test("a source both renderers refuse shows the source and why", async () => {
   mermaidCalls.length = 0;
   await show("```mermaid\nflowchart TD\n  A --> \n```");
   const diagram = host.querySelector(".cv-diagram[data-language='mermaid']");
+  // The source card's lines appear when Pierre's highlighter has loaded, which takes longer on a
+  // loaded runner.
+  await settleUntil(() => codeLines(diagram).length > 0);
   expect(diagram?.querySelector(".cv-diagram__error")?.textContent ?? "").toContain("Parse error");
-  expect(diagram?.textContent).toContain("flowchart TD");
+  expect(codeLines(diagram).join("\n")).toContain("flowchart TD");
   expect(mermaidCalls.length).toBe(1);
 });
 

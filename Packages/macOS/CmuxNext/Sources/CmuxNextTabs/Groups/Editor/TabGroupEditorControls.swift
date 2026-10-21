@@ -124,7 +124,7 @@ final class TabGroupEditorRow: NSView {
 
     private func updateColors(animated: Bool = false) {
         performWithTheme {
-            if let layer { ChromeHover.paint(layer, isHovered ? Palette.hoverFill : nil, animated: animated) }
+            if let layer { ChromeHover.paint(layer, isHovered && DesignSettings.shared.showsHoverFills ? Palette.hoverFill : nil, animated: animated) }
             label.textColor = Palette.textPrimary
         }
     }

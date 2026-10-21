@@ -82,6 +82,32 @@ import Testing
         try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
     }
 
+    /// Leo 2026-10-20: the card opened against the row's top-right corner, where the row's x
+    /// sits, so the next row down ran into it. It stands off the row by a clear gap.
+    @Test func theCardStandsOffItsRow() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        let (row, card) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
+        let gap = card.minX - row.maxX
+        #expect(gap >= 8 && gap <= 12, "the card sits \(gap) pt from its row")
+        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
+    /// Down from the row's right end, just past the row: the pointer is not heading for the card,
+    /// so the card goes on that move instead of catching the pointer.
+    @Test func movingDownPastTheRowsRightEndDismissesTheCard() async throws {
+        let clock = ManualClock()
+        let (list, window, coordinator, rows) = Self.sidebar(clock: clock)
+        let (row, _) = try await Self.showSecondRowCard(list, coordinator, clock, rows)
+        coordinator.pointerMoved(to: CGPoint(x: row.maxX - 2, y: row.minY + 3))
+        let shown = try #require(coordinator.machine.shownTarget, "the card went on the row itself")
+        coordinator.pointerMoved(to: CGPoint(x: row.maxX + 3, y: row.minY - 14))
+        // Gone, or handed to the row below (the sidebar's margin can still hit-test as that row).
+        #expect(coordinator.machine.shownTarget?.id != shown.id,
+                "the card stayed (\(coordinator.machine.phase)) with the pointer below its row")
+        try await WorkspaceHoverCardScrollTests.tearDown(window, coordinator)
+    }
+
     /// Right from the row's lower half the pointer runs straight into the card: every step keeps it.
     @Test func thePathFromTheRowIntoTheCardKeepsIt() async throws {
         let clock = ManualClock()

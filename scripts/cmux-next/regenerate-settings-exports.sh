@@ -10,7 +10,7 @@
 # then rewrites the defaults snapshot (defaults_guard.py snapshot) from them.
 # The exports and their source stamp
 # (schemas/settings-export/settings-schema.sources.sha256, which
-# defaults_guard.py check-fresh compares with the CmuxNextSettings sources)
+# defaults_guard.py check-stamp compares with the CmuxNextSettings sources)
 # stay checked in; no lane regenerates them by hand.
 #
 # Usage: scripts/cmux-next/regenerate-settings-exports.sh OUT
