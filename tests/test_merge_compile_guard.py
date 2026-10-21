@@ -65,6 +65,74 @@ class Verdict(unittest.TestCase):
                 self.assertIn("still running", guard.verdict(pr(), [path], [check(COMPILE, "queued")]))
 
 
+class FleetCompileCheck(unittest.TestCase):
+    """A passed `cmux-ci compile-check --app` on the exact head stands in for the Release compile.
+
+    #22845's Release compile sat queued over an hour (60 minis offline) after its fleet compile-check
+    passed. The pass counts only as the `fleet/compile-check` status that fleet-compile-check.yml, run from
+    feat-cmux-next, posts on the head, and only when that run finished green naming the full head.
+    """
+
+    def test_a_verified_fleet_pass_stands_in_for_a_release_compile_still_waiting(self):
+        for runs in ([check(COMPILE, "queued")], [check(COMPILE, "in_progress")], [],
+                     [check(guard.ROUTING[0], "in_progress")]):
+            with self.subTest(runs=runs):
+                self.assertNotEqual(guard.verdict(pr(), SWIFT, runs), "")
+                self.assertEqual(guard.verdict(pr(), SWIFT, runs, fleet_passed=True), "")
+
+    def test_a_fleet_pass_never_overrides_a_release_compile_that_finished_red(self):
+        # The fleet compiles on Linux with the pool SDK, not Xcode 26 Release: a red there is the truth.
+        for conclusion in ("failure", "cancelled", "timed_out"):
+            with self.subTest(conclusion=conclusion):
+                runs = [check(COMPILE, conclusion=conclusion)]
+                self.assertIn(f"finished {conclusion}", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
+                self.assertFalse(guard.compile_wait(runs))
+
+    def test_a_rerun_queued_after_a_red_compile_is_not_a_wait(self):
+        # `gh run rerun --failed` on a red Xcode-only error: the fleet pass must not merge it meanwhile.
+        runs = [check(COMPILE, conclusion="failure"), check(COMPILE, "queued")]
+        self.assertFalse(guard.compile_wait(runs))
+        self.assertIn("still running", guard.verdict(pr(), SWIFT, runs, fleet_passed=True))
+        # A cancelled attempt is red too.
+        self.assertFalse(guard.compile_wait([check(COMPILE, conclusion="cancelled"), check(COMPILE, "queued")]))
+
+    def test_every_gh_call_shares_one_deadline_under_the_hooks_timeout(self):
+        self.assertLess(guard.BUDGET, 120)
+        spent = guard.STARTED
+        try:
+            guard.STARTED = guard.time.monotonic() - guard.BUDGET
+            self.assertIsNone(guard.run(["true"]))
+        finally:
+            guard.STARTED = spent
+
+    def test_a_refusal_says_how_to_get_a_fleet_pass(self):
+        why = guard.verdict(pr(), SWIFT, [check(COMPILE, "queued")])
+        self.assertIn(f"gh workflow run {guard.FLEET_WORKFLOW} --ref feat-cmux-next -f sha={HEAD}", why)
+
+    def test_the_workflow_posts_the_status_the_guard_reads_on_the_sha_it_was_given(self):
+        text = (ROOT / ".github/workflows" / guard.FLEET_WORKFLOW).read_text()
+        self.assertIn(f"run-name: {guard.FLEET_TITLE}" + "${{ inputs.sha }}", text)
+        self.assertIn(f"CONTEXT: {guard.FLEET_CONTEXT}\n", text)
+        self.assertIn("compile-check --ref \"$SHA\" --app", text)
+        self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", text)
+        self.assertIn("statuses/$SHA", text)
+        self.assertNotIn("pull_request", text)
+
+
+def status(state="success", creator="github-actions[bot]", run=99):
+    return {"state": state, "creator": creator, "url": f"https://github.com/manaflow-ai/cmux/actions/runs/{run}"}
+
+
+RUN_SHA, TIP = "e" * 40, "f" * 40  # the commit the fleet run's workflow file came from; feat-cmux-next's tip
+
+
+def fleet_run(sha=HEAD, branch="feat-cmux-next", path=None, event="workflow_dispatch", conclusion="success",
+              head_sha=RUN_SHA):
+    return {"path": path or f".github/workflows/{guard.FLEET_WORKFLOW}", "head_branch": branch, "event": event,
+            "status": "completed" if conclusion else "in_progress", "conclusion": conclusion,
+            "display_title": f"{guard.FLEET_TITLE}{sha}", "head_sha": head_sha}
+
+
 class Targets(unittest.TestCase):
     def targets(self, command):
         return [(repo, selector) for repo, selector, _ in guard.merge_targets(command, "/tmp")]
@@ -152,6 +220,16 @@ class Targets(unittest.TestCase):
         self.assertEqual(guard.merge_targets("ssh -p 22 cmux16 gh pr merge 5 -R manaflow-ai/cmux", "/tmp"),
                          [("manaflow-ai/cmux", "5", guard.REMOTE)])
 
+    def test_a_merge_whose_checkout_cannot_be_read_is_refused(self):
+        # Out of time (or no git): the checkout's repository is unknown, so the merge can't be judged.
+        spent = guard.STARTED
+        try:
+            guard.STARTED = guard.time.monotonic() - guard.BUDGET
+            self.assertIn("can't tell which repository", guard.refusal("gh pr merge 5 --squash", "/tmp",
+                                                                      lambda *a: self.fail("read")))
+        finally:
+            guard.STARTED = spent
+
     def test_a_merge_it_cannot_name_is_refused(self):
         why = guard.refusal('gh pr merge "$PR" -R manaflow-ai/cmux', None, lambda *a: self.fail("read"))
         self.assertIn("can't name", why)
@@ -178,7 +256,10 @@ def fake_gh(bin_dir: Path, answers: dict[str, str], log: Path) -> None:
 
 
 class Hook(unittest.TestCase):
-    def run_hook(self, command: str, compile_state: tuple[str, str | None] | None):
+    def run_hook(self, command: str, compile_state: tuple[str, str | None] | None, statuses=None, fleet_runs=None,
+                 other_statuses=None, on_base="ahead"):
+        """statuses: the head's fleet/compile-check statuses; fleet_runs: {run id: fleet_run()}; other_statuses:
+        statuses on another sha."""
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
             subprocess.run(["git", "init", "-q", str(tmp)], check=True)
@@ -190,12 +271,23 @@ class Hook(unittest.TestCase):
             runs = [check("cmux-next path routing")]
             if compile_state:
                 runs.append(check(COMPILE, *compile_state))
-            fake_gh(bin_dir, {
+            answers = {
                 "repos/manaflow-ai/cmux/pulls/22835/files": "\n".join(json.dumps(f) for f in SWIFT),
                 "repos/manaflow-ai/cmux/pulls/22835": json.dumps(pr(22835)),
                 "view": json.dumps({"number": 22835}),
-                f"repos/manaflow-ai/cmux/commits/{HEAD}/check-runs": "\n".join(json.dumps(r) for r in runs),
-            }, log)
+                f"repos/manaflow-ai/cmux/commits/{HEAD}/check-runs?filter=all": "\n".join(json.dumps(r) for r in runs),
+            }
+            if statuses is not None:
+                answers[f"repos/manaflow-ai/cmux/commits/{HEAD}/statuses"] = "\n".join(json.dumps(s) for s in statuses)
+            if other_statuses is not None:
+                answers[f"repos/manaflow-ai/cmux/commits/{'d' * 40}/statuses"] = "\n".join(
+                    json.dumps(s) for s in other_statuses)
+            for run_id, run in (fleet_runs or {}).items():
+                answers[f"repos/manaflow-ai/cmux/actions/runs/{run_id}"] = json.dumps(run)
+            answers["repos/manaflow-ai/cmux/branches/feat-cmux-next"] = json.dumps(TIP)
+            if on_base:
+                answers[f"repos/manaflow-ai/cmux/compare/{RUN_SHA}...{TIP}"] = json.dumps(on_base)
+            fake_gh(bin_dir, answers, log)
             payload = json.dumps({"tool_name": "Bash", "cwd": str(tmp), "tool_input": {"command": command}})
             env = {**os.environ, "PATH": f"{bin_dir}{os.pathsep}{os.environ['PATH']}"}
             done = subprocess.run(["bash", str(HOOK)], input=payload, capture_output=True, text=True, env=env,
@@ -227,6 +319,74 @@ class Hook(unittest.TestCase):
     def test_an_unreadable_github_refuses(self):
         out, _ = self.run_hook("gh pr merge 1 -R manaflow-ai/cmux --squash", None)
         self.assertIn("could not read #1 from GitHub", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    MERGE = "gh pr merge 22835 -R manaflow-ai/cmux --squash"
+
+    def test_a_fleet_pass_on_the_exact_head_lets_a_queued_compile_merge(self):
+        out, calls = self.run_hook(self.MERGE, ("queued", None), statuses=[status()], fleet_runs={99: fleet_run()})
+        self.assertIsNone(out)
+        self.assertTrue(any(f"commits/{HEAD}/statuses" in " ".join(json.loads(c)) for c in calls))
+
+    def test_a_fleet_pass_on_a_different_sha_does_not_count(self):
+        # The pass was posted on another commit (an older head): the head has no status.
+        out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[], other_statuses=[status()],
+                               fleet_runs={99: fleet_run(sha="d" * 40)})
+        self.assertIn("still running", out["hookSpecificOutput"]["permissionDecisionReason"])
+        # A status on the head that links a run which compiled another sha.
+        out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
+                               fleet_runs={99: fleet_run(sha="d" * 40)})
+        self.assertIn("still running", out["hookSpecificOutput"]["permissionDecisionReason"])
+        # A run that names only a prefix of the head.
+        out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
+                               fleet_runs={99: fleet_run(sha=HEAD[:12])})
+        self.assertIn("still running", out["hookSpecificOutput"]["permissionDecisionReason"])
+
+    def test_a_self_posted_or_unverified_fleet_status_does_not_count(self):
+        cases = {
+            "posted by a person or agent token": ([status(creator="teamleaderleo")], {99: fleet_run()}),
+            "not success": ([status(state="failure")], {99: fleet_run()}),
+            "run from another branch": ([status()], {99: fleet_run(branch="my-branch")}),
+            "another workflow": ([status()], {99: fleet_run(path=".github/workflows/mine.yml")}),
+            "not a dispatch": ([status()], {99: fleet_run(event="push")}),
+            # A tag named feat-cmux-next holding a doctored copy of the workflow has head_branch feat-cmux-next.
+            "workflow from a commit not on the branch": ([status()], {99: fleet_run(head_sha="a" * 40)}),
+            "run failed": ([status()], {99: fleet_run(conclusion="failure")}),
+            "run unreadable": ([status(run=98)], {99: fleet_run()}),
+            "link to another repo's run": ([{**status(), "url": "https://github.com/x/cmux/actions/runs/99"}],
+                                            {99: fleet_run()}),
+        }
+        for name, (statuses, fleet_runs) in cases.items():
+            with self.subTest(name):
+                out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=statuses, fleet_runs=fleet_runs)
+                self.assertIsNotNone(out, name)
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_a_run_whose_workflow_commit_left_the_branch_does_not_count(self):
+        for on_base in ("diverged", "behind", None):
+            with self.subTest(on_base=on_base):
+                out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status()],
+                                       fleet_runs={99: fleet_run()}, on_base=on_base)
+                self.assertEqual(out["hookSpecificOutput"]["permissionDecision"], "deny")
+
+    def test_every_attempt_of_the_compile_is_read(self):
+        out, calls = self.run_hook(self.MERGE, ("queued", None), statuses=[status()], fleet_runs={99: fleet_run()})
+        self.assertTrue(any("check-runs?filter=all&" in " ".join(json.loads(c)) for c in calls))
+
+    def test_a_fleet_pass_does_not_let_a_red_release_compile_merge(self):
+        out, calls = self.run_hook(self.MERGE, ("completed", "failure"), statuses=[status()],
+                                   fleet_runs={99: fleet_run()})
+        self.assertIn("finished failure", out["hookSpecificOutput"]["permissionDecisionReason"])
+        self.assertFalse(any("statuses" in " ".join(json.loads(c)) for c in calls))
+
+    def test_a_newer_unverified_status_does_not_hide_a_verified_pass(self):
+        out, _ = self.run_hook(self.MERGE, ("queued", None), statuses=[status(state="pending", run=98), status()],
+                               fleet_runs={99: fleet_run()})
+        self.assertIsNone(out)
+
+    def test_a_green_compile_reads_no_fleet_status(self):
+        out, calls = self.run_hook(self.MERGE, ("completed", "success"), statuses=[])
+        self.assertIsNone(out)
+        self.assertFalse(any("statuses" in " ".join(json.loads(c)) for c in calls))
 
     def test_other_commands_never_start_python_or_gh(self):
         out, calls = self.run_hook("git status && gh pr view 22835", None)
