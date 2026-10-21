@@ -56,7 +56,7 @@ public nonisolated struct AddMachineButton: Equatable, Sendable {
 
 /// A host the field holds, as ssh takes it.
 public nonisolated struct HostDestination: Equatable, Sendable {
-    /// The canonical `[user@]host[:port]` the CLI gets.
+    /// The canonical `[user@]host` the CLI gets (never a port: enroll refuses one).
     public var host: String
     /// The sidebar's short name (`huge-blue` for `leo@huge-blue.tail1234.ts.net`): the default Name.
     public var shortName: String
@@ -86,8 +86,9 @@ public struct AddMachineServices {
 
     /// Reads the field (`SSHDestination`); nil when ssh cannot take it.
     public var parse: (String) -> HostDestination?
-    /// The Tailscale peers (`host candidates --json --probe`), nil without Tailscale.
-    public var candidates: () async -> [HostCandidate]?
+    /// The Tailscale peers (`host candidates --json`, with `--probe` when `probe`), nil without
+    /// Tailscale or when the run failed or timed out.
+    public var candidates: (_ probe: Bool) async -> [HostCandidate]?
     /// The stdout lines of one CLI run; a run that ends without its report throws why.
     public var run: (HostCommand) -> AsyncThrowingStream<String, any Error>
     /// `remote.connect`'s install path: connects `host` in the app under `name` and installs this app's
@@ -100,7 +101,7 @@ public struct AddMachineServices {
     public var openWorkspace: (_ machineID: String) -> Void
     public var copy: (String) -> Void
 
-    public init(parse: @escaping (String) -> HostDestination?, candidates: @escaping () async -> [HostCandidate]?,
+    public init(parse: @escaping (String) -> HostDestination?, candidates: @escaping (Bool) async -> [HostCandidate]?,
                 run: @escaping (HostCommand) -> AsyncThrowingStream<String, any Error>,
                 install: @escaping (String, String) async -> Installed, connect: @escaping (String, String) -> String?,
                 record: @escaping (String, HostReport) -> Void, openWorkspace: @escaping (String) -> Void,
@@ -164,10 +165,12 @@ public final class AddMachineModel {
 
     // MARK: Opening
 
-    /// Add Machine opens: a fresh card on the field (a run in flight keeps showing). With a
-    /// destination (the CLI, a script) it starts at once.
+    /// Add Machine opens: a fresh card on the field (a run in flight keeps showing). A destination
+    /// (the CLI, MCP, a script) only fills the fields: the add starts when the person presses Add,
+    /// so nothing outside the app can enroll a machine without a click (trust policy, the
+    /// conservative default until it is decided).
     public func begin(destination: String? = nil, name: String? = nil) {
-        if phase == .running, mode == .add, destination == nil { return }
+        if phase == .running, mode == .add { return }
         cancelRun()
         mode = .add
         phase = .pick
@@ -176,7 +179,6 @@ public final class AddMachineModel {
         self.destination = destination ?? ""
         self.name = name ?? ""
         loadCandidates()
-        if destination != nil, canAdd { add() }
     }
 
     /// Check Machine opens on `host` (an SSH machine the app has) and runs doctor.
@@ -359,9 +361,15 @@ public final class AddMachineModel {
         candidates = .loading
         let services = services
         candidatesTask = Task { [weak self] in
-            let list = await services.candidates()
+            // The plain list first (one local tailscale call), then the ssh probe of the user's own
+            // machines; a probe that fails or times out leaves the unprobed list showing.
+            let list = await services.candidates(false)
             guard !Task.isCancelled, let self else { return }
             candidates = list.map { .loaded($0) } ?? .unavailable
+            guard list != nil else { return }
+            let probed = await services.candidates(true)
+            guard !Task.isCancelled, let probed else { return }
+            candidates = .loaded(probed)
         }
     }
 

@@ -51,7 +51,7 @@ fn plan(harnesses: &[&str]) -> Plan {
         port: 47811,
         harnesses: harnesses.iter().map(|s| s.to_string()).collect(),
         remote_binary: DAEMON_BIN.into(),
-        reverse: true,
+        reverse: false,
     }
 }
 
@@ -203,6 +203,7 @@ fn json_lines_have_the_contract_shape() {
 const LOCAL_BIN: &str = "/home/leo/.local/bin/acpmux";
 const APP_BIN: &str = "/Applications/cmux NIGHTLY.app/Contents/Resources/bin/acpmux";
 const APP_EXE: &str = "/Applications/cmux NIGHTLY.app/Contents/MacOS/cmux";
+const TUI_BIN: &str = "/home/leo/.local/bin/cmux-tui";
 
 /// What [`PROBE`] prints for these binaries (path, build), with a daemon of
 /// `daemon` (build, person key) answering through the first of them.
@@ -583,4 +584,154 @@ fn the_harness_scripts_copy_owner_only_and_catch_a_writable_profile() {
     assert_eq!(harness(&sh, &ids, &local, true).state, StepState::Fixed);
     assert_eq!(std::fs::metadata(&file).unwrap().permissions().mode() & 0o777, 0o600);
     let _ = std::fs::remove_dir_all(&home);
+}
+
+#[test]
+#[cfg(unix)]
+fn the_probe_finds_a_cmux_tui_and_asks_it_through_acp() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = std::env::temp_dir().join(format!("acpmux-enroll-tui-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&home);
+    // Answers only as `cmux-tui acp …`, as the real one does.
+    let script = "#!/bin/sh\ncase \"$*\" in 'acp --version') echo 'acpmux 0.1.0 (t1)';; esac\n";
+    let mut paths = Vec::new();
+    for dir in [".local/bin", ".cmux/bin"] {
+        let bin = home.join(dir).join("cmux-tui");
+        std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        std::fs::write(&bin, script).unwrap();
+        std::fs::set_permissions(&bin, std::fs::Permissions::from_mode(0o755)).unwrap();
+        paths.push(bin.to_string_lossy().into_owned());
+    }
+    let script = PROBE.replace("/Applications/", &format!("{}/Applications/", home.display()));
+    let out = std::process::Command::new("sh")
+        .args(["-c", &script])
+        .env("HOME", &home)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    let p = parse_probe(&String::from_utf8_lossy(&out.stdout));
+    assert_eq!(
+        p.bins,
+        paths.iter().map(|b| (b.clone(), Some("t1".to_owned()))).collect::<Vec<_>>()
+    );
+    assert_eq!(p.current_cmux_tui("t1"), Some(paths[0].as_str()));
+    assert_eq!(p.current_cmux_tui("other"), None);
+    let _ = std::fs::remove_dir_all(&home);
+}
+
+/// A host the app installed its cmux-tui on (this build) without the
+/// `~/.local/bin/acpmux` link; linking makes it current.
+fn tui_only_host(linked: &RefCell<bool>) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut + '_> {
+    let build = crate::hub::BUILD;
+    Fake::new(move |script, _| {
+        let is_linked = *linked.borrow();
+        if script == "true" {
+            out("")
+        } else if script == PROBE {
+            let mut bins = vec![(TUI_BIN, build)];
+            if is_linked {
+                bins.insert(0, (LOCAL_BIN, build));
+            }
+            out(probe_out(&bins, None))
+        } else if script.starts_with("printf 'bin=") && script.contains("cmux-tui acp --version") {
+            let daemon = if is_linked { format!("acpmux 0.1.0 ({build})") } else { String::new() };
+            out(format!("bin=acpmux 0.1.0 ({build})\ndaemon={daemon}\n"))
+        } else if script.starts_with("printf 'bin=") {
+            out(if is_linked { version(build) } else { "bin=\n".into() })
+        } else if script.contains("ln -s") {
+            assert!(script.contains(&format!("ln -s {TUI_BIN} {DAEMON_BIN}")), "{script}");
+            *linked.borrow_mut() = true;
+            out("")
+        } else {
+            panic!("unexpected script: {script}")
+        }
+    })
+}
+
+#[test]
+fn a_host_whose_only_gap_is_the_link_gets_linked_not_pushed() {
+    let build = crate::hub::BUILD;
+    // Without --fix: the link is named as missing, nothing changes.
+    let linked = RefCell::new(false);
+    let fake = tui_only_host(&linked);
+    let r = install(&fake, "box", DAEMON_BIN, false);
+    assert_eq!(r.state, StepState::Fail, "{r:?}");
+    assert_eq!(r.detail, format!("{DAEMON_BIN} is missing"));
+    assert_read_only(&fake);
+
+    // With --fix: one link, no push and no platform check (that would fail
+    // for a host of another OS than this program's).
+    let fake = tui_only_host(&linked);
+    let r = install(&fake, "box", DAEMON_BIN, true);
+    assert_eq!(r.state, StepState::Fixed, "{r:?}");
+    assert_eq!(r.detail, format!("{DAEMON_BIN} is missing; linked {DAEMON_BIN} to {TUI_BIN}"));
+    assert!(fake.pushes.borrow().is_empty());
+    assert!(!fake.calls.borrow().iter().any(|(s, _)| s.contains("uname")));
+
+    // Linked: the next check passes as it is.
+    let fake = tui_only_host(&linked);
+    let r = install(&fake, "box", DAEMON_BIN, true);
+    assert_eq!(r.state, StepState::Ok, "{r:?}");
+    assert_eq!(r.detail, format!("{DAEMON_BIN} is build {build}"));
+    assert_read_only(&fake);
+}
+
+#[test]
+fn no_standalone_daemon_starts_beside_an_installed_app() {
+    let build = crate::hub::BUILD;
+    // A standalone acpmux first, the app second, no daemon running: the
+    // app's host, so nothing is started.
+    let bins: &[(&str, &str)] = &[(LOCAL_BIN, build), (APP_BIN, build)];
+    let p = parse_probe(&probe_out(bins, None));
+    let used = p.in_use().unwrap();
+    assert!(used.app && used.pid.is_none());
+    assert_eq!(used.path, APP_BIN);
+    for fix in [false, true] {
+        let fake = host_with(bins, None, "", "");
+        let results = machine_steps(
+            &fake,
+            &plan(&[]),
+            &Local { harness_dir: None, home: None },
+            fix,
+            &mut |_| {},
+        );
+        assert_eq!(
+            states(&results)[1..3],
+            [(Step::Install, StepState::Ok), (Step::Daemon, StepState::Fail)]
+        );
+        assert_eq!(results[2].fix.as_deref(), Some("Open cmux on leo@box.tail, then check again."));
+        assert_read_only(&fake);
+    }
+    // Without an app, the first binary is used and is not the app's.
+    let p = parse_probe(&probe_out(&[(LOCAL_BIN, build), (TUI_BIN, build)], None));
+    assert!(!p.in_use().unwrap().app);
+}
+
+#[test]
+fn a_daemon_running_as_cmux_tui_acp_is_cmux_own() {
+    assert!(runs_as_cmux_tui_acp("/home/leo/.local/bin/cmux-tui acp daemon run"));
+    assert!(runs_as_cmux_tui_acp("cmux-tui acp daemon-run --home /x"));
+    assert!(!runs_as_cmux_tui_acp("/home/leo/.local/bin/acpmux daemon run"));
+    assert!(!runs_as_cmux_tui_acp("/home/leo/.local/bin/cmux-tui remote serve"));
+    assert!(!runs_as_cmux_tui_acp(""));
+    let build = crate::hub::BUILD;
+    let bins: &[(&str, &str)] = &[(TUI_BIN, build)];
+    let mut p = parse_probe(&probe_out(bins, Some((build, false))));
+    assert!(!p.in_use().unwrap().app);
+    p.run_by_cmux_tui = true;
+    let used = p.in_use().unwrap();
+    assert!(used.app && used.pid == Some(7));
+    // Never restarted, even when its listener is missing.
+    p.config = "{}".into();
+    match judge_daemon("leo@box.tail", "box", &p, 47811) {
+        Verdict::Done(r) => assert_eq!(r.state, StepState::Fail, "{r:?}"),
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn peer_back_is_skipped_unless_asked() {
+    let r = peer_back_off();
+    assert_eq!((r.step, r.state), (Step::PeerBack, StepState::Skip));
+    assert!(r.detail.contains("--reverse"), "{}", r.detail);
 }

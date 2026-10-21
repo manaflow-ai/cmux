@@ -789,7 +789,8 @@ pub enum PeerCmd {
         all: bool,
     },
     /// Add a machine in one go: check ssh, install this build, start the
-    /// daemon, copy harness profiles and peer both ways. One line per step.
+    /// daemon, copy harness profiles and peer to it (and, with --reverse,
+    /// back). One line per step.
     Enroll {
         /// ssh target, e.g. huge-blue or user@host
         host: String,
@@ -803,9 +804,11 @@ pub enum PeerCmd {
         /// (the app's ~/.local/bin/cmux-tui) gets that path linked to it.
         #[arg(long, default_value = "~/.local/bin/acpmux")]
         remote_binary: String,
-        /// Do not register this machine on the host.
+        /// Also register this machine as a peer on the host (peer-back). Off
+        /// by default: two daemons that list each other relay one another's
+        /// sessions both ways.
         #[arg(long)]
-        no_reverse: bool,
+        reverse: bool,
     },
     /// Check a machine (a peer name or an ssh host) step by step; --fix
     /// repairs what fails. Without --fix nothing changes.
@@ -818,6 +821,9 @@ pub enum PeerCmd {
         harnesses: Vec<String>,
         #[arg(long, default_value = "~/.local/bin/acpmux")]
         remote_binary: String,
+        /// Also check (and with --fix, add) this machine as a peer on the host.
+        #[arg(long)]
+        reverse: bool,
     },
     /// The tailnet's machines that could be added, marking those already peers.
     Candidates {

@@ -27,7 +27,7 @@ nonisolated enum RemoteActionCatalog: ActionCatalogGroup {
                 cliName: "remote connect", mainMenu: .file
             ),
             // One click from a host name to a working agent machine (plans/cmux-next/add-machine-DESIGN.md):
-            // the Add Machine card runs `cmux-tui acp host enroll`; a destination starts it at once.
+            // the Add Machine card runs `cmux-tui acp host enroll`; a destination only fills it (Add starts it).
             ActionDescriptor(
                 id: "machine.add",
                 title: String(localized: "action.machine.add", defaultValue: "Add Machine…", table: "RemoteActions", bundle: .module),

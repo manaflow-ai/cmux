@@ -248,41 +248,23 @@ pub(crate) fn probe_argv(host: &str, dest: &str) -> Result<Vec<String>> {
     )
 }
 
-/// The client address of `$SSH_CONNECTION` (`CLIENT PORT SERVER PORT`): this
-/// machine as the remote sees it. IPv4 only (an IPv6 destination would need
-/// brackets that ssh itself does not take).
-pub(crate) fn seen_from(ssh_connection: &str) -> Option<String> {
-    let ip: IpAddr = ssh_connection.split_whitespace().next()?.parse().ok()?;
-    match ip {
-        IpAddr::V4(v4) => Some(v4.to_string()),
-        IpAddr::V6(v6) => v6.to_ipv4_mapped().map(|v4| v4.to_string()),
-    }
-}
-
 /// A running tailnet's status, else `None`.
 fn running_tailnet(io: &impl Io) -> Option<tailnet::Status> {
     io.tailscale().ok().filter(|s| s.backend_state == "Running")
 }
 
 /// How the remote reaches this machine: `$USER@` this machine's MagicDNS
-/// name (or tailnet IPv4) when the tailnet runs, else `$USER@` the address
-/// the remote sees in `$SSH_CONNECTION`.
-pub(crate) fn local_dest(io: &impl Io, host: &str, ts: Option<&tailnet::Status>) -> Option<String> {
+/// name (or tailnet IPv4) when the tailnet runs, else `None`. The address
+/// the remote sees in `$SSH_CONNECTION` is never used: behind a NAT, VPN or
+/// jump host it names some other machine.
+pub(crate) fn local_dest(io: &impl Io, ts: Option<&tailnet::Status>) -> Option<String> {
     let user = io.user().filter(|u| checked_name(u).is_ok());
-    let at = |h: String| match &user {
+    let s = ts?;
+    let name = Some(s.this.dns_name.clone()).filter(|n| !n.is_empty());
+    let h = name.or_else(|| s.this.dial_ip().filter(IpAddr::is_ipv4).map(|ip| ip.to_string()))?;
+    let dest = match &user {
         Some(u) => format!("{u}@{h}"),
         None => h,
-    };
-    let from_tailnet = ts.and_then(|s| {
-        let name = Some(s.this.dns_name.clone()).filter(|n| !n.is_empty());
-        name.or_else(|| s.this.dial_ip().filter(IpAddr::is_ipv4).map(|ip| ip.to_string()))
-    });
-    let dest = match from_tailnet {
-        Some(h) => at(h),
-        None => {
-            let ran = io.ssh(&ssh_argv(host, "printf '%s\\n' \"$SSH_CONNECTION\"").ok()?);
-            at(seen_from(&ran.stdout).filter(|_| ran.ok)?)
-        }
     };
     checked_host(&dest).is_ok().then_some(dest)
 }
@@ -294,10 +276,12 @@ fn ssh_url_host(url: &str) -> Option<String> {
     Some(host.trim_start_matches('[').trim_end_matches(']').to_ascii_lowercase())
 }
 
-/// The names and addresses this machine answers to: `dest`'s host and,
+/// The names and addresses this machine answers to: `dest`'s host, its
+/// peer name `local` (a peer URL may name it by its short host name) and,
 /// on a tailnet, its MagicDNS name, short name, host name and IPs.
-fn here_names(dest: &str, ts: Option<&tailnet::Status>) -> Vec<String> {
+fn here_names(dest: &str, local: &str, ts: Option<&tailnet::Status>) -> Vec<String> {
     let mut names: Vec<String> = ssh_url_host(&format!("ssh://{dest}")).into_iter().collect();
+    names.push(local.to_owned());
     if let Some(s) = ts {
         names.extend([s.this.dns_name.clone(), s.this.short_name(), s.this.host_name.clone()]);
         names.extend(s.this.ips.iter().map(IpAddr::to_string));
@@ -305,8 +289,13 @@ fn here_names(dest: &str, ts: Option<&tailnet::Status>) -> Vec<String> {
     names.into_iter().filter(|n| !n.is_empty()).map(|n| n.to_ascii_lowercase()).collect()
 }
 
+/// Whether a peer URL's host is one of `here`, also by its first label
+/// (`ssh://cosmic-gray.local` for `cosmic-gray`).
 fn points_here(url: &str, here: &[String]) -> bool {
-    ssh_url_host(url).is_some_and(|h| here.contains(&h))
+    ssh_url_host(url).is_some_and(|h| {
+        let first = h.split('.').next().unwrap_or(&h);
+        here.contains(&h) || (h.parse::<IpAddr>().is_err() && here.iter().any(|n| n == first))
+    })
 }
 
 /// The peers in the remote's `daemon status`, or why there are none.
@@ -385,11 +374,16 @@ pub(crate) async fn peer_back_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
             Ok(d) => d.to_owned(),
             Err(e) => return fail(format!("this machine's address: {e}")),
         },
-        None => match local_dest(io, host, ts.as_ref()) {
+        None => match local_dest(io, ts.as_ref()) {
             Some(d) => d,
             None => {
-                return at(StepState::Warn, format!("cannot tell how {host} reaches this machine"))
-                    .with_fix("Give this machine's ssh address ([user@]host) and check again.");
+                return at(
+                    StepState::Warn,
+                    format!(
+                        "this machine has no tailnet name, so how {host} reaches it is unknown"
+                    ),
+                )
+                .with_fix("Sign this machine in to Tailscale, then check again.");
             }
         },
     };
@@ -404,7 +398,7 @@ pub(crate) async fn peer_back_with(io: &impl Io, t: &PeerTarget<'_>, fix: bool) 
                 .with_fix("Check the daemon step first.");
         }
     };
-    let here = here_names(&dest, ts.as_ref());
+    let here = here_names(&dest, local, ts.as_ref());
     let by_name = named(&peers, local);
     if let Some(p) = by_name
         && !points_here(text(p, "url"), &here)

@@ -83,6 +83,7 @@ enum AddMachineShotState: String, CaseIterable {
         case .running:
             host.holdNextRun = true
             model.begin(destination: "huge-blue")
+            model.perform(.add)
             await Task.yield()
             host.live?.yield(Flow.step("reach", "ok", "ssh leo@huge-blue answered"))
             host.live?.yield(Flow.step("install", "fixed", "pushed cmux-tui 5eac889"))
@@ -91,12 +92,14 @@ enum AddMachineShotState: String, CaseIterable {
             host.scripts = [Array(Flow.okSteps.dropLast(2)) + [Flow.step("peer-back", "warn", "huge-blue cannot ssh back", fix: "Add this Mac's key on huge-blue."),
                                                         Flow.step("identity", "ok"), Flow.report("huge-blue", "huge-blue", ok: true, Flow.okSteps)]]
             model.begin(destination: "huge-blue")
+            model.perform(.add)
             _ = await model.finished()
         case .failed:
             let fail = Flow.step("reach", "fail", "ssh: connect to host huge-blue port 22: Connection refused",
                                  fix: "Turn on Remote Login on huge-blue (System Settings > General > Sharing).")
             host.scripts = [[fail, Flow.report("huge-blue", "huge-blue", ok: false, [fail])]]
             model.begin(destination: "huge-blue")
+            model.perform(.add)
             _ = await model.finished()
         case .check:
             let fail = Flow.step("daemon", "fail", "daemon status did not answer in 5 s", fix: "Run Fix to start the agent daemon again.")

@@ -10,7 +10,8 @@ The user types a host or picks a Tailscale peer. cmux then:
 2. installs cmux-tui on it (this carries acpmux as `cmux-tui acp`);
 3. copies the harness profiles across;
 4. starts the agent daemon;
-5. registers the acpmux peer in both directions;
+5. registers the host as this machine's acpmux peer (and, only when asked, this machine on the
+   host);
 6. names the machine;
 7. shows a health checklist that the user can re-run at any time.
 
@@ -21,15 +22,18 @@ Linux. The app is one sheet on top of it.
 
 ## Surfaces
 
-- `cmux-tui acp host enroll HOST [--name N] [--harness ID]... [--no-reverse] --json` runs the
+- `cmux-tui acp host enroll HOST [--name N] [--harness ID]... [--reverse] --json` runs the
   steps below, writing one JSON line per step and a final report.
-- `cmux-tui acp host doctor NAME|HOST [--fix] --json` runs the checks alone. `--fix` re-runs only
-  the steps whose checks failed.
-- `cmux-tui acp host candidates --json` lists Tailscale peers (online, OS, DNS name, ssh
-  reachable) and marks the ones that are already peers.
+- `cmux-tui acp host doctor NAME|HOST [--fix] [--reverse] --json` runs the checks alone. `--fix`
+  re-runs only the steps whose checks failed.
+- `cmux-tui acp host candidates --json [--probe]` lists Tailscale peers (online, OS, DNS name)
+  and marks the ones that are already peers. `--probe` also tries key-only ssh, but only to the
+  user's own online machines (same tailnet login, not tagged, not shared in), at most 32.
 - App action `machine.add` ("Add Machine…", CLI `machine add`). It opens on the palette, on
   Settings > Machines, and on the Machines sidebar's add button. Per machine, `machine.doctor`
-  ("Check Machine") opens the same checklist.
+  ("Check Machine") opens the same checklist. `machine add HOST` from the CLI or MCP only opens
+  the card with the host filled in; the enroll starts when the user presses Add (trust policy,
+  conservative default until Leo decides).
 
 ## Step contract (one JSON line each)
 
@@ -46,12 +50,26 @@ The steps run in this order, and a failed step stops the steps that depend on it
 | `daemon` | the remote acp daemon answers `daemon status` | `host setup` config and launch (launchd on macOS, a detached start elsewhere) |
 | `harness` | each chosen profile is on the host, hashes match after home-path rewrite, and is not group- or other-writable | copy, rewriting the local home prefix to the remote one, mode 600 |
 | `peer` | `host ls` here lists NAME at `ssh://HOST` and it connects | `host add NAME ssh://HOST` |
-| `peer-back` | the host lists this machine and can reach it with key-only ssh | `host add` on the host; if the host cannot ssh back, `warn` with the reason and no fix (no keys are copied) |
+| `peer-back` | only with `--reverse` (else `skip`): the host lists this machine and can reach it with key-only ssh | `host add` on the host; if the host cannot ssh back, `warn` with the reason and no fix (no keys are copied) |
 | `identity` | the host's machine name matches NAME | the machine-identity lane's API |
 
+`install` finds the acpmux the host already has: a standalone `~/.local/bin/acpmux`, a cmux app's
+bundled one, or a cmux-tui (`~/.local/bin/cmux-tui`, the app's SSH install, or
+`~/.cmux/bin/cmux-tui`) asked as `cmux-tui acp`. A cmux-tui of this build with no
+`~/.local/bin/acpmux` only gets that link (no push, so a host of another OS works after the app
+installed its build). A host with a cmux app, or whose daemon runs as `cmux-tui acp`, is cmux's:
+nothing is pushed there and no standalone daemon is started beside it.
+
+`peer-back` is opt-in. Two daemons that list each other relay one another's sessions both ways,
+so the app and `doctor --fix` never pass `--reverse`. With it, this machine's address comes only
+from its tailnet name (never `$SSH_CONNECTION`, which behind NAT or a jump host names another
+machine); without a tailnet the step warns. A peer on the host that already points at this
+machine by URL host (tailnet name, short name, host name, IP, or its first label) counts, so no
+duplicate is added.
+
 The final line is `{"report":{"name":..,"host":..,"ok":bool,"steps":[..]}}`. A machine is
-healthy when every step is `ok`, `fixed` or `skip`. `peer-back` may be `warn` and the machine
-still works from this side.
+healthy when every step is `ok`, `fixed`, `warn` or `skip`. `peer-back` may be `warn` and the
+machine still works from this side.
 
 ## Not in scope
 

@@ -26,6 +26,10 @@ import Testing
         var opened: [String] = []
         var copied: [String] = []
         var candidates: [HostCandidate]? = []
+        /// The `probe` flag of each candidates run, in order.
+        var probes: [Bool] = []
+        /// One answer per candidates run, in order, before falling back to ``candidates``.
+        var candidateAnswers: [[HostCandidate]?] = []
         /// Streams the test drives by hand (``feed(_:)``), when set.
         var live: AsyncThrowingStream<String, any Error>.Continuation?
         var holdNextRun = false
@@ -34,11 +38,14 @@ import Testing
             AddMachineServices(
                 parse: { text in
                     let text = text.trimmingCharacters(in: .whitespaces)
-                    guard !text.isEmpty, !text.contains(" "), !text.hasPrefix("-") else { return nil }
+                    guard !text.isEmpty, !text.contains(" "), !text.contains(":"), !text.hasPrefix("-") else { return nil }
                     let host = text.split(separator: "@").last.map(String.init) ?? text
                     return HostDestination(host: text, shortName: host.split(separator: ".").first.map(String.init) ?? host)
                 },
-                candidates: { [self] in candidates },
+                candidates: { [self] probe in
+                    probes.append(probe)
+                    return candidateAnswers.isEmpty ? candidates : candidateAnswers.removeFirst()
+                },
                 run: { [self] command in
                     commands.append(command)
                     if holdNextRun {
@@ -211,6 +218,7 @@ import Testing
                          Self.report("hb", "hb", ok: false, [Self.step("reach", "ok"), Self.step("install", "ok"), fail])]]
         host.stops = [HostCLIStopFixture(message: "exit 1")]
         model.begin(destination: "hb")
+        model.perform(.add)
         #expect(await model.finished() == "daemon: daemon status timed out")
         guard case .failed(let report?) = model.phase else { Issue.record("not failed: \(model.phase)"); return }
         #expect(!report.ok)
@@ -233,6 +241,7 @@ import Testing
         host.scripts = [[Self.step("reach", "ok")]]
         host.stops = [HostCLIStopFixture(message: "error: unrecognized subcommand 'host'")]
         model.begin(destination: "hb")
+        model.perform(.add)
         _ = await model.finished()
         #expect(model.phase == .failed(nil))
         #expect(model.checklist.failing?.step == .install)
@@ -244,6 +253,7 @@ import Testing
         host.scripts = [[Self.step("reach", "ok"), installFail, Self.report("hb", "hb", ok: false, [Self.step("reach", "ok"), installFail])],
                         [Self.report("hb", "hb", ok: true, Self.okSteps)]]
         model.begin(destination: "hb")
+        model.perform(.add)
         _ = await model.finished()
         #expect(host.installs == ["hb"])
         #expect(host.names == ["hb"], "the install connects it under the default name, the short host")
@@ -259,6 +269,7 @@ import Testing
         host.scripts = [[Self.step("reach", "ok"), installFail, Self.report("hb", "hb", ok: false, [Self.step("reach", "ok"), installFail])]]
         host.installAnswer = .failed("The download did not match its SHA-256 checksum.")
         model.begin(destination: "hb")
+        model.perform(.add)
         _ = await model.finished()
         #expect(host.commands.count == 1)
         #expect(model.checklist.failing?.step == .install)
@@ -270,6 +281,7 @@ import Testing
         let reachFail = Self.step("reach", "fail", "ssh: connect to host hb port 22: Connection refused", fix: "Turn on Remote Login.")
         host.scripts = [[reachFail, Self.report("hb", "hb", ok: false, [reachFail, Self.step("install", "fail")])]]
         model.begin(destination: "hb")
+        model.perform(.add)
         _ = await model.finished()
         #expect(host.installs.isEmpty)
         #expect(model.checklist.failing?.step == .reach)
@@ -278,6 +290,7 @@ import Testing
     @Test func linesFillTheChecklistAsTheyArrive() async throws {
         host.holdNextRun = true
         model.begin(destination: "hb")
+        model.perform(.add)
         await Task.yield()
         let live = try #require(host.live)
         live.yield(Self.step("reach", "ok", "ssh ok"))
@@ -293,6 +306,7 @@ import Testing
     @Test func cancelStopsTheRunAndCloses() async throws {
         host.holdNextRun = true
         model.begin(destination: "hb")
+        model.perform(.add)
         await Task.yield()
         #expect(model.phase == .running)
         #expect(model.buttons.first == AddMachineButton(action: .cancel, key: .escape))
@@ -301,9 +315,26 @@ import Testing
         #expect(host.recorded.isEmpty)
     }
 
+    @Test func aDestinationFromOutsideOnlyFillsTheCard() async {
+        model.begin(destination: "hb", name: "lab")
+        #expect(model.phase == .pick, "the CLI or MCP never starts an enroll without a click")
+        #expect(model.destination == "hb" && model.name == "lab")
+        #expect(host.commands.isEmpty)
+        #expect(model.buttons.last == AddMachineButton(action: .add, key: .return, enabled: true))
+        // A second open while a run is in flight leaves the run alone.
+        host.holdNextRun = true
+        model.perform(.add)
+        await Task.yield()
+        model.begin(destination: "other")
+        #expect(model.phase == .running)
+        #expect(model.destination == "hb")
+        #expect(host.commands.count == 1)
+    }
+
     @Test func reopeningClearsTheLastRun() async {
         host.scripts = [[Self.report("hb", "hb", ok: true, Self.okSteps)]]
         model.begin(destination: "hb")
+        model.perform(.add)
         _ = await model.finished()
         #expect(model.perform(.done))
         model.begin()
@@ -344,6 +375,21 @@ import Testing
         #expect(model.defaultName == "huge-blue")
     }
 
+    @Test func theUnprobedListShowsFirstAndStaysWhenTheProbeFails() async throws {
+        let unprobed = HostCandidate(name: "huge-blue", dnsName: "huge-blue.tail1.ts.net.", ip: "100.64.0.2", os: "linux", online: true, alreadyPeer: false)
+        let probed = HostCandidate(name: "huge-blue", dnsName: "huge-blue.tail1.ts.net.", ip: "100.64.0.2", os: "linux", online: true, alreadyPeer: false, sshOK: true)
+        host.candidateAnswers = [[unprobed], [probed]]
+        model.begin()
+        try await waitFor { model.candidates == .loaded([probed]) }
+        #expect(host.probes == [false, true], "the plain list, then the probe")
+        // A probe that fails or times out (nil) keeps the plain list showing.
+        host.candidateAnswers = [[unprobed], nil]
+        model.begin()
+        try await waitFor { host.candidateAnswers.isEmpty }
+        for _ in 0..<20 { await Task.yield() }
+        #expect(model.candidates == .loaded([unprobed]))
+    }
+
     @Test func withoutTailscaleTheListIsUnavailableAndTheFieldStays() async throws {
         host.candidates = nil
         model.begin()
@@ -363,6 +409,16 @@ import Testing
         #expect(unprobed.isPickable && AddMachineCandidateList.badge(unprobed) == nil)
         model.pick(added)
         #expect(model.destination.isEmpty)
+    }
+
+    @Test func theCandidatesObjectOfTheCLIParses() throws {
+        let json = """
+        {"tailnet":"Running","candidates":[{"name":"huge-blue","dns_name":"huge-blue.tail1.ts.net","ip":"100.64.0.2","os":"linux","online":true,"mine":true,"already_peer":false}]}
+        """
+        let list = try HostCandidate.parseList(Data(json.utf8))
+        #expect(list.map(\.name) == ["huge-blue"])
+        #expect(list[0].sshOK == nil)
+        #expect(throws: (any Error).self) { try HostCandidate.parseList(Data("{}".utf8)) }
     }
 
     @Test func theCandidatesArrayParses() throws {

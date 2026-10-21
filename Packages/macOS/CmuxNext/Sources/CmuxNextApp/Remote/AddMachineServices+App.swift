@@ -19,8 +19,12 @@ extension AddMachineServices {
             return session
         }
         return AddMachineServices(
-            parse: { text in (try? SSHDestination(parsing: text)).map { HostDestination(host: $0.description, shortName: $0.displayName) } },
-            candidates: { await cli?.candidates().flatMap { try? HostCandidate.parseList($0) } },
+            // No port: enroll's ssh destination is `[user@]host` (acpmux `checked_host`); a port belongs
+            // in ~/.ssh/config.
+            parse: { text in
+                (try? SSHDestination(parsing: text)).flatMap { $0.port == nil ? HostDestination(host: $0.description, shortName: $0.displayName) : nil }
+            },
+            candidates: { probe in await cli?.candidates(probe: probe).flatMap { try? HostCandidate.parseList($0) } },
             run: { command in cli?.lines(command.arguments) ?? AsyncThrowingStream { $0.finish(throwing: ActionFailure(message: RemoteStrings.noClient)) } },
             install: { host, name in
                 await .attempt { let session = try connect(host, name); try await ssh.install(session); return session.machineID }

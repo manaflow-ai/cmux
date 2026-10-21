@@ -19,8 +19,6 @@ struct Fake {
     local_connects: bool,
     tailnet: Option<&'static str>,
     user: Option<&'static str>,
-    /// The remote's `$SSH_CONNECTION`.
-    ssh_connection: &'static str,
     /// The remote's peers (`daemon status`); `None`: no daemon runs there.
     remote_peers: RefCell<Option<Vec<Value>>>,
     /// The remote's ssh here: `Ok` or its stderr.
@@ -38,7 +36,6 @@ impl Default for Fake {
             local_connects: true,
             tailnet: Some(TAILNET),
             user: Some("leo"),
-            ssh_connection: "100.64.0.1 50022 100.64.0.2 22",
             remote_peers: RefCell::new(Some(Vec::new())),
             back: Ok(()),
             remote_connects: true,
@@ -76,9 +73,7 @@ impl Io for Fake {
     fn ssh(&self, argv: &[String]) -> Ran {
         self.scripts.borrow_mut().push(argv.to_vec());
         let script = argv.last().map(String::as_str).unwrap_or("");
-        if script.contains("SSH_CONNECTION") {
-            ran(true, self.ssh_connection, "")
-        } else if script.contains(BACK_OK) {
+        if script.contains(BACK_OK) {
             match self.back {
                 Ok(()) => ran(true, BACK_OK, ""),
                 Err(stderr) => ran(true, BACK_FAILED, stderr),
@@ -162,43 +157,50 @@ fn the_probe_is_a_fixed_script_with_the_destination_quoted() {
 }
 
 #[test]
-fn the_local_destination_comes_from_the_tailnet_then_ssh_connection() {
+fn the_local_destination_comes_only_from_the_tailnet() {
     let fake = Fake::default();
     let ts = running_tailnet(&fake);
-    assert_eq!(
-        local_dest(&fake, "huge-blue", ts.as_ref()).as_deref(),
-        Some("leo@cosmic-gray.tail9.ts.net")
-    );
+    assert_eq!(local_dest(&fake, ts.as_ref()).as_deref(), Some("leo@cosmic-gray.tail9.ts.net"));
     assert!(fake.scripts.borrow().is_empty(), "the tailnet answers without ssh");
 
-    // A tailnet that is not running is not used.
+    // A tailnet that is not running is not used, and nothing else is guessed.
     let stopped = TAILNET.replace("\"Running\"", "\"Stopped\"");
     let stopped: &'static str = Box::leak(stopped.into_boxed_str());
-    let fake = Fake {
-        tailnet: Some(stopped),
-        ssh_connection: "192.168.1.20 50022 192.168.1.30 22",
-        ..Fake::default()
-    };
+    let fake = Fake { tailnet: Some(stopped), ..Fake::default() };
     let ts = running_tailnet(&fake);
     assert!(ts.is_none());
-    assert_eq!(local_dest(&fake, "huge-blue", None).as_deref(), Some("leo@192.168.1.20"));
+    assert_eq!(local_dest(&fake, None), None);
+    assert!(fake.scripts.borrow().is_empty(), "no $SSH_CONNECTION guess");
 
-    // No tailnet, no user: the bare address.
-    let fake = Fake { tailnet: None, user: None, ..Fake::default() };
-    assert_eq!(local_dest(&fake, "huge-blue", None).as_deref(), Some("100.64.0.1"));
-
-    // A user name that is not plain is left out.
-    let fake = Fake { tailnet: None, user: Some("-oX"), ..Fake::default() };
-    assert_eq!(local_dest(&fake, "huge-blue", None).as_deref(), Some("100.64.0.1"));
+    // No user: the bare name; a user name that is not plain is left out.
+    let fake = Fake { user: None, ..Fake::default() };
+    let ts = running_tailnet(&fake);
+    assert_eq!(local_dest(&fake, ts.as_ref()).as_deref(), Some("cosmic-gray.tail9.ts.net"));
+    let fake = Fake { user: Some("-oX"), ..Fake::default() };
+    let ts = running_tailnet(&fake);
+    assert_eq!(local_dest(&fake, ts.as_ref()).as_deref(), Some("cosmic-gray.tail9.ts.net"));
 }
 
-#[test]
-fn ssh_connection_samples() {
-    assert_eq!(seen_from("100.101.1.2 50022 100.64.0.2 22").as_deref(), Some("100.101.1.2"));
-    assert_eq!(seen_from("::ffff:10.0.0.5 50022 ::ffff:10.0.0.6 22").as_deref(), Some("10.0.0.5"));
-    assert_eq!(seen_from("fd7a:115c:a1e0::1 50022 fd7a:115c:a1e0::2 22"), None);
-    assert_eq!(seen_from(""), None);
-    assert_eq!(seen_from("not-an-ip 1 2 3"), None);
+#[tokio::test]
+async fn peer_back_without_a_tailnet_warns_instead_of_guessing() {
+    let fake = Fake { tailnet: None, ..Fake::default() };
+    let r = peer_back_with(&fake, &target(None), true).await;
+    assert_eq!(r.state, StepState::Warn, "{}", r.detail);
+    assert!(r.detail.contains("no tailnet name"), "{}", r.detail);
+    assert!(fake.scripts.borrow().is_empty(), "nothing runs on the host");
+}
+
+#[tokio::test]
+async fn peer_back_matches_an_existing_peer_by_its_url_host() {
+    // Listed under another name at this machine's short host name.
+    for url in ["ssh://leo@cosmic", "ssh://cosmic-gray", "ssh://cosmic-gray.local:47812"] {
+        let fake = Fake::default();
+        *fake.remote_peers.borrow_mut() =
+            Some(vec![json!({"name": "cg", "url": url, "connected": true})]);
+        let r = peer_back_with(&fake, &target(None), true).await;
+        assert_eq!(r.state, StepState::Ok, "{url}: {}", r.detail);
+        assert!(!fake.mutated_there(), "{url}: no second peer for the same machine");
+    }
 }
 
 #[tokio::test]

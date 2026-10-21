@@ -1,7 +1,8 @@
 //! `acpmux host candidates`: the tailnet's machines that Add Machine can
 //! offer (plans/cmux-next/add-machine-DESIGN.md), each marked when a peer
 //! here already points at it. `--probe` also tries key-only ssh to each
-//! online one, a few at a time.
+//! online machine of the user's own (same login, not tagged, not shared
+//! in), a few at a time and at most [`MAX_PROBES`].
 
 use crate::cli::host_peering::{Io, Live, Ran};
 use crate::cli::hosts::checked_host;
@@ -15,6 +16,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// How many ssh probes run at once.
 const PROBES_AT_ONCE: usize = 8;
+/// The most machines one `--probe` tries; the rest stay unprobed.
+pub(crate) const MAX_PROBES: usize = 32;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 pub(crate) struct Candidate {
@@ -27,11 +30,15 @@ pub(crate) struct Candidate {
     pub ip: Option<String>,
     pub os: String,
     pub online: bool,
+    /// The user's own machine: the same tailnet login as this one, not
+    /// tagged and not shared in. Only these are probed.
+    pub mine: bool,
     /// A peer here already points at this machine (`peer` names it).
     pub already_peer: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub peer: Option<String>,
-    /// With `--probe`: key-only ssh worked. Not tried for an offline machine.
+    /// With `--probe`: key-only ssh worked. Not tried for an offline machine,
+    /// one that is not [`Candidate::mine`], or one past [`MAX_PROBES`].
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ssh_ok: Option<bool>,
 }
@@ -64,6 +71,12 @@ fn peer_for(node: &Node, peers: &[Value]) -> Option<String> {
     })
 }
 
+/// Whether `node` is the user's own: the login of this machine, untagged
+/// and not shared in from another tailnet.
+fn mine(node: &Node, this: &Node) -> bool {
+    !node.tagged() && !node.shared && node.login.is_some() && node.login == this.login
+}
+
 pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
     status
         .peers
@@ -76,6 +89,7 @@ pub(crate) fn candidates(status: &Status, peers: &[Value]) -> Vec<Candidate> {
                 ip: node.dial_ip().map(|ip| ip.to_string()),
                 os: node.os.clone(),
                 online: node.online,
+                mine: mine(node, &status.this),
                 already_peer: peer.is_some(),
                 peer,
                 ssh_ok: None,
@@ -93,16 +107,18 @@ pub(crate) fn probe_argv(target: &str) -> Result<Vec<String>> {
         .collect())
 }
 
-/// Try ssh to each online candidate, [`PROBES_AT_ONCE`] at a time.
+/// Try ssh to the user's own online candidates (at most [`MAX_PROBES`]),
+/// [`PROBES_AT_ONCE`] at a time.
 pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran + Sync)) {
     let targets: Vec<(usize, Vec<String>)> = list
         .iter()
         .enumerate()
-        .filter(|(_, c)| c.online)
+        .filter(|(_, c)| c.online && c.mine)
         .filter_map(|(i, c)| {
             let target = if c.dns_name.is_empty() { c.ip.clone()? } else { c.dns_name.clone() };
             Some((i, probe_argv(&target).ok()?))
         })
+        .take(MAX_PROBES)
         .collect();
     let next = AtomicUsize::new(0);
     let results: Vec<(usize, bool)> = std::thread::scope(|scope| {
@@ -119,8 +135,8 @@ pub(crate) fn probe_all(list: &mut [Candidate], ssh: &(impl Fn(&[String]) -> Ran
             .collect();
         workers.into_iter().flat_map(|w| w.join().unwrap_or_default()).collect()
     });
-    for c in list.iter_mut().filter(|c| c.online) {
-        c.ssh_ok = Some(false);
+    for &(i, _) in &targets {
+        list[i].ssh_ok = Some(false);
     }
     for (i, ok) in results {
         list[i].ssh_ok = Some(ok);
@@ -142,6 +158,7 @@ pub(crate) async fn list_with(
 }
 
 pub(crate) async fn run(client: &Client, probe: bool, json_out: bool) -> Result<()> {
+    crate::cli::host_enroll::lead_process_group_if_asked();
     let (tailnet, list) = list_with(&Live(Some(client)), probe).await?;
     if json_out {
         print_json(&json!({"tailnet": tailnet, "candidates": list}));
@@ -176,15 +193,33 @@ mod tests {
 
     const STATUS: &str = r#"{
       "BackendState": "Running",
+      "User": {"1": {"ID": 1, "LoginName": "leo@example.com"}, "2": {"ID": 2, "LoginName": "sam@example.com"}},
       "Self": {"HostName": "cosmic", "DNSName": "cosmic-gray.tail9.ts.net.", "OS": "macOS",
-               "TailscaleIPs": ["100.64.0.1"], "Online": true},
+               "TailscaleIPs": ["100.64.0.1"], "Online": true, "UserID": 1},
       "Peer": {
         "nodekey:a": {"HostName": "huge-blue", "DNSName": "huge-blue.tail9.ts.net.", "OS": "macOS",
-                      "TailscaleIPs": ["100.64.0.2", "fd7a:115c:a1e0::2"], "Online": true},
+                      "TailscaleIPs": ["100.64.0.2", "fd7a:115c:a1e0::2"], "Online": true, "UserID": 1},
         "nodekey:b": {"HostName": "box", "DNSName": "", "OS": "linux",
-                      "TailscaleIPs": ["fd7a:115c:a1e0::3", "100.64.0.3"], "Online": true},
+                      "TailscaleIPs": ["fd7a:115c:a1e0::3", "100.64.0.3"], "Online": true, "UserID": 1},
         "nodekey:c": {"HostName": "phone", "DNSName": "phone.tail9.ts.net.", "OS": "iOS",
-                      "TailscaleIPs": ["100.64.0.4"], "Online": false}
+                      "TailscaleIPs": ["100.64.0.4"], "Online": false, "UserID": 1}
+      }
+    }"#;
+
+    /// Online machines that are not the user's: a tagged server, a
+    /// teammate's, one shared in from another tailnet.
+    const OTHERS: &str = r#"{
+      "BackendState": "Running",
+      "User": {"1": {"ID": 1, "LoginName": "leo@example.com"}, "2": {"ID": 2, "LoginName": "sam@example.com"}},
+      "Self": {"HostName": "cosmic", "DNSName": "cosmic-gray.tail9.ts.net.", "OS": "macOS",
+               "TailscaleIPs": ["100.64.0.1"], "Online": true, "UserID": 1},
+      "Peer": {
+        "nodekey:t": {"HostName": "ci", "DNSName": "ci.tail9.ts.net.", "OS": "linux", "Tags": ["tag:ci"],
+                      "TailscaleIPs": ["100.64.0.5"], "Online": true, "UserID": 1},
+        "nodekey:u": {"HostName": "sams-mac", "DNSName": "sams-mac.tail9.ts.net.", "OS": "macOS",
+                      "TailscaleIPs": ["100.64.0.6"], "Online": true, "UserID": 2},
+        "nodekey:v": {"HostName": "shared", "DNSName": "shared.other.ts.net.", "OS": "linux",
+                      "TailscaleIPs": ["100.64.0.7"], "Online": true, "UserID": 1, "ShareeNode": true}
       }
     }"#;
 
@@ -256,5 +291,28 @@ mod tests {
             ["-o", "BatchMode=yes", "-o", "ConnectTimeout=5", "--", "huge-blue", "true"]
         );
         assert!(probe_argv("-oProxyCommand=x").is_err());
+    }
+
+    #[test]
+    fn only_the_users_own_machines_are_probed_and_at_most_max() {
+        let others = parse_status(OTHERS.as_bytes()).unwrap();
+        let mut list = candidates(&others, &[]);
+        assert!(list.iter().all(|c| c.online && !c.mine), "{list:?}");
+        probe_all(&mut list, &|argv: &[String]| panic!("probed {argv:?}"));
+        assert!(list.iter().all(|c| c.ssh_ok.is_none()), "unprobed, still listed");
+
+        // Many own machines: the first MAX_PROBES are tried, the rest stay unprobed.
+        let one = candidates(&status(), &[]).remove(1);
+        let mut many: Vec<Candidate> = (0..MAX_PROBES + 5)
+            .map(|i| Candidate { dns_name: format!("m{i}.tail9.ts.net"), ..one.clone() })
+            .collect();
+        let tried = AtomicUsize::new(0);
+        probe_all(&mut many, &|_: &[String]| {
+            tried.fetch_add(1, Ordering::SeqCst);
+            Ran { ok: true, ..Ran::default() }
+        });
+        assert_eq!(tried.load(Ordering::SeqCst), MAX_PROBES);
+        assert!(many[..MAX_PROBES].iter().all(|c| c.ssh_ok == Some(true)));
+        assert!(many[MAX_PROBES..].iter().all(|c| c.ssh_ok.is_none()));
     }
 }

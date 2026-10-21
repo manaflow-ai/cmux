@@ -53,15 +53,21 @@ public nonisolated struct HostCandidate: Equatable, Sendable, Identifiable, Deco
     /// Whether picking it can add it: online, not a peer yet, and ssh not known to be off.
     public var isPickable: Bool { online && !alreadyPeer && sshOK != false }
 
-    /// The candidates array; throws when the output is not one.
+    /// The candidates of `host candidates --json` (`{"tailnet":…,"candidates":[…]}`), or a bare
+    /// array; throws when the output is neither.
     public static func parseList(_ data: Data) throws -> [HostCandidate] {
-        try JSONDecoder().decode([HostCandidate].self, from: data)
+        if let list = try? JSONDecoder().decode(Listing.self, from: data) { return list.candidates }
+        return try JSONDecoder().decode([HostCandidate].self, from: data)
+    }
+
+    private nonisolated struct Listing: Decodable {
+        var candidates: [HostCandidate]
     }
 }
 
 /// The candidate list under the Add Machine field.
 public nonisolated enum HostCandidates: Equatable, Sendable {
-    /// `candidates --probe` runs (the spinner).
+    /// The plain `candidates` run runs (the spinner).
     case loading
     case loaded([HostCandidate])
     /// No Tailscale here, or the list failed: the list hides and the field stays.

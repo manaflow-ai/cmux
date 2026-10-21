@@ -30,12 +30,13 @@ public struct HostCLI: Sendable {
         self.environment = environment
     }
 
-    /// `host candidates --json --probe`: the Tailscale peers' JSON array, nil when there is no
-    /// Tailscale or the list failed (the card hides it).
-    public func candidates() async -> Data? {
-        let argv = [binary.path, "acp", "host", "candidates", "--json", "--probe"]
-        guard let result = try? await SSHProcessRunner.run(argv, environment: await environment(), deadline: .seconds(45),
-                                                           label: "host candidates"),
+    /// `host candidates --json [--probe]`: the Tailscale peers' JSON, nil when there is no Tailscale,
+    /// or the run failed or timed out. Without `probe` it is one local tailscale call; `--probe` also
+    /// tries ssh to the user's own machines (at most 32, eight at a time, 5 s each).
+    public func candidates(probe: Bool) async -> Data? {
+        let argv = [binary.path, "acp", "host", "candidates", "--json"] + (probe ? ["--probe"] : [])
+        guard let result = try? await SSHProcessRunner.run(argv, environment: await Self.grouped(environment()),
+                                                           deadline: .seconds(probe ? 30 : 15), label: "host candidates"),
               result.status == 0 else { return nil }
         return Data(result.stdout.utf8)
     }
@@ -50,15 +51,29 @@ public struct HostCLI: Sendable {
             let process = Process()
             // task-owner: ends when the process starts, or with the stream's cancel
             let start = Task {
-                let env = await environment()
+                let env = await Self.grouped(environment())
                 guard !Task.isCancelled else { return continuation.finish(throwing: CancellationError()) }
                 Self.run(process, binary: binary, arguments: arguments, environment: env, into: continuation)
             }
             continuation.onTermination = { _ in
                 start.cancel()
-                if process.isRunning { process.terminate() }
+                if process.isRunning { Self.stop(process) }
             }
         }
+    }
+
+    /// The run's environment, asking it to lead its own process group (acpmux
+    /// `lead_process_group_if_asked`), so ``stop(_:)`` reaches the ssh it starts.
+    static func grouped(_ environment: [String: String]) -> [String: String] {
+        environment.merging(["ACPMUX_PROCESS_GROUP": "1"]) { _, new in new }
+    }
+
+    /// SIGTERM to the run's process group when it leads one, so the ssh and scp it started stop with
+    /// it; else to the process alone (never the app's own group).
+    static func stop(_ process: Process) {
+        let pid = process.processIdentifier
+        guard pid > 0 else { return }
+        kill(getpgid(pid) == pid ? -pid : pid, SIGTERM)
     }
 
     private static func run(_ process: Process, binary: URL, arguments: [String], environment: [String: String],

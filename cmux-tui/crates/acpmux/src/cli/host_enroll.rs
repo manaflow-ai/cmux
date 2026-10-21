@@ -23,6 +23,7 @@ pub(crate) struct Plan {
     /// The remote binary `install` checks and pushes; when it is not
     /// [`DAEMON_BIN`], that path becomes a link to it.
     pub remote_binary: String,
+    /// Run `peer-back` (`--reverse`); off by default, it is reported `skip`.
     pub reverse: bool,
 }
 
@@ -39,7 +40,25 @@ const INSTALL_FROM_APP: &str = "Install cmux on {host} from the app (Machines > 
 /// a standalone acpmux or a shipped cmux), as a shell assignment.
 const REMOTE_HARNESS_DIR: &str = "d=${XDG_CONFIG_HOME:-$HOME/.config}/cmux/harnesses";
 
+/// Set by a caller that stops a run by its process group (the app's Add
+/// Machine card, `HostCLI.stop`).
+const PROCESS_GROUP_ENV: &str = "ACPMUX_PROCESS_GROUP";
+
+/// With [`PROCESS_GROUP_ENV`] set, lead a new process group, so stopping
+/// the run also stops the ssh and scp it started. Never in a terminal's
+/// job, whose Ctrl-C must still reach it.
+pub(crate) fn lead_process_group_if_asked() {
+    #[cfg(unix)]
+    if std::env::var_os(PROCESS_GROUP_ENV).is_some_and(|v| v == "1") {
+        // SAFETY: setpgid on this process alone, before it starts a child.
+        unsafe {
+            libc::setpgid(0, 0);
+        }
+    }
+}
+
 pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bool) -> Result<()> {
+    lead_process_group_if_asked();
     let local = Local {
         harness_dir: crate::config::profiles::ProfileSources::current().user_dir,
         home: dirs::home_dir(),
@@ -59,9 +78,7 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
             Some(skip) => skip,
             None => match step {
                 Step::Peer => host_peering::peer(&client, &t, fix).await,
-                Step::PeerBack if !plan.reverse => {
-                    StepResult::new(Step::PeerBack, StepState::Skip, "--no-reverse")
-                }
+                Step::PeerBack if !plan.reverse => peer_back_off(),
                 Step::PeerBack => host_peering::peer_back(&t, fix).await,
                 _ => host_peering::identity(&client, &t, fix).await,
             },
@@ -80,6 +97,17 @@ pub(crate) async fn run(client: Arc<Client>, plan: Plan, fix: bool, json_out: bo
         std::process::exit(1);
     }
     Ok(())
+}
+
+/// `peer-back` without `--reverse`: two daemons that list each other relay
+/// one another's sessions both ways, so this machine is only added on the
+/// host when asked.
+pub(crate) fn peer_back_off() -> StepResult {
+    StepResult::new(
+        Step::PeerBack,
+        StepState::Skip,
+        "not asked to add this machine on the host (pass --reverse)",
+    )
 }
 
 /// The name, host and port `doctor NAME|HOST` works on: a peer with that
@@ -263,11 +291,13 @@ fn build_of(line: &str) -> Option<&str> {
 }
 
 /// Lists each acpmux the host has, in the order it would use them (its
-/// PATH, the standalone install, the cmux apps), with its version line and
-/// what `daemon status` (which never starts a daemon) says through it; then
-/// a NUL and the daemon config. An app name may hold spaces: the glob's
-/// words stay whole and a pattern that matched nothing fails `-f`.
-const PROBE: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; printf 'bin\t%s\t%s\n' "$b" "$("$b" --version 2>/dev/null | head -n 1)"; printf 'status\t%s\t%s\n' "$b" "$("$b" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; cat ~/.acpmux/config.json 2>/dev/null"#;
+/// PATH, the standalone install, the cmux apps, then a cmux-tui: the app's
+/// SSH install at ~/.local/bin, `cmux remote install`'s ~/.cmux/bin, PATH),
+/// with its version line and what `daemon status` (which never starts a
+/// daemon) says through it (a cmux-tui as `cmux-tui acp …`); then a NUL and
+/// the daemon config. An app name may hold spaces: the glob's words stay
+/// whole and a pattern that matched nothing fails `-f`.
+const PROBE: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; cat ~/.acpmux/config.json 2>/dev/null"#;
 
 /// What [`PROBE`] found.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -278,6 +308,9 @@ struct Probe {
     running: Option<Running>,
     /// The running daemon's executable, when the host names it.
     exe: Option<String>,
+    /// The running daemon runs as `cmux-tui acp …`: a cmux session daemon
+    /// started it (`cmux-tui/src/acp.rs`), outside launchd.
+    run_by_cmux_tui: bool,
     config: String,
 }
 
@@ -334,13 +367,27 @@ fn app_owned(path: &str) -> bool {
     path.contains(".app/Contents/")
 }
 
+/// A path whose file is named `cmux-tui`.
+fn is_cmux_tui(path: &str) -> bool {
+    path.rsplit('/').next() == Some("cmux-tui")
+}
+
+/// Whether a `ps -o args=` line runs `cmux-tui acp …`, not `acpmux …`.
+fn runs_as_cmux_tui_acp(args: &str) -> bool {
+    let mut words = args.split_whitespace();
+    words.next().is_some_and(is_cmux_tui) && words.next() == Some("acp")
+}
+
 impl Probe {
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
             // When the host does not name the daemon's executable, a daemon
             // on a host with a cmux app counts as the app's: never restart
-            // what may be the app's daemon.
+            // what may be the app's daemon. One a cmux session daemon started
+            // as `cmux-tui acp` is cmux's too: launchd must not start a
+            // second one beside it.
             let app = run.person_key
+                || self.run_by_cmux_tui
                 || match &self.exe {
                     Some(exe) => app_owned(exe),
                     None => self.bins.iter().any(|(path, _)| app_owned(path)),
@@ -348,21 +395,51 @@ impl Probe {
             let path = self.exe.clone().unwrap_or_else(|| run.via.clone());
             return Some(InUse { path, build: run.build.clone(), app, pid: Some(run.pid) });
         }
-        let (path, build) = self.bins.first()?;
-        Some(InUse { path: path.clone(), build: build.clone(), app: app_owned(path), pid: None })
+        // No daemon runs: a host with a cmux app is the app's, whatever
+        // else is installed, so no standalone daemon is started beside it.
+        let app_bin = self.bins.iter().find(|(path, _)| app_owned(path));
+        let (path, build) = app_bin.or(self.bins.first())?;
+        Some(InUse { path: path.clone(), build: build.clone(), app: app_bin.is_some(), pid: None })
+    }
+
+    /// A cmux-tui outside an app bundle (the app's SSH install, `cmux
+    /// remote install`) of build `want`, as a plain path.
+    fn current_cmux_tui(&self, want: &str) -> Option<&str> {
+        self.bins
+            .iter()
+            .find(|(path, build)| {
+                is_cmux_tui(path)
+                    && !app_owned(path)
+                    && build.as_deref() == Some(want)
+                    && hosts::plain_path(path)
+            })
+            .map(|(path, _)| path.as_str())
     }
 }
 
 /// Run [`PROBE`], then name the running daemon's executable (Linux
-/// `/proc`, else `ps`). Reads only.
+/// `/proc`, else `ps`) and its command line. Reads only.
 fn probe(r: &dyn Remote) -> Result<Probe> {
     let mut probe = parse_probe(&r.exec(PROBE, None)?.stdout);
     if let Some(pid) = probe.running.as_ref().map(|run| run.pid) {
-        let script = format!("readlink /proc/{pid}/exe 2>/dev/null || ps -o comm= -p {pid}");
-        let exe = r.exec(&script, None)?.stdout.trim().to_owned();
+        let script = format!(
+            "readlink /proc/{pid}/exe 2>/dev/null || ps -o comm= -p {pid}; printf '\\0'; ps -o args= -p {pid} 2>/dev/null"
+        );
+        let stdout = r.exec(&script, None)?.stdout;
+        let (exe, args) = stdout.split_once('\0').unwrap_or((&stdout, ""));
+        let exe = exe.trim().to_owned();
         probe.exe = exe.starts_with('/').then_some(exe);
+        probe.run_by_cmux_tui = runs_as_cmux_tui_acp(args.trim());
     }
     Ok(probe)
+}
+
+/// Link [`DAEMON_BIN`] to `bin`: the daemon runs a cmux-tui as `acpmux`.
+fn link_daemon_bin(r: &dyn Remote, bin: &str) -> Result<String> {
+    hosts::run(
+        r,
+        &format!("mkdir -p ~/.local/bin && rm -f {DAEMON_BIN} && ln -s {bin} {DAEMON_BIN}"),
+    )
 }
 
 /// The remote builds of `bin` and, when it is another file, of the
@@ -423,11 +500,11 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     let host = r.host();
     let want = crate::hub::BUILD;
     let from_app = INSTALL_FROM_APP.replace("{host}", host);
-    let used = match probe(r) {
-        Ok(p) => p.in_use(),
+    let probed = match probe(r) {
+        Ok(p) => p,
         Err(e) => return fail(Step::Install, format!("{e:#}"), "Check again."),
     };
-    if let Some(used) = used.filter(|u| u.app) {
+    if let Some(used) = probed.in_use().filter(|u| u.app) {
         let ok = format!("{host} runs cmux's own acpmux at {} (build {want})", used.path);
         return app_build(Step::Install, host, &used, &ok);
     }
@@ -441,6 +518,19 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
     let found = match installed(r, bin) {
         Ok(found) => found,
         Err(e) => return fail(Step::Install, format!("{e:#}"), "Check again."),
+    };
+    // No standalone acpmux, but a cmux-tui of this build (the app installs
+    // one over ssh before it runs enroll again): only the link is missing.
+    let tui = (bin == DAEMON_BIN && found.0.is_none())
+        .then(|| probed.current_cmux_tui(want))
+        .flatten()
+        .map(str::to_owned);
+    let (bin, found) = match &tui {
+        Some(tui) => match installed(r, tui) {
+            Ok(found) => (tui.as_str(), found),
+            Err(e) => return fail(Step::Install, format!("{e:#}"), "Check again."),
+        },
+        None => (bin, found),
     };
     let describe = |(b, d): &(Option<String>, Option<String>)| match (b, d) {
         (None, _) => format!("{bin} is not installed"),
@@ -467,6 +557,21 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             why,
             format!("Run the check with --fix to install this build on {host}."),
         );
+    }
+    // `bin` is this build and only the link is missing or stale: link it,
+    // before anything that needs this program to match the host.
+    if bin != DAEMON_BIN && found.0.as_deref() == Some(want) {
+        return match link_daemon_bin(r, bin).and_then(|_| installed(r, bin)) {
+            Ok(after) if current(&after) => StepResult::new(
+                Step::Install,
+                StepState::Fixed,
+                format!("{why}; linked {DAEMON_BIN} to {bin}"),
+            ),
+            Ok(after) => {
+                fail(Step::Install, format!("after linking, {}", describe(&after)), from_app)
+            }
+            Err(e) => fail(Step::Install, format!("{why}; linking failed: {e:#}"), from_app),
+        };
     }
     let uname = match hosts::run(r, "uname -sm") {
         Ok(u) => u,
@@ -497,10 +602,7 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
         if bin == DAEMON_BIN {
             return Ok(String::new());
         }
-        hosts::run(
-            r,
-            &format!("mkdir -p ~/.local/bin && rm -f {DAEMON_BIN} && ln -s {bin} {DAEMON_BIN}"),
-        )
+        link_daemon_bin(r, bin)
     });
     if let Err(e) = pushed {
         return fail(Step::Install, format!("{why}; the push failed: {e:#}"), from_app);

@@ -409,18 +409,18 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                 PeerCmd::Update { name, all } => {
                     return crate::cli::hosts::update(client, name, all, json_out).await;
                 }
-                PeerCmd::Enroll { host, name, harnesses, remote_binary, no_reverse } => {
+                PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
                     let plan = crate::cli::host_enroll::Plan {
                         name: name.unwrap_or_else(|| crate::cli::hosts::short_name(&host)),
                         host,
                         port: crate::peer::SSH_PEER_PORT,
                         harnesses,
                         remote_binary,
-                        reverse: !no_reverse,
+                        reverse,
                     };
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
-                PeerCmd::Doctor { target, fix, harnesses, remote_binary } => {
+                PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
                     let peers = client.request("_acpmux/peers", json!({})).await?;
                     let list =
                         peers.get("peers").and_then(Value::as_array).cloned().unwrap_or_default();
@@ -431,7 +431,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         port,
                         harnesses,
                         remote_binary,
-                        reverse: true,
+                        reverse,
                     };
                     return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
                 }
