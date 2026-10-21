@@ -85,7 +85,7 @@ import { ScrollPacing } from "./pacing";
 import { AdaptiveRenderRate, reportScrollPacing } from "./renderPacing";
 import { remoteComposer } from "./remoteEditing";
 import { Composer, type ComposerHandle, type ComposerWake } from "./Composer";
-import { audioAttachment, type ComposerAttachment } from "./attachments";
+import { audioAttachment, linkAttachment, type ComposerAttachment } from "./attachments";
 import { ComposerPickers, PICKER_LABELS, type ComposerPermissionAccess } from "./ComposerPickers";
 import { openPicker } from "./pickerOpeners";
 import { EmptyState, type EmptyStateProjects, isNewChat, projectName } from "./EmptyState";
@@ -149,6 +149,7 @@ import { loadEditDiffHunks } from "./conversation/EditDiff";
 import { PlanList } from "./conversation/PlanList";
 import { ActivityLine } from "./conversation/ActivityLine";
 import { BackgroundTaskNote } from "./conversation/BackgroundTaskNote";
+import { IncomingMessageCard, IncomingNotice } from "./conversation/IncomingMessageCard";
 import { CompactionNote, FailoverNote } from "./conversation/CompactionNote";
 import { AgentPairNote } from "./conversation/AgentPairNote";
 import { SessionStartNote } from "./conversation/SessionStartNote";
@@ -216,7 +217,7 @@ import { chatImages, type ChatImage } from "./conversation/chatImages";
 import { ImageViewer } from "./conversation/ImageViewer";
 import { ImageViewerContext } from "./conversation/imageViewerContext";
 import { sessionLink } from "./links";
-import { ChatHeaderStatus } from "./header/ChatHeaderStatus";
+import { ChatHeaderInlineStatus, ChatHeaderStatus } from "./header/ChatHeaderStatus";
 import { ChatHeaderTools, HEADER_ACTIONS, menuGroups, type ChatMenuItem } from "./header/ChatHeaderTools";
 import { headerState, setHeaderState, useHeaderState } from "./header/headerState";
 import { setTabRow, tabRowStyle, useTabRow, useTabRowTools } from "./header/tabRow";
@@ -619,6 +620,18 @@ const MessageRow = memo(
     const t = useT();
     // A started task's result, which acpmux sent as a prompt: one line, never the person's bubble.
     if (row.kind === "user" && row.received) return <ReceivedResult result={row.received} onOpen={openOfferChat} />;
+    // Another agent's message as a card from it; a task notification as one quiet line
+    // (conversation/incomingMessage.ts).
+    // Its images and a steer's read state show with it, as under a bubble.
+    if (row.kind === "user" && row.incoming?.kind === "notice") return <IncomingNotice text={row.incoming.text} />;
+    if (row.kind === "user" && row.incoming?.kind === "message")
+      return (
+        <div className="cv-incoming">
+          <IncomingMessageCard message={row.incoming.message} images={row.images} onOpen={openOfferChat} />
+          {row.steer && <SteerMark steer={row.steer} />}
+        </div>
+      );
+    if (row.kind === "user" && row.incoming?.kind === "hidden") return null;
     if (row.kind === "user") {
       // A Chief subagent's first message: the Chief's view as one collapsed line, the task as
       // the message (the session keeps the whole text).
@@ -5307,6 +5320,15 @@ function AcpmuxPane() {
     t,
   );
   opensSideChat.current = sideChat !== undefined;
+  // Sources' +: the host's panel picks files and folders on this computer, which the composer holds
+  // as links for the next prompt (resource_link blocks: the agent reads them where they are).
+  const attachLinks = async () => {
+    const picked = await callNative<{ items?: { path?: unknown; folder?: unknown }[] } | null>("chat.attach.choose");
+    for (const item of picked?.items ?? [])
+      if (typeof item.path === "string" && item.path.startsWith("/"))
+        composerHandle.current?.attach(linkAttachment(item.path, item.folder === true));
+    composerHandle.current?.focus();
+  };
   // New terminal and New browser (the chat menu, the summary panel): another one beside the chat on
   // every click, whatever the header's Terminal and Browser buttons do.
   const newTerminal = () => runSplitAction(HEADER_ACTIONS.terminal, localCwd, "open");
@@ -6310,6 +6332,9 @@ function AcpmuxPane() {
             onOpenOutput={quick ? undefined : openOutput}
             onOpenImage={quick ? undefined : openImage}
             subagents={cardSubagents}
+            // The picks are this computer's files: only a chat whose folder is here (not a peer's or
+            // another host's) and not Quick Chat.
+            onAttach={localCwd && !quick ? () => void attachLinks().catch(() => undefined) : undefined}
           />
         </SubagentHarnessContext.Provider>
       </SubagentClockContext.Provider>
@@ -6481,6 +6506,7 @@ function AcpmuxPane() {
                 <header className="acpmux-header" data-tab-row={inTabRow ? "" : undefined}>
                   <ChatHeaderStatus status={header.status} detail={header.detail} />
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                    {inTabRow && <ChatHeaderInlineStatus status={header.status} detail={header.detail} />}
                     {preview && (
                       <span
                         className="acpmux-session-coverage"

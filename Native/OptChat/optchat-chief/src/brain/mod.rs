@@ -260,8 +260,7 @@ pub enum Input {
     },
     /// Once a minute while subagents work: stuck detection (control.rs).
     SubTick,
-    /// Changes a per-Chief setting (`chief_settings`); refused for
-    /// `remote.autoApprove` on during a remote-origin turn.
+    /// Changes a per-Chief setting (`chief_settings`).
     Setting {
         key: String,
         value: String,
@@ -663,16 +662,15 @@ pub struct Brain {
     turn_engine: Option<crate::engine::TurnEngine>,
     /// The per-Chief settings (`chief_settings`), owned by the host.
     chief: crate::chief_settings::ChiefSettings,
-    /// The running turn has a remote origin (a paired device's message, or
-    /// a remote turn it supersedes): the strictest origin wins until it ends.
-    turn_remote: bool,
-    /// The running turn runs with policy `ask` (remote, no auto-approve).
+    /// The running turn carries another person's text: it runs with policy
+    /// `ask`, and every local effect it asks for is refused at once.
     turn_ask: bool,
-    /// A remote-origin turn was stopped for a newer message: the turn that
-    /// answers both keeps its origin.
-    remote_taint: bool,
-    /// The running turn's permission requests waiting for a person.
-    approvals: VecDeque<crate::approval::Pending>,
+    /// Requests refused in the running turn (`approval::signature`): a
+    /// repeat counts toward stopping the turn.
+    turn_denied: Vec<String>,
+    /// Requests of the running turn denied again because they repeat one
+    /// already denied (`approvals::REPEATS_BEFORE_STOP` stops the turn).
+    repeat_denials: u32,
     /// Writes the log's description of each turn image (None: references only).
     describer: Option<Arc<dyn images::Describe>>,
     /// Images being described now (`conversation/hash`), started once each.
@@ -707,6 +705,10 @@ pub struct Brain {
     /// The running turn was ended by the Chief's own `stop` or `sleep`
     /// (wakes.rs): its final text is not posted, and it is no failure.
     tool_stopped: bool,
+    /// The running turn was stopped for asking again and again for a tool
+    /// call it was denied (approvals.rs): later requests are denied, and the
+    /// turn posts one line saying so (what it asked for) instead of its text.
+    denial_stopped: Option<String>,
     /// Fetches link previews for replies' URL lines (None: replies stay text).
     previewer: Option<Arc<dyn crate::link_preview::Fetcher>>,
     /// Turns cut in a row by a lost acpmux link (`Brain::turn_cut`): past
@@ -786,10 +788,9 @@ impl Brain {
             keep_pending: None,
             ttl_stale: Arc::new(std::sync::atomic::AtomicBool::new(false)),
             chief,
-            turn_remote: false,
             turn_ask: false,
-            remote_taint: false,
-            approvals: VecDeque::new(),
+            turn_denied: Vec::new(),
+            repeat_denials: 0,
             after_turn: None,
             notices: Vec::new(),
             noticed: HashSet::new(),
@@ -829,6 +830,7 @@ impl Brain {
             reacted: std::collections::HashSet::new(),
             sent_keys: std::collections::HashSet::new(),
             tool_stopped: false,
+            denial_stopped: None,
             previewer: None,
             cuts: 0,
             resume_at: None,
@@ -1337,22 +1339,13 @@ impl Brain {
         }
     }
 
-    /// Whether `remote.autoApprove` is on.
-    pub fn remote_auto_approve(&self) -> bool {
-        self.chief.remote_auto_approve
-    }
-
-    /// Changes a per-Chief setting and saves it. `remote.autoApprove` can be
-    /// turned on only when no remote-origin work is running, settling or
-    /// queued: never by a paired device, nor by a command a remote turn runs
-    /// (an approved shell command reaches the host the same way). Turning
-    /// it off is always allowed.
+    /// Changes a per-Chief setting and saves it.
     pub fn set_setting(&mut self, key: &str, value: &str) -> Result<String, String> {
         use crate::chief_settings::{
-            CACHE_TTL, REMOTE_AUTO_APPROVE, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
+            CACHE_TTL, CLOUD_AUTO_PAUSE_IDLE_SECONDS, REPLY_THREADS, SHOW_AFTER_REPORT, parse_bool,
             parse_reply_threads, parse_ttl,
         };
-        if key == crate::chief_settings::CLOUD_AUTO_PAUSE_IDLE_SECONDS {
+        if key == CLOUD_AUTO_PAUSE_IDLE_SECONDS {
             let secs = crate::chief_settings::parse_idle_secs(value)?;
             let mut next = self.chief;
             next.cloud_auto_pause_idle_secs = secs;
@@ -1397,35 +1390,9 @@ impl Brain {
             (self.log)(&format!("setting {key} = {}", ttl.as_str()));
             return Ok(format!("{key} = {}", ttl.as_str()));
         }
-        if key != REMOTE_AUTO_APPROVE {
-            return Err(format!(
-                "unknown setting {key:?} (known: {REMOTE_AUTO_APPROVE}, {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT})"
-            ));
-        }
-        let on = parse_bool(value)?;
-        let remote_queued = self.queue.iter().any(|q| {
-            matches!(
-                q.source,
-                Source::Message {
-                    remote: Some(_),
-                    ..
-                }
-            )
-        });
-        if on && (self.turn_remote || self.remote_taint || remote_queued || self.ask_child_live()) {
-            (self.log)("refused: remote.autoApprove on during remote-origin work");
-            return Err(
-                "refused: remote.autoApprove can be turned on only from the Mac, outside a turn a paired device started"
-                    .to_owned(),
-            );
-        }
-        let mut next = self.chief;
-        next.remote_auto_approve = on;
-        next.save(&self.settings.settings_file)
-            .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
-        self.chief = next;
-        (self.log)(&format!("setting {key} = {on}"));
-        Ok(format!("{key} = {on}"))
+        Err(format!(
+            "unknown setting {key:?} (known: {CACHE_TTL}, {REPLY_THREADS}, {SHOW_AFTER_REPORT}, {CLOUD_AUTO_PAUSE_IDLE_SECONDS})"
+        ))
     }
 
     fn queue(&mut self, text: String, source: Source) {

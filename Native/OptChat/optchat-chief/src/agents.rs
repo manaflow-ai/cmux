@@ -302,7 +302,7 @@ pub fn child_spec(flags: &Flags, name: &str, cwd: &str) -> SessionSpec {
 }
 
 /// The policy a child gets: the host's floor (`ask` while the Chief works
-/// for a paired device, README "Remote-origin messages") wins over
+/// in a turn another person started, README "Remote-origin messages") wins over
 /// `--policy` and `MUX_POLICY`.
 pub fn apply_floor(requested: &str, floor: Option<&str>) -> String {
     floor.unwrap_or(requested).to_owned()
@@ -314,13 +314,13 @@ fn asks(s: &SessionSummary) -> bool {
 
 /// Whether `agents allow|deny` may answer `child`'s `pending` permission (an
 /// `_acpmux/info` pending entry): not a child that runs with policy `ask`,
-/// whose approvals a person gives in the Chief chat, and never a question
+/// whose local effects the host refuses, and never a question
 /// (`toolCall._meta.acpmux.question`), which only a person answers or
 /// declines.
 pub fn cli_may_answer(child: &SessionSummary, pending: &Value) -> Result<(), String> {
     if asks(child) {
         return Err(format!(
-            "{} needs approvals from a person: answer allow or deny in the Chief chat",
+            "{} runs under the spawn floor of another person's turn: the host refuses its local effects",
             child.name
         ));
     }

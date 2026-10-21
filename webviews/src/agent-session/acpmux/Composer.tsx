@@ -47,6 +47,7 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
+import { useDictationListening } from "./dictation";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -318,6 +319,9 @@ export function Composer({
   // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
+  // The handle is made once: its notices read the current locale's strings.
+  const tRef = useRef(t);
+  tRef.current = t;
   const field = useRef<MarkdownFieldHandle>(null);
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
@@ -418,9 +422,17 @@ export function Composer({
           ]);
       },
       attach(attachment) {
+        // A pick past the most the composer holds says so, as a dropped file does.
+        const held = attachmentsRef.current.filter((chip) => chip.id !== attachment.id);
+        if (held.length >= MAX_ATTACHMENTS) {
+          setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
+          return;
+        }
+        // Ahead of the render, so each of several picks attached at once counts the ones before it.
+        attachmentsRef.current = [...held, attachment];
         setAttachments((current) => {
-          const held = current.filter((chip) => chip.id !== attachment.id);
-          return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
+          const kept = current.filter((chip) => chip.id !== attachment.id);
+          return kept.length >= MAX_ATTACHMENTS ? current : [...kept, attachment];
         });
       },
       detach(ids) {
@@ -446,7 +458,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments],
+    [setAttachments, setAttachError],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -630,8 +642,12 @@ export function Composer({
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (blocked && !force) return false;
-    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy.
-    if (sending.current) return false;
+    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
+    // the composer says so instead of doing nothing.
+    if (sending.current) {
+      setAttachError(t("composer.stillSending"));
+      return false;
+    }
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
@@ -701,6 +717,8 @@ export function Composer({
       },
       () => {
         sending.current = false;
+        const note = t("composer.stillSending");
+        setAttachError((current) => (current === note ? undefined : current));
       },
     );
     return true;
@@ -973,6 +991,8 @@ export function Composer({
         : steerKind === "steer"
           ? COMPOSER_LABELS.placeholderSteer
           : COMPOSER_LABELS.placeholderInterrupt;
+  // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
+  const dictating = useDictationListening();
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1227,9 +1247,11 @@ export function Composer({
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
           <MarkdownField
             ref={fieldRef}
-            className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
+            className={
+              shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
+            }
             value={text}
-            placeholder={t(placeholder)}
+            placeholder={t(dictating ? "dictation.listening" : placeholder)}
             attributes={{
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
@@ -1420,6 +1442,7 @@ export function Composer({
                   className="acpmux-send acpmux-cancel"
                   data-escape-armed={escapeStop.armed ? "" : undefined}
                   aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+                  // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
                   title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
                   onClick={stopTurn}
                 >

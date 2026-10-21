@@ -6,6 +6,7 @@ import type { HandoffClientState } from "./handoff/client";
 import type { Enforcement } from "./handoff/protocol";
 import type { SlashCommand } from "./slashCommands";
 import type { SummaryCheckpoint } from "./changes/turnCheckpointSource";
+import type { IncomingPrompt } from "./conversation/incomingMessage";
 import { appHref, linkHref, safeHref } from "./replyHref";
 import type { ShellRun } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
@@ -107,6 +108,15 @@ export type AcpmuxRow = {
   offers?: AcpmuxSessionOffer[];
   /// A prompt acpmux sent this chat with a suggested task's result (offer/SuggestedTasks.tsx).
   received?: AcpmuxOfferResult;
+  /// A prompt that is not the person's: another agent's message, or harness bookkeeping
+  /// (conversation/incomingMessage.ts).
+  incoming?: Extract<IncomingPrompt, { kind: "message" | "notice" | "hidden" }>;
+  /// The prompt as the agent got it, when the row shows something else (an incoming message's
+  /// body): what Retry sends again.
+  resend?: string;
+  /// A prompt the person did not type (a task's result, another agent's message, bookkeeping),
+  /// whether or not it draws as one: prompt recall leaves it out (composer/promptHistory.ts).
+  untyped?: boolean;
   /// A started sessions row's chats, oldest first (started/StartedSessionCard.tsx).
   started?: StartedSession[];
   toolCount?: number;
@@ -131,9 +141,11 @@ export type AcpmuxRow = {
   /// A turn summary whose turn draws a "Worked for" line (conversation/turns.ts), so its
   /// footer need not repeat the time and count.
   folded?: boolean;
-  /// Work shown inside an open "Worked for": its turn has ended, so each run of tool calls
-  /// folds under one summary line (conversation/toolRunSummary.ts).
+  /// Work shown inside an open "Worked for": its turn has ended.
   settled?: boolean;
+  /// A running turn's run of tool calls that text followed, folded under one summary line (Debug
+  /// toggle, conversation/turns.ts `codexRuns`, conversation/toolRunSummary.ts).
+  foldRun?: boolean;
   /// A running turn's run of tool calls still in flight, drawn as its newest call alone (Debug toggle,
   /// conversation/turns.ts `codexRuns`).
   inFlight?: boolean;
@@ -527,8 +539,8 @@ function fallbackRowHeight(row: AcpmuxRow, width: number): number {
       const files = new Set(edits.flatMap((item) => item.tool?.diffs?.map((diff) => diff.path) ?? [])).size;
       return 14 + editedCardHeight(files, plainEditLabels(edits).length);
     }
-    // In an open "Worked for", a run of two or more calls draws one summary line until opened.
-    if (row.settled && row.items && isFoldedRun(row.items)) return 36;
+    // A folded run (Debug toggle) draws one summary line until opened.
+    if (row.foldRun && row.items && isFoldedRun(row.items)) return 36;
     return Math.max(34, 10 + 26 * (row.items?.length ?? 1));
   }
   // A subagent group's 48px line with 8px above it, and in an open group a 48px line per
@@ -700,6 +712,22 @@ function lexIncrementally(entry: PreparedRow, text: string): void {
 function measuredRowHeight(row: AcpmuxRow, width: number, cache: Map<string, PreparedRow>): number {
   // A task's result is one 26px line, however long the prompt that brought it (offer/SuggestedTasks.tsx).
   if (row.received) return 26 + 16;
+  // Another agent's message: its route line over two lines of the message; a notice is a tool
+  // row's line (conversation/IncomingMessageCard.tsx).
+  // Its images' 120px row with 6px below (UserBubble.tsx SENT_IMAGE_HEIGHT), and a steer's status line, as under a bubble.
+  if (row.incoming?.kind === "message")
+    return (
+      32 +
+      2 * 19 +
+      7 +
+      8 +
+      (row.incoming.message.text.length > 140 ? 12 : 0) +
+      (row.images?.length ? 126 : 0) +
+      (row.steer ? USER_STATUS_HEIGHT : 0)
+    );
+  if (row.incoming?.kind === "notice") return 26 + 8;
+  // Bookkeeping alone: a turn's start that draws nothing (conversation/turns.ts).
+  if (row.incoming?.kind === "hidden") return 0;
   // A preview row's text is its address, not prose: the card's height is fixed.
   if (!row.text || row.kind === PREVIEW) return fallbackRowHeight(row, width);
   let entry = cache.get(row.id);
