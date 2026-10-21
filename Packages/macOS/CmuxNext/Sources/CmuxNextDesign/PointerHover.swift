@@ -26,6 +26,9 @@ public final class PointerHover: NSObject {
     public var isHoverable: () -> Bool = { true }
     /// The hover region in the view's coordinates (default: its bounds).
     public var region: ((NSView) -> CGRect)?
+    /// Windows above the view's window that pass hover through (click-catching panels over
+    /// page windows): the topmost check treats them as the view's window.
+    public var passThroughWindows: () -> Set<Int> = { [] }
     public let requiresKeyWindow: Bool
 
     private weak var view: NSView?
@@ -105,7 +108,7 @@ public final class PointerHover: NSObject {
         let local = view.convert(pointer, from: nil)
         let rect = (region?(view) ?? view.bounds).intersection(view.visibleRect)
         guard !rect.isNull, rect.contains(local) else { return false }
-        return Self.isTopmost(window)
+        return Self.isTopmost(window, passThrough: passThroughWindows())
     }
 
     // MARK: The pointer
