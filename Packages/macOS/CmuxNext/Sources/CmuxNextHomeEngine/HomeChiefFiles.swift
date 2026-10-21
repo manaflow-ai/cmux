@@ -9,6 +9,8 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     var harness: String?
     var model: String?
     var effort: String?
+    /// engine.json's `speed` (`fast`), nil: the harness's own.
+    var speed: String?
     var avatar: String?
     /// This Chief's acpmux has a CodeRouter Claude route (`claude-cr`).
     var routeConfigured = false
@@ -17,6 +19,8 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
     /// The brain's `offered` lists (empty until the brain answers).
     var models: [ChiefEngineReport.Model] = []
     var efforts: [String] = []
+    /// The speeds the turns' harness runs (`default`, and `fast` on codex).
+    var speeds: [String] = []
     /// What the turns run on (engine.json over the brain's defaults), which
     /// names each picker's "Default"; nil until the brain answers.
     var effective: ChiefEngineReport.Engine?
@@ -28,6 +32,7 @@ public nonisolated struct HomeChiefSnapshot: Sendable {
         var snapshot = self
         snapshot.models = report.offered.models
         snapshot.efforts = report.offered.efforts
+        snapshot.speeds = report.offered.speeds
         snapshot.effective = report.engine
         return snapshot
     }
@@ -60,10 +65,12 @@ public nonisolated struct HomeChiefFiles: Sendable {
     func snapshot() -> HomeChiefSnapshot {
         let choice = object(engineFile)
         let avatar = (object(profileFile)["avatar"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-        return HomeChiefSnapshot(harness: choice["harness"] as? String, model: choice["model"] as? String,
-                                 effort: choice["effort"] as? String, avatar: avatar,
-                                 routeConfigured: coderouterRouteConfigured(environment: ProcessInfo.processInfo.environment),
-                                 turns: recentTurns(limit: 5))
+        var snapshot = HomeChiefSnapshot(harness: choice["harness"] as? String, model: choice["model"] as? String,
+                                         effort: choice["effort"] as? String, avatar: avatar,
+                                         routeConfigured: coderouterRouteConfigured(environment: ProcessInfo.processInfo.environment),
+                                         turns: recentTurns(limit: 5))
+        snapshot.speed = choice["speed"] as? String
+        return snapshot
     }
 
     /// Whether this Chief's acpmux has a CodeRouter Claude route configured:

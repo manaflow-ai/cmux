@@ -106,6 +106,7 @@ final class HomeHostView: NSView {
             }
             _ = services?.registry.perform(ChiefInspectorHandlers.actionID, invocation: invocation)
         }
+        settingsView.recents = services.chiefModelRecents
         // All Chief Settings…: Settings > Chief, the page with every Chief setting.
         settingsView.onAllSettings = { [weak self, weak services] in
             self?.settings.close()

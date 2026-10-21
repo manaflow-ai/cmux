@@ -10,7 +10,8 @@
 //   bottom stack's order, #20521), never under either; under "Queued", and a long one opens whole
 //   (acpmux lists only a 200-character preview; the pane keeps the text its `queued` record had).
 // - A prompt sent now to an agent that cannot steer reads "Steering" in the queue, apart from the
-//   queued ones, and "Sent now · stopped the turn" under its bubble once it runs.
+//   queued ones, and once it runs its bubble carries no mark: acpmux stopped the turn for it, but
+//   the turn goes on with it, so nothing reads as stopped (only Stop or Esc does) or "Steered".
 // - A steer shows as any sent prompt while the reply it went into still streams (a "Steering"
 //   label there made the first Cmd-Return look like it had not sent, Austin 2026-10-20), and
 //   reads "Steered" once the agent's next message starts; a second steer in the same step does
@@ -368,7 +369,7 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("a prompt sent now to an agent that cannot steer reads Steering, then Sent now under its bubble", async () => {
+    test("a prompt sent now to an agent that cannot steer reads Steering, then no mark under its bubble", async () => {
       const page = await openChat(false);
       send(["mux", "queued", { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" }]);
       send(["mux", "queue_order", { promptId: "q-now", order: ["q-now", "q-1", "q-2"], next: true }]);
@@ -383,9 +384,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "stop and fix the space thing first", promptId: "q-now", turnId: "turn-4" },
       ]);
-      await bubbleMark(page, "fix the space thing first")
-        .getByText("Sent now · stopped the turn")
-        .waitFor({ timeout: 10_000 });
+      await page.locator(".cv-user", { hasText: "fix the space thing first" }).waitFor({ timeout: 10_000 });
+      expect(await bubbleMark(page, "fix the space thing first").count()).toBe(0);
       await page.close();
     });
 
@@ -408,7 +408,8 @@ await requireBrowserLane("agent-pane-queue-steer.test.ts", async () => {
         "user_message",
         { text: "also man what happened with the space thing", promptId: "q-2", turnId: "turn-3" },
       ]);
-      await bubbleMark(page, "space thing").getByText("Sent now · stopped the turn").waitFor({ timeout: 10_000 });
+      await page.locator(".cv-user", { hasText: "space thing" }).waitFor({ timeout: 10_000 });
+      expect(await bubbleMark(page, "space thing").count()).toBe(0);
       await row.waitFor({ state: "detached", timeout: 10_000 });
       await page.close();
     });

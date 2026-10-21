@@ -1263,6 +1263,10 @@ jobs:
             python3 tests/test_cmux_next_prepush_gate.py
             # A base merge pushed while the PR's CI runs gets a warning (scripts/ci/base_merge_warning.py).
             python3 tests/test_base_merge_warning.py
+            # The fast tier's reuse key follows exactly what its entries read (CI_NEXT_JOB_REUSE).
+            python3 tests/test_job_input_fingerprint.py
+            # A hand merge of a Swift PR waits for its Release compile (scripts/ci/merge_compile_guard.py).
+            python3 tests/test_merge_compile_guard.py
             python3 tests/test_app_symbol_map.py
             bash scripts/cmux-next/tests/pin-cmux-tui.test.sh
             bash scripts/cmux-next/tests/bundle-acpmux-alias.test.sh
@@ -2024,10 +2028,44 @@ jobs:
       - name: Select Xcode
         run: ./scripts/select-ci-xcode.sh
 
+      # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
+      # steps below skip and the summary names the run that passed. The inputs
+      # (scripts/ci/job_input_fingerprint.py) are what the entries read, this job's
+      # definition and the toolchain; a source it cannot follow gives no key. Not on a
+      # fork pull request, which could record a pass of its own under any key.
+      - name: Fingerprint this job's inputs
+        id: reuse-key
+        if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        run: |
+          python3 -I scripts/ci/job_input_fingerprint.py fast-tier \
+            --extra "xcode=$(xcodebuild -version | tr '\n' ' ')" \
+            --extra "macos=$(sw_vers -productVersion | cut -d. -f1)" \
+            --extra "arch=$(uname -m)" >> "$GITHUB_OUTPUT"
+
+      - name: Look for a pass on the same inputs
+        id: reuse
+        if: ${{ steps.reuse-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-job-pass
+          key: ${{ steps.reuse-key.outputs.key }}
+
+      - name: Reuse that pass
+        if: ${{ steps.reuse.outputs.cache-hit == 'true' }}
+        env:
+          KEY: ${{ steps.reuse-key.outputs.key }}
+        run: |
+          run_url="$(sed -n 1p .ci-job-pass/pass.txt)"
+          sha="$(sed -n 2p .ci-job-pass/pass.txt)"
+          echo "::notice title=cmux-next fast tier reused::$run_url passed on the same inputs (${sha:0:12})"
+          echo "Reused $run_url: it passed on \`${sha:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
+
       # Checkout removes .build. Link the owned Mac's kept build after Xcode
       # selection so its fingerprint uses the compiler that runs this job.
       - name: Keep Swift package builds on this owned Mac
-        if: ${{ contains(runner.name, '-glaeda') }}
+        if: ${{ (contains(runner.name, '-glaeda')) && steps.reuse.outputs.cache-hit != 'true' }}
         continue-on-error: true
         run: python3 scripts/ci/owned_spm_scratch.py link "$GITHUB_WORKSPACE"
 
@@ -2039,12 +2077,12 @@ jobs:
       # one seed and match the input-time manifest in the swift directory.
       - name: Compute fast-tier cache keys
         id: fast-cache-key
-        if: ${{ !contains(runner.name, '-glaeda') }}
+        if: ${{ (!contains(runner.name, '-glaeda')) && steps.reuse.outputs.cache-hit != 'true' }}
         run: scripts/cmux-next/fast-tier-cache-key.sh >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxNext build
         id: fast-cache-restore
-        if: ${{ !contains(runner.name, '-glaeda') }}
+        if: ${{ (!contains(runner.name, '-glaeda')) && steps.reuse.outputs.cache-hit != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -2057,14 +2095,14 @@ jobs:
 
       - name: Name the restored seed
         id: fast-cache-seed
-        if: ${{ steps.fast-cache-restore.outputs.cache-matched-key != '' }}
+        if: ${{ (steps.fast-cache-restore.outputs.cache-matched-key != '') && steps.reuse.outputs.cache-hit != 'true' }}
         env:
           MATCHED: ${{ steps.fast-cache-restore.outputs.cache-matched-key }}
           PREFIX: ${{ steps.fast-cache-key.outputs.swift-prefix }}
         run: echo "commit=${MATCHED#"$PREFIX"}" >> "$GITHUB_OUTPUT"
 
       - name: Restore the CmuxHomeRender build of that seed
-        if: ${{ steps.fast-cache-seed.outputs.commit != '' }}
+        if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.cache-hit != 'true' }}
         continue-on-error: true
         uses: ./.github/actions/cache-restore
         env:
@@ -2078,11 +2116,12 @@ jobs:
       # reads as "changed". Give each file whose content matches the
       # seed's the time the seed built it from, so only what changed rebuilds.
       - name: Replay the seed's input times
-        if: ${{ steps.fast-cache-seed.outputs.commit != '' }}
+        if: ${{ (steps.fast-cache-seed.outputs.commit != '') && steps.reuse.outputs.cache-hit != 'true' }}
         continue-on-error: true
         run: python3 -I scripts/ci/e2e_warm_derived_data.py replay "$GITHUB_WORKSPACE" Packages/macOS/CmuxNext/.build/cmux-fast-tier-input-mtimes.json
 
       - name: Run the fast tier
+        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         env:
           CMUX_FAST_SWIFT_CACHE_KEY: ${{ steps.fast-cache-key.outputs.swift-key }}
           CMUX_FAST_SWIFT_CACHE_HIT: ${{ steps.fast-cache-restore.outputs.cache-hit }}
@@ -2090,13 +2129,29 @@ jobs:
         run: python3 -I scripts/cmux-next/fast-tier.py --kind swift --kind script --receipt "$RUNNER_TEMP/cmux-next-fast-tier.json"
 
       - name: Upload fast-tier timing receipt
-        if: always()
+        if: ${{ (always()) && steps.reuse.outputs.cache-hit != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-fast-tier-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier.json
           if-no-files-found: warn
           retention-days: 14
+
+      # A pass records itself for the next run on the same inputs (a pull request's
+      # entries are readable only by that pull request).
+      - name: Record this pass for the same inputs
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.cache-hit != 'true' }}
+        run: |
+          mkdir -p .ci-job-pass
+          printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > .ci-job-pass/pass.txt
+
+      - name: Save the pass
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-job-pass
+          key: ${{ steps.reuse-key.outputs.key }}
 
   # The fast tier's cargo entries (fast-tier.py --kind cargo): cmux-tui-core and the
   # layout reducer, built and run on a Linux runner beside the Mac job, so the
@@ -2125,23 +2180,61 @@ jobs:
           persist-credentials: false
           submodules: false
 
+      # With vars.CI_NEXT_JOB_REUSE, a pass on the same inputs stands for this run: the
+      # steps below skip and the summary names the run that passed. The inputs
+      # (scripts/ci/job_input_fingerprint.py) are what the entries read, this job's
+      # definition and the toolchain; a source it cannot follow gives no key. Not on a
+      # fork pull request, which could record a pass of its own under any key.
+      - name: Fingerprint this job's inputs
+        id: reuse-key
+        if: ${{ vars.CI_NEXT_JOB_REUSE == '1' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        continue-on-error: true
+        run: |
+          python3 -I scripts/ci/job_input_fingerprint.py fast-tier-cargo \
+            --extra "runner=${{ runner.os }}-${{ runner.arch }}" >> "$GITHUB_OUTPUT"
+
+      - name: Look for a pass on the same inputs
+        id: reuse
+        if: ${{ steps.reuse-key.outputs.key != '' }}
+        continue-on-error: true
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-job-pass
+          key: ${{ steps.reuse-key.outputs.key }}
+
+      - name: Reuse that pass
+        if: ${{ steps.reuse.outputs.cache-hit == 'true' }}
+        env:
+          KEY: ${{ steps.reuse-key.outputs.key }}
+        run: |
+          run_url="$(sed -n 1p .ci-job-pass/pass.txt)"
+          sha="$(sed -n 2p .ci-job-pass/pass.txt)"
+          echo "::notice title=cmux-next fast tier (cargo) reused::$run_url passed on the same inputs (${sha:0:12})"
+          echo "Reused $run_url: it passed on \`${sha:0:12}\` with the same inputs (\`$KEY\`)." >> "$GITHUB_STEP_SUMMARY"
+
       - name: Init the ghostty-next submodule (libghostty-vt for cmux-tui-core)
+        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         run: bash scripts/ci/init-submodule.sh ghostty-next
 
       - name: Install Linux build dependencies
+        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         run: |
           sudo apt-get update
           sudo apt-get install -y clang libclang-dev pkg-config
 
       - name: Install zig
+        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         run: ./scripts/install-zig-ci.sh
 
       - name: Set up pinned cmux-tui Rust
+        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         uses: ./.github/actions/setup-cmux-tui-rust
 
       # As cmux-tui.yml: cargo's registry and dependency builds under cmux-tui/target.
-      # Only a feat-cmux-next push saves; a pull request reads the base branch's cache.
+      # Only a feat-cmux-next push saves this build cache; a pull request reads the base
+      # branch's. (The pass record at the end of the job is separate and tiny.)
       - name: Cache cargo build
+        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         id: cargo-cache
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
@@ -2150,18 +2243,35 @@ jobs:
           save-if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
 
       - name: Run the fast tier (cargo entries)
+        if: ${{ steps.reuse.outputs.cache-hit != 'true' }}
         env:
           CMUX_FAST_CARGO_CACHE_HIT: ${{ steps.cargo-cache.outputs.cache-hit }}
         run: python3 -I scripts/cmux-next/fast-tier.py --kind cargo --receipt "$RUNNER_TEMP/cmux-next-fast-tier-cargo.json"
 
       - name: Upload fast-tier timing receipt
-        if: always()
+        if: ${{ (always()) && steps.reuse.outputs.cache-hit != 'true' }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: cmux-next-fast-tier-cargo-receipt-${{ github.run_id }}-attempt-${{ github.run_attempt }}
           path: ${{ runner.temp }}/cmux-next-fast-tier-cargo.json
           if-no-files-found: warn
           retention-days: 14
+
+      # A pass records itself for the next run on the same inputs (a pull request's
+      # entries are readable only by that pull request).
+      - name: Record this pass for the same inputs
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.cache-hit != 'true' }}
+        run: |
+          mkdir -p .ci-job-pass
+          printf '%s\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" "$GITHUB_SHA" > .ci-job-pass/pass.txt
+
+      - name: Save the pass
+        if: ${{ success() && steps.reuse-key.outputs.key != '' && steps.reuse.outputs.cache-hit != 'true' }}
+        continue-on-error: true
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
+        with:
+          path: .ci-job-pass
+          key: ${{ steps.reuse-key.outputs.key }}
 
   # The CmuxNext test targets the change reaches: path_route's swift_filter
   # (an empty filter runs every target, as on a full-ci PR, a push or a dispatch). No
