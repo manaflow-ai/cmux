@@ -5,7 +5,7 @@ import Testing
 /// The pickers fold a repository's worktrees under one row (`project.list` `repos`): the host reads
 /// each folder's repository from Git's own small files, never by running `git`, and never reads a
 /// Git folder inside a macOS privacy-protected folder (LAUNCH-NO-TCC-PROMPTS). A project with no
-/// icon file draws its manifest's language mark or its GitHub owner's avatar (`project.icon`).
+/// icon file draws its manifest's framework or language mark, else its GitHub owner's avatar (`project.icon`).
 @Suite(.serialized)
 struct AgentPaneProjectRepoTests {
     nonisolated private static let png = Data([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D])
@@ -214,6 +214,51 @@ struct AgentPaneProjectRepoTests {
         }
         #expect(reader.glyph(in: fixture.home + "/code/none") == nil)
         #expect(reader.glyph(in: fixture.home + "/Documents/x") == nil)
+    }
+
+    /// A package.json names the kind of app by its dependencies, the most specific framework first,
+    /// and an app with no package manifest by its other files.
+    @Test func theDependenciesNameTheFramework() throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try fixture.write(#"{"dependencies":{"next":"15","react":"19"}}"#, "code/next/package.json")
+        try fixture.write(#"{"dependencies":{"react":"19"},"devDependencies":{"vite":"7"}}"#, "code/react-vite/package.json")
+        try fixture.write(#"{"devDependencies":{"vite":"7","typescript":"5"}}"#, "code/vite/package.json")
+        try fixture.write(#"{"dependencies":{"vue":"3"},"devDependencies":{"vite":"7"}}"#, "code/vue/package.json")
+        try fixture.write(#"{"devDependencies":{"@sveltejs/kit":"2"}}"#, "code/svelte/package.json")
+        try fixture.write(#"{"dependencies":{"expo":"54","react-native":"0.81","react":"19"}}"#, "code/expo/package.json")
+        try fixture.write(#"{"name":"x","description":"\"react\" in prose is no dependency"}"#, "code/prose/package.json")
+        try fixture.write(#"{"name":"x"}"#, "code/tauri/package.json")
+        try fixture.write("[package]\n", "code/tauri/src-tauri/Cargo.toml")
+        try fixture.write(#"{"name":"x"}"#, "code/bun/package.json")
+        try fixture.write("", "code/bun/bun.lock")
+        try fixture.write("not json", "code/broken/package.json")
+        try fixture.folder("code/mac/Mac.xcodeproj")
+        try fixture.write("dependencies:\n  flutter:\n    sdk: flutter\n", "code/flutter/pubspec.yaml")
+        try fixture.write("const std = @import(\"std\");\n", "code/zig/build.zig")
+        let reader = fixture.icons
+        for (folder, glyph) in [("next", "next"), ("react-vite", "react"), ("vite", "vite"), ("vue", "vue"),
+                                ("svelte", "svelte"), ("expo", "expo"), ("prose", "node"), ("tauri", "tauri"),
+                                ("bun", "bun"), ("broken", "node"), ("mac", "swift"), ("flutter", "flutter"),
+                                ("zig", "zig")] {
+            #expect(reader.glyph(in: fixture.home + "/code/" + folder) == glyph, "\(folder)")
+        }
+    }
+
+    /// A project with no icon file but a known framework shows the framework, not the owner's avatar
+    /// every repository of that owner shares; the avatar is never fetched.
+    @Test func aGlyphWinsOverTheOwnersAvatar() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        try checkout(fixture)
+        try fixture.write("// swift-tools-version: 6.2\n", "code/cmux/Package.swift")
+        let fetched = Touches()
+        let avatars = AgentPaneOwnerAvatars(folder: nil, fetch: { url in fetched.add(url.absoluteString); return Self.png })
+        let icons = AgentPaneProjectIcons(reader: fixture.icons, repos: fixture.repos, avatars: avatars)
+        let answer = await icons.answer(for: fixture.home + "/wt/cmux/picker")
+        #expect(answer.src == nil)
+        #expect(answer.glyph == "swift")
+        #expect(fetched.all.isEmpty)
     }
 
     @Test func aWorktreeWithNoIconUsesItsMainCheckoutsAndItsGlyph() async throws {

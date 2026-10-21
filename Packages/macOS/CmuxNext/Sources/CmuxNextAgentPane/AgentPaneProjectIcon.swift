@@ -118,24 +118,77 @@ nonisolated struct AgentPaneProjectIcon: Sendable {
         return nil
     }
 
-    /// A language or framework mark from the project's manifest, for a project with no icon file:
-    /// `swift`, `rust`, `react`, `typescript`, `node`, `python`, `go` or `ruby`; nil for none.
+    /// The web, desktop and mobile frameworks a package.json can name, most specific first: a
+    /// meta-framework over its UI library (Next.js is React, Nuxt is Vue), a UI library over its
+    /// bundler (a React app built with Vite shows React), so the mark says what kind of app it is.
+    static let packageFrameworks: [(glyph: String, packages: [String])] = [
+        ("next", ["next"]),
+        ("nuxt", ["nuxt", "nuxt3"]),
+        ("remix", ["@remix-run/react", "@remix-run/node", "@react-router/dev"]),
+        ("astro", ["astro"]),
+        ("svelte", ["@sveltejs/kit", "svelte"]),
+        ("angular", ["@angular/core"]),
+        ("expo", ["expo", "react-native"]),
+        ("electron", ["electron"]),
+        ("tauri", ["@tauri-apps/api", "@tauri-apps/cli"]),
+        ("vue", ["vue"]),
+        ("react", ["react"]),
+        ("vite", ["vite"]),
+    ]
+
+    /// The package names a package.json depends on, in any of its dependency lists; empty for a
+    /// manifest that is not JSON.
+    static func dependencies(of manifest: Data) -> Set<String> {
+        guard let object = try? JSONSerialization.jsonObject(with: manifest) as? [String: Any] else { return [] }
+        var names = Set<String>()
+        for key in ["dependencies", "devDependencies", "peerDependencies", "optionalDependencies"] {
+            if let list = object[key] as? [String: Any] { names.formUnion(list.keys) }
+        }
+        return names
+    }
+
+    /// A framework or language mark from the project's manifest, for a project with no icon file:
+    /// one of `PROJECT_GLYPHS` (webviews projectIcon.ts); nil for none.
     func glyph(in folder: String) -> String? {
         guard folder.hasPrefix("/"), allows(folder) else { return nil }
         let base = folder.hasSuffix("/") ? String(folder.dropLast()) : folder
         let has = { (name: String) -> Bool in regularFile(base + "/" + name) != nil }
-        if has("Package.swift") { return "swift" }
-        if has("Cargo.toml") { return "rust" }
+        let text = { (name: String) -> String in
+            regularFile(base + "/" + name).flatMap(read).map { String(decoding: $0, as: UTF8.self) } ?? ""
+        }
+        if has("Package.swift") || hasXcodeProject(base) { return "swift" }
         if let package = regularFile(base + "/package.json") {
-            let manifest = read(package).map { String(decoding: $0, as: UTF8.self) } ?? ""
-            if manifest.contains("\"react\"") { return "react" }
-            if has("tsconfig.json") || manifest.contains("\"typescript\"") { return "typescript" }
+            let names = read(package).map(Self.dependencies(of:)) ?? []
+            if let framework = Self.packageFrameworks.first(where: { !names.isDisjoint(with: $0.packages) }) {
+                return framework.glyph
+            }
+            if has("src-tauri/Cargo.toml") { return "tauri" }
+            if has("Cargo.toml") { return "rust" }
+            if has("bun.lock") || has("bun.lockb") { return "bun" }
+            if has("tsconfig.json") || names.contains("typescript") { return "typescript" }
             return "node"
         }
+        if has("Cargo.toml") { return "rust" }
+        if has("deno.json") || has("deno.jsonc") { return "deno" }
+        if has("pubspec.yaml") { return text("pubspec.yaml").contains("flutter:") ? "flutter" : "dart" }
         if has("pyproject.toml") || has("setup.py") || has("requirements.txt") { return "python" }
         if has("go.mod") { return "go" }
         if has("Gemfile") { return "ruby" }
+        if has("build.zig") { return "zig" }
+        if has("mix.exs") { return "elixir" }
+        if has("composer.json") { return "php" }
+        if has("build.gradle.kts") || has("settings.gradle.kts") { return "kotlin" }
+        if has("pom.xml") || has("build.gradle") { return "java" }
+        if has("CMakeLists.txt") { return "cpp" }
         return nil
+    }
+
+    /// True when the folder holds an Xcode project or workspace (an app with no Package.swift).
+    private func hasXcodeProject(_ base: String) -> Bool {
+        guard let entries = list(base) else { return false }
+        return entries.contains { name in
+            (name.hasSuffix(".xcodeproj") || name.hasSuffix(".xcworkspace")) && allows(base + "/" + name)
+        }
     }
 
     private static func realPath(_ path: String) -> String? {
@@ -185,16 +238,18 @@ actor AgentPaneProjectIcons {
     }
 
     /// The `project.icon` answer: an icon file in the folder, else in its repository's main checkout
-    /// (a worktree whose icon is not checked in yet, or a folder inside the repository), else the
-    /// GitHub owner's avatar; and the manifest's language mark, which the page draws only without an
-    /// icon. Both nil keep the page's letters.
+    /// (a worktree whose icon is not checked in yet, or a folder inside the repository); and the
+    /// manifest's framework or language mark, which the page draws only without an icon. With
+    /// neither, the GitHub owner's avatar: the mark says more about the project than an avatar every
+    /// repository of the owner shares. All nil leave the page's folder.
     func answer(for folder: String) async -> (src: String?, glyph: String?) {
         let repo = reader.allows(folder) ? repos.repo(for: folder) : nil
         let root = repo.map(\.root).flatMap { $0 == folder ? nil : $0 }
         let glyph = reader.glyph(in: folder) ?? root.flatMap(reader.glyph(in:))
         if let src = icon(for: folder) ?? root.flatMap({ icon(for: $0) }) { return (src, glyph) }
-        guard let owner = repo?.github?.split(separator: "/").first.map(String.init) else { return (nil, glyph) }
-        return (await avatars.avatar(for: owner), glyph)
+        if glyph != nil { return (nil, glyph) }
+        guard let owner = repo?.github?.split(separator: "/").first.map(String.init) else { return (nil, nil) }
+        return (await avatars.avatar(for: owner), nil)
     }
 
     /// The first candidate that is an image; a cached answer stands until its file changes.
