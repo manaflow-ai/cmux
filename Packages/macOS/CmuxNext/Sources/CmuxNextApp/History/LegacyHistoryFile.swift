@@ -5,7 +5,7 @@ import Foundation
 ///
 /// SAFETY: the directory descriptor and captured identities are immutable;
 /// the descriptor closes only after the last reference is released.
-final class LegacyHistoryFile: @unchecked Sendable, Equatable {
+final class LegacyHistoryFile: Sendable, Equatable {
     let url: URL
     private let parentURL: URL
     private let parentDescriptor: Int32
