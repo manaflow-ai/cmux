@@ -25,9 +25,7 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       await (await engine[1].launch({ headless: true })).close();
       engines.push(engine);
     } catch {
-      console.warn(
-        `agent-pane-select-drag: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`,
-      );
+      console.warn(`agent-pane-select-drag: skipping ${engine[0]} (run \`bunx playwright install ${engine[0]}\`)`);
     }
   }
   if (engines.length === 0) {
@@ -97,17 +95,13 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
       port: 0,
       hostname: "127.0.0.1",
       fetch(request, server) {
-        return server.upgrade(request, { data: undefined })
-          ? undefined
-          : new Response("acpmux", { status: 426 });
+        return server.upgrade(request, { data: undefined }) ? undefined : new Response("acpmux", { status: 426 });
       },
       websocket: {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string };
           if (message.id !== undefined)
-            ws.send(
-              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }),
-            );
+            ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method) }));
         },
       },
     });
@@ -118,8 +112,7 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
     });
     await vite.listen();
     await warmViteServer(vite, "/");
-    for (const [name, engine] of engines)
-      browsers.set(name, await engine.launch({ headless: true }));
+    for (const [name, engine] of engines) browsers.set(name, await engine.launch({ headless: true }));
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
@@ -167,55 +160,46 @@ await requireBrowserLane("agent-pane-select-drag.test.ts", async () => {
   // The app shows the pane at a page zoom (`app.uiScale` times the chat's own zoom); the root's
   // CSS zoom is how a page here gets the same effective zoom.
   const cases = engines.flatMap(([name]) => [1, 1.25, 1.5].map((zoom) => [name, zoom] as const));
-  test.each(cases)(
-    "%s at zoom %p: a drag along a line of a reply selects words on that line",
-    async (name, zoom) => {
-      const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 640 } });
-      await installPaintedFrames(page);
-      const { port } = vite!.httpServer!.address() as { port: number };
-      const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
-      await page.goto(
-        `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
-      );
-      await page.getByText(REPLY.slice(0, 20), { exact: false }).waitFor();
-      await page.evaluate((zoom) => {
-        document.documentElement.style.zoom = String(zoom);
-      }, zoom);
-      for (let frame = 0; frame < 3; frame++) await page.evaluate(() => window.cmuxPaintFrame());
-      const lines = await replyLines(page);
-      expect(lines.length).toBeGreaterThanOrEqual(3);
-      const results: { line: number; selected: string; expected: string }[] = [];
-      for (let index = 1; index < lines.length; index++) {
-        const line = lines[index]!;
-        const from = line[0]!;
-        const to = line[Math.min(3, line.length - 1)]!;
-        await page.evaluate(() => window.getSelection()?.removeAllRanges());
-        await page.mouse.move(from.x, from.y);
-        await page.mouse.down();
-        await page.mouse.move((from.x + to.x) / 2, to.y, { steps: 4 });
-        await page.mouse.move(to.x, to.y, { steps: 4 });
-        await page.mouse.up();
-        const selected = (
-          await page.evaluate(() => window.getSelection()?.toString() ?? "")
-        ).trim();
-        const words = line.map((word) => word.word);
-        // The selection runs from inside the first word to inside the fourth: it holds the words
-        // between them in full, and nothing from another line.
-        const expected = words.slice(1, Math.min(3, words.length - 1)).join(" ");
-        const onLine = words.join(" ");
-        results.push({
-          line: index,
-          selected,
-          expected:
-            onLine.includes(selected) && selected.includes(expected)
-              ? selected
-              : `${expected} (within: ${onLine})`,
-        });
-      }
-      expect(results.map(({ line, selected }) => ({ line, selected }))).toEqual(
-        results.map(({ line, expected }) => ({ line, selected: expected })),
-      );
-      await page.close();
-    },
-  );
+  test.each(cases)("%s at zoom %p: a drag along a line of a reply selects words on that line", async (name, zoom) => {
+    const page = await browsers.get(name)!.newPage({ viewport: { width: 900, height: 1000 } });
+    await installPaintedFrames(page);
+    const { port } = vite!.httpServer!.address() as { port: number };
+    const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
+    await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
+    await page.getByText(REPLY.slice(0, 20), { exact: false }).waitFor();
+    await page.evaluate((zoom) => {
+      document.documentElement.style.zoom = String(zoom);
+    }, zoom);
+    for (let frame = 0; frame < 3; frame++) await page.evaluate(() => window.cmuxPaintFrame());
+    const lines = await replyLines(page);
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    const results: { line: number; selected: string; expected: string }[] = [];
+    for (let index = 1; index < lines.length; index++) {
+      const line = lines[index]!;
+      const from = line[0]!;
+      const to = line[Math.min(3, line.length - 1)]!;
+      await page.evaluate(() => window.getSelection()?.removeAllRanges());
+      await page.mouse.move(from.x, from.y);
+      await page.mouse.down();
+      await page.mouse.move((from.x + to.x) / 2, to.y, { steps: 4 });
+      await page.mouse.move(to.x, to.y, { steps: 4 });
+      await page.mouse.up();
+      const selected = (await page.evaluate(() => window.getSelection()?.toString() ?? "")).trim();
+      const words = line.map((word) => word.word);
+      // The selection runs from inside the first word to inside the fourth: it holds the words
+      // between them in full, and nothing from another line.
+      const expected = words.slice(1, Math.min(3, words.length - 1)).join(" ");
+      const onLine = words.join(" ");
+      results.push({
+        line: index,
+        selected,
+        expected:
+          onLine.includes(selected) && selected.includes(expected) ? selected : `${expected} (within: ${onLine})`,
+      });
+    }
+    expect(results.map(({ line, selected }) => ({ line, selected }))).toEqual(
+      results.map(({ line, expected }) => ({ line, selected: expected })),
+    );
+    await page.close();
+  });
 });
