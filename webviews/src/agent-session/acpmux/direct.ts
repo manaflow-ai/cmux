@@ -152,10 +152,13 @@ const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
-/// Claude Code reports each model call's usage as it lands (acpmux claude_stdio/inbound.rs:
-/// the call's input, cache and output tokens), so a turn's calls add up to its tokens. Other
-/// harnesses report the context they hold, which does not add up.
-const usagePerCall = (summary: any) => summary?.harness === "claude" || summary?.family === "claude";
+/// A `usage_update` acpmux marked as one model call's own (claude_stdio/inbound.rs, Claude Code's
+/// streamed message_delta): its input, cache reads and writes, and output, which is how Claude
+/// desktop reads a turn's tokens. A turn's marked calls add up to its tokens, subagents' calls
+/// included. Every other usage record is the context a harness holds (Claude Code's result
+/// repeats its last call's for the context ring; other harnesses, whatever their family, report
+/// only that), which does not add up.
+const isCallUsage = (update: any) => update?._meta?.acpmux?.call === true;
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
 const SESSION_INFO_KIND = "session_info_update";
@@ -1978,7 +1981,8 @@ export class AcpmuxDirectClient {
       const used = Number(update.used);
       const size = Number(update.size);
       // Counted before the window: Claude Code reports a size of 0 until its first result.
-      if (this.turnTokens !== undefined && Number.isFinite(used) && used > 0) this.turnTokens += used;
+      if (this.turnTokens !== undefined && isCallUsage(update) && Number.isFinite(used) && used > 0)
+        this.turnTokens += used;
       if (Number.isFinite(used) && Number.isFinite(size) && size > 0) this.usage = { used, size };
       return;
     }
@@ -2493,9 +2497,7 @@ export class AcpmuxDirectClient {
       // A replayed turn is history: no live "Working for" clock.
       isWorking:
         this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
-      ...(this.replayThrough === undefined && this.turnTokens && usagePerCall(summary)
-        ? { turnTokens: this.turnTokens }
-        : {}),
+      ...(this.replayThrough === undefined && this.turnTokens ? { turnTokens: this.turnTokens } : {}),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
@@ -3564,8 +3566,12 @@ export class AcpmuxDirectClient {
       this.foldOlder(older);
     } else {
       // The open page began mid-turn (or this page holds no turn start): fold everything once.
+      // Pages carry no usage, so a running turn whose start this page brings would count only
+      // the calls since the attach: its tokens stay as they were (hidden when its start was missed).
+      const turnTokens = this.turnTokens;
       this.events = mergeEventRecords(older, this.events);
       this.rebuildKeepingLiveState();
+      this.turnTokens = turnTokens;
     }
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
