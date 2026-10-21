@@ -6,6 +6,9 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process =
+    daemon_env::Process::stand_in().with_env(&[("LC_API_TOKEN", "synthetic-locale-shaped-secret")]);
 
 use acpmux::agent_host::link::{self, Connect, HostLauncher, Link};
 use acpmux::agent_host::{
@@ -119,6 +122,52 @@ fn make_fifo(path: &Path) {
     let c = std::ffi::CString::new(path.as_os_str().as_encoded_bytes()).unwrap();
     // SAFETY: valid NUL-terminated path.
     assert_eq!(unsafe { libc::mkfifo(c.as_ptr(), 0o600) }, 0);
+}
+
+fn write_executable(path: &Path, text: &str) {
+    use std::io::Write as _;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("/bin/sh")
+        .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
+        .arg(path)
+        .stdin(Stdio::piped())
+        .spawn()
+        .unwrap();
+    child.stdin.take().unwrap().write_all(text.as_bytes()).unwrap();
+    assert!(child.wait().unwrap().success());
+}
+
+#[tokio::test]
+async fn agent_host_parent_does_not_retain_the_controller_environment() {
+    let dir = scratch("parent-env");
+    let parent = dir.join("parent.txt");
+    let wrapper = dir.join("agent");
+    write_executable(
+        &wrapper,
+        &format!(
+            "#!/bin/sh\nps eww -p \"$PPID\" > \"$PARENT_ENV_PROBE\" || exit 97\nexec python3 {}\n",
+            daemon_env::sh_quote(FAKE)
+        ),
+    );
+    let mut launch = spec(&dir, "s-parent-env");
+    launch.program = wrapper.to_string_lossy().into_owned();
+    launch.args.clear();
+    launch.env.push(("PARENT_ENV_PROBE".into(), parent.to_string_lossy().into_owned()));
+    let record = link::spawn(&launcher(), &launch).await.expect("spawn host");
+    let lock = live_lock(&dir, &record);
+    let (owner, _) = connected(&record, 0).await;
+    let mut logged = 0;
+    request(&owner, 1, "initialize", json!({"protocolVersion": 1})).await;
+    read_until(&owner, &mut logged, |e| is_response(e, 1)).await;
+    let observed = std::fs::read_to_string(&parent).unwrap();
+    assert!(observed.contains("HOME="), "the parent-environment control was empty");
+    for name in ["ACPMUX_TEST_HERMETIC=", "CARGO_MANIFEST_DIR=", "LC_API_TOKEN="] {
+        assert!(!observed.contains(name), "agent host parent retained {name}");
+    }
+    owner.terminate(Duration::from_millis(500)).await.unwrap();
+    read_until(&owner, &mut logged, |e| matches!(e, Entry::Exit { .. })).await;
+    wait_dead(lock).await;
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[tokio::test]
@@ -353,7 +402,10 @@ async fn a_failed_start_leaves_no_live_file() {
     let dir = scratch("nolive");
     let mut spec = spec(&dir, "s-nolive");
     spec.program = "/nonexistent/harness".into();
-    assert!(link::spawn(&launcher(), &spec).await.is_err(), "a missing harness started");
+    const SENTINEL: &str = "argv-secret-must-not-leave-the-daemon";
+    spec.args = vec!["--token".into(), SENTINEL.into()];
+    let error = link::spawn(&launcher(), &spec).await.expect_err("a missing harness started");
+    assert!(!error.to_string().contains(SENTINEL), "spawn failure exposed harness argv: {error:#}");
     let left: Vec<_> = std::fs::read_dir(dir.join("hosts"))
         .expect("the host created its hosts dir")
         .filter_map(|e| e.ok().map(|e| e.file_name()))
@@ -365,5 +417,57 @@ async fn a_failed_start_leaves_no_live_file() {
                 || n.to_string_lossy().ends_with(".sock")),
         "a failed start left {left:?}"
     );
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+#[test]
+fn discovery_rejects_linked_records_and_socket_paths_outside_the_host_namespace() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let dir = scratch("record-paths");
+    let hosts = dir.join("hosts");
+    std::fs::create_dir_all(&hosts).unwrap();
+    std::fs::set_permissions(&hosts, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let outside_socket = dir.join("must-not-be-removed");
+    std::fs::write(&outside_socket, "sentinel").unwrap();
+    let record = |session_id: &str, socket: PathBuf| HostRecord {
+        record_version: acpmux::agent_host::RECORD_VERSION,
+        session_id: session_id.into(),
+        incarnation: "11".repeat(16),
+        host_pid: std::process::id(),
+        start_nonce: "22".repeat(16),
+        harness_pid: None,
+        owner_token: "33".repeat(32),
+        caller_token: None,
+        protocol_min: acpmux::agent_host::PROTOCOL_MIN,
+        protocol_max: acpmux::agent_host::PROTOCOL_MAX,
+        host_build: "test".into(),
+        socket,
+    };
+    let wrong = record("wrong-socket", outside_socket.clone());
+    let wrong_path = hosts.join("wrong-socket.json");
+    std::fs::write(&wrong_path, serde_json::to_vec(&wrong).unwrap()).unwrap();
+    std::fs::set_permissions(&wrong_path, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let linked = record("linked", acpmux::agent_host::socket_path(&hosts, "linked"));
+    let linked_target = dir.join("linked-record.json");
+    std::fs::write(&linked_target, serde_json::to_vec(&linked).unwrap()).unwrap();
+    std::os::unix::fs::symlink(&linked_target, hosts.join("linked.json")).unwrap();
+
+    let promoted = record(
+        "promoted",
+        acpmux::agent_host::socket_path(&acpmux::agent_host::pool_dir(&hosts), "promoted"),
+    );
+    acpmux::agent_host::write_record_atomic(&hosts.join("promoted.json"), &promoted).unwrap();
+
+    let (good, bad) = acpmux::agent_host::load_records(&hosts).unwrap();
+    assert_eq!(
+        good.iter().map(|(_, record)| record.session_id.as_str()).collect::<Vec<_>>(),
+        ["promoted"],
+        "a promoted pool socket is valid, but no other path is: {good:#?}"
+    );
+    assert_eq!(bad.len(), 2, "each refused record is reported: {bad:#?}");
+    assert!(outside_socket.exists(), "discovery removed a path outside the hosts directory");
+    assert_eq!(std::fs::symlink_metadata(&hosts).unwrap().permissions().mode() & 0o777, 0o700);
     let _ = std::fs::remove_dir_all(&dir);
 }

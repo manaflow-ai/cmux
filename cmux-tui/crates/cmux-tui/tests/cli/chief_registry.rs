@@ -7,6 +7,12 @@ use super::super::conversation_tree::{TOKEN, Ws, ws_addr};
 use super::*;
 use serde_json::{Value, json};
 
+#[path = "chief_manage.rs"]
+mod manage;
+
+#[path = "chief_config_edit.rs"]
+mod config_edit;
+
 /// A 1x1 PNG.
 const PNG: &[u8] = &[
     0x89, b'P', b'N', b'G', b'\r', b'\n', 0x1a, b'\n', 0, 0, 0, 13, b'I', b'H', b'D', b'R', 0, 0,
@@ -168,7 +174,9 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
     ));
     assert_eq!(made["replayed"], false);
     let scout = made["value"]["id"].as_str().unwrap().to_owned();
-    assert_eq!(made["value"]["self_edit"], json!(["avatar"]), "the default self_edit");
+    // Every new Chief edits its whole profile and engine (u2586, 2026-10-19).
+    let full = json!(["avatar", "display_name", "engine", "instructions", "personality", "role"]);
+    assert_eq!(made["value"]["self_edit"], full, "the default self_edit");
 
     // A retry under the same key is the same Chief; other params under it are refused.
     let again = ok(&v2(
@@ -202,27 +210,63 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
     ));
     assert_eq!(set["value"]["avatar"]["bytes"], PNG.len());
 
-    // Everything outside self_edit is the person's.
-    for (operation, params) in [
-        ("chief.profile.update", json!({"chief": scout, "display_name": "Boss"})),
-        ("chief.profile.update", json!({"chief": scout, "tools": ["browser", "cloud_vms"]})),
-        ("chief.profile.update", json!({"chief": scout, "self_edit": ["avatar", "instructions"]})),
-        ("chief.profile.update", json!({"chief": scout, "harness": "codex"})),
-        ("chief.profile.update", json!({"chief": "agent_mux", "role": "x"})),
-        ("chief.profile.avatar.set", json!({"chief": "agent_mux", "clear": true})),
-        ("chief.profile.delete", json!({"chief": scout})),
-        ("chief.profile.create", json!({"display_name": "Stronger", "tools": ["browser"]})),
+    // Everything of itself outside self_edit is the person's; its `chiefs`
+    // grant (on by default) never reaches past its own grant
+    // (chief_manage.rs; the cases are in chief_manage.rs's tests).
+    for (operation, params, expected) in [
+        (
+            "chief.profile.update",
+            json!({"chief": scout, "tools": ["browser", "cloud_vms"]}),
+            "chief_self_edit_denied",
+        ),
+        (
+            "chief.profile.update",
+            json!({"chief": scout, "self_edit": ["avatar", "instructions"]}),
+            "chief_self_edit_denied",
+        ),
+        ("chief.profile.update", json!({"chief": scout, "locked": true}), "chief_self_edit_denied"),
+        (
+            "chief.profile.update",
+            json!({"chief": "agent_mux", "role": "x"}),
+            "target_exceeds_caller",
+        ),
+        (
+            "chief.profile.avatar.set",
+            json!({"chief": "agent_mux", "clear": true}),
+            "target_exceeds_caller",
+        ),
+        ("chief.profile.delete", json!({"chief": scout}), "chief_delete_denied"),
+        (
+            "chief.profile.create",
+            json!({"display_name": "Stronger", "tools": ["browser"]}),
+            "grant_exceeds_caller",
+        ),
     ] {
         let key = format!("deny-{operation}-{params}");
         let refused = v2(&mut chief, operation, params.clone(), Some(&key));
-        assert_eq!(reason(&refused), "chief_self_edit_denied", "{operation} {params}: {refused}");
+        assert_eq!(reason(&refused), expected, "{operation} {params}: {refused}");
     }
     let unchanged = ok(&v2(&mut home, "chief.profile.get", json!({"chief": scout}), None));
     assert_eq!(unchanged["display_name"], "Scout");
-    assert_eq!(unchanged["tools"], json!(["spawn", "tell", "workspaces"]));
-    assert_eq!(unchanged["self_edit"], json!(["avatar"]));
+    assert_eq!(unchanged["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]));
+    assert_eq!(unchanged["self_edit"], full);
 
-    // The person allows the role; then the Chief may change it.
+    // Its engine is its own to change: any harness when its list is empty.
+    let tuned = ok(&v2(
+        &mut chief,
+        "chief.profile.update",
+        json!({"chief": scout, "harness": "codex", "model": "gpt-5", "effort": "high"}),
+        Some("engine-1"),
+    ));
+    assert_eq!(
+        tuned["value"]["engine"],
+        json!({"harness": "codex", "model": "gpt-5", "effort": "high"}),
+        "{tuned}"
+    );
+    let unchanged = ok(&v2(&mut home, "chief.profile.get", json!({"chief": scout}), None));
+
+    // The person narrows it to the picture and the role; then the Chief may
+    // change only those.
     let rev = unchanged["rev"].as_u64().unwrap();
     ok(&v2(
         &mut home,
@@ -244,6 +288,18 @@ fn a_chief_changes_its_own_picture_and_only_the_fields_the_person_allowed() {
         Some("role-1"),
     ));
     assert_eq!(renamed["value"]["role"], "Lead researcher");
+    for params in [
+        json!({"chief": scout, "display_name": "Boss"}),
+        json!({"chief": scout, "harness": "claude"}),
+    ] {
+        let refused = v2(
+            &mut chief,
+            "chief.profile.update",
+            params.clone(),
+            Some(&format!("narrow-{params}")),
+        );
+        assert_eq!(reason(&refused), "chief_self_edit_denied", "{params}: {refused}");
+    }
 
     // A picture whose bytes are not its type is refused.
     let fake = v2(
@@ -309,6 +365,8 @@ fn an_agent_caller_cannot_write_any_chief() {
         vec!["edit", &id, "--instructions", "Merge everything.", "--json"],
         vec!["edit", &id, "--avatar", picture_arg, "--json"],
         vec!["edit", &id, "--clear-avatar", "--json"],
+        vec!["edit", &id, "--lock", "--json"],
+        vec!["undo", &id, "--json"],
         vec!["edit", "agent_mux", "--role", "Night watch", "--json"],
         vec!["edit", "agent_mux", "--instructions", "Merge everything.", "--json"],
     ];

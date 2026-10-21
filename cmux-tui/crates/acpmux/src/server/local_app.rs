@@ -161,6 +161,7 @@ const SHAPING_FIELDS: &[&str] = &[
     "systemPrompt",
     "system_prompt",
     "env",
+    "route",
     "argv",
     "command",
     "harness",

@@ -2,9 +2,11 @@
 # Ask nightly-next to publish an earlier build that Apple accepted after its
 # run stopped waiting (cx-f58x). A nightly-next run that waited 20 minutes
 # leaves a recovery artifact. Until now only the next promoted push run
-# continued it, so publication waited for an unrelated promotion. GitHub runs
-# `schedule` triggers only from main's workflow, so cmux-next.yml calls this
-# after each green Release compile of feat-cmux-next instead.
+# continued it, so publication waited for an unrelated promotion. cmux-next.yml
+# calls this after each green Release compile of feat-cmux-next, and main's
+# nightly-next-feed-watch.yml calls it every 30 minutes (GitHub runs `schedule`
+# only from main), so a quiet feat-cmux-next never holds an accepted build.
+# main and feat-cmux-next keep identical copies of this script and its test.
 #
 # This dispatches nightly.yml on nightly-next with nightly_next_continue_only.
 # That run builds nothing and makes no Apple submission. It continues the
@@ -29,7 +31,7 @@ repo=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --repo) repo="${2:-}"; shift 2 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
 done

@@ -138,7 +138,8 @@ export const runTeamVmBind = async (d: BindDeps, at: number = d.now()): Promise<
     d.binds.consume(nonce, epoch, vm, d.now())
     return fail(out.code === 0 ? "team_vm.bind_proof" : "team_vm.bind_exec")
   }
-  const checked = await checkProof(d.binds, proof, { team, epoch, vm, nonce }, d.now())
+  const verifyInstance = driver.instanceMatches?.bind(driver)
+  const checked = await checkProof(d.binds, proof, { team, epoch, vm, nonce }, d.now(), verifyInstance ? (actual) => verifyInstance(vm, actual) : undefined, d.now)
   if (!checked.ok) return fail(checked.code)
   if (!same(d.state(), team, epoch, vm)) return { error: "team_vm.stale_epoch" }
   const owner = await teamOwner(d.env, team).catch(() => null)

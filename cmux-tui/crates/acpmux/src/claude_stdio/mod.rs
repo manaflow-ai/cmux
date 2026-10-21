@@ -34,7 +34,7 @@ pub const AGENT_NAME: &str = "claude-stdio";
 /// process launched with `--allow-dangerously-skip-permissions`
 /// (`spawn_plan`, `bypass_allowed`); elsewhere the switch is refused and
 /// the chat keeps its mode.
-const MODES: [(&str, &str); 4] = [
+pub(crate) const MODES: [(&str, &str); 4] = [
     ("default", "Normal"),
     ("plan", "Plan"),
     ("auto", "Auto"),
@@ -174,6 +174,11 @@ pub fn models() -> &'static [(String, String)] {
 }
 
 #[cfg(test)]
+mod background_output_tests;
+mod early_calls;
+#[cfg(test)]
+mod early_calls_tests;
+#[cfg(test)]
 mod edit_diff_tests;
 mod inbound;
 mod outbound;
@@ -291,6 +296,11 @@ pub struct Translator {
     /// suggested with its permission ask (`session_rules`), held until the
     /// answer: an "Allow for this session" hands them back.
     suggestions: Mutex<HashMap<String, Value>>,
+    /// claude control request_id -> the tool input of its `can_use_tool`
+    /// ask, held until the answer: Claude Code takes an allow only with
+    /// `updatedInput` (its permission reply schema), so an allow the hub
+    /// did not rewrite hands the input back as it came.
+    inputs: Mutex<HashMap<String, Value>>,
     next_control: AtomicI64,
     pub session_id: Mutex<Option<String>>,
     pub acp_session_id: String,
@@ -300,9 +310,17 @@ pub struct Translator {
     /// Claude Code's fast mode (`fastMode`), on or off.
     pub fast: Mutex<bool>,
     in_turn: AtomicBool,
+    /// Claude Code wrote something for the prompt (an assistant line, a
+    /// conversation reset): its result ends the turn, never startup noise.
+    turn_output: AtomicBool,
     /// The `uuid` of the turn's prompt line until Claude Code echoes it
     /// (`isReplay` carries the line's `uuid`).
     prompt_echo: Mutex<Option<String>>,
+    /// Prompts still unanswered when the next one went out: acpmux ended
+    /// their turn itself (a Stop Claude Code answered late, `hub/cancel.rs`).
+    /// Claude Code's result for them comes before it reads the next prompt,
+    /// or after its echo but before any of its output.
+    abandoned: Mutex<Vec<String>>,
     /// Steered prompts (user lines written during a turn) Claude Code has
     /// not echoed yet, oldest first, as (line uuid, ACP request id): each is
     /// answered at its echo.
@@ -337,6 +355,9 @@ pub struct Translator {
     /// The tokens the chat's context last held (its last `message_delta`; a
     /// compaction resets it).
     context_used: AtomicU64,
+    /// A compaction just ended: the synthetic user line Claude writes next
+    /// is its summary (`compaction_summary`).
+    awaiting_summary: AtomicBool,
     /// The model id the chat's main loop last ran (its `message_start`): the
     /// `modelUsage` key for its window, which a picker alias is not.
     loop_model: Mutex<String>,
@@ -347,6 +368,9 @@ pub struct Translator {
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
+    /// Tool calls named as their block started (`early_calls.rs`), before
+    /// their input streamed: tool_use id -> the session they run in.
+    announced: Mutex<HashMap<String, (String, Option<String>)>>,
     /// Running shells by tool_use id (cx-ncc.84): each Bash call until its
     /// result (or, once a `local_bash` task names it, its `task_notification`),
     /// and those in the background (`run_in_background`, or moved there) until
@@ -366,6 +390,9 @@ struct BackgroundShell {
     launched: bool,
     /// Its `running` update went out (`inbound.rs` `running`).
     announced: bool,
+    /// The file Claude Code writes its output to (`output_file`), once a
+    /// task event named it.
+    output: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -393,6 +420,7 @@ impl Translator {
             pending: Mutex::new(HashMap::new()),
             control_out: Mutex::new(HashMap::new()),
             suggestions: Mutex::new(HashMap::new()),
+            inputs: Mutex::new(HashMap::new()),
             next_control: AtomicI64::new(1),
             session_id: Mutex::new(None),
             acp_session_id,
@@ -401,7 +429,9 @@ impl Translator {
             effort: Mutex::new(effort_value(effort).to_owned()),
             fast: Mutex::new(false),
             in_turn: AtomicBool::new(false),
+            turn_output: AtomicBool::new(false),
             prompt_echo: Mutex::new(None),
+            abandoned: Mutex::new(Vec::new()),
             steers: Mutex::new(std::collections::VecDeque::new()),
             cancelled: AtomicBool::new(false),
             slash_commands: Mutex::new(Vec::new()),
@@ -415,9 +445,11 @@ impl Translator {
             background_shells: Mutex::new(HashMap::new()),
             context_window: AtomicU64::new(0),
             context_used: AtomicU64::new(0),
+            awaiting_summary: AtomicBool::new(false),
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             edits: Mutex::new(HashMap::new()),
+            announced: Mutex::new(HashMap::new()),
         })
     }
 
@@ -521,6 +553,30 @@ impl Translator {
                  {"value": "on", "name": "On", "description": "Faster output, increased usage"},
              ]},
         ])
+    }
+}
+
+/// A Claude Code `tool_use` as the fields of the ACP `tool_call` a turn sends for it (without
+/// its id and status): kind, title, input, and an edit's diffs and file. A live turn
+/// (`inbound.rs`) and an adopted chat's past turns (`adopt_tools.rs`) both draw calls from it.
+pub(crate) fn tool_call_fields(name: &str, input: &Value) -> Value {
+    let mut call = json!({
+        "title": tool_title(name, input),
+        "kind": tool_kind(name),
+        "rawInput": input,
+        "_meta": {"claude": {"tool": name}}
+    });
+    with_edit(&mut call, name, input);
+    call
+}
+
+/// Adds a file edit's diff and location to its ACP tool call.
+fn with_edit(call: &mut Value, name: &str, input: &Value) {
+    if let Some(diffs) = edit_diffs(name, input) {
+        call["content"] = diffs;
+        if let Some(locations) = tool_locations(input) {
+            call["locations"] = locations;
+        }
     }
 }
 

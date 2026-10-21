@@ -18,7 +18,7 @@ const PAGE_ALIAS: &str = "cmux-page";
 
 /// One CEF tab's CDP driver on its relay.
 pub struct CefTab {
-    driver: CdpDriver,
+    pub(crate) driver: CdpDriver,
     /// The page's CDP target id (the driver's tab id).
     cdp_id: String,
 }
@@ -139,6 +139,10 @@ impl ProviderDriver {
             return Err(DriverError::closed(format!("tab {target_id} went away while attaching")));
         }
         tabs.insert(target_id.to_owned(), tab.clone());
+        // Under the cef_tabs lock (then the table's, as tab_engine above), so a
+        // concurrent re-announce (provider reader) cannot be overwritten by an older scale.
+        tab.driver.set_input_scale(self.tab_input_scale(target_id));
+        tab.driver.set_touch_emulation(self.tab_touch(target_id));
         drop(tabs);
         tab.driver.set_request_filter(self.tab_filter(target_id));
         Ok(tab)

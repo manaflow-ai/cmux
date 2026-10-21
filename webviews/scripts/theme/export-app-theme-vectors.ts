@@ -32,7 +32,13 @@ export function vectors(): string {
     const app = deriveAppTheme(theme, accent);
     return {
       name: theme.name,
-      input: { background: theme.background, foreground: theme.foreground, palette: theme.palette },
+      input: {
+        background: theme.background,
+        foreground: theme.foreground,
+        palette: theme.palette,
+        // The theme's own accent (`# cmux-accent`), which wins over `accent`; absent when the theme has none.
+        ...(theme.accent ? { accentColor: theme.accent } : {}),
+      },
       // Absent: neutral, as before the accent setting.
       ...(accent === "neutral" ? {} : { accent }),
       isDark: app.isDark,

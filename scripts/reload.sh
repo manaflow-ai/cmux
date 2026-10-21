@@ -944,6 +944,13 @@ validate_app_bundle() {
   if [[ -x "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" ]]; then
     "$SCRIPT_DIR/cmux-next/check-app-bundle.sh" "$app_path" || return 1
   fi
+  # Every version surface (app, bundled CLIs) says the cmux-next version. A dev
+  # build warns only: a branch may bundle its base tree's cmux-tui (tree
+  # fallback) until its own tree publishes. nightly.yml fails on it.
+  if [[ -x "$SCRIPT_DIR/cmux-next/check-version-surfaces.sh" ]]; then
+    "$SCRIPT_DIR/cmux-next/check-version-surfaces.sh" "$app_path" \
+      || echo "warning: the built app's version surfaces disagree (see above)" >&2
+  fi
 }
 
 # Prints the rm -rf targets that hold a tag's build, each escaped for a shell. A DerivedData
@@ -1382,6 +1389,25 @@ if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-
 fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
 
+# The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which Settings >
+# Mobile runs. Same rule as optchat-chief: fleet and CI builds
+# compile it on a miss and require it; a local reload bundles a cached build
+# when one exists and otherwise builds an app whose iPhone section says it is
+# unavailable (never Cargo on the developer Mac).
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-arm64 x86_64}"
+fi
+if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mobile-host.sh" ]]; then
+  if cmux_mobile_host_cached="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_MOBILE_HOST_BIN="$cmux_mobile_host_cached"
+  elif "$PWD/scripts/cmux-next/build-mobile-host.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-mobile-host.sh" || exit 1
+    export CMUX_NEXT_MOBILE_HOST_BIN="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_MOBILE_HOST=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
+
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm
@@ -1597,6 +1623,15 @@ if [[ -z "$TAG" ]]; then
   )
 fi
 XCODEBUILD_ARGS+=(PRODUCT_BUNDLE_IDENTIFIER="$BUNDLE_ID")
+# The cmux-next version (cmux-tui/Cargo.toml [workspace.package]) is the app's
+# CFBundleShortVersionString too, so the About window, crash reports and the
+# bundled `cmux --version` agree (check-version-surfaces.sh below). The
+# project's MARKETING_VERSION is classic's, merged from main.
+CMUX_NEXT_VERSION="$(python3 "$SCRIPT_DIR/ci/nightly_version.py" next-base --root "$SCRIPT_DIR/..")" || {
+  echo "error: cannot read the cmux-next version from cmux-tui/Cargo.toml" >&2
+  exit 1
+}
+XCODEBUILD_ARGS+=(MARKETING_VERSION="$CMUX_NEXT_VERSION")
 if [[ "$BUILD_CONFIGURATION" == Release ]]; then
   XCODEBUILD_ARGS+=(CODE_SIGN_ENTITLEMENTS=)
 fi
@@ -2238,6 +2273,15 @@ if [[ "$LAUNCH" -eq 1 ]]; then
       CMUX_DEV_AUTH_REPLACE_SESSION=1
     )
   fi
+  # nx-remote GUI jobs (cmuxterm-hq build-host/README.md): the tagged launch below
+  # runs through `env -i`, so pass on the job's markers when the caller has them.
+  # NX_REMOTE=1: the app asks for no notification permission (DesktopNotifier);
+  # ACPMUX_AGENT_LAUNCH=deny: the app's acpmux starts no agent.
+  for NX_PASS_VAR in NX_REMOTE ACPMUX_AGENT_LAUNCH; do
+    if [[ -n "${!NX_PASS_VAR:-}" ]]; then
+      TAG_LAUNCH_ENV+=("$NX_PASS_VAR=${!NX_PASS_VAR}")
+    fi
+  done
 
   LAUNCH_CMD=()
   LAUNCH_RETRY_CMD=()

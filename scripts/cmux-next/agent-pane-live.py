@@ -464,6 +464,10 @@ print("typed", text.count, "front:", NSWorkspace.shared.frontmostApplication?.pr
         # server while the subagent panes open; every one must land in the chat's composer.
         typer, typed = None, ""
         if os.environ.get("CMUX_LIVE_TYPE_KEYS") == "1":
+            # The input job owns the GUI session: bring the app front first (LaunchServices activates
+            # the running copy; the typer's own activate() is ignored on some runs, job 1014-211210-86eeef).
+            subprocess.run(["open", APP], check=False, timeout=30)
+            say("sp app active", bool(wait(lambda: (rpc("debug.focus") or {}).get("app_active") or None, 10, 0.3)))
             say("sp composer focus", json.dumps(pane("click", pane=PANE, selector=".acpmux-composer-prompt"))[:200])
             say("sp reset typing", json.dumps(pane("reset_typing", pane=PANE)))
             typed = "abcdefghijklmnopqrstuvwxyz" * 5

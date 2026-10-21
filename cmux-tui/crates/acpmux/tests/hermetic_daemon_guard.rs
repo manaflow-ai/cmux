@@ -5,6 +5,11 @@
 //! probes, sign-in checks and auto-updates with real accounts (cx-w014j).
 //! Start it with `daemon_env::acpmux`, `daemon_env::command` or
 //! `daemon_env::apply` instead.
+//!
+//! Every test process runs hermetic too (cx-s8wux.1): each test binary (a
+//! top-level file in `tests/`) includes `support/daemon_env.rs`, which
+//! starts the process again with the hermetic environment before `main`, so a
+//! hub run in the test process never sees the host's PATH or HOME (cx-fylng).
 
 use std::path::{Path, PathBuf};
 
@@ -61,7 +66,40 @@ fn only_the_hermetic_helper_starts_the_acpmux_binary() {
     );
     // The helper itself still clears the environment and denies launches.
     let helper = std::fs::read_to_string(tests.join(HELPER)).unwrap();
-    for needle in ["env_clear()", "\"ACPMUX_AGENT_LAUNCH\".into(), \"deny\".into()", binary] {
+    for needle in [
+        "env_clear()",
+        "\"ACPMUX_AGENT_LAUNCH\".into(), \"deny\".into()",
+        binary,
+        "unsafe(link_section = \".init_array\")",
+        "unsafe(link_section = \"__DATA,__mod_init_func\")",
+        "enter(super::HERMETIC, args)",
+    ] {
         assert!(helper.contains(needle), "tests/{HELPER} lost `{needle}`");
     }
+}
+
+#[test]
+fn every_test_binary_runs_in_the_hermetic_environment() {
+    let tests = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests");
+    let mut missing = Vec::new();
+    for entry in std::fs::read_dir(&tests).unwrap() {
+        let path = entry.unwrap().path();
+        let name = path.file_name().unwrap().to_string_lossy().into_owned();
+        if !name.ends_with(".rs") || name == "hermetic_daemon_guard.rs" {
+            continue;
+        }
+        let text = std::fs::read_to_string(&path).unwrap();
+        let included = text.contains("#[path = \"support/daemon_env.rs\"]")
+            && text.contains("mod daemon_env;");
+        if !included || !text.contains("const HERMETIC: daemon_env::Process") {
+            missing.push(format!("tests/{name}"));
+        }
+    }
+    assert!(
+        missing.is_empty(),
+        "each test binary includes tests/{HELPER} and defines \
+         `const HERMETIC: daemon_env::Process = daemon_env::Process::deny();` \
+         (or `stand_in()` when it runs stand-in agents):\n{}",
+        missing.join("\n")
+    );
 }

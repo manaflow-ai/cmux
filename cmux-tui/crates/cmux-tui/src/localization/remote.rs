@@ -3,6 +3,7 @@
 #[derive(Debug, PartialEq, Eq)]
 pub(crate) struct RemoteMessages {
     pub remote_stop_help: &'static str,
+    pub remote_update_need_help: &'static str,
     pub(super) remote_stop_unknown_option: &'static str,
     pub remote_stop_no_positional: &'static str,
     pub remote_stop_acknowledgements_mutually_exclusive: &'static str,
@@ -98,6 +99,7 @@ impl RemoteMessages {
 
 pub(super) const ENGLISH: RemoteMessages = RemoteMessages {
     remote_stop_help: "USAGE: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nThis command manages only replaceable SSH sidecars. Stop a listener embedded by `cmux daemon start` with `cmux daemon stop`; this also stops its local owner and workspaces.\n\n--acknowledge-legacy-finalization is only for an already-stopped pre-fence daemon. Verify that no legacy cmux-tui process remains before using it.\n",
+    remote_update_need_help: "USAGE: cmux remote update-need --probe-json <FILE|->\n\nReads a machine's `cmux remote-probe --json` output and prints whether that machine runs an older, the same or a newer cmux than this one: {\"need\":\"older|none|newer\",\"reason\":...}. Builds order by their daemon capabilities first and by their build time only when those are equal. The exit status is 0 for every answer.\n",
     remote_stop_unknown_option: "unknown option {option} for cmux remote stop",
     remote_stop_no_positional: "cmux remote stop accepts no positional arguments",
     remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization and --acknowledge-legacy-finalization are mutually exclusive",
@@ -163,6 +165,7 @@ pub(super) const ENGLISH: RemoteMessages = RemoteMessages {
 
 pub(super) const JAPANESE: RemoteMessages = RemoteMessages {
     remote_stop_help: "使用方法: cmux remote stop [--session NAME] [--state-dir PATH] [--acknowledge-failed-finalization | --acknowledge-legacy-finalization]\n\nこのコマンドは置換可能な SSH サイドカーだけを管理します。`cmux daemon start` に組み込まれたリスナーは `cmux daemon stop` で停止してください。この操作はローカルの所有者とワークスペースも停止します。\n\n--acknowledge-legacy-finalization は、停止済みでライフサイクルフェンス導入前のデーモン専用です。使用前に旧 cmux-tui プロセスが残っていないことを確認してください。\n",
+    remote_update_need_help: "使用方法: cmux remote update-need --probe-json <FILE|->\n\nマシンの `cmux remote-probe --json` の出力を読み、そのマシンの cmux がこの cmux より古いか、同じか、新しいかを出力します: {\"need\":\"older|none|newer\",\"reason\":...}。ビルドはまずデーモンの機能で比較し、機能が同じときだけビルド時刻で比較します。どの答えでも終了ステータスは 0 です。\n",
     remote_stop_unknown_option: "cmux remote stop の不明なオプションです: {option}",
     remote_stop_no_positional: "cmux remote stop に位置引数は指定できません",
     remote_stop_acknowledgements_mutually_exclusive: "--acknowledge-failed-finalization と --acknowledge-legacy-finalization は同時に指定できません",

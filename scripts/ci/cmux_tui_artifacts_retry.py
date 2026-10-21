@@ -32,7 +32,7 @@ import urllib.request
 MAX_ATTEMPTS = 3
 CONFLICT_TITLE = "immutable-r2-conflict"
 TREE_PREFLIGHT_JOB = "cmux-tui tree preflight"
-TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui", "publish pull request tree-addressed cmux-tui")
+TREE_PUBLISH_JOBS = ("publish tree-addressed cmux-tui",)
 
 
 @dataclass(frozen=True)

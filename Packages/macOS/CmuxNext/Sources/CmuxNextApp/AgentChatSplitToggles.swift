@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextFloating
 
 /// The chat header's Terminal and Browser splits, its Changes diff and its Preview page (acpmux
 /// header/quickActions.ts), each the panel its button owns, as in Claude Code desktop's top right (cx-00n1). Toggling (`mode:
@@ -30,7 +31,7 @@ final class AgentChatSplitToggles {
     /// Whether `tab` is the panel header action `id` opens: a terminal, a browser, or a diff page.
     private static func owns(_ id: String, _ tab: TabModel) -> Bool {
         switch id {
-        case "splitRight", splitDown: tab.kind == .pty
+        case "splitRight", splitDown, AgentChatTerminalAdds.added: tab.kind == .pty
         case "splitBrowserRight", preview: tab.kind == .browser
         case changes: tab.page == "diff"
         case files: tab.page == InternalPageID.files.rawValue
@@ -43,11 +44,11 @@ final class AgentChatSplitToggles {
     private var opened: [(id: String, baseline: Set<String>)] = []
     private static let remembered = 8
 
-    /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened when
-    /// that tab is still in the chat's workspace, else opens one (an action that opens no tracked
-    /// kind just runs).
+    /// Toggles header action `id` on chat tab `chat` (in `store`): closes the split it opened while it is in the chat's
+    /// workspace, else opens one (an untracked kind just runs; Terminal always opens one with `terminalButtonAdds` on).
     func toggle(_ id: String, cwd: String?, url: String? = nil, chat: String, store: DaemonStore?,
                 actions: AgentChatTabActions) {
+        if AgentChatTerminalAdds().adds(id) { return open(id, cwd: cwd, url: url, chat: chat, store: store, actions: actions) }
         guard Self.panels.contains(id), let store, let tabs = Self.workspaceTabs(of: chat, in: store) else {
             return Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: nil, actions: actions)
         }
@@ -81,8 +82,8 @@ final class AgentChatSplitToggles {
             .compactMap { splits[$0] }
             .first { Self.beside(chat, $0, in: store) }
         // Open mode adds one per click: keep the recent ones, enough to find the last split beside the chat.
-        opened = Array(opened.suffix(Self.remembered - 1))
-        opened.append((id: id, baseline: Set(tabs.map(\.id))))
+        opened = AgentChatTerminalAdds().room(in: opened, limit: Self.remembered) { $0.id }
+        opened.append((id: AgentChatTerminalAdds().logged(id), baseline: Set(tabs.map(\.id))))
         Self.run(id, cwd: cwd, url: url, chat: chat, store: store, on: anchor?.id, actions: actions)
     }
 
@@ -149,9 +150,9 @@ final class AgentChatSplitToggles {
         guard let store else { return AgentPaneHeaderState() }
         let tabs = Self.workspaceTabs(of: chat, in: store) ?? []
         let splits = splits(in: tabs, chat: chat)
-        let lit = Self.panels.filter { id in
+        let lit = AgentChatTerminalAdds().lit(Self.panels.filter { id in
             opened.lastIndex { $0.id == id }.flatMap { splits[$0] } != nil
-        }
+        })
         var state = AgentPaneHeaderState(pinned: store.tab(id: chat)?.pinned ?? false,
                                          sideTabs: Self.sideTabs(of: chat, in: store) == .shown, lit: lit,
                                          floatingChat: QuickComposerTunables.floatingChat.value)

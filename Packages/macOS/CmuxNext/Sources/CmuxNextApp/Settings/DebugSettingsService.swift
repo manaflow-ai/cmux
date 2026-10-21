@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextAccounts
 import CmuxNextActions
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
@@ -8,8 +9,10 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextFeed
+import CmuxNextFloating
 import CmuxNextHome
 import CmuxNextLayout
+import CmuxNextOnboarding
 import CmuxNextPages
 import CmuxNextPalette
 import CmuxNextServer
@@ -18,6 +21,7 @@ import CmuxNextSettingsWindow
 import CmuxNextSidebar
 import CmuxNextTabs
 import CmuxNextTasks
+import CmuxNextWorkspaceNaming
 import Foundation
 
 /// Every tunable the app declares, by module. One list, so the window, the
@@ -25,8 +29,9 @@ import Foundation
 enum TunableCatalog {
     static var all: [TunableDescriptor] {
         DesignTunables.all + LayoutTunables.all + TabTunables.all + SidebarTunables.all + DragTunables.all
+            + [AgentPaneTunables.sessionRail.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + FeedTunables.all
-            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor]
+            + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + AccountTunables.all
     }
 }
 
@@ -68,6 +73,8 @@ final class DebugSettingsService: InternalPageProvider {
                                bundleID: launch.bundleID, build: launch.build)
         fileURL = url
         store.activate(file: url)
+        // CmuxNextCloud does not see tunables; Release keeps CloudAuth's default (automatic).
+        services.cloud.auth.signInWindow = { .init(rawValue: AccountTunables.signInWindow.value.rawValue) ?? .automatic }
     }
 
     /// `~/Library/Application Support/cmux/<tag or channel>/debug-tunables.json`

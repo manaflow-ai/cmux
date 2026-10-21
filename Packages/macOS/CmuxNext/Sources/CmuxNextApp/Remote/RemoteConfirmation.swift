@@ -11,6 +11,12 @@ enum RemoteConfirmation {
         let host = session.host
         var commit = "?"
         if let binary = try? DaemonLauncherBinary.resolve() { commit = await BundledCmuxTUI.commit(binary: binary).map { String($0.prefix(12)) } ?? "?" }
+        if session.updateOffered {
+            return DestructiveConfirmation.Prompt(
+                title: RemoteStrings.updateTitle(host.label),
+                body: RemoteStrings.updateBody(commit: commit, path: host.remoteBinary, machine: host.label),
+                button: RemoteStrings.update)
+        }
         return DestructiveConfirmation.Prompt(
             title: RemoteStrings.installTitle(host.label),
             body: RemoteStrings.installBody(commit: commit, path: host.remoteBinary, destination: host.destination.description)

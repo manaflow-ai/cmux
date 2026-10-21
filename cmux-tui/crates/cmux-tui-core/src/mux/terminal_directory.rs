@@ -83,7 +83,9 @@ impl Mux {
         state.resource_revision = commit.revision;
         drop(state);
         drop(registry);
-        self.publish_resource_event();
+        // Notify directly: publish_resource_event would retry pending
+        // directories, including this one, from inside its own publication.
+        self.publish_journal_event();
         self.emit_terminal_tabs_changed(id);
         Ok(true)
     }

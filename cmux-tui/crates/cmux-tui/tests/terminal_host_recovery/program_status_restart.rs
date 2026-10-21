@@ -24,6 +24,17 @@ pub(super) fn program_status(harness: &RecoveryHarness) -> serde_json::Value {
     status
 }
 
+/// `status` without `since_ms`, to compare across a daemon restart: the
+/// terminal-host snapshot does not carry it, so a restored record starts at
+/// the host's own stamp (`ProgramStatusRecord::since_ms`), not the daemon's;
+/// the two parsers read a report a few ms apart (cx-zskkw, macOS).
+pub(super) fn without_since(mut status: serde_json::Value) -> serde_json::Value {
+    for record in status.as_array_mut().into_iter().flatten() {
+        record.as_object_mut().unwrap().remove("since_ms");
+    }
+    status
+}
+
 pub(super) fn wait_for_program_status(
     harness: &RecoveryHarness,
     records: usize,
@@ -93,7 +104,11 @@ fn program_status_records_survive_a_daemon_restart() {
     // Every field comes back, `updated_seq` too: clients compare it with the
     // last one they saw, so a reset would show old alerts as new.
     let after = wait_for_program_status(&harness, 2);
-    assert_eq!(after, before, "program status changed across the restart");
+    assert_eq!(
+        without_since(after),
+        without_since(before),
+        "program status changed across the restart"
+    );
 
     request(
         &harness.socket,

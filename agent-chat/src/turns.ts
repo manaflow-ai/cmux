@@ -11,6 +11,18 @@ export interface TurnGroup {
   done: boolean;
 }
 
+export interface TurnHistoryWindow {
+  folded: TurnGroup[];
+  visible: TurnGroup[];
+}
+
+/** Keep the newest turns readable behind one stable disclosure boundary. */
+export function compactTurnGroups(groups: TurnGroup[], visibleTail = 3): TurnHistoryWindow {
+  const tail = Math.max(1, Math.floor(visibleTail));
+  const cutoff = Math.max(0, groups.length - tail);
+  return { folded: groups.slice(0, cutoff), visible: groups.slice(cutoff) };
+}
+
 export function groupTurns(blocks: Block[], status?: string): TurnGroup[] {
   const groups: TurnGroup[] = [];
   let current: TurnGroup | null = null;

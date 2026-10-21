@@ -1,9 +1,12 @@
-//! `acpmux daemon shutdown`: stop the daemon and every agent host of this
-//! home. The daemon ends its agents first (`_acpmux/shutdown endAgents`);
-//! once it exited, any host a record of this home still names and that
-//! still runs is ended here (`agent_host::sweep`), so the command succeeds
-//! only when none is left. `--keep-agents` leaves the user sessions' hosts
-//! running for the next daemon (an update or a restart), as SIGTERM does.
+//! `acpmux daemon shutdown`: stop the daemon. As SIGTERM and the
+//! `_acpmux/shutdown` request without endAgents, it leaves the user
+//! sessions' hosted agents running for the next daemon (a restart or an
+//! update); pooled hosts end (cx-qryd0, hq-6d 2026-10-15: a plain stop ended
+//! every agent before). `--end-agents` stops every agent host of this home
+//! too: the daemon ends its agents first (`_acpmux/shutdown endAgents`), and
+//! once it exited, any host a record of this home still names and that still
+//! runs is ended here (`agent_host::sweep`), so the command succeeds only
+//! when none is left. `--keep-agents` is accepted and changes nothing.
 
 use crate::agent_host::{self, sweep};
 use crate::cli::output::print_json;
@@ -18,11 +21,12 @@ use std::time::Duration;
 /// SIGKILL (and the SIGKILL until its lock drops).
 const HOST_GRACE: Duration = Duration::from_secs(3);
 
-pub(crate) async fn run(keep_agents: bool, json_out: bool) -> Result<()> {
-    run_on(&*TokioClock::new(), keep_agents, json_out).await
+pub(crate) async fn run(end_agents: bool, json_out: bool) -> Result<()> {
+    run_on(&*TokioClock::new(), end_agents, json_out).await
 }
 
-async fn run_on(clock: &dyn Clock, keep_agents: bool, json_out: bool) -> Result<()> {
+async fn run_on(clock: &dyn Clock, end_agents: bool, json_out: bool) -> Result<()> {
+    let keep_agents = !end_agents;
     let hosts = agent_host::hosts_dir();
     let before = sweep::running_hosts(&hosts).len();
     let client = connect(false).await?;
@@ -60,7 +64,7 @@ async fn run_on(clock: &dyn Clock, keep_agents: bool, json_out: bool) -> Result<
     if json_out {
         print_json(&json!({
             "stopped": true,
-            "endAgents": !keep_agents,
+            "endAgents": end_agents,
             "agentHosts": {
                 "before": before,
                 "ended": ended,

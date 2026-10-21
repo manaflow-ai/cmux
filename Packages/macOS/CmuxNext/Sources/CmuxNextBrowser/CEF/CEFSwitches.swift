@@ -9,6 +9,13 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     var useMockKeychain: Bool
     /// Unpacked extension directories (development and verification only).
     var loadExtensions: [String]
+    /// Extensions the app bundle ships (`CEFBuiltInExtensions`); they do not
+    /// turn on the extensions developer mode.
+    var builtInExtensions: [String] = []
+    /// Unpacked extensions stay enabled without developer mode: true while
+    /// the built-in uBlock Origin loads or the person has their own unpacked
+    /// copy of it (`CEFBuiltInExtensions.Plan`).
+    var keepsUnpackedEnabled = false
     /// Extra Chromium switches for diagnosis (development bundles only), for
     /// example `show-browser-frame-regions` or `enable-ui-devtools=9223`.
     var extraSwitches: [String] = []
@@ -27,6 +34,11 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // separate macOS notification authorization. DesktopNotifier owns the
         // one app-level authorization request when cmux posts a banner.
         result.append("disable-notifications")
+        // Chromium's periodic call-stack profiler runs in the browser process (the
+        // app) and suspends its threads at 10 Hz while it collects. Its profiles go
+        // to UMA, which cmux does not upload; in some idle sessions it raised the
+        // app's energy with 20 hidden tabs from about 0.24 to 4 mW (msg 2654).
+        result.append("disable-stack-profiler")
         result.append(contentsOf: Self.chromePromptOffSwitches)
         // Never pass a feature-list switch expecting it to replace CEF's own
         // list: the shim merges disable-features/enable-features into it
@@ -37,9 +49,18 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         if useMockKeychain {
             result.append("use-mock-keychain")
         }
-        if !loadExtensions.isEmpty {
-            result.append("load-extension=" + loadExtensions.joined(separator: ","))
+        let loaded = builtInExtensions + loadExtensions
+        if !loaded.isEmpty {
+            result.append("load-extension=" + loaded.joined(separator: ","))
         }
+        // Chromium records a --load-extension copy as unpacked and disables
+        // unpacked extensions while developer mode is off
+        // (DISABLE_UNSUPPORTED_DEVELOPER_EXTENSION). That policy is off while
+        // the built-in uBlock Origin loads or the person's own unpacked copy
+        // exists; with the setting off, it stays on and disables the old
+        // built-in entry Chromium keeps in the profile. The shim merges this
+        // into CEF's list.
+        if keepsUnpackedEnabled { result.append("disable-features=ExtensionDisableUnsupportedDeveloper") }
         result.append(contentsOf: extraSwitches)
         return result
     }
@@ -95,7 +116,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     static func current(
         forkAPIVersion: Int32,
         bundleIdentifier: String?,
-        environment: [String: String]
+        environment: [String: String],
+        builtInExtensions: [String] = [],
+        keepsUnpackedEnabled: Bool = false
     ) -> CEFSwitches {
         let bundle = bundleIdentifier ?? ""
         let dev = bundle.contains(".debug") || bundle.hasSuffix(".dev") || environment["CMUX_MOCK_KEYCHAIN"] == "1"
@@ -112,6 +135,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
             forkAPIVersion: forkAPIVersion,
             useMockKeychain: dev,
             loadExtensions: extensions,
+            builtInExtensions: builtInExtensions,
+            keepsUnpackedEnabled: keepsUnpackedEnabled,
             extraSwitches: extra
         )
     }

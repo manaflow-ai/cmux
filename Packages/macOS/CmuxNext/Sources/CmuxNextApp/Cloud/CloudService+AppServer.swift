@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCloud
 import CmuxNextDaemon
+import CmuxNextHomeEngine
 import Foundation
 
 /// The Cloud app server path of the machine list and create (cx-t2rz):
@@ -54,16 +55,7 @@ extension CloudService {
     /// The `team` claim of an install token (the owner's own token over
     /// TLS; read for consistency, never trusted as a credential). Nil when
     /// the token is not a JWT with a team.
-    nonisolated static func team(ofToken token: String) -> String? {
-        let parts = token.split(separator: ".")
-        guard parts.count == 3 else { return nil }
-        var payload = parts[1].replacingOccurrences(of: "-", with: "+").replacingOccurrences(of: "_", with: "/")
-        payload += String(repeating: "=", count: (4 - payload.count % 4) % 4)
-        guard let data = Data(base64Encoded: payload),
-              let claims = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let team = claims["team"] as? String, !team.isEmpty else { return nil }
-        return team
-    }
+    nonisolated static func team(ofToken token: String) -> String? { HomeCloudLease.team(ofJWT: token) }
 
     /// POSTs to the API Worker as the signed-in person (Stack session), the
     /// way the feed does; used only to answer a G8 approval after the

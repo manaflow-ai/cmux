@@ -124,7 +124,7 @@ fn the_persons_page_renames_a_chief_and_sets_its_picture_but_cannot_plant_or_del
     }
 
     let kept = ok(&page.v2("chief.profile.get", json!({"chief": id}), None));
-    assert_eq!(kept["tools"], json!(["spawn", "tell", "workspaces"]), "{kept}");
+    assert_eq!(kept["tools"], json!(["chiefs", "spawn", "tell", "workspaces"]), "{kept}");
     assert_eq!(kept["instructions"], "Ask before any merge.", "{kept}");
     let listed = ok(&page.v2("chief.profile.list", json!({}), None));
     assert_eq!(listed["chiefs"].as_array().unwrap().len(), 2, "{listed}");

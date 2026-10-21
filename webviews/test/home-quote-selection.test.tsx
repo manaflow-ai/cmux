@@ -1,0 +1,155 @@
+// Quote in Reply on selected message text (POLISH.md right-click contract): the app's native
+// selection menu sends the page command `quoteSelection`, and the selection lands in the open
+// composer as a Markdown quote, ahead of what was already typed. A thread's composer takes it while
+// the thread is open; a selection inside a composer is never quoted. In an empty composer the reply
+// is typed below the quote, not inside it.
+import { afterEach, expect, test } from "bun:test";
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { JSDOM } from "jsdom";
+import { Composer } from "../src/pages/home-channels/Composer";
+import { quoteSelection } from "../src/pages/home-channels/quoteSelection";
+import table from "../src/pages/home-channels/generated/strings.json";
+import { createStrings } from "../src/pages/shared/i18n";
+
+let dom: JSDOM | undefined;
+const roots: Root[] = [];
+const scope = globalThis as Record<string, unknown>;
+const saved = new Map<string, unknown>();
+
+function installDom(): Document {
+  dom = new JSDOM("<!doctype html><html><body></body></html>", { pretendToBeVisual: true });
+  Object.assign(dom.window, {
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  });
+  for (const key of [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "Node",
+    "MouseEvent",
+    "KeyboardEvent",
+    "getComputedStyle",
+    "requestAnimationFrame",
+    "cancelAnimationFrame",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ])
+    saved.set(key, scope[key]);
+  Object.assign(scope, {
+    window: dom.window,
+    document: dom.window.document,
+    navigator: dom.window.navigator,
+    HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
+    Node: dom.window.Node,
+    MouseEvent: dom.window.MouseEvent,
+    KeyboardEvent: dom.window.KeyboardEvent,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
+    requestAnimationFrame: (run: (time: number) => void) => setTimeout(() => run(0), 0),
+    cancelAnimationFrame: (id: number) => clearTimeout(id),
+    IS_REACT_ACT_ENVIRONMENT: true,
+  });
+  return dom.window.document;
+}
+
+afterEach(() => {
+  for (const root of roots.splice(0)) act(() => root.unmount());
+  dom?.window.close();
+  dom = undefined;
+  for (const [key, value] of saved) {
+    if (value === undefined) delete scope[key];
+    else scope[key] = value;
+  }
+  saved.clear();
+});
+
+const strings = createStrings(table, ["en"]);
+
+/** A composer inside `scope` (the main column or the thread sheet), with `typed` already in it. */
+async function composer(doc: Document, scope: string, typed = "") {
+  const host = doc.createElement("div");
+  host.className = scope;
+  doc.body.append(host);
+  const root = createRoot(host);
+  roots.push(root);
+  await act(async () => {
+    root.render(
+      <Composer
+        strings={strings}
+        placeholder="Message"
+        label="Message"
+        onSend={async () => true}
+        initialValue={typed}
+      />,
+    );
+  });
+  return host;
+}
+
+function message(doc: Document, text: string): HTMLElement {
+  const node = doc.createElement("p");
+  node.className = "hc-msg-text";
+  node.textContent = text;
+  doc.body.prepend(node);
+  return node;
+}
+
+function select(node: Node) {
+  const doc = node.ownerDocument!;
+  const range = doc.createRange();
+  range.selectNodeContents(node);
+  const selection = doc.getSelection()!;
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+const field = (host: HTMLElement) => host.querySelector<HTMLElement>(".hc-composer-field")!;
+
+test("Quote in Reply puts the selected lines in the main composer as a quote, before the draft", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose", "my draft");
+  select(message(doc, "Ship it\nafter the review"));
+
+  await act(async () => {
+    expect(quoteSelection(doc)).toBe(true);
+  });
+  const quote = field(main).querySelector("blockquote");
+  expect(quote?.textContent).toContain("Ship it");
+  expect(quote?.textContent).toContain("after the review");
+  expect(field(main).textContent).toContain("my draft");
+});
+
+test("an open thread's composer takes the quote, and text selected in a composer is never quoted", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose");
+  const sheet = await composer(doc, "lg-sheet");
+  select(message(doc, "Root question"));
+  await act(async () => {
+    expect(quoteSelection(doc)).toBe(true);
+  });
+  expect(field(sheet).querySelector("blockquote")?.textContent).toContain("Root question");
+  expect(field(main).querySelector("blockquote")).toBeNull();
+
+  select(field(main));
+  expect(quoteSelection(doc)).toBe(false);
+});
+
+test("in an empty composer the reply is typed below the quote, not inside it", async () => {
+  const doc = installDom();
+  const main = await composer(doc, "lg-main-compose");
+  select(message(doc, "Ship it"));
+  await act(async () => {
+    expect(quoteSelection(doc)).toBe(true);
+  });
+  type Field = HTMLElement & { acpmuxMarkdownField?: { insertTyped(text: string): void } };
+  const editor = [...main.querySelectorAll<Field>("*")].find((node) => node.acpmuxMarkdownField);
+  await act(async () => editor!.acpmuxMarkdownField!.insertTyped("Agreed"));
+  expect(field(main).querySelector("blockquote")?.textContent).not.toContain("Agreed");
+  expect(field(main).textContent).toContain("Agreed");
+});

@@ -1,4 +1,7 @@
 .acpmux-composer-gallery-shell {
+  --acpmux-pill-hover: color-mix(in srgb, var(--agent-text) 11%, transparent);
+  --acpmux-pill-open: color-mix(in srgb, var(--agent-text) 16%, transparent);
+  --acpmux-pill-edge: color-mix(in srgb, var(--agent-text) 24%, transparent);
   display: grid;
   align-content: end;
   gap: 14px;
@@ -6,6 +9,16 @@
   padding: 28px;
   color: var(--cmux-text, CanvasText);
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
+}
+
+/* The gallery fixture renders ComposerPickers without the production composer-bar wrapper. Keep
+   its 400px pill state honest in both headless engines, whose pointer media query may report a
+   coarse device even while Playwright sends real mouse events. The production rail keeps the
+   pointer-gated rule in composerLocation.css. */
+.acpmux-composer-gallery-shell .acpmux-model .acpmux-picker-button:hover,
+.acpmux-composer-gallery-shell .acpmux-effort .acpmux-picker-button:hover,
+.acpmux-composer-gallery-shell .acpmux-access .acpmux-picker-button:hover {
+  background: var(--acpmux-pill-hover);
 }
 
 .acpmux-composer-gallery-copy {
@@ -19,4 +32,8 @@
   color: var(--cmux-text, CanvasText);
   font-size: var(--text-title);
   font-weight: 600;
+}
+
+.acpmux-composer-gallery-shell .acpmux-picker-button:hover {
+  background: var(--acpmux-pill-hover);
 }

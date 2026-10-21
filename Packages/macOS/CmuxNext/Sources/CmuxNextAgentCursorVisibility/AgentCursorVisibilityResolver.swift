@@ -31,7 +31,7 @@ public nonisolated struct AgentCursorVisibilityResolver {
         }
         let viewport = page.viewport.cgRect
         guard shows(viewport, in: clip) else { return columnEdge(of: viewport, clip: clip, window: window.id) }
-        return .visible(window: window.id, viewport: viewport, clip: viewport.intersection(clip), zoom: page.zoom)
+        return .visible(window: window.id, viewport: viewport, clip: viewport.intersection(clip), zoom: page.zoom, scale: page.scale ?? 1)
     }
 
     /// Another workspace of the window: its sidebar row, else the window edge.

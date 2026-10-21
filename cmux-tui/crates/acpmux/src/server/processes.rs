@@ -1,14 +1,15 @@
 //! The background-process methods (`hub/processes.rs`,
-//! docs/background-processes.md): `_acpmux/process/list {sessionId?}` and
+//! docs/background-processes.md): `_acpmux/process/list {sessionId?}`,
+//! `_acpmux/process/tail {processId, fromByte?, maxBytes?}` and
 //! `_acpmux/process/kill {processId, signal?}`, and the
 //! `_acpmux/process_update {process}` notification.
 //!
 //! Routed before every other method (`chats.rs`), like the secret methods:
 //! they never reach a peer, and they check their own callers. Only this
 //! machine's clients (the unix socket and the local app) get them: a
-//! process's command line is local state, and a kill acts on a local
-//! process, so a remote WebSocket device and a peer daemon are refused
-//! before anything is read.
+//! process's command line and output are local state, and a kill acts on
+//! a local process, so a remote WebSocket device and a peer daemon are
+//! refused before anything is read.
 
 use super::{Conn, HubEvent, str_param};
 use crate::hub::Hub;
@@ -24,7 +25,8 @@ pub(super) async fn dispatch(
     m: &str,
     params: &Value,
 ) -> Option<Result<Value, RpcError>> {
-    if !matches!(m, method::MUX_PROCESS_LIST | method::MUX_PROCESS_KILL) {
+    if !matches!(m, method::MUX_PROCESS_LIST | method::MUX_PROCESS_TAIL | method::MUX_PROCESS_KILL)
+    {
         return None;
     }
     if conn.origin.web_class() {
@@ -50,6 +52,11 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
     }
     let id = str_param(params, "processId")
         .ok_or_else(|| RpcError::invalid_params("processId is required"))?;
+    if m == method::MUX_PROCESS_TAIL {
+        let from = byte_param(params, "fromByte")?;
+        let max = byte_param(params, "maxBytes")?;
+        return hub.tail_process(id, from, max).await;
+    }
     // Claude Code's stop_task has no signal: both stop the task.
     match params.get("signal").filter(|v| !v.is_null()) {
         None => {}
@@ -57,6 +64,17 @@ async fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, RpcErr
         Some(_) => return Err(RpcError::invalid_params("signal must be term or kill")),
     }
     hub.kill_process(id).await
+}
+
+/// A byte count or offset: absent, null or a non-negative integer.
+fn byte_param(params: &Value, key: &str) -> Result<Option<u64>, RpcError> {
+    match params.get(key).filter(|v| !v.is_null()) {
+        None => Ok(None),
+        Some(v) => v
+            .as_u64()
+            .map(Some)
+            .ok_or_else(|| RpcError::invalid_params(format!("{key} must be a byte count"))),
+    }
 }
 
 /// A logged `process_update` as `_acpmux/process_update`, to a connection

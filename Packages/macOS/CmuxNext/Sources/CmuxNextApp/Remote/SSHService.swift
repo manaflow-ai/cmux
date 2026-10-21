@@ -33,6 +33,10 @@ final class SSHService {
     @ObservationIgnored private var forgotten: Set<String> = []
     /// Saved hosts on the home daemon's current connection (`SSHService+SavedHosts`).
     @ObservationIgnored var savedHosts: (connection: ObjectIdentifier, store: SavedHostsStore)?
+    /// Machines with an install (and its handoffs) running from this app: one at a time (cx-3r9mt).
+    @ObservationIgnored private var installing: Set<String> = []
+    /// Automatic updates tried in this app run (``RemoteAutoUpdateLedger``).
+    @ObservationIgnored private var autoUpdated = RemoteAutoUpdateLedger()
 
     init(machines: MachineRegistry, bundleID: String?) {
         self.machines = machines
@@ -305,13 +309,46 @@ final class SSHService {
             session.offersInstall = false
             offerInstall?(session)
         }
-        if status == .connected { session.lastError = nil }
+        if status == .connected {
+            session.lastError = nil
+            // task-owner: one update check per connect; it installs only an older remote build
+            Task { await updateIfOlder(session) }
+        }
+    }
+
+    /// cx-3r9mt: on connect, an older remote build (`cmux-tui remote update-need`) gets this app's
+    /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
+    func updateIfOlder(_ session: SSHMachineSession) async {
+        guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
+              let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
+        let tried = session.machineID + "|" + commit
+        guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),
+              let checked = await session.host.updateCheck(binary: binary, environment: await Self.environment())
+        else { return }
+        let (probe, answer) = checked
+        logger.info("update check for \(session.host.destination.description, privacy: .public): \(answer.need, privacy: .public) (\(answer.reason, privacy: .public))")
+        guard answer.need == "older" else { session.updateOffered = false; return }
+        // The keyed restart's rule (cx-3r9mt, hq-a3 2026-10-15): by itself only on an idle machine;
+        // else the person decides (Update available, then Update).
+        guard await agentDaemonIdleForUpdate(session) else {
+            logger.info("update of \(session.host.destination.description, privacy: .public) offered: the machine is not idle")
+            session.updateOffered = true
+            autoUpdated.done(tried)
+            return
+        }
+        autoUpdated.done(tried)
+        do { try await install(session, automatic: probe.buildIdentity ?? "") } catch {
+            autoUpdated.retry(tried, after: .seconds(120))
+            logger.error("automatic update of \(session.host.destination.description, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        }
     }
 
     // MARK: Install
 
     /// Installs the app's cmux-tui build on the machine and reconnects.
-    func install(_ session: SSHMachineSession) async throws {
+    /// `automatic` (cx-3r9mt): the remote `build_identity` the update was decided for; that build
+    /// is skipped, a changed binary refused, and the link never shown as failed.
+    func install(_ session: SSHMachineSession, automatic: String? = nil) async throws {
         if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
         guard let binary else { throw ActionFailure(message: RemoteStrings.noClient) }
         guard let commit = await BundledCmuxTUI.commit(binary: binary) else { throw ActionFailure(message: RemoteStrings.noPinnedBuild) }
@@ -322,24 +359,51 @@ final class SSHService {
         guard let platform = report?.platform else { throw ActionFailure(message: RemoteStrings.unsupportedPlatform(host.label)) }
         // The running daemon of this session, restarted onto the new build.
         let daemonPID = session.daemon.connection != nil ? session.daemon.identity?.pid : nil
-        await link.handle(.installStarted)
-        session.lastError = nil
+        // One install and handoff per machine at a time (cx-3r9mt): this app's own, then the
+        // machine's lock for every Mac (taken by the install script, given back below).
+        guard installing.insert(session.machineID).inserted else { throw ActionFailure(message: RemoteStrings.installFailure(RemoteInstallError.remote(status: RemoteInstallError.busyStatus, message: "another install runs"))) }
+        defer { installing.remove(session.machineID) }
+        var lockedPlan: RemoteInstallPlan?
+        if automatic == nil {
+            await link.handle(.installStarted)
+            session.lastError = nil
+        }
         do {
             session.installPhase = .manifest
-            let plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
+            var plan = try await installer.plan(commit: commit, treeKey: BundledCmuxTUI.treeKey(binary: binary), platform: platform,
                                                 remoteBinary: host.remoteBinary)
+            if let automatic {
+                session.installPhase = nil
+                guard plan.commit != automatic.lowercased() else {
+                    logger.info("update of \(host.destination.description, privacy: .public) skipped: it already runs \(plan.commit, privacy: .public), the build this app installs")
+                    return
+                }
+                plan.expectedRemoteIdentity = automatic
+            }
             // Turned off while planning: refuse before the remote work starts (never mid-install).
             if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
+            lockedPlan = plan
             try await installer.install(plan, on: host, daemonPID: daemonPID, environment: environment) { phase in
                 // task-owner: one main-actor hop per install step
                 Task { @MainActor in session.installPhase = phase }
             }
             session.installPhase = nil
             logger.info("installed cmux-tui \(plan.commit, privacy: .public) on \(host.destination.description, privacy: .public)")
-            await link.handle(.installFinished(.success))
+            session.updateOffered = false
+            if automatic == nil { await link.handle(.installFinished(.success)) }
+            // The machine's agent daemon still runs the replaced binary (cx-brq9m): hand it over to
+            // the new one, keeping its agents, before the next chat needs it.
+            await handOffAgentDaemonAfterInstall(session)
+            await installer.releaseLock(plan, on: host, environment: environment)
             reconnect(session)
         } catch {
+            if let lockedPlan { await installer.releaseLock(lockedPlan, on: host, environment: environment) }
             session.installPhase = nil
+            if automatic != nil {
+                // The machine keeps its old build and its link; the restart may have run, so link again.
+                reconnect(session)
+                throw error
+            }
             let message = RemoteStrings.installFailure(error)
             session.lastError = message
             await link.handle(.installFinished(.failure(message)))

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextFocus
 
 /// Chords a browser owns while a page, the address bar or the find bar has
 /// the keyboard (plans/cmux-next/focus.md section 5, "Browser context").

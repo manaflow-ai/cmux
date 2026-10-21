@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextDaemon
 import CmuxNextRemote
+import CmuxNextWorkspaceRepair
 import Foundation
 import Observation
 

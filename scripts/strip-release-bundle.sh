@@ -60,6 +60,13 @@ strip_executable() {
   strip_if_macho "$1" full
 }
 
+# cmux NEXT links its executable with -no_exported_symbols, so the strip below
+# removes every function name. Keep them in Resources/cmux-symbols.bin first:
+# hang records and exception traces name app frames through it.
+if [ -f "$APP_PATH/Contents/MacOS/cmux" ]; then
+  python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/write-app-symbol-map.py" \
+    "$APP_PATH/Contents/MacOS/cmux" "$APP_PATH/Contents/Resources/cmux-symbols.bin"
+fi
 strip_executable "$APP_PATH/Contents/MacOS/cmux"
 # bin/cmux is the Rust cmux-tui binary, which ships no dSYM: keep its global
 # symbols (-S -x) so its crash reports still name functions.
@@ -112,6 +119,17 @@ if [ -d "$APP_PATH/Contents/Library/SystemExtensions" ]; then
   while IFS= read -r -d '' binary; do
     strip_if_macho "$binary"
   done < <(find "$APP_PATH/Contents/Library/SystemExtensions" -path '*/Contents/MacOS/*' -type f -print0)
+fi
+
+# Mergeable frameworks (Sentry.framework) carry LC_ATOM_INFO, data that only a
+# static link into another image reads, never dyld: 6.6 MB of Sentry's 9.7 MB
+# binary (nightly-next, 2026-10-20). Remove it and the debug stabs (-S); every
+# symbol stays, so the framework's own frames still symbolicate.
+if [ -d "$APP_PATH/Contents/Frameworks" ]; then
+  while IFS= read -r -d '' binary; do
+    echo "removing LC_ATOM_INFO: $binary"
+    "$STRIP_TOOL" -S -no_atom_info -no_code_signature_warning "$binary"
+  done < <(python3 -I "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/find-atom-info-macho.py" "$APP_PATH/Contents/Frameworks")
 fi
 
 # Compiled String Catalogs ship as binary property lists. Xcode re-encodes them

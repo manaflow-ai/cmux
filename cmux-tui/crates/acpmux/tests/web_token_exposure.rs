@@ -4,6 +4,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
 
 use acpmux::config::{Config, PeerConfig, StoreMode, WebSocketConfig};
 use acpmux::hub::Hub;

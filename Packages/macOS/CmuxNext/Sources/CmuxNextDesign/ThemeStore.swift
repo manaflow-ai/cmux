@@ -38,6 +38,9 @@ public final class ThemeStore {
     public private(set) var accentFollowsArt = false
 
     @ObservationIgnored private let publishesGlobally: Bool
+    /// The Ghostty config's colors reached the windows once: later changes are color changes that
+    /// animate (`ColorTransition.current` is instant until then, so launch never fades in).
+    @ObservationIgnored public private(set) var hasAppliedConfig = false
     @ObservationIgnored private let responders = NSHashTable<AnyObject>.weakObjects()
 
     public init(input: ThemeInput = .ghosttyDefault) {
@@ -61,6 +64,8 @@ public final class ThemeStore {
     /// derived tokens did not change (no invalidation happens then).
     @discardableResult
     public func apply(_ input: ThemeInput) -> Bool {
+        let firstConfig = !hasAppliedConfig
+        defer { if publishesGlobally { hasAppliedConfig = true } }
         var input = input
         input.accent = accent
         let previous = self.input
@@ -80,8 +85,14 @@ public final class ThemeStore {
         if publishesGlobally {
             ThemeSnapshot.store(derived)
             // Room, workspace and terminal scopes inherit from the app scope.
-            ThemeScope.app.storeDidChange()
-            for window in NSApp?.windows ?? [] { refresh(window) }
+            // A theme, light/dark or Ghostty config change recolors every window in place: its
+            // layer colors blend from the ones on screen (colors drawn in draw(_:) and terminal
+            // surfaces switch at once). Not the first config of the launch: windows show it as
+            // their first colors.
+            ThemeRepaint.batch {
+                ThemeScope.app.storeDidChange()
+                for window in NSApp?.windows ?? [] { refresh(window, crossfade: !firstConfig) }
+            }
         }
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
@@ -96,7 +107,7 @@ public final class ThemeStore {
         guard theme != appTheme else { return false }
         appTheme = theme
         generation += 1
-        if publishesGlobally { repaintAll() }
+        if publishesGlobally { repaintAll(crossfade: true) }
         return true
     }
 
@@ -109,8 +120,10 @@ public final class ThemeStore {
         // Two accents can give the config's theme the same tokens (`theme` and `magenta` under
         // Rose Pine) while an overridden scope's theme still differs, so scopes re-derive anyway.
         if !apply(input), publishesGlobally {
-            ThemeScope.app.storeDidChange()
-            repaintAll()
+            ThemeRepaint.batch {
+                ThemeScope.app.storeDidChange()
+                repaintAll(crossfade: true)
+            }
         }
         return true
     }
@@ -123,8 +136,10 @@ public final class ThemeStore {
         accentFollowsArt = follows
         generation += 1
         if publishesGlobally {
-            ThemeScope.app.accentSourceDidChange()
-            repaintAll()
+            ThemeRepaint.batch {
+                ThemeScope.app.accentSourceDidChange()
+                repaintAll(crossfade: true)
+            }
         }
         return true
     }
@@ -132,8 +147,12 @@ public final class ThemeStore {
     /// Repaints every window and responder as a theme change does, for a
     /// change that moves resolved colors or widths without a new theme
     /// (`appearance.borders`).
-    public func repaintAll() {
-        for window in NSApp?.windows ?? [] { refresh(window) }
+    /// - Parameter crossfade: The change recolors (app theme, accent): layer colors blend
+    ///   (`appearance.colorTransition`). Layout changes (borders, fonts) repaint at once.
+    public func repaintAll(crossfade: Bool = false) {
+        ThemeRepaint.batch {
+            for window in NSApp?.windows ?? [] { refresh(window, crossfade: crossfade) }
+        }
         for responder in responders.allObjects {
             (responder as? any ThemeResponsive)?.themeDidChange()
         }
@@ -153,20 +172,20 @@ public final class ThemeStore {
     }
 
     /// Each window takes its own scope's appearance (a light room in a dark
-    /// config stays light).
-    private func refresh(_ window: NSWindow) {
-        window.appearance = window.themeScope.appearance
-        if let contentView = window.contentView { Self.invalidate(contentView) }
-        window.invalidateShadow()
-    }
-
-    /// Views already re-resolve colors when their effective appearance
-    /// changes (the one hook every chrome view implements), and a theme
-    /// change is exactly that: the colors behind the dynamic tokens moved.
-    /// A dark-to-dark theme switch leaves the appearance name unchanged, so
-    /// AppKit would not call it; the store does.
-    private static func invalidate(_ view: NSView) {
-        ThemeScope.invalidate(view)
+    /// config stays light) and every view in it runs its theme hook once: a
+    /// config change can move every scope's colors, and colors outside any
+    /// scope follow the app theme. A recolor blends each layer color from the
+    /// one on screen (`ThemeRepaint`); a layout change (borders, fonts) lays
+    /// the views out again and applies at once.
+    private func refresh(_ window: NSWindow, crossfade: Bool = false) {
+        ThemeRepaint.beforeHooks { [weak window] in
+            guard let window else { return }
+            window.appearance = window.themeScope.appearance
+            window.invalidateShadow()
+        }
+        if let contentView = window.contentView {
+            ThemeRepaint.request(contentView, roots: { () -> [NSView] in [contentView] }, scope: nil, animated: crossfade, layout: !crossfade)
+        }
     }
 }
 

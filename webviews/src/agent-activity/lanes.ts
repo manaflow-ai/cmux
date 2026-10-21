@@ -13,6 +13,12 @@ export type Lane = {
   state: LaneState;
   since?: number | null;
   error?: string | null;
+  /** The harness that runs it, as acpmux names it ("claude", "codex"). */
+  harness?: string | null;
+  /** What it is doing now: the running turn's prompt, else the agent's last message (hq#2509). */
+  step?: string | null;
+  /** Existing sessionId → workspace binding, used when jumping to the row. */
+  workspaceId?: string | null;
 };
 export type LaneGroup = { id: string; title?: string; lanes: Lane[]; attention: number };
 export type LaneMachine = { id: string; name: string; groups: LaneGroup[]; attention: number };
@@ -48,7 +54,7 @@ export function laneOrder(a: Lane, b: Lane): number {
 function matches(lane: Lane, filter: string): boolean {
   const needle = filter.trim().toLocaleLowerCase();
   if (!needle) return true;
-  return [lane.title, lane.name, lane.peer ?? "", lane.parent ?? "", lane.error ?? ""].some((value) =>
+  return [lane.title, lane.name, lane.peer ?? "", lane.parent ?? "", lane.error ?? "", lane.step ?? ""].some((value) =>
     value.toLocaleLowerCase().includes(needle),
   );
 }

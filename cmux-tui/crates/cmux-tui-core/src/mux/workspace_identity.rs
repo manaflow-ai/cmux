@@ -234,6 +234,16 @@ impl Mux {
         })
     }
 
+    /// The key of the workspace `surface` is in, when it is a canonical
+    /// workspace UUID; None otherwise (no workspace, or a key of another form).
+    pub(crate) fn surface_workspace_key(&self, surface: SurfaceId) -> Option<String> {
+        let workspace = self.surface_workspace(surface)?;
+        self.with_state(|state| {
+            let key = &state.workspace_by_id(workspace)?.key;
+            crate::workspace_registry::is_canonical_workspace_key(key).then(|| key.clone())
+        })
+    }
+
     pub(super) fn require_workspace_revision(
         state: &State,
         expected: Option<u64>,

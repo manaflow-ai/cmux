@@ -11,6 +11,11 @@
 //! One test: the methods read acpmux's home from ACPMUX_HOME, a process-wide
 //! setting.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::Message;
@@ -227,6 +232,30 @@ async fn a_chat_switches_from_proxy_a_to_proxy_b_without_a_restart() {
     assert_eq!(info["agentSessionId"], agent_session, "the same agent session resumed: {info}");
     let active = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
     assert_eq!(active["active"], json!({"routeId": "proxy-b", "scope": "chat"}), "{active}");
+
+    // With a session, the list names its family and which routes serve it: the
+    // composer's Account menu offers only those.
+    local
+        .ok(
+            "_acpmux/route/add",
+            json!({"id": "codex-only", "kind": "custom-openai", "families": ["codex"],
+                   "openaiBaseUrl": "http://127.0.0.1:9/o"}),
+        )
+        .await;
+    let listed = local.ok("_acpmux/route/list", json!({"sessionId": id})).await;
+    assert_eq!(listed["family"], "claude", "{listed}");
+    let serves = |route: &str| {
+        listed["routes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|r| r["id"] == route)
+            .map(|r| r["serves"].clone())
+    };
+    assert_eq!(serves("proxy-b"), Some(json!(true)), "{listed}");
+    assert_eq!(serves("codex-only"), Some(json!(false)), "{listed}");
+    let bare = local.ok("_acpmux/route/list", json!({})).await;
+    assert!(bare["routes"][0].get("serves").is_none(), "no session, no serves: {bare}");
 
     // During a turn: "now" stops it and switches; "after-turn" lets it end.
     local.start_prompt(&id, "slow").await;

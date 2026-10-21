@@ -1,15 +1,30 @@
 // The system-blue ratchet (scripts/cmux-next/check-system-blue.py, cx-wqn5): UI code paints the
 // theme, never macOS's or WebKit's default blue or a fixed blue. It warns (style ratchets warn) and
 // never fails. Runs the real script on temp trees and on this checkout.
-import { afterAll, describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { prScope } from "./support/prScope";
 
 const script = path.resolve(import.meta.dir, "../../scripts/cmux-next/check-system-blue.py");
+setDefaultTimeout(30_000);
 const roots: string[] = [];
 afterAll(() => roots.forEach((root) => rmSync(root, { recursive: true, force: true })));
+
+// The ratchet is intentionally whole-tree. On a pull request, only a new finding in a changed
+// source file (or a change to the ratchet itself) should make the webviews lane red; an older
+// finding on feat-cmux-next remains visible as a warning until its owner fixes it.
+const scope = prScope({
+  rules: [
+    "webviews/test/check-system-blue.test.ts",
+    "webviews/test/support/prScope.ts",
+    "scripts/cmux-next/check-system-blue.py",
+    // The baseline is tab-separated rather than a quoted list, so changing it owns every finding.
+    "scripts/cmux-next/system-blue-baseline.tsv",
+  ],
+});
 
 function tree(files: Record<string, string>, baseline = ""): { root: string; baseline: string } {
   const root = mkdtempSync(path.join(tmpdir(), "system-blue-"));
@@ -85,6 +100,15 @@ describe("check-system-blue", () => {
   test("this checkout is within its baseline", () => {
     const result = run([]);
     expect(result.status).toBe(0);
-    expect(result.out).toContain("check-system-blue: ok");
+    const findings = [
+      ...result.out.matchAll(/^\s+([^:\n]+): \d+ system-accent or blue literals, baseline \d+:.*$/gm),
+    ].map(([, file]) => file!);
+    expect(
+      scope.owned(
+        findings,
+        (file) => ({ files: [file] }),
+        (file) => file,
+      ),
+    ).toEqual([]);
   });
 });

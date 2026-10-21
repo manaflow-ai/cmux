@@ -207,14 +207,37 @@ class WebValidationTests(unittest.TestCase):
         """`bun test` in webviews grows memory across the suite: on the 4 vCPU runner
         (vars.LINUX_RUNNER) it was SIGKILLed, exit 137, twice in run 37666132324."""
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
-        start = workflow.index("  react-apps-check:")
+        start = workflow.index("  react-apps-check-shard:")
         match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
         block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
         runs_on = re.search(r"^    runs-on: (.+)$", block, re.MULTILINE).group(1)
         self.assertIn("scripts/ci/run-webviews-tests.sh", block)
         self.assertNotIn("vars.LINUX_RUNNER", runs_on)
         self.assertNotIn("4vcpu", runs_on)
-        self.assertIn("'blacksmith-8vcpu-ubuntu-2404'", runs_on)
+        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", runs_on)
+
+    def test_webviews_tests_shard_on_wide_runners(self):
+        """Two 8 vCPU shards each ran about 65 dev-server files two at a time for 12 of
+        their 14-16 minutes. Twelve 8 vCPU shards took 14.3 min: each paid a cold Vite
+        warm-up. Four 32 vCPU shards run eight dev-server files at once on a shared warm
+        cache; Blacksmith runners are free and ran 256 jobs at 32 vCPU without queueing."""
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        start = workflow.index("  react-apps-check-shard:")
+        match = re.search(r"\n  [A-Za-z0-9_-]+:", workflow[start + 3 :])
+        block = workflow[start:] if match is None else workflow[start : start + 3 + match.start()]
+        shards = [int(n) for n in re.findall(r"^          - shard: (\d+)$", block, re.MULTILINE)]
+        counts = set(re.findall(r"^            shard_count: (\d+)$", block, re.MULTILINE))
+        self.assertEqual(len(shards), 4)
+        self.assertIn("'blacksmith-32vcpu-ubuntu-2404'", block)
+        self.assertEqual(shards, list(range(1, len(shards) + 1)))
+        self.assertEqual(counts, {str(len(shards))})
+        for step in ("Generated bundle merge driver", "Check diff viewer eager JS budget",
+                     "Verify React Compiler for webviews", "Check webviews (Oxlint, Oxfmt, type check)",
+                     "Check PR-scoped webview rules"):
+            with self.subTest(step=step):
+                body = block[block.index(f"- name: {step}"):]
+                body = body[: body.index("\n      - name:", 1)] if "\n      - name:" in body[1:] else body
+                self.assertIn("if: matrix.shard == 1", body)
 
     def test_pr_and_merge_group_checks_belong_to_ci(self):
         delegated = {"changes": {"result": "success", "outputs": {"required": "true"}},

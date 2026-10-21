@@ -295,11 +295,8 @@ fn the_owner_and_a_chief_set_chief_pictures_and_the_aliases_keep_their_shapes() 
     let scout = made["value"]["id"].as_str().unwrap().to_owned();
     let mut as_scout = bound(&server, &mut home, &scout);
     ok(&set(&mut as_scout, &scout, PNG, "scout-own"));
-    // Never another Chief's, never a person's.
-    assert_eq!(
-        reason(&set(&mut as_scout, "agent_mux", PNG, "scout-mux")),
-        "chief_self_edit_denied"
-    );
+    // Never a Chief's that holds more than it (chief_manage.rs), never a person's.
+    assert_eq!(reason(&set(&mut as_scout, "agent_mux", PNG, "scout-mux")), "target_exceeds_caller");
     assert_eq!(reason(&set(&mut as_scout, "user_local", PNG, "scout-me")), "avatar_not_yours");
     // Without avatar in its self_edit, not even its own.
     let rev =

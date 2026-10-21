@@ -5,30 +5,38 @@ import Foundation
 import Testing
 
 /// Leo and Lawrence 2026-10-14: no count numbers on NEXT sidebar rows ("maybe we can do unreads
-/// like this", T3 Code's thread list). A row leads with its harness logo (an agent row) or its
-/// kind icon (terminal, browser), and its state is one small badge on that icon's bottom-right
-/// corner, avatar-presence style: a blue dot when unread, a grey ring while working, the waiting
-/// and error glyphs when it needs the user, the most urgent first. The right side shows the dim
-/// time since the last change. The count reads in the row's hover card and its accessibility label.
+/// like this", T3 Code's thread list). A row's state is one small glyph in the trailing slot, also
+/// when the row has the user's icon or a favicon (Lawrence 2026-10-19: nothing but the icon on the
+/// left); a row without one is text only (WORKSPACE-ROWS-NO-DEFAULT-ICON, Lawrence: no kind icon or
+/// agent logo): a blue dot when unread, a grey ring while working, the waiting
+/// and error glyphs when it needs the user, the most urgent first. No time draws on the right
+/// unless `sidebar.showTimestamps` is on (`SidebarNoTimestampsTests`). The count reads in the row's hover card and its accessibility label.
 @MainActor @Suite(.serialized) struct SidebarRowCornerBadgeTests {
     private static let agent = WorkspaceID("ws-agent")
     private static let terminal = WorkspaceID("ws-terminal")
     private static let failing = WorkspaceID("ws-failing")
+    private static let custom = WorkspaceID("ws-custom")
     private static let now = Date()
 
-    private static func sidebar(_ style: SidebarRowBadgeStyle? = nil) -> SidebarView {
+    private static func sidebar(_ style: SidebarRowBadgeStyle? = nil, detailed: Bool = false) -> SidebarView {
         let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
         let agentRow = SidebarWorkspace(id: agent, title: "cmux-next", lastActivity: now.addingTimeInterval(-180),
-                                        kind: .harness, unread: .count(1), activity: .success, agentBrand: "claude")
+                                        kind: .harness, kindBrand: "claude", unread: .count(1), activity: .success, agentBrand: "claude")
         let terminalRow = SidebarWorkspace(id: terminal, title: "workspace-1", lastActivity: now.addingTimeInterval(-60),
                                            kind: .terminal, unread: .count(2))
         let failingRow = SidebarWorkspace(id: failing, title: "api", lastActivity: now.addingTimeInterval(-60),
                                           kind: .terminal, unread: .count(3), activity: .error)
+        let customRow = SidebarWorkspace(id: custom, title: "notes", lastActivity: now.addingTimeInterval(-60),
+                                         icon: .emoji("🦊"), kind: .terminal, unread: .count(1))
         let model = SidebarModel(sections: [
-            SidebarSection(kind: .machine(machine), nodes: [.workspace(agentRow), .workspace(terminalRow), .workspace(failingRow)]),
+            SidebarSection(kind: .machine(machine), nodes: [.workspace(agentRow), .workspace(terminalRow), .workspace(failingRow),
+                                                            .workspace(customRow)]),
         ])
         model.rowBadgeStyle = style
-        let sidebar = SidebarView(model: model, design: DesignSettings())
+        model.detailedStatus = detailed
+        let design = DesignSettings()
+        design.sidebarSections.detailedStatusIcons = detailed
+        let sidebar = SidebarView(model: model, design: design)
         sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
         sidebar.layoutSubtreeIfNeeded()
         sidebar.list.reload(animated: false)
@@ -53,29 +61,35 @@ import Testing
         return found
     }
 
-    /// The badge on the leading icon's bottom-right corner: a status glyph whose center sits right
-    /// of and below the icon's center, overlapping the icon.
+    /// The one badge glyph: right of the title, never on the icon (Lawrence 2026-10-19: nothing but
+    /// the favicon or the user's icon in the leading slot), with or without an icon.
     private static func cornerBadge(_ row: WorkspaceRowView) throws -> StatusIndicatorView {
         let icon = row.icon.frame
         let badge = visible(StatusIndicatorView.self, in: row).first { _, frame in
-            frame.intersects(icon) && frame.midX > icon.midX && (row.isFlipped ? frame.midY > icon.midY : frame.midY < icon.midY)
+            frame.minX > row.title.frame.minX && (row.icon.isHidden || !frame.intersects(icon))
         }
-        return try #require(badge?.view, "no badge on the icon's corner: icon \(icon)")
+        return try #require(badge?.view, "no trailing badge: icon \(icon) hidden \(row.icon.isHidden)")
     }
 
-    @Test func rowsLeadWithTheirLogoOrKindIconAndDrawNoCountNumber() throws {
+    @Test func rowsAreTextOnlyUnlessTheUserSetAnIconAndDrawNoCountNumber() throws {
         let sidebar = Self.sidebar()
-        for id in [Self.agent, Self.terminal, Self.failing] {
+        for id in [Self.agent, Self.terminal, Self.failing, Self.custom] {
             let row = try Self.row(sidebar, id)
-            #expect(!row.icon.isHidden && row.icon.frame.width > 0, "\(id): no leading icon")
+            if id == Self.custom {
+                #expect(!row.icon.isHidden && row.icon.frame.width > 0, "\(id): the user's icon does not draw")
+            } else {
+                #expect(row.icon.isHidden || row.icon.frame.width == 0, "\(id): a kind icon or agent logo draws")
+                #expect(row.debugIcon == nil, "\(id): debug icon \(row.debugIcon ?? "")")
+            }
             #expect(Self.visible(UnreadBadgeView.self, in: row).isEmpty, "\(id): a count badge still draws")
-            #expect(!row.timeLabel.isHidden && !row.timeLabel.stringValue.isEmpty, "\(id): no time on the right")
-            #expect(row.timeLabel.frame.minX > row.title.frame.minX, "\(id): the time is not on the right")
+            #expect(row.timeLabel.isHidden || row.timeLabel.stringValue.isEmpty, "\(id): a time draws by default (sidebar.showTimestamps)")
         }
     }
 
+    /// With detailed status icons (`sidebar.detailedStatusIcons`); by default an error reads as
+    /// Ready (`SidebarStatusSimpleTests`).
     @Test func theCornerBadgeSaysTheMostUrgentState() throws {
-        let sidebar = Self.sidebar()
+        let sidebar = Self.sidebar(detailed: true)
         // Readable at 1x (coordinator 2026-10-14: the i, shield and bubble were not): a 10 pt
         // glyph on whole points, so the static glyphs' pixel art lands on the pixel grid.
         let badge = try Self.cornerBadge(Self.row(sidebar, Self.failing))
@@ -85,6 +99,7 @@ import Testing
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.agent)).state == .success, "unread: the blue dot")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.terminal)).state == .success, "unread: the blue dot")
         #expect(try Self.cornerBadge(Self.row(sidebar, Self.failing)).state == .error, "an error outranks unread")
+        #expect(try Self.cornerBadge(Self.row(sidebar, Self.custom)).state == .success, "on the user's icon: the blue dot")
     }
 
     @Test func theCountReadsInTheHoverCardAndTheLabel() throws {
@@ -95,11 +110,38 @@ import Testing
         #expect(row.accessibilityLabel()?.contains(Strings.unreadCount(3)) == true)
     }
 
+    /// Lawrence 2026-10-18 (screen recording): the spinner and the blue dot at a text-only row's end
+    /// had "a weird background circle thing". A lone glyph in the trailing slot draws bare: no
+    /// tonal chip and no cutout ring behind it, in either badge style, also on a row with the
+    /// user's icon (its badge is in the trailing slot too, Lawrence 2026-10-19).
+    @Test func aLoneTrailingGlyphHasNoDiscBehindIt() throws {
+        var working = SidebarWorkspace(id: Self.terminal, title: "build", kind: .terminal, activity: .working)
+        working.agentWorking = true // agent work shows only on a row whose agent is working
+        let unread = SidebarWorkspace(id: Self.agent, title: "panes", kind: .terminal, unread: .count(1))
+        let iconRow = SidebarWorkspace(id: Self.custom, title: "notes", icon: .emoji("🦊"), kind: .terminal, unread: .count(1))
+        for style in [SidebarRowBadgeStyle.corner, .stack] {
+            let machine = SidebarMachine(id: .local, name: "This Mac", kind: .local)
+            let model = SidebarModel(sections: [SidebarSection(kind: .machine(machine), nodes: [.workspace(working), .workspace(unread), .workspace(iconRow)])])
+            model.rowBadgeStyle = style
+            let sidebar = SidebarView(model: model, design: DesignSettings())
+            sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+            sidebar.layoutSubtreeIfNeeded()
+            sidebar.list.reload(animated: false)
+            sidebar.list.rowViews.values.forEach { $0.layoutSubtreeIfNeeded() }
+            for id in [Self.terminal, Self.agent, Self.custom] {
+                let badge = try Self.row(sidebar, id).rowBadge
+                #expect(badge.states.count == 1, "\(style) \(id): \(badge.states)")
+                #expect(badge.look == .plain, "\(style) \(id): \(badge.look)")
+                #expect(!badge.drawsBackdrop, "\(style) \(id): a disc draws behind the glyph")
+            }
+        }
+    }
+
     /// Leo's alternative (`sidebar.rowBadge` stack): one glyph per pending item in the trailing slot,
     /// the most urgent first, overlapping like an avatar stack, up to the stack size (five by
     /// default, `SidebarRowBadgeStackCapTests`); the tooltip says the count.
     @Test func theStackDrawsOneOverlappingGlyphPerItemMostUrgentFirst() throws {
-        let row = try Self.row(Self.sidebar(.stack), Self.failing)
+        let row = try Self.row(Self.sidebar(.stack, detailed: true), Self.failing)
         let stack = try #require(Self.visible(RowBadgeView.self, in: row).first)
         #expect(stack.view.states == [.error, .success, .success, .success])
         #expect(stack.frame.minX > row.title.frame.minX, "the stack is in the trailing slot")

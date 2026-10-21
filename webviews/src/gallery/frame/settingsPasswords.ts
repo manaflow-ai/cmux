@@ -154,7 +154,6 @@ export async function mountSettingsPage(state: SettingsPageVariant, context: Sta
     `${location.pathname}${location.search}#${sectionHref(state.section, state.focus, state.workspace)}`,
   );
   document.documentElement.dataset.cmuxPage = "settings";
-  if (state.look) document.documentElement.dataset.settingsLook = state.look;
   await import("../../pages/settings/main");
   if (!state.loading && !state.options?.failing && state.options?.connected !== false) {
     const { categoryOf, categoryRows } = await import("../../pages/settings/categories");

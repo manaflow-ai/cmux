@@ -5,9 +5,10 @@
 import { installGalleryClock } from "../clock";
 import { readEnv, widthPx } from "../env";
 import { readTunes } from "../../experiments/tunable";
+import { readOptions } from "../options";
 import type { GalleryEntry } from "../format";
 import { errorText, readyEntries } from "../entryStore";
-import { entryStore } from "../registry";
+import { createFrameEntryStore } from "../registry";
 import { watchStageErrors } from "./liveErrors";
 import { DEFAULT_DARK_THEME, DEFAULT_LIGHT_THEME, themeIsDark, type GhosttyTheme } from "../theme/ghostty";
 import { agentPaneTheme, diffAppearance, themeTokens, webThemePayload } from "../theme/web";
@@ -16,17 +17,30 @@ import themes from "virtual:cmux-gallery/themes";
 import webThemeBootstrap from "virtual:cmux-gallery/web-theme";
 import type { StageContext } from "./context";
 import { emulateMedia } from "./media";
+import "./frame.css";
+import revision from "virtual:cmux-gallery/revision";
 
 installGalleryClock();
 
 const params = new URLSearchParams(location.search);
 const env = readEnv(params);
 const root = document.documentElement;
+const stageRoot = document.getElementById("root");
+const sourceHint = params.get("source") || undefined;
+
+// A frame can be opened directly while the shell is still loading unrelated gallery modules.
+// Keep that wait explicit so a slow sibling never looks like a broken white page.
+const requestedId = params.get("entry");
+const entryStore = createFrameEntryStore(sourceHint);
+if (requestedId && stageRoot) {
+  stageRoot.textContent = `Loading ${requestedId}…`;
+  stageRoot.className = "gallery-frame-loading";
+}
 
 function fail(message: string): never {
   root.dataset.galleryReady = "error";
   document.body.textContent = message;
-  document.body.style.cssText = "font: 13px ui-monospace, monospace; color: #c33; padding: 16px; white-space: pre-wrap";
+  document.body.className = "gallery-frame-error";
   parent.postMessage({ type: "cmux-gallery-stage", status: "error", message }, "*");
   throw new Error(message);
 }
@@ -35,18 +49,25 @@ const byName = new Map(themes.map((theme) => [theme.name, theme]));
 const themeNamed = (name: string, fallback: string): GhosttyTheme =>
   byName.get(name) ?? byName.get(fallback) ?? fail(`No Ghostty theme named ${JSON.stringify(name)}`);
 
-// Every entry file loads on its own (entryStore.ts): a broken sibling file does not stop this stage.
-const settled = await entryStore.settled();
-const entryState = settled.find((state) => state.entry?.id === params.get("entry"));
+if (sourceHint && entryStore.getSnapshot().length === 0)
+  fail(`No gallery entry source ${JSON.stringify(sourceHint)}. The link is stale; reopen it from the shell.`);
+
+// A frame renders one requested entry. Resolve it as soon as that entry loads; a broken or slow
+// sibling must never leave a valid stage blank while the shell is still auditing the full registry.
+// A missing entry still falls back to the full settled list so the error can name the bad sources.
+const match = requestedId ? await entryStore.find(requestedId) : undefined;
+const settled = match?.entry ? undefined : await entryStore.settled();
+const entryState = match?.state ?? settled?.find((state) => state.entry?.id === requestedId);
 // The live dev server: a save of this stage's entry file (or of any file, while it does not load)
 // reloads this stage alone; compile errors in stage code show inside the stage (liveErrors.ts).
 watchStageErrors(entryState?.path);
 const entry: GalleryEntry =
-  readyEntries(settled).find((candidate) => candidate.id === params.get("entry")) ??
+  match?.entry ??
+  (settled ? readyEntries(settled).find((candidate) => candidate.id === requestedId) : undefined) ??
   fail(
     [
-      `No gallery entry ${JSON.stringify(params.get("entry"))}.`,
-      ...settled
+      `No gallery entry ${JSON.stringify(requestedId)}.`,
+      ...(settled ?? [])
         .filter((state) => state.status === "error")
         .map((state) => `\n${state.path} does not load:\n${errorText(state.error)}`),
     ].join("\n"),
@@ -85,10 +106,15 @@ bootstrap.remove();
 (window as unknown as { cmuxTheme: { apply(payload: unknown): void } }).cmuxTheme.apply(
   webThemePayload(tokens, deriveAppTheme(theme, env.accent)),
 );
-// Interface scale: the app sets WKWebView.pageZoom (DesignSettings.uiScale).
+// Document scale and the chrome scale are separate. The app sets pageZoom for the former and
+// this token for the latter; gallery exposes both so each sheet is reproducible.
 if (env.scale !== 1) root.style.zoom = String(env.scale);
+root.style.setProperty("--cmux-interface-scale", String(env.interfaceScale));
 root.dataset.galleryEntry = entry.id;
 root.dataset.galleryVariant = variantName;
+root.dataset.gallerySource = entryState?.path ?? "";
+root.dataset.galleryEntryVersion = String(entryState?.version ?? "");
+root.dataset.galleryRevision = revision.sha;
 
 // An experiment's arm (the compare view's cells, the matrix runner's experiment cases): the page
 // reads it through experimentArm(), and the harness controls every Web Animation it starts.
@@ -107,6 +133,8 @@ if (experiment && arm) {
 
 // Edited tunables (the stage's curve editors): the page reads them through tunableValue().
 globalThis.cmuxTunables = { ...globalThis.cmuxTunables, ...readTunes(params.get("tune") ?? "") };
+// The entry's changed options (options.ts): the component host applies them to the variant's props.
+const optionValues = readOptions(params.get("opts") ?? "");
 
 const log: { method: string; params?: unknown }[] = [];
 (window as unknown as { cmuxGalleryLog: typeof log }).cmuxGalleryLog = log;
@@ -118,12 +146,28 @@ const context: StageContext = {
   agentTheme: agentPaneTheme(tokens, env.reducedMotion),
   appearance: diffAppearance(pair, { family: env.fontFamily || undefined, size: env.fontSize || undefined }),
   log: (method, params) => log.push({ method, params }),
+  options: optionValues,
 };
+
+if (stageRoot) {
+  stageRoot.textContent = "";
+  stageRoot.className = "";
+}
 
 function markReady(): void {
   if (window.cmuxGalleryPlayReport) root.dataset.galleryPlay = window.cmuxGalleryPlayReport.status;
   root.dataset.galleryReady = "1";
-  parent.postMessage({ type: "cmux-gallery-stage", status: "ready", width: widthPx(env.width, entry.widths) }, "*");
+  parent.postMessage(
+    {
+      type: "cmux-gallery-stage",
+      status: "ready",
+      width: widthPx(env.width, entry.widths),
+      source: entryState?.path,
+      version: entryState?.version,
+      revision: revision.sha,
+    },
+    "*",
+  );
 }
 
 /** The variant's play steps (play.ts), then ready: the state the stage shows is the played one. */
@@ -162,9 +206,28 @@ function markReadyWhenStill(): void {
     clearTimeout(timer);
     timer = window.setTimeout(done, performance.now() - started > 4000 ? 0 : 250);
   };
+  const waitForImages = async () => {
+    const pending = [...document.images]
+      .filter((image) => !image.complete || image.naturalWidth === 0)
+      .map(
+        (image) =>
+          new Promise<void>((resolve) => {
+            const finish = () => {
+              image.removeEventListener("load", finish);
+              image.removeEventListener("error", finish);
+              resolve();
+            };
+            image.addEventListener("load", finish, { once: true });
+            image.addEventListener("error", finish, { once: true });
+            window.setTimeout(finish, 2000);
+          }),
+      );
+    await Promise.all(pending);
+    arm();
+  };
   const observer = new MutationObserver(arm);
   observer.observe(document.body, { subtree: true, childList: true, attributes: true, characterData: true });
-  void document.fonts.ready.then(arm);
+  void document.fonts.ready.then(waitForImages);
 }
 
 async function mount(): Promise<void> {
@@ -201,7 +264,7 @@ async function mount(): Promise<void> {
     case "native":
       // Drawn by the DEBUG native gallery (CmuxNextGallery); its snapshots join the matrix index.
       document.body.textContent = `${entry.id}#${variantName} is a native view: open it in the cmux-next DEBUG gallery.`;
-      document.body.style.cssText = "font: 13px system-ui; color: var(--cmux-text-secondary); padding: 16px";
+      document.body.className = "gallery-frame-native";
       return;
   }
 }

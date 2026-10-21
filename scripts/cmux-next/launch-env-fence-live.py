@@ -135,7 +135,7 @@ def stop_inherited_roots():
             homes.add(folder)
     for home in sorted(homes):
         if os.path.isdir(home):
-            subprocess.run([acpmux, "daemon", "shutdown"], env={**CLEAN_ENV, "ACPMUX_HOME": home},
+            subprocess.run([acpmux, "daemon", "shutdown", "--end-agents"], env={**CLEAN_ENV, "ACPMUX_HOME": home},
                            capture_output=True, timeout=30)
 
 

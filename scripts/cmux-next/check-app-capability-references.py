@@ -88,6 +88,7 @@ CALLS = (
     (re.compile(r"\brequires:\s*([^,()\[\]]+?)\s*[,)]"), GATE),
     (re.compile(r"\bneedsDaemonCapability\(\s*([^()]*?)\s*\)"), REFUSAL),
 )
+CALL_NAMES = {pattern: re.match(r"\\b(\w+)", pattern.pattern).group(1) for pattern, _ in CALLS}
 RUST_CONST = re.compile(r'\b(?:const|static)\s+([A-Z0-9_]*CAPABILIT[A-Z0-9_]*)\s*:\s*&(?:\'static\s+)?str\s*=\s*"([^"]+)"')
 
 
@@ -98,19 +99,30 @@ class Ref:
     where: str
 
 
+_MASK_NEXT = re.compile(r'//|/\*|"|#{1,7}"')
+_NOT_NL = re.compile(r"[^\n]")
+_STRING_STOPS: dict[tuple[int, bool], re.Pattern] = {}
+
+
 def mask(source: str) -> str:
     """Comments and string contents blanked (same length, line breaks kept), for scope and call matching.
 
     Handles raw strings (`#"..."#`), multi-line strings and quotes nested in
     `\\( ... )` interpolations, so braces inside strings never shift a scope.
+    Each scan jumps to the next character that can start or end a token, so a
+    file costs regex time, not one Python step per character.
     """
-    out = list(source)
-    n, i = len(source), 0
+    out: list[str] = []
+    n, i, kept = len(source), 0, 0
 
     def blank(a: int, b: int) -> None:
-        for k in range(a, min(b, n)):
-            if out[k] != "\n":
-                out[k] = " "
+        nonlocal kept
+        b = min(b, n)
+        if b <= a:
+            return
+        out.append(source[kept:a])
+        out.append(_NOT_NL.sub(" ", source[a:b]))
+        kept = b
 
     def string_end(i: int) -> int:
         """Index just past the string literal that starts at i (at `#` or `"`)."""
@@ -122,7 +134,15 @@ def mask(source: str) -> str:
         close = ('"""' if multi else '"') + "#" * hashes
         j += 3 if multi else 1
         escape = "\\" + "#" * hashes
+        stops = _STRING_STOPS.get((hashes, multi))
+        if stops is None:
+            alts = [re.escape(escape), re.escape(close)] + ([] if multi else ["\n"])
+            stops = _STRING_STOPS[(hashes, multi)] = re.compile("|".join(alts))
         while j < n:
+            m = stops.search(source, j)
+            if not m:
+                return n
+            j = m.start()
             if source.startswith(escape + "(", j):
                 j += len(escape) + 1
                 depth = 1
@@ -144,6 +164,10 @@ def mask(source: str) -> str:
         return n
 
     while i < n:
+        m = _MASK_NEXT.search(source, i)
+        if not m:
+            break
+        i = m.start()
         if source.startswith("//", i):
             j = source.find("\n", i)
             j = n if j < 0 else j
@@ -154,14 +178,26 @@ def mask(source: str) -> str:
             j = n if j < 0 else j + 2
             blank(i, j)
             i = j
-        elif source[i] == '"' or (source[i] == "#" and re.match(r'#+"', source[i:i + 8])):
+        else:
             j = string_end(i)
             q = source.index('"', i)
             blank(q + 1, j - 1)
             i = j
-        else:
-            i += 1
+    out.append(source[kept:])
     return "".join(out)
+
+
+def brace_ends(masked: str) -> dict[int, int]:
+    """{index of a `{`: index just past its matching `}`, or len(masked) when it has none}."""
+    ends, stack = {}, []
+    for m in re.finditer(r"[{}]", masked):
+        if m.group() == "{":
+            stack.append(m.start())
+        elif stack:
+            ends[stack.pop()] = m.start() + 1
+    for p in stack:
+        ends[p] = len(masked)
+    return ends
 
 
 class SwiftFile:
@@ -170,12 +206,9 @@ class SwiftFile:
         self.text = path.read_text(encoding="utf-8")
         self.masked = mask(self.text)
         self.scopes = []  # (start, end, type name)
+        ends = brace_ends(self.masked)
         for match in TYPE_DECL.finditer(self.masked):
-            depth, i = 1, match.end()
-            while depth and i < len(self.masked):
-                depth += {"{": 1, "}": -1}.get(self.masked[i], 0)
-                i += 1
-            self.scopes.append((match.end(), i, match.group(1).split(".")[-1]))
+            self.scopes.append((match.end(), ends[match.end() - 1], match.group(1).split(".")[-1]))
         # Constants: masked text locates them outside comments, the raw text gives the value.
         self.constants = []  # (pos, name, value, type)
         for match in CONSTANT.finditer(self.masked):
@@ -212,6 +245,10 @@ def collect(repo: Path):
             elif name == "capability" or name.endswith("Capability"):
                 refs.append(Ref(value, GATE, where))
         for pattern, kind in CALLS:
+            # Every call pattern starts with its literal name: a file without
+            # it has no match (a substring test is much cheaper than the regex).
+            if CALL_NAMES[pattern] not in f.masked:
+                continue
             for match in pattern.finditer(f.masked):
                 expr_start = match.start(1)
                 expr = f.text[expr_start:match.end(1)].strip()

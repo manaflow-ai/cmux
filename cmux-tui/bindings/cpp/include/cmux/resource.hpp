@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "cmux/json.hpp"
+#include "cmux/machine_read_options.hpp"
 #include "cmux/result.hpp"
 #include "cmux/transport.hpp"
 
@@ -765,6 +766,9 @@ struct PixelSize {
 
 enum class MachineOrigin {
     local,
+    cloud,
+    ssh,
+    server,
 };
 
 enum class MachineStatus {
@@ -773,6 +777,11 @@ enum class MachineStatus {
     sleeping,
     stopped,
     unavailable,
+};
+
+struct MachinePlatform {
+    std::optional<std::string> os;
+    std::optional<std::string> arch;
 };
 
 struct MachineSnapshot {
@@ -784,6 +793,8 @@ struct MachineSnapshot {
     bool deleted = false;
     bool recoverable = false;
     Json::Object extra;
+    std::optional<MachinePlatform> platform = std::nullopt;
+    std::vector<std::string> capabilities = {};
 };
 
 struct SessionSnapshot {
@@ -2034,6 +2045,7 @@ class Machine final : public ResourceHandle<MachineId> {
 public:
     using ResourceHandle::ResourceHandle;
     [[nodiscard]] Result<MachineSnapshot> refresh() const;
+    [[nodiscard]] Result<MachineSnapshot> refresh(MachineReadOptions options) const;
     [[nodiscard]] Result<std::vector<SessionSnapshot>> sessions() const;
     [[nodiscard]] Session session(Selector<SessionId> selector) const;
     [[nodiscard]] Session session(SessionId id) const;
@@ -2463,6 +2475,7 @@ public:
         Selector<SidebarViewId> selector) const;
     [[nodiscard]] SidebarView sidebar_view(SidebarViewId id) const;
     [[nodiscard]] Result<std::vector<MachineSnapshot>> machines() const;
+    [[nodiscard]] Result<std::vector<MachineSnapshot>> machines(MachineReadOptions options) const;
     [[nodiscard]] Result<std::vector<SessionSnapshot>> sessions(
         std::optional<Selector<MachineId>> machine = std::nullopt) const;
     [[nodiscard]] Result<MutationResult<SessionSnapshot>> open_session(

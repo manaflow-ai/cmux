@@ -21,7 +21,7 @@ import CmuxNextDesign
 ///
 /// Hover:
 /// - One treatment: a theme-token fill (`Palette.hoverFill`, the pill's
-///   lift `OmnibarStyle.barHoverFill`) that eases in and clears at once
+///   lift `OmnibarStyle.barFill(.hover, ...)`) that eases in and clears at once
 ///   (`ChromeHover.fade`), so a sweep across the buttons leaves no trail.
 /// - Hover is where the pointer is now (`PointerHover`), recomputed when the
 ///   view hides, shows or changes window: a tab switch, a parked pane or a

@@ -33,12 +33,14 @@ struct FixtureTheme: Equatable {
         let caret: NSColor
         let chipFill: NSColor
 
-        init(_ p: HomePalette) {
+        /// `measured`: the iMessage style, whose dark caret is Messages' own; the theme's look keeps the theme's caret.
+        init(_ p: HomePalette, measured: Bool = true) {
             palette = p
             func c(_ h: HomeColor) -> NSColor { NSColor(srgbRed: h.red, green: h.green, blue: h.blue, alpha: h.alpha) }
             background = c(p.background)
             incoming = c(p.incomingBubble)
-            outgoing = c(p.caret)
+            // The sent bubble's solid colour: its gradient's first stop (the caret is a colour of its own).
+            outgoing = c(p.outgoingGradient.first?.color ?? p.caret)
             connector = c(p.typingDot)
             badge = c(p.badge)
             incomingText = c(p.incomingText)
@@ -57,9 +59,11 @@ struct FixtureTheme: Equatable {
             // Display P3 like its palette (Fixture.p3; the measurements are P3).
             typingDot = light ? c(p.typingDot) : Fixture.p3(91, 91, 94)
             typingDotHighlight = light ? c(p.typingDotHighlight) : Fixture.p3(133, 133, 135)
-            placeholder = light ? c(p.placeholder) : NSColor(white: 123 / 255, alpha: 1)
-            waveform = light ? c(p.placeholder) : NSColor(white: 144 / 255, alpha: 1)
-            caret = light ? c(p.caret) : Fixture.p3(63, 143, 247)
+            // The dark placeholder and waveform are see-through inks over the field glass (MessagesLab
+            // compose-parity, Fixture.placeholderInk / waveformInk: white 0.316, 212 at 0.556).
+            placeholder = light ? c(p.placeholder) : NSColor(white: 1, alpha: 0.316)
+            waveform = light ? c(p.placeholder) : NSColor(white: 212 / 255, alpha: 0.556)
+            caret = light || !measured ? c(p.caret) : Fixture.p3(63, 143, 247)
             chipFill = light ? NSColor(white: 0, alpha: 0.08) : NSColor(white: 1, alpha: 0.12)
         }
 
@@ -73,8 +77,8 @@ struct FixtureTheme: Equatable {
     let measuredAccent: Bool
 
     init(active: HomePalette, inactive: HomePalette, measuredAccent: Bool = false) {
-        self.active = Colors(active)
-        self.inactive = Colors(inactive)
+        self.active = Colors(active, measured: measuredAccent)
+        self.inactive = Colors(inactive, measured: measuredAccent)
         self.measuredAccent = measuredAccent
     }
 }

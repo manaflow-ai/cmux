@@ -20,6 +20,7 @@ WORKFLOW = ROOT / ".github" / "workflows" / "nightly.yml"
 NEXT_FULL_BUILD = (
     "needs.decide.outputs.track == 'nightly-next' && needs.decide.outputs.fast_build != 'true'"
 )
+NEXT_FRESH_FULL_BUILD = f"inputs.nightly_next_unsigned_run == '' && ({NEXT_FULL_BUILD})"
 
 
 def step(name: str) -> str:
@@ -53,7 +54,7 @@ def with_field(block: str, key: str) -> str | None:
 def test_source_archive_step_blocks() -> None:
     build = step("Build the cmux-next source archive")
     assert field(build, "continue-on-error") is None, "the source archive step must be blocking"
-    assert field(build, "if") == NEXT_FULL_BUILD, field(build, "if")
+    assert field(build, "if") == NEXT_FRESH_FULL_BUILD, field(build, "if")
     assert "pinned-licenses/MANIFEST.json" in build, (
         "a failed source archive step must say to pin the license in pinned-licenses/MANIFEST.json"
     )
@@ -63,7 +64,7 @@ def test_source_archive_step_blocks() -> None:
 def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
     upload = step("Upload the cmux-next source archive")
     assert field(upload, "continue-on-error") is None
-    assert field(upload, "if") == NEXT_FULL_BUILD, field(upload, "if")
+    assert field(upload, "if") == NEXT_FRESH_FULL_BUILD, field(upload, "if")
     download = step("Download the Ghostty dependency license trees (cmux-next)")
     assert field(download, "continue-on-error") is None, "a missing license tree must stop the sign job"
     assert field(download, "if") == NEXT_FULL_BUILD, field(download, "if")
@@ -76,7 +77,7 @@ def test_upload_and_inject_do_not_depend_on_a_soft_outcome() -> None:
 
 def test_signing_handoff_is_license_only() -> None:
     upload = step("Upload cmux-next license trees")
-    assert field(upload, "if") == NEXT_FULL_BUILD, field(upload, "if")
+    assert field(upload, "if") == NEXT_FRESH_FULL_BUILD, field(upload, "if")
     assert with_field(upload, "name") == "cmux-next-license-trees"
     assert with_field(upload, "path") == "${{ runner.temp }}/source-archive/*-licenses"
     inject = step("Inject the Ghostty dependency licenses (cmux-next)")
@@ -97,7 +98,7 @@ def test_libghostty_vt_check_blocks() -> None:
     # shipped license tree; a gap stops nightly-next and the dry run.
     check = step("libghostty-vt Zig packages are covered by the notices")
     assert field(check, "continue-on-error") is None, "the libghostty-vt check must be blocking"
-    assert field(check, "if") == NEXT_FULL_BUILD, field(check, "if")
+    assert field(check, "if") == NEXT_FRESH_FULL_BUILD, field(check, "if")
     assert "check_ghostty_vt_notices.py" in check
     assert "--ghostty-revision" not in check, "cmux-next follows the gitlink"
     dry_run = (ROOT / ".github" / "workflows" / "cmux-next-source-archive.yml").read_text(encoding="utf-8")

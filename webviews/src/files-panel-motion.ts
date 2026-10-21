@@ -1,3 +1,5 @@
+import { isAgentMotionOff } from "./agent-session/shared/motion";
+
 /**
  * The files panel's open and close motion.
  *
@@ -171,6 +173,27 @@ export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMo
     running = [];
   };
 
+  // The host can change `ui.animationSpeed` while a slide is in flight. CSS transitions are
+  // covered by the root policy rule, but Web Animations need an explicit cancellation and the
+  // panel must settle its layout state before the next paint. Observe the root once per controller
+  // so a setting change cannot leave a canceled slide with stale motion markers or a narrow grid.
+  const motionRoot = typeof document !== "undefined" ? document.documentElement : null;
+  const motionObserver =
+    motionRoot && typeof MutationObserver !== "undefined"
+      ? new MutationObserver(() => {
+          if (!isAgentMotionOff()) return;
+          generation += 1;
+          stop();
+          const panel = host.panel();
+          host.body.dataset.filesHidden = visible ? "false" : "true";
+          if (panel != null) {
+            delete panel.dataset.filesMotion;
+            delete panel.dataset.filesMotionTarget;
+          }
+        })
+      : null;
+  motionObserver?.observe(motionRoot!, { attributes: true, attributeFilter: ["data-agent-motion"] });
+
   return {
     set(next, options = {}) {
       if (visible === next) {
@@ -186,7 +209,14 @@ export function createFilesPanelMotion(host: FilesPanelMotionHost): FilesPanelMo
       const from = panel != null && running.length > 0 ? host.currentOffset(panel) : next ? width : 0;
       stop();
       const resting = next ? "false" : "true";
-      if (panel == null || first || options.animate === false || host.reducedMotion() || width <= 0) {
+      if (
+        panel == null ||
+        first ||
+        options.animate === false ||
+        host.reducedMotion() ||
+        isAgentMotionOff() ||
+        width <= 0
+      ) {
         host.body.dataset.filesHidden = resting;
         if (panel != null) {
           delete panel.dataset.filesMotion;

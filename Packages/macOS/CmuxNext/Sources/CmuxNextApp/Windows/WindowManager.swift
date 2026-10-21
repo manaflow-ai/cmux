@@ -44,6 +44,8 @@ final class WindowManager {
     var pendingClaims: [String: String] = [:]
     /// Pending claims not to show on arrival; windows to open behind (automation, Option).
     var quietClaims: Set<String> = [], behindWindows: Set<String> = []
+    /// Restored windows but the front one, not shown yet (`present`); `keepsOrder` while one shows alone.
+    private var restacking: Set<String> = [], keepsOrder = false
     /// Frames for windows that open once their claimed workspace arrives.
     var pendingFrames: [String: CGRect] = [:]
     /// Sidebar slots for new workspaces, applied once the daemon reports
@@ -63,6 +65,9 @@ final class WindowManager {
     /// Windows being closed by the registry (not by the user).
     var programmaticCloses: Set<String> = []
     private(set) var restored = false
+    /// The windows the previous launch left open, captured at restore (Restore Previous App
+    /// Launch reopens those closed since); nil before restore and when nothing was saved.
+    var previousLaunch: PreviousLaunch?
     /// The window opened at launch before the saved state loaded: it shows the connecting state
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
@@ -98,6 +103,13 @@ final class WindowManager {
 
     init(services: AppServices) {
         self.services = services
+        WindowActivation.didOrder = { [weak self] window, inFront in self?.windowDidOrder(window, inFront: inFront) }
+    }
+
+    /// The registry's recency (the window order, saved as `WindowRecord.order`) follows each order and key change.
+    private func windowDidOrder(_ window: NSWindow, inFront: Bool) {
+        guard !keepsOrder, let id = controllers.first(where: { $0.window === window })?.state.id else { return }
+        registry.apply { if inFront { $0.activate(id) } else { $0.moveToBack(id) }; return WindowRegistry.Changes() }
     }
 
     var active: WindowController? {
@@ -118,6 +130,7 @@ final class WindowManager {
 
     func didActivate(_ controller: WindowController) {
         lastActive = controller
+        if keepsOrder { return }
         registry.apply { registry in
             registry.activate(controller.state.id)
             return WindowRegistry.Changes()
@@ -192,6 +205,10 @@ final class WindowManager {
         await EphemeralWorkspaces.awaitFlags(self)
         let firstWorkspace = await FirstWorkspaceLaunch(manager: self).create(leftover: leftover)
         let restoredRegistry = WindowRegistry(records: document.windows)
+        if !restoredRegistry.windows.isEmpty {
+            previousLaunch = PreviousLaunch(windowIDs: restoredRegistry.recency.filter { restoredRegistry.window($0)?.isOpen == true },
+                                            restoredAtMs: UInt64(max(0, Date().timeIntervalSince1970 * 1000)))
+        }
         let adopted = adoptLaunchWindow(restoredRegistry, records: document.windows)
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
         if !restoredRegistry.windows.isEmpty {
@@ -209,6 +226,8 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
+        // Restored windows but the front one come back at their saved place, in any content arrival order.
+        restacking = Set(registry.value.recency.filter { registry.value.window($0)?.isOpen == true }.dropFirst())
         sync(previous: [:])
         // Registered now (it received workspaces): an ordinary window. If
         // it has none (the daemon failed to create one), it keeps showing
@@ -229,6 +248,10 @@ final class WindowManager {
         fullScreenRestoreReady = true
         enterRestoredFullScreens()
         FirstWorkspaceLaunch(manager: self).land(firstWorkspace) // its New Tab page, not Home
+        // Classic cmux's session comes over once, after restore so the restored
+        // registry never overwrites where its workspaces land.
+        let onboarding = AppOnboardingServices(owner: services.onboarding)
+        Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
     }
 
     /// The launch window takes the frontmost saved window's identity and
@@ -316,7 +339,15 @@ final class WindowManager {
         // Tests: never on the user's display. Otherwise one rule: under
         // no-activate behind the others (in front on a test screen), never key.
         let behind = behindWindows.remove(controller.state.id) != nil
-        if ordersWindowsIn, let window = controller.window { WindowActivation.show(window, behind ? .presentBehind : .present) }
+        let restacks = restacking.remove(controller.state.id) != nil
+        if ordersWindowsIn, let window = controller.window,
+           !(restacks && WindowActivation.restack(window, in: registry.value.recency.map { self.controller(for: $0)?.window })) {
+            // A restored window shown alone comes forward without key; the order keeps its saved place.
+            let kept = keepsOrder
+            keepsOrder = restacks
+            WindowActivation.show(window, restacks ? .bringForward : behind ? .presentBehind : .present)
+            keepsOrder = kept
+        }
         onPresent?(controller)
         enterRestoredFullScreens()
     }
@@ -340,6 +371,7 @@ final class WindowManager {
         if lastActive === controller { lastActive = nil } // S22: a closed window is never active, even if retained.
         awaitingContent[id] = nil
         contentWaiters[id] = nil
+        restacking.remove(id)
         controller.teardown()
         if programmaticCloses.remove(id) != nil || isTerminating { return }
         if id == launchWindowID {

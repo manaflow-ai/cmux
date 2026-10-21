@@ -6,6 +6,11 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 cd "$PROJECT_DIR"
 
+# Install the clone-local hooks before any toolchain or submodule checks. A setup
+# failure should not leave this checkout able to commit unformatted webview or
+# Rust changes; the hook path is shared by every worktree in this clone.
+"$SCRIPT_DIR/install-git-hooks.sh"
+
 # Check full Xcode before anything else. On a Command Line Tools-only machine,
 # or before the Xcode license is accepted, `xcodebuild -version` fails, and the
 # later steps would fail with less direct errors.
@@ -77,8 +82,6 @@ if ! command -v cargo &> /dev/null || ! cargo --version &> /dev/null; then
 fi
 
 "$SCRIPT_DIR/ensure-ghosttykit.sh"
-
-"$SCRIPT_DIR/install-git-hooks.sh"
 
 echo "==> Setup complete!"
 echo ""

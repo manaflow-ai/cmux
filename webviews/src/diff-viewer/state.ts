@@ -20,6 +20,7 @@ import {
 import { readLocalViewerPrefs, sanitizeViewerPrefs, type ViewerPrefs } from "../viewer-prefs";
 import type { DiffViewerStatus } from "../status";
 import type { DiffViewerConfig } from "../types";
+import { canApplyDeferredHydration } from "./deferredHydration";
 import { diffItemPreloadLanguages, mergeLanguages, relanguagedItems, resolveDiffItemLanguage } from "./item-languages";
 
 export type AppState = {
@@ -66,7 +67,7 @@ export type AppAction =
   | { type: "apply-viewed"; items: DiffItem[]; change: ViewedChange }
   | { type: "begin-viewed-load"; scopeKey: string }
   | { type: "expand-item"; itemId: string }
-  | { type: "hydrate-item"; itemId: string; fileDiff: any }
+  | { type: "hydrate-item"; itemId: string; fileDiff: any; expectedFileDiff?: unknown }
   | { type: "set-item-collapsed"; itemId: string; collapsed: boolean; collapsedFiles: string[] }
   | { type: "replace-viewed"; scopeKey: string; entries: ViewedFileEntry[] }
   | { type: "set-file-filter"; filter: Partial<DiffFileFilter> }
@@ -223,6 +224,14 @@ export function reducer(state: AppState, action: AppAction): AppState {
         ),
       };
     case "hydrate-item":
+      if (
+        action.expectedFileDiff !== undefined &&
+        !canApplyDeferredHydration(
+          state.items.find((item) => item.id === action.itemId),
+          action.expectedFileDiff,
+        )
+      )
+        return state;
       return {
         ...state,
         items: state.items.map((item) =>

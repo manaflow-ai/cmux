@@ -1,4 +1,5 @@
 public import AppKit
+import CoreImage
 
 /// The one material behind a window's content (``WindowMaterial``) and the
 /// one theme tint, as the window root's bottom subview.
@@ -24,12 +25,20 @@ public final class WindowMaterialView: NSView {
     /// The view drawing ``material``; nil while opaque.
     public private(set) var materialView: NSView?
     private let tintView = NSView()
+    private let glassTint = GlassTintBlend()
     private let inactiveTintView = NSView()
+    /// The inactive wash's alpha once its fade ends (`updateInactiveTint`).
+    private var inactiveTintTarget: CGFloat = 0
+    /// Bumped by each wash fade: only the latest fade-out's completion hides the view (a
+    /// replaced animation completes too).
+    private var inactiveTintFade = 0
     private var keyObservers: [NSObjectProtocol] = []
     /// The window gave up the keyboard. Only then does glass go grey; a window
     /// that was never key (opening, tests, snapshots) shows the glass alone.
     private var resignedKey = false
-    /// The art layer (tests read what it shows).
+    /// The art layer (tests read what it shows): the whole image aspect-filled over the whole
+    /// view, centered, like a macOS wallpaper. Its frame autoresizes with the window, so nothing
+    /// is computed per size and nothing jumps while resizing.
     let artView = NSView()
     /// The art layer's opacity (`WindowBackdrop.artOpacity`), the end of its fade-in.
     private var artOpacity: Float = 1
@@ -48,6 +57,8 @@ public final class WindowMaterialView: NSView {
     private var artLoad: Task<Void, Never>?
     /// The solid sheet and Reduce Transparency must never expose art.
     private var hidesArt = false
+    /// The blur on the art now (``WindowBackdrop/artBlurRadius``).
+    private var artBlurRadius = 0
 
     /// Creates an opaque backdrop (no material view, no tint).
     ///
@@ -75,6 +86,9 @@ public final class WindowMaterialView: NSView {
         videoView.frame = bounds
         videoView.autoresizingMask = [.width, .height]
         addSubview(videoView)
+        glassTint.overlay.frame = bounds
+        glassTint.overlay.autoresizingMask = [.width, .height]
+        addSubview(glassTint.overlay)
         tintView.wantsLayer = true
         tintView.frame = bounds
         tintView.autoresizingMask = [.width, .height]
@@ -84,13 +98,9 @@ public final class WindowMaterialView: NSView {
         inactiveTintView.frame = bounds
         inactiveTintView.autoresizingMask = [.width, .height]
         inactiveTintView.isHidden = true
+        inactiveTintView.layer?.opacity = 0
         addSubview(inactiveTintView)
         setAccessibilityElement(false)
-    }
-
-    override public func layout() {
-        super.layout()
-        updateArtCrop()
     }
 
     @available(*, unavailable)
@@ -104,10 +114,18 @@ public final class WindowMaterialView: NSView {
         return tintView.isHidden ? nil : tintView.layer?.backgroundColor
     }
 
+    /// The layer of the tint over the desktop while it shows (`debug.themes`).
+    var shownTintLayer: CALayer? { tintView.isHidden ? nil : tintView.layer }
+    /// Liquid Glass's own tint (its end color) and the overlay that blends from the old one while
+    /// it shows (`debug.themes`).
+    var glassTintColor: CGColor? { (materialView as? GlassPanelView)?.tintColor?.cgColor }
+    var shownGlassBlendLayer: CALayer? { glassTint.overlay.isHidden ? nil : glassTint.overlay.layer }
+
     /// The theme tint laid over glass while the window is not key: Liquid
     /// Glass drops its `tintColor` then and draws the system's grey, so the
     /// tint comes back over it, as cmux classic does (dogfood 2026-10-08, C3).
-    var inactiveTintAlpha: CGFloat { inactiveTintView.isHidden ? 0 : inactiveTintView.alphaValue }
+    /// Its resting alpha: where its fade ends.
+    var inactiveTintAlpha: CGFloat { inactiveTintTarget }
 
     /// Classic's wash over inactive glass: strong over a dark theme, light
     /// over a light one, none while the window is key or for other materials.
@@ -146,9 +164,51 @@ public final class WindowMaterialView: NSView {
     private func updateInactiveTint() {
         let glass = materialView as? GlassPanelView
         let alpha = glass?.tintColor.map { Self.inactiveTintAlpha(isGlass: true, isKeyWindow: !resignedKey, tint: $0) } ?? 0
-        inactiveTintView.layer?.backgroundColor = alpha > 0 ? glass?.tintColor?.cgColor : nil
-        inactiveTintView.alphaValue = alpha
-        inactiveTintView.isHidden = alpha == 0
+        let wash = alpha > 0 ? glass?.tintColor?.cgColor : nil
+        guard let layer = inactiveTintView.layer else { return }
+        let previous = inactiveTintTarget
+        inactiveTintTarget = alpha
+        // Visible now, mid-fade included (the model opacity of a fading-out wash is already 0).
+        let showing = !inactiveTintView.isHidden
+        // The wash's color: a tint change while it shows blends like the glass under it. A wash
+        // fading out keeps its color until it is gone.
+        if let wash, layer.backgroundColor != wash {
+            if layer.backgroundColor != nil, showing, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: wash)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = wash
+            }
+        }
+        // Showing or hiding the wash eases (`scrim`): the palette taking the keys darkened the
+        // whole window in one frame (Leo 2026-10-20). A window not on screen applies at once.
+        guard window?.isVisible == true else {
+            inactiveTintFade += 1
+            layer.removeAnimation(forKey: "opacity")
+            CATransaction.begin()
+            CATransaction.setDisableActions(true)
+            layer.opacity = Float(alpha)
+            CATransaction.commit()
+            inactiveTintView.isHidden = alpha == 0
+            return
+        }
+        // Same target: a fade under way runs on (a theme apply mid-fade does not cut it short).
+        guard alpha != previous || (alpha > 0 && !showing) else { return }
+        guard alpha > 0 || showing else { return }
+        inactiveTintFade += 1
+        let fade = inactiveTintFade
+        inactiveTintView.isHidden = false
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            // main-proof: CATransaction.h: the completion block is called on the main thread
+            MainActor.assumeIsolated {
+                guard let self, self.inactiveTintFade == fade, self.inactiveTintTarget == 0 else { return }
+                self.inactiveTintView.isHidden = true
+            }
+        }
+        // From what shows now (a reversal mid-fade continues from there), or from 0 when hidden.
+        Motion.overlays.set(layer, "opacity", to: Float(alpha), fade: .scrim, from: showing ? nil : Float(0))
+        CATransaction.commit()
     }
 
     /// Decoration only: clicks reach the views above or the window.
@@ -186,7 +246,7 @@ public final class WindowMaterialView: NSView {
                     let image = await images.image(shown, texture: texture, dark: dark)
                     guard !Task.isCancelled, let self, let image else { return }
                     self.showArt(image)
-                    if fades, let layer = self.artView.layer { Motion.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
+                    if fades, let layer = self.artView.layer { Motion.panes.set(layer, "opacity", to: self.artOpacity, fade: .fadeIn, from: 0) }
                 }
             }
         }
@@ -204,18 +264,30 @@ public final class WindowMaterialView: NSView {
             if let materialView {
                 materialView.frame = bounds
                 materialView.autoresizingMask = [.width, .height]
-                addSubview(materialView, positioned: .below, relativeTo: tintView)
+                addSubview(materialView, positioned: .below, relativeTo: glassTint.overlay)
             }
         }
-        // Over art the tuner thins the glass only down to the legible tint.
-        let alpha = max(backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency), backdrop.legibleTintOpacity)
+        // Frosted over art blurs the art itself (and a video over it), by the material's radius.
+        applyArtBlur(backdrop.artBlurRadius)
+        let alpha = backdrop.tintOpacity * (1 - backdrop.tuning.glassTransparency)
         let color = tunedTint(tint, tuning: backdrop.tuning).withAlphaComponent(alpha)
         let glass = materialView as? GlassPanelView
-        glass?.tintColor = color
+        // Liquid Glass takes the new tint once; an overlay blends from the old one on the render
+        // server (appearance.colorTransition).
+        if let glass { glassTint.set(glass, to: color, in: self) }
         // Glass tints itself; a tint view over it would dim the desktop twice.
         let shows = material != .opaque && glass == nil
         tintView.isHidden = !shows
-        tintView.layer?.backgroundColor = shows ? color.cgColor : nil
+        let tint = shows ? color.cgColor : nil
+        if let layer = tintView.layer, layer.backgroundColor != tint {
+            // The tint over the desktop blends like the opaque sheet (appearance.colorTransition).
+            if tint != nil, layer.backgroundColor != nil, window?.isVisible == true {
+                ColorTransition.current.animate(layer, to: tint)
+            } else {
+                layer.removeAnimation(forKey: ColorTransition.layerKey)
+                layer.backgroundColor = tint
+            }
+        }
         updateInactiveTint()
     }
 
@@ -223,27 +295,27 @@ public final class WindowMaterialView: NSView {
         artImage = image
         artView.layer?.contents = artImage
         artView.isHidden = hidesArt || artImage == nil
-        updateArtCrop()
     }
 
-    private func updateArtCrop() {
-        guard let layer = artView.layer, let image = artImage else {
-            artView.layer?.contentsRect = CGRect(x: 0, y: 0, width: 1, height: 1)
-            return
+    /// Blurs the art and the video over it by `radius` points (``WindowBackdrop/artBlurRadius``);
+    /// 0 clears the blur. Filters are made for each view: they are mutable objects.
+    private func applyArtBlur(_ radius: Int) {
+        guard radius != artBlurRadius else { return }
+        artBlurRadius = radius
+        for view in [artView, videoView as NSView] {
+            if radius > 0 { view.layerUsesCoreImageFilters = true }
+            // Clamped first: the blur then reads the edge pixels past the edge, not transparency,
+            // so the picture keeps no translucent rim.
+            view.layer?.filters = radius > 0
+                ? [CIFilter(name: "CIAffineClamp"), CIFilter(name: "CIGaussianBlur", parameters: [kCIInputRadiusKey: radius])]
+                    .compactMap { $0 } : nil
         }
-        let metadata: BackdropArtMetadata
-        if let art = loadedSelection.flatMap({ selection in
-            if case .art(let art) = selection { return art }
-            return nil
-        }) {
-            metadata = art.metadata
-        } else if let art = loadedArt {
-            metadata = art.metadata
-        } else {
-            metadata = BackdropArtMetadata(focalAnchor: .center, tone: .light,
-                                           dominantPalette: [], quietZone: .init(x: 0, y: 0, width: 1, height: 1))
-        }
-        layer.contentsRect = metadata.cropRect(forViewSize: bounds.size, imageSize: image.size)
+    }
+
+    /// The backdrop behind `window`'s content: its content view, or a direct subview of it.
+    public static func backdrop(of window: NSWindow?) -> WindowMaterialView? {
+        guard let content = window?.contentView else { return nil }
+        return content as? WindowMaterialView ?? content.subviews.lazy.compactMap { $0 as? WindowMaterialView }.first
     }
 
     private func tunedTint(_ tint: NSColor, tuning: AppearanceTuning) -> NSColor {

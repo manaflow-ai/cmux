@@ -1,15 +1,22 @@
 public import CmuxNextSettings
 import CmuxNextCompat
 
-/// One symbolicated return address from a main-thread stack sample.
+/// One symbolicated return address from a main-thread stack sample or an
+/// exception trace (``StackSymbolicator``).
 public struct HangFrame: Sendable, Hashable {
     public var address: UInt
     public var image: String?
     public var symbol: String?
+    /// Offset into ``symbol``.
     public var offset: UInt
+    /// Offset from the image's Mach-O header, which the build's dSYM resolves
+    /// when there is no ``symbol``; nil when no image holds the address.
+    public var imageOffset: UInt? = nil
 
     public var description: String {
-        let place = symbol.map { "\($0) + \(offset)" } ?? String(address, radix: 16)
+        let place = symbol.map { "\($0) + \(offset)" }
+            ?? imageOffset.map { "+0x" + String($0, radix: 16) }
+            ?? String(address, radix: 16)
         return "\(image ?? "?") \(place)"
     }
 }
@@ -38,7 +45,7 @@ public struct HangRecord: Sendable, Hashable {
     public var details: [String: JSONValue] = [:]
 
     /// Symbolicated ``addresses``. Resolves symbols; call off the main thread.
-    public var frames: [HangFrame] { ThreadStackSampler.symbolicate(addresses) }
+    public var frames: [HangFrame] { StackSymbolicator().frames(for: addresses) }
 
     public var json: JSONValue {
         var object: [String: JSONValue] = [

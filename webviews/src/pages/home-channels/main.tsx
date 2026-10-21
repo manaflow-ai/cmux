@@ -12,6 +12,7 @@ import "../shared/desktop";
 import { useState } from "react";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
+import { PAGE_COMMAND, type PageCommand } from "../shared/pageStreams";
 import { createStrings, type Strings } from "../shared/i18n";
 import type { DaemonSocket } from "../shared/daemonSocket";
 import { UiProvider, languageDirection } from "../../ui/UiProvider";
@@ -22,6 +23,8 @@ import { MockHomeProvider } from "./mockProvider";
 import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
+import { ComposerEdit, hostEdit } from "./composerEdit";
+import { QUOTE_COMMAND, quoteSelection } from "./quoteSelection";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
 import "../../agent-session/acpmux/conversation/conversation.css";
@@ -59,15 +62,25 @@ export function mountDaemonHomeChannelsPage(
   document.title = strings.t("page.title");
   // One per mount: each reconnect makes a new store, and unsent messages carry over to it.
   const carry = new PendingCarry();
+  // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
+  const edit = client ? hostEdit(client) : undefined;
+  // The app's menu on selected message text: Quote in Reply.
+  void client
+    ?.subscribe<PageCommand>(PAGE_COMMAND, (data) => {
+      if (data.command === QUOTE_COMMAND) quoteSelection(document);
+    })
+    .catch(() => {});
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
-      <DaemonGate source={source} strings={strings}>
-        {(daemon, _pages, owner) => (
-          <div className="hc-daemon">
-            <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
-          </div>
-        )}
-      </DaemonGate>
+      <ComposerEdit.Provider value={edit}>
+        <DaemonGate source={source} strings={strings}>
+          {(daemon, _pages, owner) => (
+            <div className="hc-daemon">
+              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
+            </div>
+          )}
+        </DaemonGate>
+      </ComposerEdit.Provider>
     </UiProvider>,
   );
 }

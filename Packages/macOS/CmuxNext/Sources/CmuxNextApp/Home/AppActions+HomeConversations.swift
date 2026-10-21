@@ -6,8 +6,9 @@ import Foundation
 
 /// The Home page's conversation actions (HomeActionCatalog): one path for
 /// the page's "+" menu, the File menu, the palette, `cmux action run` and
-/// the CLI verbs. Without arguments New Message, Invite and New Chief open
-/// their sheet on the Home page (the docked Home: a route of its page,
+/// the CLI verbs. Without arguments New Message opens the New Message page
+/// (a draft row and a To: field, as in Messages) and Invite and New Chief
+/// open their sheet on the Home page (the docked Home: a route of its page,
 /// AppActions+HomeDockRoutes); with arguments they run headless and the
 /// caller waits for the owner's answer (`ActionRegistry.track`).
 extension AppActions {
@@ -15,7 +16,7 @@ extension AppActions {
         let registry = services.registry
         registry.bind("home.newMessage", invoke: { invocation in
             guard let to = invocation["to"]?.stringValue?.trimmingCharacters(in: .whitespaces), !to.isEmpty else {
-                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newMessage, services) }
+                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newMessage, services) { $0.presentNewMessage() } }
                 homePage(services)?.presentNewMessage()
                 return
             }
@@ -26,7 +27,7 @@ extension AppActions {
         })
         registry.bind("home.invite", invoke: { invocation in
             guard let text = invocation["email"]?.stringValue, !text.isEmpty else {
-                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newInvite, services) }
+                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newInvite, services) { $0.presentInvite(prefill: "") } }
                 homePage(services)?.presentInvite(prefill: "")
                 return
             }
@@ -38,7 +39,7 @@ extension AppActions {
         })
         registry.bind("home.newChief", invoke: { invocation in
             guard let name = invocation["name"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-                guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.newChief, services) }
+                guard services.home.dock.isClassic else { return openChannelsRoute(HomeDockRoute.newChief, services) { $0.presentNewChief() } }
                 homePage(services)?.presentNewChief()
                 return
             }
@@ -58,20 +59,36 @@ extension AppActions {
         // Cmd-Shift-[ / ] on Home: the previous or next conversation in the list; stops at the ends.
         for (id, offset) in [("home.previousConversation", -1), ("home.nextConversation", 1)] as [(ActionID, Int)] {
             registry.bind(id) {
+                let step: @MainActor (TopHomePageView) -> Void = { page in
+                    guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
+                    page.open(next)
+                }
+                // The docked Home steps its Messages list; Channels has its own keys (j/k).
+                guard services.home.dock.isClassic else {
+                    return withDock(services) { dock in
+                        guard dock.mode == .messages, let page = dock.messages else { return }
+                        step(page)
+                    }
+                }
                 guard let page = homePage(services) else { return }
-                guard let next = page.sidebar.model().neighbor(of: page.shown, offset: offset) else { return }
-                page.show(next)
+                step(page)
             }
         }
+        registry.bind("home.switchView", invoke: { switchHomeView(services, $0) })
         registry.bind("home.openConversation", invoke: { invocation in
             guard let id = invocation["conversation"]?.stringValue, !id.isEmpty else {
                 registry.refuse(RefusalStrings.homeNotReady)
                 return
             }
-            // The docked Home: the page opens the conversation (its hash route) and the dock has the keyboard.
-            guard services.home.dock.isClassic else { return openDockRoute(HomeDockRoute.conversation(id), services) }
+            // The docked Home: its shown view opens the conversation (Channels: its hash route) and the dock has the keyboard.
+            guard services.home.dock.isClassic else {
+                return withDock(services) { dock in
+                    dock.open(HomeDockView.Selection(conversation: id))
+                    dock.focusPrimaryInput()
+                }
+            }
             guard let page = homePage(services) else { return }
-            page.show(ConversationID(id))
+            page.open(ConversationID(id))
         })
     }
 

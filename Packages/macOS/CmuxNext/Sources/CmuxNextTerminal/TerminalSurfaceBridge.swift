@@ -18,6 +18,8 @@ nonisolated final class SurfaceBridge: @unchecked Sendable {
     @MainActor var onFontScaleChange: ((Double?) -> Void)?
     /// The last font scale Ghostty reported, nil at the configured size.
     @MainActor var fontScale: Double?
+    /// True once Ghostty reported any font size change (a zoom, a reset or a set).
+    @MainActor var fontScaleChanged = false
 
     /// The cached answers to Ghostty's link filter (cx-do47.1).
     let linkFilter = TerminalLinkFilter()
@@ -42,6 +44,8 @@ nonisolated enum TerminalOutgoing: Sendable {
     case bytes(Data)
     case resize(TerminalGridSize, pixelWidth: Int, pixelHeight: Int)
     case focusGained
+    /// Take over from the "Sized for" chip.
+    case takeOverSize(setLatest: Bool)
     /// The user clicked a disconnected terminal: re-attach.
     case reconnect
     /// The mirror needs a full snapshot from the owner.
@@ -76,6 +80,10 @@ nonisolated struct TerminalInputSink: Sendable {
 
     func focusGained() {
         continuation.yield(.focusGained)
+    }
+
+    func takeOverSize(setLatest: Bool) {
+        continuation.yield(.takeOverSize(setLatest: setLatest))
     }
 
     func finish() {

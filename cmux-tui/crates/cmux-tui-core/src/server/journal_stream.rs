@@ -141,6 +141,23 @@ pub(super) fn handle_journal_extension_request(
                     let previous = mux.note_agent_prompt(&terminal, prompt)?;
                     Some((terminal, previous))
                 });
+            // A finished turn's last message rides the same way, for its banner's preview: the
+            // commit's notification event takes it, and whatever it did not take goes.
+            let reply = request
+                .fields
+                .get("live_reply")
+                .and_then(Value::as_str)
+                .filter(|_| ingress.producer_id == crate::AGENT_HOOK_PRODUCER_ID)
+                .and_then(|reply| {
+                    let terminal = ingress
+                        .subjects
+                        .iter()
+                        .find(|subject| subject.kind == "terminal")
+                        .and_then(|subject| {
+                            crate::resource::TerminalPublicId::parse(subject.id.clone()).ok()
+                        })?;
+                    mux.note_agent_reply(&terminal, reply).then_some(terminal)
+                });
             let idempotency_key = request
                 .envelope
                 .idempotency_key
@@ -151,6 +168,9 @@ pub(super) fn handle_journal_extension_request(
                 && !appended.as_ref().is_ok_and(|commit| !commit.replayed)
             {
                 mux.restore_agent_prompt(&terminal, previous);
+            }
+            if let Some(terminal) = reply {
+                mux.forget_agent_reply(&terminal);
             }
             appended
                 .map(|commit| {

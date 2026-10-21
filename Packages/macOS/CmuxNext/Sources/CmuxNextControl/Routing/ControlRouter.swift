@@ -11,7 +11,8 @@ import CmuxNextCompat
 /// mutating methods (`action.run`, compat mutations) go through the bounded
 /// ``MainActorWorkQueue``; the rest run off-main under the request deadline.
 /// No request can wait past its deadline (default 2 s; a request that
-/// starts a terminal gets ``Configuration/terminalStartDeadline``).
+/// starts a terminal gets ``Configuration/terminalStartDeadline``). Time the
+/// main thread spends in Chromium's start does not count (`MainThreadEngineStart`).
 public final class ControlRouter: Sendable {
     public struct Configuration: Sendable {
         /// Deadline for every request that is not answered from the snapshot.
@@ -243,7 +244,7 @@ public final class ControlRouter: Sendable {
         var snapshot = snapshots.current
         let startsTerminal = method.startsTerminal(request, snapshot)
         let limit = method.limitOverride?(request, snapshot) ?? method.fixedLimit ?? (startsTerminal ? configuration.terminalStartDeadline : configuration.requestDeadline)
-        let deadline = ContinuousClock.now + limit
+        let (deadline, engineStartMark) = (ContinuousClock.now + limit, MainThreadEngineStart.shared.total)
         let progress = ControlCallProgress()
         do {
             // Read barrier (state-ownership.md 4.3): answer from a snapshot
@@ -253,7 +254,7 @@ public final class ControlRouter: Sendable {
                 snapshot = try await readBarrier(after, method: request.method, deadline: deadline)
             }
             let call = ControlCall(request: request, snapshot: snapshot, connection: connection,
-                                   deadline: deadline, startsTerminal: startsTerminal, progress: progress)
+                                   deadline: deadline, startsTerminal: startsTerminal, progress: progress, engineStartMark: engineStartMark)
             return .success(try await Self.run(method, call, queue: workQueue))
         } catch let error as ControlError {
             return .failure(error.annotated(progress: progress))
@@ -287,11 +288,11 @@ public final class ControlRouter: Sendable {
             return try body(call)
         case .async(let body):
             if !method.claimsProgress { _ = call.progress.begin() }
-            return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
-                                                 startsTerminal: call.startsTerminal) { try await body(call) }
+            return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline, startsTerminal: call.startsTerminal,
+                                                        countingFrom: call.engineStartMark) { try await body(call) }
         case .mainActor(let body):
             let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
-            let reply = try await queue.run(connection: call.connection, method: call.method, deadline: call.deadline) {
+            let reply = try await queue.run(connection: call.connection, method: call.method, deadline: call.deadline, countingFrom: call.engineStartMark) {
                 // The request may have answered `not_run` already.
                 guard call.progress.begin() else { throw expired }
                 return try body(call)
@@ -300,8 +301,8 @@ public final class ControlRouter: Sendable {
             case .value(let value):
                 return value
             case .followUp(let work):
-                return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline,
-                                                     startsTerminal: call.startsTerminal, work)
+                return try await ControlDeadline.shared.run(method: call.method, deadline: call.deadline, startsTerminal: call.startsTerminal,
+                                                            countingFrom: call.engineStartMark, work)
             }
         }
     }

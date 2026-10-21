@@ -3,18 +3,6 @@ import CmuxNextDaemon
 import Foundation
 import Observation
 
-/// A browser tab that lives only in this app session because the daemon
-/// lacks `frontend-browser-tabs-v1`. Not restored after relaunch.
-struct LocalBrowserTab: Hashable, Sendable {
-    static let prefix = "local-browser:"
-    let id: String
-    var url: URL?
-
-    static func make(url: URL?) -> LocalBrowserTab {
-        LocalBrowserTab(id: prefix + UUID().uuidString.lowercased(), url: url)
-    }
-}
-
 /// Everything one window owns (architecture.md 1, user requirement
 /// 2026-09-29 "each window needs its own state"): the workspace it shows,
 /// tab selection per pane, focused pane per workspace, sidebar width and
@@ -51,12 +39,12 @@ final class WindowState {
     private(set) var workspaceRecency: [String] = []
     /// Machine that holds `workspaceID` (`local` or a Cloud machine id).
     var machineID: String = MachineRegistry.localID
-    var selection = TabSelectionMemory()
+    let selection = TabSelectionMemory()
     /// This window's focus state machine: the only owner of focus, last
     /// focused pane per workspace, and browser focus mode. Never persisted.
     let focus = FocusCoordinator()
-    /// Session-only browser tabs per pane (`PaneModel.id`).
-    var localBrowserTabs: [String: [LocalBrowserTab]] = [:]
+    /// Session-only browser tabs per pane (`PaneModel.id`), observed per pane.
+    let localBrowserTabs = LocalBrowserTabs()
     /// Sidebar width in points (nil = default); kept while hidden, so the
     /// sidebar comes back at this width.
     var sidebarWidth: Double?
@@ -64,12 +52,32 @@ final class WindowState {
     var sidebarHidden = false
     /// Profile this window shows (plans/cmux-next/data-model.md 4). Its
     /// sidebar lists only the window's workspaces of this profile.
-    var profileID: ProfileID = .defaultProfile
+    var profileID: ProfileID = .defaultProfile {
+        didSet { if profileID != oldValue { refreshRoomBrowserProfile() } }
+    }
     /// The workspace last shown in each profile, restored on switching back.
     var profileWorkspaces: [ProfileID: String] = [:]
     /// Profiles this window showed, most recent first (the fallback when the
     /// current profile loses its last workspace here).
     var profileRecency: [ProfileID] = []
+    /// The browser profile of the room this window shows (its `ProfileModel.browserProfileID`),
+    /// changed only when that value changes (`showRoomBrowserProfile`). Tab badges read this, not
+    /// `profileID`: a room switch must not wake every tab of every mounted workspace when the
+    /// rooms share a browser profile (space-switch-fast).
+    private(set) var roomBrowserProfileID: String?
+
+    /// Reads a room's browser profile (the window's controller sets it from the home store).
+    @ObservationIgnored var roomBrowserProfileOf: (@MainActor (ProfileID) -> String?)? {
+        didSet { refreshRoomBrowserProfile() }
+    }
+
+    /// Re-reads the shown room's browser profile: on a room switch (in the same turn) and when the
+    /// room's record changes (`WindowController.observeRoom`).
+    func refreshRoomBrowserProfile() {
+        guard let roomBrowserProfileOf else { return }
+        let id = roomBrowserProfileOf(profileID)
+        if roomBrowserProfileID != id { roomBrowserProfileID = id }
+    }
     /// Durable id of the screen shown in this window's workspace, so a
     /// relaunch returns to it. Persisted.
     var activeScreenID: String?

@@ -15,8 +15,14 @@
 //! (`registry:<identify.session_id>`), so a tab recorded for another
 //! machine never starts here. The client names only an agent kind
 //! (`harness`, resolved by acpmux from its own config) and a folder (`cwd`,
-//! absolute; acpmux checks it). No command, env, policy, mode, peer, preset
-//! or MCP server param exists (unknown fields are a bad request).
+//! absolute; acpmux checks it). No command, env, policy, mode, peer, preset,
+//! workspace or MCP server param exists (unknown fields are a bad request).
+//! The daemon itself names the tab's workspace to acpmux on `session/new`
+//! (`_meta.acpmux.workspaceId`, which picks the session's display), from the
+//! tab's place in this store; a tab with no workspace, or whose workspace key
+//! is not a UUID, sends none, and acpmux then gives the session no display.
+//! It sends no session env: `CMUX_WORKSPACE_ID` there would also change the
+//! agent-message hold, pooled starts and route bindings for these chats.
 //!
 //! Permissions: the session always starts with policy `ask`, whatever the
 //! daemon default is, and must end up in a mode acpmux's remote table
@@ -44,7 +50,7 @@ use serde_json::{Value, json};
 use super::agent_session_link::AcpmuxLink;
 use super::{MessageWriter, Refusal, SurfaceId, ok, refuse};
 use crate::mux::Mux;
-use crate::state::conversation_tabs_store::ConversationTabRecord;
+use crate::state::conversation_tabs_store::{ConversationTabRecord, validate_harness};
 
 pub const AGENT_SESSION_START_CAPABILITY: &str = "agent-session-start-v1";
 /// `require_person_key` and `person_instance` on `agent-session-start`, and
@@ -334,8 +340,12 @@ fn run(
     result
 }
 
-/// A link to acpmux, starting it once when nothing listens.
-pub(super) fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxLink>, Refusal> {
+/// A link to acpmux, starting it once when nothing listens (also an
+/// `agent-update-apply`, `agent_update.rs`).
+pub(in crate::server) fn connect(
+    mux: &Mux,
+    socket: &std::path::Path,
+) -> Result<Arc<AcpmuxLink>, Refusal> {
     let open = || AcpmuxLink::connect(socket, |_| {});
     if let Ok(link) = open() {
         return Ok(link);
@@ -349,6 +359,24 @@ pub(super) fn connect(mux: &Mux, socket: &std::path::Path) -> Result<Arc<AcpmuxL
     }
     starter().map_err(|_| Refusal::AcpmuxUnavailable)?;
     open().map_err(|_| Refusal::AcpmuxUnavailable)
+}
+
+/// Runs `restart` (an acpmux handoff, `agent_update.rs`: the running acpmux
+/// stopped, this binary's started) under the start lock, so no start here
+/// runs while acpmux is down; then a link to the acpmux that answers. A failed
+/// restart still connects once (another process may have started acpmux),
+/// and is logged.
+pub(in crate::server) fn restart_with(
+    mux: &Mux,
+    socket: &std::path::Path,
+    restart: impl FnOnce() -> Result<(), String>,
+) -> Option<Arc<AcpmuxLink>> {
+    let starts = &mux.control_clients.agent_sessions.starts;
+    let _one_start = starts.start_lock.lock().unwrap_or_else(|e| e.into_inner());
+    if let Err(error) = restart() {
+        eprintln!("cmux-tui: acpmux handoff for an agent update failed: {error}");
+    }
+    AcpmuxLink::connect(socket, |_| {}).ok()
 }
 
 fn start_and_bind(
@@ -382,6 +410,11 @@ fn start_and_bind(
     if let Some(harness) = &params.harness {
         meta["harness"] = json!(harness);
     }
+    // The workspace of the tab, read here and never taken from the client:
+    // acpmux gives the session that workspace's display (none without it).
+    if let Some(workspace) = mux.surface_workspace_key(params.surface) {
+        meta["workspaceId"] = json!(workspace);
+    }
     // The folder acpmux checked (its canonical path), so a symlink changed
     // after the trust answer cannot move the agent elsewhere.
     let cwd = trust.get("cwd").and_then(Value::as_str).ok_or(Refusal::UntrustedFolder)?;
@@ -403,10 +436,19 @@ fn start_and_bind(
     if !folder_trusted(&trust, Some(&family)) {
         return Err(end(Refusal::UntrustedFolder));
     }
+    // The agent the session runs, as acpmux answered it (`_meta.acpmux.harness`
+    // of `session/new`; a profile such as `providers/deepseek` by its last
+    // part), else its family: the tab's brand mark (cx-w4bbw).
+    let harness =
+        [created.pointer("/_meta/acpmux/harness").and_then(Value::as_str), Some(family.as_str())]
+            .into_iter()
+            .flatten()
+            .filter_map(|harness| harness.rsplit('/').next())
+            .find(|harness| validate_harness(harness).is_ok());
     // The tab may have closed, or another start bound it, meanwhile.
     let actor = super::super::origin_gate::connection_actor(mux, client);
     let (record, _) = mux
-        .bind_conversation_tab_session_as(&actor, params.surface, &session, None)
+        .bind_conversation_tab_session_as(&actor, params.surface, &session, None, harness)
         .map_err(|_| end(startable(mux, params.surface).err().unwrap_or(Refusal::Refused)))?;
     Ok(json!({"surface": params.surface, "session": session, "conversation": record.wire()}))
 }

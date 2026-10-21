@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextSettings
 import Foundation
@@ -47,7 +48,7 @@ nonisolated struct FeedHandoffPolicy: Sendable {
         default:
             text = mirror.agents ? (item.title, item.body) : nil
         }
-        return text.map { (FeedSecretScrubber.scrubPrefix($0.0), FeedSecretScrubber.scrubPrefix($0.1)) }
+        return text.map { ($0.0.secretsScrubbedPrefix, $0.1.secretsScrubbedPrefix) }
     }
 
     private func arrivedInQuietHours(_ item: FeedLocalItem) -> Bool {

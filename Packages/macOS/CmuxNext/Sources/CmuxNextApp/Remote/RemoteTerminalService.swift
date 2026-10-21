@@ -119,7 +119,7 @@ final class RemoteTerminalService {
 
     func machineName(_ ref: RemoteTerminalRef) -> String {
         if let daemon = services.machines.daemon(session: ref.sessionID) {
-            if daemon.isLocal { return daemon.identity?.machineName ?? MacName.kernelHostName() }
+            if daemon.isLocal { return daemon.identity?.machineName ?? MacName().kernelHostName() }
             return services.machines.machineBadge(daemon.machineID) ?? daemon.identity?.machineName ?? ref.sessionName
         }
         return ref.sessionName

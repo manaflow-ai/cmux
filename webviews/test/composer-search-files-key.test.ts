@@ -1,4 +1,4 @@
-// Search Files… (Cmd-P in an agent chat, cx-ncc.69, Codex desktop app parity): the app sends the
+// Search Files… (in an agent chat, cx-ncc.69, Codex desktop app parity; no default key since Cmd-P is the native Go to, 2026-10-19): the app sends the
 // page the `searchFiles` command, which opens the composer's file search with the keyboard in its
 // field. The composer gallery's play sends it in Chromium; this checks the play passed.
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";

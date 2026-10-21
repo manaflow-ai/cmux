@@ -68,12 +68,13 @@ Older clients send none.
 A participant **counts toward size** when it is attached, has a viewport, and:
 
 - `counts_override` is set: use it (tmux `attach -f ignore-size` is `false`).
-- otherwise, in `smallest` and `largest`, every attached participant counts.
-- otherwise, in `latest`, `priority` and `fixed`, a phone or tablet does not count
-  while a desktop participant (`mac`, `tui`, `linux` or `windows`) of the same
-  `user_id` is attached and itself counts (it has a viewport and is not
-  viewer-only). With two Macs of one user, the phone defers while either
-  counts. Every other participant counts.
+- otherwise, in `smallest`, `largest`, `latest` and `fixed`, every attached
+  participant counts.
+- otherwise, in `priority`, a phone or tablet does not count while a desktop
+  participant (`mac`, `tui`, `linux` or `windows`) of the same `user_id` is
+  attached and itself counts (it has a viewport and is not viewer-only). With
+  two Macs of one user, the phone defers while either counts. Every other
+  participant counts.
 
 The priority key is `<user_id or "anon:" + id>/<device_kind>/<device_id>`, or
 `<user_id or "anon:" + id>/<device_kind>` for a device without an id, so a
@@ -89,11 +90,15 @@ keys.
 
 `mode` is one of:
 
-- `smallest` (default, "Fit everyone"): component-wise min over counting
+- `latest` (default, "Last active"; tmux 3.1+ `window-size latest`): the
+  counting participant with the newest activity. Activity is a desktop's
+  attach, explicit focus-click, Take over, and keyboard, paste or mouse input.
+  A phone's or tablet's attach is not activity, so a glance never takes the
+  grid; its input does. Hover, scroll, window resizes and background tabs are
+  not activity. Ties between handhelds that only attached go to the later
+  attach. Why this default: plans/cmux-next/sync-ux/DESIGN.md part 2.
+- `smallest` ("Fit everyone"): component-wise min over counting
   participants, so every attached device sees the whole grid.
-- `latest` (tmux 3.1+ `window-size latest`): the counting participant with
-  the newest activity. Activity is attach, explicit focus-click, and keyboard,
-  paste or mouse input. Hover and background tabs are not activity.
 - `largest`: component-wise max over counting participants.
 - `priority`: the first key in `priority` that matches a counting participant
   (newest activity breaks ties inside one key). No match falls back to `latest`
@@ -111,10 +116,36 @@ Policy scope is a workspace default plus an optional per-terminal override. Any
 workspace member with write access can change it. Every host emits the change to
 all participants.
 
+## Creation size
+
+A new terminal's PTY starts at the grid of the view that asked for it, so its
+first frame is already final: no shell prompt printed at the wrong width, no
+snap when the view's first report arrives.
+
+- The creating client sends `cols`/`rows` with the create (`new-tab`, and the
+  other creates that take them). The cmux-next Mac app works the grid out
+  before it asks (`NewTerminalGrid`): the fitted grid of the terminal its pane
+  shows (Ghostty's own fit of the same content area), else the pane's content
+  size, backing scale, a live terminal's cell size and the configured padding
+  through Ghostty's formula (`TerminalGridEstimate`). A zoomed terminal's fit
+  does not count: a new terminal starts at the configured font size.
+- At creation the creating view is the only participant, so its grid is what
+  `smallest`, `latest`, `largest` and `priority` choose anyway; under `fixed`
+  the host's fixed grid still applies.
+- A create without a size gets the latest explicit or reported grid of any
+  terminal (`creation_size`), the old behavior. It is a fallback for clients
+  that cannot know their size yet (a CLI spawn, the app's first terminal).
+- A view renders only grids the host announced (`TerminalGridPolicy`). A view
+  that attaches later never makes the others draw a wrong frame: under
+  `smallest` its smaller viewport shrinks the grid for everyone in one
+  announced step (each view reflows on the same output), under `latest` it
+  takes the grid on attach and later activity (also one announced step), and a larger view shows the hatch
+  around the grid. A view that is not an owner pins to the host grid.
+
 ## Phone viewers
 
-Phones and tablets follow three rules so that "Fit everyone" never shrinks
-a Mac user's grid without reason (plans/cmux-next/ghostty-next.md section 6):
+Phones and tablets follow three rules so that no policy resizes a Mac user's
+grid without reason (plans/cmux-next/ghostty-next.md section 6):
 
 - A phone view reports its viewport only while the terminal is on screen in
   the foreground app. When the app goes to the background, the device locks,

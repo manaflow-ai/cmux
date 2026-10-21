@@ -2,28 +2,48 @@ import AppKit
 import CmuxNextActions
 import CmuxNextPages
 import CmuxNextTerminal
+import CmuxNextFocus
 
 // Typing into a screen before it can take keys (spec app-screens.md section
 // 3, R59): the primary input of a screen that has one (R65), and the
 // type-ahead queue of a page whose document has not focused its primary
 // input yet (`PageInputReadiness`). Shortcuts resolve before either.
 extension KeyRouter {
-    /// A printable key on a screen whose primary input should take it
-    /// (R65): focus that input and type the key there. Typing in a terminal
-    /// never looks up the window (typing-latency path).
+    /// A key on a screen whose primary input claims it (R65; Home's message
+    /// box: printable and dead keys, `PrimaryInputTarget.routesToPrimaryInput`)
+    /// while none of the screen's text inputs has the keyboard: focus that
+    /// input and give it the key. This is the one path for keys bound to a
+    /// screen's primary input from anywhere in the screen. Typing in a
+    /// terminal never looks up the window (typing-latency path).
     func typesIntoPrimaryInput(_ event: NSEvent, in window: NSWindow?) -> Bool {
-        guard let window, !(window.firstResponder is TerminalSurfaceView), Self.isPrintable(event) else { return false }
-        let (controller, kind) = focus(for: window)
-        guard let controller, kind == .content else { return false }
-        let focus = controller.focus.state
-        guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
-              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput else { return false }
+        guard let window, !(window.firstResponder is TerminalSurfaceView), event.type == .keyDown,
+              !Self.isChord(event.modifierFlags) else { return false }
+        guard let focused = focusedPrimaryInput(in: window), focused.input.routesToPrimaryInput(event) else { return false }
+        let (focus, target) = (focused.focus, focused.input)
         let facts = Facts(hasMarkedText: (window.firstResponder as? any NSTextInputClient)?.hasMarkedText() == true,
-                          primaryInputReady: target.acceptsRedirectedTyping)
-        guard decide(event, focus: focus, keyWindow: kind, facts: facts) == .primaryInput else { return false }
+                          primaryInputReady: target.acceptsRedirectedTyping, primaryInputClaimsKey: true)
+        guard decide(event, focus: focus, keyWindow: .content, facts: facts) == .primaryInput else { return false }
         decided.add(event)
         target.beginTyping(with: event)
         return true
+    }
+
+    /// The focused pane's primary input in `window`, a main window, with the
+    /// focus it was resolved from; nil when the pane shows none.
+    func focusedPrimaryInput(in window: NSWindow?) -> (focus: FocusState, input: any PrimaryInputTarget)? {
+        let (controller, kind) = focus(for: window)
+        guard let controller, kind == .content else { return nil }
+        let focus = controller.focus.state
+        guard Self.mayHavePrimaryInput(focus.resolved), let pane = focus.resolved.pane,
+              let target = controller.content?.paneController(key: pane)?.currentContent?.primaryInput else { return nil }
+        return (focus: focus, input: target)
+    }
+
+    /// The target of a nil-targeted paste command in `window` instead of
+    /// AppKit's `found` (``PrimaryInputPasteRoute``); nil keeps `found`.
+    func pasteTarget(for action: Selector, found: AnyObject?, in window: NSWindow?) -> AnyObject? {
+        guard PrimaryInputPasteRoute.actions.contains(action), let focused = focusedPrimaryInput(in: window) else { return nil }
+        return PrimaryInputPasteRoute().target(for: action, found: found, in: window, input: focused.input)
     }
 
     /// Pages whose keys may wait for their document: agent pages (the new

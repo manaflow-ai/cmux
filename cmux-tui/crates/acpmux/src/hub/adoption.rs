@@ -80,7 +80,7 @@ impl Hub {
         }
         // The store the resuming harness reads: its spawn env's home, else
         // the daemon's, else a store the chat index holds the chat in. The
-        // store walk, the record read and the process table are blocking I/O.
+        // store walk, the record read and the holder check are blocking I/O.
         let homes = self.harness_homes.lock().unwrap().with_env(env);
         let index = self.chats.get().filter(|_| !remote).cloned();
         let (fam, id, check) =
@@ -88,19 +88,22 @@ impl Hub {
         let ((found, store), live) = tokio::task::spawn_blocking(move || {
             let others = indexed_stores(index.as_deref(), &fam, &id);
             let (found, store) = crate::adopt::find_any(&fam, &id, &homes, &others)?;
+            // The holder the harness records in the store that holds the chat; one that has
+            // exited does not count (hq#2569 item 7).
             let live = check
-                .then(|| {
-                    let procs = crate::adopt_live::processes();
-                    if fam == "opencode" {
-                        return crate::adopt_live::named_use(&id, &procs);
+                .then(|| match fam.as_str() {
+                    "opencode" => {
+                        crate::adopt_live::named_use(&id, &crate::adopt_live::processes())
                     }
-                    crate::adopt_live::live_use(
-                        &id,
-                        &found.file,
-                        found.cwd.as_deref(),
-                        &procs,
-                        std::time::SystemTime::now(),
-                    )
+                    "claude" => {
+                        let root = store.clone().unwrap_or_else(|| homes.claude.clone());
+                        crate::adopt_live::holder(&fam, &id, &root)
+                    }
+                    "codex" => {
+                        let root = store.clone().unwrap_or_else(|| homes.codex.clone());
+                        crate::adopt_live::holder(&fam, &id, &root)
+                    }
+                    _ => None,
                 })
                 .flatten();
             Ok::<_, String>(((found, store), live))
@@ -136,6 +139,9 @@ impl Hub {
         adopt: &AdoptRequest,
         agent: &str,
     ) -> Result<(), RpcError> {
+        super::titles::keep_adopted_title(
+            &mut session.meta.lock().unwrap_or_else(|e| e.into_inner()),
+        );
         if session.meta().agent_session_id.as_deref() == Some(adopt.agent_session_id.as_str()) {
             return Ok(());
         }
@@ -429,12 +435,16 @@ impl Hub {
         }
         self.save_meta(session);
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
+        let update = |fields: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": fields}});
         for (i, turn) in turns.iter().enumerate() {
             let turn_id = format!("adopted-{i}");
             let prompt_id = format!("adopted-prompt-{i}");
             // Each record keeps the transcript's time, so a fork through it cuts Claude's
-            // transcript there (`fork_at.rs`) and the turn shows its real time.
-            let (started, ended) = (turn.prompt_at, turn.answer_at.or(turn.prompt_at));
+            // transcript there (`fork_at.rs`) and the turn shows its real time. The turn ends
+            // with its answer, or its last tool call when that ended later.
+            let started = turn.prompt_at;
+            let answered = turn.answer_at.or(started);
+            let ended = turn.tools.iter().filter_map(|t| t.ended_at).chain(answered).max();
             let turn_seq = self
                 .append_at(
                     session,
@@ -454,14 +464,35 @@ impl Hub {
                 None,
                 started,
             );
+            // The turn's tool calls, before its answer, as a live turn sends them: each starts
+            // running and its update settles it, so the pane folds them under "Worked for".
+            for tool in &turn.tools {
+                let start = tool.started_at.or(tool.ended_at).or(started);
+                let mut call = tool.call.clone();
+                call["sessionUpdate"] = json!("tool_call");
+                call["toolCallId"] = json!(tool.id);
+                call["status"] = json!("in_progress");
+                self.append_at(session, "in", "tool_call", update(call), None, start);
+                let mut done = tool.done.clone();
+                done["sessionUpdate"] = json!("tool_call_update");
+                done["toolCallId"] = json!(tool.id);
+                self.append_at(
+                    session,
+                    "in",
+                    "tool_call_update",
+                    update(done),
+                    None,
+                    tool.ended_at.or(start),
+                );
+            }
             if !turn.answer.is_empty() {
                 self.append_at(
                     session,
                     "in",
                     "agent_message_chunk",
-                    json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}}}}),
+                    update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}})),
                     None,
-                    ended,
+                    answered,
                 );
             }
             self.append_at(

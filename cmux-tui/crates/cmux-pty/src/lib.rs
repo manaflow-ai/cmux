@@ -32,6 +32,8 @@ use std::sync::Arc;
 
 pub use portable_pty::{Child, ChildKiller, ExitStatus, MasterPty, PtySize};
 
+#[cfg(target_vendor = "apple")]
+mod input_queue;
 #[cfg(unix)]
 mod macos;
 #[cfg(unix)]
@@ -290,23 +292,62 @@ mod tests {
     /// mask survive `exec`, so without the reset a shell would not die on a
     /// hangup or Ctrl-C. The probe runs in a re-executed copy of this test
     /// binary, so the parent-side SIG_IGN never touches other tests.
+    ///
+    /// The PTY child is a third copy of this binary that reads its own
+    /// dispositions (`sigaction`) and mask (`pthread_sigmask`) and prints
+    /// them as two hex bit sets. `ps -o ignored=,blocked=` cannot do this on
+    /// macOS: its ps has no `ignored` keyword and prints its keyword list.
     #[test]
     fn a_pty_child_gets_default_signals_and_an_empty_mask_from_an_ignoring_parent()
     -> Result<(), Box<dyn std::error::Error>> {
         const PROBE: &str = "CMUX_PTY_SIGNAL_PROBE";
+        const REPORT: &str = "CMUX_PTY_SIGNAL_REPORT";
+        const NAME: &str =
+            "tests::a_pty_child_gets_default_signals_and_an_empty_mask_from_an_ignoring_parent";
+        let bit = |signal: libc::c_int| 1u64 << (signal - 1);
+        if std::env::var_os(REPORT).is_some() {
+            let (mut ignored, mut blocked) = (0u64, 0u64);
+            // SAFETY: query-only sigaction and pthread_sigmask calls on
+            // this process; null new-action and new-set pointers change
+            // nothing.
+            unsafe {
+                let mut mask = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
+                libc::sigemptyset(mask.as_mut_ptr());
+                assert_eq!(
+                    libc::pthread_sigmask(libc::SIG_BLOCK, std::ptr::null(), mask.as_mut_ptr()),
+                    0
+                );
+                // SIGKILL and SIGSTOP cannot be ignored, and macOS refuses
+                // even a query of them with EINVAL.
+                for signal in (1..32).filter(|&s| s != libc::SIGKILL && s != libc::SIGSTOP) {
+                    let mut action = std::mem::MaybeUninit::<libc::sigaction>::zeroed();
+                    assert_eq!(libc::sigaction(signal, std::ptr::null(), action.as_mut_ptr()), 0);
+                    if action.assume_init().sa_sigaction == libc::SIG_IGN {
+                        ignored |= bit(signal);
+                    }
+                    if libc::sigismember(mask.as_ptr(), signal) == 1 {
+                        blocked |= bit(signal);
+                    }
+                }
+            }
+            println!("probe: {ignored:x} {blocked:x}");
+            return Ok(());
+        }
         if std::env::var_os(PROBE).is_some() {
             // SAFETY: SIG_IGN and sigprocmask on this probe process only.
             unsafe {
-                libc::signal(libc::SIGHUP, libc::SIG_IGN);
-                libc::signal(libc::SIGINT, libc::SIG_IGN);
+                for signal in [libc::SIGHUP, libc::SIGINT, libc::SIGQUIT, libc::SIGTERM] {
+                    libc::signal(signal, libc::SIG_IGN);
+                }
                 let mut set = std::mem::MaybeUninit::<libc::sigset_t>::uninit();
                 libc::sigemptyset(set.as_mut_ptr());
                 libc::sigaddset(set.as_mut_ptr(), libc::SIGHUP);
                 libc::pthread_sigmask(libc::SIG_BLOCK, set.as_ptr(), std::ptr::null_mut());
             }
             let pair = open(PtySize { rows: 24, cols: 120, pixel_width: 0, pixel_height: 0 })?;
-            let mut command = PtyCommand::new("/bin/sh");
-            command.args(["-c", "echo probe: $(ps -o ignored= -o blocked= -p $$)"]);
+            let mut command = PtyCommand::new(std::env::current_exe()?.to_string_lossy());
+            command.args(["--exact", NAME, "--nocapture", "--test-threads=1"]);
+            command.env(REPORT, "1");
             let mut spawned = pair.spawn(command)?;
             let mut reader = spawned.master.try_clone_reader()?;
             let mut output = Vec::new();
@@ -325,12 +366,7 @@ mod tests {
             return Ok(());
         }
         let output = std::process::Command::new(std::env::current_exe()?)
-            .args([
-                "--exact",
-                "tests::a_pty_child_gets_default_signals_and_an_empty_mask_from_an_ignoring_parent",
-                "--nocapture",
-                "--test-threads=1",
-            ])
+            .args(["--exact", NAME, "--nocapture", "--test-threads=1"])
             .env(PROBE, "1")
             .output()?;
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -345,9 +381,10 @@ mod tests {
             .collect::<Result<Vec<_>, _>>()?;
         assert_eq!(masks.len(), 2, "{line}");
         let (ignored, blocked) = (masks[0], masks[1]);
-        let bit = |signal: libc::c_int| 1u64 << (signal - 1);
-        assert_eq!(ignored & (bit(libc::SIGHUP) | bit(libc::SIGINT)), 0, "child ignores {line}");
-        assert_eq!(blocked & bit(libc::SIGHUP), 0, "child blocks HUP: {line}");
+        let reset = [libc::SIGHUP, libc::SIGINT, libc::SIGQUIT, libc::SIGTERM];
+        let reset = reset.into_iter().fold(0, |mask, signal| mask | bit(signal));
+        assert_eq!(ignored & reset, 0, "child ignores {line}");
+        assert_eq!(blocked, 0, "child blocks signals: {line}");
         Ok(())
     }
 

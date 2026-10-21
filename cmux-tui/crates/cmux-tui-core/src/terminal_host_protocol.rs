@@ -73,6 +73,12 @@ pub const FLAG_PTY_CUSTODY: u32 = 1 << 6;
 /// whose record advertises `supports_program_status`; older hosts reject the
 /// unknown bit.
 pub const FLAG_PROGRAM_STATUS: u32 = 1 << 7;
+/// ClientHello opt-in and HostHello acknowledgement for the OSC 133 shell
+/// state (prompt, running command) in the Snapshot payload, right after the
+/// terminal metadata tail (cx-6so.59). Only with `FLAG_TERMINAL_METADATA`,
+/// and only toward a host whose record advertises `supports_shell_activity`;
+/// older hosts reject the unknown bit.
+pub const FLAG_SHELL_ACTIVITY: u32 = 1 << 8;
 /// ResizeAck payload flag: this request changed the canonical grid and its
 /// sequenced Resized+Colors transition was enqueued immediately before the
 /// targeted acknowledgement.

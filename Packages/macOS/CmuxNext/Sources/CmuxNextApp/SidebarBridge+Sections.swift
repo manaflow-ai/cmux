@@ -33,7 +33,7 @@ extension SidebarBridge {
     /// Runs item `id` as a click does: a top-section item that stands for a
     /// page opens that page in this window (TOP-SECTION-ITEMS-ARE-PAGES).
     func activateLayoutItem(_ id: LayoutItemID, opensWorkspace: Bool = false) {
-        guard let item = model.layout.item(id) else { return WhatsNewPage.activateClientItem(id, services: services, in: state) }
+        guard let item = model.layout.item(id) ?? model.listedItem(id) else { return WhatsNewPage.activateClientItem(id, services: services, in: state) }
         if let region = model.layout.region(of: id), let route = TopPageRoute(item.ref, in: region),
            TopPages.show(route, services: services, in: state) != nil { return }
         activate(item.ref, opensWorkspace: opensWorkspace)
@@ -76,6 +76,8 @@ extension SidebarBridge {
     /// does not register draws dimmed.
     func observeSections() {
         let model = model
+        // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows.
+        if let doc = SidebarDocStore.current { rows.followFolds(of: doc) }
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout
@@ -156,7 +158,7 @@ extension SidebarBridge {
 
     /// The right-click menu of a layout item: Hide only on app items.
     func layoutItemMenu(_ id: LayoutItemID) -> NSMenu? {
-        let isApp = model.layout.item(id)?.owningAppID != nil
+        let isApp = (model.layout.item(id) ?? model.listedItem(id))?.owningAppID != nil
         let menus = ContextMenuCatalog.shared
         let entries = isApp ? menus.entries(for: .sidebarItem) : menus.entries(for: .sidebarItem, removing: ["sidebar.item.hideApp"])
         return services.registry.makeContextMenu(for: .sidebarItem, target: ActionTargetRef(kind: .sidebarItem, id: id.rawValue),

@@ -48,7 +48,7 @@ enum CloudCreationRows {
             header.status = .failed
             header.detail = failure
         }
-        return header
+        return header.redialing(session.link?.redial.isRedialing == true)
     }
 
     /// A Cloud creation's row (cx-lu8f): no workspace yet, so no daemon command and no context menu.

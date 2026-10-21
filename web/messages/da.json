@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "påkrævet: denne maskine deles med teamet" },
   "agentHarness": {
     "title": "Registreret harness-konfiguration",
     "selectionNotice": "Valg af en udbyder starter eller aktiverer ikke disse harnesses.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Planlægning, TDD, underagenter og gennemgang"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM-anmodning forsinket",
+      "message": "Tildeling af en Cloud VM er midlertidigt utilgængelig.",
+      "action": "Vent et minut, og prøv derefter igen med den samme idempotensnøgle."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Snapshot-anmodningen kræver en genforsøgsnøgle",
+      "message": "Cloud VM-snapshots kræver en idempotensnøgle.",
+      "action": "Prøv igen med en fast Idempotency-Key på højst 128 tegn."
+    },
+    "snapshotInProgress": {
+      "title": "Snapshot er stadig i gang",
+      "message": "Et snapshot med denne idempotensnøgle kører stadig for denne Cloud VM.",
+      "action": "Vent på, at det første snapshot bliver færdigt, og prøv derefter igen med samme idempotensnøgle."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Snapshot-nøglen er allerede brugt",
+      "message": "Denne idempotensnøgle er allerede brugt til en anden snapshot-anmodning på denne Cloud VM.",
+      "action": "Brug en ny idempotensnøgle til et snapshot med et andet navn."
+    },
+    "snapshotQuota": {
+      "title": "Snapshot-grænsen er nået",
+      "message": "Denne Cloud VM har nået sin snapshot-grænse.",
+      "action": "Slet et eksisterende snapshot, og prøv derefter igen med den samme idempotensnøgle."
+    },
     "guestInstall": {
       "title": "Opsætning af Cloud VM blev ikke fuldført",
       "reason": "Gæsteopsætningen af Cloud VM blev ikke fuldført.",
@@ -524,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "Genoptag din plan for at ændre den.",
           "granted": "Tildelt af cmux. Der er intet at ændre.",
+          "grantedNoCancel": "Tildelt af cmux, så der er intet at opsige.",
+          "paymentFailed": "Opdater din betalingsmetode, før du skifter abonnement.",
+          "foundersLifetime": "Founder's Edition inkluderer Pro for livet.",
           "adminOnly": "Kun teamadministratorer kan ændre planen."
         },
         "names": {
@@ -566,6 +595,7 @@
       "change": {
         "title": "Skift til {plan}?",
         "upgradeBody": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om måneden.",
+        "upgradeBodyYearly": "{plan} starter nu. Du betaler {amount} i dag for resten af denne faktureringsperiode. Fra den {date} betaler du {price} om året.",
         "downgradeBody": "{plan} starter nu. Den ubrugte del af din nuværende plan, {credit}, krediteres dine næste fakturaer. Din næste faktura den {date} er på {amount}.",
         "confirm": "Skift til {plan}",
         "keep": "Behold nuværende plan",
@@ -578,6 +608,8 @@
         "title": "Opsig {plan}?",
         "body": "Du beholder {plan} indtil den {date}. Derefter mister du:",
         "bodyNoDate": "Du beholder {plan} til slutningen af denne faktureringsperiode. Derefter mister du:",
+        "foundersBody": "Dit {plan}-abonnement slutter den {date}. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
+        "foundersBodyNoDate": "Dit {plan}-abonnement slutter ved udgangen af denne faktureringsperiode. Derefter har du Pro, som Founder's Edition inkluderer for livet.",
         "reasonLabel": "Hvorfor opsiger du? (valgfrit)",
         "otherPlaceholder": "Fortæl os mere (valgfrit)",
         "confirm": "Opsig plan",
@@ -2252,6 +2284,7 @@
           "currentLineHighlight": "Farv den linje, hvor markøren står, når intet er markeret.",
           "tabWidth": "Hvor mange kolonner ét tabulatorstop fylder. Indrykningslinjerne bruger samme afstand."
         },
+        "actions": "Genbrugelige handlinger til kommandopaletten, genveje, knapper på fanelinjen og plusknappens menu. Understøtter builtin, command, agent, workspaceCommand, workspace, setting, settingPreset og text. Teksthandlinger indsætter i terminalen med fokus og bevarer linjeskift; submit: true trykker på Enter. Indstillingshandlinger kræver global konfiguration.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

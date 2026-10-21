@@ -193,14 +193,14 @@
         },
         {
           "key": "updates.showWhatsNew",
-          "note": "The What's New item at the top of the sidebar after an update (WHATS-NEW-AFTER-UPDATE W1); managed config can force it off.",
+          "note": "The bottom-left \"cmux Updated!\" card after an update (WHATS-NEW-AFTER-UPDATE W1; never a top-of-sidebar item); managed config can force it off.",
           "title": {
             "key": "settings.updates.showWhatsNew",
             "text": "Show What's New After Updates"
           },
           "help": {
             "key": "settings.updates.showWhatsNew.help",
-            "text": "After an update, a What's New item shows at the top of the sidebar until you open it."
+            "text": "After an update, a card at the bottom of the sidebar links to What's New until you open or dismiss it."
           },
           "kind": "toggle",
           "default": true,

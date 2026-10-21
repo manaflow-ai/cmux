@@ -34,7 +34,9 @@ export type AgentChatTextKey =
   | "agentMessageQueued"
   | "loadingDiff"
   | "diffUnavailable"
-  | "retryDiff";
+  | "retryDiff"
+  | "previousMessages"
+  | "hideOlderMessages";
 
 const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
   en: {
@@ -50,6 +52,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Loading diff…",
     diffUnavailable: "Couldn't load the diff. Try again.",
     retryDiff: "Retry",
+    previousMessages: "{count} previous messages",
+    hideOlderMessages: "Hide older messages",
   },
   ja: {
     continuedNewChat: "新しいチャットで続行しました。以前のコンテキストはリンクされています。",
@@ -64,6 +68,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "差分を読み込み中…",
     diffUnavailable: "差分を読み込めませんでした。もう一度お試しください。",
     retryDiff: "再試行",
+    previousMessages: "以前のメッセージ {count} 件",
+    hideOlderMessages: "以前のメッセージを隠す",
   },
   "zh-CN": {
     continuedNewChat: "已在新聊天中继续。之前的上下文已关联。",
@@ -78,6 +84,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "正在加载差异…",
     diffUnavailable: "无法加载差异。请重试。",
     retryDiff: "重试",
+    previousMessages: "{count} 条之前的消息",
+    hideOlderMessages: "隐藏较早的消息",
   },
   "zh-TW": {
     continuedNewChat: "已在新聊天中繼續。先前的內容已連結。",
@@ -92,6 +100,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "正在載入差異…",
     diffUnavailable: "無法載入差異。請再試一次。",
     retryDiff: "重試",
+    previousMessages: "{count} 則先前訊息",
+    hideOlderMessages: "隱藏較早的訊息",
   },
   ko: {
     continuedNewChat: "새 채팅에서 계속합니다. 이전 컨텍스트가 연결되어 있습니다.",
@@ -106,6 +116,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "변경 사항을 불러오는 중…",
     diffUnavailable: "변경 사항을 불러오지 못했습니다. 다시 시도하세요.",
     retryDiff: "다시 시도",
+    previousMessages: "이전 메시지 {count}개",
+    hideOlderMessages: "이전 메시지 숨기기",
   },
   de: {
     continuedNewChat: "In einem neuen Chat fortgesetzt. Der vorherige Kontext ist verknüpft.",
@@ -120,6 +132,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Diff wird geladen…",
     diffUnavailable: "Der Diff konnte nicht geladen werden. Bitte erneut versuchen.",
     retryDiff: "Erneut versuchen",
+    previousMessages: "{count} vorherige Nachrichten",
+    hideOlderMessages: "Ältere Nachrichten ausblenden",
   },
   es: {
     continuedNewChat: "Se continuó en un chat nuevo. El contexto anterior está vinculado.",
@@ -134,6 +148,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Cargando diferencias…",
     diffUnavailable: "No se pudieron cargar las diferencias. Inténtalo de nuevo.",
     retryDiff: "Reintentar",
+    previousMessages: "{count} mensajes anteriores",
+    hideOlderMessages: "Ocultar mensajes anteriores",
   },
   fr: {
     continuedNewChat: "La conversation continue dans un nouveau chat. Le contexte précédent est lié.",
@@ -148,6 +164,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Chargement des différences…",
     diffUnavailable: "Impossible de charger les différences. Réessayez.",
     retryDiff: "Réessayer",
+    previousMessages: "{count} messages précédents",
+    hideOlderMessages: "Masquer les messages précédents",
   },
   it: {
     continuedNewChat: "Continuazione in una nuova chat. Il contesto precedente è collegato.",
@@ -162,6 +180,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Caricamento delle differenze…",
     diffUnavailable: "Impossibile caricare le differenze. Riprova.",
     retryDiff: "Riprova",
+    previousMessages: "{count} messaggi precedenti",
+    hideOlderMessages: "Nascondi i messaggi precedenti",
   },
   da: {
     continuedNewChat: "Fortsat i en ny chat. Den tidligere kontekst er knyttet til.",
@@ -176,6 +196,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Indlæser ændringer…",
     diffUnavailable: "Kunne ikke indlæse ændringerne. Prøv igen.",
     retryDiff: "Prøv igen",
+    previousMessages: "{count} tidligere meddelelser",
+    hideOlderMessages: "Skjul ældre meddelelser",
   },
   pl: {
     continuedNewChat: "Kontynuowano w nowym czacie. Poprzedni kontekst jest połączony.",
@@ -190,6 +212,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Wczytywanie różnic…",
     diffUnavailable: "Nie udało się wczytać różnic. Spróbuj ponownie.",
     retryDiff: "Spróbuj ponownie",
+    previousMessages: "{count} poprzednich wiadomości",
+    hideOlderMessages: "Ukryj starsze wiadomości",
   },
   ru: {
     continuedNewChat: "Продолжено в новом чате. Предыдущий контекст связан.",
@@ -204,6 +228,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Загрузка изменений…",
     diffUnavailable: "Не удалось загрузить изменения. Попробуйте ещё раз.",
     retryDiff: "Повторить",
+    previousMessages: "Предыдущих сообщений: {count}",
+    hideOlderMessages: "Скрыть старые сообщения",
   },
   bs: {
     continuedNewChat: "Nastavljeno u novom chatu. Prethodni kontekst je povezan.",
@@ -218,6 +244,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Učitavanje razlika…",
     diffUnavailable: "Nije moguće učitati razlike. Pokušajte ponovo.",
     retryDiff: "Pokušaj ponovo",
+    previousMessages: "{count} prethodnih poruka",
+    hideOlderMessages: "Sakrij starije poruke",
   },
   ar: {
     continuedNewChat: "تمت المتابعة في محادثة جديدة. السياق السابق مرتبط.",
@@ -232,6 +260,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "جارٍ تحميل الفروقات…",
     diffUnavailable: "تعذّر تحميل الفروقات. حاول مرة أخرى.",
     retryDiff: "إعادة المحاولة",
+    previousMessages: "{count} رسالة سابقة",
+    hideOlderMessages: "إخفاء الرسائل الأقدم",
   },
   no: {
     continuedNewChat: "Fortsatt i en ny chat. Tidligere kontekst er koblet til.",
@@ -246,6 +276,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Laster endringer…",
     diffUnavailable: "Kunne ikke laste endringene. Prøv igjen.",
     retryDiff: "Prøv igjen",
+    previousMessages: "{count} tidligere meldinger",
+    hideOlderMessages: "Skjul eldre meldinger",
   },
   "pt-BR": {
     continuedNewChat: "Continuado em um novo chat. O contexto anterior está vinculado.",
@@ -260,6 +292,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Carregando diferenças…",
     diffUnavailable: "Não foi possível carregar as diferenças. Tente novamente.",
     retryDiff: "Tentar novamente",
+    previousMessages: "{count} mensagens anteriores",
+    hideOlderMessages: "Ocultar mensagens anteriores",
   },
   th: {
     continuedNewChat: "ดำเนินการต่อในแชทใหม่แล้ว โดยเชื่อมโยงบริบทก่อนหน้าไว้",
@@ -274,6 +308,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "กำลังโหลดความแตกต่าง…",
     diffUnavailable: "ไม่สามารถโหลดความแตกต่างได้ โปรดลองอีกครั้ง",
     retryDiff: "ลองอีกครั้ง",
+    previousMessages: "{count} ข้อความก่อนหน้า",
+    hideOlderMessages: "ซ่อนข้อความเก่า",
   },
   tr: {
     continuedNewChat: "Yeni bir sohbette devam edildi. Önceki bağlam bağlantılı.",
@@ -288,6 +324,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Farklar yükleniyor…",
     diffUnavailable: "Farklar yüklenemedi. Yeniden deneyin.",
     retryDiff: "Yeniden dene",
+    previousMessages: "{count} önceki mesaj",
+    hideOlderMessages: "Eski mesajları gizle",
   },
   km: {
     continuedNewChat: "បានបន្តនៅក្នុងការជជែកថ្មី។ បរិបទមុនត្រូវបានភ្ជាប់។",
@@ -302,6 +340,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "កំពុងផ្ទុកភាពខុសគ្នា…",
     diffUnavailable: "មិនអាចផ្ទុកភាពខុសគ្នាបានទេ។ សូមព្យាយាមម្តងទៀត។",
     retryDiff: "ព្យាយាមម្តងទៀត",
+    previousMessages: "សារមុន {count}",
+    hideOlderMessages: "លាក់សារចាស់ៗ",
   },
   uk: {
     continuedNewChat: "Продовжено в новому чаті. Попередній контекст пов’язано.",
@@ -316,6 +356,8 @@ const COPY: Record<AgentChatLocale, Record<AgentChatTextKey, string>> = {
     loadingDiff: "Завантаження змін…",
     diffUnavailable: "Не вдалося завантажити зміни. Спробуйте ще раз.",
     retryDiff: "Повторити",
+    previousMessages: "Попередніх повідомлень: {count}",
+    hideOlderMessages: "Сховати старі повідомлення",
   },
 };
 

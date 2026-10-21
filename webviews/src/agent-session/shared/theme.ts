@@ -17,12 +17,17 @@ const cssVariables: Record<keyof AgentSessionTheme, string | null> = {
   onAccent: "--agent-on-accent",
   danger: "--agent-danger",
   warning: "--agent-warning",
+  success: "--agent-success",
   highlight: "--agent-highlight",
   highlightText: "--agent-highlight-text",
   shadow: "--agent-shadow",
   palette: null,
   borders: null,
+  chatWidth: null,
+  codexToolRuns: null,
+  turnActionsPlacement: null,
   motion: null,
+  statusIndicators: null,
 };
 
 const motionVariables = {
@@ -47,6 +52,9 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
   // appearance.borders: the stylesheets clear their edges under `[data-borders="none"]`.
   if (theme.borders === "none") root.dataset.borders = "none";
   else delete root.dataset.borders;
+  // Static status indicators (or Reduce Motion): the stylesheets stop their loops under it.
+  if (theme.statusIndicators) root.dataset.statusIndicators = theme.statusIndicators;
+  else delete root.dataset.statusIndicators;
   for (const [key, variable] of Object.entries(cssVariables) as Array<[keyof AgentSessionTheme, string | null]>) {
     if (!variable) {
       continue;
@@ -65,11 +73,42 @@ export function applyAgentTheme(theme: AgentSessionTheme): void {
       root.style.setProperty(variable, `${Math.round(seconds * 1000)}ms`);
     } else root.style.removeProperty(variable);
   }
+  // `ui.animationSpeed: off` reaches the page as an all-zero motion policy. Mark it on the root so
+  // CSS animations and transitions that represent loops or third-party surfaces stop as well as
+  // tokenized fades. Reduce Motion keeps its short crossfade values and therefore does not trip this.
+  const motionValues = theme.motion ? Object.values(theme.motion) : [];
+  if (motionValues.length > 0 && motionValues.every((value) => value === 0)) root.dataset.agentMotion = "off";
+  else delete root.dataset.agentMotion;
+  if (root.dataset.agentMotion === "off") {
+    for (const animation of document.getAnimations?.() ?? []) animation.cancel();
+  }
   // `--agent-ansi-0` … `--agent-ansi-15`; a theme without a palette clears them.
   for (let index = 0; index < 16; index += 1) {
     const color = theme.palette?.[index];
     if (color) root.style.setProperty(`--agent-ansi-${index}`, color);
     else root.style.removeProperty(`--agent-ansi-${index}`);
+  }
+  applyTerminalCodeFont(root);
+}
+
+/** The mono stack behind the terminal's face, the pane's own default (conversation.css `--cv-mono`). */
+const MONO_STACK = `ui-monospace, "SF Mono", Menlo, monospace`;
+/** The pane's code font variables: diffs (diffTheme.ts) and code blocks, file names and paths. */
+const CODE_FONT_VARIABLES = ["--cmux-diff-code-font-family", "--cv-code-font"] as const;
+
+/**
+ * Code in the pane draws in the terminal's face, as on the diff, markdown and editor pages. The host
+ * applies the shared web theme (`window.cmuxTheme`, its `terminal.fontFamily`) just before the pane's
+ * own on every theme change (AgentPaneTheme.swift `script`); without a named face the stylesheets'
+ * mono stack applies.
+ */
+function applyTerminalCodeFont(root: HTMLElement): void {
+  const host = (window as { cmuxTheme?: { current?: { terminal?: { fontFamily?: unknown } } | null } }).cmuxTheme;
+  const family = host?.current?.terminal?.fontFamily;
+  const face = typeof family === "string" ? family.trim() : "";
+  for (const variable of CODE_FONT_VARIABLES) {
+    if (face) root.style.setProperty(variable, `${JSON.stringify(face)}, ${MONO_STACK}`);
+    else root.style.removeProperty(variable);
   }
 }
 

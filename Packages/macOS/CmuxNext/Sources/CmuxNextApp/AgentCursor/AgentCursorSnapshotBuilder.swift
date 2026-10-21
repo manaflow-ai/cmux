@@ -31,7 +31,7 @@ struct AgentCursorSnapshotBuilder {
             return .init(workspace: workspace, pane: pane.id)
         }
         for controller in services.windows.controllers {
-            for (pane, tabs) in controller.state.localBrowserTabs where tabs.contains(where: { $0.id == id }) {
+            for (pane, tabs) in controller.state.localBrowserTabs.all where tabs.contains(where: { $0.id == id }) {
                 if let workspace = workspaceID(containingPane: pane, services) { return .init(workspace: workspace, pane: pane) }
             }
         }
@@ -121,7 +121,7 @@ struct AgentCursorSnapshotBuilder {
         if selected == target, controller.currentTabKey == target, case let .browser(entry)? = controller.currentContent,
            entry.chrome.window != nil {
             page = .init(viewport: AgentCursorRect(space.rect(entry.chrome.pageViewportRect, from: entry.chrome)),
-                         zoom: entry.tab.state.zoom)
+                         zoom: entry.tab.state.zoom, scale: Double(entry.chrome.pageViewportScale))
         }
         return AgentCursorVisibilitySnapshot.Pane(
             id: key,

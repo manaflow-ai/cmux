@@ -13,6 +13,8 @@ export type TurnActions = {
   fork?: (throughSeq: number) => void;
   /// The latest completed turn (`latestForkSeq`), the only one `fork` goes through unless `forkAny`.
   forkSeq?: number;
+  /// Each answered prompt's own turn (`promptTurns`): the Fork under its bubble forks through it.
+  promptTurns?: ReadonlyMap<string, number>;
   /// Every completed turn forks (`forksAnyTurn`): acpmux forks a Claude or Codex chat through any of them (cx-yqiv, cx-a7r).
   forkAny?: boolean;
   /// Edit and resend (cx-ncc.60): the prompts that edit in place, each with the turn its edit forks
@@ -27,6 +29,9 @@ export type TurnActions = {
     of: ReadonlyMap<string, MessageBranch>;
     open: (sessionId: string) => void;
   };
+  /// The image `id` a prompt of this chat sent (its `images`), as a data URL; undefined when acpmux
+  /// has none.
+  promptImage?: (id: string) => Promise<string | undefined>;
   /// Send a turn's prompt again (the last turn's Retry), preserving its attachments.
   retry?: (rowId: string, prompt: string) => void;
   /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry

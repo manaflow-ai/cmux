@@ -1,10 +1,20 @@
 // The Stats page (hq#1920): what this machine's agents did, from the local session logs only.
 // Tiles first (agent time, time waiting on you, turns, peak parallel agents, streak), then the
-// activity heatmap, the time of day, each agent's share and how turns ended.
+// activity heatmap, the time of day, each agent's share, how turns ended and what needed you.
 import { useSyncExternalStore } from "react";
 import type { Strings } from "../shared/i18n";
 import { harnessName } from "./harnessNames";
-import { formatCount, formatDay, formatDays, formatDuration, formatHour, heatmap, hourShares } from "./shape";
+import {
+  attentionRows,
+  formatCount,
+  formatDay,
+  formatDays,
+  formatDuration,
+  formatHour,
+  formatWait,
+  heatmap,
+  hourShares,
+} from "./shape";
 import type { StatsStore } from "./store";
 import { RANGES, type StatsSummary } from "./types";
 
@@ -53,6 +63,8 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
   const count = (value: number) => formatCount(value, language);
   const duration = (ms: number) => formatDuration(ms, language);
   const empty = summary.turns === 0 && summary.workingMs === 0;
+  const attention = attentionRows(summary);
+  const ratio = new Intl.NumberFormat(language, { maximumFractionDigits: 2 });
   const tiles: { key: string; value: string; detail?: string }[] = [
     { key: "stats.tile.agentTime", value: duration(summary.workingMs) },
     { key: "stats.tile.waiting", value: duration(summary.waitingMs) },
@@ -143,6 +155,25 @@ function Summary({ summary, strings }: { summary: StatsSummary; strings: Strings
           ))}
         </dl>
       </section>
+      {attention.length > 0 && (
+        <section className="stats-section stats-attention">
+          <h2 className="stats-section-title">{strings.t("stats.section.attention")}</h2>
+          <dl className="stats-outcomes">
+            {attention.map((row) => (
+              <div key={row.key} className="stats-outcome">
+                <dt>{strings.t(row.key)}</dt>
+                <dd>
+                  {"wait" in row
+                    ? formatWait(row.wait, language)
+                    : "count" in row
+                      ? count(row.count)
+                      : ratio.format(row.ratio)}
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      )}
     </>
   );
 }

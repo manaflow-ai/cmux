@@ -17,13 +17,17 @@ export type SettingKind =
   | "time_range"
   | "theme"
   | "font_family"
-  // Kinds only cmux-browser keys use today; the page never renders them (see `consumers`).
+  // Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+  | "text"
+  // Numbers as tokens (`editor.rulers`).
   | "number_list"
+  // Keyed values; the page lists none (SectionView, search.ts): `appearance.themeEdits` is the
+  // theme studio's, `browser.siteEngines` is edited in cmux.json.
   | "string_map"
   // Ordered choices (`row.choices`) or free-text tokens (`browser.urlsToAlwaysOpenExternally`).
   | "string_list";
 
-export type NumberUnit = "points" | "seconds" | "minutes" | "days" | "count" | "fraction";
+export type NumberUnit = "points" | "milliseconds" | "seconds" | "minutes" | "days" | "count" | "fraction";
 
 export type NumberRange = { min: number; max: number; step: number; unit: NumberUnit; placeholder: number };
 
@@ -85,7 +89,6 @@ type Schema = {
   rows: SchemaRow[];
   sections: SchemaSection[];
   page: PageLayout;
-  schema_hash: string;
   version: number;
 };
 

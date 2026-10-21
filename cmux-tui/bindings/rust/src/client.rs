@@ -1029,7 +1029,9 @@ mod tests {
     #[cfg(feature = "socket-path-hash")]
     #[test]
     fn implicit_hashed_socket_falls_back_to_the_legacy_session_socket() {
-        let root = crate::test_roots::TempRoot::new(); // the probe also scans its cmux-tui-<uid>
+        // The probe also scans the root's cmux-tui-<uid>. A short root, so the
+        // hashed path fits sun_path as every product-chosen hashed path does.
+        let root = crate::test_roots::TempRoot::short();
         let id = NEXT_TEST_SOCKET.fetch_add(1, AtomicOrdering::Relaxed);
         let session = format!("rf{}-{id}", std::process::id());
         let dir = root.path().join(private_runtime_dir_name());
@@ -1039,6 +1041,7 @@ mod tests {
         std::fs::create_dir_all(&hashed_dir).unwrap();
         let digest = crate::socket_hash::session_digest(&session).unwrap() + ".sock";
         let config = ClientConfig::from_socket_path(hashed_dir.join(digest));
+        assert!(unix_socket_path_fits(&config.socket_path), "{}", config.socket_path.display());
         assert!(is_hashed_socket(&config.socket_path));
         let listener = UnixListener::bind(&legacy.0).unwrap();
         assert_eq!(hashed_socket_legacy_path(&config.socket_path), Some(legacy.0.clone()));

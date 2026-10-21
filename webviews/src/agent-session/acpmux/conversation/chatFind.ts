@@ -6,6 +6,7 @@
 // FindReveal, the tool group or call that holds it (cx-ncc.70).
 import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
+import { cleanText, mcpCall, prettyOutput, prettyValue } from "./mcpCalls";
 
 /** One match: the `occurrence`th match of the query in row `rowIndex`. */
 export type FindMatch = { rowIndex: number; rowId: string; occurrence: number };
@@ -18,9 +19,16 @@ const SEARCHED_KINDS = new Set(["user", "assistant"]);
 
 /** What a tool call or thought draws: a thought's text, or a call's command (else its title) and
  * output. Group and run summaries are not counted, so they are not highlighted (`data-find-skip`). */
+/// An MCP call draws its pretty request and response (McpCallRows.tsx); other output draws
+/// without the context a host injects into it, as ToolRow does.
 function drawnText(item: AcpmuxActivity): string {
   const tool = item.tool;
-  return (tool ? [tool.command || tool.title, tool.output] : [item.text]).filter(Boolean).join("\n");
+  if (!tool) return item.text;
+  const call = mcpCall(tool);
+  if (call) return [prettyValue(call.args), prettyOutput(tool.output)].filter(Boolean).join("\n");
+  const shell = tool.kind === "execute" && Boolean(tool.command);
+  const output = shell || !tool.output ? tool.output : cleanText(tool.output);
+  return [tool.command || tool.title, output].filter(Boolean).join("\n");
 }
 
 /** A call's edits' new text, which draws in @pierre/diffs' shadow root, past the page's highlights. */
@@ -28,6 +36,18 @@ const diffText = (item: AcpmuxActivity) => (item.tool?.diffs ?? []).map((diff) =
 
 /** What Find reads of one tool call or thought. */
 export const activityText = (item: AcpmuxActivity) => `${drawnText(item)}\n${diffText(item)}`;
+
+// Find reveal hooks run in each tool row while the bar is open. Activity snapshots are immutable,
+// so reuse their case-folded text instead of rebuilding long command output and diffs per render.
+const searchableActivityTextCache = new WeakMap<AcpmuxActivity, string>();
+
+function searchableActivityText(item: AcpmuxActivity): string {
+  const cached = searchableActivityTextCache.get(item);
+  if (cached !== undefined) return cached;
+  const text = activityText(item).toLocaleLowerCase();
+  searchableActivityTextCache.set(item, text);
+  return text;
+}
 
 /** What Find reads of a row: a prompt's or reply's text, or its tool calls'. Diffs come last, so
  * the drawn matches keep their order and a diff's match lands on the row's last drawn one. */
@@ -37,15 +57,26 @@ function rowText(row: AcpmuxRow): string | undefined {
   return [...row.items.map(drawnText), ...row.items.map(diffText)].join("\n");
 }
 
+// Rows are immutable snapshots. Keep the assembled, case-folded search text by row identity so
+// typing a query does not rebuild every tool output and edit diff on every keystroke. A weak map
+// lets old transcript snapshots disappear as virtualization/history replacement releases them.
+const searchableTextCache = new WeakMap<AcpmuxRow, string | undefined>();
+
+function searchableText(row: AcpmuxRow): string | undefined {
+  if (searchableTextCache.has(row)) return searchableTextCache.get(row);
+  const text = rowText(row)?.toLocaleLowerCase();
+  searchableTextCache.set(row, text);
+  return text;
+}
+
 /** Every match of `query` (case-insensitive) in the prompts, replies and work of `rows`, in order. */
 export function findMatches(rows: readonly AcpmuxRow[], query: string): FindMatch[] {
   const needle = query.toLocaleLowerCase();
   if (!needle) return [];
   const matches: FindMatch[] = [];
   rows.forEach((row, rowIndex) => {
-    const found = rowText(row);
-    if (!found) return;
-    const text = found.toLocaleLowerCase();
+    const text = searchableText(row);
+    if (!text) return;
     let occurrence = 0;
     for (let at = text.indexOf(needle); at >= 0; at = text.indexOf(needle, at + needle.length))
       matches.push({ rowIndex, rowId: row.id, occurrence: occurrence++ });
@@ -122,7 +153,15 @@ export function useChatFind(rows: readonly AcpmuxRow[]): ChatFind {
 /** The transcript row that draws the current match (`id` and whether it is an edited-files card)
  * and the query, while Find shows one; ToolRows passes it to that row only. `repaint` redraws the
  * highlights once a part opens (only that part re-renders otherwise). */
-export type FindRevealTarget = { rowId: string; card: boolean; needle: string; repaint: () => void };
+export type FindRevealTarget = {
+  rowId: string;
+  card: boolean;
+  needle: string;
+  repaint: () => void;
+  /** Opens the part that holds this call instead of the parts whose text holds `needle` (a count on
+   * the running line, WorkingFor.tsx). */
+  toolId?: string;
+};
 export const FindReveal = createContext<FindRevealTarget | undefined>(undefined);
 
 /** Whether `row` draws match row `rowId` itself: the row or its copy in an open fold. */
@@ -146,7 +185,14 @@ export function findRowIndex(rows: readonly AcpmuxRow[], rowId: string): number 
 /** Calls `open` when the current match is in `items`, so a closed group or call shows it. */
 export function useFindReveal(items: readonly AcpmuxActivity[], open: () => void) {
   const reveal = useContext(FindReveal);
-  const hit = Boolean(reveal && items.some((item) => activityText(item).toLocaleLowerCase().includes(reveal.needle)));
+  const hit = Boolean(
+    reveal &&
+    items.some((item) =>
+      reveal.toolId !== undefined
+        ? item.tool?.id === reveal.toolId
+        : searchableActivityText(item).includes(reveal.needle),
+    ),
+  );
   useLayoutEffect(() => {
     if (!hit) return;
     open();

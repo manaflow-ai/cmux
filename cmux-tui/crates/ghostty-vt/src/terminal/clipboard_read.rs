@@ -76,7 +76,8 @@ impl Terminal {
     /// reads; the session host turns it on only for an owner that
     /// negotiated `clipboard-read-v1`.
     pub fn set_clipboard_reads_deferred(&mut self, enabled: bool) {
-        let callback: *const c_void = if enabled && self.callbacks.on_clipboard_read.is_some() {
+        let callback: *const c_void = if enabled && self.hooks.callbacks.on_clipboard_read.is_some()
+        {
             clipboard_read_trampoline as *const c_void
         } else {
             ptr::null()

@@ -1,6 +1,15 @@
 --- a/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
 +++ b/Sources/MessagesLabHome/Vendor/catalyst/Fixture.swift
-@@ -71,30 +71,57 @@
+@@ -11,7 +11,7 @@
+     /// cells, its bitmap jobs) the view's scale (MessagesWindowView.renderScale), else `fallbackRenderScale`.
+     /// Setting it sets the fallback. Test renders (capture, live grab) set 2, the reference's scale.
+     static var renderScale: CGFloat {
+-        get { RenderScaleScope.scoped ?? fallbackRenderScale }
++        get { RenderScaleScope.current ?? fallbackRenderScale } // cmux: no task local on main outside a task
+         set { fallbackRenderScale = newValue }
+     }
+     /// The process value for code with no view: set from the first window's screen at launch and by every
+@@ -74,11 +74,19 @@
      static func p3(_ r: CGFloat, _ g: CGFloat, _ b: CGFloat) -> UIColor {
          UIColor(displayP3Red: r / 255, green: g / 255, blue: b / 255, alpha: 1)
      }
@@ -17,8 +26,15 @@
      /// background 255, incoming 233/233/235, incoming text 36, secondary text 134, connector 235.
      /// The thread view's elevated rows and the tapback badge in light are UNVERIFIED (not in the take).
 -    static var background: UIColor { lightAppearance ? UIColor(white: 1, alpha: 1) : UIColor(white: 30 / 255, alpha: 1) }
--    static var incoming: UIColor { lightAppearance ? p3(233, 233, 235) : elevated ? p3(76, 76, 78) : p3(59, 59, 61) }
 +    static var background: UIColor { themed(\.background) ?? (lightAppearance ? UIColor(white: 1, alpha: 1) : UIColor(white: 30 / 255, alpha: 1)) }
+     /// The compose field's placeholder and audio waveform are see-through in Messages: the same ink over the
+     /// key field (59, light 249) and the inactive one (50, light 240) is a constant step from it (lossless
+     /// deactivate-activate and appearance-light takes, macOS 27, cx-3cb compose-parity): placeholder +63 in dark
+@@ -88,25 +96,44 @@
+     /// 10 levels too light on the inactive dark field, 60 levels too dark in light.
+     static var placeholderInk: UIColor { lightAppearance ? UIColor(white: 0, alpha: 0.27) : UIColor(white: 1, alpha: 0.316) }
+     static var waveformInk: UIColor { lightAppearance ? UIColor(white: 0, alpha: 0.39) : UIColor(white: 212 / 255, alpha: 0.556) }
+-    static var incoming: UIColor { lightAppearance ? p3(233, 233, 235) : elevated ? p3(76, 76, 78) : p3(59, 59, 61) }
 +    static var incoming: UIColor { themed(\.incoming) ?? (lightAppearance ? p3(233, 233, 235) : elevated ? p3(76, 76, 78) : p3(59, 59, 61)) }
      /// The typing indicator (bubble, tail discs, dots) is not the incoming grey: in Messages' key window it is
      /// one level darker in red and green (bubble and discs 58, 58, 61; dots dim 91, 91, 94, lit 133, 133, 135:
@@ -68,7 +84,7 @@
      /// Outgoing bubbles shade with their position in the window (measured:
      /// lighter near the top, deeper blue near the compose field).
      /// (window y in 2x px, red, green), Display P3.
-@@ -119,10 +146,39 @@
+@@ -131,10 +158,45 @@
      // optional, no force unwrap ; a nil gradient draws nothing.
      private static let darkGradient = gradient { p3($0, $1, 247) }
      private static let lightGradient = gradient(lightGradientColor)
@@ -90,6 +106,12 @@
 +                       green: ca.greenComponent + (cb.greenComponent - ca.greenComponent) * f,
 +                       blue: ca.blueComponent + (cb.blueComponent - ca.blueComponent) * f, alpha: 1)
 +    }
++    /// cmux: links in the Chief's text, the "Edited" label and "N Replies" are Messages' blues; the theme style
++    /// (a theme that is not the measured accent) draws them in the theme's caret colour (its accent, or its text).
++    private static var themedLink: UIColor? { themedAccent ? themed(\.caret) : nil }
++    static var incomingLink: UIColor { themedLink ?? UIColor(red: 0.27, green: 0.55, blue: 1, alpha: 1) }
++    static var labelLink: UIColor { themedLink ?? UIColor(red: 0.2, green: 0.55, blue: 1, alpha: 1) }
++    static var repliesTint: UIColor { themedLink ?? PreviewStyle.repliesBlue }
 +    static var outgoingGradient: CGGradient? {
 +        if let t = theme, themedAccent { return (inactive ? t.inactive : t.active).outgoingGradient }
 +        return measuredGradient
@@ -105,8 +127,8 @@
 +    // values, from the theme on a light one; nil keeps the measured values.
 +    static var typingDot: UIColor { themed(\.typingDot) ?? p3(91, 91, 94) }
 +    static var typingDotHighlight: UIColor { themed(\.typingDotHighlight) ?? p3(133, 133, 135) }
-+    static var placeholder: UIColor { themed(\.placeholder) ?? UIColor(white: 123 / 255, alpha: 1) }
-+    static var waveform: UIColor { themed(\.waveform) ?? UIColor(white: 144 / 255, alpha: 1) }
++    static var placeholder: UIColor { themed(\.placeholder) ?? placeholderInk }
++    static var waveform: UIColor { themed(\.waveform) ?? waveformInk }
 +    static var chipFill: UIColor { themed(\.chipFill) ?? UIColor(white: 1, alpha: 0.12) }
 +    /// The field glass and its buttons render light glass on a light theme.
 +    static var isLight: Bool { theme.map { (inactive ? $0.inactive : $0.active).isLight } ?? false }

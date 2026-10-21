@@ -163,7 +163,7 @@ def derive(bg,fg,pal,sel=None,opacity=1.0,accent='neutral',cursor=None,accent_co
       stripBackground=surf,
       sidebarStep=fg.wa(0.04),stripStep=BLACK.wa(0.22 if dark else 0.05),
       textPrimary=primary,textSecondary=secondary,textTertiary=tertiary,hoverFill=hover,selectionFill=selection,
-      secondarySelectionFill=fg.wa(0.07 if dark else 0.055),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
+      secondarySelectionFill=acc.wa(0.18 if dark else 0.11) if acc else fg.wa(0.07 if dark else 0.055),pressedFill=pressed,badgeFill=fg.wa(0.14 if dark else 0.10),
       separator=fg.wa(0.08 if dark else 0.07),paneBorder=fg.wa(0.07 if dark else 0.09),focusRing=acc if acc else fg.wa(0.40),
       glassTint=bg.wa(0.40 if dark else 0.30),shadow=bg.mixed(BLACK,0.85),
       textSelection=csel if csel is not None else bg.mixed(fg,0.22),
@@ -205,10 +205,12 @@ THEMES['appleSystemDarkOwnAccent']=dict(THEMES['appleSystemDark'],name=THEMES['a
 THEMES['githubLightOwnAccent']=dict(THEMES['githubLight'],name=THEMES['githubLight']['name']+", the theme's own accent #bf3989",accent_color=0xBF3989)
 if len(sys.argv)>2 and sys.argv[1]=='--check-app-vectors':
     # Replays the web module's vectors (neutral and theme accents) through the AppTheme port; exit 1 on any difference.
+    # input.accentColor is the theme's own accent (# cmux-accent); it wins over the case's accent, as in derive().
     cases=json.load(open(sys.argv[2]))['cases']; bad=0
     for case in cases:
         i=case['input']; h=lambda x: C.hex(int(x[1:],16))
-        dark,t=app_derive(h(i['background']),h(i['foreground']),[h(x) for x in i['palette']]+[C.hex(GHOSTTY_DEFAULT_PAL[n]) for n in range(len(i['palette']),16)],case.get('accent','neutral'))
+        source=h(i['accentColor']) if i.get('accentColor') else case.get('accent','neutral')
+        dark,t=app_derive(h(i['background']),h(i['foreground']),[h(x) for x in i['palette']]+[C.hex(GHOSTTY_DEFAULT_PAL[n]) for n in range(len(i['palette']),16)],source)
         for n,want in case['tokens'].items():
             if t[n].css().lower()!=want.lower(): bad+=1; print(case['name'],n,'want',want,'got',t[n].css())
         if dark!=case['isDark']: bad+=1; print(case['name'],'isDark')

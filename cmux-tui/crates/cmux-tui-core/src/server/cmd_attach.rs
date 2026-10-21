@@ -10,7 +10,6 @@ use super::AttachWorkerCommit;
 use super::DetachClientTarget;
 use super::DetachNotice;
 use super::GUARDED_BROWSER_POINTER_CAPABILITY;
-use super::INITIAL_HOSTED_RESIZE_TIMEOUT;
 use super::MarkedClientAttach;
 use super::MessageWriter;
 use super::RenderClientState;
@@ -52,6 +51,10 @@ use crate::surface::AttachLifecycle;
 use serde_json::Value;
 use serde_json::json;
 use std::sync::Arc;
+
+/// How long a sized terminal attach waits for its hosted PTY's resize before
+/// it builds the replay anyway (then a `resized` replay follows, as before).
+const INITIAL_HOSTED_RESIZE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 pub(super) fn detach_client(
     mux: &Arc<Mux>,

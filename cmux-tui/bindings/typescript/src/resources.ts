@@ -1,3 +1,4 @@
+import { machineCatalogParams } from "./internal/machine-catalog.js";
 import { CmuxProtocolError } from "./errors.js";
 import { decodeBase64, encodeBase64 } from "./base64.js";
 import {
@@ -149,6 +150,7 @@ import type {
   MutationOptions,
   NotificationOptions,
   ProjectionPutOptions,
+  MachineReadOptions,
   RequestOptions,
   RunOptions,
   SessionEventsOptions,
@@ -472,12 +474,30 @@ function snapshotFields<Id extends string>(
 
 function machineSnapshot(value: unknown): MachineSnapshot {
   const payload = unwrap(value, ["machine"]);
+  const rawPlatform = payload.platform;
+  let platform: MachineSnapshot["platform"];
+  if (rawPlatform === undefined || rawPlatform === null) {
+    platform = rawPlatform;
+  } else {
+    const fields = document(rawPlatform, "machine platform");
+    strictObject(fields, ["os", "arch"], "machine platform");
+    for (const key of ["os", "arch"]) {
+      if (fields[key] !== undefined && fields[key] !== null && typeof fields[key] !== "string") {
+        throw new CmuxProtocolError(`machine platform ${key} must be a string or null`);
+      }
+    }
+    platform = Object.freeze({ ...fields }) as MachineSnapshot["platform"];
+  }
+  const capabilities = payload.capabilities === undefined ? [] : payload.capabilities;
+  if (!Array.isArray(capabilities) || capabilities.some((item) => typeof item !== "string")) {
+    throw new CmuxProtocolError("machine capabilities must be a string array");
+  }
   return Object.freeze({
     ...snapshotFields(payload, machineId, [
-      "name", "origin", "status", "connectable", "deleted", "recoverable",
+      "name", "origin", "status", "connectable", "deleted", "recoverable", "platform", "capabilities",
     ]),
     name: requiredString(payload, "name"),
-    origin: requiredEnum(payload, "origin", ["local"] as const),
+    origin: requiredEnum(payload, "origin", ["local", "cloud", "ssh", "server"] as const),
     status: requiredEnum(
       payload,
       "status",
@@ -486,6 +506,8 @@ function machineSnapshot(value: unknown): MachineSnapshot {
     connectable: requiredBoolean(payload, "connectable"),
     deleted: requiredBoolean(payload, "deleted"),
     recoverable: requiredBoolean(payload, "recoverable"),
+    ...optionalProperty("platform", platform),
+    capabilities: Object.freeze([...capabilities]),
   });
 }
 
@@ -2602,8 +2624,9 @@ abstract class Handle<Id extends string, Value extends Snapshot<Id>> {
     operation: Operation,
     decode: SnapshotDecoder<Value>,
     options: RequestOptions = {},
+    params: Readonly<Record<string, unknown>> = this.params(),
   ): Promise<Value> {
-    const result = await this.client[readOperation](operation, this.params(), options);
+    const result = await this.client[readOperation](operation, params, options);
     const snapshot = decode(result);
     this.cached = snapshot;
     return snapshot;
@@ -2736,15 +2759,15 @@ export class Client {
     );
   }
 
-  async listMachines(options: RequestOptions = {}): Promise<Machine[]> {
-    const values = listPayload(await this[readOperation](operations.machineList, {}, options), "machines");
+  async listMachines(options: MachineReadOptions = {}): Promise<Machine[]> {
+    const values = listPayload(await this[readOperation](operations.machineList, machineCatalogParams(options.catalog), options), "machines");
     return values.map((value) => {
       const snapshot = machineSnapshot(value);
       return new Machine(this, selectId(snapshot.id), {}, snapshot);
     });
   }
 
-  async findMachinesByName(name: string, options: RequestOptions = {}): Promise<Machine[]> {
+  async findMachinesByName(name: string, options: MachineReadOptions = {}): Promise<Machine[]> {
     return (await this.listMachines(options)).filter((item) => item.snapshot?.name === name);
   }
 
@@ -3094,8 +3117,9 @@ export class Machine extends Handle<MachineId, MachineSnapshot> {
     return new Session(this.client, selector, { machine: encodeSelector(this.selector) });
   }
 
-  refresh(options: RequestOptions = {}): Promise<MachineSnapshot> {
-    return this.refreshWith(operations.machineGet, machineSnapshot, options);
+  refresh(options: MachineReadOptions = {}): Promise<MachineSnapshot> {
+    return this.refreshWith(operations.machineGet, machineSnapshot, options,
+      { ...this.params(), ...machineCatalogParams(options.catalog) });
   }
 
   async listSessions(options: RequestOptions = {}): Promise<Session[]> {

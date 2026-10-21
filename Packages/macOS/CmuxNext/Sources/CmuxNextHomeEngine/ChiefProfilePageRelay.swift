@@ -9,8 +9,8 @@ import os
 /// - Every call goes on this relay's own `page_relay` connection to the owner, with
 ///   `client-hello {page: "home-channels"}`, so the owner derives origin `page` and applies the
 ///   page's allow list (cmux-tui spec/page-router.json).
-/// - A call the owner takes only on the person's gesture (create, delete, and an update that
-///   names a gesture field) goes out as the user only when a real key or pointer event backs it,
+/// - A call the owner takes only on the person's gesture (create, delete, undo, and an update
+///   that names a gesture field) goes out as the user only when a real key or pointer event backs it,
 ///   one event per call: the host asks `origin.confirmation.issue` on its own trusted connection
 ///   to the owner (the app's verified main connection) for a token bound to the op, its exact
 ///   params and this relay connection. Without that event the call goes as the page, and the
@@ -21,10 +21,14 @@ public final class ChiefProfilePageRelay {
     public static let operations: Set<String> = [
         "chief.profile.list", "chief.profile.get", "chief.profile.create", "chief.profile.update",
         "chief.profile.delete", "chief.profile.avatar.get", "chief.profile.avatar.set",
+        // The Chief editor's History and Undo (docs/chiefs-create-byo-backend.md).
+        "chief.profile.history", "chief.profile.undo",
     ]
     /// The update fields the owner changes only on the person's gesture (cmux-tui-core
-    /// chief_registry.rs `GESTURE_FIELDS`).
-    static let gestureFields: Set<String> = ["effort", "harness", "harnesses", "instructions", "model", "personality", "self_edit", "tools"]
+    /// chief_registry.rs `GESTURE_FIELDS`); `locked` is the person's switch.
+    static let gestureFields: Set<String> = [
+        "effort", "harness", "harnesses", "instructions", "locked", "model", "personality", "self_edit", "tools",
+    ]
 
     private static var relays: [ObjectIdentifier: ChiefProfilePageRelay] = [:]
 
@@ -75,7 +79,8 @@ public final class ChiefProfilePageRelay {
     /// Whether the owner takes `operation` with `params` from the page only on a gesture.
     static func needsGesture(_ operation: String, params: [String: JSONValue]) -> Bool {
         switch operation {
-        case "chief.profile.create", "chief.profile.delete": true
+        // An undo may set any field back, gesture fields included: always the person's click.
+        case "chief.profile.create", "chief.profile.delete", "chief.profile.undo": true
         case "chief.profile.update": !gestureFields.isDisjoint(with: params.keys)
         default: false
         }
@@ -202,7 +207,7 @@ public final class ChiefProfilePageRelay {
         guard let relayID = relay.identity.connectionID else { throw DaemonError.notConnected }
         let issued = try await ResourceRelayClient(connection: main).send(
             operation: "origin.confirmation.issue",
-            params: ["operation": .string(operation), "params_sha256": .string(try ResourceRelayClient.paramsDigest(params)),
+            params: ["operation": .string(operation), "params_sha256": .string(try ResourceRelayClient.paramsDigest(params, operation: operation)),
                      "relay_connection_id": .string(relayID)],
             idempotencyKey: nil)
         guard case .object(let members) = issued, case .string(let token)? = members["token"] else {

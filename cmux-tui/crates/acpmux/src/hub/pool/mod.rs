@@ -510,6 +510,17 @@ impl Hub {
         if meta.remote_origin || !self.pool_enabled().await {
             return None;
         }
+        // A preset with a start mode or an approval starts cold: the approval
+        // holds for the contents this session's own spawn reads, not the ones
+        // a pooled harness started with (`hub/start_gate/preset_bind.rs`). Only
+        // the person sets an approval, so no client can clear it for a claim
+        // and get it back for the start.
+        let approved = |p: &crate::config::Preset| p.mode.is_some() || p.mode_approval.is_some();
+        if let Some(name) = &meta.preset
+            && self.config.read().await.presets.get(name).is_some_and(approved)
+        {
+            return None;
+        }
         let spec = self.pool_spec_for(meta, profile, defaults_env).await.ok()?;
         loop {
             let took = lock(&self.pool.pool).take(&spec.key);
@@ -583,13 +594,17 @@ impl Hub {
             tokio::spawn(end_pooled(p));
             return Err(e);
         }
+        self.forget_adopted_caller(&session.id);
         let tap = self.session_tap(session);
-        self.append(
-            session,
-            "mux",
-            "host_started",
-            json!({"incarnation": p.record.incarnation, "hostPid": p.record.host_pid, "hostBuild": p.record.host_build}),
-        );
+        let mut started = json!({
+            "incarnation": p.record.incarnation.clone(),
+            "hostPid": p.record.host_pid,
+            "hostBuild": p.record.host_build.clone()
+        });
+        if session.meta().remote_origin {
+            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+        }
+        self.append(session, "mux", "host_started", started);
         {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
             if let TapSlot::Held(held) = &mut *slot {
@@ -618,6 +633,7 @@ impl Hub {
             let mut m = session.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.agent_info = init.get("agentInfo").cloned();
             m.agent_capabilities = init.get("agentCapabilities").cloned();
+            m.steering = steering;
         }
         if p.claude {
             let state = child.claude_state().await.unwrap_or_default();

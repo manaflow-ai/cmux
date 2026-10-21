@@ -36,28 +36,54 @@ Treat layout and focus as separate concerns. `workspace <sel> focus`, `pane <sel
 Build layout additively, addressing panes by id:
 
 ```bash
-cmux pane pane_… split --right --cwd "$PWD"
+cmux pane pane_… split --right -- npm run dev       # new pane runs the command, focus stays
 cmux tab create browser --pane pane_… --url http://127.0.0.1:8765
-cmux pane pane_… run --name dev -- npm run dev
+cmux pane pane_… run --name tests -- npm test        # another tab in an existing pane
 ```
 
-`pane <sel> run -- <argv…>` opens a new tab in that pane running the exact argv; `run shell '<script>'` runs a shell script instead. Prefer it over creating a tab and then writing input. If a command rejects a valid id, report it and stop rather than working around it by focusing.
+`workspace create`, `pane split`, `tab create` and `pane run` never move the user's focus; `workspace create --focus` and `pane split --focus` are the only ways they take it, and only when the user asked. Give `pane split` the command its new pane should run (`-- <argv…>` or `--shell '<script>'`): a split without one starts a shell, and running the command afterwards with `pane run` leaves that shell behind as an empty tab. `pane <sel> run -- <argv…>` opens a new tab in an existing pane running the exact argv; `run shell '<script>'` runs a shell script instead. Prefer these over creating a tab and then writing input. If a command rejects a valid id, report it and stop rather than working around it by focusing.
 
 ## Right-side helper pane
 
-For auxiliary output (preview apps, TUIs, logs, one-off shells, browser checks), reuse one helper pane to the right of the caller. Inspect first with `cmux pane list --json` and `cmux tab list --json`, then:
+For auxiliary output (preview apps, TUIs, logs, one-off shells, browser checks), reuse one helper pane to the right of the caller. Find the caller's pane (the tab record of `$CMUX_TUI_TERMINAL_ID` names it), then ask for its right neighbor:
 
-- Helper pane exists: add a tab to it.
+```bash
+cmux pane pane_<caller> neighbor right --json     # the pane to its right, if any
+cmux pane list --json                             # or inspect every pane
+```
+
+- A pane is already to the right: add a tab to it. Never split again.
   ```bash
-  cmux tab create terminal --pane pane_<helper> --cwd "$PWD"
+  cmux tab create terminal --pane pane_<helper> --cwd "$PWD" --name logs
+  cmux pane pane_<helper> run --name dev -- npm run dev
+  cmux tab create browser --pane pane_<helper> --url http://localhost:3000
   ```
-- No helper pane: split the caller's pane once.
+- No pane to the right: split the caller's pane once, with the command it should run.
   ```bash
-  cmux pane pane_<caller> split --right
+  cmux pane pane_<caller> split --right -- npm run dev
   ```
 - Several stale helper panes from this same automation, and the user asked to tidy: keep one and close the rest with `cmux pane pane_… close`. Never close a pane you cannot confidently identify as stale helper output.
 
 Repeated "open it" requests add tabs to the existing helper pane, not more splits.
+
+An agent in a chat tab of the cmux app: the same rule holds. Find the column right of the chat with `cmux pane <chat pane> neighbor right` and add tabs to it; `cmux open URL` opens a page there and makes the column when needed. With no column yet, make it once with `cmux pane <chat pane> split --right --viewport-width 0.5` (a chat dock takes no plain split). `cmux app identify` and `cmux --json identify` answer only when the app is reachable (`cmux app ping`); never depend on them for layout.
+
+## Classic commands are gone
+
+cmux-next has no `identify` (outside the app), `new-split`, `new-pane`, `new-surface`, `list-panels`, `list-pane-surfaces`, `focus-panel` or `workspace:N`/`pane:N`/`surface:N` refs. Use the noun-first commands above: `pane … split`, `tab create …`, `pane … run`, `pane list`, `tab list`, `pane … neighbor`. If a command fails, read `cmux <noun> --help`; never look for another cmux socket than the one in your environment.
+
+## Sidebar groups
+
+Keep the sidebar sorted by topic so the user is not overwhelmed. Each workspace you create or adopt (a subagent's, a moved session, a new task) goes into a group named by its topic, for example "Agents & routing" or "cmux-next app":
+
+```bash
+cmux --json workspace group list                         # reuse a matching group
+cmux workspace group create --name "cmux-next app"       # once 2+ related workspaces have none
+cmux workspace group <group> add --workspace ws_…
+cmux workspace group <group> update --collapse           # its work is done or stale
+```
+
+Home stays on top and ungrouped. Grouping never closes or renames the user's workspaces. Groups are personal: they live in this Mac's home session.
 
 ## Caller terminal
 
@@ -68,6 +94,7 @@ cmux terminal "$CMUX_TUI_TERMINAL_ID" write --text $'git status\n'
 cmux terminal term_… keys ctrl+c
 cmux terminal term_… screen read
 cmux terminal term_… screen wait --pattern 'passed|failed' --timeout-ms 60000
+cmux agents wait --until idle --target term_… --timeout 60   # another agent finished
 ```
 
 Do not send input, close terminals, or change focus in another workspace unless the user named that target.
@@ -98,7 +125,7 @@ cmux workspace status list --json          # entries, progress, last log line
 cmux workspace ws_… status list            # another workspace
 ```
 
-Status entries are keyed (at most 64 per workspace); `set` replaces the entry with that key. Log levels: info, progress, success, warning, error; the workspace keeps its newest 200 lines. The workspace's workflow status is a different thing, an app action: `cmux workspace set-status --target ws_… --status inProgress`. For attention, use `cmux notify --title "Build" --body "done"`.
+Status entries are keyed (at most 64 per workspace); `set` replaces the entry with that key. Log levels: info, progress, success, warning, error; the workspace keeps its newest 200 lines. The workspace's workflow status is a different thing, an app action: `cmux workspace set-status --target ws_… --status working`. For attention, use `cmux notify --title "Build" --body "done"`.
 
 ## Contributor reloads
 
@@ -111,7 +138,7 @@ CMUX_TAG=<short-tag> scripts/cmux-debug-cli.sh app identify
 
 ## Socket access
 
-The CLI finds the daemon from `--socket`/`--session`, then `CMUX_TUI_SOCKET`, then the app's session; it finds the app from `CMUX_SOCKET_PATH`. If a command cannot connect, check `cmux session list` for the daemon and `cmux app ping` for the app. Exit code 3 means transport failure.
+The CLI finds the daemon from `--socket`/`--session`, then `CMUX_TUI_SOCKET`, then the app's session; it finds the app from `CMUX_SOCKET_PATH`. If a command cannot connect, check `cmux workspace list` for the daemon and `cmux app ping` for the app. Exit code 3 means transport failure.
 
 Lists act on that one session. `--all-sessions` runs a list on every local session (records gain `session`; a person only, an agent caller such as a Chief turn gets `origin.forbidden`), and a session-qualified id (`build-box:ws_…`) routes one command to that local session. Sessions the app reaches over SSH or Cloud are not reachable from the CLI yet.
 
@@ -119,7 +146,8 @@ Lists act on that one session. `--all-sessions` runs a list on every local sessi
 
 - Work in the caller workspace by default; pass explicit ids for mutating actions so automation is auditable.
 - Never call a focus verb unless the user explicitly asked.
-- Build layout additively with `pane … split`, `tab create …` and `pane … run`.
+- Build layout additively with `pane … split`, `tab create …` and `pane … run`. Add tabs to an existing right pane instead of splitting again, and give a split its command so no empty shell is left.
+- `pane split` and `workspace create` keep focus; pass `--focus` (MCP `focus: true`) only when the user asked to look at the new pane or workspace.
 - If a command rejects a valid id, report it. Do not work around by focusing.
 - Do not close, focus, move, or send input to another workspace unless the user names that target.
 - Old `workspace:N`, `pane:N` and `surface:N` refs are gone. Selectors are a public id, `current`, or an exact name (`name:<value>` forces a name).

@@ -55,13 +55,15 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         return Ok(());
     }
     let accepted = if is_backdrop_selection(row) {
-        Accepted::Shape("none, a listed painting, or system:<absolute path>")
+        Accepted::Shape("none, a listed painting, system:<absolute path> or file:<absolute path>")
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
         )
     } else if row.validation == super::Validation::Domain(DomainKind::SearchTemplate) {
         Accepted::Shape("an address with %s or {searchTerms}, or \"\"")
+    } else if row.validation == super::Validation::Domain(DomainKind::CustomDensities) {
+        Accepted::Shape("an array of density objects, each with a lowercase id and a name")
     } else {
         accepted(&row.kind, domains)
     };
@@ -98,12 +100,19 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
         super::Validation::Domain(DomainKind::SearchTemplate) => {
             return value.as_str().is_some_and(is_search_template);
         }
+        super::Validation::Domain(DomainKind::CustomDensities) => {
+            return value.as_array().is_some_and(|items| items.iter().all(is_custom_density));
+        }
         _ => {}
     }
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
-        let system_path = text.strip_prefix("system:").is_some_and(|path| path.starts_with('/'));
-        return system_path || is_accepted(&row.kind, value, domains);
+        // `system:<absolute path>` (a macOS wallpaper) or `file:<absolute
+        // path>` (the person's own image), as Swift `BackdropSelectionSetting`.
+        let path = ["system:", "file:"]
+            .iter()
+            .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
+        return path || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }
@@ -134,6 +143,7 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
             value.as_str().is_some_and(|text| font_ok(text, domains.font_families.as_ref()))
         }
         Kind::Sound => value.as_str().is_some_and(|text| sound_ok(text, domains.sounds.as_ref())),
+        Kind::Text => value.is_string(),
         Kind::FolderList => value.as_array().is_some_and(|items| {
             items.iter().all(|item| {
                 item.as_str().is_some_and(|path| path.starts_with('/') || path.starts_with("~/"))
@@ -154,6 +164,30 @@ fn is_accepted(kind: &Kind, value: &Value, domains: &Domains) -> bool {
             value.as_object().is_some_and(|members| members.values().all(Value::is_string))
         }
     }
+}
+
+/// Swift `CustomDensitiesSetting.density(from:)`: an object with a density
+/// id (1 to 64 lowercase ASCII letters, digits and hyphens, not starting with
+/// a hyphen), a non-blank name, optional finite `level`, `spacing` and
+/// `fontSize` numbers, and optional `tokens` of non-negative finite numbers.
+fn is_custom_density(value: &Value) -> bool {
+    let Some(members) = value.as_object() else { return false };
+    let id_ok = members.get("id").and_then(Value::as_str).is_some_and(|id| {
+        (1..=64).contains(&id.chars().count())
+            && !id.starts_with('-')
+            && id.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+    });
+    let name_ok =
+        members.get("name").and_then(Value::as_str).is_some_and(|name| !name.trim().is_empty());
+    let numbers_ok = ["level", "spacing", "fontSize"]
+        .iter()
+        .all(|key| members.get(*key).is_none_or(|v| v.as_f64().is_some_and(f64::is_finite)));
+    let tokens_ok = members.get("tokens").is_none_or(|tokens| {
+        tokens.as_object().is_some_and(|entries| {
+            entries.values().all(|v| v.as_f64().is_some_and(|x| x.is_finite() && x >= 0.0))
+        })
+    });
+    id_ok && name_ok && numbers_ok && tokens_ok
 }
 
 /// Swift `BrowserOmnibarSetting.isSearchTemplate`: empty, or an address
@@ -231,6 +265,7 @@ fn accepted(kind: &Kind, domains: &Domains) -> Accepted {
             domain(domain_name(DomainKind::FontFamily), domains.font_families.as_ref())
         }
         Kind::Sound => domain(domain_name(DomainKind::Sound), domains.sounds.as_ref()),
+        Kind::Text => Accepted::Shape("a string"),
         Kind::FolderList => Accepted::Shape("an array of /absolute or ~/ folder paths"),
         Kind::StringList => Accepted::Shape("an array of non-empty strings"),
         Kind::OrderedChoices(choices) => Accepted::Choices(values(choices)),
@@ -247,5 +282,6 @@ fn domain_name(kind: DomainKind) -> &'static str {
         DomainKind::BackdropSelection => "backdrop_selection",
         DomainKind::ChatRoots => "chat_roots",
         DomainKind::SearchTemplate => "search_template",
+        DomainKind::CustomDensities => "custom_densities",
     }
 }

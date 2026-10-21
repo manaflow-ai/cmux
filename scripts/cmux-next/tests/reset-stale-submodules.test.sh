@@ -55,6 +55,18 @@ fetch() { # -> "<status> <output>"
 out=$(fetch)
 grep -q 'uncommitted cmux-tui source changes' <<<"$out" || fail "setup: the stale workspace was not refused:" "$out"
 
+# The fast tier only needs ghostty-next. Reuse mode must clean a previous
+# job's source edit and reconcile the checkout to the superproject gitlink
+# without deinitializing its object database or warm working tree.
+echo stale > "$ws/ghostty-next/generated-source"
+"$RESET" "$ws" --reuse ghostty-next || fail "reuse reset failed"
+[[ "$(git -C "$ws/ghostty-next" rev-parse HEAD)" == "$commit_b" ]] \
+  || fail "reuse reset did not check out the gitlink"
+[[ ! -e "$ws/ghostty-next/generated-source" ]] || fail "reuse reset left an untracked source file"
+[[ -d "$ws/.git/modules/ghostty-next/objects" ]] \
+  || fail "reuse reset dropped the submodule object database"
+[[ -z "$(dirty)" ]] || fail "reuse reset left the workspace dirty:" "$(dirty)"
+
 # The reset drops the stale submodule checkout, as on a fresh checkout.
 [[ -x "$RESET" ]] || fail "missing $RESET"
 "$RESET" "$ws" || fail "reset-stale-submodules.sh failed on a stale workspace"

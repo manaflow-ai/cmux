@@ -1,8 +1,12 @@
-//! A real headless daemon for the agent message policy tests: its own socket
-//! and state folder, a fake acpmux that names sessions' workspaces the way
+//! A real headless daemon for the agent message tests: its own socket and
+//! state folder, a fake acpmux that names sessions' workspaces the way
 //! acpmux's `_acpmux/info` does (`sessionEnv.CMUX_WORKSPACE_ID`, unix socket
-//! only), and a clock file the daemon's debug build adds to its agent message
-//! clock, so a test moves time instead of waiting.
+//! only), takes prompts for those sessions (`session/prompt`, answered with
+//! `_acpmux/prompt_accepted`, or held at a gate a test opens) and answers
+//! `_acpmux/prompt_withdraw` as a test sets it (or holds it), and a clock file the daemon's debug build adds to its agent
+//! message clock, so a test moves time instead of waiting.
+// Shared by several test binaries; each uses a part of it.
+#![allow(dead_code)]
 
 use std::collections::HashMap;
 use std::fs;
@@ -11,7 +15,7 @@ use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use cmux_tui_core::server::frontend_proof::{NONCE_LEN, hello_proof, unhex};
@@ -32,6 +36,43 @@ fn unique(prefix: &str) -> String {
 /// Session id -> the `CMUX_WORKSPACE_ID` the fake acpmux reports for it.
 type Sessions = Arc<Mutex<HashMap<String, String>>>;
 
+/// What the fake acpmux was asked and how it answers a withdraw.
+#[derive(Default)]
+struct FakeAcpmux {
+    /// `_acpmux/info` requests answered.
+    lookups: AtomicU64,
+    /// The session id of every `_acpmux/info` request, in order.
+    looked_up: Mutex<Vec<String>>,
+    /// The params of every `session/prompt`, in order.
+    prompts: Mutex<Vec<Value>>,
+    /// The params of every `_acpmux/prompt_withdraw`, in order.
+    withdrawals: Mutex<Vec<Value>>,
+    /// Session id -> the withdraw outcome it answers (`unsent`,
+    /// `retracted`, `too_late`), `refuse:<reason>` for a refusal, or
+    /// `hang-up` to close the connection unanswered; a session without one
+    /// answers `withdraw.not_found`, and one the fake does not run (or a
+    /// peer runs) answers, as acpmux does, `no session matches …`.
+    outcomes: Mutex<HashMap<String, String>>,
+    /// Sessions whose prompts wait, unanswered, until their gate opens.
+    gates: Mutex<std::collections::HashSet<String>>,
+    gate_opened: Condvar,
+    /// Session id -> how many more prompts it refuses as moving
+    /// (`transfer.moving`).
+    moving: Mutex<HashMap<String, u32>>,
+    /// Session id -> how many more prompts it takes without a word (never
+    /// accepted, never answered).
+    silent: Mutex<HashMap<String, u32>>,
+    /// Sessions a peer daemon runs: `_acpmux/info` and prompts reach them,
+    /// but a withdraw is answered on this daemon only (`no session matches …`).
+    peers: Mutex<std::collections::HashSet<String>>,
+    /// Peer sessions whose peer daemon is unreachable: after one prompt went
+    /// out, a forwarded `_acpmux/info` fails (-32603).
+    unreachable_peers: Mutex<std::collections::HashSet<String>>,
+    /// Sessions whose withdraws wait, unanswered, until released.
+    withdraw_gates: Mutex<std::collections::HashSet<String>>,
+    withdraw_gate_opened: Condvar,
+}
+
 pub struct Daemon {
     child: Option<Child>,
     /// The session name of a daemon `server ensure` started with an install
@@ -43,8 +84,7 @@ pub struct Daemon {
     clock: PathBuf,
     env: Vec<(String, String)>,
     sessions: Sessions,
-    /// `_acpmux/info` requests the fake acpmux has answered.
-    lookups: Arc<AtomicU64>,
+    fake: Arc<FakeAcpmux>,
 }
 
 impl Daemon {
@@ -62,7 +102,16 @@ impl Daemon {
     /// A daemon `server ensure` starts with an install key, so [`Self::app`]
     /// can prove a connection as the cmux app. No acpmux listens.
     pub fn start_owner(name: &str) -> Self {
-        let mut daemon = Self::prepare(name, &[], false);
+        Self::owner(name, false)
+    }
+
+    /// [`Self::start_owner`] with a fake acpmux.
+    pub fn start_owner_with_acpmux(name: &str) -> Self {
+        Self::owner(name, true)
+    }
+
+    fn owner(name: &str, acpmux: bool) -> Self {
+        let mut daemon = Self::prepare(name, &[], acpmux);
         daemon.owner = Some(unique("amp-owner"));
         daemon.spawn();
         daemon
@@ -80,9 +129,9 @@ impl Daemon {
         let clock = dir.join("clock");
         fs::write(&clock, "0").unwrap();
         let sessions: Sessions = Arc::default();
-        let lookups = Arc::new(AtomicU64::new(0));
+        let fake = Arc::new(FakeAcpmux::default());
         if acpmux {
-            serve_fake_acpmux(&dir.join("acpmux.sock"), sessions.clone(), lookups.clone());
+            serve_fake_acpmux(&dir.join("acpmux.sock"), sessions.clone(), fake.clone());
         }
         Self {
             child: None,
@@ -92,7 +141,7 @@ impl Daemon {
             clock,
             env: env.iter().map(|(key, value)| ((*key).to_owned(), (*value).to_owned())).collect(),
             sessions,
-            lookups,
+            fake,
             dir,
         }
     }
@@ -184,7 +233,97 @@ impl Daemon {
 
     /// How many `_acpmux/info` requests the fake acpmux has answered.
     pub fn acpmux_lookups(&self) -> u64 {
-        self.lookups.load(Ordering::SeqCst)
+        self.fake.lookups.load(Ordering::SeqCst)
+    }
+
+    /// How many `_acpmux/info` requests named `session`.
+    pub fn lookups_of(&self, session: &str) -> usize {
+        self.fake.looked_up.lock().unwrap().iter().filter(|s| *s == session).count()
+    }
+
+    /// The fake acpmux no longer knows `session` (it was deleted).
+    pub fn delete_session(&self, session: &str) {
+        self.sessions.lock().unwrap().remove(session);
+    }
+
+    /// `session` runs on a peer daemon in `workspace_key`: acpmux forwards
+    /// its `_acpmux/info` and prompts there, but not a withdraw.
+    pub fn place_peer_session(&self, session: &str, workspace_key: &str) {
+        self.fake.peers.lock().unwrap().insert(session.to_owned());
+        self.place_session(session, workspace_key);
+    }
+
+    /// [`Self::place_peer_session`] whose peer daemon becomes unreachable
+    /// once a prompt went out: a forwarded `_acpmux/info` then fails with
+    /// an error other than `no session matches`.
+    pub fn place_unreachable_peer_session(&self, session: &str, workspace_key: &str) {
+        self.fake.unreachable_peers.lock().unwrap().insert(session.to_owned());
+        self.place_peer_session(session, workspace_key);
+    }
+
+    /// The params of every prompt the fake acpmux took, in order.
+    pub fn prompts(&self) -> Vec<Value> {
+        self.fake.prompts.lock().unwrap().clone()
+    }
+
+    /// The params of every withdraw the fake acpmux was asked, in order.
+    pub fn withdrawals(&self) -> Vec<Value> {
+        self.fake.withdrawals.lock().unwrap().clone()
+    }
+
+    /// The fake acpmux answers a withdraw on `session` with `outcome`.
+    pub fn withdraw_answers(&self, session: &str, outcome: &str) {
+        self.fake.outcomes.lock().unwrap().insert(session.to_owned(), outcome.to_owned());
+    }
+
+    /// `session`'s prompts wait, unanswered, until [`Self::open_gate`].
+    pub fn gate(&self, session: &str) {
+        self.fake.gates.lock().unwrap().insert(session.to_owned());
+    }
+
+    /// `session` refuses its next `count` prompts as moving to another
+    /// machine (`transfer.moving`).
+    pub fn moving(&self, session: &str, count: u32) {
+        self.fake.moving.lock().unwrap().insert(session.to_owned(), count);
+    }
+
+    /// `session` never accepts or answers its next `count` prompts.
+    pub fn silent(&self, session: &str, count: u32) {
+        self.fake.silent.lock().unwrap().insert(session.to_owned(), count);
+    }
+
+    /// `session`'s withdraws wait, unanswered, until [`Self::release_withdraws`].
+    pub fn hold_withdraws(&self, session: &str) {
+        self.fake.withdraw_gates.lock().unwrap().insert(session.to_owned());
+    }
+
+    /// The withdraws waiting for `session` go on.
+    pub fn release_withdraws(&self, session: &str) {
+        self.fake.withdraw_gates.lock().unwrap().remove(session);
+        self.fake.withdraw_gate_opened.notify_all();
+    }
+
+    /// The prompts waiting at `session`'s gate go on.
+    pub fn open_gate(&self, session: &str) {
+        self.fake.gates.lock().unwrap().remove(session);
+        self.fake.gate_opened.notify_all();
+    }
+
+    /// The listed message `id` once `done` holds for it (20 s at most).
+    pub fn wait_for(&self, id: &str, what: &str, done: impl Fn(&Value) -> bool) -> Value {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let found = self.list(json!({"limit": 1000})).into_iter().find(|m| m["id"] == id);
+            if let Some(message) = found {
+                if done(&message) {
+                    return message;
+                }
+                assert!(Instant::now() < deadline, "{what} never happened: {message}");
+            } else {
+                assert!(Instant::now() < deadline, "{id} is not listed");
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     /// One `cmux.protocol/2` request on a new connection; `extra` adds
@@ -236,7 +375,18 @@ impl Daemon {
     /// A mutation with a fresh idempotency key, as `credential`'s holder
     /// (the person without one).
     pub fn mutate(&self, operation: &str, params: Value, credential: Option<&str>) -> Value {
-        let mut extra = json!({"idempotency_key": unique("key")});
+        self.mutate_keyed(operation, params, credential, &unique("key"))
+    }
+
+    /// [`Self::mutate`] under the idempotency key `key`.
+    pub fn mutate_keyed(
+        &self,
+        operation: &str,
+        params: Value,
+        credential: Option<&str>,
+        key: &str,
+    ) -> Value {
+        let mut extra = json!({"idempotency_key": key});
         if let Some(credential) = credential {
             extra["credential"] = json!(credential);
         }
@@ -282,6 +432,26 @@ impl Daemon {
             .env_remove("CMUX_LAUNCH_CREDENTIAL")
             .env_remove("ACPMUX_SESSION_ID")
             .output()
+            .unwrap()
+    }
+
+    /// `cmux --json <args>` started against this daemon and its acpmux, as
+    /// `credential`'s holder; the caller waits for it.
+    pub fn cli_started(&self, args: &[&str], credential: &str) -> Child {
+        Command::new(env!("CARGO_BIN_EXE_cmux-tui"))
+            .arg("--json")
+            .arg("--socket")
+            .arg(&self.socket)
+            .args(args)
+            .env("LC_ALL", "C")
+            .env("ACPMUX_SOCKET", self.dir.join("acpmux.sock"))
+            .env("CMUX_TUI_SOCKET", &self.socket)
+            .env("CMUX_LAUNCH_CREDENTIAL", credential)
+            .env_remove("CMUX_TUI_TERMINAL_ID")
+            .env_remove("ACPMUX_SESSION_ID")
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()
             .unwrap()
     }
 
@@ -415,35 +585,119 @@ fn uuid_form(key: &str) -> String {
     [&hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32]].join("-")
 }
 
-/// A unix socket that answers `_acpmux/info` for the sessions in
-/// `sessions` and an error for anything else.
-fn serve_fake_acpmux(socket: &Path, sessions: Sessions, lookups: Arc<AtomicU64>) {
+/// A unix socket that answers `_acpmux/info` and takes prompts for the
+/// sessions in `sessions`, answers withdraws as `fake` says, and an error
+/// for anything else.
+fn serve_fake_acpmux(socket: &Path, sessions: Sessions, fake: Arc<FakeAcpmux>) {
     let listener = UnixListener::bind(socket).unwrap();
     std::thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { return };
             let sessions = sessions.clone();
-            let lookups = lookups.clone();
-            std::thread::spawn(move || answer(stream, &sessions, &lookups));
+            let fake = fake.clone();
+            std::thread::spawn(move || answer(stream, &sessions, &fake));
         }
     });
 }
 
-fn answer(stream: UnixStream, sessions: &Sessions, lookups: &AtomicU64) {
+fn answer(stream: UnixStream, sessions: &Sessions, fake: &FakeAcpmux) {
     let Ok(mut writer) = stream.try_clone() else { return };
     let reader = BufReader::new(stream);
     for line in reader.lines() {
         let Ok(line) = line else { return };
         let Ok(request) = serde_json::from_str::<Value>(&line) else { continue };
         let Some(id) = request.get("id").cloned() else { continue };
-        if request["method"] == "_acpmux/info" {
-            lookups.fetch_add(1, Ordering::SeqCst);
-        }
-        let session = request["params"]["sessionId"].as_str().unwrap_or_default();
+        let params = &request["params"];
+        let session = params["sessionId"].as_str().unwrap_or_default();
         let workspace = sessions.lock().unwrap().get(session).cloned();
+        let error = |code: i64, message: &str, reason: Value| {
+            json!({"jsonrpc": "2.0", "id": id,
+                "error": {"code": code, "message": message, "data": {"reason": reason}}})
+        };
         let reply = match (request["method"].as_str(), workspace) {
-            (Some("_acpmux/info"), Some(workspace)) => json!({"jsonrpc": "2.0", "id": id,
-                "result": {"sessionId": session, "sessionEnv": {"CMUX_WORKSPACE_ID": workspace}}}),
+            (Some("_acpmux/info"), workspace) => {
+                fake.lookups.fetch_add(1, Ordering::SeqCst);
+                fake.looked_up.lock().unwrap().push(session.to_owned());
+                let prompted =
+                    fake.prompts.lock().unwrap().iter().any(|p| p["sessionId"] == session);
+                let unreachable =
+                    prompted && fake.unreachable_peers.lock().unwrap().contains(session);
+                match workspace {
+                    Some(_) if unreachable => json!({"jsonrpc": "2.0", "id": id, "error":
+                        {"code": -32603, "message": "peer daemon unreachable"}}),
+                    Some(workspace) => json!({"jsonrpc": "2.0", "id": id, "result":
+                        {"sessionId": session, "sessionEnv": {"CMUX_WORKSPACE_ID": workspace}}}),
+                    // acpmux's session lookup (`Hub::resolve`), with no `data`.
+                    None => json!({"jsonrpc": "2.0", "id": id, "error":
+                        {"code": -32002, "message": format!("no session matches {session:?}")}}),
+                }
+            }
+            (Some("session/prompt"), Some(_)) => {
+                fake.prompts.lock().unwrap().push(params.clone());
+                let mut silent = fake.silent.lock().unwrap();
+                let left = silent.get_mut(session).filter(|left| **left > 0);
+                if left.map(|left| *left -= 1).is_some() {
+                    continue;
+                }
+                drop(silent);
+                let mut gates = fake.gates.lock().unwrap();
+                while gates.contains(session) {
+                    gates = fake.gate_opened.wait(gates).unwrap();
+                }
+                drop(gates);
+                let mut moving = fake.moving.lock().unwrap();
+                let left = moving.get_mut(session).filter(|left| **left > 0);
+                let refuse = left.map(|left| *left -= 1).is_some();
+                drop(moving);
+                if refuse {
+                    let reply = error(
+                        -32000,
+                        "transfer.moving: the session is moving",
+                        json!("transfer.moving"),
+                    );
+                    if writeln!(writer, "{reply}").is_err() {
+                        return;
+                    }
+                    continue;
+                }
+                let accepted = json!({"jsonrpc": "2.0", "method": "_acpmux/prompt_accepted",
+                    "params": {"sessionId": session,
+                        "promptId": params["_meta"]["acpmux"]["promptId"]}});
+                if writeln!(writer, "{accepted}").is_err() {
+                    return;
+                }
+                json!({"jsonrpc": "2.0", "id": id, "result": {"stopReason": "end_turn"}})
+            }
+            (Some("_acpmux/prompt_withdraw"), workspace) => {
+                fake.withdrawals.lock().unwrap().push(params.clone());
+                let mut held = fake.withdraw_gates.lock().unwrap();
+                while held.contains(session) {
+                    held = fake.withdraw_gate_opened.wait(held).unwrap();
+                }
+                drop(held);
+                let msg_id = params["msgId"].clone();
+                let outcome = fake.outcomes.lock().unwrap().get(session).cloned();
+                match outcome.as_deref() {
+                    // acpmux's session lookup (`Hub::resolve`), with no `data`.
+                    _ if workspace.is_none() || fake.peers.lock().unwrap().contains(session) => {
+                        json!({"jsonrpc": "2.0", "id": id, "error":
+                        {"code": -32002, "message": format!("no session matches {session:?}")}})
+                    }
+                    Some("hang-up") => return,
+                    Some(refusal) if refusal.starts_with("refuse:") => {
+                        let reason = refusal.trim_start_matches("refuse:");
+                        error(-32602, &format!("{reason}: refused"), json!(reason))
+                    }
+                    Some(outcome) => json!({"jsonrpc": "2.0", "id": id, "result": {
+                        "sessionId": session, "outcome": outcome, "promptId": msg_id,
+                        "msgId": msg_id}}),
+                    None => error(
+                        -32602,
+                        "withdraw.not_found: no such prompt",
+                        json!("withdraw.not_found"),
+                    ),
+                }
+            }
             _ => json!({"jsonrpc": "2.0", "id": id,
                 "error": {"code": -32601, "message": "not served by this fake"}}),
         };

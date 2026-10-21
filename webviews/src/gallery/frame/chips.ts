@@ -2,14 +2,20 @@
 import type { ChipHostFixture } from "../format";
 import { resetLinkStore, seedLinkStore } from "../../agent-session/acpmux/chips/linkStore";
 import { setChipHost } from "../../agent-session/acpmux/chips/host";
+import { setProjectIconHost } from "../../agent-session/acpmux/projectIcon";
 
 /** Install one public-safe fixture for the agent pane's host-backed reply affordances. */
 export function installChipHost(fixture: ChipHostFixture | undefined): void {
   resetLinkStore();
   if (!fixture) {
     setChipHost(undefined);
+    setProjectIconHost(undefined);
     return;
   }
+  setProjectIconHost(async (method, params) => {
+    const icon = method === "project.icon" ? fixture.projectIcons?.[params.cwd as string] : undefined;
+    return icon ? { src: icon } : {};
+  });
   setChipHost(async (method, params) => {
     if (method === "link.inspect") {
       const paths = (params.paths as string[] | undefined) ?? [];

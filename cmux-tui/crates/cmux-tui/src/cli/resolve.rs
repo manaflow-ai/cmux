@@ -107,7 +107,7 @@ pub(super) fn apply(
                     let pane = snapshot.get("pane_id").and_then(Value::as_str).unwrap_or_default();
                     let shown = shown_tab(reader, &route, pane)?;
                     if shown.as_deref() != Some(tab) {
-                        return Err(zoom_error(
+                        return Err(lookup_error(
                             "tab.not_shown",
                             format!(
                                 "page zoom acts on the tab its pane shows, and pane {pane} shows \
@@ -117,6 +117,10 @@ pub(super) fn apply(
                     }
                     return Err(Failure::AppAction { action, target: format!("pane:{pane}") });
                 }
+            }
+            Resolve::AgentTab { agent } => {
+                let tab = agent_tab(reader, &route, &agent)?;
+                params.insert("tab".into(), Value::String(tab));
             }
         }
     }
@@ -129,13 +133,13 @@ pub(super) fn apply(
 fn tab_zoom_route(tab: &Value, step: ZoomStep) -> Result<Option<&'static str>, Failure> {
     let browser = tab.get("content_kind").and_then(Value::as_str) == Some("browser");
     match (browser, step) {
-        (false, ZoomStep::In | ZoomStep::Out) => Err(zoom_error(
+        (false, ZoomStep::In | ZoomStep::Out) => Err(lookup_error(
             "validation.invalid",
             "zoom in|out applies to browser tabs; give a terminal tab a value: zoom <0.25..5>|reset"
                 .into(),
         )),
         (false, _) => Ok(None),
-        (true, ZoomStep::Value) => Err(zoom_error(
+        (true, ZoomStep::Value) => Err(lookup_error(
             "validation.invalid",
             "a browser tab's page zoom takes in, out or reset; the app has no action that sets an \
              exact page zoom yet"
@@ -147,13 +151,47 @@ fn tab_zoom_route(tab: &Value, step: ZoomStep) -> Result<Option<&'static str>, F
     }
 }
 
-fn zoom_error(code: &str, message: String) -> Failure {
+fn lookup_error(code: &str, message: String) -> Failure {
     Failure::Resource(json!({
         "code": code,
         "message": message,
         "details": {},
         "retryable": false,
     }))
+}
+
+/// The tab that shows `agent`'s terminal. `agent` is an `agent_...` id from
+/// `agent.list`, or the `term_...` id of a terminal that has an agent.
+fn agent_tab(
+    reader: &mut Reader,
+    route: &Map<String, Value>,
+    agent: &str,
+) -> Result<String, Failure> {
+    let listed = read(reader, ResourceOperation::AgentList, route.clone())?;
+    let rows = listed.get("agents").unwrap_or(&listed);
+    let key = if agent.starts_with("term_") { "terminal_id" } else { "id" };
+    let terminal = rows
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|row| row[key] == agent)
+        .and_then(|row| row["terminal_id"].as_str())
+        .map(str::to_owned)
+        .ok_or_else(|| {
+            lookup_error(
+                "selector.not_found",
+                format!("this session has no agent {agent}; `cmux agent list` lists its agents"),
+            )
+        })?;
+    let mut selector = route.clone();
+    selector.insert("terminal".into(), Value::String(terminal.clone()));
+    let snapshot = read(reader, ResourceOperation::TerminalGet, selector)?;
+    snapshot.get("tab_id").and_then(Value::as_str).map(str::to_owned).ok_or_else(|| {
+        lookup_error(
+            "selector.not_found",
+            format!("agent {agent} runs in terminal {terminal}, which no tab shows"),
+        )
+    })
 }
 
 /// The tab `pane` shows: its leaf's `active_tab_id` in its screen's layout.
@@ -190,7 +228,7 @@ fn active_tab_of(value: &Value, pane: &str) -> Option<String> {
     }
 }
 
-fn route(params: &Map<String, Value>) -> Map<String, Value> {
+pub(super) fn route(params: &Map<String, Value>) -> Map<String, Value> {
     ["machine", "session"]
         .into_iter()
         .filter_map(|key| params.get(key).map(|value| (key.to_string(), value.clone())))
@@ -253,7 +291,7 @@ fn unregistered_terminal(terminal: &str) -> Failure {
 
 /// A `session.events` stream of the request's session on its own
 /// connection, or `None` when the daemon cannot give one before `deadline`.
-fn session_events(
+pub(super) fn session_events(
     socket: &SocketRoute<'_>,
     route: &Map<String, Value>,
     deadline: Instant,
@@ -351,13 +389,19 @@ fn state_id(field: &str, value: &str, records: &Value) -> Result<Option<String>,
     }
 }
 
-/// `--machine` and `--session` name the scope of a request that names none
-/// (or `current`).
+/// Applies route defaults shared by CLI and MCP. Catalog reads have no session ancestor;
+/// `--session` still chooses their socket but never becomes a metadata field.
 pub(super) fn apply_global_route(
     global: &GlobalArgs,
-    params: &mut Value,
+    plan: &mut RequestPlan,
 ) -> Result<(), &'static str> {
-    let Some(params) = params.as_object_mut() else {
+    let has_session = !matches!(
+        plan.operation,
+        super::command::WireOperation::Typed(
+            ResourceOperation::MachineList | ResourceOperation::MachineGet
+        )
+    );
+    let Some(params) = plan.params.as_object_mut() else {
         return Err("request params are not an object");
     };
     if let Some(machine) = &global.machine
@@ -366,6 +410,7 @@ pub(super) fn apply_global_route(
         params.insert("machine".into(), Value::String(machine.clone()));
     }
     if let Some(session) = &global.session
+        && has_session
         && params.get("session").is_none_or(|value| value.as_str() == Some("current"))
     {
         params.insert("session".into(), Value::String(session.clone()));

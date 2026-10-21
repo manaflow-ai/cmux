@@ -28,7 +28,7 @@ extension LayoutRootView {
         let center = NotificationCenter.default
         for token in keyWindowObservers { center.removeObserver(token) }
         keyWindowObservers = []
-        guard let window else { return }
+        guard isLive, let window else { return }
         for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
             keyWindowObservers.append(center.addObserver(forName: name, object: window, queue: .main) { [weak self] _ in
                 MainActor.assumeIsolated { self?.refreshDividerHover() } // main-proof: observer on queue: .main

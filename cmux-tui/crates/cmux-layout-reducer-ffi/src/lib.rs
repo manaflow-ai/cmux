@@ -1,15 +1,18 @@
 //! Narrow C ABI for `cmux-layout-reducer`'s sidebar drop resolver
 //! (`sidebar_drop`) and sidebar section layout reducer (`sidebar_layout`),
 //! plus `cmux-tasks-core`'s optimistic Tasks preview (`tasks_preview`),
-//! `cmux-focus-core`'s window focus rules (`focus_*`; the app calls them
-//! synchronously on its main thread, once per focus event or queued key),
+//! `cmux-focus-core`'s per-key rules (`focus_type_ahead`,
+//! `focus_child_window_key`), the window focus machine (`cmux_focus_*`,
+//! [`focus`]: a handle per window, typed events and replies, no JSON),
 //! and the sidebar document mirror (`cmux_sidebar_mirror_*`, [`sidebar_mirror`]).
 
 use cmux_layout_reducer::{sidebar_drag, sidebar_drop, sidebar_layout};
 use std::ffi::{CString, c_char};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
+pub mod focus;
 pub mod sidebar_mirror;
+pub mod typed;
 use sidebar_mirror::Mirror;
 
 pub const ABI_VERSION: u32 = 1;
@@ -134,18 +137,6 @@ pub unsafe extern "C" fn cmux_layout_reducer_json(
                 serde_json::to_vec(&cmux_tasks_core::preview::respond(&request))
                     .map_err(|_| ERR_INVALID)?
             }
-            b"focus_reduce" => {
-                let request: cmux_focus_core::wire::ReduceRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::reduce(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
-            b"focus_changes_view" => {
-                let request: cmux_focus_core::wire::ChangesViewRequest =
-                    serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
-                serde_json::to_vec(&cmux_focus_core::wire::changes_view(&request))
-                    .map_err(|_| ERR_INVALID)?
-            }
             b"focus_type_ahead" => {
                 let request: cmux_focus_core::wire::TypeAheadRequest =
                     serde_json::from_slice(request).map_err(|_| ERR_INVALID)?;
@@ -260,4 +251,63 @@ mirror_entry!(
 mirror_entry!(
     /// The acceptance table of a drag over the rows of the last view.
     cmux_sidebar_mirror_drag_begin => drag_begin
+);
+
+/// Run one typed mirror call: JSON in, a pointer to a reply the mirror owns
+/// (valid until the next typed call on it, or its free); null for a null
+/// mirror or input pointer, or a panic.
+unsafe fn typed_call<T>(
+    mirror: *mut Mirror,
+    json: *const u8,
+    json_len: usize,
+    call: fn(&mut Mirror, &[u8]) -> *const T,
+) -> *const T {
+    if mirror.is_null() {
+        return std::ptr::null();
+    }
+    let Some(bytes) = (unsafe { input(json, json_len) }) else { return std::ptr::null() };
+    // SAFETY: a live mirror from cmux_sidebar_mirror_new, used by one thread.
+    let mirror = unsafe { &mut *mirror };
+    catch_unwind(AssertUnwindSafe(|| call(mirror, bytes))).unwrap_or(std::ptr::null())
+}
+
+macro_rules! typed_entry {
+    ($(#[$doc:meta])* $name:ident => $method:ident -> $reply:ty) => {
+        $(#[$doc])*
+        ///
+        /// # Safety
+        ///
+        /// `mirror` is a live mirror, `json` points to `json_len` readable
+        /// bytes (or is null with length 0). The reply belongs to the
+        /// mirror: read it before the next typed call; never free it.
+        #[unsafe(no_mangle)]
+        pub unsafe extern "C" fn $name(
+            mirror: *mut Mirror,
+            json: *const u8,
+            json_len: usize,
+        ) -> *const $reply {
+            unsafe { typed_call(mirror, json, json_len, Mirror::$method) }
+        }
+    };
+}
+
+typed_entry!(
+    /// `load` with a typed status.
+    cmux_sidebar_mirror_load_typed => load_typed -> typed::CReply
+);
+typed_entry!(
+    /// `apply_batch` with a typed status.
+    cmux_sidebar_mirror_apply_batch_typed => apply_batch_typed -> typed::CReply
+);
+typed_entry!(
+    /// `apply_intent` with a typed status and the stamped ops (JSON bytes).
+    cmux_sidebar_mirror_apply_intent_typed => apply_intent_typed -> typed::CReply
+);
+typed_entry!(
+    /// `view` as fixed-size rows and one string table.
+    cmux_sidebar_mirror_view_typed => view_typed -> typed::CRows
+);
+typed_entry!(
+    /// `drag_begin` as fixed-size entries and one string table.
+    cmux_sidebar_mirror_drag_begin_typed => drag_begin_typed -> typed::CAcceptanceTable
 );

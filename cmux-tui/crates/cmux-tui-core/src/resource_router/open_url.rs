@@ -78,10 +78,7 @@ pub(crate) const CAPABILITY: &str = "workspace-open-url-v1";
 const OPERATION: &str = "workspace.open_url";
 const MAX_URL_BYTES: usize = 8192;
 /// Width of the column a link opens right of a lone dock.
-const NEW_COLUMN_WIDTH: f64 = 0.5;
-/// The engine of a frontend browser tab the daemon makes (the app's
-/// default; the app owns the engine choice of the tabs it makes itself).
-const FRONTEND_ENGINE: &str = "webkit";
+const NEW_COLUMN_WIDTH: f32 = crate::mux::LONE_DOCK_NEIGHBOR_WIDTH;
 
 pub(super) fn dispatch(
     mux: &Arc<Mux>,
@@ -152,7 +149,7 @@ fn open(
 /// An http(s) URL with a host and no credentials (the guest URL opener's
 /// rule, url_open.rs, plus invisible characters and user info: a link must
 /// look like the page it opens).
-fn is_web_url(raw: &str) -> bool {
+pub(crate) fn is_web_url(raw: &str) -> bool {
     raw.len() <= MAX_URL_BYTES
         && !raw.chars().any(|c| c.is_control() || c.is_whitespace() || is_invisible_format(c))
         && url::Url::parse(raw).is_ok_and(|url| {
@@ -476,7 +473,7 @@ impl Call<'_> {
         steps: &StepKeys,
     ) -> Result<Value, ResourceError> {
         let record = self.frontend_record();
-        let placement = FrontendTabPlacement { activate: true, after: pane.active };
+        let placement = FrontendTabPlacement { activate: true, after: pane.active, index: None };
         let outcome = self
             .mux
             .new_frontend_browser_tab_keyed_as(
@@ -508,7 +505,10 @@ impl Call<'_> {
 
     fn frontend_record(&self) -> FrontendBrowserRecord {
         FrontendBrowserRecord {
-            engine: FRONTEND_ENGINE.to_string(),
+            // The person's `browser.siteEngines` rule for the URL, else
+            // `browser.defaultEngine` (Chromium unless set to WebKit), as for a
+            // tab the person opens.
+            engine: crate::browser_profile_ops::default_engine_for(self.mux, self.url).to_string(),
             url: self.url.to_string(),
             title: None,
             favicon_url: None,

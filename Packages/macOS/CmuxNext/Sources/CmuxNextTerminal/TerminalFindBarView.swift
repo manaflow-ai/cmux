@@ -4,100 +4,46 @@ import CmuxNextIcons
 import CmuxNextTerminalFind
 import Observation
 
-/// The inline find bar over a terminal's top-trailing corner: a field that
-/// searches as you type, the match count, previous and next buttons, and a
-/// close button. It renders ``TerminalFindController`` and sends every edit,
-/// key and click to it.
+/// The inline find bar over a terminal's top-trailing corner: the shared
+/// ``FindPillView`` (the same Liquid Glass capsule as the browser's and the
+/// web pages' find), driven by ``TerminalFindController``. It renders the
+/// controller and sends every edit, key and click to it. Ghostty matches
+/// case-insensitively, so the pill has no match-case toggle here.
 final class TerminalFindBarView: NSView {
     private let find: TerminalFindController
-    /// Themes its caret, selection and placeholder in the bar's scope, focused or not.
-    private let field = ThemedTextField()
-    private let countLabel = NSTextField(labelWithString: "")
-    private let icon = NSImageView()
-    private var buttons: [NSButton] = []
+    let pill: FindPillView
     private var shownFocusRequest = 0
-    /// The bar is shown or fading in (it stays unhidden while fading out).
-    private var shown = false
-    private var glass: OverlaySurfaceView?
 
     init(find: TerminalFindController) {
         self.find = find
+        pill = FindPillView(labels: Self.labels, icons: .terminal, accessibilityPrefix: "cmux.terminal.find")
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
-        isHidden = true
-        alphaValue = 0
-
-        field.placeholderString = Self.placeholder
-        field.setAccessibilityLabel(Self.placeholder)
-        field.isBordered = false
-        field.drawsBackground = false
-        field.fill = { .clear }
-        field.focusRingType = .none
-        field.usesSingleLineMode = true
-        field.cell?.isScrollable = true
-        field.font = Typography.body
-        field.delegate = self
-
-        countLabel.font = .monospacedDigitSystemFont(ofSize: Typography.caption.pointSize, weight: .regular)
-        countLabel.alignment = .right
-        countLabel.setContentHuggingPriority(.required, for: .horizontal)
-        countLabel.setContentCompressionResistancePriority(.required, for: .horizontal)
-
-        icon.image = Self.icon(.search)
-        buttons = [
-            button(.navPreviousMatch, label: Self.previousLabel, action: #selector(previousClicked)),
-            button(.disclosureExpanded, label: Self.nextLabel, action: #selector(nextClicked)),
-            button(.actionClose, label: Self.closeLabel, action: #selector(closeClicked)),
-        ]
-
-        let stack = NSStackView(views: [icon, field, countLabel] + buttons)
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        stack.spacing = Metrics.space1
-        stack.setCustomSpacing(Metrics.space3, after: icon)
-        stack.setCustomSpacing(Metrics.space3, after: countLabel)
-        stack.edgeInsets = NSEdgeInsets(top: 0, left: Metrics.space4, bottom: 0, right: Metrics.space1)
-
-        let content = NSView()
-        content.addSubview(stack)
-        let glass = Glass.makeOverlayPanel(content: content)
-        addSubview(glass)
-        self.glass = glass
-        // Preferred width: a narrow pane narrows the field.
-        let fieldWidth = field.widthAnchor.constraint(equalToConstant: Metrics.tabMaxWidth * 3 / 4)
-        fieldWidth.priority = NSLayoutConstraint.Priority(450)
+        addSubview(pill)
         NSLayoutConstraint.activate([
-            fieldWidth,
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-            glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-            glass.topAnchor.constraint(equalTo: topAnchor),
-            glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            heightAnchor.constraint(equalToConstant: Metrics.tabStripHeight),
-            countLabel.widthAnchor.constraint(greaterThanOrEqualToConstant: Metrics.tabMinWidth),
+            pill.leadingAnchor.constraint(equalTo: leadingAnchor),
+            pill.trailingAnchor.constraint(equalTo: trailingAnchor),
+            pill.topAnchor.constraint(equalTo: topAnchor),
+            pill.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
+        pill.onQueryChange = { [weak self] in self?.find.updateQuery($0) }
+        pill.onCommand = { [weak self] in self?.run($0) }
         observe()
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
+    /// Clicks pass through to the terminal while the pill is hidden.
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        pill.isHidden ? nil : super.hitTest(point)
     }
 
     /// Cmd-G and Shift-Cmd-G while the field has the keyboard (app
     /// shortcuts skip a focused text input). With the terminal focused,
     /// Find Next and Find Previous arrive as registry actions instead.
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
-        guard shown, field.currentEditor() != nil, let command = Self.command(for: event), command != .close else {
+        guard pill.isPresented, pill.isEditing, let command = Self.command(for: event), command != .close else {
             return super.performKeyEquivalent(with: event)
         }
         run(command)
@@ -121,38 +67,18 @@ final class TerminalFindBarView: NSView {
         let count = find.count
         let focusRequest = find.focusRequest
 
-        if field.stringValue != query { field.stringValue = query }
-        countLabel.stringValue = Self.text(for: count)
-        setPresented(presented)
+        pill.query = query
+        let text = Self.text(for: count)
+        if pill.countText != text { superview?.needsLayout = true } // the host frames the bar to its fitting width
+        if case .noMatches = count {
+            pill.showCount(text, noMatches: true)
+        } else {
+            pill.showCount(text, noMatches: false)
+        }
+        pill.setPresented(presented)
         if presented, focusRequest != shownFocusRequest {
             shownFocusRequest = focusRequest
-            window?.makeFirstResponder(field)
-            field.currentEditor()?.selectAll(nil)
-        }
-    }
-
-    private func setPresented(_ presented: Bool) {
-        guard presented != shown else { return }
-        shown = presented
-        if presented {
-            isHidden = false
-            Motion.animate(.fadeIn, in: self) { animator().alphaValue = 1 }
-        } else {
-            Motion.animate(.fadeOut, in: self, { animator().alphaValue = 0 }, completion: { [weak self] in
-                // Reopened while fading out: stay visible.
-                guard let self, !self.shown else { return }
-                self.isHidden = true
-            })
-        }
-    }
-
-    private func applyColors() {
-        performWithTheme {
-            icon.contentTintColor = Palette.textSecondary
-            countLabel.textColor = Palette.textSecondary
-            field.textColor = Palette.textPrimary
-            for button in buttons { button.contentTintColor = Palette.textSecondary }
-            glass?.applyTheme()
+            pill.focusField()
         }
     }
 
@@ -166,21 +92,12 @@ final class TerminalFindBarView: NSView {
         }
     }
 
-    @objc private func previousClicked() { find.navigate(.previous) }
-    @objc private func nextClicked() { find.navigate(.next) }
-    @objc private func closeClicked() { find.close() }
-
-    private func button(_ icon: IconName, label: String, action: Selector) -> NSButton {
-        let button = NSButton(image: Self.icon(icon), target: self, action: action)
-        button.isBordered = false
-        button.bezelStyle = .accessoryBarAction
-        button.themedToolTip = label
-        button.setAccessibilityLabel(label)
-        return button
-    }
-
-    private static func icon(_ name: IconName) -> NSImage {
-        NSImage.icon(name, size: Metrics.smallIconSize - 1)
+    private func run(_ command: FindPillCommand) {
+        switch command {
+        case .next: find.navigate(.next)
+        case .previous: find.navigate(.previous)
+        case .close: find.close()
+        }
     }
 
     private static func command(for event: NSEvent) -> TerminalFindKeyCommand? {
@@ -191,6 +108,10 @@ final class TerminalFindBarView: NSView {
         if flags.contains(.option) { modifiers.insert(.option) }
         if flags.contains(.command) { modifiers.insert(.command) }
         return TerminalFindKeyCommand(key: event.charactersIgnoringModifiers ?? "", modifiers: modifiers)
+    }
+
+    private static var labels: FindPillLabels {
+        FindPillLabels(placeholder: placeholder, previous: previousLabel, next: nextLabel, close: closeLabel)
     }
 
     // MARK: Strings
@@ -223,21 +144,11 @@ final class TerminalFindBarView: NSView {
     }
 }
 
-extension TerminalFindBarView: NSTextFieldDelegate {
-    func controlTextDidChange(_ notification: Notification) {
-        find.updateQuery(field.stringValue)
-    }
-
-    func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
-        let shift = NSApp.currentEvent?.modifierFlags.contains(.shift) == true
-        let key: String
-        switch selector {
-        case #selector(NSResponder.insertNewline(_:)): key = "\r"
-        case #selector(NSResponder.cancelOperation(_:)): key = "\u{1b}"
-        default: return false
-        }
-        guard let command = TerminalFindKeyCommand(key: key, modifiers: shift ? .shift : []) else { return false }
-        run(command)
-        return true
+private extension FindPillIcons {
+    /// The icons every find pill draws (the browser's are the same names).
+    static var terminal: FindPillIcons {
+        let size = Metrics.smallIconSize - 1
+        return FindPillIcons(search: .icon(.browserOmniboxSearch, size: size), previous: .icon(.browserFindPrevious, size: size),
+                             next: .icon(.browserFindNext, size: size), close: .icon(.actionClose, size: size))
     }
 }

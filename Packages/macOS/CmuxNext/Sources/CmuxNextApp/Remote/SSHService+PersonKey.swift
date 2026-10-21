@@ -32,21 +32,20 @@ extension SSHService {
                   let instance = status?["personInstance"] as? String else {
                 return .daemonTookNoKey(Self.lastLine(started.stderr))
             }
-            guard let nonce = AcpmuxSecretKey.newNonce() else { return .noRandomness }
             // The answer only a run that holds this key can give; whatever else answers on the
-            // socket path cannot (a `person_prove` reply alone would prove nothing).
-            let frames = #"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":1}}"# + "\n"
-                + #"{"jsonrpc":"2.0","id":2,"method":"_acpmux/person_holds","params":{"nonce":""# + nonce + #""}}"# + "\n"
-            let held = try await SSHProcessRunner.run(commandLine.command(host, "\(binary) acp stdio"),
-                                                      input: .data(Data(frames.utf8)), environment: environment,
-                                                      deadline: .seconds(30), label: "acpmux person_holds \(host.destination)")
-            let answer = held.stdout.split(separator: "\n").lazy
-                .compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
-                .first { ($0["id"] as? Int) == 2 }
-            let result = answer?["result"] as? [String: Any]
-            guard let proof = result?["proof"] as? String, result?["instance"] as? String == instance,
-                  key.holds(proof: proof, instance: instance, nonce: nonce) else {
-                return .keyNotHeld
+            // socket path cannot (a `person_prove` reply alone would prove nothing). A dropped ssh
+            // call is asked once more, with a new nonce (cx-hd3rw): else the new run would hold a key
+            // this app never bound.
+            var proved = false
+            for attempt in 1...2 where !proved {
+                guard let nonce = AcpmuxSecretKey.newNonce() else { return .noRandomness }
+                let (reply, error) = await host.personHolds(nonce: nonce, environment: environment)
+                if Task.isCancelled { return .failed("cancelled") }
+                // No answer at all: the call itself failed; ask again once.
+                guard let reply else { if attempt == 2 { return .failed(error) }; continue }
+                guard let proof = reply.proof, reply.instance == instance,
+                      key.holds(proof: proof, instance: instance, nonce: nonce) else { return .keyNotHeld }
+                proved = true
             }
             AcpmuxRemotePersonKeys.shared.bind(machine: machine, instance: instance, key: key)
             logger.info("remote approvals on for \(host.destination.description, privacy: .public)")
@@ -80,42 +79,40 @@ extension SSHService {
         }
     }
 
+    /// cx-brq9m: after an install the keyed restart hands the acpmux over to the new binary when
+    /// nothing is lost (``RemoteAgentDaemonStatus/handoffBlocker``); true when the new one runs.
+    @discardableResult
+    func handOffAgentDaemonAfterInstall(_ session: SSHMachineSession) async -> Bool {
+        let name = session.host.destination.description
+        guard let status = await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment()) else {
+            logger.info("agent daemon on \(name, privacy: .public) left as it is after the install: status unreadable")
+            return false
+        }
+        if !status.running { return true }
+        if let blocker = status.handoffBlocker {
+            logger.info("agent daemon on \(name, privacy: .public) left as it is after the install: \(blocker, privacy: .public)")
+            return false
+        }
+        let handed = await RemoteApprovalPreparations.shared.run(machine: session.machineID, keepBusy: false) { [self] in
+            await restartWithApprovals(session) == nil
+        }
+        logger.info("agent daemon on \(name, privacy: .public) handed over after the install: \(handed, privacy: .public)")
+        return handed
+    }
+
+    /// cx-3r9mt: whether an automatic update may run (``RemoteAgentDaemonStatus/idleForUpdate(ownInstance:)``).
+    func agentDaemonIdleForUpdate(_ session: SSHMachineSession) async -> Bool {
+        let ours = AcpmuxRemotePersonKeys.shared.instance(machine: session.machineID)
+        return await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.idleForUpdate(ownInstance: ours) == true
+    }
+
     /// The fallback for a cmux-tui without `agent-session-start-keyed-reason-v1` (remove with
-    /// `.checkStatus`; the rule lives in cmux-tui's `keyed_restart_reason`): true only for an
-    /// answer that shows nothing to lose (see ``restartWithApprovalsIfIdle``).
+    /// `.checkStatus`; see ``restartWithApprovalsIfIdle``).
     private func idleAgentDaemon(_ session: SSHMachineSession) async -> Bool {
-        guard let status = try? await SSHProcessRunner.run(
-            SSHCommandLine().command(session.host, "\(session.host.remoteBinary) acp --json daemon status </dev/null"),
-            environment: await Self.environment(), deadline: .seconds(10), label: "acpmux status \(session.host.destination)"),
-            status.status == 0,
-            let object = (try? JSONSerialization.jsonObject(with: Data(status.stdout.utf8))) as? [String: Any] else { return false }
-        if object["running"] as? Bool == false { return true }
-        return object["ready"] as? Bool == true && object["agentHosts"] as? Bool == true
-            && object["liveAgents"] as? Int == 0 && object["remoteSessions"] as? Int == 0
+        await RemoteAgentDaemonStatus.read(session.host, environment: await Self.environment())?.idleForKeyedRestart == true
     }
 
     private static func lastLine(_ text: String) -> String? {
         text.split(separator: "\n").last.map(String.init)
-    }
-}
-
-/// One keyed-restart preparation per machine at a time (two tabs starting at once share it), and
-/// (`keepBusy`, the app's own status check) a busy answer kept for a minute so a busy machine
-/// costs one status call per minute. The daemon's answer comes with each start, so it keeps none.
-actor RemoteApprovalPreparations {
-    static let shared = RemoteApprovalPreparations()
-    private var running: [String: Task<Bool, Never>] = [:]
-    private var busyUntil: [String: ContinuousClock.Instant] = [:]
-
-    func run(machine: String, keepBusy: Bool, _ work: @escaping @Sendable () async -> Bool) async -> Bool {
-        if keepBusy, let until = busyUntil[machine], ContinuousClock.now < until { return false }
-        if let task = running[machine] { return await task.value }
-        // task-owner: the machine's one preparation; every caller awaits it
-        let task = Task { await work() }
-        running[machine] = task
-        let bound = await task.value
-        running[machine] = nil
-        if keepBusy || bound { busyUntil[machine] = bound ? nil : ContinuousClock.now.advanced(by: .seconds(60)) }
-        return bound
     }
 }

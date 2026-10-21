@@ -51,6 +51,13 @@ nonisolated final class ManualClock: Clock, @unchecked Sendable {
     func waitForSleeper() async throws {
         for _ in 0..<20 where lock.withLock({ sleepers.isEmpty }) { await Task.yield() }
         for _ in 0..<500 where lock.withLock({ sleepers.isEmpty }) { try await Task.sleep(for: .milliseconds(5)) }
+        // No timer asleep after the bound: advancing now would test nothing, so the test fails here.
+        if lock.withLock({ sleepers.isEmpty }) { throw NoSleeper() }
+    }
+
+    /// `waitForSleeper` timed out: no timer went to sleep on the clock.
+    struct NoSleeper: Error, CustomStringConvertible {
+        var description: String { "no timer went to sleep on the manual clock within 2.5 s" }
     }
 
     /// Moves the clock on and wakes every sleeper whose deadline it reached.

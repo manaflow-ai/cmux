@@ -9,6 +9,7 @@
 
 mod attachments;
 mod budget;
+mod home;
 mod id;
 mod link;
 mod link_preview;
@@ -18,14 +19,18 @@ mod search;
 mod types;
 
 pub use attachments::{
-    AttachmentClass, AttachmentReject, DerivedVariant, MAX_ATTACHMENT_BYTES,
+    AttachmentClass, AttachmentReject, DerivedVariant, GENERIC_FILE_TYPE, MAX_ATTACHMENT_BYTES,
     MAX_ATTACHMENT_NAME_CHARS, MAX_DIMENSION, MAX_DURATION_MS, MAX_POSTER_BYTES,
-    MAX_PREVIEW_IMAGE_BYTES, attachment_class, is_denied_name, is_derived_image_type, is_sha256,
+    MAX_PREVIEW_IMAGE_BYTES, attachment_class, is_derived_image_type, is_sha256,
     valid_attachment_name, valid_attachment_part, validate_attachment_meta, validate_derived,
 };
 pub use budget::{
     BUDGET_WINDOW, MAX_AGENT_TURNS, MIN_AGENT_GAP_MS, check_agent_budget, check_agent_streak,
     in_thread, parse_rfc3339_millis, streak_of, thread_agent_streak, with_turn,
+};
+pub use home::{
+    CHIEF_NAME, ChiefState, CloudInboxEntry, HomeInboxInput, HomeKind, HomeListState, HomeRow,
+    OWNER_CLOUD, PREVIEW_CHARS, cloud_row, home_inbox, merge_rows, preview_of,
 };
 pub use id::{encode_id, format_rfc3339_millis};
 pub use link::{ConversationLink, MAX_LINK_BYTES, format_link, parse_link};

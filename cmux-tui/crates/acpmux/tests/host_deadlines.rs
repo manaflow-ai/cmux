@@ -5,6 +5,11 @@
 //! and `QUERY_BUDGET`.
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::agent_host::link::{self, Connect};
 use acpmux::agent_host::{self, ControllerFrame, HostFrame, HostRecord, HostTimeout};
 use std::path::PathBuf;
@@ -31,6 +36,7 @@ async fn a_query_the_host_never_answers_times_out() {
         start_nonce: "n".into(),
         harness_pid: None,
         owner_token: "00".into(),
+        caller_token: None,
         protocol_min: agent_host::PROTOCOL_MIN,
         protocol_max: agent_host::PROTOCOL_MAX,
         host_build: "fake".into(),

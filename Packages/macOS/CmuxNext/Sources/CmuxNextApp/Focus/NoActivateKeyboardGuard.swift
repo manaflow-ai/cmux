@@ -1,5 +1,17 @@
 import AppKit
 
+/// A retained AppKit application reference that can safely cross the resolver
+/// queue. Reading `NSRunningApplication.processIdentifier` can make a
+/// synchronous LaunchServices request, so the resolver keeps that lookup off
+/// the main actor.
+nonisolated final class NoActivateApplicationReference: @unchecked Sendable { // crash-allow: immutable AppKit reference is only read by the resolver queue and main handoff.
+    let application: NSRunningApplication
+
+    init(_ application: NSRunningApplication) {
+        self.application = application
+    }
+}
+
 /// Under `CMUX_NEXT_NO_ACTIVATE=1` the app must never hold the keyboard
 /// unless the user put it there. The app refuses every activation it asks
 /// for itself (`CmuxApplication`), but macOS can still activate it (at
@@ -16,7 +28,9 @@ final class NoActivateKeyboardGuard {
         var isAppActive: Bool { get }
         var now: ContinuousClock.Instant { get }
         /// Hands activation back to `app` (nil: the next app in line).
-        func giveActivationBack(to app: pid_t?)
+        /// The object is already supplied by LaunchServices notifications;
+        /// implementations must not resolve it from a PID on the main actor.
+        func giveActivationBack(to app: NSRunningApplication?)
     }
 
     enum Trigger: String, Sendable, Equatable {
@@ -38,13 +52,17 @@ final class NoActivateKeyboardGuard {
     /// Every give-back since launch.
     var giveBackCount: Int { totalGiveBacks }
     private var totalGiveBacks = 0
-    private(set) var previousApp: pid_t?
+    private(set) var previousApp: NSRunningApplication?
+    private(set) var previousAppPID: pid_t?
+    private var pendingApplicationSequence: UInt64 = 0
     private let host: any Host
     private let onGiveBack: (GiveBack) -> Void
 
-    init(host: any Host, frontmost: pid_t?, onGiveBack: @escaping (GiveBack) -> Void = { _ in }) {
+    init(host: any Host, frontmost: NSRunningApplication?, frontmostPID: pid_t? = nil,
+         onGiveBack: @escaping (GiveBack) -> Void = { _ in }) {
         self.host = host
         previousApp = frontmost
+        previousAppPID = frontmostPID
         self.onGiveBack = onGiveBack
     }
 
@@ -59,7 +77,17 @@ final class NoActivateKeyboardGuard {
     func start() { check(.appActivated) }
 
     /// Another app became frontmost: that is where the keyboard goes back.
-    func otherAppActivated(_ pid: pid_t) { previousApp = pid }
+    func beginOtherAppActivation() -> UInt64 {
+        pendingApplicationSequence &+= 1
+        return pendingApplicationSequence
+    }
+
+    func otherAppActivated(_ app: NSRunningApplication, processIdentifier: pid_t? = nil,
+                           sequence: UInt64? = nil) {
+        if let sequence, sequence != pendingApplicationSequence { return }
+        previousApp = app
+        previousAppPID = processIdentifier
+    }
 
     /// A key press or mouse press reached this app.
     func userInput() { lastUserInput = host.now }
@@ -89,7 +117,7 @@ final class NoActivateKeyboardGuard {
             return
         }
         inGivenBackActivation = true
-        let giveBack = GiveBack(trigger: trigger, cause: "no_user_input", restoredTo: previousApp)
+        let giveBack = GiveBack(trigger: trigger, cause: "no_user_input", restoredTo: previousAppPID)
         host.giveActivationBack(to: previousApp)
         giveBacks.append(giveBack)
         totalGiveBacks += 1
@@ -106,12 +134,17 @@ final class AppKitKeyboardGuardHost: NoActivateKeyboardGuard.Host {
     var isAppActive: Bool { NSApp.isActive }
     var now: ContinuousClock.Instant { .now }
 
-    func giveActivationBack(to app: pid_t?) {
-        if let app, let running = NSRunningApplication(processIdentifier: app), !running.isTerminated {
-            NSApp.yieldActivation(to: running)
-            running.activate(from: .current, options: [])
-        }
-        // With no app to hand to (or if it refused), step aside anyway.
+    func giveActivationBack(to app: NSRunningApplication?) {
+        // Deactivate synchronously so the guard never retains the keyboard.
+        // The LaunchServices handoff is deferred and uses the already-resolved
+        // object, avoiding both PID lookup and activation work in the observer.
         NSApp.deactivate()
+        guard let app else { return }
+        let reference = NoActivateApplicationReference(app)
+        DispatchQueue.main.async {
+            guard !reference.application.isTerminated else { return }
+            NSApp.yieldActivation(to: reference.application)
+            _ = reference.application.activate(from: .current, options: [])
+        }
     }
 }

@@ -70,6 +70,8 @@ def test_unknown_verbs_and_targets_are_rejected(validator: ModuleType) -> None:
         "cmux browser browser_01ab snapshot",
         "cmux browser identify --json",
         "cmux browser tab_01ab",
+        "cmux browser profile delete --profile Work",
+        "cmux browser tab tab_01ab close",
     ]
     errors = validate(validator, fixture)
     if len(errors) != len(fixture):
@@ -100,6 +102,11 @@ def test_current_forms_are_accepted(validator: ModuleType) -> None:
         "cmux browser screenshot-page",
         "cmux --json tab create browser --url https://x.test",
         "cmux tab tab_01ab browser show",
+        "cmux --json browser profile list",
+        'cmux --json browser profile create --name "Research"',
+        "cmux browser profile open https://x.test --profile Research --pane pane_01ab",
+        "cmux browser devices list",
+        'cmux --json browser tab "$TAB" set-profile --profile Research',
     ]
     errors = validate(validator, fixture)
     if errors:

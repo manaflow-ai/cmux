@@ -4,6 +4,7 @@ import "../shared/desktop";
 import { createRoot } from "react-dom/client";
 import { createPageClient, type PageClient } from "../shared/pageClient";
 import { createStrings } from "../shared/i18n";
+import { holdFirstPaint } from "../shared/paintGate";
 import table from "./generated/strings.json";
 import { ChangelogPage } from "./ChangelogPage";
 import { MockChangelogProvider } from "./mockProvider";
@@ -22,6 +23,8 @@ export function mountChangelogPage(root: HTMLElement, client: PageClient | null 
     react.render(<ChangelogPage store={store} strings={strings} design={parseDesign(location.hash)} />);
   render();
   void store.start(parseSpan(location.hash));
+  // The first frame shown is the final first screen, not "Loading…" (perceived speed).
+  void holdFirstPaint(store.firstScreen());
   // The host moves an open page to a new update's span (`PageWebView.open(route:)`), and the
   // route carries the Debug Settings design.
   window.addEventListener("hashchange", () => {

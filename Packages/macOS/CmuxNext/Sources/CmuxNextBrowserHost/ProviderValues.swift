@@ -18,8 +18,13 @@ public nonisolated struct ProviderTabAnnounce: Hashable, Sendable {
     public var url: String
     public var title: String
     public var visible: Bool
+    /// View points per CSS px the tab's emulation applies (`inputScale`, cx-mogig); 1 for none.
+    public var inputScale: Double
+    /// The tab's emulation has touch on (`touch`, cx-3ny35).
+    public var touch: Bool
 
-    public init(targetID: String, engine: String, workspace: String, profile: String, url: String, title: String, visible: Bool) {
+    public init(targetID: String, engine: String, workspace: String, profile: String, url: String, title: String, visible: Bool,
+                inputScale: Double = 1, touch: Bool = false) {
         self.targetID = targetID
         self.engine = engine
         self.workspace = workspace
@@ -27,6 +32,8 @@ public nonisolated struct ProviderTabAnnounce: Hashable, Sendable {
         self.url = url
         self.title = title
         self.visible = visible
+        self.inputScale = inputScale
+        self.touch = touch
     }
 }
 

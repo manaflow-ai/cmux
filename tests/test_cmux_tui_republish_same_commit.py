@@ -275,6 +275,62 @@ class RebuildOfAPublishedCommit(unittest.TestCase):
         # Provenance names the run that built them (bundle-cmux-tui.sh stamps it).
         self.assertEqual(json.loads((published / "source.json").read_text())["run"], "1")
 
+    def publish_tree_with_acpmux(self) -> tuple[subprocess.CompletedProcess[str], Path, Path, list[str]]:
+        """The commit's earlier publication attests acpmux for the four Unix targets."""
+        self.box.build("1")
+        self.assertEqual(self.box.run(self.upload).returncode, 0)
+        list_names = lambda flag: subprocess.check_output(
+            ["python3", str(ROOT / "scripts/ci/publish-cmux-tui-tree.py"), flag], text=True).split()
+        names, acpmux = list_names("--list-companions"), list_names("--list-acpmux-companions")
+        commit = self.box.r2 / "cmux-tui" / self.box.sha
+        for n in names + acpmux:
+            (commit / n).write_text(f"{n} build 1\n")
+        (commit / "manifest.json").write_text(json.dumps({
+            "commit": self.box.sha,
+            "attestationUrl": "https://github.com/manaflow-ai/cmux/actions/runs/1",
+            "binaries": {n: sha256(commit / n) for n in names + acpmux},
+        }))
+        tree = self.box.repo / "assets" / "tree"
+        tree.mkdir(parents=True, exist_ok=True)
+        for n in names:
+            (tree / n).write_text(f"{n} build 2\n")
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        result = self.box.run(script, KEY_V2="a" * 40, LEGACY_KEY="")
+        return result, commit, self.box.r2 / "cmux-tui" / "tree" / ("a" * 40), acpmux
+
+    def test_a_new_tree_carries_the_commit_acpmux_in_completion_json(self) -> None:
+        # hq-1f: acpmux for x86_64/aarch64 musl and aarch64/x86_64 darwin.
+        result, commit, published, acpmux = self.publish_tree_with_acpmux()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(len(acpmux), 4)
+        gate = json.loads((published / "completion.json").read_text())["binaries"]
+        for n in acpmux:
+            self.assertEqual((published / n).read_bytes(), (commit / n).read_bytes(), n)
+            self.assertEqual(gate[n], sha256(commit / n), n)
+            self.assertEqual((published / f"{n}.sha256").read_text(), f"{sha256(commit / n)}  {n}\n")
+
+    def test_a_tree_published_before_acpmux_is_republished_without_a_conflict(self) -> None:
+        # The tree's completion.json predates acpmux: it stays byte for byte.
+        result, commit, published, acpmux = self.publish_tree_with_acpmux()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        first = (published / "completion.json").read_bytes()
+        gate = json.loads(first)["binaries"]
+        for n in acpmux:
+            (published / n).unlink()
+            (published / f"{n}.sha256").unlink()
+            del gate[n]
+        older = json.loads(first)
+        older["binaries"] = gate
+        (published / "completion.json").write_text(json.dumps(older, indent=2, sort_keys=True) + "\n")
+        before = (published / "completion.json").read_bytes()
+        script = step_script("publish-tree", "Publish the complete tree with the trusted helper")
+        again = self.box.run(script, KEY_V2="a" * 40, LEGACY_KEY="", GITHUB_RUN_ID="3")
+        self.assertEqual(again.returncode, 0, again.stdout + again.stderr)
+        self.assertNotIn("immutable-r2-conflict", again.stdout + again.stderr)
+        self.assertEqual((published / "completion.json").read_bytes(), before)
+        for n in acpmux:
+            self.assertFalse((published / n).exists(), n)
+
 
 
 class TwoRunsOfOneCommitAtOnce(unittest.TestCase):

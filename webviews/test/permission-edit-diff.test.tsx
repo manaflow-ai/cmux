@@ -108,7 +108,7 @@ test("a pending edit's approval shows the file's change without Expand details",
       />,
     ),
   );
-  const card = host.querySelector(".acpmux-permission-card")!;
+  const card = host.querySelector(".acpmux-ask")!;
   // Drawn, not folded: no closed <details> above it.
   const shown = [...card.querySelectorAll<HTMLElement>(".cv-edit-diff")].filter(
     (diff) => !diff.closest("details:not([open])"),

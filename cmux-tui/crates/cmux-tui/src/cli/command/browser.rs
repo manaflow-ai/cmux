@@ -37,7 +37,20 @@ pub(super) fn parse_browser(
                 map_with("title", Value::String(title)),
             )
         }
-        ["profile", "open", ..] => parse_browser_profile_open(words, flags),
+        // browser.profile.* (cx-2kl68): the records, never their stores.
+        ["profile", "list"] => {
+            request(ResourceOperation::BrowserProfileList, selectors, flags, Map::new())
+        }
+        ["profile", "create"] => {
+            let mut params = map_with("name", Value::String(flags.required("name")?));
+            insert_optional_string(&mut params, flags, "color", "color");
+            insert_optional_string(&mut params, flags, "icon", "icon");
+            if let Some(index) = flags.take("index") {
+                insert_u32(&mut params, "index", "--index", index)?;
+            }
+            request(ResourceOperation::BrowserProfileCreate, selectors, flags, params)
+        }
+        ["profile", "open", ..] => parse_browser_profile_open(words, selectors, flags),
         ["profile", action] => parse_browser_profile(action, flags),
         // browser-profile-agent-v1: move a tab to another browser profile in
         // place (the app re-makes the page in that profile's store).
@@ -181,20 +194,6 @@ fn private_browser_command(command: &str, mut params: Map<String, Value>) -> Com
 
 fn parse_browser_profile(action: &str, flags: &mut Flags) -> Result<CommandPlan, UsageError> {
     match action {
-        "list" => Ok(private_browser_command("list-personal", Map::new())),
-        "create" => {
-            let mut params = Map::new();
-            params.insert("name".into(), Value::String(flags.required("name")?));
-            if let Some(profile) = flags.take("profile") {
-                params.insert("browser_profile".into(), Value::String(profile));
-            }
-            insert_optional_string(&mut params, flags, "color", "color");
-            insert_optional_string(&mut params, flags, "icon", "icon");
-            if let Some(index) = flags.take("index") {
-                insert_u32(&mut params, "index", "--index", index)?;
-            }
-            Ok(private_browser_command("create-browser-profile", params))
-        }
         "move" => {
             let mut params = Map::new();
             params.insert("browser_profile".into(), Value::String(flags.required("profile")?));
@@ -205,13 +204,13 @@ fn parse_browser_profile(action: &str, flags: &mut Flags) -> Result<CommandPlan,
         "delete" => Err(UsageError::new(
             "browser profile delete: only a person deletes a browser profile, in the cmux app (Settings, the palette or the menu)",
         )),
-        "open" => Err(UsageError::new("browser profile open needs a URL and an engine")),
         _ => usage("browser profile action"),
     }
 }
 
 fn parse_browser_profile_open(
     words: &[String],
+    selectors: &mut Selectors,
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     if words.len() > 3 {
@@ -228,26 +227,18 @@ fn parse_browser_profile_open(
         (Some(url), None) | (None, Some(url)) if !url.is_empty() => url,
         _ => return Err(UsageError::new("browser profile open needs a URL or --url")),
     };
-    let mut params = Map::new();
-    params.insert("url".into(), Value::String(url));
-    params.insert("engine".into(), Value::String(flags.required("engine")?));
-    params.insert("profile_id".into(), Value::String(flags.required("profile")?));
-    if let Some(pane) = flags.take("pane") {
-        let pane_id = pane
-            .parse::<u64>()
-            .map_err(|_| UsageError::new("--pane must be an unsigned 64-bit integer"))?;
-        params.insert("pane".into(), Value::from(pane_id));
-    }
+    let mut params = map_with("url", Value::String(url));
+    params.insert("profile".into(), Value::String(flags.required("profile")?));
+    insert_engine(&mut params, flags)?;
     insert_optional_string(&mut params, flags, "title", "title");
-    insert_optional_string(&mut params, flags, "owner", "owner");
-    insert_optional_string(&mut params, flags, "idempotency-key", "idempotency_key");
     if let Some(background) = flags.take("background") {
         validate_one_of("--background", &background, &["true", "false"])?;
         if background == "true" {
             params.insert("activate".into(), Value::Bool(false));
         }
     }
-    Ok(private_browser_command("new-frontend-browser-tab", params))
+    add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
+    request(ResourceOperation::BrowserProfileOpen, selectors, flags, params)
 }
 
 fn parse_browser_open(
@@ -274,9 +265,28 @@ fn parse_browser_open(
     let mut params = Map::new();
     params.insert("url".into(), Value::String(url));
     insert_optional_string(&mut params, flags, "name", "name");
+    insert_engine(&mut params, flags)?;
     add_optional_parent_selectors(selectors, flags, &["workspace", "screen", "pane"])?;
     add_pixel_size(&mut params, flags)?;
     request(ResourceOperation::TabCreateBrowser, selectors, flags, params)
+}
+
+/// `--engine chromium|webkit` (also `chrome`, `cef`, `safari`) as the
+/// wire's `engine` field (`cef` or `webkit`). Absent leaves the field out:
+/// the person's `browser.defaultEngine` (Chromium unless set to WebKit)
+/// decides, in the app and in the daemon.
+pub(super) fn insert_engine(
+    params: &mut Map<String, Value>,
+    flags: &mut Flags,
+) -> Result<(), UsageError> {
+    let Some(engine) = flags.take("engine") else { return Ok(()) };
+    let tag = match engine.to_ascii_lowercase().as_str() {
+        "chromium" | "chrome" | "cef" => "cef",
+        "webkit" | "safari" => "webkit",
+        _ => return Err(UsageError::new("--engine must be chromium or webkit")),
+    };
+    params.insert("engine".into(), Value::String(tag.into()));
+    Ok(())
 }
 
 fn browser_no_args(

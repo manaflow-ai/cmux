@@ -25,6 +25,8 @@ import argparse, json, os, socket, subprocess, sys, tempfile, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import dev_account_guard  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import home_classic  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
@@ -119,7 +121,7 @@ try:
     env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
            "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
            "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": CONFIG, "CMUX_NEXT_GHOSTTY_CONFIG": GHOSTTY,
-           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1500,860"}
+           "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1500,860", **home_classic.ENV}
     if opts.expected_account:
         env.update(dev_account_guard.launch_environment(opts.profile or "agent", opts.expected_account))
     if opts.credentials_file:
@@ -129,6 +131,8 @@ try:
     print(f"launched pid {app.pid}", flush=True)
     if not wait(lambda: os.path.exists(SOCKET) and rpc("debug.surfaces").get("ok"), 180):
         sys.exit("the tagged app did not come up")
+    if not home_classic.require(lambda m: rpc(m).get("result") or {}):  # classic Home: these checks drive the native transcript
+        sys.exit(2)
     if not (rpc("debug.surfaces").get("result") or {}).get("windows"):
         run("newWindow")
         wait(lambda: (rpc("debug.surfaces").get("result") or {}).get("windows"), 30)

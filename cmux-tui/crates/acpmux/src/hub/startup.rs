@@ -28,10 +28,12 @@ impl Hub {
         if login_env {
             // A cache whose fingerprint matches applies at once; the shell
             // runs only when needed, and agent spawns wait for it (at most
-            // `login_env::TIMEOUT`) only when nothing else can stand in.
+            // two `login_env::TIMEOUT` reads) only when nothing else can stand in.
             let plan = tokio::task::spawn_blocking(crate::login_env::begin)
                 .await
                 .unwrap_or(crate::login_env::Plan { run_shell: true, wait: true });
+            // An edit to a startup file reads the shell again (D26).
+            crate::login_env::watch_startup_files();
             let cached = crate::login_env::outcome() == crate::login_env::Outcome::Cached;
             if cached {
                 reloaded = self.after_login_env().await;
@@ -53,13 +55,8 @@ impl Hub {
         self.verify_launchers().await;
         self.startup_ready.send_replace(true);
         tracing::info!("startup complete; agents may spawn");
-        // Probes of earlier runs left transcripts in the unattended folder: remove them.
-        let _ = tokio::task::spawn_blocking(|| {
-            crate::probe_cleanup::remove_probe_transcripts(
-                &crate::protected_folders::unattended_cwd(),
-            )
-        })
-        .await;
+        // Probes and one-shots of earlier runs left files behind: remove them.
+        let _ = tokio::task::spawn_blocking(crate::probe_cleanup::at_daemon_start).await;
         // A catalog reload already started fresh probes.
         if !reloaded {
             self.probe_models().await;

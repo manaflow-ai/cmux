@@ -67,6 +67,16 @@ public final class ScreenModel: Identifiable {
         }
     }
 
+    /// Lays a `layout-changed` layout (`layout-delta-v1`) over the record:
+    /// the layout fields only; panes and metadata keep their own deltas.
+    func applyLayout(_ d: ScreenLayoutDelta) {
+        if layout != d.layout { layout = d.layout }
+        if columns != d.columns { columns = d.columns }
+        if viewportBaseWidth != (d.viewportBaseWidth ?? 1) { viewportBaseWidth = d.viewportBaseWidth ?? 1 }
+        if zoomedPane != d.zoomedPane { zoomedPane = d.zoomedPane }
+        if defaultPane != d.activePane { defaultPane = d.activePane }
+    }
+
     /// Lays the daemon's screen state over the record.
     func applyState(_ state: SessionStateMirror.ScreenState) {
         metadataFromState = true
@@ -78,4 +88,5 @@ public final class ScreenModel: Identifiable {
     }
 
     public func pane(_ handle: PaneID) -> PaneModel? { panes.first { $0.handle == handle } }
+
 }

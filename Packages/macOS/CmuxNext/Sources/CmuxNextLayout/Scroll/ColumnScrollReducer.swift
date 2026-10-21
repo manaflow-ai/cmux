@@ -151,6 +151,19 @@ nonisolated extension ColumnScrollState {
                                    relativeOffset: spring.target - new.columns[previousIndex].frame.minX)
         }
 
+        // A removed column cannot leave the camera past the new strip. The view carries the
+        // panes horizontally from where they showed; row cameras keep their vertical spring.
+        if new.axis == .horizontal, !removed.isEmpty {
+            let clamped = new.clamp(spring.value)
+            if clamped != spring.value { spring.velocity = 0 }
+            spring.value = clamped
+            spring.target = new.clamp(spring.target)
+            if var live = gesture {
+                live.raw = new.clamp(live.raw)
+                gesture = live
+            }
+        }
+
         // 3. Reveal. A live gesture owns the target; its end keeps the
         //    focused column visible.
         guard gesture == nil else { return delta }

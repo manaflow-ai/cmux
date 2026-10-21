@@ -14,6 +14,7 @@ import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
 import { loadEntries } from "../scripts/gallery/entries";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -79,7 +80,7 @@ await requireBrowserLane("menu-focus.test.ts", async () => {
 
   afterAll(async () => {
     await browser?.close();
-    server?.kill();
+    stopDevServer(server);
   });
 
   /** The open menu: its own ring, the items that are not at the menu's ink, and the highlighted one. */

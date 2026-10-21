@@ -22,8 +22,8 @@ final class PresenceDotsView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    override var isFlipped: Bool { true }
-    override var wantsUpdateLayer: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
+    nonisolated override var wantsUpdateLayer: Bool { true }
 
     func configure(_ presence: [SidebarPresence]) {
         self.presence = presence
@@ -35,7 +35,7 @@ final class PresenceDotsView: NSView {
             dots.append(dot)
         }
         for (index, dot) in dots.enumerated() { dot.isHidden = index >= shown }
-        overflow.stringValue = presence.count > shown ? Strings.presenceOverflow(presence.count - shown) : ""
+        overflow.setString(presence.count > shown ? Strings.presenceOverflow(presence.count - shown) : "")
         overflow.isHidden = overflow.stringValue.isEmpty
         themedToolTip = presence.isEmpty ? nil : presence.map(Strings.presenceLine).joined(separator: "\n")
         needsLayout = true
@@ -75,7 +75,7 @@ final class PresenceDotsView: NSView {
             for (dot, agent) in zip(dots, presence) {
                 dot.backgroundColor = AgentPresenceColor(key: agent.id).color.cgColor
             }
-            overflow.textColor = Palette.textTertiary
+            overflow.setColor(Palette.textTertiary)
         }
     }
 }

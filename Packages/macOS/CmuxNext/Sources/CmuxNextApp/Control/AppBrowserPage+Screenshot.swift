@@ -107,6 +107,10 @@ enum BrowserPageStrings {
         String(format: String(localized: "handlers.browserPage.captureFailed", defaultValue: "The page could not be captured (%@); show the tab and retry",
                               table: "MiscHandlers", bundle: .module), reason)
     }
+    static var wakeFailed: String {
+        String(localized: "handlers.browserPage.wakeFailed", defaultValue: "The hibernated page did not wake in time; retry",
+               table: "MiscHandlers", bundle: .module)
+    }
     static var encodeFailed: String {
         String(localized: "handlers.browserPage.encodeFailed", defaultValue: "The screenshot could not be encoded as PNG", table: "MiscHandlers", bundle: .module)
     }

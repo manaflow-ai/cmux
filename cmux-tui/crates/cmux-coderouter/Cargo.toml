@@ -41,7 +41,6 @@ zeroize.workspace = true
 [target.'cfg(target_os = "macos")'.dependencies]
 # The free-tier provider peer check (free_tier::provider_peer_allowed).
 cmux-link.workspace = true
-security-framework = "3.7"
 
 [dev-dependencies]
 tempfile = "3"

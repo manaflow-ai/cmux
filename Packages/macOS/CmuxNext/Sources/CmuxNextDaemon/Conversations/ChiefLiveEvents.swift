@@ -1,0 +1,108 @@
+import Foundation
+
+/// One live frame of a Chief's running run (`chief-live-v1`, the "Live frames"
+/// contract the local optchat-chief and the Cloud Chief brain share). The
+/// owner sends each one unchanged inside a `conversation-live` (local) or
+/// `cloud-conversation-live` (Cloud, through the daemon) event. A frame of a
+/// type this build does not know is `.unknown` and changes nothing.
+public enum ChiefLiveFrame: Decodable, Sendable, Hashable {
+    /// `step.delta`: text appended to a talk or thought step.
+    case delta(StepDelta)
+    /// `run.activity`: what the run works on now (the newest wins).
+    case activity(RunActivity)
+    /// `run.live`: the text so far and the activity of every running run.
+    case snapshot(RunLive)
+    case unknown
+
+    public struct StepDelta: Decodable, Sendable, Hashable {
+        public var conversation: String
+        public var run: String
+        public var step: String
+        public var kind: String
+        public var seq: UInt64
+        public var text: String
+        public var final: Bool?
+        /// The Chief participant; the owner stamps it (run ids repeat across Chiefs).
+        public var author: String?
+    }
+
+    public struct RunActivity: Decodable, Sendable, Hashable {
+        public var conversation: String
+        public var run: String
+        public var line: String
+        /// When the activity began (ms since 1970); the app draws the elapsed time itself.
+        public var since: Double
+        public var at: Double?
+        public var author: String?
+    }
+
+    public struct RunLive: Decodable, Sendable, Hashable {
+        public struct Step: Decodable, Sendable, Hashable {
+            public var step: String
+            public var kind: String
+            public var seq: UInt64
+            public var text: String
+        }
+
+        public struct Activity: Decodable, Sendable, Hashable {
+            public var line: String
+            public var since: Double
+            public var at: Double?
+        }
+
+        public struct Run: Decodable, Sendable, Hashable {
+            public var run: String
+            public var author: String?
+            public var steps: [Step]?
+            public var activity: Activity?
+        }
+
+        public var conversation: String
+        public var runs: [Run]
+    }
+
+    private enum Keys: String, CodingKey { case type, t }
+
+    public init(from decoder: any Decoder) throws {
+        let keys = try decoder.container(keyedBy: Keys.self)
+        let type = try keys.decodeIfPresent(String.self, forKey: .type) ?? keys.decodeIfPresent(String.self, forKey: .t)
+        let value = try decoder.singleValueContainer()
+        switch type {
+        case "step.delta": self = .delta(try value.decode(StepDelta.self))
+        case "run.activity": self = .activity(try value.decode(RunActivity.self))
+        case "run.live": self = .snapshot(try value.decode(RunLive.self))
+        default: self = .unknown
+        }
+    }
+}
+
+/// `conversation-live` (local owner) and `cloud-conversation-live` (a Cloud
+/// Chief through the daemon): one live frame of a conversation, never stored.
+public struct ConversationLive: Decodable, Sendable, Hashable {
+    public var conversation: String
+    public var frame: ChiefLiveFrame
+    /// The Cloud account the event came through (Cloud only).
+    public var account: String?
+
+    public init(conversation: String, frame: ChiefLiveFrame, account: String? = nil) {
+        self.conversation = conversation
+        self.frame = frame
+        self.account = account
+    }
+}
+
+/// `conversation-run-changed` (local) and `cloud-conversation-run-changed`
+/// (Cloud): a run after an append. Home reads only the run's status and its
+/// reply key (`turn`); the steps are not decoded.
+public struct ConversationRunChanged: Decodable, Sendable, Hashable {
+    public struct Run: Decodable, Sendable, Hashable {
+        public var id: String
+        public var author: String
+        public var turn: String?
+        public var status: String
+    }
+
+    public var conversation: String
+    public var run: Run
+    public var account: String?
+}

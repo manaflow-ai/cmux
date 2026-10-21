@@ -56,6 +56,25 @@ pub struct TabAnnounce {
     pub title: String,
     #[serde(default)]
     pub visible: bool,
+    /// View points per CSS px of the page's layout that the app's emulation
+    /// applies (a fit, or a device bigger than the pane: Chromium's
+    /// `setDeviceMetricsOverride` scale); 1 for every other tab. Chromium
+    /// reads CDP mouse coordinates in view points under that scale, so the
+    /// tab's driver multiplies CSS px by it (`CdpDriver::set_input_scale`).
+    #[serde(rename = "inputScale", default = "unit_scale", skip_serializing_if = "is_unit_scale")]
+    pub input_scale: f64,
+    /// The app's emulation turned touch on (a phone or tablet preset): the
+    /// tab's driver sends pointer input as touch (`CdpDriver::set_touch_emulation`, cx-3ny35).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub touch: bool,
+}
+
+fn unit_scale() -> f64 {
+    1.0
+}
+
+fn is_unit_scale(scale: &f64) -> bool {
+    *scale == 1.0
 }
 
 /// An automation lease the app shows as a "driven by" badge.
@@ -399,6 +418,8 @@ mod tests {
                 url: "https://example.com/".into(),
                 title: "Example".into(),
                 visible: false,
+                input_scale: 1.0,
+                touch: false,
             }],
         }
     }

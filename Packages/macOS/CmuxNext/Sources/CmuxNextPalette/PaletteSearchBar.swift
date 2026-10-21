@@ -19,7 +19,8 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     private let magnifier = NSImageView()
     private let chips = PaletteScopeChipsView()
     private let breadcrumb = PaletteClickView()
-    private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .tertiary)
+    // Secondary, not tertiary: the path is text you read (4.5:1), not a 3:1 mark.
+    private let breadcrumbLabel = PaletteText.label(Typography.caption, tone: .secondary)
     private let keywordHint = PaletteKeywordHintView()
     private let spinner = StatusIndicatorView.spinner()
     private var placeholder = ""
@@ -51,7 +52,7 @@ final class PaletteSearchBar: NSView, NSTextFieldDelegate {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
 
-    override var isFlipped: Bool { true }
+    nonisolated override var isFlipped: Bool { true }
 
     /// `chips` are the levels above the root; `rootTitle` names the root
     /// in the breadcrumb.

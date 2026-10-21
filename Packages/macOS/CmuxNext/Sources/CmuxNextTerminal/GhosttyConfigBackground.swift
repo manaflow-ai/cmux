@@ -23,7 +23,10 @@ public struct GhosttyConfigBackground {
     /// The lines that put cmux.json's window background over a config load's
     /// values; a load of the user's own config (no `theme`) also records them.
     static func overrideLines(configuredOpacity: Double, configuredBlur: Int, theme: String?) -> [String] {
-        if theme == nil { loaded = GhosttyConfigBackground(opacity: configuredOpacity, blur: configuredBlur) }
+        if theme == nil {
+            loaded = GhosttyConfigBackground(opacity: configuredOpacity, blur: configuredBlur)
+            GhosttyConfigFontFamily.recordLoad()
+        }
         return GhosttyRuntime.backgroundOverrideLines(GhosttyRuntime.backgroundOverride,
                                                       configuredOpacity: configuredOpacity, configuredBlur: configuredBlur)
     }

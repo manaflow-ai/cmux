@@ -1,10 +1,12 @@
+import CmuxNextControl
 import Foundation
 import os
 
 /// An Objective-C exception that ended the previous run: what the
 /// `run.exception` file holds (crash-elimination class b: NSRangeException,
 /// unrecognized selector). Holds the exception's name, reason and call stack
-/// symbols only; the reason is AppKit's text and the frames are symbol names.
+/// frames only; the reason is AppKit's text and the frames are "image
+/// function + offset" lines (``StackSymbolicator``).
 nonisolated struct RecordedException: Codable, Equatable, Sendable {
     var name: String
     var reason: String
@@ -27,7 +29,7 @@ nonisolated struct RecordedException: Codable, Equatable, Sendable {
 /// Swift cannot catch an Objective-C exception, so this records and lets the
 /// process end; it never resumes.
 nonisolated enum UncaughtExceptionRecorder {
-    /// Frames kept from `callStackSymbols`.
+    /// Frames kept from the exception's call stack.
     static let frameLimit = 64
     private static let file = OSAllocatedUnfairLock<URL?>(initialState: nil)
 
@@ -56,7 +58,7 @@ nonisolated enum UncaughtExceptionRecorder {
     /// (the installed file is process-wide, and suites run in parallel).
     static func record(_ exception: NSException, to url: URL) {
         let record = RecordedException(name: exception.name.rawValue, reason: exception.reason ?? "",
-                                       frames: Array(exception.callStackSymbols.prefix(frameLimit)))
+                                       frames: frames(of: exception))
         do {
             // concurrency-allow: the process is ending; one small write of the exception record.
             try JSONEncoder().encode(record).write(to: url, options: .atomic)
@@ -64,6 +66,15 @@ nonisolated enum UncaughtExceptionRecorder {
             Logger(subsystem: "com.cmuxterm.app.next", category: "crash")
                 .fault("uncaught exception record write failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// Up to ``frameLimit`` frames named through the app symbol map
+    /// (``StackSymbolicator``): `callStackSymbols` has no names for the
+    /// release executable, which ships stripped.
+    static func frames(of exception: NSException) -> [String] {
+        let addresses = exception.callStackReturnAddresses.prefix(frameLimit).map { $0.uintValue }
+        guard !addresses.isEmpty else { return Array(exception.callStackSymbols.prefix(frameLimit)) }
+        return StackSymbolicator().frames(for: addresses).map(\.description)
     }
 
     /// The record in `url`, or nil when there is none or it does not decode.

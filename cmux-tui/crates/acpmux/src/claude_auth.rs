@@ -3,9 +3,13 @@
 //! `ANTHROPIC_AUTH_TOKEN`, `CLAUDE_CODE_OAUTH_TOKEN`, Bedrock / Vertex /
 //! Foundry switches, `ANTHROPIC_BASE_URL`), the managed and user
 //! `settings.json` (`env`, `apiKeyHelper`, AWS credential helpers), the
-//! Claude home's `.credentials.json`, and the macOS keychain item Claude
-//! Code keeps per Claude home (`Claude Code-credentials`, with
-//! `-<sha256(CLAUDE_CONFIG_DIR)[..8]>` when `CLAUDE_CONFIG_DIR` is set).
+//! Claude home's `.credentials.json`. Never the macOS keychain item Claude
+//! Code keeps (`Claude Code-credentials`): acpmux never asks the login
+//! keychain on its own (cx-hh0vu). A `security` call from a tagged, DEV or
+//! ad hoc signed acpmux left keychain dialogs on GUI test hosts, and a
+//! locked keychain asks to unlock even for attributes. A sign-in kept only
+//! in the keychain is not seen here: health says `unknown` for it, never
+//! signed out.
 //!
 //! acpmux remembers each Claude agent's spawn environment (names, the Claude
 //! home and the endpoint's host only) and, when a turn fails because Claude
@@ -37,7 +41,7 @@ const REMEMBERED: [&str; 4] = ["CLAUDE_CONFIG_DIR", "HOME", BASE_URL, "SHELL"];
 pub struct Found {
     /// The Claude home (`CLAUDE_CONFIG_DIR`, else `~/.claude`).
     pub home: PathBuf,
-    /// `CLAUDE_CONFIG_DIR` is set (Claude then uses its own keychain item).
+    /// `CLAUDE_CONFIG_DIR` is set.
     pub custom_home: bool,
     /// Each sign-in source, in plain words.
     pub sources: Vec<String>,
@@ -83,9 +87,9 @@ fn settings_files(home: &Path) -> Vec<PathBuf> {
     vec![PathBuf::from(managed), home.join("settings.json")]
 }
 
-/// The sign-in sources `env` gives Claude Code. `keychain`: also ask the
-/// keychain (one `security` call, item attributes only, no secret).
-pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
+/// The sign-in sources `env` gives Claude Code, from the environment and
+/// files only (never the keychain).
+pub fn find(env: &BTreeMap<String, String>) -> Found {
     let user_home = env
         .get("HOME")
         .filter(|h| !h.is_empty())
@@ -156,55 +160,7 @@ pub fn find(env: &BTreeMap<String, String>, keychain: bool) -> Found {
             .sources
             .push(format!("the sign-in saved in {}", tilde(&home.join(".credentials.json"))));
     }
-    if keychain && !found.signed_in() && keychain_item(custom.map(String::as_str)) {
-        found.sources.push(if found.custom_home {
-            format!("the sign-in saved in the keychain for {}", tilde(&home))
-        } else {
-            "the sign-in saved in the keychain".to_owned()
-        });
-    }
     found
-}
-
-/// Whether the keychain holds Claude Code's sign-in item for this Claude
-/// home. Attributes only (no `-g`/`-w`), so it never prompts.
-fn keychain_item(config_dir: Option<&str>) -> bool {
-    if !cfg!(target_os = "macos") {
-        return false;
-    }
-    use sha2::{Digest, Sha256};
-    let service = match config_dir {
-        None => "Claude Code-credentials".to_owned(),
-        Some(dir) => {
-            let hex: String =
-                Sha256::digest(dir.as_bytes()).iter().map(|b| format!("{b:02x}")).collect();
-            format!("Claude Code-credentials-{}", &hex[..8])
-        }
-    };
-    let Ok(mut child) = std::process::Command::new("/usr/bin/security")
-        .args(["find-generic-password", "-s", &service])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
-    else {
-        return false;
-    };
-    // A locked keychain must not hold startup or a turn: 1 s at most.
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
-    loop {
-        match child.try_wait() {
-            Ok(Some(status)) => return status.success(),
-            Ok(None) if std::time::Instant::now() < deadline => {
-                std::thread::sleep(std::time::Duration::from_millis(10));
-            }
-            _ => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return false;
-            }
-        }
-    }
 }
 
 /// The person's terminal: the daemon's environment with the login shell's
@@ -224,13 +180,13 @@ pub fn terminal_env() -> BTreeMap<String, String> {
 }
 
 /// Claude has a sign-in without the login shell: the daemon's own
-/// environment, settings files, credentials file or keychain.
+/// environment, settings files or credentials file (never the keychain).
 pub fn direct_sign_in() -> bool {
     let mut env: BTreeMap<String, String> = std::env::vars().collect();
     if std::env::var_os("CLAUDECODE").is_some() {
         env.retain(|k, _| !crate::config::is_nested_claude_key(k));
     }
-    find(&env, true).signed_in()
+    find(&env).signed_in()
 }
 
 static SPAWNED: Mutex<Option<HashMap<String, BTreeMap<String, String>>>> = Mutex::new(None);
@@ -248,9 +204,9 @@ pub fn remember(session_id: &str, env: &[(String, String)]) {
             kept.insert(k.clone(), "set".to_owned());
         }
     }
-    let found = find(&kept, false);
+    let found = find(&kept);
     if !found.signed_in() {
-        tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env or settings (the keychain is checked if its turn fails)");
+        tracing::info!(session = session_id, home = %found.home.display(), "Claude agent starts with no sign-in in its env, settings or credentials file (a keychain sign-in is not checked)");
     }
     let mut map = SPAWNED.lock().unwrap_or_else(|e| e.into_inner());
     map.get_or_insert_with(HashMap::new).insert(session_id.to_owned(), kept);
@@ -282,11 +238,11 @@ pub fn explain(session_id: &str, original: &str) -> Option<String> {
     }
     let agent_env =
         SPAWNED.lock().unwrap_or_else(|e| e.into_inner()).as_ref()?.get(session_id)?.clone();
-    // File reads and the keychain check block: off a multi-thread runtime's workers.
+    // File reads block: off a multi-thread runtime's workers.
     let work = || {
-        let agent = find(&agent_env, true);
+        let agent = find(&agent_env);
         let terminal_env = terminal_env();
-        let terminal = find(&terminal_env, true);
+        let terminal = find(&terminal_env);
         compose(&agent, &terminal, terminal_env.get("SHELL").map(String::as_str), original)
     };
     let multi_thread = tokio::runtime::Handle::try_current()

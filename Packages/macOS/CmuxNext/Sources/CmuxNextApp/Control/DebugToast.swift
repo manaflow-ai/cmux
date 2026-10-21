@@ -15,6 +15,7 @@ import CmuxNextSettings
 ///   active one by default) as Cmd-Z does.
 /// - `{press: "<toast id>", window?}` runs the action of the newest toast
 ///   with that id, as its button does.
+/// Every reply also has `undo_steps`: the sidebar and pin undo steps registered so far.
 @MainActor
 enum DebugToast {
     static func run(_ params: [String: JSONValue], _ services: AppServices) -> JSONValue {
@@ -43,7 +44,13 @@ enum DebugToast {
         let window = windowID.flatMap { id in services.windows.controllers.first { $0.state.id == id }?.window }
             ?? services.windows.active?.window
         if params["undo"]?.boolValue == true {
-            result["undone"] = .bool(window.map { CmuxToastCenter.shared.runUndo(in: $0) } ?? false)
+            // As Cmd-Z: the newest undo toast, else the window's undo stack (moves and pins have no toast).
+            result["undone"] = .bool(window.map { window in
+                if CmuxToastCenter.shared.runUndo(in: window) { return true }
+                guard let manager = window.undoManager, manager.canUndo else { return false }
+                manager.undo()
+                return true
+            } ?? false)
         }
         if let toastID = params["press"]?.stringValue {
             result["pressed"] = .bool(window.map { CmuxToastCenter.shared.runAction(id: toastID, in: $0) } ?? false)
@@ -56,6 +63,8 @@ enum DebugToast {
         result["windows"] = .array(windows)
         // Every refusal HUD message so far, newest last.
         result["refusals"] = .array(services.refusalHUD.history.map(JSONValue.string))
+        // Sidebar and pin undo steps registered so far (a change's step comes with its daemon reply, after the change shows).
+        result["undo_steps"] = .number(Double(PinUndoStep.registered))
         return .object(result)
     }
 

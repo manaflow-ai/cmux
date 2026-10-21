@@ -9,8 +9,8 @@ import CmuxNextCompat
 /// Colors go through the sidebar bridge (optimistic row update, then
 /// `set-workspace-metadata`), the same path as the row's context menu.
 /// Pin goes through the one pin path (`PinCommands`).
-/// Fields the daemon tree does not have (description, status, checklist)
-/// report the missing daemon capability.
+/// Description and task status are `WorkspaceNotesHandlers`; the checklist is
+/// `WorkspaceChecklistHandlers`.
 enum WorkspaceMetadataHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("palette.clearWorkspaceName", requires: DaemonCapabilities.shared.workspaceMetadata, daemon: context.services.activeDaemon, run: { invocation in
@@ -30,9 +30,10 @@ enum WorkspaceMetadataHandlers {
         registry.bind("palette.toggleWorkspacePin", requires: DaemonCapabilities.shared.workspacePin, daemon: {
             PinCommands(context: context).pinsAreTiles ? nil : context.services.activeDaemon
         }(), run: { invocation in
+            // Every selected row takes the right-clicked row's new state, as Finder's tags do.
             let commands = PinCommands(context: context)
-            let workspace = try context.workspace(invocation).model
-            try commands.setWorkspacePinned(workspace.id, pinned: !commands.isWorkspacePinned(workspace), origin: invocation.origin)
+            let pinned = try !commands.isWorkspacePinned(context.workspace(invocation).model)
+            try commands.setWorkspacesPinned(WindowMembershipHandlers.rowTargets(invocation, context).map(\.id), pinned: pinned, origin: invocation.origin)
         })
         // The workspace menu reads Pin Workspace or Unpin Workspace for the right-clicked row.
         ActionTargetTitles.set("palette.toggleWorkspacePin", in: registry) { invocation in
@@ -40,7 +41,7 @@ enum WorkspaceMetadataHandlers {
             return PinCommands(context: context).isWorkspacePinned(workspace) ? PinStrings.unpinWorkspace : PinStrings.pinWorkspace
         }
         // Add to Top / Remove from Top on the workspace row (P1): the same layout path as `sidebar.item.add`.
-        registry.bind("workspace.toggleTop", unavailable: { context.services.sidebarLayout.unavailableReason }, run: { invocation in
+        registry.bind("workspace.toggleTop", unavailable: { SidebarDocWiring.layoutUnavailableReason(context.services.sidebarLayout) }, run: { invocation in
             try PinCommands(context: context).toggleWorkspaceOnTop(try context.workspace(invocation).model.id, origin: invocation.origin)
         })
         ActionTargetTitles.set("workspace.toggleTop", in: registry) { invocation in
@@ -68,19 +69,6 @@ enum WorkspaceMetadataHandlers {
             try context.require(DaemonCapabilities.shared.notificationMarkUnread)
             WorkspaceUnreadMark.set(true, on: [try context.workspace(invocation).model], machines: context.services.machines)
         })
-        let missing: [(ActionID, String)] = [
-            ("editWorkspaceDescription", "workspace-description-v1"),
-            ("palette.clearWorkspaceDescription", "workspace-description-v1"),
-            ("markWorkspaceDone", "workspace-status-v1"),
-            ("cycleWorkspaceStatus", "workspace-status-v1"),
-            ("palette.workspaceStatus", "workspace-status-v1"),
-            ("palette.addWorkspaceChecklistItem", "workspace-checklist-v1"),
-            ("toggleChecklistItemComplete", "workspace-checklist-v1"),
-            ("palette.openWorkspaceTodoPane", "workspace-checklist-v1"),
-        ]
-        for (id, capability) in missing {
-            registry.bindUnavailable([id], ActionFailure.needsDaemonCapability(capability))
-        }
     }
 
     private static func setColor(_ color: GroupColor?, _ invocation: ActionInvocation, _ context: AppActionContext) throws {
@@ -106,9 +94,13 @@ enum WorkspaceMetadataHandlers {
         where daemon.supports(DaemonCapabilities.shared.notificationAck) {
             let tabs = workspace.screens.flatMap(\.panes).flatMap(\.tabs)
             let unread = tabs.filter(\.hasUnread)
-            let surfaces = (unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread).map(\.surface)
-            for surface in surfaces {
-                daemon.send("ack-tab-notifications") { _ = try await $0.acknowledgeNotifications(of: surface) }
+            for tab in unread.isEmpty && workspace.unreadCount > 0 ? tabs : unread {
+                let surface = tab.surface
+                // Read now (dots, badges, unread count); the tree's echo settles it, a failed ack rolls it back.
+                tab.expectNotificationRead()
+                daemon.send("ack-tab-notifications", onFailure: { _ in tab.dropExpectedNotificationRead() }) {
+                    _ = try await $0.acknowledgeNotifications(of: surface)
+                }
             }
         }
     }

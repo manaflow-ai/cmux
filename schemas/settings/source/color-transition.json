@@ -1,0 +1,385 @@
+{
+  "$comment": "HAND-EDITED source of the color transition settings (cx-3rf4z); gen-settings-sources.py writes the Swift descriptors and parser constants. Row fields: see schemas/settings/source/updates.json.",
+  "lists": [
+    {
+      "name": "colorTransition",
+      "section": "appearance",
+      "group": {
+        "key": "settings.group.colorTransition",
+        "text": "Color Changes"
+      },
+      "note": "How theme and color changes animate: switching workspaces with other colors, a theme or light/dark change, a workspace color edit (Lawrence 2026-10-15). Web pages read the same values (WebTheme).",
+      "rows": [
+        {
+          "key": "appearance.colorTransition.enabled",
+          "name": "enabled",
+          "note": "On by default (Lawrence 2026-10-15: every theme and color change animates smoothly, or is instant when turned off). Off, or a duration of 0, applies every change in one frame.",
+          "title": {
+            "key": "settings.appearance.colorTransition.enabled",
+            "text": "Animate Color Changes"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.enabled.help",
+            "text": "Workspace, theme and color changes blend from the old colors to the new ones. Off: they change at once."
+          },
+          "kind": "toggle",
+          "default": true,
+          "keywords": [
+            "color",
+            "theme",
+            "transition",
+            "animation",
+            "fade",
+            "blend",
+            "workspace",
+            "instant"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.duration",
+          "name": "duration",
+          "note": "Milliseconds of one color change. 200 ms: long enough that a whole-window recolor reads as one blend, short enough that switching workspaces never waits on it (the theme fade token is 160 ms; Material's color transitions are 150-250 ms). 0 is instant. A spring curve ignores it and runs for the spring's own settle time.",
+          "title": {
+            "key": "settings.appearance.colorTransition.duration",
+            "text": "Color Change Duration"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.duration.help",
+            "text": "How long a color change takes. 0 changes colors at once."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 2000,
+            "step": 10,
+            "unit": "milliseconds"
+          },
+          "default": 200,
+          "keywords": [
+            "color",
+            "theme",
+            "transition",
+            "duration",
+            "speed",
+            "milliseconds"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.curve",
+          "name": "curve",
+          "note": "The timing curve of a color change. easeOut matches every other fade (motion.md fadeCurve).",
+          "title": {
+            "key": "settings.appearance.colorTransition.curve",
+            "text": "Color Change Curve"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.curve.help",
+            "text": "How a color change moves over its duration. Spring uses Spring Response and Spring Damping; Custom uses the four Bezier values."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "easeOut",
+              "title": {
+                "key": "settings.choice.colorCurveEaseOut",
+                "text": "Ease Out"
+              },
+              "note": "Fast start, gentle end (Core Animation easeOut)."
+            },
+            {
+              "value": "easeInOut",
+              "title": {
+                "key": "settings.choice.colorCurveEaseInOut",
+                "text": "Ease In and Out"
+              },
+              "note": "Gentle start and end (Core Animation easeInEaseOut)."
+            },
+            {
+              "value": "linear",
+              "title": {
+                "key": "settings.choice.colorCurveLinear",
+                "text": "Linear"
+              },
+              "note": "Even speed."
+            },
+            {
+              "value": "spring",
+              "title": {
+                "key": "settings.choice.colorCurveSpring",
+                "text": "Spring"
+              },
+              "note": "A spring with the response and damping below; its duration is its own settle time."
+            },
+            {
+              "value": "cubicBezier",
+              "title": {
+                "key": "settings.choice.colorCurveCubicBezier",
+                "text": "Custom (Bezier)"
+              },
+              "note": "cubic-bezier(x1, y1, x2, y2) from the four Bezier values."
+            }
+          ],
+          "default": "easeOut",
+          "keywords": [
+            "color",
+            "theme",
+            "transition",
+            "curve",
+            "easing",
+            "spring",
+            "bezier"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.springResponse",
+          "name": "springResponse",
+          "note": "Spring response in seconds (SwiftUI's response: the period of the undamped spring). Used when the curve is spring.",
+          "title": {
+            "key": "settings.appearance.colorTransition.springResponse",
+            "text": "Spring Response"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.springResponse.help",
+            "text": "Seconds a spring color change takes to reach its new colors."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.05,
+            "max": 2,
+            "step": 0.01,
+            "unit": "seconds"
+          },
+          "default": 0.3,
+          "keywords": [
+            "color",
+            "spring",
+            "response"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.springDamping",
+          "name": "springDamping",
+          "note": "Spring damping fraction; 1 is critically damped (no overshoot). Colors never overshoot: values past the target are held at it.",
+          "title": {
+            "key": "settings.appearance.colorTransition.springDamping",
+            "text": "Spring Damping"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.springDamping.help",
+            "text": "1 arrives smoothly with no overshoot. Above 1 is slower; below 1 arrives sooner."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0.1,
+            "max": 2,
+            "step": 0.05,
+            "unit": "fraction"
+          },
+          "default": 1,
+          "keywords": [
+            "color",
+            "spring",
+            "damping",
+            "bounce"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.bezierX1",
+          "name": "bezierX1",
+          "note": "Control point of the custom curve, as in CSS cubic-bezier(x1, y1, x2, y2). X values stay within 0-1.",
+          "title": {
+            "key": "settings.appearance.colorTransition.bezierX1",
+            "text": "Bezier X1"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.bezierX1.help",
+            "text": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": 0.42,
+          "keywords": [
+            "color",
+            "bezier",
+            "curve",
+            "easing"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.bezierY1",
+          "name": "bezierY1",
+          "note": "Control point of the custom curve, as in CSS cubic-bezier(x1, y1, x2, y2). X values stay within 0-1.",
+          "title": {
+            "key": "settings.appearance.colorTransition.bezierY1",
+            "text": "Bezier Y1"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.bezierY1.help",
+            "text": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+          },
+          "kind": "number",
+          "range": {
+            "min": -1,
+            "max": 2,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": 0,
+          "keywords": [
+            "color",
+            "bezier",
+            "curve",
+            "easing"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.bezierX2",
+          "name": "bezierX2",
+          "note": "Control point of the custom curve, as in CSS cubic-bezier(x1, y1, x2, y2). X values stay within 0-1.",
+          "title": {
+            "key": "settings.appearance.colorTransition.bezierX2",
+            "text": "Bezier X2"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.bezierX2.help",
+            "text": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+          },
+          "kind": "number",
+          "range": {
+            "min": 0,
+            "max": 1,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": 0.58,
+          "keywords": [
+            "color",
+            "bezier",
+            "curve",
+            "easing"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.bezierY2",
+          "name": "bezierY2",
+          "note": "Control point of the custom curve, as in CSS cubic-bezier(x1, y1, x2, y2). X values stay within 0-1.",
+          "title": {
+            "key": "settings.appearance.colorTransition.bezierY2",
+            "text": "Bezier Y2"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.bezierY2.help",
+            "text": "A control point of the Custom (Bezier) curve, as in CSS cubic-bezier()."
+          },
+          "kind": "number",
+          "range": {
+            "min": -1,
+            "max": 2,
+            "step": 0.01,
+            "unit": "fraction"
+          },
+          "default": 1,
+          "keywords": [
+            "color",
+            "bezier",
+            "curve",
+            "easing"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.colorSpace",
+          "name": "colorSpace",
+          "note": "Where colors blend. OKLab keeps lightness even (no muddy or dark midpoint between two hues); sRGB is the plain channel mix browsers use for rgb() colors.",
+          "title": {
+            "key": "settings.appearance.colorTransition.colorSpace",
+            "text": "Color Blend Space"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.colorSpace.help",
+            "text": "OKLab blends with even lightness. sRGB mixes the red, green and blue channels."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "oklab",
+              "title": {
+                "key": "settings.choice.colorSpaceOklab",
+                "text": "OKLab"
+              },
+              "note": "Perceptual: even lightness through the blend."
+            },
+            {
+              "value": "srgb",
+              "title": {
+                "key": "settings.choice.colorSpaceSrgb",
+                "text": "sRGB"
+              },
+              "note": "Channel mix."
+            }
+          ],
+          "default": "oklab",
+          "keywords": [
+            "color",
+            "oklab",
+            "srgb",
+            "blend",
+            "interpolation"
+          ]
+        },
+        {
+          "key": "appearance.colorTransition.reduceMotion",
+          "name": "reduceMotion",
+          "note": "What a color change does while macOS Reduce Motion is on. A color blend is not movement, so the default keeps a short crossfade (at most 100 ms, the motion policy's Reduce Motion fade cap).",
+          "title": {
+            "key": "settings.appearance.colorTransition.reduceMotion",
+            "text": "With Reduce Motion"
+          },
+          "help": {
+            "key": "settings.appearance.colorTransition.reduceMotion.help",
+            "text": "What color changes do while Reduce Motion is on in macOS."
+          },
+          "kind": "choice",
+          "choices": [
+            {
+              "value": "crossfade",
+              "title": {
+                "key": "settings.choice.colorReduceCrossfade",
+                "text": "Short Crossfade"
+              },
+              "note": "At most 100 ms."
+            },
+            {
+              "value": "instant",
+              "title": {
+                "key": "settings.choice.colorReduceInstant",
+                "text": "Instant"
+              },
+              "note": "One frame."
+            },
+            {
+              "value": "full",
+              "title": {
+                "key": "settings.choice.colorReduceFull",
+                "text": "Same as Usual"
+              },
+              "note": "Reduce Motion does not change color changes."
+            }
+          ],
+          "default": "crossfade",
+          "keywords": [
+            "color",
+            "reduce motion",
+            "accessibility",
+            "instant",
+            "crossfade"
+          ]
+        }
+      ]
+    }
+  ]
+}

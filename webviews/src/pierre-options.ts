@@ -1,4 +1,5 @@
 import { PIERRE_DIFFS_SCROLLER_CSS, PIERRE_TREES_SCROLLER_CSS } from "./scrollers";
+import { DIFF_NUMBER_TINT, DIFF_WEIGHT_CSS, diffModeTint } from "./diffWeight";
 import type { CodeViewOptions } from "@pierre/diffs";
 import type { WorkerInitializationRenderOptions } from "@pierre/diffs/worker";
 import {
@@ -76,13 +77,19 @@ export function codeViewUnsafeCSS(): string {
       background-color: transparent;
       --diffs-addition-color-override: light-dark(var(--cmux-diff-addition-fg-light), var(--cmux-diff-addition-fg-dark));
       --diffs-deletion-color-override: light-dark(var(--cmux-diff-deletion-fg-light), var(--cmux-diff-deletion-fg-dark));
-      --diffs-fg-number-addition-override: var(--diffs-addition-base);
-      --diffs-fg-number-deletion-override: var(--diffs-deletion-base);
-      --diffs-bg-addition-override: color-mix(in srgb, var(--diffs-addition-base) 34%, transparent);
-      --diffs-bg-deletion-override: color-mix(in srgb, var(--diffs-deletion-base) 34%, transparent);
-      --diffs-bg-addition-emphasis-override: color-mix(in srgb, var(--diffs-addition-base) 30%, transparent);
-      --diffs-bg-deletion-emphasis-override: color-mix(in srgb, var(--diffs-deletion-base) 30%, transparent);
+      /* Calm tints and regular weight (diffWeight.ts), the same as the agent pane's diffs. */
+      --cmux-diff-number-addition: color-mix(in srgb, var(--diffs-addition-base) ${DIFF_NUMBER_TINT}%, var(--diffs-fg-number));
+      --cmux-diff-number-deletion: color-mix(in srgb, var(--diffs-deletion-base) ${DIFF_NUMBER_TINT}%, var(--diffs-fg-number));
+      --diffs-fg-number-addition-override: var(--cmux-diff-number-addition);
+      --diffs-fg-number-deletion-override: var(--cmux-diff-number-deletion);
+      --diffs-bg-addition-override: ${diffModeTint("var(--diffs-addition-base)", "line")};
+      --diffs-bg-deletion-override: ${diffModeTint("var(--diffs-deletion-base)", "line")};
+      --diffs-bg-addition-number-override: ${diffModeTint("var(--diffs-addition-base)", "gutter")};
+      --diffs-bg-deletion-number-override: ${diffModeTint("var(--diffs-deletion-base)", "gutter")};
+      --diffs-bg-addition-emphasis-override: ${diffModeTint("var(--diffs-addition-base)", "word")};
+      --diffs-bg-deletion-emphasis-override: ${diffModeTint("var(--diffs-deletion-base)", "word")};
     }
+    ${DIFF_WEIGHT_CSS}
     pre,
     code {
       background-color: transparent;
@@ -109,10 +116,10 @@ export function codeViewUnsafeCSS(): string {
       border-bottom: 1px solid var(--cmux-diff-border);
     }
     [data-line-type='change-addition']:where([data-column-number], [data-gutter-buffer]) {
-      color: var(--diffs-addition-base);
+      color: var(--cmux-diff-number-addition);
     }
     [data-line-type='change-deletion']:where([data-column-number], [data-gutter-buffer]) {
-      color: var(--diffs-deletion-base);
+      color: var(--cmux-diff-number-deletion);
     }
     [data-gutter-buffer='buffer'] {
       background-position: 5px 0;

@@ -4,24 +4,31 @@ import type {
   AcpmuxPermission,
   AcpmuxSecretAsk,
   AcpmuxSessionOffer,
+  AcpmuxOfferResult,
   AcpmuxBackgroundTask,
+  AcpmuxCompaction,
   AcpmuxPlanEntry,
   AcpmuxRow,
   AcpmuxSnapshot,
+  PromptImage,
   QueueEdit,
+  QueuedPrompt,
   StartSource,
 } from "./model";
 import { mergeModelCatalog } from "./modelCatalog";
 import { commandsFromUpdate, type SlashCommand } from "./slashCommands";
-import { promptBlocks, promptText, type ComposerAttachment } from "./attachments";
-import { hostKind, sessionEntry, text, type AcpmuxSessionEntry } from "./sessionList";
+import { promptBlocks, promptText, takesAudio, type ComposerAttachment } from "./attachments";
+import { peerKindsFromStatus } from "./environments";
+import { hostKind, sessionEntry, summaryActivityAt, text, type AcpmuxSessionEntry } from "./sessionList";
 import { agentName } from "./agents";
 import { FORK_OP, servesOperation } from "./operations";
 import { postNative } from "./native";
 import { readSummaryCheckpoint } from "./changes/turnCheckpointSource";
 import { HandoffClient } from "./handoff/client";
 import { PermissionGroupClient } from "./permissions/client";
-import { questionFromPermission } from "./question/model";
+import { questionFromPermission, questionSummary, summaryLines, type AgentQuestion } from "./question/model";
+import { decidedQuestion, QUESTION_RECORD } from "./question/record";
+import { DECISION_TEXT, PERMISSION_RECORD, permissionDecision } from "./permissions/record";
 import { isNotification, typedRequest } from "./protocol/client";
 import type { SessionChanged, SessionSummary } from "./protocol/generated/types";
 import { supportsPermissionGroups, type PermissionDecision } from "./permissions/protocol";
@@ -31,14 +38,19 @@ import type { HandoffReviewInput } from "./handoff/review";
 import { acpWire, redactEndpoint, type AcpWireLog } from "./wire";
 import { acpmuxPerf } from "./perf";
 import { translate } from "./i18n";
-import { experimentArm } from "../../experiments/experiment";
-import { sessionOffer as sessionOfferExperiment } from "./offer/sessionOffer.experiment";
+import { OFFER_RESULT, offersShown } from "./offer/offersShown";
+import { incomingPrompt } from "./conversation/incomingMessage";
+import { startedCardsShown } from "./started/startedSessions";
+import { OfferChildren } from "./offer/offerChildren";
 import { errorMessage } from "./transportErrors";
-import { SessionPager } from "./sessionPages";
+import { SessionPager, type SessionPage } from "./sessionPages";
 import { isWarmableCwd } from "./warmFolders";
-import { SubagentFold } from "./subagents/subagentFold";
+import { SubagentFold, subagentsLeft } from "./subagents/subagentFold";
 import { WORKSPACE_CONTEXT } from "./workspaceContext";
 import { BOOKMARKS_KIND, bookmarksHeard } from "./threadMinimap/bookmarks";
+import { type StartMode, startModeChanged } from "./startMode";
+import { sameSessionStart, sessionStartOf } from "./conversation/sessionStart";
+import { reduceAgentPair } from "./conversation/agentPairs";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -133,21 +145,56 @@ type Listener = (snapshot: AcpmuxSnapshot) => void;
 export const PREWARM_METHOD = "_acpmux/prewarm";
 
 /// The slash commands are not transcript, so the pane asks for their updates by kind.
+/// How long Stop waits for the turn to end before the pane stops showing it as working. It is
+/// shorter than acpmux's own grace (`CANCEL_GRACE`, 10 s), so a slow agent's turn stops showing
+/// as working before acpmux's forced end and its note.
+const STOP_GRACE_MS = 5_000;
 const COMMANDS_KIND = "available_commands_update";
 /// How much of the context window the session has used; not transcript, so attach asks for it by kind.
 const USAGE_KIND = "usage_update";
 /// The agent's own change of a config option (a reasoning level, a model): the whole option list.
 const CONFIG_KIND = "config_option_update";
+const SESSION_INFO_KIND = "session_info_update";
+/// The chat's one session start row (conversation/SessionStartNote.tsx).
+const SESSION_START_ROW = "session-start";
 /// A record that opens a turn: older pages split before one, so each holds whole turns. A steer
 /// joins the running turn, so it opens none.
 const startsTurn = (event: EventRecord) =>
   event.dir === "mux" && event.kind === "user_message" && event.msg?.steer !== true;
 
+/// A prompt the Chief sent a subagent (its task, a tell, a steer, a restart or interrupt message):
+/// optchat-chief ids those `optchat-<kind>:…` (`subagents.rs` PROMPT_PREFIX), so the pane can say
+/// who wrote it rather than draw it as the reader's own. The Chief's own turns (`optchat:…`, the
+/// person's messages it forwards) and typed prompts are not marked.
+const sentByChief = (msg: { promptId?: unknown }) =>
+  typeof msg.promptId === "string" && msg.promptId.startsWith("optchat-");
+
 /// Page size caps acpmux applies (maxBytes): opening a chat, then each older page as the reader scrolls up.
 const OPEN_PAGE_BYTES = 128 * 1024;
 const OLDER_PAGE_BYTES = 256 * 1024;
+/// Pages one older read takes at most (about 2 MB, more when a single record is larger).
+const OLDER_PAGES_PER_ASK = 8;
+/** How long a session list that failed to load waits before it is read once more. */
+const SESSION_REREAD_MS = 2000;
+/// Each chat's slash commands from its last attach on this page (a few dozen chats): back on a
+/// chat, `/` lists them at once instead of "No commands" until the attach (Leo 2026-10-19).
+const knownCommands = new Map<string, SlashCommand[]>();
+function rememberCommands(sessionId: string, commands: SlashCommand[]) {
+  knownCommands.delete(sessionId);
+  knownCommands.set(sessionId, commands);
+  while (knownCommands.size > 32) knownCommands.delete(knownCommands.keys().next().value!);
+}
+/// The longest a chat switch keeps the chat before on screen while the new one attaches.
+const SWITCH_HOLD_MS = 400;
+/// The longest a connect keeps the pane's last snapshot on screen while it reads the chat.
+const OPEN_HOLD_MS = 1500;
 /// An agent's secret card and its answer (cx-ncc.42): not transcript, so attach asks for them by kind.
 const SECRET_KINDS = ["secret_request", "secret_decision"];
+/// The promptId acpmux gives a task result's prompt: `offer-result-<offerId>` (hub/offers.rs).
+const OFFER_RESULT_PROMPT = "offer-result-";
+/// A queued prompt sent now (`queue_order` `next`) or edited (`queue_updated`): not transcript in
+/// acpmux (`paging.rs`), so attach asks for them by kind, or the queue never hears either live.
+const QUEUE_KINDS = ["queue_order", "queue_updated"];
 /// acpmux's refusals of an answer to a card it no longer has (hub/secrets.rs): a restart lost it,
 /// or the agent stopped waiting.
 const SECRET_GONE = ["no secret request with that id", "the agent stopped waiting"];
@@ -158,13 +205,59 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
   const sessionId = envelope?.sessionId ?? raw?.sessionId;
   const permissionId = envelope?.permissionId ?? raw?.permissionId;
   if (!permissionId || sessionId !== selectedSessionId) return undefined;
-  const question = questionFromPermission({ permissionId: String(permissionId), session: sessionId, request: raw });
+  const question = questionFromPermission({
+    permissionId: String(permissionId),
+    session: sessionId,
+    request: raw,
+  });
+  const claudeMeta =
+    raw.toolCall?._meta?.claude && typeof raw.toolCall._meta.claude === "object"
+      ? raw.toolCall._meta.claude
+      : undefined;
+  const suggestions = Array.isArray(claudeMeta?.suggestions)
+    ? claudeMeta.suggestions.flatMap((suggestion: unknown) => {
+        if (typeof suggestion === "string" && suggestion.trim()) return [suggestion.trim()];
+        if (!suggestion || typeof suggestion !== "object") return [];
+        const rules = (suggestion as { rules?: unknown }).rules;
+        return Array.isArray(rules)
+          ? rules.flatMap((rule: unknown) => {
+              if (typeof rule === "string" && rule.trim()) return [rule.trim()];
+              if (!rule || typeof rule !== "object") return [];
+              const value = rule as { toolName?: unknown; ruleContent?: unknown };
+              const tool = typeof value.toolName === "string" ? value.toolName.trim() : "";
+              const content = typeof value.ruleContent === "string" ? value.ruleContent.trim() : "";
+              return [content || tool].filter(Boolean);
+            })
+          : [];
+      })
+    : [];
   return {
     ...(question ? { question } : {}),
     permissionId: String(permissionId),
     groupId: typeof envelope.groupId === "string" ? envelope.groupId : undefined,
     turnId: typeof envelope.turnId === "string" ? envelope.turnId : undefined,
     title: raw.toolCall?.title,
+    // A string, or an argv array read the way the transcript's Shell block reads it (`sh -lc` unwrapped).
+    command:
+      typeof raw.toolCall?.command === "string"
+        ? raw.toolCall.command
+        : (shellCommand(raw.toolCall?.rawInput) ?? (typeof raw.command === "string" ? raw.command : undefined)),
+    description:
+      typeof claudeMeta?.description === "string"
+        ? claudeMeta.description
+        : typeof raw.toolCall?.description === "string"
+          ? raw.toolCall.description
+          : typeof raw.description === "string"
+            ? raw.description
+            : undefined,
+    rule:
+      suggestions.length > 0
+        ? translate("permission.claude.alwaysAllowRule", { rules: suggestions.join(", ") })
+        : typeof raw.toolCall?.rule === "string"
+          ? raw.toolCall.rule
+          : typeof raw.rule === "string"
+            ? raw.rule
+            : undefined,
     kind: raw.toolCall?.kind,
     ...(typeof raw.toolCall?.toolCallId === "string" ? { toolCallId: raw.toolCall.toolCallId } : {}),
     pending: true,
@@ -173,8 +266,35 @@ export function permissionFromMessage(message: any, selectedSessionId: string): 
       name: String(option.name ?? option.optionId),
       allow: String(option.kind ?? "").startsWith("allow"),
       kind: typeof option.kind === "string" ? option.kind : undefined,
+      description: typeof option.description === "string" ? option.description : undefined,
+      rule:
+        typeof option.rule === "string"
+          ? option.rule
+          : typeof option.suggestion === "string"
+            ? option.suggestion
+            : undefined,
     })),
   };
+}
+
+function queuedEntry(id: string, prompt: string, next: boolean): QueuedPrompt {
+  return next ? { id, prompt, next } : { id, prompt };
+}
+
+const oneLine = (text: string) => text.split(/\s+/).filter(Boolean).join(" ");
+
+/// acpmux's queue (a session's `queue`, in order) over the one the pane has. acpmux lists each
+/// prompt's preview (its first 200 characters on one line), so a prompt the pane read whole from
+/// its `queued` record keeps its whole text, and one sent now stays next.
+export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly any[]): QueuedPrompt[] {
+  const known = new Map(current.map((entry) => [entry.id, entry]));
+  return listed.map((entry) => {
+    const id = String(entry?.promptId ?? "");
+    const preview = String(entry?.prompt ?? entry?.preview ?? "");
+    const had = known.get(id);
+    const whole = had !== undefined && oneLine(had.prompt).startsWith(preview.replace(/…$/, ""));
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true);
+  });
 }
 
 export function settleOptimisticPrompt(
@@ -235,6 +355,7 @@ export function toolDiffs(content: any, locations: any): AcpmuxFileDiff[] | unde
       oldText: typeof item.oldText === "string" ? item.oldText : undefined,
       newText: item.newText,
       line: lines.get(item.path),
+      ...(item.fragment === true || item._meta?.acpmux?.fragment === true ? { fragment: true as const } : {}),
     }));
   return diffs.length ? diffs : undefined;
 }
@@ -371,16 +492,34 @@ export const nextFrame = (run: () => void) => {
 };
 
 /// A thought chunk continues the thought it follows: a thought streams into one growing item,
-/// not one row per chunk.
-export function appendThought(items: AcpmuxActivity[], text: string): AcpmuxActivity[] {
+/// not one row per chunk. `at` (the chunk's time) dates the thought's first and latest chunk, so
+/// a folded thought can read "Thought for 12s" (conversation/ThoughtRow.tsx `thoughtDuration`).
+export function appendThought(items: AcpmuxActivity[], text: string, at?: number): AcpmuxActivity[] {
   const last = items.at(-1);
-  if (last?.kind === "thought" && !last.tool) return [...items.slice(0, -1), { ...last, text: last.text + text }];
-  return [...items, { kind: "thought", text }];
+  if (last?.kind === "thought" && !last.tool)
+    return [...items.slice(0, -1), { ...last, text: last.text + text, ...(at !== undefined && { endedAt: at }) }];
+  return [...items, { kind: "thought", text, ...(at !== undefined && { startedAt: at, endedAt: at }) }];
 }
 
 /// Notices made in one millisecond each keep their row: the id carries a counter, not the time.
 let notices = 0;
 const noticeId = (kind: string) => `${kind}-${(notices += 1)}`;
+
+/// The images a `user_message` names (`images: [{id, mimeType, name?}]`), malformed entries left out.
+function promptImages(value: unknown): PromptImage[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((image) =>
+    image && typeof image.id === "string" && typeof image.mimeType === "string"
+      ? [
+          {
+            id: image.id,
+            mimeType: image.mimeType,
+            ...(typeof image.name === "string" && { name: image.name }),
+          },
+        ]
+      : [],
+  );
+}
 
 /// Transcript rows in the daemon's event order: each row keeps the sequence number of the event
 /// that created it, so two wall clocks (or one millisecond) never put a prompt under its reply.
@@ -539,9 +678,21 @@ export class AcpmuxDirectClient {
   >();
   private events: EventRecord[] = [];
   private rows = new OrderedRows();
+  /// Each drawn offer's row (a suggested tasks card), by offer id (offer/SuggestedTasks.tsx).
+  private offerRows = new Map<string, string>();
+  /// Offers whose result prompt reached this chat (its user_message): a replayed `queued` record
+  /// of it draws no second line.
+  private receivedOffers = new Set<string>();
+  /// The chats started from this chat's offers, watched while they run for their rows' subtitles.
+  private readonly offerChildren = new OfferChildren(
+    (method, params) => this.request(method, params, 15000),
+    () => this.selectedSessionId,
+    (child) => this.childChanged(child),
+  );
   private sessions: Session[] = [];
   /// The session list a page at a time: the newest page opens the chat, the rest follow (cx-2lv1k).
   private readonly sessionPages = new SessionPager<Session>((method, params) => this.request(method, params));
+  private sessionReread: ReturnType<typeof setTimeout> | undefined;
   /// Sidebar entries by acpmux session object. A changed session arrives as a new object, so unchanged rows keep their entry and skip rendering.
   private sessionEntries = new WeakMap<Session, AcpmuxSessionEntry>();
   private selectedSessionId?: string;
@@ -550,14 +701,28 @@ export class AcpmuxDirectClient {
   /** The adopt acpmux refused because its chat is live elsewhere, until the user picks a way on. */
   private liveAdopt?: { adopt: AcpmuxAdopt; canFork: boolean; command?: string };
   private summary: Record<string, any> | undefined;
-  private queue: { id: string; prompt: string }[] = [];
+  /// The event seq the summary's config options are current as of: attach's `lastSeq` (its session
+  /// names the options it runs now), then each newer config update. A replayed update before it is
+  /// history and never takes the current options back (a chat moved from Low to High).
+  private configSeq = 0;
+  private queue: QueuedPrompt[] = [];
   private pendingPermission?: AcpmuxPermission;
+  /// Asks that came while `pendingPermission` waits, oldest first, by permission id: acpmux keeps
+  /// every pending ask (a question beside a command, two subagents asking), and the card answers
+  /// them one at a time.
+  private waitingPermissions = new Map<string, AcpmuxPermission>();
   private pendingSecret?: AcpmuxSecretAsk;
   private groupedPermissions = new Map<string, AcpmuxPermission>();
   /// The turn's open permission questions, and the edits that wait on one (cx-p5fgx): an edit
   /// is "pending" from its question, or from arriving while one is open, until it completes.
   private openQuestions = new Set<string>();
   private heldEdits = new Set<string>();
+  /// The questions asked and not yet decided, by permission id: a decision draws a record of what
+  /// was chosen where the card was (`questionRecord`, question/record.ts).
+  private askedQuestions = new Map<string, AgentQuestion>();
+  /// The single permission cards asked and not yet answered, by permission id: an answer draws a
+  /// receipt (`permissionRecord`, permissions/record.ts).
+  private askedPermissions = new Map<string, AcpmuxPermission>();
   private commands: SlashCommand[] = [];
   private usage: { used: number; size: number } | undefined;
   /// Set once an update for this session is applied, so an older fetched list cannot replace it.
@@ -567,6 +732,12 @@ export class AcpmuxDirectClient {
   /// Prompts of this pane that wait in acpmux's queue: their bubble went when they were queued,
   /// and comes back (failed, with Retry) if acpmux refuses them when their turn comes.
   private queuedSends = new Set<string>();
+  /// The steers the agent has not read yet, by row (the reply that was streaming when one went
+  /// still streams above it; a later message means the agent read them).
+  private waitingSteers: { rowId: string; promptId?: string }[] = [];
+  /// Prompts sent now to an agent that cannot steer (acpmux `queue_order` `next`): each stops the
+  /// turn and runs next, so its row reads as sent now.
+  private sentNow = new Set<string>();
   /// Attachments sent with a prompt until its user-message event gives it a durable row id.
   private optimisticPromptAttachments = new Map<string, ComposerAttachment[]>();
   /// Attachments for completed prompts, used when their turn is retried later.
@@ -577,8 +748,21 @@ export class AcpmuxDirectClient {
   /// A prompt that was not sent, by its row: what Retry sends again.
   private failedPrompts = new Map<string, { input: string; attachments: ComposerAttachment[] }>();
   private firstSeq?: number;
+  /// The prompt that opened the turn the held history starts in, when that prompt is older than
+  /// every held event: a Chief subagent's first prompt carries the Chief's whole view (100+ KB),
+  /// so once its turn's output passes the open page's cap the page starts mid-turn and the prompt
+  /// would never draw (Lawrence 2026-10-19). It draws first but is not history: older pages still
+  /// load from `firstSeq`, and it gives way once a page brings it.
+  private turnOpener?: EventRecord;
   private lastSeq = 0;
   private turnOpen = false;
+  /// Stop got no answer within STOP_GRACE_MS: the turn no longer shows as working until the next
+  /// one starts (an acpmux that waits on an agent ignoring the cancel).
+  private stopGaveUp = false;
+  private stopTimer?: ReturnType<typeof setTimeout>;
+  /// The last seq seen when Stop was pressed: only a turn event after it answers that Stop. A
+  /// rebuild (loadOlder, lag resync) replays older ones, which must not cancel the grace.
+  private stopAfterSeq?: number;
   /// A fork's `forked` boundary event: its copied history ends there (cx-ncc.61's versions).
   private forkedAtSeq: number | undefined;
   /// Session replay (replay/ReplayScreen.tsx): the recorded events are folded only through this seq.
@@ -596,6 +780,8 @@ export class AcpmuxDirectClient {
   private localOrigin = false;
   /// The origin acpmux names for this connection; `unknown` until (or unless) it names one.
   private origin: NonNullable<AcpmuxSnapshot["origin"]> = "unknown";
+  /// `sessions` holds the daemon's list: its first page has been read.
+  private listedSessions = false;
   readonly handoff = new HandoffClient(
     (method, params) => this.request(method, params, 15000),
     () => this.emit(),
@@ -616,6 +802,10 @@ export class AcpmuxDirectClient {
   private streamingActivity?: string;
   /// The open turn's plan row: its later `plan` updates redraw this one list (cx-ncc.80).
   private planRow?: string;
+  /// When each compaction row last heard "still compacting": a running note within
+  /// COMPACTION_REPEAT_WINDOW of it is the same compaction, even after the next turn's start or a
+  /// forced Stop noted the row as failed. A row whose turn ended for good, or that ended, has none.
+  private compactionHeardAt = new Map<string, number>();
   private supersededMessageIds = new Set<string>();
   /// The rows each message streamed into; tool calls split one message into several.
   private messageRows = new Map<string, string[]>();
@@ -629,6 +819,8 @@ export class AcpmuxDirectClient {
   private readonly listener: Listener;
   private host: AcpmuxHostConfig;
   private peers: string[] = [];
+  /// Each peer's transport, for the environment picker's SSH and Cloud sections (environments.ts).
+  private peerKinds: Record<string, "ssh" | "cloud"> = {};
   private reconnectTimer?: number;
   private reconnectDelay = 250;
   /// Called once when an established connection drops. The host then asks Swift
@@ -772,6 +964,8 @@ export class AcpmuxDirectClient {
           return;
         }
         this.handoff.disconnect();
+        // acpmux drops a connection's attaches with it; the next attach watches them again.
+        this.offerChildren.reset(false);
         this.groupedPermissions.clear();
         this.permissions.disconnected();
         this.rejectPending();
@@ -786,6 +980,9 @@ export class AcpmuxDirectClient {
       };
       socket.onmessage = (message) => acpmuxPerf.timed("client.receive", () => this.receive(String(message.data)));
     });
+    // The pane keeps what it shows (the page's cached chat, or the chat before a reconnect) until
+    // the open has read the chat: no half-read frame (an empty transcript, no composer) in between.
+    const hold = this.holdSnapshots(OPEN_HOLD_MS);
     try {
       const initialized = await this.request("initialize", {
         protocolVersion: 1,
@@ -808,8 +1005,9 @@ export class AcpmuxDirectClient {
             .map((peer: any) => (typeof peer?.name === "string" ? peer.name : undefined))
             .filter((peer: string | undefined): peer is string => Boolean(peer))
         : [];
+      this.peerKinds = peerKindsFromStatus(status);
       const first = await this.sessionPages.first();
-      let laterPages = first?.next;
+      let laterPages = first?.next ? first : undefined;
       const linkedLater =
         first !== undefined &&
         laterPages !== undefined &&
@@ -822,6 +1020,7 @@ export class AcpmuxDirectClient {
         this.sessions = this.sessionPages.settle(await this.sessionPages.whole());
         laterPages = undefined;
       }
+      this.listedSessions = first !== undefined || this.sessions.length > 0;
       if (this.selectedSessionId && !this.sessions.some((session) => session.sessionId === this.selectedSessionId)) {
         // A linked session the daemon lacks is refused, never replaced by the most recent chat.
         if (this.host.sessionMustExist) this.missingSession = this.selectedSessionId;
@@ -863,12 +1062,19 @@ export class AcpmuxDirectClient {
       throw error;
     } finally {
       this.opening = false;
+      this.releaseSnapshots(hold);
     }
   }
 
   /** Drops everything that belongs to the previously selected session, before another one attaches. */
   private resetSessionState(): void {
+    // The chats started from the chat before are no longer watched.
+    this.offerChildren.reset(this.socket?.readyState === WebSocket.OPEN);
+    clearTimeout(this.stopTimer);
+    this.stopGaveUp = false;
+    this.stopAfterSeq = undefined;
     this.events = [];
+    this.turnOpener = undefined;
     this.historyExhausted = false;
     this.olderRetryAt = 0;
     // A page still in flight belongs to the session before; it is dropped when it lands.
@@ -880,6 +1086,7 @@ export class AcpmuxDirectClient {
     this.lastSeq = 0;
     this.clockOffset = undefined;
     this.summary = undefined;
+    this.configSeq = 0;
     this.usage = undefined;
     this.queue = [];
     this.turnOpen = false;
@@ -891,19 +1098,28 @@ export class AcpmuxDirectClient {
     this.optimisticPromptTexts.clear();
     this.optimisticPromptAttachments.clear();
     this.queuedSends.clear();
+    this.waitingSteers = [];
+    this.sentNow.clear();
     this.retryAttachments.clear();
     this.supersededMessageIds.clear();
     this.messageRows.clear();
+    this.offerRows.clear();
+    this.receivedOffers.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.planRow = undefined;
+    this.compactionHeardAt.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.waitingPermissions.clear();
     this.pendingSecret = undefined;
     this.groupedPermissions.clear();
     this.openQuestions.clear();
+    this.askedQuestions.clear();
+    this.askedPermissions.clear();
     this.heldEdits.clear();
-    this.commands = [];
+    // The chat's commands from its last visit on this page, so `/` lists them before the attach.
+    this.commands = (this.selectedSessionId && knownCommands.get(this.selectedSessionId)) || [];
     this.commandsApplied = false;
     this.handoff.select(this.selectedSessionId);
     this.permissions.select(this.selectedSessionId);
@@ -958,6 +1174,9 @@ export class AcpmuxDirectClient {
     }
     const notification = message as Notification;
     if (notification.method === "_acpmux/event") {
+      // A chat started from an offer here, watched for its row (offer/offerChildren.ts).
+      const params = notification.params ?? {};
+      if (params.sessionId !== this.selectedSessionId && this.offerChildren.event(params)) return;
       this.observeClock(notification.params?.sessionId, notification.params?.at);
       this.apply(notification.params as EventRecord);
     } else if (notification.method === "session/update") {
@@ -973,7 +1192,19 @@ export class AcpmuxDirectClient {
     } else if (isNotification(notification, "_acpmux/session_changed")) this.sessionChanged(notification.params);
     else if (isNotification(notification, "_acpmux/permission_pending")) this.applyPermission(notification.params);
     else if (notification.method === "_acpmux/lagged") this.resyncAfterLag(notification.params);
-    else if (notification.method === "_acpmux/harnesses_changed") this.onHarnessesChanged?.();
+    // acpmux took a prompt this connection sent; it comes even when the event stream lags.
+    else if (notification.method === "_acpmux/prompt_accepted") {
+      const promptId = notification.params?.promptId;
+      if (typeof promptId === "string") this.promptAccepts.get(promptId)?.();
+    }
+    // A profile change may pin or free a harness's mode, which changes a new chat's start mode too.
+    else if (notification.method === "_acpmux/harnesses_changed") {
+      this.onHarnessesChanged?.();
+      startModeChanged();
+    }
+    // A new chat's start mode may have changed (a pick in any pane, a config reload, the
+    // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
+    else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
 
   /// The daemon dropped events for this client. Fetch what came after the last
@@ -981,7 +1212,7 @@ export class AcpmuxDirectClient {
   /// agent-gui daemons send {sessionIds, watch, dropped}; older ones send only
   /// {dropped}, so a notice without sessionIds resyncs the selected session.
   private resyncAfterLag(params: any): void {
-    if (params?.watch === true) void this.refreshSessions().catch(() => undefined);
+    if (params?.watch === true) void this.refreshSessions().catch(() => this.rereadSessionsLater());
     const sessionId = this.selectedSessionId;
     // Before the attach reply lands there is no cursor; the reply carries the latest events.
     if (!sessionId || this.attachedGeneration !== this.selectionGeneration) return;
@@ -1031,7 +1262,7 @@ export class AcpmuxDirectClient {
     const add = (more: Session[]) => {
       list = [...list, ...more];
     };
-    if (first.next && !(await this.sessionPages.rest(first.next, () => list, add))) return;
+    if (first.next && !(await this.sessionPages.rest(first, () => list, add))) return;
     // Changes that came while the pages did are newer than the pages.
     this.sessions = this.sessionPages.settle(list);
     const missing =
@@ -1048,15 +1279,31 @@ export class AcpmuxDirectClient {
     this.selectedSessionId = this.host.sessionMustExist ? undefined : this.sessions[0]?.sessionId;
     if (this.selectedSessionId) this.markSeen(this.selectedSessionId);
     const generation = ++this.selectionGeneration;
+    const hold = this.selectedSessionId ? this.holdSnapshots(SWITCH_HOLD_MS) : undefined;
     this.resetSessionState();
     this.emit(reason);
-    if (this.selectedSessionId) void this.attach(this.selectedSessionId, generation).catch(() => undefined);
+    if (this.selectedSessionId)
+      void this.attach(this.selectedSessionId, generation)
+        .catch(() => undefined)
+        .finally(() => {
+          if (hold !== undefined) this.releaseSnapshots(hold);
+        });
   }
 
   /// The pages after the first, read once the chat is open. acpmux owns `unread` (cx-n8ou): the
   /// pane only tells it whether it shows its chat (`attach` `visible`, `_acpmux/view`).
-  private async readLaterSessions(cursor: string): Promise<void> {
-    await this.sessionPages.rest(cursor, () => this.sessions, this.addSessions).catch(() => undefined);
+  private async readLaterSessions(first: SessionPage<Session>): Promise<void> {
+    await this.sessionPages.rest(first, () => this.sessions, this.addSessions).catch(() => this.rereadSessionsLater());
+  }
+
+  /// A list that could not be read to its end (a page and the whole-list fallback both failed)
+  /// is read again once, a moment later, rather than left at the pages that came.
+  private rereadSessionsLater(): void {
+    if (this.closed || this.sessionReread) return;
+    this.sessionReread = setTimeout(() => {
+      this.sessionReread = undefined;
+      if (!this.closed) void this.refreshSessions().catch(() => undefined);
+    }, SESSION_REREAD_MS);
   }
 
   private addSessions = (more: Session[]): void => {
@@ -1076,14 +1323,24 @@ export class AcpmuxDirectClient {
   /// Brings acpmux's view of the selected chat up to the page's. acpmux handles each request on
   /// its own task, so a view must wait for the attach it changes and for the view before it.
   private syncView(): void {
+    const generation = this.selectionGeneration;
     this.viewSync = this.viewSync.then(async () => {
       await this.attaching;
       const sessionId = this.selectedSessionId;
       const visible = pageShown();
-      if (!sessionId || this.closed || this.shownToAcpmux?.sessionId !== sessionId) return;
+      if (
+        generation !== this.selectionGeneration ||
+        !sessionId ||
+        this.closed ||
+        this.shownToAcpmux?.sessionId !== sessionId
+      )
+        return;
       if (this.shownToAcpmux.visible === visible) return;
       await this.request("_acpmux/view", { sessionId, visible }).then(
-        () => (this.shownToAcpmux = { sessionId, visible }),
+        () => {
+          if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+            this.shownToAcpmux = { sessionId, visible };
+        },
         () => undefined,
       );
     });
@@ -1271,6 +1528,34 @@ export class AcpmuxDirectClient {
     });
   }
 
+  /// The newest turn-opening prompt before `events` when they start mid-turn and older history
+  /// exists: one small read of `user_message` records only, so a capped open page still shows
+  /// what its turn was asked. A failed read leaves it out; the pane draws as before.
+  private async fetchTurnOpener(
+    sessionId: string,
+    events: EventRecord[],
+    hasMore: boolean,
+  ): Promise<EventRecord | undefined> {
+    const first = events[0];
+    if (!hasMore || !first || first.seq <= 1 || startsTurn(first)) return undefined;
+    const known = this.turnOpener;
+    if (known && known.sessionId === sessionId && known.seq < first.seq) return known;
+    try {
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        beforeSeq: first.seq,
+        // Steers into the turn are user_message records too; the opener is the newest that is not one.
+        limit: 16,
+        kinds: ["user_message"],
+      });
+      const prompts: EventRecord[] = result?.events ?? [];
+      const opener = [...prompts].reverse().find(startsTurn);
+      return opener ? { ...opener, sessionId: opener.sessionId ?? sessionId } : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
   /// Returns the attach page's events, or none when the selection moved on.
   private async attach(sessionId: string, generation = this.selectionGeneration): Promise<EventRecord[]> {
     if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
@@ -1281,13 +1566,25 @@ export class AcpmuxDirectClient {
       // The most opening a chat downloads, however large its tool output (a remote session's open).
       maxBytes: OPEN_PAGE_BYTES,
       // At most 8 kinds: a remote cmux-tui before cx-kpd0v refuses more. Session offers come with
-      // "transcript" (acpmux paging.rs, since offers exist).
-      kinds: ["transcript", COMMANDS_KIND, USAGE_KIND, CONFIG_KIND, BOOKMARKS_KIND, ...SECRET_KINDS],
+      // "transcript" (acpmux paging.rs, since offers exist). The queue's live kinds go only to a
+      // local acpmux, which takes any number; a remote chat's queue follows its session changes.
+      kinds: [
+        "transcript",
+        COMMANDS_KIND,
+        USAGE_KIND,
+        CONFIG_KIND,
+        BOOKMARKS_KIND,
+        ...SECRET_KINDS,
+        ...(this.localOrigin ? QUEUE_KINDS : []),
+      ],
       eventStream: true,
       visible,
     });
     this.attaching = attaching.then(
-      () => (this.shownToAcpmux = { sessionId, visible }),
+      () => {
+        if (generation === this.selectionGeneration && this.selectedSessionId === sessionId)
+          this.shownToAcpmux = { sessionId, visible };
+      },
       () => undefined,
     );
     const result = await attaching;
@@ -1303,12 +1600,20 @@ export class AcpmuxDirectClient {
       void this.fetchCommands(sessionId, generation, result.lastSeq).catch(() => {});
     const detail = result?.session ?? {};
     this.summary = detail;
-    this.queue = (detail.queue ?? []).map((entry: any) => ({
-      id: String(entry.promptId),
-      prompt: String(entry.prompt ?? ""),
-    }));
+    this.configSeq = Array.isArray(detail.configOptions) && typeof result?.lastSeq === "number" ? result.lastSeq : 0;
+    this.queue = [];
+    const opener = await this.fetchTurnOpener(
+      sessionId,
+      mergeEventRecords(page, this.events),
+      result?.hasMore === true,
+    );
+    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return [];
+    this.turnOpener = opener;
+    // Merged after the read: live events that landed meanwhile are kept.
     this.events = mergeEventRecords(page, this.events);
     this.rebuild();
+    // acpmux's list is the order; the replayed `queued` records give each prompt its whole text.
+    this.queue = mergeQueue(this.queue, detail.queue ?? []);
     // acpmux holds nothing older than the page: the pane offers no more history.
     if (result?.hasMore === false) this.historyExhausted = true;
     this.attachedGeneration = generation;
@@ -1321,12 +1626,22 @@ export class AcpmuxDirectClient {
           ? this.permissions.state.groups.flatMap((group) => group.items.map((item) => item.permissionId))
           : [],
       );
-      this.pendingPermission = detail.pending
+      const asks: AcpmuxPermission[] = detail.pending
         .map((item: any) => permissionFromMessage({ ...item, sessionId }, sessionId))
-        .find(
-          (item: AcpmuxPermission | undefined) =>
-            item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
+        .filter(
+          (item: AcpmuxPermission | undefined): item is AcpmuxPermission =>
+            !!item && (!this.permissions.state.supported || (!item.groupId && !groupedIds.has(item.permissionId))),
         );
+      // acpmux lists them in no order: oldest first, by the record that asked (else by id, a
+      // time-ordered UUIDv7), so the card keeps the ask the replay showed.
+      const asked = new Map<string, number>();
+      for (const event of this.events)
+        if (event.kind === "permission_request" && event.msg?.permissionId)
+          asked.set(String(event.msg.permissionId), event.seq);
+      const at = (ask: AcpmuxPermission) => asked.get(ask.permissionId) ?? Number.POSITIVE_INFINITY;
+      asks.sort((a, b) => at(a) - at(b) || (a.permissionId < b.permissionId ? -1 : 1));
+      this.pendingPermission = asks[0];
+      this.waitingPermissions = new Map(asks.slice(1).map((item) => [item.permissionId, item]));
     }
     if (this.handoffSupported) {
       this.handoff.select(sessionId);
@@ -1354,6 +1669,7 @@ export class AcpmuxDirectClient {
     const commands = event ? commandsFromUpdate(sessionUpdate(event)) : undefined;
     if (!commands) return;
     this.commands = commands;
+    rememberCommands(sessionId, commands);
     this.emit("commands");
   }
 
@@ -1374,8 +1690,10 @@ export class AcpmuxDirectClient {
     if (session.sessionId === this.selectedSessionId) {
       this.summary = { ...this.summary, ...session };
       // A change that doesn't carry the queue keeps the one already mapped.
-      if (session.queue) this.queue = session.queue.map((entry) => ({ id: entry.promptId, prompt: entry.prompt }));
+      if (session.queue) this.queue = mergeQueue(this.queue, session.queue);
     }
+    if (this.offerChildIds().includes(session.sessionId) || this.isStartedChild(session))
+      this.childChanged(session.sessionId);
     // The picker lists every session, so a change elsewhere still needs a snapshot.
     this.emit("session changed");
   }
@@ -1387,8 +1705,19 @@ export class AcpmuxDirectClient {
       this.groupedPermissions.set(permission.permissionId, permission);
       return;
     }
-    this.pendingPermission = permission;
+    const shown = this.pendingPermission;
+    if (shown?.pending && shown.permissionId !== permission.permissionId) {
+      // Another ask is on the card: this one waits its turn (a repeat keeps its place).
+      this.waitingPermissions.set(permission.permissionId, permission);
+    } else this.pendingPermission = permission;
     this.emit("permission");
+  }
+
+  /// Takes the oldest ask waiting behind the card, for the card once its ask is answered.
+  private nextWaitingPermission(): AcpmuxPermission | undefined {
+    const [next] = this.waitingPermissions.values();
+    if (next) this.waitingPermissions.delete(next.permissionId);
+    return next;
   }
 
   /// A live event's stamp, to tell the session's clock from this computer's.
@@ -1426,6 +1755,7 @@ export class AcpmuxDirectClient {
     const inFlight = new Set(this.optimisticPromptRows.values());
     // Those rows keep their place in the order.
     this.rows.retain((row) => row.failed === true || inFlight.has(row.id));
+    this.waitingSteers = [];
     this.firstSeq = undefined;
     this.lastSeq = 0;
     this.turnOpen = false;
@@ -1434,13 +1764,21 @@ export class AcpmuxDirectClient {
     this.streamingActivity = undefined;
     this.supersededMessageIds.clear();
     this.messageRows.clear();
+    this.offerRows.clear();
+    this.receivedOffers.clear();
+    this.compactionHeardAt.clear();
     this.toolRows.clear();
     this.planCalls.clear();
     this.subagents = new SubagentFold();
     this.pendingPermission = undefined;
+    this.waitingPermissions = new Map();
     this.pendingSecret = undefined;
     const through = this.replayThrough ?? Number.POSITIVE_INFINITY;
     const events = this.events.filter((event) => event.seq <= through).sort((a, b) => a.seq - b.seq);
+    const opener = this.turnOpener;
+    if (opener && (events[0]?.seq ?? Number.POSITIVE_INFINITY) <= opener.seq) this.turnOpener = undefined;
+    // Drawn first, but neither firstSeq nor lastSeq moves: older pages still load from the held history.
+    else if (opener && opener.seq <= through) this.reduce(opener);
     for (const event of events) {
       this.lastSeq = Math.max(this.lastSeq, event.seq);
       this.firstSeq = this.firstSeq === undefined ? event.seq : Math.min(this.firstSeq, event.seq);
@@ -1457,11 +1795,13 @@ export class AcpmuxDirectClient {
     const summary = this.summary;
     const queue = this.queue;
     const permission = this.pendingPermission;
+    const waiting = this.waitingPermissions;
     const secret = this.pendingSecret;
     this.rebuild();
     this.summary = summary;
     this.queue = queue;
     this.pendingPermission = permission;
+    this.waitingPermissions = waiting;
     this.pendingSecret = secret;
     if (replayAfterSeq !== undefined)
       for (const event of this.events)
@@ -1474,13 +1814,23 @@ export class AcpmuxDirectClient {
     if (event.kind === "queue_updated") {
       // An edit keeps the prompt's place.
       const id = String(msg.promptId ?? "");
-      this.queue = this.queue.map((entry) => (entry.id === id ? { id, prompt: String(msg.text ?? "") } : entry));
+      this.queue = this.queue.map((entry) =>
+        entry.id === id ? queuedEntry(id, String(msg.text ?? ""), entry.next === true) : entry,
+      );
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
       const at = new Map(msg.order.map((id: unknown, index: number) => [String(id), index]));
-      this.queue = [...this.queue].sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size));
+      // A prompt sent now goes first and stops the turn: only the last one sent now is next.
+      const next = msg.next === true ? String(msg.promptId ?? "") : undefined;
+      if (next) this.sentNow.add(next);
+      this.queue = [...this.queue]
+        .sort((a, b) => (at.get(a.id) ?? at.size) - (at.get(b.id) ?? at.size))
+        .map((entry) => (next === undefined ? entry : queuedEntry(entry.id, entry.prompt, entry.id === next)));
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
-      if (id) this.queue = [...this.queue.filter((entry) => entry.id !== id), { id, prompt: String(msg.text ?? "") }];
+      // A task's result waiting behind the turn draws its received line now (offer/SuggestedTasks.tsx).
+      if (this.queuedResult(msg, event.at)) return;
+      if (id)
+        this.queue = [...this.queue.filter((entry) => entry.id !== id), queuedEntry(id, String(msg.text ?? ""), false)];
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
       // composer is free for the next one.
       if (id && this.optimisticPromptRows.has(id)) {
@@ -1492,18 +1842,34 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "queue_removed" || event.kind === "dequeued")
       this.queue = this.queue.filter((entry) => entry.id !== String(msg.promptId ?? ""));
     else if (event.kind === "permission_request") {
+      const asked = msg.permissionId
+        ? questionFromPermission({
+            permissionId: String(msg.permissionId),
+            session: event.sessionId ?? "",
+            request: msg.request,
+          })
+        : undefined;
+      if (asked) this.askedQuestions.set(asked.id, asked);
       this.openQuestions.add(String(msg.permissionId ?? `permission-${event.seq}`));
       this.markAwaitingPermission(msg.request?.toolCall?.toolCallId);
       this.applyPermission({ ...msg, sessionId: event.sessionId });
+      // A single card (not the grouped panel's, not a question's) leaves a receipt once answered.
+      const card = this.pendingPermission;
+      if (!asked && card && card.permissionId === String(msg.permissionId ?? ""))
+        this.askedPermissions.set(card.permissionId, card);
     } else if (event.kind === "permission_decision") {
+      this.recordQuestion(event, msg);
+      this.recordPermission(event, msg);
       if (msg.permissionId) this.groupedPermissions.delete(String(msg.permissionId));
       else this.groupedPermissions.clear();
       if (msg.permissionId) this.openQuestions.delete(String(msg.permissionId));
       else this.openQuestions.clear();
+      if (msg.permissionId) this.waitingPermissions.delete(String(msg.permissionId));
+      else this.waitingPermissions.clear();
       if (!msg.permissionId || this.pendingPermission?.permissionId === msg.permissionId)
-        this.pendingPermission = this.permissions.state.supported
-          ? undefined
-          : [...this.groupedPermissions.values()].at(-1);
+        this.pendingPermission =
+          this.nextWaitingPermission() ??
+          (this.permissions.state.supported ? undefined : [...this.groupedPermissions.values()].at(-1));
     } else if (event.kind === "secret_request")
       this.pendingSecret = {
         secretId: String(msg.secretId ?? ""),
@@ -1515,6 +1881,88 @@ export class AcpmuxDirectClient {
     } else if (event.kind === "permission_group" || event.kind === "permission_chat_allowance")
       void this.permissions.refresh().catch(() => {});
     else if (event.kind === "status") this.summary = { ...this.summary, status: msg.status };
+  }
+
+  /// A turn event newer than Stop ends its grace and its give-up.
+  private stopAnswered(event: EventRecord): void {
+    if (this.stopAfterSeq === undefined || event.seq <= this.stopAfterSeq) return;
+    clearTimeout(this.stopTimer);
+    this.stopGaveUp = false;
+    this.stopAfterSeq = undefined;
+  }
+
+  /// A decided question stays in the transcript as a compact record where its card was: what was
+  /// chosen, or that it went unanswered. acpmux's log holds both records, so a reload draws it again.
+  private recordQuestion(event: EventRecord, msg: any): void {
+    const id = msg.permissionId ? String(msg.permissionId) : undefined;
+    const asked = id ? this.askedQuestions.get(id) : undefined;
+    if (!id || !asked) return;
+    this.askedQuestions.delete(id);
+    const rowId = `question-${id}`;
+    // Drawn already: a resync replays the live records after its rebuild drew them, and closing
+    // the stream again then would split the reply that streams on.
+    if (this.rows.has(rowId)) return;
+    const question = decidedQuestion(asked, msg.outcome);
+    this.closeSegment();
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at: event.at,
+      kind: QUESTION_RECORD,
+      question,
+      // What Copy reads.
+      text:
+        question.state.kind === "answered"
+          ? summaryLines(question, question.state.answer).join("\n")
+          : translate("question.cancelled", { prompt: questionSummary(question) }),
+    });
+  }
+
+  /// A single permission card, answered, leaves a one-line receipt where it was answered: "Allowed:
+  /// Run npm test", or Denied, Always allowed, Not answered. The grouped panel keeps its own.
+  private recordPermission(event: EventRecord, msg: any): void {
+    const id = msg.permissionId ? String(msg.permissionId) : undefined;
+    const asked = id ? this.askedPermissions.get(id) : undefined;
+    if (!id || !asked) return;
+    this.askedPermissions.delete(id);
+    const rowId = `permission-${id}`;
+    // Drawn already: a resync replays the live records after its rebuild drew them, and closing
+    // the stream again then would split the reply that streams on.
+    if (this.rows.has(rowId)) return;
+    const decision = permissionDecision(asked, msg.outcome);
+    this.closeSegment();
+    this.rows.set(rowId, {
+      id: rowId,
+      version: 1,
+      at: event.at,
+      kind: PERMISSION_RECORD,
+      permission: asked,
+      decision,
+      // What Copy reads; the row draws its words in the pane's language as it is then.
+      text: translate(DECISION_TEXT[decision.kind], {
+        action: asked.title?.trim() || translate("permission.required"),
+        option: decision.kind === "answered" ? decision.option : "",
+      }),
+    });
+  }
+
+  /// The text and tool fold before a record close, as a tool call's would: the work after an answer
+  /// draws below its record, never in the row above it.
+  private closeSegment(): void {
+    this.endAssistantSegment();
+    this.streamingActivity = undefined;
+  }
+
+  /// The subagent group rows that changed, into the transcript.
+  private takeSubagentRows(): void {
+    for (const row of this.subagents.takeRows()) {
+      // A new group ends the text and tool calls before it, like a tool call does.
+      if (!this.rows.has(row.id)) {
+        this.endAssistantSegment();
+        this.streamingActivity = undefined;
+      }
+      this.rows.set(row.id, row);
+    }
   }
 
   private reduce(event: EventRecord): void {
@@ -1537,36 +1985,62 @@ export class AcpmuxDirectClient {
       return;
     }
     if (update?.sessionUpdate === CONFIG_KIND) {
-      if (Array.isArray(update.configOptions)) this.summary = { ...this.summary, configOptions: update.configOptions };
+      // The event at attach's own lastSeq may be newer than the options it names (acpmux numbers the
+      // event before it writes them): only events before it are history.
+      if (!Array.isArray(update.configOptions) || (event.seq && event.seq < this.configSeq)) return;
+      this.summary = { ...this.summary, configOptions: update.configOptions };
+      if (event.seq) this.configSeq = event.seq;
+      return;
+    }
+    // Claude Code names its version and model on every turn's init line: one row, where the
+    // session first said so, that a later line with other facts (a restart on a new version, a
+    // model switch) updates in place.
+    const start =
+      update?.sessionUpdate === SESSION_INFO_KIND
+        ? sessionStartOf(update, { harness: this.summary?.harness, cwd: this.summary?.cwd })
+        : undefined;
+    if (start) {
+      const existing = this.rows.get(SESSION_START_ROW);
+      if (sameSessionStart(existing?.sessionStart, start)) return;
+      this.rows.set(SESSION_START_ROW, {
+        id: SESSION_START_ROW,
+        version: (existing?.version ?? 0) + 1,
+        at: existing?.at ?? event.at,
+        seq: existing?.seq ?? event.seq,
+        kind: "sessionStart",
+        sessionStart: start,
+      });
       return;
     }
     if (event.dir === "mux") {
+      // A stopped turn or a gone agent ends the subagents it would never report again.
+      const left = subagentsLeft(event.kind, msg);
+      if (left && this.subagents.stopRunning(left, event.at)) this.takeSubagentRows();
       if (event.kind === BOOKMARKS_KIND) {
         // Another pane (or the TUI) marked a prompt: the minimap shows acpmux's marks.
         bookmarksHeard(event.sessionId ?? this.selectedSessionId, event.msg?.bookmarks);
       } else if (event.kind === "forked") {
         this.forkedAtSeq = event.seq;
+      } else if (event.kind === "failover") {
+        // acpmux moved the chat to its fallback harness (`hub/turns.rs`); the turn goes on there.
+        if (typeof msg.from === "string" && typeof msg.to === "string") {
+          this.endAssistantSegment();
+          this.streamingActivity = undefined;
+          const id = `failover-${event.seq}`;
+          this.rows.set(id, {
+            id,
+            version: 1,
+            at: event.at,
+            kind: "failover",
+            failover: { from: msg.from, to: msg.to },
+          });
+        }
       } else if (event.kind === "session_offer") {
-        // Off by default: with the experiment off an offer draws nothing (offer/OfferChip.tsx).
-        const offer = experimentArm(sessionOfferExperiment) === "on" ? sessionOffer(msg) : undefined;
-        if (!offer) return;
-        this.endAssistantSegment();
-        this.streamingActivity = undefined;
-        const id = `offer-${offer.offerId}`;
-        this.rows.set(id, {
-          id,
-          version: (this.rows.get(id)?.version ?? 0) + 1,
-          at: event.at,
-          kind: "sessionOffer",
-          offer,
-        });
+        // Off by default: off, an offer draws nothing (offer/offersShown.ts).
+        const offer = offersShown() ? sessionOffer(msg) : undefined;
+        if (offer) this.addOffer(offer, event.at);
       } else if (event.kind === "session_offer_decision") {
-        const id = `offer-${String(msg.offerId ?? "")}`;
-        const row = this.rows.get(id);
-        const outcome = msg.outcome === "accepted" || msg.outcome === "dismissed" ? msg.outcome : undefined;
-        if (!row?.offer || !outcome) return;
-        const child = typeof msg.childSessionId === "string" ? { childSessionId: msg.childSessionId } : {};
-        this.rows.set(id, { ...row, version: row.version + 1, offer: { ...row.offer, outcome, ...child } });
+        this.answerOffer(msg);
       } else if (event.kind === "user_message") {
         // A prompt, or a steer (which starts no turn but splits it), starts a new checklist.
         this.planRow = undefined;
@@ -1582,6 +2056,9 @@ export class AcpmuxDirectClient {
         if (fallbackPromptId) {
           this.optimisticPromptTexts.delete(fallbackPromptId);
           this.promptAccepts.get(fallbackPromptId)?.();
+          // A prompt the pane put in the queue that ran at once (the turn ended meanwhile).
+          if (this.queue.some((entry) => entry.id === fallbackPromptId))
+            this.queue = this.queue.filter((entry) => entry.id !== fallbackPromptId);
         }
         this.subagents.closeBatch();
         // An agent reads a steer once the reply it writes ends (Claude Code): the rest of that
@@ -1596,12 +2073,43 @@ export class AcpmuxDirectClient {
           this.planCalls.clear();
         }
         this.streamingActivity = undefined;
+        // A task's result is not the person's prompt, shown or not: it never enters prompt recall.
+        const taskResult = offerResult(msg);
+        const received = offersShown() ? taskResult : undefined;
+        // Another agent's message or harness bookkeeping (conversation/incomingMessage.ts): the row
+        // keeps the sender's words, or the typed prompt without the bookkeeping. Bookkeeping alone
+        // keeps an empty row that draws nothing, so the answer it brought stays its own turn
+        // (turns.ts). Retry resends a message as the agent got it (`resend`); a notice, like
+        // bookkeeping, is the harness's, not a prompt to send again, so it offers no Retry.
+        const incoming = received ? undefined : incomingPrompt(String(msg.text ?? ""), msg);
+        const raw = String(msg.text ?? "");
+        const shown =
+          incoming?.kind === "message"
+            ? { text: incoming.message.text, incoming, resend: raw }
+            : incoming?.kind === "notice"
+              ? { text: incoming.text, incoming }
+              : incoming?.kind === "hidden"
+                ? { text: "", incoming }
+                : { text: incoming?.kind === "prompt" ? incoming.text : raw };
+        const untyped = taskResult !== undefined || (incoming !== undefined && incoming.kind !== "prompt");
+        // Its queued line, if the result waited, gives way to this prompt's.
+        if (received) this.rows.delete(`received-${received.offerId}`);
+        if (received) this.receivedOffers.add(received.offerId);
+        // A newer prompt means any steer before it was read; a second steer can come in the same step.
+        if (msg.steer !== true) this.landSteer();
+        const steer = msg.steer === true ? "waiting" : promptId && this.sentNow.has(promptId) ? "stopped" : undefined;
+        if (steer === "waiting") this.waitingSteers.push({ rowId: `user-${event.seq}`, promptId });
         this.rows.set(`user-${event.seq}`, {
           id: `user-${event.seq}`,
           version: 1,
           at: event.at,
           kind: "user",
-          text: String(msg.text ?? ""),
+          ...shown,
+          ...(untyped ? { untyped } : {}),
+          ...(sentByChief(msg) ? { from: "chief" as const } : {}),
+          ...(received ? { received } : {}),
+          ...(steer ? { steer } : {}),
+          ...(promptImages(msg.images).length > 0 && { images: promptImages(msg.images) }),
           ...(fallbackPromptId && this.optimisticPromptAttachments.get(fallbackPromptId)?.length
             ? { retryAttachments: this.optimisticPromptAttachments.get(fallbackPromptId) }
             : {}),
@@ -1614,6 +2122,10 @@ export class AcpmuxDirectClient {
         this.turnOpen = true;
       } else if (event.kind === "turn_started") {
         this.turnOpen = true;
+        this.subagents.startTurn();
+        this.settleCompactions(event.seq, true);
+        // A Stop before this turn never judges it.
+        this.stopAnswered(event);
         this.rows.set("typing", { id: "typing", version: 1, at: event.at, kind: "typing" });
       } else if (event.kind === "message_superseded") {
         const oldMessageId = typeof msg.oldMessageId === "string" ? msg.oldMessageId : undefined;
@@ -1626,7 +2138,12 @@ export class AcpmuxDirectClient {
         }
       } else if (event.kind === "turn_end" || event.kind === "turn_result") {
         this.turnOpen = false;
+        this.settleCompactions(event.seq, event.kind === "turn_result" && msg.cancelForced === true);
+        this.landSteer();
+        // Stop was answered: its grace must not judge the next turn.
+        this.stopAnswered(event);
         this.pendingPermission = undefined;
+        this.waitingPermissions.clear();
         this.groupedPermissions.clear();
         this.openQuestions.clear();
         this.heldEdits.clear();
@@ -1647,28 +2164,31 @@ export class AcpmuxDirectClient {
             error: msg.errorText,
             ...(checkpoint ? { checkpoint } : {}),
           });
+        // acpmux ended a turn whose agent did not answer Stop (`hub/cancel.rs`). After the summary, so its fold never hides it.
+        if (event.kind === "turn_result" && msg.cancelForced === true)
+          this.rows.set(`notice-stop-${event.seq}`, {
+            id: `notice-stop-${event.seq}`,
+            version: 1,
+            at: event.at,
+            kind: "notice",
+            text: translate("stop.forced"),
+          });
         this.streamingAssistant = undefined;
         this.streamingAssistantMessageId = undefined;
         this.streamingActivity = undefined;
-      } else this.reduceLiveState(event);
+      } else if (!reduceAgentPair(this.rows, event)) this.reduceLiveState(event);
       return;
     }
     if (!update) return;
     if (this.subagents.reduce(event, update)) {
-      for (const row of this.subagents.takeRows()) {
-        // A new group ends the text and tool calls before it, like a tool call does.
-        if (!this.rows.has(row.id)) {
-          this.endAssistantSegment();
-          this.streamingActivity = undefined;
-        }
-        this.rows.set(row.id, row);
-      }
+      this.takeSubagentRows();
       return;
     }
     const commands = commandsFromUpdate(update);
     if (commands) {
       this.commands = commands;
       this.commandsApplied = true;
+      if (this.selectedSessionId) rememberCommands(this.selectedSessionId, commands);
       return;
     }
     const text = textFromContent(update.content);
@@ -1683,6 +2203,8 @@ export class AcpmuxDirectClient {
         (!messageId || !this.streamingAssistantMessageId || this.streamingAssistantMessageId === messageId),
       );
       const id = sameMessage ? this.streamingAssistant! : `assistant-${event.seq}`;
+      // A message after the reply that was streaming when the steer went: the agent read it.
+      if (!sameMessage) this.landSteer();
       const existing = this.rows.get(id);
       // Text after tool calls is a new segment; the next tool call opens a new fold.
       this.streamingActivity = undefined;
@@ -1702,6 +2224,7 @@ export class AcpmuxDirectClient {
       }
       this.rows.delete("typing");
     } else if (event.kind === "agent_thought_chunk" && text) {
+      this.landSteer();
       this.endAssistantSegment();
       const id = this.streamingActivity ?? `activity-${event.seq}`;
       const existing = this.rows.get(id);
@@ -1711,7 +2234,7 @@ export class AcpmuxDirectClient {
         at: existing?.at ?? event.at,
         kind: "activity",
         toolCount: existing?.toolCount ?? 0,
-        items: appendThought(existing?.items ?? [], text),
+        items: appendThought(existing?.items ?? [], text, event.at),
       });
       this.streamingActivity = id;
     } else if (event.kind === "tool_call" || event.kind === "tool_call_update") {
@@ -1729,7 +2252,7 @@ export class AcpmuxDirectClient {
       const itemIndex = items.findIndex((item) => item.tool?.id === callId);
       const item = this.holdEdit(
         mergeToolItem(itemIndex >= 0 ? items[itemIndex] : undefined, update, callId, text, event.at),
-        event.kind === "tool_call",
+        itemIndex < 0 || items[itemIndex].tool?.status === "pending",
       );
       if (itemIndex >= 0) items[itemIndex] = item;
       else items.push(item);
@@ -1750,7 +2273,51 @@ export class AcpmuxDirectClient {
       this.endAssistantSegment();
       this.streamingActivity = undefined;
       const id = `bgtask-${event.seq}`;
-      this.rows.set(id, { id, version: 1, at: event.at, kind: "backgroundTask", backgroundTask: task });
+      this.rows.set(id, {
+        id,
+        version: 1,
+        at: event.at,
+        kind: "backgroundTask",
+        backgroundTask: task,
+      });
+    } else if (event.kind === "compaction") {
+      const compaction = compactionOf(update);
+      if (!compaction) return;
+      // A note between messages: the text and tool fold before it close.
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
+      // One row per compaction: its end replaces the latest running note before it, or the
+      // latest one its turn's end noted as failed (a Stop acpmux forced while the compaction
+      // went on: its end comes after the turn's). Claude Code says it is compacting again every
+      // 30 seconds, so a running note joins the latest one still running, or the latest one the
+      // next turn's start noted as failed (it kept running into that turn); otherwise it starts
+      // its own row. An older history page binds to its own rows, never to a live one.
+      let running: AcpmuxRow | undefined;
+      for (const row of this.rows.values())
+        if (
+          row.kind === "compaction" &&
+          (row.compaction?.state === "running" ||
+            (row.compaction?.inferred === true &&
+              (compaction.state !== "running" ||
+                event.at - (this.compactionHeardAt.get(row.id) ?? -Infinity) <= COMPACTION_REPEAT_WINDOW))) &&
+          (row.seq ?? 0) < event.seq &&
+          (row.seq ?? 0) > (running?.seq ?? -1)
+        )
+          running = row;
+      const id = running?.id ?? `compaction-${event.seq}`;
+      if (compaction.state === "running") this.compactionHeardAt.set(id, event.at);
+      else this.compactionHeardAt.delete(id);
+      this.rows.set(id, {
+        id,
+        version: (running?.version ?? 0) + 1,
+        at: running?.at ?? event.at,
+        seq: running?.seq ?? event.seq,
+        kind: "compaction",
+        compaction:
+          compaction.state === "running" && running?.compaction
+            ? stillRunning(running.compaction, compaction)
+            : compaction,
+      });
     } else if (event.kind === "plan") {
       const plan = planEntries(update.entries);
       const existing = this.planRow ? this.rows.get(this.planRow) : undefined;
@@ -1794,7 +2361,9 @@ export class AcpmuxDirectClient {
 
   /// `item` as the transcript shows it: an edit that waits on a permission question stays
   /// "pending". Claude asks one question at a time, so an edit that arrives while another's
-  /// question is open sends its diff before its own question, and waits too.
+  /// question is open sends its diff before its own question, and waits too. `isNew` is whether
+  /// the call had not run yet: acpmux names a call as its block starts, pending, and its input
+  /// (diff included) comes in its update.
   private holdEdit(item: AcpmuxActivity, isNew: boolean): AcpmuxActivity {
     const tool = item.tool;
     if (!tool) return item;
@@ -1826,6 +2395,34 @@ export class AcpmuxDirectClient {
   }
 
   /// Closes the assistant text being streamed, so later text starts a new row below.
+  /// The waiting steers (or the one `promptId` names) were read: their rows say so.
+  private landSteer(promptId?: string): void {
+    const read = this.waitingSteers.filter((waiting) => promptId === undefined || waiting.promptId === promptId);
+    if (!read.length) return;
+    this.waitingSteers = this.waitingSteers.filter((waiting) => !read.includes(waiting));
+    for (const waiting of read) {
+      const row = this.rows.get(waiting.rowId);
+      if (row?.steer === "waiting") this.rows.set(row.id, { ...row, version: row.version + 1, steer: "landed" });
+    }
+  }
+
+  /// A compaction still running when its turn ends (a Stop, the agent process exiting, a
+  /// relaunch) or the next turn starts may never send how it ended: it is noted as failed, so
+  /// the row stops spinning, live and when the history is read again. `inferred` lets an end
+  /// that does come later (a forced Stop the compaction outlived) take the row back, and
+  /// `mayGoOn` lets its next running note do so too, while it comes on time.
+  private settleCompactions(seq: number, mayGoOn = false) {
+    for (const row of this.rows.values())
+      if (row.kind === "compaction" && row.compaction?.state === "running" && (row.seq ?? 0) < seq) {
+        if (!mayGoOn) this.compactionHeardAt.delete(row.id);
+        this.rows.set(row.id, {
+          ...row,
+          version: row.version + 1,
+          compaction: { ...row.compaction, state: "failed", inferred: true },
+        });
+      }
+  }
+
   private endAssistantSegment(): void {
     if (!this.streamingAssistant) return;
     const row = this.rows.get(this.streamingAssistant);
@@ -1839,6 +2436,13 @@ export class AcpmuxDirectClient {
   }
 
   private emitNow(connection: string): void {
+    if (this.snapshotHold) {
+      this.snapshotHold.connection = connection;
+      // The release draws everything since: no frame-batched snapshot is left waiting.
+      this.frameSnapshot = undefined;
+      return;
+    }
+    this.shownSessionId = this.selectedSessionId;
     // This snapshot carries every event so far, so a snapshot waiting for the frame has nothing left.
     this.frameSnapshot = undefined;
     const summary = this.summary;
@@ -1859,6 +2463,7 @@ export class AcpmuxDirectClient {
         return entry;
       }),
       peers: this.peers,
+      peerKinds: this.peerKinds,
       ...(this.forkedAtSeq !== undefined ? { forkedAtSeq: this.forkedAtSeq } : {}),
       summary: summary
         ? {
@@ -1878,9 +2483,14 @@ export class AcpmuxDirectClient {
             // acpmux reports `model: null` for a harness with no model (one known only from its config).
             model: text(summary.model),
             effort: effort?.currentValue,
-            promptCapabilities: summary.agentCapabilities?.promptCapabilities,
+            // `audio` only while the picked model hears it (takesAudio).
+            promptCapabilities: summary.agentCapabilities?.promptCapabilities && {
+              ...summary.agentCapabilities.promptCapabilities,
+              audio: takesAudio(summary.agentCapabilities.promptCapabilities, summary.configOptions),
+            },
             steering: summary.steering === true,
             queuePaused: summary.queuePaused === true,
+            ...(Array.isArray(summary.mcpServers) ? { mcpServers: summary.mcpServers } : {}),
             status: summary.status,
             enforcement: sessionEnforcement(summary.enforcement),
             modes: summary.modes,
@@ -1889,24 +2499,33 @@ export class AcpmuxDirectClient {
         : undefined,
       connection,
       origin: this.origin,
+      ...(this.listedSessions ? { listedSessions: true as const } : {}),
       ...(this.extensions.includes("acp.trust.set") ? { answersTrust: true } : {}),
       sessionId: this.selectedSessionId,
       // A replayed turn is history: no live "Working for" clock.
-      isWorking: this.replayThrough === undefined && (this.turnOpen || summary?.status === "running"),
+      isWorking:
+        this.replayThrough === undefined && !this.stopGaveUp && (this.turnOpen || summary?.status === "running"),
       // Only a peer runs on another clock; this computer's own sessions need no correction.
       ...(summary?.peer && this.clockOffset !== undefined ? { clockOffsetMs: this.clockOffset } : {}),
       canFork: this.canFork,
       canHandoff: this.handoffSupported,
       handoff: this.handoff.state,
       permissionGroups: this.permissions.state,
-      queue: this.queue,
+      queue: this.shownQueue(),
       permission: this.pendingPermission,
+      ...(this.pendingPermission && this.waitingPermissions.size > 0
+        ? { permissionsWaiting: this.waitingPermissions.size }
+        : {}),
       secret: this.pendingSecret,
       catalog: [],
       commands: this.commands,
       canLoadOlder: !this.historyExhausted && (this.firstSeq ?? 1) > 1,
+      historyFrom: this.firstSeq,
       missingSession: this.selectedSessionId ? undefined : this.missingSession,
-      liveChat: this.liveAdopt && { canFork: this.liveAdopt.canFork, command: this.liveAdopt.command },
+      liveChat: this.liveAdopt && {
+        canFork: this.liveAdopt.canFork,
+        command: this.liveAdopt.command,
+      },
     });
   }
 
@@ -1937,7 +2556,9 @@ export class AcpmuxDirectClient {
   async warmRecentProjects(limit = 3): Promise<void> {
     const ids: string[] = [];
     const seen = new Set<string>();
-    for (const session of [...this.sessions].sort((a, b) => Number(b.updatedAt ?? 0) - Number(a.updatedAt ?? 0))) {
+    // By real activity: warming moves `updatedAt`, so sorting on it would keep re-warming the same chats.
+    const recent = (session: Record<string, any>) => summaryActivityAt(session) ?? 0;
+    for (const session of [...this.sessions].sort((a, b) => recent(b) - recent(a))) {
       const cwd = typeof session.cwd === "string" ? session.cwd : "";
       // Never the home folder or a privacy-protected one (warmFolders.ts).
       if (!cwd || seen.has(cwd) || !isWarmableCwd(cwd)) continue;
@@ -1955,8 +2576,9 @@ export class AcpmuxDirectClient {
   /// it), so the prompt leaves no bubble and the refusal names its reason in the transcript.
   /// `ticket`: the gesture a send kept for this prompt while acpmux held it for the folder trust
   /// answer (heldPrompt.ts); it rides as `_meta.cmuxGesture`, and the host strips it.
-  /// `steer`: into the running turn now, and an agent that cannot steer stops the turn and
-  /// takes it next (`_meta.acpmux.interrupt`); otherwise it waits behind the turn.
+  /// `steer`: into the running turn, read when the agent's current step ends; an agent that
+  /// cannot steer queues it behind the turn. Nothing sent stops the turn: only Stop does (Leo
+  /// 2026-10-20), so no send carries `_meta.acpmux.interrupt`.
   async send(
     input: string,
     attachments: ComposerAttachment[] = [],
@@ -1965,6 +2587,15 @@ export class AcpmuxDirectClient {
     ticket?: string,
     steer = false,
   ): Promise<string | undefined> {
+    // A chat opening (a switch) is drawn first: the prompt goes to it once it shows, never while the
+    // pane still draws the chat before.
+    while (this.snapshotHold && this.shownSessionId !== this.selectedSessionId) await this.snapshotHold.released;
+    // A handoff not read yet (the pane draws the composer meanwhile) is read now; one that cannot be
+    // read is a connection problem, not a continuation to review.
+    if (this.handoffSupported && this.selectedSessionId && !this.handoff.state.ready) {
+      await this.handoff.refresh().catch(() => undefined);
+      if (!this.handoff.state.ready) throw new Error(translate("error.notOpen"));
+    }
     const record = this.handoff.state.record;
     if (
       this.handoffSupported &&
@@ -1987,7 +2618,13 @@ export class AcpmuxDirectClient {
     this.optimisticPromptRows.set(promptId, rowId);
     this.optimisticPromptTexts.set(promptId, text);
     if (attachments.length) this.optimisticPromptAttachments.set(promptId, attachments);
-    this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
+    // A prompt behind the shown chat's running turn waits in the queue: it shows there from the
+    // send on, never first as a transcript bubble that acpmux's `queued` record then moves.
+    const waits = !steer && shown === sessionId && this.turnOpen;
+    const generation = this.selectionGeneration;
+    if (waits)
+      this.queue = [...this.queue.filter((entry) => entry.id !== promptId), queuedEntry(promptId, text, false)];
+    else this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
     let taken = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
     // and a prompt sent while one carrying it is in flight goes without it.
@@ -2001,18 +2638,45 @@ export class AcpmuxDirectClient {
       accepted?.();
     };
     this.promptAccepts.set(promptId, accept);
+    // A prompt behind the turn is drawn in the queue now: that row is the send's confirmation, so
+    // the composer is free for the next prompt without waiting for acpmux's `queued` record (a
+    // lagged event stream can lose it, and the composer held the prompt with Return and Send dead
+    // until the turn ended). A refusal still comes back as its bubble with Retry.
+    if (waits) accept();
     this.emit();
     try {
       await this.request("session/prompt", {
         sessionId,
-        prompt: promptBlocks(input, attachments),
+        // A recording goes only to a harness that takes voice input; one moved to another
+        // harness (a switch, a held prompt put back) goes as its transcript.
+        prompt: promptBlocks(
+          input,
+          takesAudio(this.summary?.agentCapabilities?.promptCapabilities, this.summary?.configOptions)
+            ? attachments
+            : attachments.filter((attachment) => attachment.kind !== "audio"),
+        ),
         _meta: {
-          acpmux: { promptId, ...(steer ? { steer: true, interrupt: true } : {}), ...(context ? { context } : {}) },
+          acpmux: {
+            promptId,
+            ...(steer ? { steer: true } : {}),
+            ...(context ? { context } : {}),
+          },
           ...(ticket ? { cmuxGesture: ticket } : {}),
         },
       });
       accept();
-      // Ran or withdrawn: what it held for its bubble is done with.
+      // A steer's answer comes once the agent read it (Claude Code's `steered`) or its turn ended.
+      if (
+        steer &&
+        this.selectedSessionId === sessionId &&
+        this.waitingSteers.some((waiting) => waiting.promptId === promptId)
+      ) {
+        this.landSteer(promptId);
+        this.emit();
+      }
+      // Ran or withdrawn: what it held for its bubble and queue row is done with.
+      if (this.queue.some((entry) => entry.id === promptId))
+        this.queue = this.queue.filter((entry) => entry.id !== promptId);
       this.queuedSends.delete(promptId);
       this.optimisticPromptAttachments.delete(promptId);
     } catch (error) {
@@ -2021,7 +2685,10 @@ export class AcpmuxDirectClient {
       if (context && !taken) this.contextInFlight = false;
       // A queued prompt refused when its turn came gets its bubble back, to fail with Retry.
       const queued = this.queuedSends.delete(promptId);
-      if (queued) {
+      // Only into the chat it was sent in, still shown: its Retry sends there.
+      const here = generation === this.selectionGeneration && this.selectedSessionId === sessionId;
+      if (here && (queued || waits)) {
+        this.queue = this.queue.filter((entry) => entry.id !== promptId);
         this.optimisticPromptRows.set(promptId, rowId);
         this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true });
       }
@@ -2033,7 +2700,7 @@ export class AcpmuxDirectClient {
       const held = !taken && accepted !== undefined;
       // The folder's trust question (the one route); the pane's sender adds the re-send.
       this.routeTrustRefusal(error);
-      if ((isTrustRefusal(error) && !queued) || held) {
+      if ((isTrustRefusal(error) && !queued && !taken) || held) {
         this.rows.delete(rowId);
         this.optimisticPromptRows.delete(promptId);
         this.optimisticPromptTexts.delete(promptId);
@@ -2085,9 +2752,53 @@ export class AcpmuxDirectClient {
     this.emit();
     return this.send(failed.input, failed.attachments);
   }
-  /// The original blocks for a completed turn, for the App send path to retry safely.
-  retryAttachmentsFor(rowId: string): ComposerAttachment[] {
-    return this.retryAttachments.get(rowId) ?? [];
+  /// What to send again with prompt row `rowId` (Retry, Edit): the attachments this page sent, else
+  /// its images read back from acpmux (a prompt sent before a reload, or from another window).
+  async promptAttachments(rowId: string): Promise<ComposerAttachment[]> {
+    const kept = this.retryAttachments.get(rowId);
+    if (kept?.length) return kept;
+    const images = this.rows.get(rowId)?.images ?? [];
+    const read = await Promise.all(
+      images.map(async (image, index): Promise<ComposerAttachment | undefined> => {
+        const data = await this.promptImageData(image.id);
+        if (!data) return undefined;
+        return {
+          id: `sent-${image.id}`,
+          kind: "image",
+          name: image.name ?? `image-${index + 1}`,
+          mimeType: data.mimeType,
+          size: Math.floor((data.data.length * 3) / 4),
+          data: data.data,
+        };
+      }),
+    );
+    return read.filter((attachment): attachment is ComposerAttachment => attachment !== undefined);
+  }
+  /// The image `id` a prompt of the open chat sent, as a data URL; undefined when acpmux has none.
+  /// An id names the image's bytes, so one read serves every bubble that shows it.
+  async promptImage(id: string): Promise<string | undefined> {
+    const shown = this.promptImageUrls.get(id);
+    if (shown) return shown;
+    const data = await this.promptImageData(id);
+    const url = data && `data:${data.mimeType};base64,${data.data}`;
+    if (url) this.promptImageUrls.set(id, url);
+    return url;
+  }
+  private readonly promptImageUrls = new Map<string, string>();
+  private async promptImageData(id: string): Promise<{ mimeType: string; data: string } | undefined> {
+    const sessionId = this.selectedSession;
+    if (!sessionId) return undefined;
+    try {
+      const reply = await this.request("_acpmux/attachment", { sessionId, id });
+      return typeof reply?.data === "string"
+        ? {
+            mimeType: typeof reply.mimeType === "string" ? reply.mimeType : "image/png",
+            data: reply.data,
+          }
+        : undefined;
+    } catch {
+      return undefined;
+    }
   }
   async continueIn(harness: string): Promise<string | undefined> {
     if (!this.handoffSupported || this.turnOpen || this.summary?.status === "running" || this.queue.length > 0) return;
@@ -2112,31 +2823,51 @@ export class AcpmuxDirectClient {
     return this.handoff.refresh();
   }
   async cancel(): Promise<void> {
-    if (!this.selectedSessionId || !this.socket) return;
+    if (!this.actingSessionId || !this.socket) return;
     const text = JSON.stringify({
       jsonrpc: "2.0",
       method: "session/cancel",
-      params: { sessionId: this.selectedSessionId },
+      params: { sessionId: this.actingSessionId },
     });
     this.wire.sent(text, "session/cancel");
     this.socket.send(text);
+    // Stop always frees the chat: a turn still open after the grace (acpmux ends one whose agent
+    // ignores the cancel; an older one does not) stops showing as working, and the chat says so.
+    const sessionId = this.actingSessionId;
+    const generation = this.selectionGeneration;
+    clearTimeout(this.stopTimer);
+    this.stopAfterSeq = this.lastSeq;
+    this.stopTimer = setTimeout(() => {
+      if (this.closed || generation !== this.selectionGeneration || this.actingSessionId !== sessionId) return;
+      if (!this.turnOpen && this.summary?.status !== "running") return;
+      this.stopGaveUp = true;
+      this.notice(translate("stop.forced"));
+    }, STOP_GRACE_MS);
   }
   /// Withdraws a queued prompt before its turn starts; `removed` is false once it started.
   async removeQueued(promptId: string): Promise<{ removed: boolean }> {
-    if (!this.selectedSessionId) return { removed: false };
-    return this.request("_acpmux/queue_remove", { sessionId: this.selectedSessionId, promptId });
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return { removed: false };
+    return this.request("_acpmux/queue_remove", { sessionId, promptId });
+  }
+  /// Resumes the shown chat's paused messages with `peer` (acpmux `hub/agent_pairs.rs`): acpmux
+  /// delivers what the pair held, and its `agent_pair_resumed` record ends the pause.
+  resumeAgentPair(peer: string): Promise<{ resumed?: number; delivered?: number }> {
+    const sessionId = this.actingSessionId;
+    if (!sessionId) return Promise.reject(new Error(translate("error.notOpen")));
+    return this.request("_acpmux/agent_pair_resume", { sessionId, peerSessionId: peer });
   }
   /// Archive has acpmux tag the selected chat `archived` (the lists hide it; acpmux values it with
   /// when); Unarchive removes the tag. The page sends it on its own connection (cx-jlzsf).
   async archive(archived: boolean): Promise<void> {
-    const sessionId = this.selectedSessionId;
+    const sessionId = this.actingSessionId;
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/archive", { sessionId, archived });
   }
   /// Mark as Unread (cx-ncc.78): acpmux keeps the selected chat unread until it is hidden and
   /// shown again.
   async markUnread(): Promise<void> {
-    const sessionId = this.selectedSessionId;
+    const sessionId = this.actingSessionId;
     if (!sessionId) throw new Error(translate("error.notOpen"));
     await this.request("_acpmux/markUnread", { sessionId });
   }
@@ -2145,9 +2876,44 @@ export class AcpmuxDirectClient {
   async markSide(sessionId: string, chat: string): Promise<void> {
     await this.request("_acpmux/side", { sessionId, chat });
   }
-  /// The shown chat's offer `offerId` (cx-807da), while its chip is drawn.
+  /// The shown chat's offer `offerId` (cx-807da), while its card is drawn.
   offer(offerId: string): AcpmuxSessionOffer | undefined {
-    return this.rows.get(`offer-${offerId}`)?.offer;
+    const row = this.rows.get(this.offerRows.get(offerId) ?? "");
+    return row?.offers?.find((offer) => offer.offerId === offerId);
+  }
+  /// A `queued` record of a task's result (acpmux queues it when the chat is busy and its agent
+  /// does not steer): one received line in the thread, never a queued prompt. False for others.
+  private queuedResult(msg: any, at: number): boolean {
+    const received = offersShown() ? offerResult(msg) : undefined;
+    if (!received) return false;
+    const id = `received-${received.offerId}`;
+    if (!this.receivedOffers.has(received.offerId) && !this.rows.has(id))
+      this.rows.set(id, {
+        id,
+        version: 1,
+        at,
+        kind: OFFER_RESULT,
+        text: String(msg.text ?? ""),
+        received,
+      });
+    return true;
+  }
+  /// The queue the composer shows: a task's result waiting there draws as its received line instead.
+  private shownQueue(): { id: string; prompt: string }[] {
+    if (!offersShown()) return this.queue;
+    const shown = this.queue.filter((entry) => !entry.id.startsWith(OFFER_RESULT_PROMPT));
+    return shown.length === this.queue.length ? this.queue : shown;
+  }
+  /// The `agent.suggestedTasks` Debug toggle turned on or off: offers draw or go at once.
+  suggestedTasksChanged(): void {
+    if (!this.selectedSessionId || this.events.length === 0) return;
+    this.rebuildKeepingLiveState();
+    this.emit();
+  }
+  /// Do it here on an offer (cx-lo9yf): acpmux records it answered `here`; the caller then sends
+  /// the offer's prompt to this chat as the person's own.
+  async offerHere(sessionId: string, offerId: string): Promise<void> {
+    await this.request("_acpmux/offer_respond", { sessionId, offerId, outcome: "here" });
   }
   /// Dismiss on an offer's chip: acpmux records the answer, and its record closes the chip.
   async dismissOffer(sessionId: string, offerId: string): Promise<void> {
@@ -2178,23 +2944,99 @@ export class AcpmuxDirectClient {
     return String(child);
   }
   /// Sends `text` to chat `sessionId`, which this pane does not show. acpmux attaches a prompt's
-  /// sender to its chat, as a viewer, which would mark its turn seen: attached hidden first, the
-  /// prompt adds nothing, and the attach ends with the turn (unless the pane shows it by then).
+  /// sender to its chat, as a viewer, which would mark its turn seen: attached hidden first (for
+  /// the tool calls its started row shows), the prompt adds nothing, and the attach ends with the
+  /// turn (unless the pane shows it by then).
   private async promptUnseen(sessionId: string, text: string): Promise<void> {
-    try {
-      await this.request("_acpmux/attach", { sessionId, limit: 0, kinds: [], visible: false });
-      // The reply comes when the turn ends; the chat shows how it goes.
-      await this.request("session/prompt", {
-        sessionId,
-        prompt: promptBlocks(text, []),
-        _meta: { acpmux: { promptId: crypto.randomUUID() } },
-      });
-    } catch {
+    await this.offerChildren
+      .prompting(sessionId, () =>
+        // The reply comes when the turn ends; the chat shows how it goes.
+        this.request("session/prompt", {
+          sessionId,
+          prompt: promptBlocks(text, []),
+          _meta: { acpmux: { promptId: crypto.randomUUID() } },
+        }),
+      )
       // A prompt acpmux refused shows in the chat itself.
-    } finally {
-      if (this.selectedSessionId !== sessionId)
-        void this.request("_acpmux/detach", { sessionId }).catch(() => undefined);
+      .catch(() => undefined);
+  }
+  /// An offer the reducer draws: offers of one group share one card, in the order they came.
+  private addOffer(offer: AcpmuxSessionOffer, at: number): void {
+    const id = offer.groupId ? `offers-${offer.groupId}` : `offer-${offer.offerId}`;
+    const row = this.rows.get(id);
+    if (!row) {
+      this.endAssistantSegment();
+      this.streamingActivity = undefined;
     }
+    const offers = [...(row?.offers ?? []).filter((item) => item.offerId !== offer.offerId), offer];
+    this.offerRows.set(offer.offerId, id);
+    this.rows.set(id, {
+      id,
+      version: (row?.version ?? 0) + 1,
+      at: row?.at ?? at,
+      kind: "sessionOffer",
+      offers,
+    });
+  }
+  /// A `session_offer_decision`: the offer's task is started, dismissed or done here.
+  private answerOffer(msg: any): void {
+    const offerId = String(msg.offerId ?? "");
+    const id = this.offerRows.get(offerId);
+    const row = id ? this.rows.get(id) : undefined;
+    const outcome = ["accepted", "dismissed", "here"].includes(msg.outcome) ? msg.outcome : undefined;
+    if (!id || !row?.offers || !outcome) return;
+    const child = typeof msg.childSessionId === "string" ? { childSessionId: msg.childSessionId } : {};
+    const offers = row.offers.map((offer) =>
+      offer.offerId === offerId ? this.liveOffer({ ...offer, outcome, ...child }) : offer,
+    );
+    this.rows.set(id, { ...row, version: row.version + 1, offers });
+    this.watchOfferChildren();
+  }
+  /// A started offer with its chat's status and latest tool call, as its row shows them.
+  private liveOffer(offer: AcpmuxSessionOffer): AcpmuxSessionOffer {
+    const { childStatus: _status, activity: _activity, ...rest } = offer;
+    const child = rest.outcome === "accepted" ? rest.childSessionId : undefined;
+    if (!child) return rest;
+    const status = this.sessions.find((session) => session.sessionId === child)?.status;
+    const activity = this.offerChildren.activity(child);
+    return {
+      ...rest,
+      ...(typeof status === "string" ? { childStatus: status } : {}),
+      ...(activity ? { activity } : {}),
+    };
+  }
+  /// The chats started from the shown chat's offers.
+  private offerChildIds(): string[] {
+    return [...new Set(this.offerRows.values())].flatMap(
+      (id) => this.rows.get(id)?.offers?.flatMap((offer) => (offer.childSessionId ? [offer.childSessionId] : [])) ?? [],
+    );
+  }
+  /// A chat the shown chat's agent started, while started session cards draw (started/startedSessions.ts).
+  private isStartedChild(session: Session): boolean {
+    return !!this.selectedSessionId && session.spawnedBy === this.selectedSessionId && startedCardsShown();
+  }
+  /// Attaches to the started chats that run, for their rows' subtitles (offer/offerChildren.ts).
+  private watchOfferChildren(): void {
+    this.offerChildren.want(
+      this.offerChildIds().map((child) => ({
+        child,
+        status: this.sessions.find((session) => session.sessionId === child)?.status,
+      })),
+    );
+  }
+  /// Chat `child`, started from an offer here, changed: its row redraws.
+  private childChanged(child: string): void {
+    for (const id of new Set(this.offerRows.values())) {
+      const row = this.rows.get(id);
+      if (!row?.offers?.some((offer) => offer.childSessionId === child)) continue;
+      this.rows.set(id, {
+        ...row,
+        version: row.version + 1,
+        offers: row.offers.map((offer) => this.liveOffer(offer)),
+      });
+    }
+    this.watchOfferChildren();
+    this.emitInFrame("offer child");
   }
   /// This Mac's acpmux health row for harness `id` (`_acpmux/harness/health`, cx-ny85), or
   /// undefined: `refresh` checks again; `rescan` has acpmux look for harnesses first (after an
@@ -2212,24 +3054,42 @@ export class AcpmuxDirectClient {
     });
     return Array.isArray(reply?.harnesses) ? reply.harnesses : [];
   }
+  /// The routes acpmux has (`_acpmux/route/list`) with `sessionId`'s active one: the composer's
+  /// Account menu. Each route says whether it `serves` the session's harness family.
+  async routes(sessionId: string): Promise<unknown> {
+    return this.request("_acpmux/route/list", { sessionId });
+  }
+  /// Binds chat `sessionId` to route `routeId` (null: back to its default) through
+  /// `_acpmux/chat/route.set`. acpmux restarts the harness on it and resumes the same agent
+  /// session, now when idle, else once the running turn ends.
+  async setChatRoute(sessionId: string, routeId: string | null): Promise<unknown> {
+    return this.request("_acpmux/chat/route.set", { sessionId, routeId, when: "after-turn" });
+  }
   /// Changes a waiting prompt (`_acpmux/queue_edit`): `update` its text, `move` it to `index`
   /// (0 runs next) or `send_now`. `ok` is false when it no longer waits.
   async editQueued(promptId: string, edit: QueueEdit): Promise<{ ok: boolean }> {
-    if (!this.selectedSessionId) return { ok: false };
-    return this.request("_acpmux/queue_edit", { sessionId: this.selectedSessionId, promptId, ...edit });
+    if (!this.actingSessionId) return { ok: false };
+    return this.request("_acpmux/queue_edit", {
+      sessionId: this.actingSessionId,
+      promptId,
+      ...edit,
+    });
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option
   /// pick first takes a gesture ticket for this prompt and option (`transport.gesture`): the host
   /// signs an allow for another machine's agent daemon only for that exact pick (cx-0q7o).
   async permission(permissionId: string, optionId?: string, answers?: Record<string, unknown>): Promise<void> {
-    const sessionId = this.selectedSessionId;
+    const sessionId = this.actingSessionId;
     if (!sessionId) return;
     const ticket =
       optionId === undefined || answers !== undefined
         ? undefined
         : await postNative<{ ticket?: string }>("transport.gesture", {
-            intent: { method: "_acpmux/permission_respond", params: { sessionId, permissionId, optionId } },
+            intent: {
+              method: "_acpmux/permission_respond",
+              params: { sessionId, permissionId, optionId },
+            },
           }).then(
             (reply) => reply?.ticket,
             () => undefined,
@@ -2245,10 +3105,14 @@ export class AcpmuxDirectClient {
   /// Answers a secret card: `value` provides it (acpmux keeps it in memory and gives the agent a
   /// one-use ref), none declines. The wire log never holds the value (wire.ts).
   async secret(secretId: string, value?: string): Promise<void> {
-    const sessionId = this.selectedSessionId;
+    const sessionId = this.actingSessionId;
     if (!sessionId) return;
     try {
-      await this.request("_acpmux/secret_submit", { sessionId, secretId, ...(value ? { value } : {}) });
+      await this.request("_acpmux/secret_submit", {
+        sessionId,
+        secretId,
+        ...(value ? { value } : {}),
+      });
     } catch (error) {
       // A card acpmux no longer has never gets its answer: close it. Any other refusal keeps it.
       const message = error instanceof Error ? error.message : "";
@@ -2258,18 +3122,81 @@ export class AcpmuxDirectClient {
     }
   }
   async permissionGroup(groupId: string, revision: number, decision: PermissionDecision): Promise<void> {
+    // During a switch's hold the card drawn is the chat before's, while the group client already
+    // reads the next chat: refuse here, so the next chat's permission state gets no error.
+    if (this.snapshotHold && this.shownSessionId !== this.selectedSessionId)
+      throw new Error(translate("permission.error.selectionChanged"));
     await this.permissions.respond(groupId, revision, decision);
   }
   async select(sessionId: string): Promise<string | undefined> {
     const previousSessionId = this.selectedSessionId;
     const generation = ++this.selectionGeneration;
+    // What the pane shows (the chat before, a new chat's hero) stays drawn until this chat's attach page is in.
+    const hold = this.holdSnapshots(SWITCH_HOLD_MS);
     this.selectedSessionId = sessionId;
     this.missingSession = undefined;
     this.markSeen(sessionId);
     this.resetSessionState();
-    if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
-    await this.attach(sessionId, generation);
+    try {
+      if (previousSessionId) await this.request("_acpmux/detach", { sessionId: previousSessionId });
+      await this.attach(sessionId, generation);
+    } finally {
+      this.releaseSnapshots(hold);
+    }
     return generation === this.selectionGeneration && this.selectedSessionId === sessionId ? sessionId : undefined;
+  }
+
+  /// While a chat is opened (a connect or reconnect, a switch, a new chat's first send, a fallback
+  /// after the chat went away), the client draws no snapshot until the chat's attach page is in:
+  /// the pane keeps what it showed, then draws the chat whole, never the emptied state in between
+  /// (the New chat screen or a blank transcript, no composer, no access chip, no permission state
+  /// for the attach's round trip; Leo 2026-10-19, test/agent-pane-switch-frames.test.ts). A slow
+  /// open draws what it has after its limit anyway. One hold at a time: a newer one replaces it.
+  private snapshotHold?: {
+    key: number;
+    timer: ReturnType<typeof setTimeout>;
+    connection?: string;
+    released: Promise<void>;
+    release: () => void;
+  };
+  private holdKeys = 0;
+  /// The chat the last snapshot drawn showed.
+  private shownSessionId?: string;
+
+  /// The chat a person's action (Stop, an answer, a pick, archive) is for: the one on screen. During
+  /// a hold the pane still draws the chat before while `selectedSessionId` already names the next
+  /// one, and an action from the drawn chat's controls must not reach the hidden one.
+  private get actingSessionId(): string | undefined {
+    return this.snapshotHold && this.shownSessionId !== undefined ? this.shownSessionId : this.selectedSessionId;
+  }
+
+  private holdSnapshots(limitMs: number): number {
+    const key = ++this.holdKeys;
+    const before = this.snapshotHold;
+    if (before) clearTimeout(before.timer);
+    let release = () => {};
+    const released = new Promise<void>((resolve) => (release = resolve));
+    // Whoever waited on the hold before waits on this one.
+    if (before) void released.then(before.release);
+    this.snapshotHold = {
+      key,
+      connection: before?.connection,
+      released,
+      release,
+      timer: setTimeout(() => this.releaseSnapshots(key), limitMs),
+    };
+    return key;
+  }
+
+  /// Ends hold `key` and draws the snapshot it held back, if any.
+  private releaseSnapshots(key: number): void {
+    if (this.snapshotHold?.key !== key) return;
+    clearTimeout(this.snapshotHold.timer);
+    const { connection, release } = this.snapshotHold;
+    this.snapshotHold = undefined;
+    // A closed client draws nothing more (its pane has a new client).
+    if (connection !== undefined && !this.closed) this.emit(connection);
+    release();
   }
   /// The one route of a trust refusal (cx-nn3e): acpmux refuses `session/new`, `session/prompt`
   /// and a prewarm in a folder without a Trust answer (`trust_gate.rs`). Every caller hands its
@@ -2398,6 +3325,23 @@ export class AcpmuxDirectClient {
       this.routeTrustRefusal(error);
     });
   }
+  /// The permission mode acpmux would start a new chat on `harness` in `cwd` in (cx-wx93i),
+  /// as acpmux decides it; undefined when it would set none, does not know, or predates the method.
+  async startMode(harness: string, cwd?: string): Promise<StartMode | undefined> {
+    try {
+      const answer = (await this.request("_acpmux/start_mode", cwd ? { harness, cwd } : { harness })) as {
+        modeId?: unknown;
+        name?: unknown;
+      } | null;
+      if (typeof answer?.modeId !== "string" || !answer.modeId) return undefined;
+      return {
+        modeId: answer.modeId,
+        ...(typeof answer.name === "string" && answer.name ? { name: answer.name } : {}),
+      };
+    } catch {
+      return undefined;
+    }
+  }
   /// Resumes `adopt` in this pane now (a chat whose folder was missing, after Choose Folder): the
   /// same path as an adopt on connect, so a trust refusal asks the question (the trust route).
   async resume(adopt: AcpmuxAdopt): Promise<string | undefined> {
@@ -2475,11 +3419,14 @@ export class AcpmuxDirectClient {
   /// nothing. A failure says so in the transcript; a reader who opened another session meanwhile
   /// stays there. `stay` keeps this chat open and only answers the fork, for its own tab.
   async fork(throughSeq: number, from?: string, stay = false): Promise<string | undefined> {
-    if (!this.canFork || !this.selectedSessionId || this.forking) return undefined;
+    if (!this.canFork || !this.actingSessionId || this.forking) return undefined;
     this.forking = true;
     const generation = this.selectionGeneration;
     try {
-      const result = await this.request(FORK_OP, { sessionId: from ?? this.selectedSessionId, throughSeq });
+      const result = await this.request(FORK_OP, {
+        sessionId: from ?? this.actingSessionId,
+        throughSeq,
+      });
       if (!result?.sessionId || generation !== this.selectionGeneration) return undefined;
       if (stay) return String(result.sessionId);
       return await this.select(String(result.sessionId));
@@ -2517,19 +3464,22 @@ export class AcpmuxDirectClient {
   /// Asks a side question about the open session (`/btw`). acpmux answers it in a throwaway copy
   /// of the chat (`_acpmux/ask`), so the chat never holds it. Resolves to the answer's text.
   async ask(question: string): Promise<string> {
-    if (!this.selectedSessionId) return "";
-    const result = await this.request("_acpmux/ask", { sessionId: this.selectedSessionId, text: question });
+    if (!this.actingSessionId) return "";
+    const result = await this.request("_acpmux/ask", {
+      sessionId: this.actingSessionId,
+      text: question,
+    });
     return typeof result?.text === "string" ? result.text : "";
   }
   async setModel(modelId: string): Promise<void> {
-    if (this.selectedSessionId) await this.request("session/set_model", { sessionId: this.selectedSessionId, modelId });
+    if (this.actingSessionId) await this.request("session/set_model", { sessionId: this.actingSessionId, modelId });
   }
   /// `ticket`: a gesture ticket a held pick took (pane-native transport, `transport.gesture`); it
   /// rides as `_meta.cmuxGesture`, and the host strips it before acpmux.
   async setMode(modeId: string, ticket?: string): Promise<void> {
-    if (this.selectedSessionId)
+    if (this.actingSessionId)
       await this.request("session/set_mode", {
-        sessionId: this.selectedSessionId,
+        sessionId: this.actingSessionId,
         modeId,
         ...gestureMeta(ticket),
       });
@@ -2537,15 +3487,18 @@ export class AcpmuxDirectClient {
   /// The session's summary reads the agent's answer, its whole option list: acpmux sends no
   /// session change for it, so without this the chip and menu keep the old level.
   async setConfig(configId: string, value: string, ticket?: string): Promise<void> {
-    const sessionId = this.selectedSessionId;
+    const sessionId = this.actingSessionId;
     if (!sessionId) return;
+    const generation = this.selectionGeneration;
     const result = await this.request("session/set_config_option", {
       sessionId,
       configId,
       value,
       ...gestureMeta(ticket),
     });
-    if (sessionId !== this.selectedSessionId || !Array.isArray(result?.configOptions)) return;
+    // `summary` is the selected chat's: during a hold that is already the next chat, not the one acted on.
+    if (generation !== this.selectionGeneration || sessionId !== this.selectedSessionId) return;
+    if (!Array.isArray(result?.configOptions)) return;
     this.summary = { ...this.summary, configOptions: result.configOptions };
     this.emit();
   }
@@ -2569,7 +3522,10 @@ export class AcpmuxDirectClient {
     const models = new Map(catalog.map((entry) => [entry.id, entry.models]));
     return [
       ...catalog.filter((entry) => !ids.has(entry.id)),
-      ...profiles.map((profile) => ({ ...profile, models: models.get(profile.id) ?? profile.models })),
+      ...profiles.map((profile) => ({
+        ...profile,
+        models: models.get(profile.id) ?? profile.models,
+      })),
     ];
   }
   /// Probes every agent's live model list again (`_acpmux/models {refresh: true}`): acpmux forgets
@@ -2607,28 +3563,42 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
-    const result = await this.request("_acpmux/events", {
-      sessionId,
-      beforeSeq: this.firstSeq,
-      limit: 400,
-      maxBytes: OLDER_PAGE_BYTES,
-      kinds: ["transcript"],
-    });
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    let older: EventRecord[] = result?.events ?? [];
-    const more = result?.hasMore === true;
-    // A page whose first records finish the turn before it leaves them to the next page, so pages
-    // hold whole turns and fold on their own.
-    const start = more ? older.findIndex(startsTurn) : 0;
-    if (start > 0) older = older.slice(start);
-    if (start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!))) {
-      this.events = mergeEventRecords(older, this.events);
-      this.foldOlder(older);
-    } else {
-      // The open page began mid-turn (or this page holds no turn start): fold everything once.
-      this.events = mergeEventRecords(older, this.events);
-      this.rebuildKeepingLiveState();
+    // The prompt drawn first: the open turn's opener when the held events start mid-turn.
+    const drawnFrom = this.turnOpener?.seq ?? this.firstSeq;
+    const opensOlderTurn = (event: EventRecord) => startsTurn(event) && event.seq < drawnFrom;
+    let older: EventRecord[] = [];
+    let more = true;
+    // A page can draw nothing above the first row: a prompt queued with a big paste or image is a
+    // page of its own, and a page that ends in the opener already drawn adds no turn. Read on until
+    // a turn older than the first row starts, at most OLDER_PAGES_PER_ASK pages; a capped read
+    // still moves `historyFrom`, which makes the transcript ask again.
+    for (
+      let before = this.firstSeq, pages = 0;
+      more && pages < OLDER_PAGES_PER_ASK && !older.some(opensOlderTurn);
+      pages++
+    ) {
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        beforeSeq: before,
+        limit: 400,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      const page: EventRecord[] = result?.events ?? [];
+      older = [...page, ...older];
+      more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
+      if (page.length > 0) before = Math.min(before, page[0]!.seq);
     }
+    // Records before the oldest turn start finish a turn further back: the next read takes them, so
+    // what lands holds whole turns.
+    const start = more ? older.findIndex(opensOlderTurn) : 0;
+    if (start > 0) older = older.slice(start);
+    const foldsAbove = start >= 0 && (this.events.length === 0 || startsTurn(this.events[0]!));
+    this.events = mergeEventRecords(older, this.events);
+    // Held events that start mid-turn (or a read with no turn start) fold everything once.
+    if (foldsAbove) this.foldOlder(older);
+    else this.rebuildKeepingLiveState();
     this.historyExhausted = !more || older.length === 0 || (this.firstSeq ?? 1) <= 1;
     this.emit("history");
   }
@@ -2651,6 +3621,7 @@ export class AcpmuxDirectClient {
       summary: this.summary,
       queue: this.queue,
       pendingPermission: this.pendingPermission,
+      waitingPermissions: this.waitingPermissions,
       pendingSecret: this.pendingSecret,
       groupedPermissions: this.groupedPermissions,
       openQuestions: this.openQuestions,
@@ -2660,6 +3631,7 @@ export class AcpmuxDirectClient {
       optimisticPromptRows: this.optimisticPromptRows,
       optimisticPromptTexts: this.optimisticPromptTexts,
       promptAccepts: this.promptAccepts,
+      compactionHeardAt: this.compactionHeardAt,
     };
     const held = new Map(this.rows);
     this.turnOpen = false;
@@ -2672,12 +3644,14 @@ export class AcpmuxDirectClient {
     this.planCalls = new Set();
     this.subagents = new SubagentFold();
     this.groupedPermissions = new Map();
+    this.waitingPermissions = new Map();
     this.openQuestions = new Set();
     this.heldEdits = new Set();
     // An older prompt never settles one still sending, however alike their text.
     this.optimisticPromptRows = new Map();
     this.optimisticPromptTexts = new Map();
     this.promptAccepts = new Map();
+    this.compactionHeardAt = new Map();
     this.foldingBelow = this.firstSeq ?? Infinity;
     try {
       for (const event of [...older].sort((a, b) => a.seq - b.seq)) {
@@ -2687,6 +3661,29 @@ export class AcpmuxDirectClient {
     } finally {
       this.foldingBelow = undefined;
     }
+    // A compaction the page leaves running, or noted as failed while it may go on (a forced
+    // Stop), went on past its last record (an account switch's runs between turns): the held
+    // events' first compaction row is it if that started on time; else one still running never
+    // said how it ended and is noted as failed, as the next turn's start would.
+    const heldCompaction = [...held.values()]
+      .filter((row) => row.kind === "compaction")
+      .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))[0];
+    for (const row of this.rows.values())
+      if (
+        row.kind === "compaction" &&
+        !held.has(row.id) &&
+        (row.compaction?.state === "running" ||
+          (row.compaction?.inferred === true && this.compactionHeardAt.has(row.id)))
+      ) {
+        const heard = this.compactionHeardAt.get(row.id) ?? -Infinity;
+        if (heldCompaction && heldCompaction.at - heard <= COMPACTION_REPEAT_WINDOW) this.rows.delete(row.id);
+        else if (row.compaction?.state === "running")
+          this.rows.set(row.id, {
+            ...row,
+            version: row.version + 1,
+            compaction: { ...row.compaction, state: "failed", inferred: true },
+          });
+      }
     // A fork older than every held event is only in this page.
     const forkedAtSeq = live.forkedAtSeq ?? this.forkedAtSeq;
     Object.assign(this, live, { forkedAtSeq });
@@ -2696,7 +3693,15 @@ export class AcpmuxDirectClient {
   /// The socket's own onclose ignores a socket close() already let go of, so settle requests here.
   close(): void {
     this.closed = true;
+    const hold = this.snapshotHold;
+    if (hold) clearTimeout(hold.timer);
+    this.snapshotHold = undefined;
+    hold?.release();
     this.sessionPages.stop();
+    clearTimeout(this.sessionReread);
+    this.sessionReread = undefined;
+    clearTimeout(this.stopTimer);
+    this.stopTimer = undefined;
     if (typeof document !== "undefined") document.removeEventListener("visibilitychange", this.showChanged);
     if (this.reconnectTimer !== undefined) window.clearTimeout(this.reconnectTimer);
     this.reconnectTimer = undefined;
@@ -2738,7 +3743,10 @@ export type TrustRoute = (refusal: TrustRefusal, again?: () => void) => void;
 export function trustRefusal(error: unknown): TrustRefusal | undefined {
   if (!isTrustRefusal(error)) return undefined;
   const fields = error as { reason: TrustRefusal["reason"]; cwd?: unknown };
-  return { reason: fields.reason, ...(typeof fields.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}) };
+  return {
+    reason: fields.reason,
+    ...(typeof fields.cwd === "string" && fields.cwd ? { cwd: fields.cwd } : {}),
+  };
 }
 
 export function harnessRefusal(entry: { unavailable?: unknown; probeError?: unknown } | undefined): string | undefined {
@@ -2780,7 +3788,11 @@ export function normalizeFolderProfiles(value: any): AcpmuxSnapshot["catalog"] {
 
 /// A `session/new` acpmux refused because the chat's folder profile is not enabled yet
 /// (`harness.needs_enable`) or its folder has no Trust answer (`harness.needs_trust`).
-export type HarnessBlock = { reason: "needs-enable" | "needs-trust"; harness: string; folder: string };
+export type HarnessBlock = {
+  reason: "needs-enable" | "needs-trust";
+  harness: string;
+  folder: string;
+};
 
 export function harnessBlock(error: unknown): HarnessBlock | undefined {
   const data = (error as { data?: unknown } | null)?.data as
@@ -2794,6 +3806,33 @@ export function harnessBlock(error: unknown): HarnessBlock | undefined {
         : undefined;
   if (!reason || typeof data?.harness !== "string" || typeof data.folder !== "string") return undefined;
   return { reason, harness: data.harness, folder: data.folder };
+}
+
+/// Claude Code says it is still compacting every 30 seconds (2.1.305): a running note this soon
+/// after a row's last one is that compaction going on; a later one is a new compaction.
+const COMPACTION_REPEAT_WINDOW = 90_000;
+
+/// A compaction's next running note on its row: what the row knew (a wrapper's reason), still running.
+function stillRunning(prior: AcpmuxCompaction, next: AcpmuxCompaction): AcpmuxCompaction {
+  const { inferred: _inferred, ...known } = prior;
+  return { ...known, ...next };
+}
+
+/// A `compaction` update's state, sizes and, for a failed one, why; undefined for a state
+/// acpmux does not send.
+function compactionOf(update: any): AcpmuxCompaction | undefined {
+  const state = update?.state;
+  if (state !== "running" && state !== "completed" && state !== "failed") return undefined;
+  const count = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : undefined);
+  return {
+    state,
+    ...(typeof update.reason === "string" && update.reason ? { reason: update.reason } : {}),
+    ...(state === "failed" && typeof update.error === "string" && update.error.trim()
+      ? { error: update.error.trim() }
+      : {}),
+    ...(count(update.preTokens) !== undefined ? { preTokens: count(update.preTokens) } : {}),
+    ...(count(update.postTokens) !== undefined ? { postTokens: count(update.postTokens) } : {}),
+  };
 }
 
 /// A `background_task_update`'s shell and how it ended; undefined when it names neither.
@@ -2810,7 +3849,19 @@ function sessionOffer(msg: any): AcpmuxSessionOffer | undefined {
     worktree: msg.worktree === true,
     ...(field("harness") ? { harness: field("harness") } : {}),
     ...(field("model") ? { model: field("model") } : {}),
+    ...(field("groupId") ? { groupId: field("groupId") } : {}),
   };
+}
+
+/// The started offer a `user_message` brings the result of (`_meta.provenance`, kind
+/// `offer_result`), or undefined for any other prompt.
+function offerResult(msg: any): AcpmuxOfferResult | undefined {
+  const provenance = msg?._meta?.provenance;
+  if (provenance?.kind !== "offer_result") return undefined;
+  const [offerId, childSessionId, title] = [provenance.offerId, provenance.childSessionId, provenance.title];
+  if (typeof offerId !== "string" || typeof childSessionId !== "string" || typeof title !== "string" || !title)
+    return undefined;
+  return { offerId, childSessionId, title };
 }
 
 function backgroundTask(update: any): AcpmuxBackgroundTask | undefined {

@@ -6,6 +6,11 @@
 // Unix only until the Windows port runs the daemon (cmux::local_socket).
 #![cfg(unix)]
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, ProfileSources, StoreMode};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

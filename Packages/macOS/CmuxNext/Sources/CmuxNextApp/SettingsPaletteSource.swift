@@ -130,7 +130,7 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             PaletteSettingCustomInput(placeholder: "\(number.range.lowerBound.formatted())–\(number.range.upperBound.formatted())") {
                 parse($0, for: descriptor) != nil
             }
-        case .sound, .url, .theme, .fontFamily:
+        case .sound, .url, .theme, .fontFamily, .text:
             PaletteSettingCustomInput(placeholder: descriptor.title) { parse($0, for: descriptor) != nil }
         }
     }

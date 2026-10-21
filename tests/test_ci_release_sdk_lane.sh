@@ -38,8 +38,8 @@ require_job_contains \
 require_job_contains \
   "$RELEASE_FILE" \
   "build-sign-notarize" \
-  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || vars.MACOS_RUNNER_26 || '\''blacksmith-6vcpu-macos-26'\'' }}' \
-  "release must sign+notarize on the macOS 26 runner variable after importing the Developer ID intermediate chain"
+  'runs-on: ${{ github.repository_owner != '\''manaflow-ai'\'' && '\''macos-26'\'' || '\''blacksmith-12vcpu-macos-26'\'' }}' \
+  "release must sign+notarize on the literal macOS 26 Blacksmith label, never a repository variable"
 
 release_section="$(job_section "$CI_FILE" "release-build")"
 for needle in \

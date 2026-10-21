@@ -54,7 +54,7 @@ await requireBrowserLane("new-tab-field-on-art.test.ts", async () => {
       "--cmux-popup-surface:rgb(52, 49, 68)",
     ].join(";");
   const body = `<div class="acpmux-shell"><div class="nt-screen"><div class="nt-box"><div class="nt-input">
-<input class="nt-field" data-focus-ring="none" placeholder="Search or type a URL"></div></div></div></div>
+<textarea class="nt-field" rows="1" data-focus-ring="none" placeholder="Search or type a URL"></textarea></div></div></div></div>
 <div class="ui-positioner"><div class="ui-popup nt-popover"><div class="nt-rows" id="rows">
 <div class="nt-row is-selected" id="row">reddit.com</div></div></div></div>
 <div class="ui-positioner"><div class="ui-popup ui-context-menu" id="menu"><div class="ui-menu-item" id="item">Copy</div></div></div>

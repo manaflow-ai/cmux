@@ -37,7 +37,8 @@ extension SettingDescriptor {
             return [SettingOption(value: .bool(true), title: SettingsText.text("settings.choice.on", "On"), isCurrent: on),
                     SettingOption(value: .bool(false), title: SettingsText.text("settings.choice.off", "Off"), isCurrent: !on)]
         case .choice(let choices), .choiceOrNumber(let choices, _):
-            return choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
+            let options = choices.map { SettingOption(value: .string($0.value), title: $0.title, isCurrent: current?.stringValue == $0.value) }
+            return path == BackdropSelectionSetting().configPath ? Self.backgroundOptions(options, current: current) : options
         case .number(let number):
             var options: [SettingOption] = []
             if defaultValue == nil {
@@ -63,9 +64,23 @@ extension SettingDescriptor {
                 options.append(SettingOption(value: .string(text), title: text, swatches: [selected], isCurrent: true))
             }
             return options
-        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet:
+        case .sound, .url, .hostList, .folderList, .timeRange, .theme, .fontFamily, .text, .numberList, .stringMap, .stringList, .orderedChoices, .choiceSet:
             return []
         }
+    }
+
+    /// `appearance.background`'s options, naming what the window shows when the value is not one
+    /// the list offers: a retired painting id marks the work that replaced it, and your own image
+    /// or a macOS wallpaper is one more option, current, by its name.
+    static func backgroundOptions(_ options: [SettingOption], current: JSONValue?) -> [SettingOption] {
+        guard !options.contains(where: \.isCurrent), let raw = current?.stringValue, let selection = BackdropSelection(id: raw) else {
+            return options
+        }
+        let shown = JSONValue.string(selection.id)
+        if options.contains(where: { $0.value == shown }) {
+            return options.map { SettingOption(value: $0.value, title: $0.title, swatches: $0.swatches, isCurrent: $0.value == shown) }
+        }
+        return options + [SettingOption(value: .string(raw), title: selection.title, isCurrent: true)]
     }
 
     /// Every step from the low end to the high end, or, for a wider range,
@@ -100,6 +115,8 @@ extension SettingDescriptor {
         let number = value.formatted(.number.precision(.fractionLength(0...2)))
         switch unit {
         case .points: return String(format: SettingsText.text("settings.value.points", "%@ pt"), number)
+        // "1,300 ms", localized by Foundation.
+        case .milliseconds: return Measurement(value: value, unit: UnitDuration.milliseconds).formatted(.measurement(width: .abbreviated))
         case .seconds: return String(format: SettingsText.text("settings.value.seconds", "%@ s"), number)
         case .minutes: return String(format: SettingsText.text("settings.value.minutes", "%@ min"), number)
         case .days: return days(Int(value.rounded())) ?? number

@@ -32,25 +32,33 @@ public struct SessionStateMirror: Sendable, Hashable {
         /// A browser tab's device emulation as the daemon resolved it
         /// (`extra.emulation`, browser-devices-v1), or nil.
         public var emulation: JSONValue?
+        /// Marked unread by hand (Mark Tab Unread, `extra.marked_unread`, tab-mark-unread-v1),
+        /// apart from notification markers.
+        public var markedUnread: Bool
 
         public init(zoom: Double? = nil, back: [String] = [], forward: [String] = [], icon: String? = nil,
-                    emulation: JSONValue? = nil) {
+                    emulation: JSONValue? = nil, markedUnread: Bool = false) {
             self.zoom = zoom
             self.back = back
             self.forward = forward
             self.icon = icon
             self.emulation = emulation
+            self.markedUnread = markedUnread
         }
 
-        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil }
+        var isEmpty: Bool { zoom == nil && back.isEmpty && forward.isEmpty && icon == nil && emulation == nil && !markedUnread }
     }
 
     /// Newest first, at most `closedLimit`.
     public var closed: [ClosedItem] = []
     public var workspaceStatus: [ResourceID: WorkspaceStatus] = [:]
+    /// Each workspace's checklist (`workspace-checklist-v1`); a workspace without items is absent.
+    public var workspaceChecklists: [ResourceID: WorkspaceChecklist] = [:]
     public var ephemeralWorkspaces: Set<ResourceID> = []
     /// Each workspace's agent folder (`extra.agent_folder`), where its new agent chats start.
     public var agentFolders: [ResourceID: String] = [:]
+    /// Each workspace's description and manual task status; absent while neither is set.
+    public var workspaceNotes: [ResourceID: WorkspaceNotes] = [:]
     public var screens: [ResourceID: ScreenState] = [:]
     public var screenGroups: [String: StateScreenGroup] = [:]
     public var tabs: [ResourceID: TabRecord] = [:]
@@ -65,43 +73,103 @@ public struct SessionStateMirror: Sendable, Hashable {
 
     public init() {}
 
-    /// Applies one ordered batch of changes.
-    public mutating func apply(_ changes: [SessionStateChange]) {
-        for change in changes { apply(change) }
+    /// A record a change touched: what `SessionStateStore` lays over the
+    /// tree's records again (only those, never the whole tree).
+    public enum Touched: Hashable, Sendable {
+        /// The workspace's own state: ephemeral, agent folder, status, screen groups.
+        case workspace(ResourceID)
+        case screen(ResourceID)
+        case tab(ResourceID)
+        case terminal(ResourceID)
+        case closed
     }
 
+    /// Applies one ordered batch of changes in place.
+    public mutating func apply(_ changes: [SessionStateChange]) {
+        var touched: Set<Touched> = []
+        for change in changes { apply(change, touched: &touched) }
+    }
+
+    /// Applies one change in place.
     public mutating func apply(_ change: SessionStateChange) {
+        var touched: Set<Touched> = []
+        apply(change, touched: &touched)
+    }
+
+    /// Applies one change in place and adds the record it changed to
+    /// `touched`; a change that leaves the value as it was adds nothing.
+    /// O(1) per change (the closed list is bounded by `closedLimit`).
+    public mutating func apply(_ change: SessionStateChange, touched: inout Set<Touched>) {
         switch change {
-        case .workspace(let id, let ephemeral, let agentFolder):
-            if ephemeral { ephemeralWorkspaces.insert(id) } else { ephemeralWorkspaces.remove(id) }
-            agentFolders[id] = agentFolder
+        case .workspace(let id, let ephemeral, let agentFolder, let notes):
+            let changed = ephemeral ? ephemeralWorkspaces.insert(id).inserted : ephemeralWorkspaces.remove(id) != nil
+            let notes = notes.isEmpty ? nil : notes
+            if changed || agentFolders[id] != agentFolder || workspaceNotes[id] != notes {
+                agentFolders[id] = agentFolder
+                workspaceNotes[id] = notes
+                touched.insert(.workspace(id))
+            }
         case .workspaceRemoved(let id):
-            ephemeralWorkspaces.remove(id)
-            agentFolders[id] = nil
-            workspaceStatus[id] = nil
+            let removed = [ephemeralWorkspaces.remove(id) != nil, agentFolders.removeValue(forKey: id) != nil,
+                           workspaceStatus.removeValue(forKey: id) != nil, workspaceNotes.removeValue(forKey: id) != nil,
+                           workspaceChecklists.removeValue(forKey: id) != nil]
+            if removed.contains(true) { touched.insert(.workspace(id)) }
         case .screen(let id, let state):
+            guard screens[id] != state else { return }
             screens[id] = state
+            touched.insert(.screen(id))
         case .tab(let id, let record):
-            tabs[id] = record.flatMap { $0.isEmpty ? nil : $0 }
+            let record = record.flatMap { $0.isEmpty ? nil : $0 }
+            guard tabs[id] != record else { return }
+            tabs[id] = record
+            touched.insert(.tab(id))
         case .terminal(let id, let progress, let programStatus, let busySinceMs):
+            let status = programStatus.isEmpty ? nil : programStatus
+            guard terminalProgress[id] != progress || terminalProgramStatus[id] != status || terminalBusySinceMs[id] != busySinceMs else {
+                return
+            }
             terminalProgress[id] = progress
-            terminalProgramStatus[id] = programStatus.isEmpty ? nil : programStatus
+            terminalProgramStatus[id] = status
             terminalBusySinceMs[id] = busySinceMs
+            touched.insert(.terminal(id))
         case .closed(let item):
+            let before = closed
             closed.removeAll { $0.id == item.id }
             let index = closed.firstIndex { $0.closedAtMs < item.closedAtMs } ?? closed.endIndex
             closed.insert(item, at: index)
             if closed.count > Self.closedLimit { closed.removeLast(closed.count - Self.closedLimit) }
+            if closed != before { touched.insert(.closed) }
         case .closedRemoved(let id):
+            guard closed.contains(where: { $0.id == id }) else { return }
             closed.removeAll { $0.id == id }
+            touched.insert(.closed)
         case .status(let status):
+            guard workspaceStatus[status.workspaceID] != status else { return }
             workspaceStatus[status.workspaceID] = status
+            touched.insert(.workspace(status.workspaceID))
         case .statusRemoved(let workspace):
-            workspaceStatus[workspace] = nil
+            guard workspaceStatus.removeValue(forKey: workspace) != nil else { return }
+            touched.insert(.workspace(workspace))
+        case .checklist(let checklist):
+            let value = checklist.items.isEmpty ? nil : checklist
+            guard workspaceChecklists[checklist.workspaceID] != value else { return }
+            workspaceChecklists[checklist.workspaceID] = value
+            touched.insert(.workspace(checklist.workspaceID))
+        case .checklistRemoved(let workspace):
+            guard workspaceChecklists.removeValue(forKey: workspace) != nil else { return }
+            touched.insert(.workspace(workspace))
         case .screenGroup(let group):
+            let old = screenGroups[group.id]
+            guard old != group else { return }
             screenGroups[group.id] = group
+            touched.insert(.workspace(group.workspaceID))
+            if let old, old.workspaceID != group.workspaceID { touched.insert(.workspace(old.workspaceID)) }
         case .screenGroupRemoved(let id):
-            screenGroups[id] = nil
+            guard let old = screenGroups.removeValue(forKey: id) else { return }
+            touched.insert(.workspace(old.workspaceID))
+        case .sidebarBatch:
+            // The sidebar document has its own mirror (SessionStateStore.onSidebarBatch).
+            break
         }
     }
 

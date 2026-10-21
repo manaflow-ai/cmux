@@ -149,7 +149,7 @@ impl Machine {
 impl Drop for Machine {
     fn drop(&mut self) {
         let _ = self.server("stop").arg("--end-terminals").output();
-        let _ = self.command().args(["acp", "daemon", "shutdown"]).output();
+        let _ = self.command().args(["acp", "daemon", "shutdown", "--end-agents"]).output();
     }
 }
 

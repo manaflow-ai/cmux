@@ -6,6 +6,8 @@
 
 #[path = "support/daemon_env.rs"]
 mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
 
 use serde_json::{Value, json};
 use std::io::{BufRead, BufReader};
@@ -46,6 +48,19 @@ impl Daemon {
         let socket = home.join("s.sock");
         let env = env.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect();
         let mut daemon = Self { child: None, home, socket, env, key: None };
+        daemon.start();
+        daemon
+    }
+
+    /// A daemon whose fake agent steers as Claude Code does (`FAKE_CLAUDE_STEER`).
+    fn claude_steering(tag: &str) -> Self {
+        let mut daemon = Self::with_env(tag, "approve-all", &[]);
+        daemon.sigterm();
+        std::fs::write(
+            daemon.home.join("config.json"),
+            json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        )
+        .unwrap();
         daemon.start();
         daemon
     }
@@ -340,6 +355,106 @@ async fn agent_turn_survives_a_daemon_crash_and_completes_after_adoption() {
     assert!(alive(harness_pid), "a second agent replaced the adopted one");
 }
 
+/// An update restarts acpmux while a turn runs that took a steer (the Chief's `tell`). Claude
+/// Code answers a steer "steered" at once and the turn runs on. The adopting daemon must keep
+/// the turn open until the turn's own prompt is answered; it settled the turn on the steer's
+/// answer instead, so every steered subagent read as finished after the 2026-10-19 nightly
+/// update while it kept working (update-keeps-sessions.md).
+#[tokio::test]
+async fn a_steered_turn_stays_open_across_an_update_restart_until_the_agent_ends_it() {
+    let mut daemon = Daemon::claude_steering("steer-up");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+    let mut steerer = daemon.rpc().await;
+    let steered = steerer
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "{steered}");
+    let turn_id = daemon.wait_event(&session, "turn_started", |e| e["kind"] == "turn_started")["msg"]
+        ["turnId"]
+        .clone();
+    let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    drop((client, steerer));
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness_pid), "the agent died with the update restart");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    let events = daemon.events(&session);
+    let after_gate = events.iter().find(|e| chunk(e, "after-gate")).map(|e| e["seq"].as_u64());
+    let results: Vec<&Value> = events
+        .iter()
+        .filter(|e| e["kind"] == "turn_result" && e["msg"]["turnId"] == turn_id)
+        .collect();
+    assert_eq!(results.len(), 1, "the turn settled more than once: {results:#?}");
+    assert_eq!(
+        results[0]["msg"]["stopReason"], "end_turn",
+        "settled on the steer's answer: {:#?}",
+        results[0]
+    );
+    assert!(
+        after_gate.flatten().is_some_and(|g| results[0]["seq"].as_u64().unwrap() > g),
+        "the turn settled before the agent ended it: {events:#?}"
+    );
+}
+
+/// An update restart adopts a running Claude chat without initializing its agent again, so the
+/// agent's `steering` capability came back false: every prompt sent into its turns then stopped
+/// the turn ("Sent now · stopped the turn") instead of steering, and the composer's hint flipped
+/// to "⌘↵ to interrupt" (Leo, 2026-10-20: seven live claude-sr2 chats read steering=false).
+#[tokio::test]
+async fn an_adopted_chat_still_steers_after_an_update_restart() {
+    let mut daemon = Daemon::claude_steering("steer-adopt");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+
+    daemon.sigterm();
+    drop(client);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let mut rpc = daemon.rpc().await;
+    let listed = rpc.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session.as_str()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let steering = &entry["_meta"]["acpmux"]["steering"];
+    assert_eq!(steering, true, "the adopted chat lost its steering: {entry}");
+    let steered = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "the steer stopped the adopted turn: {steered}");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+}
+
 #[tokio::test]
 async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_agent() {
     let mut daemon = Daemon::new("perm", "ask");
@@ -464,15 +579,16 @@ fn cli_shutdown(daemon: &Daemon, extra: &[&str]) -> std::process::Output {
         .expect("run acpmux daemon shutdown")
 }
 
-/// `acpmux daemon shutdown` does what its help says: it stops the daemon
-/// and every agent process, hosted agents and their hosts included. On
-/// cmux-lawrence (2026-10-06) it reported success against the brain's
-/// acpmux and left the "rollback-throwaway" session's agent host running.
+/// `acpmux daemon shutdown --end-agents` does what its help says: it stops
+/// the daemon and every agent process, hosted agents and their hosts
+/// included. On cmux-lawrence (2026-10-06) it reported success against the
+/// brain's acpmux and left the "rollback-throwaway" session's agent host
+/// running.
 #[tokio::test]
-async fn the_cli_shutdown_ends_every_agent_and_its_host() {
+async fn the_cli_shutdown_with_end_agents_ends_every_agent_and_its_host() {
     let mut daemon = Daemon::new("clis", "approve-all");
     let (_session, host, client) = gated_turn(&daemon).await;
-    let out = cli_shutdown(&daemon, &[]);
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
     drop(client);
@@ -487,7 +603,8 @@ async fn the_cli_shutdown_ends_every_agent_and_its_host() {
 }
 
 /// A harness helper that moved into its own session (setsid) is out of reach
-/// of the harness group signal; `acpmux daemon shutdown` still ends it.
+/// of the harness group signal; `acpmux daemon shutdown --end-agents` still
+/// ends it.
 #[tokio::test]
 async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     let helper_file = std::env::temp_dir().join(format!("amd-sid-{}", std::process::id()));
@@ -503,7 +620,7 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     let helper_path = format!("{}.{}", helper_file.display(), host["harness_pid"]);
     let helper: i64 = std::fs::read_to_string(&helper_path).unwrap().trim().parse().unwrap();
     let _ = std::fs::remove_file(&helper_path);
-    let out = cli_shutdown(&daemon, &[]);
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
     drop(client);
@@ -515,8 +632,157 @@ async fn the_cli_shutdown_ends_a_harness_child_that_left_its_group() {
     assert!(gone, "a harness child that left its group outlived acpmux daemon shutdown");
 }
 
-/// `--keep-agents` is the explicit durable stop (a restart): hosted agents
-/// keep running for the next daemon to adopt.
+/// cx-qryd0 (hq-6d 2026-10-15): a plain `acpmux daemon shutdown` is a
+/// restart stop, as the `_acpmux/shutdown` RPC without endAgents: the hosted
+/// agent keeps running and the next daemon adopts it. (It ended every agent
+/// before, and a proof's clean start ended another job's live agent on a
+/// shared machine, cx-ao1gb.)
+#[tokio::test]
+async fn a_plain_cli_shutdown_keeps_hosted_agents_for_the_next_daemon() {
+    let mut daemon = Daemon::new("cliplain", "approve-all");
+    let (session, host, client) = gated_turn(&daemon).await;
+    let out = cli_shutdown(&daemon, &[]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    drop(client);
+    let harness = host["harness_pid"].as_i64().unwrap();
+    assert!(alive(harness), "a plain shutdown ended the agent");
+    // The next daemon adopts it.
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness), "the agent did not survive the restart");
+    // This test started it: end it (and the daemon) explicitly.
+    let out = cli_shutdown(&daemon, &["--end-agents"]);
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    daemon.wait_exit();
+    assert!(gone_within(harness, Duration::from_secs(10)), "--end-agents left the agent running");
+}
+
+/// What the agent of `session` has in its environment as `name`
+/// (the fake agent's `env:` prompt).
+async fn agent_env(daemon: &Daemon, session: &str, name: &str) -> String {
+    let prefix = format!("{name}=");
+    let values = || -> Vec<String> {
+        daemon
+            .events(session)
+            .iter()
+            .filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str())
+            .filter_map(|t| t.strip_prefix(&prefix).map(str::to_owned))
+            .collect()
+    };
+    let before = values().len();
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
+    )
+    .await;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Some(value) = values().get(before) {
+            return value.clone();
+        }
+        assert!(Instant::now() < deadline, "the agent never said {name}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A connection that presents `token` as session `session`'s caller token,
+/// as the cmux-subsessions server and the acpmux CLI inside it do, and its
+/// reply to `_acpmux/subsession/list`.
+async fn list_as(daemon: &Daemon, session: &str, token: &str) -> Value {
+    let mut caller = daemon.rpc().await;
+    caller
+        .call(
+            "initialize",
+            json!({"protocolVersion": 1,
+                   "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}}),
+        )
+        .await;
+    caller.reply("_acpmux/subsession/list", json!({})).await
+}
+
+/// An app update restarts acpmux; the adopted agent and its MCP servers
+/// (cmux-subsessions, cmux) keep the caller token the previous daemon gave
+/// them. The new daemon must still know the session by it: on 2026-10-20 a
+/// coordinator lost control of its ten sub-sessions after the nightly update,
+/// because every sub-session tool was refused with that token.
+#[tokio::test]
+async fn an_adopted_agent_keeps_its_caller_token_across_an_update_restart() {
+    let mut daemon = Daemon::new("callerup", "approve-all");
+    let session = new_session(&daemon).await;
+    let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_eq!(token.len(), 64, "the agent has no caller token: {token:?}");
+    let before = list_as(&daemon, &session, &token).await;
+    assert!(before.get("error").is_none(), "the token did not prove its session: {before}");
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness), "the agent died with the update restart");
+    let after = list_as(&daemon, &session, &token).await;
+    assert!(
+        after.get("error").is_none(),
+        "the adopted agent's caller token no longer proves its session: {after}"
+    );
+    // The token is the session's alone.
+    let other = new_session(&daemon).await;
+    let borrowed = list_as(&daemon, &other, &token).await;
+    assert!(borrowed.get("error").is_some(), "one session's token proved another: {borrowed}");
+    // A new agent process has this run's token; the earlier one stops counting.
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let fresh = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_ne!(fresh, token, "the restarted agent kept the earlier run's token");
+    let stale = list_as(&daemon, &session, &token).await;
+    assert!(stale.get("error").is_some(), "the replaced agent's token still proves it: {stale}");
+    let current = list_as(&daemon, &session, &fresh).await;
+    assert!(current.get("error").is_none(), "the restarted agent's token: {current}");
+}
+
+/// A caller token the daemon cannot prove (a host of an older build kept an
+/// earlier daemon run's token) is refused with what to do about it, not
+/// only "connect with that session's caller token".
+#[tokio::test]
+async fn an_unproven_caller_token_is_refused_with_how_to_get_a_new_one() {
+    let daemon = Daemon::new("callerbad", "approve-all");
+    let session = new_session(&daemon).await;
+    let refused = list_as(&daemon, &session, &"0".repeat(64)).await;
+    let error = &refused["error"];
+    assert_eq!(error["data"]["reason"], "subsessions.caller_not_proven", "{refused}");
+    // A session this daemon does not have gets no restart advice.
+    let unknown = list_as(&daemon, "no-such-session", &"0".repeat(64)).await;
+    assert_eq!(unknown["error"]["data"]["reason"], "subsessions.caller_required", "{unknown}");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains(&format!("acpmux session restart {session}")),
+        "the refusal does not say how to get a new token: {message}"
+    );
+    // What it says works: the agent restarts, with a token that proves it.
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "restarted");
+    let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    let restarted = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(restarted, harness, "the agent process did not restart");
+    let listed = list_as(&daemon, &session, &token).await;
+    assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
+}
+
+/// `--keep-agents` stays accepted (a no-op now) for callers that may run an
+/// older CLI: hosted agents keep running for the next daemon to adopt.
 #[tokio::test]
 async fn the_cli_shutdown_with_keep_agents_leaves_hosted_agents_running() {
     let mut daemon = Daemon::new("clik", "approve-all");

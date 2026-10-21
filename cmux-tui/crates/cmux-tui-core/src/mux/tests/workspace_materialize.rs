@@ -416,7 +416,10 @@ fn key_close_cannot_rebind_a_live_durable_workspace_identity() {
     }
     let replacement_error =
         mux.create_empty_workspace(Some("replacement".into()), Some(key), None).unwrap_err();
-    assert!(replacement_error.to_string().contains("is already bound to public id"));
+    assert!(
+        replacement_error.to_string().contains("is already bound to public id"),
+        "{replacement_error:#}"
+    );
     drop(original_guard);
 
     let close_result = close_done_rx.recv().unwrap();

@@ -13,7 +13,7 @@ import {
   type InstalledApp,
   type LogLine,
 } from "./types";
-import type { WireDetail, WireInstalledList, WireListing } from "./wire";
+import type { WireDetail, WireInstalledList, WireListing, WireUpdatesList } from "./wire";
 
 export interface MockCall {
   op: string;
@@ -95,9 +95,29 @@ export class MockAppsProvider implements PageClient {
               source: row.source,
               version: row.version,
               update: row.update ?? null,
+              failure: row.failure ?? null,
             },
             grants: [],
           })),
+        };
+        return list as R;
+      }
+      case AppsOps.updatesList: {
+        const list: WireUpdatesList = {
+          revision: this.revision,
+          updates: Object.values(this.installed).flatMap((row) =>
+            row.update
+              ? [
+                  {
+                    app: row.id,
+                    name: row.name,
+                    current_version: row.version,
+                    version: row.update.version,
+                    failure: row.failure ?? null,
+                  },
+                ]
+              : [],
+          ),
         };
         return list as R;
       }
@@ -173,6 +193,7 @@ export class MockAppsProvider implements PageClient {
         if (row?.update) {
           row.version = row.update.version;
           delete row.update;
+          delete row.failure;
         }
         return this.changed(app) as R;
       }

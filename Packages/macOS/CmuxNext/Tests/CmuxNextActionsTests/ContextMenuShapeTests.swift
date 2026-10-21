@@ -86,11 +86,13 @@ struct ContextMenuShapeTests {
         }
     }
 
-    /// Each group's and screen's color list is a submenu titled Color, of color names.
+    /// Each group's and screen's color list is a submenu titled Color, of color names: in
+    /// Appearance ▸, or at the top level of a workspace group's flat menu (Lawrence 2026-10-20).
     @Test func colorSubmenusAreTitledColor() throws {
         for (context, prefix) in [(ActionMenuContext.tabGroup, "tabGroup"), (.workspaceGroup, "workspaceGroup"),
                                   (.screen, "screen"), (.screenGroup, "screenGroup")] {
-            let appearance = try #require(submenu("Appearance", in: rows(context)), "\(context) has Appearance")
+            let appearance = try #require(context == .workspaceGroup ? rows(context) : submenu("Appearance", in: rows(context)),
+                                          "\(context) has Appearance")
             let color = try #require(appearance.first { $0.id == ActionID(rawValue: "\(prefix).setColor") }, "\(context) has a color submenu")
             #expect(color.title == "Color", "\(context): the color submenu reads \(color.title)")
             #expect(color.children?.contains { $0.title == "Blue" } == true, "\(context): Color › Blue")

@@ -158,7 +158,7 @@ finally:
             proc.wait(timeout=60)
         except subprocess.TimeoutExpired:
             say(f"B pid {proc.pid} still runs after quit")
-    subprocess.run([acpmux, "daemon", "shutdown"], env={**clean_env, "ACPMUX_HOME": os.path.join(SCRATCH, "acpmux", "builds", KEY)},
+    subprocess.run([acpmux, "daemon", "shutdown", "--end-agents"], env={**clean_env, "ACPMUX_HOME": os.path.join(SCRATCH, "acpmux", "builds", KEY)},
                    capture_output=True, timeout=30)
     subprocess.run([cli, "daemon", "stop", "--session", B_SESSION, "--end-terminals"], env=clean_env,
                    capture_output=True, timeout=60)

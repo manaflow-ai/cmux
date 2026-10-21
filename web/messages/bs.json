@@ -1,4 +1,5 @@
 {
+  "guestCLI": { "useReasonSharedMachine": "obavezno: ova mašina se dijeli s timom" },
   "agentHarness": {
     "title": "Otkrivena konfiguracija harnessa",
     "selectionNotice": "Odabir provajdera ne pokreće niti omogućava ove harness-e.",
@@ -14,6 +15,31 @@
     "benefitSuperpowers": "Planiranje, TDD, podagenti i pregled"
   },
   "vmErrors": {
+    "allocationUnavailable": {
+      "title": "Cloud VM zahtjev je odgođen",
+      "message": "Dodjela Cloud VM-a je privremeno nedostupna.",
+      "action": "Sačekajte minutu, a zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
+    "snapshotIdempotencyRequired": {
+      "title": "Zahtjev za snimak treba ključ za ponovni pokušaj",
+      "message": "Cloud VM snimci zahtijevaju ključ idempotentnosti.",
+      "action": "Pokušajte ponovo sa stabilnim Idempotency-Key ključem od najviše 128 znakova."
+    },
+    "snapshotInProgress": {
+      "title": "Snimak je još u toku",
+      "message": "Snimak s ovim ključem idempotentnosti još se izrađuje za ovu Cloud VM.",
+      "action": "Sačekajte da se prvi snimak završi, zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "Ključ za ponavljanje snimka je već korišten",
+      "message": "Ovaj ključ idempotentnosti već je korišten za drugi zahtjev za snimak na ovoj Cloud VM.",
+      "action": "Koristite novi ključ idempotentnosti za snimak s drugim nazivom."
+    },
+    "snapshotQuota": {
+      "title": "Dostignuto je ograničenje snimaka",
+      "message": "Ovaj Cloud VM je dostigao ograničenje snimaka.",
+      "action": "Izbrišite postojeći snimak, a zatim pokušajte ponovo s istim ključem idempotentnosti."
+    },
     "guestInstall": {
       "title": "Postavljanje Cloud VM-a nije završeno",
       "reason": "Postavljanje gosta za Cloud VM nije završeno.",
@@ -524,6 +550,9 @@
         "unavailable": {
           "cancelScheduled": "Nastavite plan da biste ga promijenili.",
           "granted": "Dodijelio cmux. Nema šta da se mijenja.",
+          "grantedNoCancel": "Dodijelio cmux, pa nema ničega za otkazivanje.",
+          "paymentFailed": "Ažurirajte način plaćanja prije promjene plana.",
+          "foundersLifetime": "Founder's Edition uključuje Pro doživotno.",
           "adminOnly": "Samo administratori tima mogu promijeniti plan."
         },
         "names": {
@@ -566,6 +595,7 @@
       "change": {
         "title": "Preći na {plan}?",
         "upgradeBody": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} mjesečno.",
+        "upgradeBodyYearly": "{plan} počinje odmah. Danas plaćate {amount} za ostatak ovog obračunskog perioda. Od {date} plaćate {price} godišnje.",
         "downgradeBody": "{plan} počinje odmah. Neiskorišteni dio trenutnog plana, {credit}, uračunava se u sljedeće fakture. Sljedeća faktura, {date}, iznosi {amount}.",
         "confirm": "Pređi na {plan}",
         "keep": "Zadrži trenutni plan",
@@ -578,6 +608,8 @@
         "title": "Otkazati {plan}?",
         "body": "{plan} zadržavate do {date}. Nakon toga gubite:",
         "bodyNoDate": "{plan} zadržavate do kraja ovog obračunskog perioda. Nakon toga gubite:",
+        "foundersBody": "Vaša {plan} pretplata ističe {date}. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
+        "foundersBodyNoDate": "Vaša {plan} pretplata ističe na kraju ovog obračunskog perioda. Nakon toga imate Pro, koji Founder's Edition uključuje doživotno.",
         "reasonLabel": "Zašto otkazujete? (opcionalno)",
         "otherPlaceholder": "Recite nam više (opcionalno)",
         "confirm": "Otkaži plan",
@@ -2252,6 +2284,7 @@
           "currentLineHighlight": "Obojite red u kojem se nalazi kursor dok ništa nije označeno.",
           "tabWidth": "Koliko kolona obuhvata jedan tabulatorski korak. Vodilice uvlačenja koriste isti razmak."
         },
+        "actions": "Višekratne radnje za paletu komandi, prečice, dugmad na traci kartica i meni dugmeta plus. Podržava builtin, command, agent, workspaceCommand, workspace, setting, settingPreset i text. Tekstualne radnje lijepe tekst u fokusirani terminal i čuvaju prijelome redova; submit: true pritiska Enter. Radnje postavki zahtijevaju globalnu konfiguraciju.",
         "remoteTmux": {
           "beta": {
             "newWorkspaceOnHost": {

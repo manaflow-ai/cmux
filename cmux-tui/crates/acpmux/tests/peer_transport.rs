@@ -2,6 +2,11 @@
 //! token over plain `ws://` to a host that is not loopback; it connects
 //! without it (and is served as Web), and its peer listing says so.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process starts no agent.
+const HERMETIC: daemon_env::Process = daemon_env::Process::deny();
+
 use acpmux::config::{Config, StoreMode};
 use acpmux::hub::Hub;
 use std::sync::{Arc, Mutex};

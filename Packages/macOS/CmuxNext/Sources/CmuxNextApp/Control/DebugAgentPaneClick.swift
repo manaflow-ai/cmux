@@ -4,12 +4,11 @@ import CmuxNextAgentPane
 import CmuxNextSettings
 import WebKit
 
-/// `debug.agent_pane {action: "click"}` (DEBUG builds): a native left click on one element of
-/// the agent page, found by `selector` (CSS) or by `text` (its visible text or accessible name,
-/// such as a chip's label; the smallest element that matches). The element's center goes from
-/// page coordinates to the window, and a real mouse down and up go there the way
-/// ``DebugNativeInput`` delivers them, so the pane's gesture monitor records the click as the
-/// user's gesture, also in a window that was never activated. Never moves the user's pointer.
+/// `debug.agent_pane {action: "click"}` (DEBUG builds): a native left click on one element of the agent page,
+/// found by `selector` (CSS) or by `text` (its visible text or accessible name, such as a chip's label; the
+/// smallest element that matches). Its center goes from page coordinates to the window, and a real mouse down and
+/// up go there as ``DebugNativeInput`` delivers them, so the pane's gesture monitor records the user's gesture,
+/// also in a window that was never activated. Never moves the user's pointer.
 @MainActor
 enum DebugAgentPaneClick {
     /// Finds the element, scrolls it into view and returns its center in CSS pixels.
@@ -102,22 +101,21 @@ enum DebugAgentPaneClick {
         if path == "app" || (path != "view" && DebugNativeInput.usesAppKitPath(window)) {
             DebugNativeInput.sendThroughApp([down, up])
             delivered = "app"
-            // Automation makes a window key without the app being frontmost, and AppKit then holds
-            // a first click back from a view that does not accept first mouse (the web view): when
-            // the click was this page's and the page never saw it, it goes to the web view as for a
-            // window that is not key. A click AppKit gave another view stays there.
+            // Automation makes a window key without the app being frontmost, and AppKit then holds a first click back from a
+            // view that does not accept first mouse (the web view): when the click was this page's and the page never saw it,
+            // it goes to the web view as for a window that is not key. A click AppKit gave another view stays there.
             let pageSawIt = (try? await webView.callAsyncJavaScript(arrived, arguments: ["ms": 500], in: nil, contentWorld: .page)) as? Bool
             if path != "app", pageSawIt == false, hit?.isDescendant(of: webView) == true {
-                webView.mouseDown(with: down)
-                webView.mouseUp(with: up)
+                webView.mouseDown(with: down); webView.mouseUp(with: up)
                 delivered = "app, then view"
             }
         } else {
-            // The local monitor sees mouse downs only.
-            DebugNativeInput.runPaneMonitors(down, in: window, services: services)
+            DebugNativeInput.runPaneMonitors(down, in: window, services: services) // the local monitor sees mouse downs only
             SyntheticInput.register([down, up])
-            webView.mouseDown(with: down)
-            webView.mouseUp(with: up)
+            // As AppKit's click does, inside an input event: the clicked web view takes the keyboard (AgentPaneView.refusesSelfFocus).
+            let app = NSApp as? CmuxApplication, outer = app?.isHandlingSendEvent() ?? false; app?.setHandlingSendEvent(true)
+            if hit?.isDescendant(of: webView) == true { window.makeFirstResponder(webView) }
+            webView.mouseDown(with: down); webView.mouseUp(with: up); app?.setHandlingSendEvent(outer)
             delivered = "view"
         }
         let gestures = view.model.transport.gestures.debugState

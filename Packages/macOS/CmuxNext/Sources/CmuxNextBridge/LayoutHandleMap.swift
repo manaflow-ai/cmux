@@ -21,7 +21,9 @@ public struct LayoutHandleMap: Sendable, Equatable {
 
     /// Layout id of a split: `split:<n>`, or anchored on its first pane for
     /// servers older than protocol v8 that omit split ids.
-    static func splitID(_ handle: DaemonSplitID?, firstPane: LayoutPaneID?) -> LayoutSplitID {
+    /// The public id when the daemon names the split (`split-client-split-id-v1`), else its handle.
+    static func splitID(_ resourceID: CmuxNextDaemon.ResourceID?, handle: DaemonSplitID?, firstPane: LayoutPaneID?) -> LayoutSplitID {
+        if let resourceID { return LayoutSplitID("split:\(resourceID.rawValue)") }
         if let handle { return LayoutSplitID("split:\(handle.rawValue)") }
         return LayoutSplitID("split@\(firstPane?.rawValue ?? "none")")
     }

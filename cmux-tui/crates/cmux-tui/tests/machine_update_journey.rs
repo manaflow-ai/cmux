@@ -208,6 +208,12 @@ struct SupervisedVm {
 
 impl SupervisedVm {
     fn start(root: &Path, old: &[u8], with_acpmux: bool) -> Self {
+        Self::start_lacking(root, old, with_acpmux, LACKS_FOR_UPDATE)
+    }
+
+    /// While the binary is the older build, its daemon leaves `lacks` (a
+    /// comma list) out of `identify`.
+    fn start_lacking(root: &Path, old: &[u8], with_acpmux: bool, lacks: &str) -> Self {
         let dir = root.join("vm");
         for sub in ["home/work", "home/.cmux/bin", "acpmux", "state"] {
             fs::create_dir_all(dir.join(sub)).unwrap();
@@ -255,7 +261,7 @@ done
             .env("STOP", &vm.stop)
             .env("OLD_SHA", sha256_hex(old))
             .env("OLD_BUILD", OLD_BUILD)
-            .env("LACKS", LACKS_FOR_UPDATE)
+            .env("LACKS", lacks)
             .stdout(log.try_clone().unwrap())
             .stderr(log)
             .spawn()
@@ -353,7 +359,7 @@ impl Drop for SupervisedVm {
             ])
             .arg(&self.socket)
             .output();
-        let _ = self.command(&program).args(["acp", "daemon", "shutdown"]).output();
+        let _ = self.command(&program).args(["acp", "daemon", "shutdown", "--end-agents"]).output();
         let Some(mut supervisor) = self.supervisor.take() else { return };
         let deadline = std::time::Instant::now() + std::time::Duration::from_secs(20);
         while std::time::Instant::now() < deadline {
@@ -399,6 +405,17 @@ fn machine_update(client: &Path, root: &Path, vm: &SupervisedVm) -> (bool, Value
             .env("XDG_CACHE_HOME", root.join("mac-cache"))
             .args(["link", "machine", "update", "--socket"])
             .arg(&vm.socket),
+    )
+}
+
+/// `cmux link machine update --socket S --to-bundled` (Update Everything).
+fn machine_update_to_bundled(client: &Path, root: &Path, vm: &SupervisedVm) -> (bool, Value) {
+    run_json(
+        Command::new(client)
+            .env("XDG_CACHE_HOME", root.join("mac-cache"))
+            .args(["link", "machine", "update", "--socket"])
+            .arg(&vm.socket)
+            .arg("--to-bundled"),
     )
 }
 
@@ -499,6 +516,43 @@ fn machine_update_swaps_in_the_pinned_build_and_keeps_terminals_and_chats() {
     let (ok, triaged) = triage(&vm, &root);
     assert!(ok, "triage after the update: {triaged}");
     let (ok, again) = machine_update(&client, &root, &vm);
+    assert!(ok && again["updated"] == json!(false), "{again}");
+}
+
+/// Update Everything (cx-1mbnu): a machine of another build that serves every
+/// verb the gate needs is left alone by a plain update, and updated in place
+/// to this client's own build with `--to-bundled`, keeping its chat; once it
+/// runs that build, `--to-bundled` changes nothing.
+#[test]
+fn machine_update_to_bundled_updates_a_machine_of_another_build_that_serves_every_verb() {
+    let (root, _cleanup) = journey_root("mgb");
+    let shipped = fs::read(bin()).unwrap();
+    let mut old = shipped.clone();
+    old.extend_from_slice(b"\0cmux-tui of another build\0");
+    let vm = SupervisedVm::start_lacking(&root, &old, true, "");
+    let before = vm.identify().unwrap();
+    assert_eq!(before["build_id"], json!(OLD_BUILD), "{before}");
+    let mut acpmux = vm.acpmux();
+    let created =
+        acpmux.call("session/new", json!({"cwd": vm.home().join("work"), "mcpServers": []}));
+    let session = created["sessionId"].as_str().unwrap().to_owned();
+
+    let client = mac_client(&root, None);
+    let (ok, plain) = machine_update(&client, &root, &vm);
+    assert!(ok && plain["updated"] == json!(false), "a plain update: {plain}");
+    assert_eq!(vm.identify().unwrap()["pid"], before["pid"], "a plain update restarted it");
+
+    let (ok, updated) = machine_update_to_bundled(&client, &root, &vm);
+    let log = fs::read_to_string(vm.dir.join("supervisor.log")).unwrap_or_default();
+    assert!(ok && updated["updated"] == json!(true), "update: {updated}\n{log}");
+    assert_eq!(updated["previous_build"], json!(OLD_BUILD), "{updated}");
+    let after = vm.identify().expect("the updated daemon serves");
+    assert_eq!(after["build_id"], updated["build"], "{after}");
+    assert_ne!(after["pid"], before["pid"], "the daemon did not restart");
+    assert_eq!(sha256_hex(&fs::read(vm.bin()).unwrap()), sha256_hex(&shipped));
+    assert!(vm.acpmux().summary(&session).is_some(), "the chat is gone");
+
+    let (ok, again) = machine_update_to_bundled(&client, &root, &vm);
     assert!(ok && again["updated"] == json!(false), "{again}");
 }
 

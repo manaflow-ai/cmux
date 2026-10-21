@@ -18,6 +18,9 @@ const NEUTRAL_UPDATES: &[&str] = &[
     "agent_thought_chunk",
     // A background shell's end is a note beside the message (cx-ncc.84).
     "background_task_update",
+    // A compaction is a note between messages; its summary is not shown.
+    "compaction",
+    "compaction_summary",
     // A subagent's spawn and end belong to the subagent (`crate::subagents`).
     "subagent_spawned",
     "subagent_state_update",

@@ -2,13 +2,16 @@ public import Foundation
 import Observation
 
 /// What's New after an update (decision WHATS-NEW-AFTER-UPDATE W1): the
-/// unseen documents, whether the sidebar shows its What's New item, and
-/// the page's content. One per process, owned by the updater.
+/// unseen documents, whether the sidebar shows its bottom-left "cmux
+/// Updated!" card, and the page's content. One per process, owned by the
+/// updater.
 ///
-/// The item shows after an update to a version with notes the user has not
-/// seen, until the user opens the page; then only the palette, the Help
-/// menu and `updates.whatsNew` open it. `updates.showWhatsNew` (default on,
-/// managed config can force it off) hides the item.
+/// After an update the card shows once, bottom left, until the user opens
+/// the page or dismisses it; the palette, the Help menu and
+/// `updates.whatsNew` open the page at any time. There is no What's New
+/// item at the top of the sidebar (Lawrence 2026-10-18).
+/// `updates.showWhatsNew` (default on, managed config can force it off)
+/// hides the card.
 @MainActor
 @Observable
 public final class WhatsNewCenter {
@@ -16,13 +19,11 @@ public final class WhatsNewCenter {
     public private(set) var unseen: [WhatsNewDocument] = []
     /// What the page shows: the documents taken when it was last opened.
     public private(set) var presented: [WhatsNewDocument] = []
-    /// `updates.showWhatsNew` (set by the App).
+    /// `updates.showWhatsNew` (set by the App): whether the card may show.
     public var isItemEnabled = true
     /// Whether ``load()`` has finished once.
     public private(set) var isLoaded = false
 
-    /// Whether the sidebar's What's New item shows (with its unread dot).
-    public var showsItem: Bool { isItemEnabled && !unseen.isEmpty }
     /// This launch is an update the user has not seen: the update the old
     /// app recorded (``lastUpdate``), or a version newer than the last seen
     /// one. Every channel, nightly included (decision D1, 2026-10-10), until
@@ -103,10 +104,10 @@ public final class WhatsNewCenter {
     /// span; nil on a fresh install or before `load`.
     public var lastSeen: WhatsNewVersion? { tracker?.lastSeen }
 
-    /// The page opens (the item, the palette, the Help menu,
+    /// The page opens (the card, the palette, the Help menu,
     /// `updates.whatsNew`): it shows the unseen documents, or the most
     /// recent ones when nothing is unseen, and everything up to this
-    /// version becomes seen. The item goes away; the page keeps its content.
+    /// version becomes seen. The card goes away; the page keeps its content.
     @discardableResult
     public func open() -> [WhatsNewDocument] {
         let tracker = tracker ?? current.map { WhatsNewTracker(current: $0, lastSeen: $0) }
@@ -133,8 +134,7 @@ public final class WhatsNewCenter {
         lastUpdates?.clear(ifFor: currentBuild)
     }
 
-    /// The "cmux Updated!" card's x: this version is seen, so the card and
-    /// the sidebar item's dot go together (one seen state).
+    /// The "cmux Updated!" card's x: this version is seen (one seen state).
     public func dismissUpdated() {
         if let current { seen.markSeen(current) }
         markRecordSeen()

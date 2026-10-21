@@ -176,10 +176,23 @@ export default defineConfig({
             // agent session does not load the diff renderer at startup.
             // `markdown-vendor` (Milkdown, ProseMirror, remark) is shared by the agent pane's
             // composer and the markdown editor page.
-            // The viewer pages' shared modules (appearance, page client, strings, terminal syntax theme,
-            // the empty states): one chunk named as before, so the code editor importing a new
-            // combination of them does not split the chunk the diff and markdown pages load.
-            { name: "pickerModel", test: (id: string) => VIEWER_SHARED.test(id), priority: 0 },
+            // The viewer pages' shared modules, in two fixed chunks so the code editor importing a new
+            // combination of them does not split the chunks the diff and markdown pages load:
+            // `pageShared` (appearance, page client, i18n, terminal syntax theme, the host ops, `cx`) is on
+            // every page's first load; `pickerModel` (the empty states, the path picker model and
+            // their ~60 KB string table) loads only where a page imports it. The markdown page
+            // imports its empty state lazily, so this chunk stays out of its first load.
+            { name: "pageShared", test: (id: string) => VIEWER_SHARED.test(id), priority: 0 },
+            { name: "pickerModel", test: (id: string) => VIEWER_EMPTY.test(id), priority: 0 },
+            // Tiny text utilities that both shiki's hast serializer and the markdown page's
+            // mdast serializer use. Inside `shiki-core` they made the markdown page load all of
+            // shiki eagerly (~220 KB); the page loads shiki only once a code block needs colors.
+            {
+              name: "text-utils",
+              test: (id: string) => /\/node_modules\/(ccount|zwitch)\//.test(id),
+              priority: 5,
+              includeDependenciesRecursively: false,
+            },
             ...["shiki-core", "vendor", "diff-vendor", "markdown-vendor"].map((name, index) => ({
               name,
               test: (id: string) => sharedChunkName(id) === name,
@@ -199,9 +212,13 @@ export default defineConfig({
 const EDITOR_OWN_COPIES =
   /\/webviews\/src\/(pages\/shared\/(pageStreams\.ts|desktop\.ts|desktop\.css)|diff-languages\/(detect|pack)\.ts)$/;
 
-/** The modules of the viewer pages' shared `pickerModel` chunk (diff, markdown and editor pages). */
+/** The modules of the viewer pages' shared `pageShared` chunk (diff, markdown and editor pages). */
 const VIEWER_SHARED =
-  /\/webviews\/src\/(appearance\.ts|syntax-colors\.ts|pierre-options\.ts|pages\/shared\/(pageClient|i18n)\.ts|viewer-empty\/(ops\.ts|drop\.ts|icons\.tsx|strings\.ts|time\.ts|EmptyState\.tsx|pickerModel\.ts|generated\/strings\.json))$/;
+  /\/webviews\/src\/(appearance\.ts|syntax-colors\.ts|pierre-options\.ts|pages\/shared\/(pageClient|i18n)\.ts|viewer-empty\/ops\.ts|ui\/cx\.ts)$/;
+
+/** The viewer empty states' modules: the `pickerModel` chunk, lazy on the markdown page. */
+const VIEWER_EMPTY =
+  /\/webviews\/src\/viewer-empty\/(drop\.ts|icons\.tsx|strings\.ts|time\.ts|EmptyState\.tsx|pickerModel\.ts|generated\/strings\.json)$/;
 
 function lazyChunkName(id: string): string | null {
   const diffLocale = id.match(/\/pages\/diff\/generated\/locales\/([^/]+)\.json$/);

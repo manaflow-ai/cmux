@@ -6,6 +6,9 @@ use std::process::{Command, Stdio};
 
 const BUILD_COMMIT_ENV: &str = "CMUX_TUI_BUILD_COMMIT";
 const BUILD_IDENTITY_ENV: &str = "CMUX_TUI_BUILD_IDENTITY";
+/// Unix seconds of the source commit's committer time (cx-3r9mt): set by a
+/// build outside Git, else read from Git; 0 when unknown.
+const BUILD_TIME_ENV: &str = "CMUX_TUI_BUILD_TIME";
 const DIRTY_SEPARATOR: &[u8] = b"\0cmux-tui-untracked\0";
 
 const _: () = cmux_tui_source_watch::ACTIVE;
@@ -23,6 +26,26 @@ fn main() {
         panic!("{BUILD_COMMIT_ENV} contains a control character");
     }
     println!("cargo:rustc-env={BUILD_IDENTITY_ENV}={identity}");
+    println!("cargo:rerun-if-env-changed={BUILD_TIME_ENV}");
+    println!("cargo:rustc-env={BUILD_TIME_ENV}={}", build_time(&manifest_dir, &identity));
+}
+
+/// The committer time of the build's commit (the stamped commit when it is
+/// one, else HEAD, whose tree a dirty identity extends); 0 when Git cannot
+/// tell. A dirty build keeps its commit's time: the remote update rule
+/// (`update_need`) never orders two builds of one commit by time.
+fn build_time(manifest_dir: &Path, identity: &str) -> u64 {
+    if let Some(time) = env::var(BUILD_TIME_ENV).ok().and_then(|value| value.trim().parse().ok()) {
+        return time;
+    }
+    let commit = if identity.len() == 40 && identity.bytes().all(|b| b.is_ascii_hexdigit()) {
+        identity
+    } else {
+        "HEAD"
+    };
+    git(manifest_dir, &["log", "-1", "--format=%ct", commit])
+        .and_then(|value| value.parse().ok())
+        .unwrap_or(0)
 }
 
 fn source_revision(manifest_dir: &Path) -> String {

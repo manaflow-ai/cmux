@@ -8,6 +8,7 @@ import { AttachmentContext } from "./AttachmentViews";
 import { AvatarContext } from "./avatars";
 import { Avatar, ChannelMark, PicturesContext } from "./Avatar";
 import { Composer } from "./Composer";
+import { GoalStrip } from "./GoalStrip";
 import { useHostSelection, type HomeSelection } from "./hostSelection";
 import { ConversationList, useStamp } from "./ConversationList";
 import { HomeIcon } from "./icons";
@@ -34,7 +35,8 @@ import { Palette, type PaletteItem } from "./Palette";
 import { backToList, conversationHash, setHash, useHashPane, useNarrow, type Pane } from "./panes";
 import { RunsContext, type RunsContextValue } from "./RunCard";
 import { useRunEntry } from "./runs";
-import { RouteSheets } from "./RouteSheets";
+import { ChiefRoutePage, RouteSheets } from "./RouteSheets";
+import { LiveTyping } from "./LiveTyping";
 import { RunSheet } from "./RunSheet";
 import type { HomeChannelsStore } from "./store";
 import { lastLiveReplies, threadObject, type ThreadObject } from "./threads";
@@ -64,6 +66,8 @@ export function HomeChannelsPage({
   const pane = fixedPane ?? hashPane;
   const sheetState = useSyncExternalStore(store.sheets.subscribe, store.sheets.getSnapshot);
   const caps = sheetState.capabilities;
+  // New Chief and Edit Chief are a page on the right side, in place of the conversation (u2586).
+  const chiefPage = sheetState.route?.kind === "newChief" || sheetState.route?.kind === "editChief";
   const [palette, setPalette] = useState(false);
   const [editing, setEditing] = useState<{ id: string; surface: "main" | "thread" } | undefined>();
   const [focused, setFocused] = useState<string | undefined>();
@@ -76,6 +80,7 @@ export function HomeChannelsPage({
       strings,
       onOpen: (run: HomeRun) => setOpenRun({ conversation: run.conversation, author: run.author, id: run.id }),
       onLoad: (run: HomeRun) => void store.loadRunSteps(run),
+      live: store.live,
     }),
     [store, strings],
   );
@@ -126,7 +131,10 @@ export function HomeChannelsPage({
     if (snap.me) map.set(snap.me.id, snap.me);
     return map;
   }, [conversations, snap.me]);
-  const runsWithPeople = useMemo<RunsContextValue>(() => ({ ...runs, people }), [runs, people]);
+  const runsWithPeople = useMemo<RunsContextValue>(
+    () => ({ ...runs, people, draftTurn: snap.draft?.turn }),
+    [runs, people, snap.draft?.turn],
+  );
   const mentionable = useMemo(() => others(open, me), [open, me]);
   const online = snap.connection === "online";
   const name = open ? conversationName(open, me) : "";
@@ -495,10 +503,17 @@ export function HomeChannelsPage({
                 onSelect={select}
                 onOpenPalette={() => setPalette(true)}
                 onCompose={online && caps.start ? () => store.sheets.open({ kind: "newMessage" }) : undefined}
+                onNewChief={online && caps.chiefs ? () => store.sheets.open({ kind: "newChief" }) : undefined}
                 actions={rowActions}
+                chiefs={sheetState.chiefs}
               />
-              <section className={`lg-main${snap.thread ? " with-sheet" : ""}`} aria-label={place || t("page.title")}>
-                {snap.loading ? null : empty || !open ? (
+              <section
+                className={`lg-main${snap.thread && !chiefPage ? " with-sheet" : ""}`}
+                aria-label={chiefPage ? undefined : place || t("page.title")}
+              >
+                {chiefPage ? (
+                  <ChiefRoutePage sheets={store.sheets} state={sheetState} strings={strings} />
+                ) : snap.loading ? null : empty || !open ? (
                   <EmptyState
                     strings={strings}
                     noConversations={empty}
@@ -600,6 +615,7 @@ export function HomeChannelsPage({
                     )}
                     <RunsContext.Provider value={runsWithPeople}>
                       <div className="lg-stage" ref={column} data-drop-zone>
+                        <GoalStrip book={store.runs} conversation={open.id} strings={strings} onOpen={runs.onOpen} />
                         <Timeline
                           conversation={snap.selected}
                           rows={rows}
@@ -622,13 +638,16 @@ export function HomeChannelsPage({
                           empty={t("timeline.empty")}
                           {...editActions("main")}
                         />
-                        <div className="lg-typing" aria-live="polite">
-                          {typingNames.length === 1
-                            ? format("typing.one", typingNames[0]!)
-                            : typingNames.length > 1
-                              ? t("typing.many")
-                              : ""}
-                        </div>
+                        <LiveTyping
+                          conversation={open.id}
+                          live={store.live}
+                          runs={store.runs}
+                          people={people}
+                          typing={typingNames}
+                          draftTurn={snap.draft?.turn}
+                          strings={strings}
+                          onOpen={runs.onOpen}
+                        />
                         <div className="lg-main-compose">
                           <Composer
                             key={open.id}

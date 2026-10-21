@@ -9,6 +9,10 @@
       "scope": "actions:run",
       "class": "mutation"
     },
+    "agent_cli.list": {
+      "scope": "agent_cli:read",
+      "class": "read"
+    },
     "agent.list": {
       "scope": "agent:read",
       "class": "read"
@@ -129,6 +133,18 @@
       "scope": "browser:write",
       "class": "mutation"
     },
+    "browser.profile.create": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
+    "browser.profile.list": {
+      "scope": "browser:read",
+      "class": "read"
+    },
+    "browser.profile.open": {
+      "scope": "browser:write",
+      "class": "mutation"
+    },
     "browser.reload": {
       "scope": "browser:write",
       "class": "mutation"
@@ -233,9 +249,17 @@
       "scope": "chief:read",
       "class": "read"
     },
+    "chief.profile.history": {
+      "scope": "chief:read",
+      "class": "read"
+    },
     "chief.profile.list": {
       "scope": "chief:read",
       "class": "read"
+    },
+    "chief.profile.undo": {
+      "scope": "chief:write",
+      "class": "mutation"
     },
     "chief.profile.update": {
       "scope": "chief:write",
@@ -1441,6 +1465,26 @@
       "scope": "slack:external",
       "class": "mutation"
     },
+    "stash.create": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.delete": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.import": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
+    "stash.list": {
+      "scope": "stash:read",
+      "class": "read"
+    },
+    "stash.restore": {
+      "scope": "stash:write",
+      "class": "mutation"
+    },
     "tab_group.add_tabs": {
       "scope": "tab_group:write",
       "class": "mutation"
@@ -1827,6 +1871,7 @@
     "agent.message.mark",
     "agent.message.release",
     "agent.message.send",
+    "agent.message.unsend",
     "automation.delete",
     "automation.settings.set",
     "automation.webhook.get",

@@ -2,6 +2,11 @@
 //! records in the session meta the chat store roots its env names, after
 //! `${cwd}` expansion, and the record survives a reload of the store file.
 
+#[path = "support/daemon_env.rs"]
+mod daemon_env;
+// This process runs stand-in agents (the fake agents under tests/).
+const HERMETIC: daemon_env::Process = daemon_env::Process::stand_in();
+
 use acpmux::config::{Config, HarnessProfile, ProfileMeta};
 use acpmux::hub::Hub;
 use acpmux::rpc::{Message, method};

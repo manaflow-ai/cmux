@@ -90,6 +90,10 @@ public final class UpdaterService {
     public internal(set) var stagedVersion: String?
     public internal(set) var stagedNotes: ReleaseNotes?
     @ObservationIgnored var stagedNotesTask: (build: String, task: Task<Void, Never>)?
+    /// This build's own verified notes, read once when the Updated card has
+    /// no change list of its record (``loadCurrentBuildNotesIfNeeded()``).
+    public internal(set) var currentBuildNotes: ReleaseNotes?
+    @ObservationIgnored var currentBuildNotesTask: Task<Void, Never>?
     /// The staged appcast item's build (replaced by tests).
     @ObservationIgnored var stagedBuild: () -> String? = { nil }
     /// `updates.downloadAutomatically` (the card's Automatic Updates box).
@@ -152,6 +156,8 @@ public final class UpdaterService {
     @ObservationIgnored private var probeTask: Task<String?, Never>?
     @ObservationIgnored private var switchTask: Task<String?, Never>?
     @ObservationIgnored private var started = false
+    /// A check the person asked for runs in Sparkle (cleared when the flow leaves checking).
+    @ObservationIgnored var userCheckRunning = false
     /// Whether ``start()`` ran (the managed policy checks only after it).
     var isStarted: Bool { started }
 
@@ -247,12 +253,20 @@ public final class UpdaterService {
     /// whose result the circle notes (never under a managed policy, which
     /// forbids touching the feed). The returned task finishes when a probe
     /// has its result (nil) or failed (the reason).
+    ///
+    /// The answer is on screen before this returns (Lawrence 2026-10-19: "I
+    /// can't tell if it's being checked for right now"): the gate takes the
+    /// new phase here, not one observation hop later, so the notice card
+    /// shows "Checking for Updates…" in the next frame. A request while the
+    /// person's check runs joins it: the same progress shows and nothing new
+    /// is fetched.
     @discardableResult
     public func checkForUpdates() -> Task<String?, Never>? {
         if needsSheet { presentUpdateUI?() }
         // The person asked: a closed or snoozed update card shows again.
         clearUpdateSnooze()
         send(.checkRequested)
+        defer { syncFlowPhase() }
         switch disabledReason {
         case .managedPolicy:
             log.append("check suppressed (managed policy)")
@@ -266,8 +280,14 @@ public final class UpdaterService {
                 log.append("check while an update waits: showing the staged update")
                 return nil
             }
+            if userCheckRunning, case .checking = flow.phase {
+                // Sparkle would queue a second check after this one, which only delays the answer.
+                log.append("check while the person's check runs: joined")
+                return nil
+            }
             controller.model.setOverrideState(nil)
             controller.checkForUpdates()
+            userCheckRunning = true
             return nil
         case .developmentBuild, .missingPublicKey:
             showsProbeResult = true
@@ -321,6 +341,8 @@ public final class UpdaterService {
         clearUpdateSnooze()
         controller.model.setOverrideState(nil)
         syncFlowPhase()
+        // As for a check: the loading card shows in the next frame, not one observation hop later.
+        defer { syncFlowPhase() }
         switch flow.phase {
         case .ready, .available, .downloading, .checking:
             // The gate installs once the update is staged and no agent is busy.

@@ -23,6 +23,8 @@ public nonisolated enum SettingKind: Sendable, Hashable {
     case theme
     /// A font family name (`TerminalFontSetting`).
     case fontFamily
+    /// Free text, empty for none (`files.textEditor`: an app name, bundle ID or app path).
+    case text
     /// A list of numbers, each in the range (`layout.columnWidthPresets`: strip width fractions).
     case numberList(SettingNumber)
     /// An object whose values are all strings (`sidebar.workspaceIcons`: workspace title to glyph).

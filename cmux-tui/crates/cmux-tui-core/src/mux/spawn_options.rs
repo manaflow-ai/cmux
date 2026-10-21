@@ -11,6 +11,9 @@ use crate::resource::{ResourceError, TabPublicId, TabResourceIdentity, TerminalP
 /// of its tab.
 pub(crate) const CLIENT_PANE_ID_FIELD: &str = "pane_id";
 pub(crate) const CLIENT_TAB_ID_FIELD: &str = "tab_id";
+/// `split-client-split-id-v1`: the creation field carrying the caller-minted
+/// public id (`split_<32 hex>`) of the split a `split` makes.
+pub(crate) const CLIENT_SPLIT_ID_FIELD: &str = "split_id";
 
 /// How to start the terminal a placement command creates.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -29,6 +32,9 @@ pub struct TerminalSpawnOptions {
     /// creations (`split`, `new-pane`, `new-pane-right`) read them.
     pub pane_id: Option<String>,
     pub tab_id: Option<String>,
+    /// `split-client-split-id-v1`: the caller-minted public id of the split
+    /// (`split_<32 hex>`). Only `split` reads it.
+    pub split_id: Option<String>,
 }
 
 impl TerminalSpawnOptions {

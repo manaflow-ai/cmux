@@ -429,7 +429,7 @@ impl RemoteSession {
             Some("layout-changed") => {
                 self.tree_stale.store(true, Ordering::Release);
                 if let Some(screen) = value.get("screen").and_then(|v| v.as_u64()) {
-                    self.emit(MuxEvent::LayoutChanged(screen));
+                    self.emit(MuxEvent::LayoutChanged(screen, None));
                 } else {
                     self.emit(MuxEvent::TreeChanged);
                 }
@@ -498,7 +498,9 @@ impl RemoteSession {
                         .and_then(Value::as_str)
                         .unwrap_or_default()
                         .to_string(),
+                    subtitle: value.get("subtitle").and_then(Value::as_str).map(str::to_string),
                     body: value.get("body").and_then(Value::as_str).unwrap_or_default().to_string(),
+                    preview: value.get("preview").and_then(Value::as_str).map(str::to_string),
                     level,
                     surface: surface_id(),
                     source: value

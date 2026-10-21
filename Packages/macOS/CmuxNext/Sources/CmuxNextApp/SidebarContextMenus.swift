@@ -14,7 +14,7 @@ enum SidebarContextMenus {
         case .tab(let workspace, let tab):
             // The tab's own menu, as on its strip; the row is not selected by the right-click.
             let model = services.locateTab(tab.rawValue)?.0
-            let menu = PaneController.tabMenu(tab.rawValue, tab: model, workspaceKind: services.workspace(id: workspace.rawValue)?.kind,
+            let menu = PaneController.tabMenu(tab.rawValue, tab: model, keepsTab: TabPromotion.staysPut(tab: tab.rawValue, in: services.workspace(id: workspace.rawValue)),
                                               sameKind: NewTabKind.of(tab.rawValue, tab: model, services: services), registry: registry)
             menu.themeRows(in: scope)
             return menu
@@ -24,7 +24,7 @@ enum SidebarContextMenus {
                 return registry.makeContextMenu(for: .sshMachine, target: ActionTargetRef(kind: .machine, id: machine))
             }
             // A placeholder row is no workspace yet: no menu, not one that does nothing.
-            guard let first = ids.first, !ids.contains(where: { model.workspace($0)?.rowState == .placeholder || CloudCreationRows.isRow($0, services) }) else { return nil }
+            guard let first = ids.first, !ids.contains(where: { model.isPlaceholder($0) || CloudCreationRows.isRow($0, services) }) else { return nil }
             // Dismiss Highlight shows only while the row's workspace draws an attention ring (cx-epgo).
             let highlighted = services.daemon.store.workspaces.first { $0.id == first.rawValue }.map(services.notifications.hasHighlight) ?? false
             let entries = highlighted ? nil : ContextMenuCatalog.shared.entries(for: .workspaceRow, removing: ["notifications.dismissHighlight"])
@@ -48,6 +48,11 @@ enum SidebarContextMenus {
             return registry.makeContextMenu(for: .sidebarBackground)
         case .profile(let id):
             return registry.makeContextMenu(for: .profile, target: ActionTargetRef(kind: .profile, id: id.rawValue))
+        case .nowPlaying:
+            // The media card's rows (u2437): Play/Pause, Hide, Hide Until Relaunch, Never Show Media Card.
+            let menu = registry.makeContextMenu(for: .nowPlayingCard)
+            menu.themeRows(in: scope)
+            return menu
         case .layoutItem, .layoutSection:
             return nil
         }

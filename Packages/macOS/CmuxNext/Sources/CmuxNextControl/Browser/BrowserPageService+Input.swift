@@ -9,14 +9,19 @@ extension BrowserPageService {
     func inputMethods() -> [ControlMethod] {
         let engine = engine
         return [
-            input("press", engine: engine) { call in
+            input("press", engine: engine, announce: { call, answer in
+                .from(kind: .key, answer: answer, key: call.request.params["key"]?.stringValue)
+            }) { call in
                 // Unknown names pass through as an opaque key, as the old app did.
                 let key = BrowserPressKey(try Self.string(call, "key"))
                 return BrowserPageScripts.press(key, selector: Self.optionalString(call, "selector"))
             },
-            input("hover", engine: engine) { BrowserPageScripts.hover(try Self.string($0, "selector")) },
+            input("hover", engine: engine, announce: { _, answer in .from(kind: .hover, answer: answer) }) {
+                BrowserPageScripts.hover(try Self.string($0, "selector"))
+            },
             input("scroll_into_view", engine: engine) { BrowserPageScripts.scrollIntoView(try Self.string($0, "selector")) },
-            input("scroll", engine: engine) { call in
+            // A page scroll (no selector) points at the viewport's middle.
+            input("scroll", engine: engine, announce: { _, answer in .from(kind: .scroll, answer: answer) }) { call in
                 let params = call.request.params
                 let dx = try Self.offset(call, "dx"), dy = try Self.offset(call, "dy")
                 guard params["dx"] != nil || params["dy"] != nil else {
@@ -24,7 +29,9 @@ extension BrowserPageService {
                 }
                 return BrowserPageScripts.scroll(Self.optionalString(call, "selector"), dx: dx, dy: dy)
             },
-            input("select", engine: engine) { call in
+            input("select", engine: engine, announce: { call, answer in
+                .from(kind: .select, answer: answer, text: call.request.params["value"]?.stringValue, replace: true)
+            }) { call in
                 // An empty value is an option too, so this is not Self.string.
                 guard let value = call.request.params["value"]?.stringValue else {
                     throw ControlError.invalidParams(ControlStrings.format("control.error.missingParam", "%1$@ requires params.%2$@",
@@ -32,12 +39,19 @@ extension BrowserPageService {
                 }
                 return BrowserPageScripts.select(try Self.string(call, "selector"), value: value)
             },
-            input("check", engine: engine) { BrowserPageScripts.check(try Self.string($0, "selector"), true) },
-            input("uncheck", engine: engine) { BrowserPageScripts.check(try Self.string($0, "selector"), false) },
+            input("check", engine: engine, announce: { _, answer in .from(kind: .check, answer: answer) }) {
+                BrowserPageScripts.check(try Self.string($0, "selector"), true)
+            },
+            input("uncheck", engine: engine, announce: { _, answer in .from(kind: .check, answer: answer) }) {
+                BrowserPageScripts.check(try Self.string($0, "selector"), false)
+            },
         ]
     }
 
+    /// `announce` turns a successful answer into the agent input the agent
+    /// cursor draws (nil: none).
     private func input(_ name: String, engine: any BrowserPageEngine,
+                       announce: @escaping @Sendable (ControlCall, JSONValue) -> BrowserPageAgentInput? = { _, _ in nil },
                        _ make: @escaping @Sendable (ControlCall) throws -> String) -> ControlMethod {
         .async("browser.page.\(name)") { call in
             let script = try make(call)
@@ -48,10 +62,20 @@ extension BrowserPageService {
                 if let selector = call.request.params["selector"] { data["selector"] = selector }
                 throw ControlError(code: value["code"]?.stringValue ?? "not_found", message: error, data: .object(data))
             }
+            if let input = announce(call, value) {
+                await engine.announce(Self.attributed(input, call), tabID: tab.id)
+            }
             var result = Self.base(tab)
             result["value"] = value["value"] ?? .null
             return .object(result)
         }
+    }
+
+    /// `input` as its agent sent it: `params.agent`'s name, from the
+    /// request's caller (``BrowserPageAgentOrigin``).
+    static func attributed(_ input: BrowserPageAgentInput, _ call: ControlCall) -> BrowserPageAgentInput {
+        input.by(optionalString(call, "agent"),
+                 from: BrowserPageAgentOrigin.resolve(params: call.request.params, topology: call.snapshot.topology))
     }
 
     static func optionalString(_ call: ControlCall, _ key: String) -> String? {

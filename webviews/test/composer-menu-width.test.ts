@@ -50,11 +50,11 @@ await requireBrowserLane("composer-menu-width.test.ts", async () => {
 ${css}
 .flex{display:flex}
 </style></head><body>
-<div class="acpmux-shell"><div class="acpmux-composer acpmux-composer-bar" style="flex:1;margin-top:320px;padding:0">
+<div class="acpmux-shell"><div class="acpmux-composer" style="flex:1;margin-top:320px;padding:0"><div class="acpmux-composer-bar">
   <span class="acpmux-picker acpmux-composer-plus"><button class="acpmux-picker-button" style="width:28px">+</button></span>
   <div class="acpmux-chips">
   <span class="acpmux-picker acpmux-model" style="position:relative">
-    <button class="acpmux-picker-button" style="width:120px">GPT-6-Astra</button>
+    <button class="acpmux-picker-button"><span class="acpmux-model-name" data-fit-part="model" data-fit-forms="full">GPT-6-Astra</span></button>
     <div class="ui-popup ui-picker-popup acpmux-mp flex" style="${ANCHORED}">
       <div class="acpmux-mp-rail-scroll w-11 flex-none">
         <div class="acpmux-mp-rail-viewport" style="overflow:scroll">
@@ -80,13 +80,13 @@ ${css}
   <span class="acpmux-mode acpmux-access">
     <button class="acpmux-picker-button acpmux-access-trigger">
       <span class="acpmux-icon" style="width:16px;height:16px"></span>
-      <span class="acpmux-mode-text">Ask before edits</span>
+      <span class="acpmux-mode-text" data-fit-part="access" data-fit-forms="full">Ask before edits</span>
       <span class="acpmux-icon" style="width:12px;height:12px"></span>
     </button>
   </span>
   </div>
   <span class="acpmux-composer-actions"><button class="acpmux-send" style="width:28px;height:28px">↑</button></span>
-</div></div>
+</div></div></div>
 <div class="ui-positioner" style="position:absolute;left:8px;top:8px">
   <div class="acpmux-menu acpmux-location-menu">${row("~/fun/cmuxterm-hq")}</div>
 </div>
@@ -232,6 +232,27 @@ ${css}
             expect(geometry.accessRight).toBeLessThanOrEqual(geometry.barRight + 1);
             await page.close();
           }
+        }
+      });
+
+      test("Interrupt shows whole while a turn runs; the chips give way, not the action", async () => {
+        for (const width of [600, 420, 360]) {
+          const page = await open(width);
+          await page.$eval(".acpmux-composer-actions", (node) => {
+            node.innerHTML =
+              '<button class="acpmux-steer">Interrupt</button>' +
+              '<button class="acpmux-send" style="width:28px;height:28px">mic</button>' +
+              '<button class="acpmux-send acpmux-send-ready">↑</button>';
+          });
+          const geometry = await page.$eval(".acpmux-composer-bar", (node) => {
+            const bar = node.getBoundingClientRect();
+            const steer = node.querySelector<HTMLElement>(".acpmux-steer")!;
+            const rect = steer.getBoundingClientRect();
+            return { barRight: bar.right, right: rect.right, client: steer.clientWidth, scroll: steer.scrollWidth };
+          });
+          expect(geometry.scroll).toBeLessThanOrEqual(geometry.client);
+          expect(geometry.right).toBeLessThanOrEqual(geometry.barRight + 1);
+          await page.close();
         }
       });
     });

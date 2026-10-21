@@ -13,16 +13,31 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
     public var kind: Kind
     public var isEnabled: Bool
     public var isChecked: Bool
+    /// False for a row Chromium keeps in its model but does not show (an
+    /// extension item created with `visible: false`). ``decodeList(_:)``
+    /// drops these rows, as Chrome's menu does.
+    public var isVisible: Bool
     public var children: [BrowserContextMenuItem]
+    /// The image Chrome shows before the title: an extension's icon on its
+    /// top-level row, or the vector icon of a Chrome row such as Translate.
+    /// CEF's menu model carries no images, so the host fills this in
+    /// (``BrowserExtensionMenuIcons``, ``withChromeIcons(_:)``).
+    public var icon: BrowserContextMenuIcon?
+    /// The extension that added this top-level row, when the host could tell.
+    public var extensionID: String?
 
     public init(id: Int, title: String, kind: Kind = .command, isEnabled: Bool = true, isChecked: Bool = false,
-                children: [BrowserContextMenuItem] = []) {
+                isVisible: Bool = true, children: [BrowserContextMenuItem] = [], icon: BrowserContextMenuIcon? = nil,
+                extensionID: String? = nil) {
         self.id = id
         self.title = title
         self.kind = kind
         self.isEnabled = isEnabled
         self.isChecked = isChecked
+        self.isVisible = isVisible
         self.children = children
+        self.icon = icon
+        self.extensionID = extensionID
     }
 
     /// Chromium labels mark mnemonics with `&` and escape a literal one as `&&`.
@@ -39,12 +54,30 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
         return result
     }
 
-    /// Decodes the shim's JSON (`CMUX_SHIM_CONTEXT_MENU` items).
+    /// Decodes the shim's JSON (`CMUX_SHIM_CONTEXT_MENU` items), keeping
+    /// only the rows Chrome would show (``visibleItems(_:)``).
     static func decodeList(_ json: String) -> [BrowserContextMenuItem] {
         guard let data = json.data(using: .utf8), let items = try? JSONDecoder().decode([Wire].self, from: data) else {
             return []
         }
-        return items.map(\.item)
+        return visibleItems(items.map(\.item))
+    }
+
+    /// Pure: `items` as Chrome's menu shows them: no hidden row, no submenu
+    /// without a visible child (Chromium's `HasVisibleItems`), and no
+    /// leading, trailing or doubled separator at any level.
+    static func visibleItems(_ items: [BrowserContextMenuItem]) -> [BrowserContextMenuItem] {
+        var result: [BrowserContextMenuItem] = []
+        for var item in items where item.isVisible {
+            if item.kind == .submenu {
+                item.children = visibleItems(item.children)
+                if !item.children.contains(where: { $0.kind != .separator }) { continue }
+            }
+            if item.kind == .separator, result.last.map({ $0.kind == .separator }) ?? true { continue }
+            result.append(item)
+        }
+        if result.last?.kind == .separator { result.removeLast() }
+        return result
     }
 
     private struct Wire: Decodable {
@@ -53,13 +86,14 @@ public nonisolated struct BrowserContextMenuItem: Hashable, Sendable {
         var type: String?
         var enabled: Bool?
         var checked: Bool?
+        var visible: Bool?
         var items: [Wire]?
 
         var item: BrowserContextMenuItem {
             BrowserContextMenuItem(
                 id: id, title: BrowserContextMenuItem.stripMnemonics(label ?? ""),
                 kind: Kind(rawValue: type ?? "") ?? .command, isEnabled: enabled ?? true,
-                isChecked: checked ?? false, children: (items ?? []).map(\.item)
+                isChecked: checked ?? false, isVisible: visible ?? true, children: (items ?? []).map(\.item)
             )
         }
     }

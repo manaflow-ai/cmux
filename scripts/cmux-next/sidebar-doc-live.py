@@ -33,6 +33,11 @@ daemon socket.
    sections, workspaces and groups kept in their machine sections, closed
    workspaces dropped, undo with the inverse, a second reset is a no-op)
    and the old `layout.reset` following into the document.
+7. One order: after a sidebar.move and a sidebar.pin, `cmux workspace list`
+   (and protocol-2 `workspace.list`) list this machine's workspaces in the
+   sidebar.get order; `--order session` and the private raw
+   `list-workspaces` tree (whose deltas carry session indexes) keep the
+   session order.
 
 Usage: sidebar-doc-live.py --binary path/to/cmux-tui [--workdir DIR]
 Prints one PASS/FAIL line per check; exits 1 on any FAIL.
@@ -546,6 +551,77 @@ def doc_slice_4(binary: Path, seed_state: Path, state: Path, sock: Path, seeded:
         daemon.stop()
 
 
+def one_order(daemon: Daemon, local: str) -> None:
+    """`cmux workspace list` follows the sidebar document: after a sidebar.move and a sidebar.pin, the CLI order is the
+    order of this machine's live workspaces in sidebar.get (Pinned keeps
+    closed workspaces; those are not listed)."""
+
+    def doc_order(live: set[str]) -> list[str]:
+        return [i["body"]["ref"]["workspace_id"] for i in daemon.ok("sidebar.get")["items"]
+                if i["body"].get("type") == "workspace" and i["body"]["ref"].get("session_id") == local
+                and i["body"]["ref"]["workspace_id"] in live]
+
+    def cli_order(*verb: str, field: str) -> list[str] | str:
+        ran = cli(daemon, *verb)
+        if ran.returncode != 0:
+            return f"exit {ran.returncode}: {ran.stderr.strip()[-300:]}"
+        data = json.loads(ran.stdout)
+        if isinstance(data, dict):
+            data = data.get("workspaces", data.get("value", data.get("result", data)))
+            if isinstance(data, dict):
+                data = data.get("workspaces", data)
+        return [w[field] for w in data]
+
+    raw_list = ("raw", "command", "--request-json", json.dumps({"cmd": "list-workspaces"}))
+    verbs = ((("workspace", "list"), "id", "workspace list"),
+             (("workspace", "list", "--order", "personal"), "id", "workspace list --order personal"))
+
+    def same(step: str) -> list[str]:
+        v2 = [w["id"] for w in daemon.ok("workspace.list")]
+        expected = doc_order(set(v2))
+        check(f"one order: workspace.list (protocol 2) == sidebar.get order after {step}",
+              v2 == expected, {"v2": v2, "doc": expected})
+        for verb, field, label in verbs:
+            got = cli_order(*verb, field=field)
+            check(f"one order: `cmux {label}` == sidebar.get order after {step}",
+                  got == expected, {"cli": got, "doc": expected})
+        return expected
+
+    before = same("restart")
+    doc = daemon.ok("sidebar.get")
+    machine = f"sec_m_{local}"
+    rows = top(doc, machine)
+    loose = [i for i in rows if i["body"].get("type") == "workspace"]
+    check("one order: this machine's section has a loose workspace and another row",
+          len(loose) >= 1 and len(rows) >= 2, rows)
+    if not loose or len(rows) < 2:
+        return
+    mover = loose[0]
+    index = len(rows) - 1 if rows[0]["id"] == mover["id"] else 0
+    daemon.ok("sidebar.move", {"items": [mover["id"]], "to": {"section": machine, "index": index}}, mutate=True)
+    moved = same("sidebar.move")
+    pinned_ws = mover["body"]["ref"]["workspace_id"]
+    check("one order: the moved workspace changed place in the listed order",
+          pinned_ws in moved and pinned_ws in before and moved.index(pinned_ws) != before.index(pinned_ws),
+          {"before": before, "after": moved})
+    daemon.ok("sidebar.pin", {"items": [mover["id"]]}, mutate=True)
+    listed = same("sidebar.pin")
+    in_machine = {i["body"]["ref"]["workspace_id"] for i in daemon.ok("sidebar.get")["items"]
+                  if i["section"] == machine and i["body"].get("type") == "workspace"}
+    check("one order: the pinned workspace is listed before every machine-section workspace",
+          pinned_ws in listed and all(listed.index(pinned_ws) < listed.index(w) for w in in_machine if w in listed),
+          listed)
+    session = cli_order("workspace", "list", "--order", "session", field="id")
+    indexes = cli_order("workspace", "list", "--order", "session", field="index")
+    check("one order: `--order session` keeps the session order (rows by session index)",
+          isinstance(session, list) and sorted(session) == sorted(listed)
+          and isinstance(indexes, list) and indexes == sorted(indexes), {"session": session, "index": indexes})
+    # The private tree keeps the session order: its tree deltas
+    # (workspace-added/moved) carry session indexes that delta readers apply.
+    tree = cli_order(*raw_list, field="resource_id")
+    check("one order: raw list-workspaces keeps the session order of its index deltas",
+          tree == session, {"tree": tree, "session": session})
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--binary", type=Path, required=True)
@@ -935,6 +1011,7 @@ def main() -> int:
         tiles = next((s for s in layout["sections"] if s["id"] == "sec_pinned"), {"items": []})["items"]
         check("old sidebar_layout.get still shows the pinned items after restart",
               f"{local}:{ids['w6']}" in [t["ref"]["value"] for t in tiles], tiles)
+        one_order(daemon, local)
     finally:
         daemon.stop()
     doc_slice_4(args.binary.resolve(), seed_state, work / "state4", sock, seeded)

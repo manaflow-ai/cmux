@@ -1062,7 +1062,9 @@ def cloud_chief():
         start([os.path.join(bins, "optchat-chief"), "cloud", "pair", "--install", install_file, "--api-base",
                "https://cloud-api-staging.cmux.dev", "--name", name, "--wait-chief", "900"], {}, "pair.log")
         code = wait(lambda: (re.search(r"pairing code: (\S+)", open(pair_log).read()) or [None, None])[1], 120)
-        approved = rpc("action.run", {"action": "server.addServer", "args": {"code": code, "name": name, "chief": False},
+        words = wait(lambda: (re.search(r"check words:\s+(.+)", open(pair_log).read()) or [None, None])[1], 120)
+        approved = rpc("action.run", {"action": "server.addServer",
+                                      "args": {"code": code, "words": (words or "").strip(), "name": name, "chief": False},
                                       "wait": True}, timeout=120)
         paired = wait(lambda: re.search(r"paired: host (\S+) \(install (\S+)\)", open(pair_log).read()), 180)
         host, install = (paired.group(1), paired.group(2)) if paired else (None, None)
@@ -1131,7 +1133,7 @@ def cloud_chief():
                     p.wait(timeout=20)
                 except subprocess.TimeoutExpired:
                     p.kill()
-        subprocess.run([os.path.join(bins, "acpmux"), "daemon", "shutdown"], env={**base, **acp}, capture_output=True, timeout=30)
+        subprocess.run([os.path.join(bins, "acpmux"), "daemon", "shutdown", "--end-agents"], env={**base, **acp}, capture_output=True, timeout=30)
         shutil.copytree(os.path.join(brain, "logs"), os.path.join(opts.out, "brain-logs"), dirs_exist_ok=True)
         try:
             shutil.copy(os.path.join(mux, "host.log"), os.path.join(opts.out, "brain-host.log"))
@@ -1211,7 +1213,7 @@ def cleanup():
             app.wait(timeout=20)
         except subprocess.TimeoutExpired:
             os.kill(app.pid, signal.SIGKILL)
-    acpmux("daemon", "shutdown", timeout=30)
+    acpmux("daemon", "shutdown", "--end-agents", timeout=30)
     stop_sessions()
     for _ in range(2):
         ps = subprocess.run(["ps", "-axo", "pid=,command="], capture_output=True, text=True).stdout

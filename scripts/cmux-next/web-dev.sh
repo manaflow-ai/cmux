@@ -49,7 +49,7 @@ cleanup() {
   if [[ -n "$daemon_pid" ]] && kill -0 "$daemon_pid" 2>/dev/null; then
     # The daemon owns its socket and agent children; ask it to close those first. This is scoped
     # by ACPMUX_HOME and never searches for or kills another process.
-    ACPMUX_HOME="$daemon_home" "$acpmux_bin" daemon shutdown >/dev/null 2>&1 || true
+    ACPMUX_HOME="$daemon_home" "$acpmux_bin" daemon shutdown --end-agents >/dev/null 2>&1 || true
     if kill -0 "$daemon_pid" 2>/dev/null; then kill -TERM "$daemon_pid" 2>/dev/null || true; fi
     wait "$daemon_pid" 2>/dev/null || true
   fi

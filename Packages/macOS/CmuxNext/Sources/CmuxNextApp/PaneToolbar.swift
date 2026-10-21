@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSettings
@@ -8,14 +9,14 @@ import os
 
 /// A pane's "…" at its tab bar's trailing end (Leo 2026-10-12; was cx-kk7lm's row of buttons), after
 /// the actions pinned as buttons (`tabs.toolbarButtons`, none by default; Lawrence 2026-10-12): they
-/// show while the pointer is over the tab bar, like its "+". The menu is the strip plus's (a terminal,
+/// show only while the pointer is over the tab bar, like its "+". The menu is the strip plus's (a terminal,
 /// a browser, an agent chat, … in this pane), then the actions not pinned (Split Right, Split Down,
-/// the shown tab's own, Toggle Pane Zoom), then Show in Tab Bar, which pins or unpins one. A chat's
+/// the shown tab's own, Toggle Pane Zoom), Search Tabs, then Show in Tab Bar, which pins or unpins one. A chat's
 /// pane has none: its header has its own (acpmux header/ChatHeaderTools.tsx).
 @MainActor
 final class PaneToolbar {
     /// What the selected tab is, for its own actions; nil is a chat: no "…".
-    enum Kind: Equatable, Sendable {
+    enum Kind: Hashable, Sendable {
         case newTab, terminal, browser, other
     }
 
@@ -25,6 +26,14 @@ final class PaneToolbar {
         var kind: Kind?
         var zoomed = false
         var pinned: [String] = []
+        /// What every tab of the pane that offers "…" is: the bar keeps their room whichever is
+        /// selected, so a selection never changes the strip's width (Lawrence 2026-10-19).
+        var paneKinds: Set<Kind> = []
+        /// The strip selects a tab the store no longer lists (a provisional tab the store's tab
+        /// just replaced): the selection follows on the strip's next apply, so the bar keeps what
+        /// it shows. Hiding "…" for that frame gave its width to the strip, which laid out every
+        /// tab again at once (10 tabs, cx-codh2).
+        var behind = false
     }
 
     let view = PaneToolbarView()
@@ -73,19 +82,25 @@ final class PaneToolbar {
         observation = Task { [weak self, weak pane] in
             for await state in ObservationStream({ [weak pane] in pane.map(Self.state) }) {
                 guard let self, let state else { return }
-                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned)
+                if state.behind { continue }
+                update(target: state.target, kind: state.kind, zoomed: state.zoomed, pinned: state.pinned, paneKinds: state.paneKinds)
             }
         }
     }
 
     private static func state(_ pane: PaneController) -> State {
         let pinned = pane.services.settings.map { PaneToolbarButtonsSetting.current($0).pinned } ?? []
-        guard let key = pane.stripModel.selectedID?.rawValue, let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
-            return State(pinned: pinned)
+        let resolver = TabTitleResolver(services: pane.services)
+        let paneKinds = Set(pane.pane.tabs.compactMap { kind($0, isNewTabPage: resolver.isNewTabPage($0)) })
+        guard let key = pane.stripModel.selectedID?.rawValue else { return State(pinned: pinned, paneKinds: paneKinds) }
+        guard let tab = pane.pane.tabs.first(where: { $0.id == key }) else {
+            // A window's own page or browser tab is never in the store: no "…", not a stale bar.
+            let local = key.hasPrefix(LocalPageTab.prefix) || key.hasPrefix(LocalBrowserTab.prefix)
+            return State(pinned: pinned, paneKinds: paneKinds, behind: !local)
         }
         // The pane's own workspace, not a store scan: this runs for every pane.
         let zoomed = pane.workspace?.workspace.screens.contains { $0.zoomedPane == pane.pane.handle } ?? false
-        return State(target: key, kind: kind(tab, isNewTabPage: TabTitleResolver(services: pane.services).isNewTabPage(tab)), zoomed: zoomed, pinned: pinned)
+        return State(target: key, kind: kind(tab, isNewTabPage: resolver.isNewTabPage(tab)), zoomed: zoomed, pinned: pinned, paneKinds: paneKinds)
     }
 
     static func kind(_ tab: TabModel, isNewTabPage: Bool) -> Kind? {
@@ -109,16 +124,23 @@ final class PaneToolbar {
         return ["splitRight", "splitDown"] + own + [zoom]
     }
 
-    static let zoom: ActionID = "toggleSplitZoom"
+    static let zoom: ActionID = "toggleSplitZoom", search: ActionID = "tab.search"
 
     /// Shows the `pinned` actions tab `target` of `kind` can run and "…" (nil kind: none); lit while the pane is zoomed.
-    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = []) {
+    /// `paneKinds`: the kinds of every tab in the pane that offers "…", whichever is selected.
+    func update(target: String?, kind: Kind?, zoomed: Bool = false, pinned: [String] = [], paneKinds: Set<Kind> = []) {
         self.target = target
         self.kind = kind
         self.zoomed = zoomed
         self.pinned = pinned
         let shown = target != nil && kind != nil
-        view.show(shownPins().compactMap(item), more: shown, lit: zoomed && shown)
+        // The room the bar keeps: "…" and the most pins any tab of the pane shows, so selecting a tab
+        // without "…" (a chat, a window's own page) or fewer pins moves no tab. Search Tabs has no button
+        // (Lawrence 2026-10-20: "i dont like the down arrow"); it is a row of "…"'s menu.
+        let kinds = kind.map { paneKinds.union([$0]) } ?? paneKinds
+        let reservedPins = kinds.map { kind in pinned.count(where: { Self.actions(kind).contains(ActionID(rawValue: $0)) }) }.max() ?? 0
+        view.show(shownPins().compactMap(item), more: shown, lit: zoomed && shown,
+                  reserving: kinds.isEmpty ? 0 : reservedPins + 1)
     }
 
     /// The pinned actions the tab can run, in the user's order, as buttons before "…".
@@ -146,7 +168,7 @@ final class PaneToolbar {
         return Self.actions(kind).filter { ActionTargetReasons.canPerform($0, invocation: invocation, in: registry) }
     }
 
-    /// "…": what opens in the pane, the actions without a button with their keys, then Show in Tab Bar.
+    /// "…": what opens in the pane, the actions without a button with their keys, Search Tabs, then Show in Tab Bar.
     private func moreMenu() -> NSMenu? {
         guard let registry = registry(), let target, kind != nil else { return nil }
         let menu = newTabMenu() ?? NSMenu()
@@ -156,6 +178,13 @@ final class PaneToolbar {
         if !menu.items.isEmpty, !own.items.isEmpty { menu.addItem(.separator()) }
         for item in own.items {
             own.removeItem(item)
+            menu.addItem(item)
+        }
+        // Search Tabs (was the bar's chevron) runs with no tab target: a tab target only reveals that tab.
+        let search = registry.makeContextMenu(for: .tab, entries: [.action(Self.search)])
+        if !search.items.isEmpty { menu.addItem(.separator()) }
+        for item in search.items {
+            search.removeItem(item)
             menu.addItem(item)
         }
         menu.addItem(.separator())

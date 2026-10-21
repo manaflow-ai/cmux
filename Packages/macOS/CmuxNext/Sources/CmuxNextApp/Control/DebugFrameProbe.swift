@@ -56,6 +56,15 @@ final class DebugFrameProbe {
         last = tick.timestamp
     }
 
+    private var missedOffsets: [Double] {
+        guard expected > 0 else { return [] }
+        var offset = 0.0
+        return intervals.compactMap { interval in
+            offset += interval
+            return interval > expected * 1_500 ? offset : nil
+        }
+    }
+
     private var stats: JSONValue {
         let sorted = intervals.sorted()
         func percentile(_ p: Double) -> Double {
@@ -74,6 +83,8 @@ final class DebugFrameProbe {
             "over_16_7_ms": JSONValue(sorted.filter { $0 > budget }.count),
             // Missed vsyncs: intervals longer than 1.5 refresh periods.
             "missed": JSONValue(expected > 0 ? sorted.filter { $0 > expected * 1_500 }.count : 0),
+            // When the missed vsyncs happened: ms from the first frame to the end of each (at most 16).
+            "missed_at_ms": .array(missedOffsets.prefix(16).map { .number($0.rounded()) }),
         ]
     }
 }

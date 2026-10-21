@@ -68,7 +68,12 @@ pub const NOTIFICATION_REPLY_CAPABILITY: &str = "notification-reply-v1";
 pub struct NotificationEvent {
     pub notification: u64,
     pub title: String,
+    /// Second line under the title, as `cmux notify --subtitle`.
+    pub subtitle: Option<String>,
     pub body: String,
+    /// An agent's last message for a turn-done or error banner, memory only: never in the
+    /// durable ledger (`agent_prompts.rs`). The app shows it per its Show Previews setting.
+    pub preview: Option<String>,
     pub level: NotificationLevel,
     pub surface: Option<SurfaceId>,
     pub source: NotificationSource,

@@ -15,6 +15,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import net from "node:net";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType, type Page } from "playwright";
+import { stopDevServer } from "./support/devServer";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmDevServer } from "./support/warmDevServer";
 
@@ -48,8 +49,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
     server = spawn(
       path.join(webviews, "node_modules/.bin/vp"),
       ["dev", "--config", "vite.config.settings-page.mjs", "--port", String(port), "--strictPort"],
-      // Its own process group: vp starts vite as a child, and the whole group stops in afterAll.
-      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"], detached: true },
+      { cwd: webviews, stdio: ["ignore", "ignore", "ignore"] },
     );
     base = `http://127.0.0.1:${port}`;
     const deadline = Date.now() + 60_000;
@@ -67,7 +67,7 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
   }, 180_000);
 
   afterAll(() => {
-    if (server?.pid) process.kill(-server.pid, "SIGTERM");
+    stopDevServer(server);
   });
 
   /** The page's scroll state: the document's, and every element that scrolls a row. */
@@ -147,7 +147,10 @@ await requireBrowserLane("settings-scroll.test.ts", async () => {
         await open(page, "appearance");
         expect(await watchRows(page)).toBeGreaterThan(40);
         const steps: string[] = [];
-        for (let step = 0; step < 80; step += 1) {
+        // The loop stops at the end; the cap only bounds a page that never gets there. WebKit moves
+        // about 110px per 120px wheel step, so 80 steps stopped 4px short once the regenerated schema
+        // (12286201804) made Appearance 8839px tall.
+        for (let step = 0; step < 200; step += 1) {
           const state = await scrollState(page);
           if (state.documentScrolls || state.scrollers.length !== 1) steps.push(`${step}: ${JSON.stringify(state)}`);
           if (state.contentTop >= state.contentEnd && step > 0) {

@@ -23,6 +23,11 @@
 //! Work in progress comes only from a program's own report (OSC 7501
 //! `working`, OSC 9;4) or an agent's state, never from this module.
 //! `busy` is the older field: it is published only for a `running` command.
+//!
+//! `prompt` is the shell sitting at its prompt: from a prompt start (`A`)
+//! until the next command starts (`C`). A shell without integration never
+//! publishes it. `cmux terminal <t> wait --until prompt|idle` waits on these
+//! facts (cx-6so.14).
 
 use crate::shell_history::ShellMark;
 use serde_json::{Value, json};
@@ -73,6 +78,18 @@ impl CommandActivity {
     }
 }
 
+/// A terminal's shell state as it crosses the terminal-host protocol
+/// (`FLAG_SHELL_ACTIVITY`, cx-6so.59), so a daemon that adopts the host after
+/// a restart still sees the prompt or the running command. The times are
+/// Unix ms, so they mean the same in both processes.
+#[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+pub struct ShellActivitySnapshot {
+    pub(crate) busy_since_ms: Option<u64>,
+    pub(crate) interactive: bool,
+    pub(crate) line_modes_armed: bool,
+    pub(crate) prompt_since_ms: Option<u64>,
+}
+
 /// The shell command state of one terminal, from OSC 133 marks and the
 /// terminal modes the command set.
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
@@ -82,7 +99,9 @@ pub(crate) struct ShellActivity {
     /// The running command was seen with the line modes off, so turning
     /// them on is the command's own doing.
     line_modes_armed: bool,
-    published: (Option<u64>, bool),
+    /// When the shell drew the prompt it sits at (`A`, until the next `C`).
+    prompt_since_ms: Option<u64>,
+    published: (Option<u64>, bool, Option<u64>),
 }
 
 impl ShellActivity {
@@ -93,6 +112,7 @@ impl ShellActivity {
         match mark {
             ShellMark::CommandStart => {
                 self.busy_since_ms.get_or_insert(now_ms);
+                self.prompt_since_ms = None;
                 false
             }
             ShellMark::CommandEnd { .. } => {
@@ -101,6 +121,7 @@ impl ShellActivity {
             }
             ShellMark::PromptStart => {
                 self.end();
+                self.prompt_since_ms.get_or_insert(now_ms);
                 true
             }
             ShellMark::InputStart => false,
@@ -140,9 +161,35 @@ impl ShellActivity {
         Some((state, since))
     }
 
-    /// Whether the command fact changed since the last call (marks it taken).
+    /// When the shell drew the prompt it sits at, if it does.
+    pub(crate) fn prompt_since(&self) -> Option<u64> {
+        self.prompt_since_ms
+    }
+
+    /// The state a terminal host hands to the daemon that adopts it.
+    #[cfg_attr(not(unix), allow(dead_code))]
+    pub(crate) fn snapshot(&self) -> ShellActivitySnapshot {
+        ShellActivitySnapshot {
+            busy_since_ms: self.busy_since_ms,
+            interactive: self.interactive,
+            line_modes_armed: self.line_modes_armed,
+            prompt_since_ms: self.prompt_since_ms,
+        }
+    }
+
+    /// Takes a terminal host's state. The facts publish as a change on the
+    /// next `take_change`.
+    pub(crate) fn restore(&mut self, snapshot: ShellActivitySnapshot) {
+        self.busy_since_ms = snapshot.busy_since_ms;
+        self.interactive = snapshot.busy_since_ms.is_some() && snapshot.interactive;
+        self.line_modes_armed = snapshot.busy_since_ms.is_some() && snapshot.line_modes_armed;
+        self.prompt_since_ms = snapshot.prompt_since_ms;
+    }
+
+    /// Whether the command or prompt fact changed since the last call (marks
+    /// it taken).
     pub(crate) fn take_change(&mut self) -> bool {
-        let current = (self.busy_since_ms, self.interactive);
+        let current = (self.busy_since_ms, self.interactive, self.prompt_since_ms);
         let changed = current != self.published;
         self.published = current;
         changed
@@ -152,6 +199,11 @@ impl ShellActivity {
 /// The `activity` field of a terminal record.
 pub(crate) fn activity_json(state: CommandActivity, since_ms: u64) -> Value {
     json!({"state": state.as_str(), "since_ms": since_ms.to_string()})
+}
+
+/// The `prompt` field of a terminal record.
+pub(crate) fn prompt_json(since_ms: u64) -> Value {
+    json!({"since_ms": since_ms.to_string()})
 }
 
 /// The older `busy` field of a terminal record (a `running` command only).

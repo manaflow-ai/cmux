@@ -120,6 +120,8 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
     case agentChat
     /// The window's own background where it shows: the gaps between panes and an empty workspace.
     case windowBackground
+    /// The sidebar's Now Playing card (u2437): Play/Pause and its hide rows.
+    case nowPlayingCard
 
     /// The object a right-click in this context targets, if any.
     public var targetKind: ActionTargetKind? {
@@ -134,7 +136,7 @@ public nonisolated enum ActionMenuContext: String, CaseIterable, Sendable, Hasha
         case .pane, .newTab: .pane
         case .workspaceRow: .workspace
         case .workspaceGroup: .workspaceGroup
-        case .sidebarBackground, .sidebarFooter: nil
+        case .sidebarBackground, .sidebarFooter, .nowPlayingCard: nil
         case .cloudMachine, .sshMachine, .machineSection: .machine
         case .profile: .profile
         case .browserProfile: .browserProfile

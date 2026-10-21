@@ -30,6 +30,22 @@ export default componentEntry<UrlChipProps>({
     "cached-favicon": {
       chipHost: host,
       props: { href: "https://docs.example.test/guide", children: "Example docs" },
+      play: async (ctx) => {
+        await ctx.hover({ selector: "a.cv-chip.is-web" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
+        await ctx.hover({ selector: ".cv-link-preview" });
+        await ctx.click({ selector: ".cv-link-preview__open" });
+      },
+    },
+    "token-url": {
+      props: {
+        href: "http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b",
+        children: "http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b",
+      },
+      play: async (ctx) => {
+        await ctx.hover({ selector: "a.cv-chip.is-web" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
+      },
     },
     "long-url": {
       props: {

@@ -18,7 +18,7 @@ function ensureWasm(): void {
   initialized = true;
 }
 
-export type Kind = "user" | "talk" | "tool" | "echo" | "note";
+export type Kind = "user" | "talk" | "tool" | "echo" | "note" | "ai";
 
 export interface LogEntry {
   readonly i: number;
@@ -46,22 +46,7 @@ export const TRIES = 5;
 export const RETRY_MS = 10_000;
 
 const encoder = new TextEncoder();
-const decoder = new TextDecoder();
 export const bytes = (s: string) => encoder.encode(s).length;
-
-/** Cuts UTF-8 `text` at byte offsets (the core's cache marks) into pieces. */
-export function cutAtMarks(text: string, marks: ReadonlyArray<number>): string[] {
-  const raw = encoder.encode(text);
-  const pieces: string[] = [];
-  let start = 0;
-  for (const m of marks) {
-    if (m <= start || m >= raw.length) continue;
-    pieces.push(decoder.decode(raw.subarray(start, m)));
-    start = m;
-  }
-  pieces.push(decoder.decode(raw.subarray(start)));
-  return pieces.filter((p) => p.length > 0);
-}
 
 /**
  * Spec 7: a tool result over CAP characters keeps its head and tail, with a note of the cut.
@@ -77,6 +62,8 @@ export function capText(text: string): string {
 
 export class Memory {
   private core: OptChat;
+  /** How the memory was loaded at the last start: from its checkpoint (O(view + frontier + new)), or folded. */
+  loaded: "resumed" | "folded" = "folded";
   private readonly store: {
     message: (i: number) => { kind: string; text: string };
     node: (l: number, i: number) => string | undefined;
@@ -90,6 +77,10 @@ export class Memory {
     sql.exec(
       `CREATE TABLE IF NOT EXISTS oc_message (i INTEGER PRIMARY KEY, kind TEXT NOT NULL, text TEXT NOT NULL, size INTEGER NOT NULL, date TEXT NOT NULL)`,
     );
+    sql.exec(`CREATE TABLE IF NOT EXISTS oc_frozen (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL)`);
+    // Where the core stands (optchat-core Checkpoint, as optchat-host's memory/checkpoint): saved after
+    // every change, so a start resumes from it and never folds the whole log again (spec 3.2).
+    sql.exec(`CREATE TABLE IF NOT EXISTS oc_checkpoint (id INTEGER PRIMARY KEY CHECK (id = 1), json TEXT NOT NULL)`);
     sql.exec(
       `CREATE TABLE IF NOT EXISTS oc_node (l INTEGER NOT NULL, i INTEGER NOT NULL, text TEXT NOT NULL, size INTEGER NOT NULL, PRIMARY KEY (l, i))`,
     );
@@ -105,14 +96,54 @@ export class Memory {
     this.core = this.load();
   }
 
-  /** Spec 5.2 "at load": the view is folded again from message 0 over the stored nodes. */
+  /**
+   * At start: resume from the saved checkpoint (the views as they were, the frontier nodes, and the
+   * messages logged after it), reading message and node texts only when a merge or a render needs
+   * them. Without a usable checkpoint (a first start, an older store) the view is folded from every
+   * node's size once, and its checkpoint saved, so the next start resumes. Either way the core is lazy.
+   */
   private load(): OptChat {
     const t = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n);
+    if (t === 0 && this.nodeCount() === 0) {
+      this.loaded = "folded";
+      const fresh = new OptChat(this.budget);
+      fresh.makeLazy();
+      return fresh;
+    }
+    const saved = this.sql.exec<{ json: string }>(`SELECT json FROM oc_checkpoint WHERE id = 1`).toArray()[0]?.json;
+    if (saved) {
+      // A bad checkpoint or a failed read never stops the object: it folds instead (logged, no text).
+      try {
+      const low = ((JSON.parse(saved) as { low?: unknown }).low ?? []) as number[];
+      const frontier: Array<[number, number, number]> = [];
+      const top = Number(this.sql.exec<{ n: number | null }>(`SELECT MAX(l) AS n FROM oc_node`).one().n ?? -1);
+      for (let l = 0; l <= top; l++) {
+        for (const r of this.sql.exec<{ i: number; size: number }>(`SELECT i, size FROM oc_node WHERE l = ? AND i >= ?`, l, low[l] ?? 0)) frontier.push([l, Number(r.i), Number(r.size)]);
+      }
+      const resumed = OptChat.resume(saved, t, JSON.stringify(frontier), this.budget, this.store);
+      if (resumed) {
+        this.loaded = "resumed";
+        // Messages logged after the checkpoint were appended as live: save where it stands now.
+        if (Number((JSON.parse(saved) as { t?: unknown }).t ?? t) < t) this.saveCheckpoint(resumed);
+        return resumed;
+      }
+      } catch (e) {
+        console.warn(JSON.stringify({ msg: "chief_brain.memory_resume_failed", error: String((e as Error)?.message ?? e).slice(0, 200) }));
+      }
+    }
     const built = this.sql
       .exec<{ l: number; i: number; size: number }>(`SELECT l, i, size FROM oc_node ORDER BY l, i`)
       .toArray()
       .map((r) => [Number(r.l), Number(r.i), Number(r.size)]);
-    return t === 0 && built.length === 0 ? new OptChat(this.budget) : OptChat.load(t, JSON.stringify(built), this.budget);
+    const folded = OptChat.load(t, JSON.stringify(built), this.budget);
+    folded.makeLazy();
+    this.loaded = "folded";
+    this.saveCheckpoint(folded);
+    return folded;
+  }
+
+  private saveCheckpoint(core: OptChat = this.core): void {
+    this.sql.exec(`INSERT INTO oc_checkpoint (id, json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET json = excluded.json`, core.checkpoint());
   }
 
   /** Re-folds from storage, as after a restart (tests use it to compare views). */
@@ -127,12 +158,16 @@ export class Memory {
 
   /** Appends one message to the log, verbatim, and to the view. */
   append(kind: Kind, text: string, date = new Date()): LogEntry {
+    // The core can be ahead of the log after a rolled-back transaction: fold back to the store first.
+    const stored = Number(this.sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM oc_message`).one().n);
+    if (stored !== this.core.len()) this.reload();
     const i = this.core.len();
     const size = bytes(`${kind}: ${text}`);
     const iso = date.toISOString();
     this.sql.exec(`INSERT INTO oc_message (i, kind, text, size, date) VALUES (?, ?, ?, ?, ?)`, i, kind, text, size, iso);
-    const got = this.core.append();
+    const got = this.core.appendIn(this.store);
     if (got !== i) throw new Error(`core appended ${got}, store has ${i}`);
+    this.saveCheckpoint();
     return { i, kind, text, size, date: iso };
   }
 
@@ -151,6 +186,7 @@ export class Memory {
   pump(): Work[] {
     const work = JSON.parse(this.core.pump(this.store)) as Work[];
     for (const w of work) if (w.kind === "free") this.saveNode(w.l, w.i, w.text);
+    if (work.some((w) => w.kind === "free")) this.saveCheckpoint();
     return work.filter((w) => w.kind === "model");
   }
 
@@ -161,7 +197,8 @@ export class Memory {
   /** Stores a model-built node and refits the view. */
   complete(l: number, i: number, text: string): void {
     this.saveNode(l, i, text);
-    this.core.complete(l, i, text);
+    this.core.completeIn(l, i, text, this.store);
+    this.saveCheckpoint();
   }
 
   fail(l: number, i: number): void {
@@ -182,9 +219,38 @@ export class Memory {
     return this.core.settled();
   }
 
-  /** The rendered `<chat>` view and its cache marks (UTF-8 byte offsets). */
+  /** The first message whose view line is not built yet, or the log's length (the reference client's `Memory.first`). */
+  first(): number {
+    return this.core.first();
+  }
+
+  /** The rendered `<chat>` view and its cache marks (indices into the JS string `text`, UTF-16 code units). */
   render(): { text: string; marks: number[] } {
     return JSON.parse(this.core.renderView(this.store)) as { text: string; marks: number[] };
+  }
+
+  /**
+   * The turn's input (optchat-core `turn_input`), as 4-line view blocks then the delta blocks.
+   * `fresh` (every message before the new ones is summarized): the view is rendered again, so it
+   * shows every message before the new ones as built lines and the delta holds only the new
+   * messages, as the reference client builds each call (`Memory.view(mem, from)` + the new messages).
+   * Not fresh (the compactor is behind): the view rendered last is given back, with every message
+   * since as a whole delta line (OptChat 5a), so nothing unsummarized is hidden behind a placeholder.
+   * The rendered view is kept here either way.
+   */
+  turnInput(newMessages: number, fresh = false): string[] {
+    const prior = fresh ? "" : (this.sql.exec<{ json: string }>(`SELECT json FROM oc_frozen WHERE id = 1`).toArray()[0]?.json ?? "");
+    let out: { frozen: unknown; rerendered: boolean; view: string[]; delta: string[] };
+    try {
+      out = JSON.parse(this.core.turnInput(this.store, prior, newMessages)) as typeof out;
+    } catch (e) {
+      // The caller's transaction rolls back the messages this turn appended; the core holds them
+      // already, so it re-folds from storage once the rollback is done (a later append would refuse).
+      queueMicrotask(() => this.reload());
+      throw e;
+    }
+    this.sql.exec(`INSERT INTO oc_frozen (id, json) VALUES (1, ?) ON CONFLICT (id) DO UPDATE SET json = excluded.json`, JSON.stringify(out.frozen));
+    return [...out.view, ...out.delta];
   }
 
   viewParts(): Array<{ l: number; i: number; name: string }> {
