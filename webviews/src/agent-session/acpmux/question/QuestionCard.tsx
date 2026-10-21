@@ -218,7 +218,8 @@ function PendingQuestion({
     apply(step.effect, step.state, input, inList || focused === card);
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.isComposing) return;
+    // WebKit sends the Enter that commits an IME candidate after compositionend, as keyCode 229.
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
     // ⌘↩ submits from anywhere in the card, the Other field included. With nothing chosen yet it
     // answers like Enter: the highlighted row, then Submit once every item has an answer.
     if (event.key === "Enter" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
