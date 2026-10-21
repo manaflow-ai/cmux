@@ -68,8 +68,6 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
-        try paths.prepare()
-        let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         clearRedial()
     }
 
@@ -101,6 +99,8 @@ public actor CloudMachineLink {
         child?.terminate()
         child = nil
         socket = nil
+        try paths.prepare()
+        let deviceFingerprint = paths.loadLinkDeviceFingerprint(machineID: machineID)
         // Lifecycle transitions can run during every await. A stale start
         // must never publish a socket or replace a newer link.
         let endpoint = try await api.attachEndpoint(machineID, deviceFingerprint: deviceFingerprint)
