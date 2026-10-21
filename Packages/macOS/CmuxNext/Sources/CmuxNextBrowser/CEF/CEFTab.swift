@@ -91,10 +91,12 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Until then the page base is the theme color, not the engine's white
     /// (`CEFTab+LoadingBackground`).
     @ObservationIgnored var documentSettled = false
-    /// The `prefers-color-scheme` the attached browser was last told, so a
-    /// tab switch (every one calls `pageThemeDidChange`) costs no DevTools
-    /// round trip when nothing changed. Nil until the browser attaches, and
-    /// again when it goes away or its renderer ends (`CEFTab+ColorScheme`).
+    /// The `prefers-color-scheme` a live renderer was last told, so a tab
+    /// switch (every one calls `pageThemeDidChange`) costs no DevTools round
+    /// trip when nothing changed. Nil whenever no page can be holding that
+    /// value: before the browser attaches, once it goes away, and from a
+    /// renderer's death until the restart commits a document
+    /// (`CEFTab+ColorScheme`, `rendererTerminated`).
     @ObservationIgnored var sentColorScheme: String?
     /// The theme surface whose color a cmux page keeps behind its transparent document (a
     /// `cmux-page://` page in Chromium, `CmuxNextApp` `ChromiumPageHost`); nil for a web page, which
@@ -317,12 +319,13 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// pane shows the sad tab; a hidden tab reloads when it is shown.
     func rendererTerminated(_ exit: BrowserProcessExit) {
         guard !isClosed else { return }
-        machine.apply(.processExited(exit))
         // A new renderer need not keep the old one's media emulation, so forget
-        // what we told it: the next ask (`pageThemeDidChange` on the reload's
-        // view move or theme change) sends the color scheme again instead of
-        // reading it back off a renderer that never heard it.
+        // what the dead one was told: whichever way the page comes back (Reload
+        // here, or a hidden tab reloading when shown), the restarted renderer's
+        // `.loadStart` sends the color scheme again rather than trusting a memo
+        // no live page ever heard.
         sentColorScheme = nil
+        machine.apply(.processExited(exit))
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)

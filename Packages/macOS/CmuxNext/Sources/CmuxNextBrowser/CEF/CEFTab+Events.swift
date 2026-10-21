@@ -48,6 +48,11 @@ extension CEFTab {
             committedURL = URL(string: url)
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
+            // The document that just committed is the only one that can hear
+            // `prefers-color-scheme`, and after a renderer restart it never did
+            // (`rendererTerminated` forgets what the dead one was told). Costs
+            // nothing on an ordinary navigation: the memo already matches.
+            reapplyColorScheme()
             if PageBackground.isRealPage(URL(string: url)) { reachedFirstRealPage() }
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }

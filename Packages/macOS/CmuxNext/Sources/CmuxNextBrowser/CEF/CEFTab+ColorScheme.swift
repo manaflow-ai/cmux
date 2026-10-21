@@ -25,7 +25,11 @@ enum CEFColorScheme {
         // One call carries the color scheme and Developer Tools' reduced motion, so neither clears the other.
         let wanted = value(for: scheme, in: tab.container)
         tab.devToolsModes.colorScheme = wanted
-        guard let browserID = tab.browserID, !tab.isClosed else {
+        // A dead renderer hears nothing, and its browser host outlives it, so
+        // `browserID` alone would memoize a value no page ever got. Stay unsent
+        // until the restarted renderer commits a document and asks again
+        // (`.loadStart`); otherwise the memo below suppresses that resend.
+        guard let browserID = tab.browserID, !tab.isClosed, tab.state.processExit == nil else {
             tab.sentColorScheme = nil
             return
         }
