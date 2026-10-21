@@ -22,10 +22,10 @@ final class ReplyQuoteCardView: NSView {
         addSubview(glass)
         bar.wantsLayer = true
         bar.layer?.cornerRadius = 1.5
-        title.font = .systemFont(ofSize: 11, weight: .semibold)
+        title.font = HomeFonts.system(ofSize: 11, weight: .semibold)
         title.textColor = .secondaryLabelColor
         title.lineBreakMode = .byTruncatingTail
-        excerpt.font = .systemFont(ofSize: 13)
+        excerpt.font = HomeFonts.system(ofSize: 13)
         excerpt.textColor = .labelColor
         excerpt.maximumNumberOfLines = 2
         excerpt.lineBreakMode = .byTruncatingTail

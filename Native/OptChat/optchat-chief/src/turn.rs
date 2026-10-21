@@ -35,8 +35,8 @@ pub struct Interrupt {
     /// The owner stopped the turn: cancel at once, even while a tool call
     /// waits (`request_hard`), never only at the next tool boundary.
     hard: AtomicBool,
-    /// The turn has a remote origin and no auto-approve: the native engine
-    /// refuses its local effects (README "Remote-origin messages").
+    /// The turn carries another person's text: the native engine refuses
+    /// its local effects (README "Remote-origin messages").
     gate: AtomicBool,
     /// The running acpmux turn's signals, woken on a request.
     wake: Mutex<Option<Sender<TurnSignal>>>,
@@ -109,7 +109,7 @@ impl Interrupt {
         true
     }
 
-    /// Sets whether the turn's local effects need an approval.
+    /// Sets whether the turn's local effects are refused.
     pub fn set_gate(&self, on: bool) {
         self.gate.store(on, Ordering::SeqCst);
     }

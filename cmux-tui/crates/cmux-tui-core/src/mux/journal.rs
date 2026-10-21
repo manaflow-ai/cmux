@@ -602,7 +602,7 @@ impl Mux {
         } else if let Err(_bookkeeping_error) = self
             .workspace_registry
             .lock()
-            .unwrap()
+            .unwrap_or_else(PoisonError::into_inner)
             .clear_agent_hook_pending(&ingress.producer_id, origin, idempotency_key)
         {
             self.report_internal_diagnostic(
