@@ -26,8 +26,9 @@ import Testing
         }
 
         NSPasteboard.general.clearContents()
-        let copy = try #require(menu.items.firstIndex { $0.title == BrowserHitStrings.downloadCopyLink })
-        menu.performActionForItem(at: copy)
+        // As a click does (`performActionForItem` needs a running NSApplication).
+        let copy = try #require(menu.items.first { $0.title == BrowserHitStrings.downloadCopyLink })
+        _ = try #require(copy.target as? NSObject).perform(try #require(copy.action), with: copy)
         #expect(NSPasteboard.general.string(forType: .string) == "https://example.com/report.pdf")
     }
 }
