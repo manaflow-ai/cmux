@@ -35,7 +35,8 @@ struct SidebarMenuLookTests {
         for item in menu.items.dropFirst() where !item.isSeparatorItem {
             #expect(item.view is ThemedMenuRowView, "\(name): \(item.title) is drawn by AppKit (system blue highlight)")
             #expect(item.image != nil, "\(name): \(item.title) has no icon")
-            #expect(!item.title.hasPrefix("Rename"), "\(name): Rename… is the header's field")
+            // A rename that can't run here (the group's needs a daemon) keeps its disabled row; the header is the swatches.
+            if header.field != nil { #expect(!item.title.hasPrefix("Rename"), "\(name): Rename… is the header's field") }
             let colors = item.submenu?.items.compactMap(MenuIdentityHeader.color(of:)) ?? []
             #expect(colors.count < 2, "\(name): \(item.title) is a color row; the colors are the header's swatches")
         }
@@ -51,15 +52,18 @@ struct SidebarMenuLookTests {
     @Test func theGroupMenuLooksLikeChromes() throws {
         let menu = try Self.menu(.group(Self.group))
         try Self.expectChromeLook(menu, "group")
+        let header = try #require(menu.items.first?.view as? MenuIdentityHeaderView)
+        #expect(header.strip != nil, "group: the colors are swatches")
     }
 
     /// More holds rows and at most one level of submenus: no More inside More.
     @Test func moreIsNotNested() throws {
         let menu = try Self.menu(.workspaces([Self.workspace]))
-        let more = menu.items.first { $0.title == MenuFolder.more.title }?.submenu
-        #expect(more?.items.contains { $0.title == MenuFolder.more.title } != true)
+        let more = try #require(menu.items.first { $0.title == MenuFolder.more.title }?.submenu)
+        #expect(!more.items.contains { $0.title == MenuFolder.more.title })
+        // New sits at `ContextMenuEssentials.inlineFolderLimit` rows: a ninth New row would fold it back into a submenu.
         for folder in [MenuFolder.new, .appearance, .copy, .tools, .close] {
-            #expect(more?.items.contains { $0.title == folder.title && $0.submenu != nil } != true, "More › \(folder.title) should be a section of More")
+            #expect(!more.items.contains { $0.title == folder.title && $0.submenu != nil }, "More › \(folder.title) should be a section of More")
         }
     }
 }
