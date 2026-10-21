@@ -326,7 +326,7 @@ private struct BrowserDownloadPopupRow: View {
                             .contentShape(Rectangle())
                     }
                     .buttonStyle(.plain)
-                    .help(BrowserHitStrings.downloadShowInFinder)
+                    .themedHelp(BrowserHitStrings.downloadShowInFinder)
                     .accessibilityLabel(BrowserHitStrings.downloadShowInFinder)
                 }
             }
@@ -340,7 +340,8 @@ private struct BrowserDownloadPopupRow: View {
             overRow = inside
             if inside { model.pointerEntered() }
         }
-        .help(download.filename)
+        // The name truncates in the middle, so hovering the row shows it whole.
+        .themedHelp(download.filename)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("browser.downloads.row")
     }

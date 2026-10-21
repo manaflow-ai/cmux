@@ -1853,8 +1853,15 @@ jobs:
                 exit 0 ;;
             esac
           done
+          # A gateway without the client has no verdict (cmux17, run 39573725240).
+          client="${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}"
+          if ! [[ -x "$client" ]]; then
+            echo "::notice title=Build fleet compile check::$client is not installed on runner $RUNNER_NAME; the Mac canary runs."
+            echo "verdict=unavailable" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
           status=0
-          "${CMUX_CI_CLIENT:-$HOME/.local/bin/cmux-ci}" compile-check --ref "$REF" --app \
+          "$client" compile-check --ref "$REF" --app \
             --timeout 1200 --queue-timeout 300 2>"$RUNNER_TEMP/compile-check.stderr" || status=$?
           case "$status" in
             0) verdict=pass ;;
