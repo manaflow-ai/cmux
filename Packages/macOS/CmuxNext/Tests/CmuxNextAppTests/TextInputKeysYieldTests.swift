@@ -42,4 +42,15 @@ import Testing
     @Test func theTodoPageStillToggles() throws {
         #expect(try Self.commandReturn(.page(pane: "pane_todo", tab: "tab_todo"), editing: false).contains("toggleChecklistItemComplete"))
     }
+
+    /// Every default on a text field's key either is scoped to a surface or steps aside for text input.
+    @Test func noUnscopedDefaultTakesATextFieldKey() {
+        let input = KeyContext(["textInputFocus": .bool(true), "surfaceKind": .string("home")])
+        let taken = RegistryKeyBindings(Self.registry).table.entries.filter { entry in
+            entry.source == .default && entry.keys.count == 1 && KeyBindingDefaults.textInputKeys.contains(entry.keys[0])
+                && (Self.registry.descriptor(for: entry.command)?.requires ?? []).isEmpty
+                && entry.applies(in: input)
+        }
+        #expect(taken.map(\.command.rawValue).isEmpty)
+    }
 }
