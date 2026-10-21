@@ -180,7 +180,7 @@ public struct CmuxConfigSnapshot: Sendable, Equatable {
     public var confirmQuit: ConfirmQuitMode = ConfirmQuitMode.fallback
     /// `newTerminal.opensWorkspace`; off when unset or invalid.
     public var newTerminalOpensWorkspace: Bool = NewTerminalWorkspaceSetting.fallback
-    /// `tabs.cmdWClosesPinnedTabs`; off when unset or invalid.
+    /// `tabs.cmdWClosesPinnedTabs`; on when unset or invalid.
     public var cmdWClosesPinnedTabs: Bool = CmdWClosesPinnedTabsSetting.fallback
     /// `tabs.overflow`; shrink when unset or invalid.
     public var tabOverflow: TabOverflow = TabOverflowSetting.fallback
