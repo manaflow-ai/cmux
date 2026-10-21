@@ -193,7 +193,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                         req.get("options").and_then(Value::as_array).cloned().unwrap_or_default();
                     let hint = crate::question_answer::pending_hint(&req, &name);
                     let is_question = crate::question_answer::question(&req).is_some();
-                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint}));
+                    // The ask's Needs you link: an agent writes it in a reply instead of restating
+                    // the ask, and the pane draws it as a chip that opens the list on this ask.
+                    let needs_you = p
+                        .get("permissionId")
+                        .and_then(Value::as_str)
+                        .map(|pid| format!("cmux://needs-you/{pid}"));
+                    out.push(json!({"session": name, "sessionId": id, "permissionId": p.get("permissionId"), "title": title, "kind": kind, "options": options, "question": is_question, "answer": hint, "needsYou": needs_you}));
                 }
             }
             if json_out {

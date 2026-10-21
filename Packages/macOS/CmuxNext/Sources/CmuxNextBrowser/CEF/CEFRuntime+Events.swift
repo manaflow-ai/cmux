@@ -157,6 +157,13 @@ extension CEFRuntime {
     // MARK: Browser lifetime
 
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
+        if shutdownSequence != nil {
+            // Its creation was under way when quit closed every browser (`shutdown`): close it
+            // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
+            pendingWindows[request] = nil
+            shim?.close(browser)
+            return
+        }
         if request != 0, let host = pendingWindows.removeValue(forKey: request) {
             host.windowCreated(browser: browser, request: request)
             return

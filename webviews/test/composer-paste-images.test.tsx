@@ -241,6 +241,63 @@ test("re-dropping the same local link replaces the chip instead of duplicating i
   expect(appendAttachments([first], [replacement, other])).toEqual([replacement, other]);
 });
 
+test("re-attaching design selection chips replaces both stable ids", async () => {
+  const { appendAttachments } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  const { designSelectionChips } = await import("../src/agent-session/acpmux/designSelection");
+  const selection = { id: "card-1", name: "Card", text: "hello", image: { mimeType: "image/png", data: "AA==" } };
+  const chips = designSelectionChips(selection);
+  expect(appendAttachments(appendAttachments([], chips), chips)).toEqual(chips);
+});
+
+test("attachment intake wires local link deduplication through its hook state", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");
+  let held: ComposerAttachment[] = [];
+  function Field() {
+    const result = useAttachmentIntake({
+      allowImages: true,
+      pasteTarget: () => undefined,
+      localPaths: async (_kind, files) => files.map(() => ({ path: "/Users/you/assets", folder: true })),
+    });
+    held = result.attachments;
+    return <output data-count={held.length} />;
+  }
+  root ??= createRoot(host);
+  await act(async () => root!.render(<Field />));
+  const files = [new File([], "assets", { type: "" }), new File([], "assets-copy", { type: "" })];
+  for (const file of files)
+    Object.defineProperty(file, "arrayBuffer", { value: () => Promise.reject(new Error("folder")) });
+  const event = new dom.window.Event("drop", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "dataTransfer", { value: { files, types: ["Files"] } });
+  await act(async () => {
+    host.dispatchEvent(event);
+  });
+  await new Promise<void>((resolve, reject) => {
+    if (host.querySelector('output[data-count="1"]')) return resolve();
+    let frames = 0;
+    const observer = new MutationObserver(() => {
+      if (host.querySelector('output[data-count="1"]')) {
+        observer.disconnect();
+        resolve();
+      }
+    });
+    const check = () => {
+      if (host.querySelector('output[data-count="1"]')) {
+        observer.disconnect();
+        resolve();
+      } else if (++frames < 120) requestAnimationFrame(check);
+      else {
+        observer.disconnect();
+        reject(new Error("attachment intake did not render a deduplicated link"));
+      }
+    };
+    observer.observe(host, { childList: true, subtree: true, attributes: true });
+    requestAnimationFrame(check);
+  });
+  await act(async () => {});
+  expect(held.map((chip) => chip.path)).toEqual(["/Users/you/assets"]);
+});
+
 test("an image copied as HTML into a plain text field comes in as a chip and the text still goes in", async () => {
   const { createRoot } = await import("react-dom/client");
   const { useAttachmentIntake } = await import("../src/agent-session/acpmux/composer/attachmentIntake");

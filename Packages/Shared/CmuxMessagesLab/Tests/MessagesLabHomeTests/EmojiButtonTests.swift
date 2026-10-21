@@ -94,6 +94,30 @@ import Testing
         #expect(opened == 1)
     }
 
+    /// The picker opens at the button, its arrow on it (Leo 2026-10-20: it opened at the left
+    /// corner of the screen). The system picker places itself at the rect the focused field
+    /// reports for its text; during the open that is the emoji button's rect, and the next
+    /// selection change (the chosen emoji going in) gives the field its own rect back.
+    @Test func thePickerOpensAtTheButton() async {
+        let p = pane()
+        p.window.makeFirstResponder(p.controller.host.scrollView.document)
+        var reported: [NSRect] = []
+        p.controller.openEmojiPalette = { [weak field = p.field] in
+            guard let field else { return }
+            reported.append(field.firstRect(forCharacterRange: field.selectedRange(), actualRange: nil))
+        }
+
+        p.controller.host.fieldChrome.onEmoji()
+        await nextTurn()
+
+        let glass = p.controller.host.fieldChrome.emojiGlass
+        let button = p.window.convertToScreen(glass.convert(glass.bounds, to: nil))
+        #expect(button.width > 0)
+        #expect(reported == [button])
+        p.field.setSelectedRange(NSRange(location: 0, length: 0))
+        #expect(p.field.firstRect(forCharacterRange: NSRange(location: 0, length: 0), actualRange: nil) != button)
+    }
+
     /// While the Chief works the round button is Stop: it never opens the picker.
     @Test func whileWorkingTheButtonStops() async {
         let p = pane()
