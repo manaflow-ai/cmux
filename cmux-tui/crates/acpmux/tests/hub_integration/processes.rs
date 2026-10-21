@@ -557,6 +557,63 @@ async fn background_on_a_chat_that_is_not_claude_is_refused() {
     hub.shutdown_all().await;
 }
 
+/// Whether Ctrl-B can move a chat's work goes by its harness's kind, not its
+/// name, and every chat's summary says so (`backgroundsWork`), so a client
+/// offers Ctrl-B only where acpmux takes it. `cmux`, the model router's
+/// profile, is Claude Code (claude-stdio) under a name that is not
+/// `claude*`: it says yes and Ctrl-B moves its work. An ACP agent a user's
+/// config named `claude-acp` says no and is refused.
+#[tokio::test]
+async fn a_chats_summary_says_whether_ctrl_b_moves_its_work() {
+    let root = std::env::temp_dir().join(format!("acpmux-proc-{}", uuid::Uuid::now_v7()));
+    let claude_home = root.join("claude");
+    std::fs::create_dir_all(&claude_home).unwrap();
+    let fake_claude = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
+    let fake_agent = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+    let mut cfg: Config = serde_json::from_value(json!({
+        "harnesses": {
+            "cmux": {"argv": ["python3", fake_claude], "kind": "claude-stdio",
+                "env": {"CLAUDE_CONFIG_DIR": claude_home}},
+            "claude-acp": {"argv": ["python3", fake_agent]},
+        },
+        "defaultHarness": "cmux",
+        "permissionPolicy": "approve-all",
+    }))
+    .unwrap();
+    cfg.store.mode = StoreMode::Memory;
+    let store = acpmux::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+    let hub = Hub::new(cfg, store);
+    let mut c = connect(&hub).await;
+    let new_on = |harness: &str| json!({"cwd": cwd(), "mcpServers": [], "_meta": {"acpmux": {"harness": harness}}});
+
+    let acp = c.request(method::SESSION_NEW, new_on("claude-acp")).await.unwrap();
+    assert_eq!(acp["_meta"]["acpmux"]["backgroundsWork"], json!(false), "{acp}");
+    let acp = acp["sessionId"].as_str().unwrap().to_owned();
+    let refused = c.request(BACKGROUND, json!({"sessionId": acp})).await.unwrap_err();
+    assert!(refused.contains("Claude Code"), "{refused}");
+
+    let router = c.request(method::SESSION_NEW, new_on("cmux")).await.unwrap();
+    assert_eq!(router["_meta"]["acpmux"]["backgroundsWork"], json!(true), "{router}");
+    let router = router["sessionId"].as_str().unwrap().to_owned();
+    for (id, moves) in [(&router, true), (&acp, false)] {
+        let summary = hub.session_summary(&hub.resolve(id).unwrap());
+        assert_eq!(summary["backgroundsWork"], json!(moves), "{summary}");
+    }
+
+    // The router's chat (the default harness) runs a foreground shell, and
+    // Ctrl-B moves it.
+    let (id, turn) = fg_shell(&mut c).await;
+    assert_eq!(hub.resolve(&id).unwrap().meta().harness, "cmux");
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 /// What fake_claude.py's "bg-output" shell writes to its output file.
 fn shell_output() -> String {
     (0..100).map(|i| format!("line {i}\n")).collect()

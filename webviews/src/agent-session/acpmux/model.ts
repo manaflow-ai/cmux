@@ -388,6 +388,9 @@ export type AcpmuxSnapshot = {
     promptCapabilities?: { image?: boolean; audio?: boolean };
     /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
     steering?: boolean;
+    /// acpmux's Ctrl-B (`_acpmux/process/background`) moves its running work: a Claude Code
+    /// chat, whatever its harness is named (acpmux `backgroundsWork`).
+    backgroundsWork?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
     /// acpmux runs the chat restricted (`hub/restricted.rs`): no project settings, hooks or MCP

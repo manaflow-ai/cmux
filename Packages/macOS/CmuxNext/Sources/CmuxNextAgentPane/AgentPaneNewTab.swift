@@ -66,6 +66,9 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page lists only its own connection's chats, not the store every page shares
     /// (Debug Settings `newTab.privateChatLists`, ``AgentPaneTunables/newTabPrivateChatLists``).
     public var privateChatLists: Bool?
+    /// false: Show All Chats on New Tab is off (`sidebar.showChats`): the page lists the recent
+    /// chats only, never All chats; nil lists All chats where the template does.
+    public var allChats: Bool?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],

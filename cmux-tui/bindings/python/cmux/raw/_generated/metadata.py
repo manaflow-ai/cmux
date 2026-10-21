@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67'
+IR_SHA256 = '22526ef27362464ad1798ceadf7ab3b0225cd784acc1dcc13419362378a066bc'
 
 
 @dataclass(frozen=True)
@@ -798,6 +798,16 @@ COMMANDS = {
         {
         },
     ),
+    'cloud-selfhost-info': CommandMetadata(
+        'cloud-selfhost-info',
+        'local-admin',
+        12,
+        'cloud-selfhost-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
     'cloud-session-clear': CommandMetadata(
         'cloud-session-clear',
         'local-admin',
@@ -818,6 +828,7 @@ COMMANDS = {
         {
             'access_token': CommandFieldMetadata(None, None),
             'api_base_url': CommandFieldMetadata(None, None),
+            'auth': CommandFieldMetadata(None, None),
             'client_version': CommandFieldMetadata(None, None),
             'expires_at': CommandFieldMetadata(None, None),
         },

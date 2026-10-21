@@ -68,6 +68,10 @@ pub struct SessionSummary {
     /// Absent for any other chat.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restricted: Option<bool>,
+    /// `_acpmux/process/background` (Ctrl-B) moves its foreground work: its
+    /// harness is Claude Code (claude-stdio), whatever the harness's name.
+    /// Clients offer Ctrl-B from this, not from `harness`.
+    pub backgrounds_work: bool,
     pub turn: Option<TurnSummary>,
     pub queue: Vec<QueuedPromptSummary>,
     pub pending_permissions: u64,

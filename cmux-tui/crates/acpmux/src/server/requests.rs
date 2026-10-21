@@ -340,6 +340,9 @@ async fn dispatch_request(
                 let mut p = params.clone();
                 if let Some(m) = p.pointer_mut("/_meta/acpmux").and_then(Value::as_object_mut) {
                     m.remove("peer");
+                    // The peer would tie it to this daemon's long-lived connection, never to the
+                    // client's: the client's own kill purges it (`ephemeral.rs`).
+                    m.remove("ephemeral");
                 }
                 super::remote_guard::mark_forwarded(conn.origin, conn.auth, &params, &mut p);
                 let mut result = peer.request(method::SESSION_NEW, p).await?;
@@ -427,6 +430,10 @@ async fn dispatch_request(
                 hub.start_in_mode(conn.is_person(), conn.caller(), &params, &s, adopting).await?;
             }
             attach(hub, conn, &s.id);
+            // An adopted id may name a chat that already exists: never tied to this connection.
+            if !adopting && super::ephemeral::requested(&params) {
+                super::ephemeral::own(hub, conn, &s).await;
+            }
             let meta = s.meta();
             Ok(json!({
                 "sessionId": s.id,
