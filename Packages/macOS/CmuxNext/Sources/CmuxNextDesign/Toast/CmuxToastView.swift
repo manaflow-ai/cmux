@@ -109,8 +109,17 @@ public final class CmuxToastView: NSView {
             surface.bottomAnchor.constraint(equalTo: bottomAnchor),
             widthAnchor.constraint(equalTo: row.widthAnchor),
             heightAnchor.constraint(equalTo: row.heightAnchor),
+            // The stack's vertical edge insets do not hold its height (a toast's fitting height
+            // was its tallest view's, so a message of two or three lines touched the glass's
+            // top and bottom). The message keeps the room the buttons give a one-line message.
+            label.topAnchor.constraint(greaterThanOrEqualTo: row.topAnchor, constant: Self.messageInset),
+            row.bottomAnchor.constraint(greaterThanOrEqualTo: label.bottomAnchor, constant: Self.messageInset),
         ])
     }
+
+    /// The least room above and below the message: about what a one-line message has beside
+    /// the 22 pt buttons, so one-line toasts keep their height.
+    static var messageInset: CGFloat { Metrics.space2 }
 
     /// The shared toast glass radius, never a capsule.
     static let cornerRadius = FloatingGlassStyle.toast.cornerRadius
