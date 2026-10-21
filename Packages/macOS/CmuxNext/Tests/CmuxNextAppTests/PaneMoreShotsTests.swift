@@ -47,6 +47,9 @@ import Testing
             let rest = tokens.textSecondary.composited(over: surface).contrast(with: surface)
             #expect(lit >= rest, "\(name): lit \(lit) against rest \(rest)")
         }
+        // The lift keeps the theme's hue: Clay Orange's lit glyph stays orange (coord-deputy 2026-10-21).
+        let clay = Palette.litGlyph(in: ThemeTokens.derive(from: try Self.input("Clay Orange")))
+        #expect(clay.red - clay.blue > 0.15, "Clay Orange lit \(clay)")
     }
 
     @Test func bothMoreButtonsRenderToTheContactSheet() throws {

@@ -148,15 +148,24 @@ public struct Palette {
     public static var accent: NSColor { focusRing }
 
     /// A lit (on) control's glyph, beside the same controls at rest in `textSecondary` (a pane's
-    /// zoomed ⋮ and pinned buttons, the find pill's toggles): the accent, or the primary text where
-    /// the accent reads fainter than the rest ink. A theme with no accent has `focusRing` at 40% of
-    /// the text, dimmer than at rest; a lit control is never less visible than at rest.
+    /// zoomed ⋮ and pinned buttons, the find pill's toggles): the accent, lifted toward the primary
+    /// text just far enough to contrast at least as much as the rest ink, so the theme's hue stays
+    /// (Clay Orange's orange) and a lit control is never less visible than at rest. A theme with no
+    /// accent has `focusRing` at 40% of the text, which lifts to about the rest ink's grey.
     public static var litGlyph: NSColor { litGlyph(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
 
     static func litGlyph(in tokens: ThemeTokens) -> ThemeRGB {
         let surface = tokens.windowBackground.withAlpha(1)
-        let lit = tokens.focusRing.composited(over: surface), rest = tokens.textSecondary.composited(over: surface)
-        return lit.contrast(with: surface) >= rest.contrast(with: surface) ? lit : tokens.textPrimary.composited(over: surface)
+        let accent = tokens.focusRing.composited(over: surface), primary = tokens.textPrimary.composited(over: surface)
+        let floor = tokens.textSecondary.composited(over: surface).contrast(with: surface)
+        if accent.contrast(with: surface) >= floor { return accent }
+        // The least lift that reaches the floor; a primary text fainter than the floor is still the brightest ink.
+        var low = 0.0, high = 1.0
+        for _ in 0..<12 {
+            let mid = (low + high) / 2
+            if accent.mixed(toward: primary, mid).contrast(with: surface) >= floor { high = mid } else { low = mid }
+        }
+        return accent.mixed(toward: primary, high)
     }
 
     /// Text on top of `textPrimary` fills (inverted badges).
