@@ -54,8 +54,8 @@ import Testing
     }
 
     @Test func doneMarkerIsNoInboxPreview() {
-        func message(_ key: String, _ parts: [MessagePart]) -> Message {
-            Message(id: MessageID("m"), conversation: HomeChatRig.conversation, seq: 1, clientMessageID: IdempotencyKey(key),
+        func message(_ key: String, _ parts: [MessagePart]) -> CmuxHomeCore.Message {
+            CmuxHomeCore.Message(id: MessageID("m"), conversation: HomeChatRig.conversation, seq: 1, clientMessageID: IdempotencyKey(key),
                     author: ParticipantID("chief"), parts: parts, createdAt: Date())
         }
         #expect(message("turn:optchat:816:1", [Self.marker]).isDoneMarker)
