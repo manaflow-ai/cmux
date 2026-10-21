@@ -191,6 +191,9 @@ await requireBrowserLane("agent-pane-background-tasks.test.ts", async () => {
       .getByRole("button", { name: /^Worked for/ })
       .first()
       .click();
+    // Its two calls fold under their run's line too (Debug toggle agentPane.debug.codexToolRuns,
+    // on by default): open it to their rows.
+    await page.locator("button.cv-tool", { hasText: "Ran 2 commands" }).click();
     const row = (command: string) => page.locator(".cv-tool", { hasText: command }).first();
     await row("npm run dev").waitFor({ timeout: 5_000 });
     const stopped = row("npm run dev").locator(".cv-command__stopped");
