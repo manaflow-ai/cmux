@@ -68,11 +68,11 @@ impl JsonPoster {
     ) -> Result<(u16, Vec<u8>), String> {
         check_url(url, self.allow_http).map_err(|_| "Cloud request unavailable")?;
         deadline.remaining().ok_or("Cloud request unavailable")?;
-        if (body.is_none() && bearer.is_some()) || tokio::runtime::Handle::try_current().is_ok() {
+        if body.is_none() && bearer.is_some() {
             return Err("Cloud request unavailable".into());
         }
         // This synchronous owner is serial. Contention cannot queue a request
-        // beyond its original budget or block the caller's async executor.
+        // beyond its original budget.
         let mut slot = self.transport.try_lock().map_err(|_| "Cloud transport unavailable")?;
         if slot.is_none() {
             *slot = Some(Transport::new(self.allow_http)?);
