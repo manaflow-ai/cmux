@@ -1,4 +1,5 @@
 import type { ProviderId } from "../drivers";
+import type { CloudRemoteAuthMode } from "../clientGrant";
 import { allowUnmanifestedImages, type VmRuntimeEnv } from "../config";
 import { VmImageConfigError, type VmImageSource } from "../errors";
 import manifest from "./manifest.json";
@@ -59,6 +60,8 @@ export type VmImageManifestEntry = {
   /** The shape this snapshot boots at. Entries without one are size-less (pre-ladder bakes). */
   readonly size?: VmImageManifestSize;
   readonly cmuxdRemoteCommit: string;
+  /** Authentication mode frozen into this image's cmux remote listener. */
+  readonly cmuxRemoteAuth?: CloudRemoteAuthMode;
   /** The cmux commit whose devbox definition produced this image. */
   readonly repoCommit?: string;
   readonly builtAt: string;
