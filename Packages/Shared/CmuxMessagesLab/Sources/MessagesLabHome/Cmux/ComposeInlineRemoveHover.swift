@@ -5,7 +5,7 @@ import AppKit
 /// the field's attachments itself and did not place `ComposeInlineAttachmentView` (with its own
 /// hover button) in the field, so the field tracks the pointer over its attachments instead
 /// (Austin 2026-10-20: hovering a pasted picture showed no remove button).
-@MainActor final class ComposeInlineRemoveHover: NSResponder {
+final class ComposeInlineRemoveHover: NSObject {
     private weak var field: NSTextView?
     let button = ComposeInlineRemoveButton()
     /// The attachment the button removes (under the pointer).
@@ -59,13 +59,14 @@ import AppKit
         hovered = nil
     }
 
-    override func mouseMoved(with event: NSEvent) {
+    // The tracking area's owner gets these as `mouseMoved:` and the rest (explicit selectors).
+    @objc(mouseMoved:) func mouseMoved(with event: NSEvent) {
         guard let field else { return }
         pointerMoved(to: field.convert(event.locationInWindow, from: nil))
     }
 
-    override func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
-    override func mouseExited(with event: NSEvent) { hide() }
+    @objc(mouseEntered:) func mouseEntered(with event: NSEvent) { mouseMoved(with: event) }
+    @objc(mouseExited:) func mouseExited(with event: NSEvent) { hide() }
 
     func removeClicked() {
         guard let hovered else { return }
