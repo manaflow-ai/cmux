@@ -117,13 +117,17 @@ export function isCustomDensity(value: unknown): boolean {
 export function validate(row: SchemaRow, value: unknown, domains?: Partial<Domains>): string | null {
   const choices = row.choices?.map((choice) => choice.value) ?? [];
   if (row.validation === "domain:backdrop_selection") {
-    // A listed painting, Shuffle Paintings, a shuffled folder, or a macOS wallpaper by absolute path (each Mac has its own set).
+    // A listed painting, Shuffle Paintings, a shuffled folder, a macOS wallpaper or your image by
+    // absolute path (each Mac has its own set), or a collage by id (BackdropCollages.isValidID).
     if (
       typeof value === "string" &&
-      (choices.includes(value) || value === "daily" || /^(system|file|folder):\//.test(value))
+      (choices.includes(value) ||
+        value === "daily" ||
+        /^(system|file|folder):\//.test(value) ||
+        /^collage:[A-Za-z0-9-]{1,64}$/.test(value))
     )
       return null;
-    return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>";
+    return "expected none, daily, a listed painting, system:<absolute path>, file:<absolute path>, folder:<absolute path> or collage:<id>";
   }
   if (row.validation === "domain:custom_densities") {
     return Array.isArray(value) && value.every(isCustomDensity)

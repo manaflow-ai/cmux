@@ -393,6 +393,95 @@ test("A wallpaper tile whose thumbnail fails shows an empty frame, not a broken 
   page.unmount();
 });
 
+test("New Collage… arranges pictures, saves them as one background, and can edit and remove it", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const picker = () => page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const button = (text: string, root: ParentNode = picker()) =>
+    [...root.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent?.trim() === text);
+  const newTile = [...picker().querySelectorAll<HTMLButtonElement>("button.backdrop-tile")].find((b) =>
+    b.textContent?.includes("New Collage…"),
+  )!;
+  await act(async () => newTile.click());
+  await settle();
+  const editor = () => page.container.querySelector<HTMLElement>('[data-card="collage-editor"]')!;
+  expect(button("Save Collage", editor())!.disabled).toBe(true);
+  // Two pictures from the grid, then the side-by-side layout.
+  for (let added = 0; added < 2; added++) {
+    await act(async () => button("Add Picture", editor())!.click());
+    await settle();
+    const choices = editor().querySelectorAll<HTMLButtonElement>('[data-card="collage-pictures"] button');
+    expect(choices.length).toBeGreaterThan(0);
+    await act(async () => choices[0]!.click());
+    await settle();
+  }
+  expect(editor().querySelectorAll(".collage-layer").length).toBe(2);
+  await act(async () => button("Side by Side", editor())!.click());
+  await settle();
+  const left = editor().querySelectorAll<HTMLElement>(".collage-layer")[1]!;
+  expect(parseFloat(left.style.left)).toBeGreaterThan(50);
+  await act(async () => button("Save Collage", editor())!.click());
+  await settle();
+  const saved = runs(page, "cmux.settings.backdrop.image.collage.save").at(-1) as { collage: { layers: unknown[] } };
+  expect(saved.collage.layers.length).toBe(2);
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "collage:c-1" });
+  expect(page.container.querySelector('[data-card="collage-editor"]')).toBeNull();
+  // Listed under Your collages; the one in use cannot be removed, but can be edited.
+  const group = picker().querySelector<HTMLElement>('[data-collection="collages"]')!;
+  expect(group.querySelector<HTMLButtonElement>('[aria-label="Remove Collage"]')!.disabled).toBe(true);
+  await act(async () => group.querySelector<HTMLButtonElement>('[aria-label="Edit Collage"]')!.click());
+  await settle();
+  expect(editor().querySelectorAll(".collage-layer").length).toBe(2);
+  await act(async () => button("Save Collage", editor())!.click());
+  await settle();
+  // The edit is saved under a new id, the background switches to it, and only then does the old
+  // collage go.
+  expect(runs(page, "cmux.settings.set").at(-1)).toMatchObject({ key: "appearance.background", value: "collage:c-2" });
+  expect(runs(page, "cmux.settings.backdrop.image.collage.delete").at(-1)).toMatchObject({ id: "c-1" });
+  const log = page.provider.log.map((entry) => entry.op);
+  expect(log.lastIndexOf("cmux.settings.set")).toBeLessThan(
+    log.lastIndexOf("cmux.settings.backdrop.image.collage.delete"),
+  );
+  page.unmount();
+});
+
+test("an aerial macOS has not downloaded shows as a cloud tile that opens the Wallpaper pane", async () => {
+  const page = await renderPage({ path: "/settings/appearance" });
+  const moving = { collection: "video", collection_title: "Moving wallpapers", video: true };
+  await act(async () =>
+    page.provider.setHost({
+      ...page.provider.host,
+      backdrops: [
+        ...(page.provider.host.backdrops ?? []),
+        { id: "system:/aerials/4KSDR240FPS/A1.mov", title: "Tahoe Morning", attribution: "", ...moving },
+        {
+          id: "system:/aerials/4KSDR240FPS/B2.mov",
+          title: "Iceland Dusk",
+          attribution: "",
+          ...moving,
+          downloaded: false,
+        },
+      ],
+    }),
+  );
+  await settle();
+  const picker = page.container.querySelector<HTMLElement>('[data-card="backdrop"]')!;
+  const ready = picker.querySelector<HTMLButtonElement>('[aria-label="Tahoe Morning"]')!;
+  const pending = picker.querySelector<HTMLButtonElement>('[aria-label="Iceland Dusk"]')!;
+  expect(ready.classList.contains("backdrop-pending")).toBe(false);
+  expect(ready.querySelector("img")).not.toBeNull();
+  // No thumbnail to fetch for a movie that is not on disk: an empty tile with a cloud.
+  expect(pending.classList.contains("backdrop-pending")).toBe(true);
+  expect(pending.querySelector("img")).toBeNull();
+  expect(pending.querySelector("svg.backdrop-download")).not.toBeNull();
+  await act(async () => pending.click());
+  await settle();
+  expect(runs(page, "cmux.settings.backdrop.wallpaper_settings").length).toBe(1);
+  expect(
+    runs(page, "cmux.settings.set").filter((p) => (p as { key: string }).key === "appearance.background").length,
+  ).toBe(0);
+  page.unmount();
+});
+
 test("an art tile shows one title line; its full credit is the tooltip (macOS 15 tester: tile text overlapped)", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
   const long = "The Starry Night · Vincent van Gogh · 1889 · Museum of Modern Art, New York · Public domain";
