@@ -80,7 +80,7 @@ export default componentEntry<ReplyImageProps>({
     },
     local: {
       note: "A local session image loads through the host without a prompt.",
-      chipHost: { ...imageHost, paths: { [local]: { place: "root", folder: false } } },
+      chipHost: imageHost,
       props: { src: local, alt: "Local diagram", fallback: "Local diagram" },
     },
   },

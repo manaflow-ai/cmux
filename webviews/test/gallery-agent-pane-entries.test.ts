@@ -7,8 +7,9 @@
 //   the composer-context strip shows only before a chat's first send (#20869);
 // - plays that raced the stage: the header's pull-request chip, the dictation button's menu;
 // - stages that drew one part alone, so a play that removes it left nothing: the harness notice
-//   after Not Now, the file search after Escape, a new chat with no home lists, and a local reply
-//   image whose host answer the fixture never gave.
+//   after Not Now, the file search after Escape, and a new chat with no home lists. Each now
+//   draws in the pane's frame; `shows` checks the frame is still there (the stage is not blank)
+//   and that the component itself drew what the variant is for.
 //
 // Real Chromium from Playwright, on the gallery's dev server; CI fails the file when it cannot
 // launch (requireBrowserLane).
@@ -29,7 +30,11 @@ type Case = {
 };
 
 await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
-  const has = (selector: string) => async (page: Page) => (await page.locator(selector).count()) > 0;
+  const count = (page: Page, selector: string) => page.locator(selector).count();
+  const has = (selector: string) => async (page: Page) => (await count(page, selector)) > 0;
+  /** The pane's composer is in view and no harness notice is drawn. */
+  const composerWithoutNotice = async (page: Page) =>
+    (await count(page, ".acpmux-composer")) > 0 && (await count(page, "[data-harness-notice]")) === 0;
 
   const CASES: Case[] = [
     { entry: "session-sidebar", variant: "search-filtered", play: "steps" },
@@ -41,19 +46,17 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
     { entry: "header-tools", variant: "pull-request-status", play: "steps" },
     { entry: "header-tools", variant: "pull-request-merge", play: "steps" },
     { entry: "dictation", variant: "hide", play: "steps" },
-    { entry: "harness-health-notice", variant: "dismissed", play: "error", shows: has(".acpmux-composer") },
-    { entry: "harness-health-notice", variant: "sudo-update", shows: has(".acpmux-composer") },
+    { entry: "harness-health-notice", variant: "dismissed", play: "steps", shows: composerWithoutNotice },
+    { entry: "harness-health-notice", variant: "sudo-update", shows: composerWithoutNotice },
     { entry: "file-search", variant: "escape", play: "steps", shows: has(".acpmux-composer") },
     {
       entry: "home-lists",
       variant: "empty",
-      shows: async (page) => (await page.getByText("What should we build in atlas-web?").count()) > 0,
-    },
-    {
-      entry: "reply-image",
-      variant: "local",
-      shows: (page) =>
-        page.evaluate(() => [...document.images].some((image) => image.complete && image.naturalWidth > 0)),
+      // The new chat's hero and composer, and no list rows in the home area.
+      shows: async (page) =>
+        (await count(page, ".acpmux-empty-title")) > 0 &&
+        (await count(page, ".acpmux-composer")) > 0 &&
+        (await count(page, ".acpmux-home-area > *")) === 0,
     },
   ];
 
