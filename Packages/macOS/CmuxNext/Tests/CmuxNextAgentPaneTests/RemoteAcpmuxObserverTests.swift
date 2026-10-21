@@ -1,10 +1,10 @@
 import Foundation
-import Synchronization
+import CmuxNextCompat
 import Testing
 @testable import CmuxNextAgentPane
 
 @Suite(.timeLimit(.minutes(1))) struct RemoteAcpmuxObserverTests {
-    final class FakeClient: AgentSessionRemoteClient {
+    nonisolated final class FakeClient: AgentSessionRemoteClient {
         let calls = Mutex<[String]>([])
         let handler = Mutex<(@Sendable (AgentSessionRemoteEvent) -> Void)?>(nil)
         let isReadOnly = true
@@ -37,7 +37,7 @@ import Testing
         func push(_ event: AgentSessionRemoteEvent) { handler.withLock { $0 }?(event) }
     }
 
-    final class Frames: Sendable {
+    nonisolated final class Frames: Sendable {
         let items = Mutex<[[String: Any]]>([])
         let closes = Mutex<[String]>([])
 
