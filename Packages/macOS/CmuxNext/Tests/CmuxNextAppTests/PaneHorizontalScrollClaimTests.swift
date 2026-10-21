@@ -50,6 +50,8 @@ struct PaneHorizontalScrollClaimTests {
             signals.secondsSinceKeyDown = { 60 }
             signals.windowIsKey = { _ in true }
             root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals)
+            // ARC owns the window; AppKit's default extra release over-releases it (NSWindow weak-reference abort).
+            window.isReleasedWhenClosed = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             for view in provider.views.values { for inner in view.subviews { inner.frame = view.bounds } }

@@ -40,6 +40,8 @@ struct PaneCloseMotionTests {
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)
+            // ARC owns the window; AppKit's default extra release over-releases it (NSWindow weak-reference abort).
+            window.isReleasedWhenClosed = false
             window.contentView = root
             root.layoutSubtreeIfNeeded()
             // The test is the clock: the display link never ticks.
