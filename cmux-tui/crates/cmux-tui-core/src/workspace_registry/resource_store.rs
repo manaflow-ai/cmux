@@ -3573,7 +3573,7 @@ fn upsert_resource_terminal(
     {
         require_live_workspace(transaction, &terminal.workspace_key)?;
     }
-    let launch_spec = canonical_json(&terminal.launch_spec)?;
+    let launch_spec = canonical_json(&durable_launch_spec(terminal))?;
     if launch_spec.len() > MAX_LAUNCH_SPEC_BYTES {
         anyhow::bail!("terminal launch spec exceeds {MAX_LAUNCH_SPEC_BYTES} bytes");
     }
@@ -3627,7 +3627,7 @@ fn upsert_resource_terminal(
             terminal.lifecycle.as_str(),
             launch_spec,
             exit,
-            terminal.on_exit.as_str(),
+            terminal.on_exit.column(),
             revision,
             (terminal.lifecycle == TerminalLifecycle::Tombstoned).then_some(revision),
         ],

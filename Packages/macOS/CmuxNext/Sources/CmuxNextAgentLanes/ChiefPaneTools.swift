@@ -14,7 +14,8 @@ import Observation
 public final class ChiefPaneTools: NSView {
     public let indicator = StatusIndicatorView()
     public let subagentsButton = TitlebarBandButton(symbol: "person.2")
-    public let actionsButton = TitlebarBandButton(symbol: "ellipsis")
+    /// The app's one more button (⋮, OverflowButton); its menu opens on press.
+    public let actionsButton = OverflowButton(label: ChiefToolStrings.actions)
     /// What Chief Actions lists, in this order (each runs on the shown Chief, as from the palette).
     public static let actions: [ActionID] = ["home.stopChief", "home.toggleChiefSettings", "chief.openMemoryInspector",
                                              "chief.openUsage", "home.newChief"]
@@ -29,16 +30,14 @@ public final class ChiefPaneTools: NSView {
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.chief.paneTools")
         indicator.tracksWindowOcclusion = true
-        for (button, title, id) in [(subagentsButton, ChiefToolStrings.subagents, "subagents"), (actionsButton, ChiefToolStrings.actions, "actions")] {
-            button.target = self
-            button.action = #selector(openMenu(_:))
-            button.longPressOpensMenu = false
-            button.themedToolTip = title
-            button.setAccessibilityLabel(title)
-            button.setAccessibilityIdentifier("cmux.chief.paneTools.\(id)")
-            addSubview(button)
-        }
-        addSubview(indicator)
+        subagentsButton.target = self
+        subagentsButton.action = #selector(openMenu(_:))
+        subagentsButton.longPressOpensMenu = false
+        subagentsButton.themedToolTip = ChiefToolStrings.subagents
+        subagentsButton.setAccessibilityLabel(ChiefToolStrings.subagents)
+        subagentsButton.setAccessibilityIdentifier("cmux.chief.paneTools.subagents")
+        actionsButton.setAccessibilityIdentifier("cmux.chief.paneTools.actions")
+        [subagentsButton, actionsButton, indicator].forEach(addSubview)
         subagentsButton.pressMenu = { [weak self] in self?.subagentsMenu() }
         actionsButton.pressMenu = { [weak self] in self?.actionsMenu() }
         // task-owner: this view (cancelled in deinit); event-driven (Observation).
@@ -119,8 +118,12 @@ public final class ChiefPaneTools: NSView {
     }
 }
 
-/// Strings of the Chief's pane tools (Resources/Localizable.xcstrings).
+/// Strings of the Chief's pane tools and Open Chief Subagent (Resources/Localizable.xcstrings).
 enum ChiefToolStrings {
     static var subagents: String { String(localized: "chief.tools.subagents", defaultValue: "Subagents", bundle: .module) }
     static var actions: String { String(localized: "chief.tools.actions", defaultValue: "Chief Actions", bundle: .module) }
+    /// Open Chief Subagent's refusal when its run names no subagent row.
+    static var noSubagent: String {
+        String(localized: "chief.openSubagent.noSubagent", defaultValue: "Choose a subagent from the Subagents menu or the sidebar.", bundle: .module)
+    }
 }

@@ -6,25 +6,17 @@ import Foundation
 /// back as owner parts. Pure. Ids, seqs and revisions pass through
 /// unchanged: the store's `me` is the server's user id.
 struct HomeWireMapping: Sendable {
-    // ISO8601DateFormatter is documented thread safe.
-    private nonisolated(unsafe) let fractional: ISO8601DateFormatter
-    private nonisolated(unsafe) let whole: ISO8601DateFormatter
-
-    init() {
-        fractional = ISO8601DateFormatter()
-        fractional.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        whole = ISO8601DateFormatter()
-        whole.formatOptions = [.withInternetDateTime]
-    }
+    private let fractional = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+    private let whole = Date.ISO8601FormatStyle()
 
     func date(_ value: HomeWireJSON) -> Date? {
-        if let text = value.string { return fractional.date(from: text) ?? whole.date(from: text) }
+        if let text = value.string { return (try? fractional.parse(text)) ?? (try? whole.parse(text)) }
         // Some rows carry Unix milliseconds.
         if let ms = value.double { return Date(timeIntervalSince1970: ms / 1000) }
         return nil
     }
 
-    func string(_ date: Date) -> String { fractional.string(from: date) }
+    func string(_ date: Date) -> String { fractional.format(date) }
 
     // MARK: Records in
 
