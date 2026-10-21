@@ -155,7 +155,6 @@ struct WorkspaceSpawner {
             PendingWorkspaceRows.shared.add(.init(id: key.rawValue, window: windowID, machine: machine, face: face,
                                                   slot: spawn.slot, byDefault: rule), name: name)
         }
-        WorkspaceLanes.shared.prune(windowID ?? "") { services.workspace(id: $0) != nil }
         if let windowID, let name, let instant = shown(key, name: name, window: windowID, rule: rule) { return instant }
         let windowID = windowID
         return {
@@ -165,7 +164,11 @@ struct WorkspaceSpawner {
                     _ = await daemon.failure("close-workspace") { connection in
                         try await WorkspaceClose.close(WorkspaceKey(rawValue: id), terminals: terminals, on: connection)
                     }
-                }) { try await named.create(key, rule: rule) }
+                }) {
+                    let id = try await named.create(key, rule: rule)
+                    await Self.listed(on: daemon)
+                    return id
+                }
             } catch {
                 PendingWorkspaceRows.shared.remove(key.rawValue)
                 throw error
@@ -206,7 +209,9 @@ struct WorkspaceSpawner {
                     if let room, let session = daemon.store.registryID, let home = services.machines.local.connection {
                         try await home.pinWorkspace(session: session, key: key, to: room.id); BenchSpans.mark("cmdN.pinWorkspace.returned")
                     }
-                    return try await shown.confirm()
+                    let id = try await shown.confirm()
+                    await Self.listed(on: daemon)
+                    return id
                 }
             } catch {
                 shown.abandon()
@@ -215,6 +220,15 @@ struct WorkspaceSpawner {
                 throw error
             }
         }
+    }
+
+    /// Waits until the store has applied the daemon's events so far, so a
+    /// workspace the daemon just made is listed when its create leaves the
+    /// window's lane (`WorkspaceLanes`): a close pressed after that takes it
+    /// as the shown workspace.
+    private static func listed(on daemon: DaemonService) async {
+        guard let connection = daemon.connection else { return }
+        await daemon.store.applied(through: await connection.eventSequence())
     }
 
     /// The profile the workspace is born in: its window's, else the active
