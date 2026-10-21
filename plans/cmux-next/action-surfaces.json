@@ -5230,6 +5230,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "space clear-defaults",
+      "context_menu" : "minimalMenu",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "space.clearDefaults",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Clear Space Terminal Defaults…",
+      "title_key" : "action.space.clearDefaults",
+      "title_table" : "ProfileActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "space new-group",
       "context_menu" : "offered",
       "context_menus" : [
@@ -22401,6 +22429,34 @@
       "palette_suggested" : null,
       "title" : "Chief Usage",
       "title_key" : "action.chief.openUsage",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-open-views",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.openViews",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Chief View Gallery",
+      "title_key" : "action.chief.openViews",
       "title_table" : "ActionCatalog"
     },
     {
