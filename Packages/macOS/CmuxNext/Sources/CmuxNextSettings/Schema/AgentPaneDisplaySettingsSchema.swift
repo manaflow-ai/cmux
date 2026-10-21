@@ -69,7 +69,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                     SettingChoice("push", SettingsText.keyed("settings.choice.agentChatInspectorPush", "Push")),
                     SettingChoice("overlay", SettingsText.keyed("settings.choice.agentChatInspectorOverlay", "Overlay")),
                 ]),
-                .string("push"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
+                .string("overlay"), ["inspector", "panel", "side", "right", "overlay", "push", "details"]),
         ]
     }
 }

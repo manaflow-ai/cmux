@@ -50,8 +50,6 @@ export function OutputsSection({
   onOpenArtifacts?: () => void;
 }) {
   const t = useT();
-  if (files.length === 0 && links.length === 0 && artifacts === 0)
-    return <p className="acpmux-inspector-note">{t("chatInspector.outputs.none")}</p>;
   return (
     <ul className="acpmux-inspector-list acpmux-inspector-scroll" data-section="outputs">
       {artifacts > 0 && onOpenArtifacts && (

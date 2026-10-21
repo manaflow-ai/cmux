@@ -3,8 +3,9 @@
 // panel at the right of the chat with where it runs (Environment), how much of the context window
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents, its background commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) across chat panes, pushes the chat aside unless the pane is too
-// narrow or Settings says Overlay, and lists every row, scrolling instead of a "Show more".
+// default, stays open (or closed) across chat panes, lies over the chat so it never reflows it
+// (Settings Push moves the chat aside unless the pane is too narrow), hides a section with nothing
+// in it, and lists every row, scrolling instead of a "Show more".
 import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -224,7 +225,7 @@ test("open, closed, folds and width hold in every chat pane, following another p
   expect(panel(container)).toBeNull();
 });
 
-test("a cloud session names its host; no usage reads a dash; nothing produced says so", async () => {
+test("a cloud session names its host; no usage and nothing produced have no sections", async () => {
   const container = installDom(true);
   const base = chat([]);
   await render(container, {
@@ -234,11 +235,8 @@ test("a cloud session names its host; no usage reads a dash; nothing produced sa
   const machine = section(container, "environment")!.querySelector<HTMLElement>(".acpmux-inspector-row")!;
   expect(machine.textContent).toBe("build-01");
   expect(machine.dataset.machine).toBe("cloud");
-  const context = section(container, "context")!;
-  expect(meta(context)).toBe("—");
-  // Nothing to fold without usage.
-  expect(context.querySelector("button")).toBeNull();
-  expect(section(container, "outputs")!.textContent).toContain("Nothing produced yet");
+  expect(section(container, "context")).toBeNull();
+  expect(section(container, "outputs")).toBeNull();
 });
 
 test("with the Debug toggle off there is no toggle button and no Inspector", async () => {
@@ -268,7 +266,7 @@ test("the running line's counts open a closed Inspector with Subagents or Backgr
   expect(inspectorState().sections.subagents).toBe(true);
 });
 
-test("it pushes the chat aside unless the pane is too narrow for the chat, or Settings says Overlay", async () => {
+test("it lies over the chat; Settings Push moves the chat aside unless the pane is too narrow for it", async () => {
   expect(pushes("push", 0, 320)).toBe(true);
   expect(pushes("push", 320 + PUSH_MIN_CHAT, 320)).toBe(true);
   expect(pushes("push", 320 + PUSH_MIN_CHAT - 1, 320)).toBe(false);
@@ -277,15 +275,19 @@ test("it pushes the chat aside unless the pane is too narrow for the chat, or Se
   const container = installDom(true);
   paneWidth = 1200;
   await render(container, localChat);
-  expect(panel(container)?.dataset.placement).toBe("push");
+  // The default: over the chat, even in a wide pane, so opening it never reflows the chat.
+  expect(panel(container)?.dataset.placement).toBe("overlay");
   expect(panel(container)?.style.width).toBe("320px");
+  // Settings > Agent Chat > Inspector: Push.
+  await act(async () => setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "push" }));
+  expect(panel(container)?.dataset.placement).toBe("push");
   // A narrow pane: it lies over the chat instead.
   await act(async () => {
     paneWidth = 600;
     for (const observer of observers) observer();
   });
   expect(panel(container)?.dataset.placement).toBe("overlay");
-  // Settings > Agent Chat > Inspector: Overlay, even in a wide pane.
+  // Back to Overlay.
   await act(async () => {
     paneWidth = 1200;
     for (const observer of observers) observer();
@@ -296,6 +298,7 @@ test("it pushes the chat aside unless the pane is too narrow for the chat, or Se
 });
 
 test("an output whose diff split leaves no room to push the chat closes the Inspector until the toggle", async () => {
+  setChatDisplay({ [INSPECTOR_PLACEMENT_KEY]: "push" });
   const container = installDom(true);
   paneWidth = 1200;
   const opened = await render(container, localChat);

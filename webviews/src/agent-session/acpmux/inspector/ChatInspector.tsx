@@ -352,6 +352,7 @@ export function ChatInspector({
   tasks.push(...split.tasks);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = made?.pullRequests ?? [];
+  const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
   const runningTasks = tasks.filter(isRunning).length;
@@ -373,25 +374,21 @@ export function ChatInspector({
           onSave={onSaveEnvironment}
         />
       </InspectorSection>
-      <InspectorSection
-        id="context"
-        title={t("rail.context")}
-        open={known && state.context}
-        onOpenChange={known ? fold("context") : undefined}
-        meta={
-          known ? (
+      {known && (
+        <InspectorSection
+          id="context"
+          title={t("rail.context")}
+          open={state.context}
+          onOpenChange={fold("context")}
+          meta={
             <>
               {value(t("rail.percent", { percent }))}
               <span className="acpmux-inspector-meter" aria-hidden="true">
                 <span style={{ width: `${percent}%` }} />
               </span>
             </>
-          ) : (
-            value("—")
-          )
-        }
-      >
-        {known && (
+          }
+        >
           <ul className="acpmux-inspector-list">
             <li className="acpmux-inspector-row">
               <span className="acpmux-inspector-row__name">{t("chatInspector.context.used")}</span>
@@ -404,8 +401,8 @@ export function ChatInspector({
               <span className="acpmux-inspector-row__end">{tokens.format(Math.max(0, usage.size - usage.used))}</span>
             </li>
           </ul>
-        )}
-      </InspectorSection>
+        </InspectorSection>
+      )}
       {mcp.length > 0 && (
         <InspectorSection
           id="connectors"
@@ -482,15 +479,17 @@ export function ChatInspector({
           <TasksSection processes={tasks} scheduled={scheduled} onStop={onStopProcess} />
         </InspectorSection>
       )}
-      <InspectorSection id="outputs" title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
-        <OutputsSection
-          files={(made?.outputs ?? []) as readonly TurnFile[]}
-          links={links}
-          artifacts={artifacts}
-          onOpenFile={onOpenOutput}
-          onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
-        />
-      </InspectorSection>
+      {outputs.length + links.length + artifacts > 0 && (
+        <InspectorSection id="outputs" title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
+          <OutputsSection
+            files={outputs}
+            links={links}
+            artifacts={artifacts}
+            onOpenFile={onOpenOutput}
+            onOpenArtifacts={rows.length > 0 ? () => setGallery(true) : undefined}
+          />
+        </InspectorSection>
+      )}
       {gallery && (
         <GalleryDialog
           rows={rows}
