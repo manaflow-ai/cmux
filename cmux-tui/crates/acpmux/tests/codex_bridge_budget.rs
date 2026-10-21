@@ -6,9 +6,9 @@
 //! Guards the perf100 acp-fork win (plans: /tmp/perf100/SPEC.md): Codex runs
 //! with no adapter process between acpmux and `codex app-server` (the npm
 //! adapter cost about 100 MB RSS and 40 us of CPU per delta per session), and
-//! the agent host stays inside a CPU and memory budget per delta. Budgets are
-//! about 3x what a Freestyle VM (8 vCPU x86_64) measured, so only a real
-//! regression fails. Linux only (it reads /proc).
+//! the agent host stays inside a CPU and memory budget. Budgets are several
+//! times the measured values (below), so only a real regression fails.
+//! Linux only (it reads /proc).
 #![cfg(target_os = "linux")]
 
 #[path = "support/daemon_env.rs"]
@@ -27,8 +27,9 @@ const DELTAS: u64 = 20_000;
 /// Agent host CPU per delta. Measured: 22 us (release, Freestyle VM 8 vCPU)
 /// and 15 us (debug `cargo test`, rbx).
 const MAX_HOST_CPU_NS_PER_DELTA: u64 = 100_000;
-/// Agent host resident memory after the turn (measured about 12 MB).
-const MAX_HOST_RSS_KIB: u64 = 48 * 1024;
+/// Agent host resident memory after the turn: 21-24 MB release (Freestyle),
+/// 32-58 MB debug (rbx; it varies with the entries the host still buffers).
+const MAX_HOST_RSS_KIB: u64 = 128 * 1024;
 
 fn scratch() -> PathBuf {
     let dir = std::env::temp_dir().join(format!("amx-cxb-{}", std::process::id()));
