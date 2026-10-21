@@ -3,9 +3,11 @@
 
     nx-remote --needs gui --app-from-fleet cmux --tag <tag> --ref <sha> -- \
         python3 scripts/cmux-next/extensions-menu-live.py
+    extensions-menu-live.py --app "<path>/cmux DEV <tag>.app" --tag <tag> --out DIR   # a leased capture mini
 
-Runs on the GUI host with the job's NX_APP, NX_APP_SOCKET, NX_APP_STOP, NX_CAPTURE and
-NX_ARTIFACTS. It writes unpacked test extensions (an all-sites one, one for example.com, a side
+Runs on a GUI host with the job's NX_APP, NX_APP_SOCKET, NX_APP_STOP, NX_CAPTURE and
+NX_ARTIFACTS, or with --app and --tag (the socket is /tmp/cmux-debug-<tag>.sock; the app's own
+window snapshot, `debug.window_snapshot`, takes the pictures). It writes unpacked test extensions (an all-sites one, one for example.com, a side
 panel one that runs on a click, one that needs no site, a long name), launches the app with them
 (CMUX_NEXT_CEF_LOAD_EXTENSIONS), opens https://example.com/ in a Chromium tab, opens the bubble,
 pins two extensions and saves 2x window captures with the bubble:
@@ -18,6 +20,7 @@ It checks only that each bubble opened and listed what was loaded; the pictures 
 Self-contained (no imports from this folder), so a base commit can run the head's copy for a
 before/after. Exits 1 when a bubble did not open.
 """
+import argparse
 import json
 import os
 import plistlib
@@ -29,9 +32,17 @@ import tempfile
 import time
 import zlib
 
-OUT = os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="extensions-menu-")
-APP = os.environ["NX_APP"]
-SOCKET = os.environ["NX_APP_SOCKET"]
+parser = argparse.ArgumentParser()
+parser.add_argument("--app", default=os.environ.get("NX_APP"))
+parser.add_argument("--tag")
+parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="extensions-menu-"))
+opts = parser.parse_args()
+if not opts.app:
+    sys.exit("no app: pass --app or run under nx-remote --app-from-fleet")
+OUT = opts.out
+os.makedirs(OUT, exist_ok=True)
+APP = opts.app
+SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock" if opts.tag else os.environ["NX_APP_SOCKET"]
 failures = []
 
 
@@ -150,19 +161,24 @@ def launch(extensions, config):
     return process
 
 
-def stop():
+def stop(process):
     if os.environ.get("NX_APP_STOP"):
         subprocess.run([os.environ["NX_APP_STOP"]], check=False)
+    else:
+        process.terminate()  # the app this script started, by its own pid
 
 
 def shot(process, name):
-    capture = os.environ.get("NX_CAPTURE")
-    if not capture:
-        return
     path = os.path.join(OUT, f"{name}.png")
-    done = subprocess.run(["bash", capture, "shot", "--pid", str(process.pid), "--with-popups", "--out", path],
-                          capture_output=True, text=True)
-    log(f"capture {name} rc={done.returncode} saved={os.path.exists(path)} {done.stderr.strip()[:200]}")
+    capture = os.environ.get("NX_CAPTURE")
+    if capture:
+        done = subprocess.run(["bash", capture, "shot", "--pid", str(process.pid), "--with-popups", "--out", path],
+                              capture_output=True, text=True)
+        log(f"capture {name} rc={done.returncode} saved={os.path.exists(path)} {done.stderr.strip()[:200]}")
+        return
+    # The app's own composited window with its child panels (the bubble); no Screen Recording grant.
+    result = rpc("debug.window_snapshot", {"kind": "main", "path": path}, timeout=60)
+    log(f"snapshot {name}: {json.dumps(result)[:300]}")
 
 
 def scenario(name, specs, pin=(), modes=(("dark", "Catppuccin Mocha", "neutral"),)):
@@ -192,7 +208,7 @@ def scenario(name, specs, pin=(), modes=(("dark", "Catppuccin Mocha", "neutral")
             shot(process, f"{name}-{mode}")
         rpc("debug.extensions.menu", {"dismiss": True})
     finally:
-        stop()
+        stop(process)
         bounded_wait(lambda: process.poll() is not None, 30)
 
 
