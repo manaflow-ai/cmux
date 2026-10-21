@@ -8,6 +8,7 @@
 //   Gemini       write_file/replace {file_path | absolute_path}
 // Then the call's locations, a path field in a cut-off input, and a path in the title. A row never
 // shows the raw input: no path found is an empty list (the card says "Unknown file").
+import { commandFolder } from "./conversation/commandFolder";
 import { mcpCall, mcpPlainName } from "./conversation/mcpCalls";
 import type { AcpmuxActivity } from "./model";
 
@@ -53,7 +54,8 @@ export function toolLabel(
   const fallbackName = readableName(fallback, tool.kind) || "Tool";
   const paths = editedPaths(tool);
   const command = tool.command?.trim();
-  if (tool.kind === "execute" && command) return commandLabel(command);
+  // Without its leading `cd <folder> &&`: the opened Shell block names the folder (#20456).
+  if (tool.kind === "execute" && command) return commandLabel(commandFolder(command).rest);
   // An MCP call reads as its server and action, never as `mcp__<server>__<tool>`.
   const call = mcpCall(tool);
   if (call) return mcpPlainName(call);

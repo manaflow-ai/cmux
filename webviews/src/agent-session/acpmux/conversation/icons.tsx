@@ -166,6 +166,34 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
+/** Two checks, the second offset: a delivered message to another agent (MessageCard), as a messaging
+ *  app marks one, and a prompt the agent has read (a message's read receipt). */
+export const DoubleCheck = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M1.75 8.4 4.3 10.9 9.2 5.2" />
+    <path d="M7.4 10.6l.3.3 4.9-5.7" />
+  </Svg>
+);
+
+/** A pushpin, filled when the message is pinned. */
+export const Pin = ({ filled, ...p }: CvIconProps & { filled?: boolean }) => (
+  <Svg {...p}>
+    <path
+      d="M9.6 2.4 13.6 6.4 12.5 7.2 10.4 9.3 10.5 11.6 9.6 12.5 3.5 6.4 4.4 5.5 6.7 5.6 8.8 3.5Z"
+      fill={filled ? "currentColor" : "none"}
+    />
+    <path d="M6.5 9.5 2.5 13.5" />
+  </Svg>
+);
+
+/** A speaker with sound waves: Read aloud. */
+export const Speaker = (p: CvIconProps) => (
+  <Svg {...p}>
+    <path d="M2.75 6.25h2l3-2.5v8.5l-3-2.5h-2Z" />
+    <path d="M10.25 6.1a2.6 2.6 0 0 1 0 3.8M12 4.4a5 5 0 0 1 0 7.2" />
+  </Svg>
+);
+
 /** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
  * agent's current step to end (PendingSteer.tsx). */
 export const Clock = (p: CvIconProps) => (

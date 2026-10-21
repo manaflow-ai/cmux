@@ -5,8 +5,8 @@ struct ChiefMoveTarget: Equatable {
     enum DisabledReason: Equatable {
         /// The host is not connected.
         case offline
-        /// A paired server answers through `brain_place`; no server move exists yet.
-        case notSupportedYet
+        /// A paired server with no SSH route (its name is not a usable host name).
+        case noSSHRoute
         /// cmux Cloud needs the person's Cloud sign-in.
         case signInNeeded
     }

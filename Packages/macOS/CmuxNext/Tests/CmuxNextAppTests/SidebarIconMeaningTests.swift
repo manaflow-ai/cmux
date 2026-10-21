@@ -86,7 +86,7 @@ import Testing
             + [SidebarPriorityEntry(id: "busy", title: "Busy", state: .working(since: nil))]
         sidebar.showPriority(SidebarPriorityPanel(entries: entries, shown: false, shortcut: "⌥⌘K"))
         let bell = sidebar.priorityButton
-        let expected = Strings.priorityShow + ", " + Strings.priorityNeedYouCount(3)
+        let expected = Strings.priorityShow + ", " + Strings.priorityAttentionCount(3)
         #expect(bell.accessibilityLabel() == expected)
         #expect(bell.themedToolTip == expected)
         #expect(bell.themedToolTipShortcut == "⌥⌘K")
@@ -96,6 +96,16 @@ import Testing
         sidebar.showPriority(SidebarPriorityPanel(entries: entries, shown: true, shortcut: "⌥⌘K"))
         #expect(bell.accessibilityLabel() == Strings.priorityHide)
         #expect(bell.themedToolTipShortcut == "⌥⌘K")
+    }
+
+    /// The dot also lights for a chat that finished unseen: the label never calls a Done chat
+    /// one that needs you.
+    @Test func aDoneOnlyBellSaysNeedsAttentionNotNeedsYou() {
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        sidebar.showPriority(SidebarPriorityPanel(entries: [SidebarPriorityEntry(id: "done", title: "Done", state: .done)], shown: false))
+        let label = sidebar.priorityButton.accessibilityLabel() ?? ""
+        #expect(label == Strings.priorityShow + ", " + Strings.priorityAttentionCount(1))
+        #expect(!label.contains(Strings.priorityNeedsYou))
     }
 
     // MARK: Tab row unread dot

@@ -41,6 +41,8 @@ import Testing
         let undo = try #require(view.actionButton)
         #expect(undo.themedToolTip == CmuxToastStrings.undo)
         #expect(undo.themedToolTipShortcut == "⌘Z")
+        // VoiceOver reads the title once; the help adds only the key, not "Undo" again.
+        #expect(undo.accessibilityHelp() == "⌘Z")
         #expect(undo.accessibilityIdentifier() == "cmux.toast.tab-closed.action")
         #expect(view.closeButton.accessibilityIdentifier() == "cmux.toast.tab-closed.close")
 
