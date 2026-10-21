@@ -248,6 +248,7 @@ struct SidebarWorkspaceSnapshotFactory {
             showsAgentActivity: showsAgentActivity,
             compactsAgentStatus: settings.compactsAgentStatus,
             compactStatusIcons: settings.compactStatusIcons,
+            hiddenStatusKeys: settings.details.hiddenStatusKeys,
             visibleAuxiliaryDetails: settings.visibleAuxiliaryDetails,
             customColorHex: customColorHex,
             hasManualCustomColor: hasManualCustomColor,

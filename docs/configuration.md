@@ -264,7 +264,7 @@ Change any of them with `sidebar.compactStatusIcons`, a map from state to an [SF
 
 ## `sidebar.hiddenStatusKeys`
 
-Status keys whose pills the sidebar leaves out. Use it when your own `cmux set-status` pills replace an integration's, for example to drop the Claude Code pill:
+Status keys whose pills the sidebar leaves out. Use it when two pills say the same thing, for example the Claude Code hook pill next to the `program_status` pill the same Claude Code session reports, or when your own `cmux set-status` pills replace an integration's:
 
 ```json
 {
@@ -275,8 +275,9 @@ Status keys whose pills the sidebar leaves out. Use it when your own `cmux set-s
 ```
 
 - Default: `[]`.
-- Only the sidebar pill is hidden, in both the full row and the `compactAgentStatus` glyph. The agent hooks, notifications, session restore, hibernation and every other pill keep working.
+- Only the pill is hidden: the row in the full layout, and the entry's line in the `compactAgentStatus` glyph's tooltip. The glyph itself and the full layout's loading spinner still follow the agent, so a hidden Claude pane still shows the needs-input dot. The agent hooks, notifications, session restore, hibernation and every other pill keep working.
 - `cmux list-status` and the socket still report the hidden keys.
+- Keys match exactly. They are the agent keys cmux uses (`claude_code`, `codex`, `gemini`, `cursor`, `copilot`, `opencode`, `pi`, …), `program_status` for the OSC 7501 row, and any key you set with `cmux set-status`.
 - `sidebar.showCustomMetadata: false` still hides every pill.
 
 ## `terminal.showTextBoxOnNewTerminals` and `terminal.focusTextBoxOnNewTerminals`
