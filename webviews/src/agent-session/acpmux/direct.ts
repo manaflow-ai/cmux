@@ -3539,16 +3539,25 @@ export class AcpmuxDirectClient {
     if (!this.selectedSessionId || !this.firstSeq || this.firstSeq <= 1 || this.historyExhausted) return;
     const sessionId = this.selectedSessionId;
     const generation = this.selectionGeneration;
-    const result = await this.request("_acpmux/events", {
-      sessionId,
-      beforeSeq: this.firstSeq,
-      limit: 400,
-      maxBytes: OLDER_PAGE_BYTES,
-      kinds: ["transcript"],
-    });
-    if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
-    let older: EventRecord[] = result?.events ?? [];
-    const more = result?.hasMore === true;
+    let older: EventRecord[] = [];
+    let more = true;
+    // A page that opens no turn draws no row above the first (a prompt queued with a big paste or
+    // image is a page of its own), and the reader's scroll asks again only when the first row
+    // changes: read on until the records reach a turn's start or the history ends.
+    for (let before = this.firstSeq; more && !older.some(startsTurn);) {
+      const result = await this.request("_acpmux/events", {
+        sessionId,
+        beforeSeq: before,
+        limit: 400,
+        maxBytes: OLDER_PAGE_BYTES,
+        kinds: ["transcript"],
+      });
+      if (generation !== this.selectionGeneration || this.selectedSessionId !== sessionId) return;
+      const page: EventRecord[] = result?.events ?? [];
+      older = [...page, ...older];
+      more = result?.hasMore === true && page.length > 0 && page[0]!.seq < before;
+      if (page.length > 0) before = Math.min(before, page[0]!.seq);
+    }
     // A page whose first records finish the turn before it leaves them to the next page, so pages
     // hold whole turns and fold on their own.
     const start = more ? older.findIndex(startsTurn) : 0;
