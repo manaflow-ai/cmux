@@ -172,11 +172,11 @@ function bareSubject(text: string): string {
 /** The changes a person would notice, readable and each pull request (or title) once, and how
     many internal ones were left out. A pull request reads as its human commit when it has one; a
     change reverted in the same span, and its revert, are left out. */
-export function readableChanges(items: ChangeItem[]): { changes: ChangeItem[]; internal: number } {
+export function readableChanges<T extends ChangeItem>(items: T[]): { changes: T[]; internal: number } {
   const reverted = new Set(
     items.map((item) => revertedSubject(item.title)).flatMap((subject) => (subject ? [bareSubject(subject)] : [])),
   );
-  const rows: { key: string; item: ChangeItem; internal: boolean }[] = [];
+  const rows: { key: string; item: T; internal: boolean }[] = [];
   const byKey = new Map<string, number>();
   for (const item of items) {
     if (revertedSubject(item.title) || reverted.has(bareSubject(item.title))) continue;

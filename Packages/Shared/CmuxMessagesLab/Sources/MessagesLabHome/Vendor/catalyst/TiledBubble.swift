@@ -399,8 +399,8 @@ final class TiledBody {
         // the first 40 lines, and the last 40 lines moved up under the band (both clipped).
         var segments: [(lines: Range<Int>, shift: CGFloat, parent: CALayer)] = [(0..<total, 0, container)]
         if folded {
-            let tailFirst = max(LongTextFold.headLines, total - LongTextFold.tailLines)
-            segments = [(0..<min(total, LongTextFold.headLines), 0, headClip),
+            let tailFirst = LongTextFold.tailFirst(total) // cmux: never above total
+            segments = [(LongTextFold.head(total), 0, headClip),
                         (tailFirst..<total, CGFloat(LongTextFold.headLines - tailFirst) * lh + LongTextFold.bandHeight, tailClip)]
         }
         var wanted: [(TileCache.Key, CGRect, Bool, Int, CALayer)] = []

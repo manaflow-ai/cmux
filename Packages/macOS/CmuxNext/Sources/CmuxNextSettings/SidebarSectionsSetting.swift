@@ -233,6 +233,8 @@ public nonisolated enum SidebarSectionsSetting {
         result.showTimestamps = flag(root, showTimestampsPath, fallback: result.showTimestamps, &diagnostics)
         result.groupHeaderMemberCount = flag(root, groupHeaderMemberCountPath, fallback: result.groupHeaderMemberCount, &diagnostics)
         result.groupHeaderUnreadCount = flag(root, groupHeaderUnreadCountPath, fallback: result.groupHeaderUnreadCount, &diagnostics)
+        result.priorityViewEnabled = flag(root, SidebarPriorityViewSetting.enabledPath, fallback: result.priorityViewEnabled, &diagnostics)
+        result.priorityViewShown = flag(root, SidebarPriorityViewSetting.shownPath, fallback: result.priorityViewShown, &diagnostics)
         if let value = root.value(at: groupByPath) {
             if let text = value.stringValue, let groupBy = SidebarGroupBy(rawValue: text) {
                 result.groupBy = groupBy
