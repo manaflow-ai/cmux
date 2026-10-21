@@ -182,3 +182,38 @@ test("once the checkpoint loads, a failed Write the agent named from ~ lists no 
   expect(rows()).toEqual([]);
   expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
 });
+
+test("once the checkpoint loads, a failed Write retried through a folder link the repository's name doesn't match lists once", async () => {
+  // The agent works in a link (~/work/current) to the repository git names by its real path, so only
+  // the later Edit's suffix match ties the path to the checkpoint's notes.txt.
+  const path = "/Users/you/work/current/notes.txt";
+  const row = activity("turn-f12", [
+    await translatorWrite("write-12", path, "failed"),
+    await editWithDiff("edit-8", path, "step 1\n", "step one\n"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "notes.txt", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-step 1\n+step one\n" }]),
+    ),
+  );
+  expect(dom.text(".acpmux-edited-title > div")).toBe("Edited notes.txt");
+  expect(rows()).toEqual([]);
+  expect(dom.host().querySelector(".acpmux-edited-failed")).toBeNull();
+});
+
+test("once the checkpoint loads, a failed Write in the repository stays beside an edited file of its name outside it", async () => {
+  const outside = "/tmp/scratch/notes.txt";
+  const row = activity("turn-f13", [
+    await translatorWrite("write-13", NOTES, "failed"),
+    await editWithDiff("edit-9", PLAN, "a\n", "b\n"),
+    await editWithDiff("edit-10", outside, "step 1\n", "step one\n"),
+  ]);
+  await dom.render(
+    await editedCard(
+      row,
+      checkpoint([{ path: "plan.md", additions: 1, deletions: 1, patch: "@@ -1 +1 @@\n-a\n+b\n" }]),
+    ),
+  );
+  expect(rows()).toContainEqual([NOTES, "failed"]);
+});
