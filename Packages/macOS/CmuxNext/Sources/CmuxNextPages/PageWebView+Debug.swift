@@ -144,13 +144,14 @@ extension PageWebView {
             el.dispatchEvent(new MouseEvent(type, { bubbles: type !== 'mouseenter', clientX: x, clientY: y, view: window }));
           }
         }
-        return JSON.stringify({ x, y, hit });
+        return JSON.stringify({ x, y, w: r.width, h: r.height, hit });
         """
         let page = chromiumSession?.page
         let native = page != nil
         guard let text = await callPageFunction(script, arguments: ["selector": selector, "native": native]) as? String,
               case .object(let point)? = try? JSONValue.parse(Data(text.utf8)),
-              case .number(let x)? = point["x"], case .number(let y)? = point["y"] else { return ["hovered": false] }
+              case .number(let x)? = point["x"], case .number(let y)? = point["y"],
+              case .number(let width)? = point["w"], case .number(let height)? = point["h"] else { return ["hovered": false] }
         guard point["hit"] == true else { return ["hovered": false, "error": "another element is at its center"] }
         if let page {
             // DevTools input is in the viewport's CSS pixels, as `getBoundingClientRect` gives them:
@@ -166,7 +167,7 @@ extension PageWebView {
                 return ["hovered": false, "error": "the element is not hovered after the move"]
             }
         }
-        return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y)]
+        return ["hovered": true, "native": .bool(native), "x": .number(x), "y": .number(y), "width": .number(width), "height": .number(height)]
     }
 
     /// Every element matching `selector` in document order: its `data-*` attributes, classes and
