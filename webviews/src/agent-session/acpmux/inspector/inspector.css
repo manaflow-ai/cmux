@@ -345,7 +345,11 @@
 .acpmux-chat-inspector-pr[data-state="merged"] .acpmux-chat-inspector-pr__icon {
   color: var(--agent-ansi-5, var(--agent-accent));
 }
-.acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon {
+.acpmux-chat-inspector-pr[data-state="draft"] .acpmux-chat-inspector-pr__icon {
+  color: var(--agent-warning, var(--agent-muted));
+}
+.acpmux-chat-inspector-pr[data-state="closed"] .acpmux-chat-inspector-pr__icon,
+.acpmux-chat-inspector-pr[data-state="conflicting"] .acpmux-chat-inspector-pr__icon {
   color: var(--agent-danger);
 }
 .acpmux-chat-inspector-pr__text {
@@ -380,7 +384,12 @@
 .acpmux-chat-inspector-pr__line .acpmux-diff-counts {
   flex: none;
 }
-.acpmux-chat-inspector-pr__state,
+.acpmux-chat-inspector-pr__comments {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
 .acpmux-chat-inspector-pr__checks {
   flex: 0 1 auto;
   min-width: 0;
@@ -423,6 +432,9 @@
 }
 .acpmux-chat-inspector-pr__more {
   margin-top: 4px;
+}
+.acpmux-chat-inspector-pr-fold {
+  margin-top: 2px;
 }
 .acpmux-chat-inspector-breakdown__rows {
   display: grid;
