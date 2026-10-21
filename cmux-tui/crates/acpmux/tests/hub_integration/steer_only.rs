@@ -194,9 +194,9 @@ async fn queue_ops_steer_with_interrupt_stops_a_turn_its_agent_cannot_steer() {
     assert_eq!(echoes_until(&mut c, "echo: a").await, ["echo: now", "echo: a"]);
 }
 
-/// Messages between sessions steer by default (2026-10-20). To an agent that does not steer
-/// (or whose steering is unknown, as after a daemon restart re-adopts it), a steer without
-/// `interrupt` queues behind the running turn and never stops it.
+/// A steer without `interrupt` never stops a turn: to an agent that does not steer (or whose
+/// steering is unknown, as after a daemon restart re-adopts it), it queues behind the running
+/// turn.
 #[tokio::test]
 async fn a_steer_without_interrupt_queues_behind_a_turn_its_agent_cannot_steer() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
