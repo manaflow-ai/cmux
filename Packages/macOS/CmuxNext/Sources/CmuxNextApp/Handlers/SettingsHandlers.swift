@@ -37,7 +37,8 @@ enum SettingsHandlers {
         // restores (or Reopen Closed brings back) shows its title and page (cx-warpr).
         ChangelogPageTab.register(context.services)
         UpdateHandlers.bind(into: registry, updater: context.services.updater,
-                            openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false })
+                            openWhatsNew: { [weak services = context.services] in services.map { WhatsNewPage.open($0) } ?? false },
+                            stateDirectories: { [weak services = context.services] in services?.environment.daemonStateDirectories ?? [nil] })
         OnboardingHandlers.bind(into: registry, context: context)
         CLIInstallHandlers.bind(into: registry, context: context)
         KeymapHandlers.bind(into: registry, context: context)

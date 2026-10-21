@@ -89,10 +89,10 @@ final class MarkdownLiveShareServer {
             let listener: NWListener
             do { listener = try NWListener(using: parameters) } catch { throw Failure.listenerFailed("\(error)") }
             listener.stateUpdateHandler = { [weak self] state in
-                MainActor.assumeIsolated { self?.listenerChanged(state) }
+                MainActor.assumeIsolated { self?.listenerChanged(state) } // main-proof: listener.start(queue: .main) below
             }
             listener.newConnectionHandler = { [weak self] connection in
-                MainActor.assumeIsolated { self?.accept(connection) }
+                MainActor.assumeIsolated { self?.accept(connection) } // main-proof: listener.start(queue: .main) below
             }
             self.listener = listener
             listener.start(queue: .main)
@@ -127,7 +127,7 @@ final class MarkdownLiveShareServer {
         connections[id] = connection
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
-            case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) }
+            case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) } // main-proof: connection.start(queue: .main)
             default: break
             }
         }
@@ -141,8 +141,9 @@ final class MarkdownLiveShareServer {
     }
 
     private func receive(_ connection: NWConnection, head: Data) {
+        // Every connection starts on queue .main (accept), so Network calls this on main.
         connection.receive(minimumIncompleteLength: 1, maximumLength: Self.headLimit) { [weak self] data, _, complete, error in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: connection.start(queue: .main) in accept
                 guard let self else { return }
                 var head = head
                 if let data { head.append(data) }
