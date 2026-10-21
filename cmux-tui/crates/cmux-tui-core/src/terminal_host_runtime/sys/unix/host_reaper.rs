@@ -105,11 +105,28 @@ impl Reaper {
             }
             let mut children = self.children.lock().unwrap();
             for pid in ready.drain(..) {
-                let exited = children
-                    .get_mut(&pid)
-                    .is_some_and(|watched| !matches!(watched.child.try_wait(), Ok(None)));
-                if exited {
+                let Some(watched) = children.get_mut(&pid) else { continue };
+                if !matches!(watched.child.try_wait(), Ok(None)) {
                     children.remove(&pid);
+                    continue;
+                }
+                // Not reapable yet. Either the event came before the exiting
+                // child became a zombie (XNU posts NOTE_EXIT first), or it is
+                // a stale event for a pid now reused by a live child. Arm
+                // again: the kernel refuses an exiting process (ESRCH), and
+                // only then is a blocking wait certain to return at once.
+                match self.queue.register(pid) {
+                    Ok(handle) => watched._handle = handle,
+                    Err(error) if error.raw_os_error() == Some(libc::ESRCH) => {
+                        if let Some(mut gone) = children.remove(&pid) {
+                            let _ = gone.child.wait();
+                        }
+                    }
+                    Err(_) => {
+                        if let Some(gone) = children.remove(&pid) {
+                            reap_on_own_thread(gone.child);
+                        }
+                    }
                 }
             }
         }
