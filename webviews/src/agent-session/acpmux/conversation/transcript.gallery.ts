@@ -1095,11 +1095,11 @@ export default agentPaneEntry({
       ]),
     },
     rhythm: {
-      note: "The transcript's vertical rhythm: a steered prompt with Steered in its meta row right under the bubble, a reply's footer right under the reply, turns a fixed gap apart, and a Worked for turn.",
+      note: "The transcript's vertical rhythm: two prompts in one turn, each meta row right under its bubble, a reply's footer right under the reply, turns a fixed gap apart, and a Worked for turn.",
       snapshot: chat([
         user("Is the hosted test run done?", 20),
         assistant("Checking the hosted run now.", 19.8),
-        user("Also check the PR checks.", 19.7, { steer: "landed" }),
+        user("Also check the PR checks.", 19.7),
         assistant("Not yet: the hosted test run is still queued, and the PR checks wait on it.", 19.5),
         summary(19.5, { status: "completed", durationMs: 17_000 }),
         ...workedTurnRows(minutesAgo(15)),

@@ -1,13 +1,12 @@
 // l10n-allow-file: test fixture prompts and replies, not shipped UI.
 // The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: "weird amounts
-// of negative space"): a message's meta row hugs it, a steer's "Steered" line sits in that row
-// right under its bubble, a reply's footer sits right under the reply, and turns are a fixed gap
-// apart. The spacing tokens are `--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and
+// of negative space"): a message's meta row hugs it, a reply's footer sits right under the
+// reply, and turns are a fixed gap apart. The spacing tokens are `--cv-meta-gap`, `--cv-meta-row`, `--cv-message-gap` and
 // `--cv-turn-gap` in conversation/conversation.css.
 //
-// Before: an older prompt's hidden action row held an empty 24px band, the steer line sat under
-// it (about 28px below its bubble), a reply's footer started about 22px under the reply, and a
-// footer sat 8px over the next prompt.
+// Before: an older prompt's hidden action row and the row's padding left a 40px band under its
+// bubble, a reply's footer started about 22px under the reply, and a footer sat 8px over the next
+// prompt.
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux.
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
@@ -40,7 +39,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     ["mux", "user_message", { text: "Is the hosted test run done?", promptId: "p-1" }],
     ["mux", "turn_started", {}],
     ["in", "agent_message_chunk", say("Checking the hosted run now.")],
-    ["mux", "user_message", { text: "Also check the PR checks.", promptId: "p-2", steer: true }],
+    ["mux", "user_message", { text: "Also check the PR checks.", promptId: "p-2" }],
     ["in", "agent_message_chunk", say("Not yet: the hosted test run is still queued.")],
     ["mux", "turn_result", { status: "completed" }],
     ["mux", "user_message", { text: "Ship it when green.", promptId: "p-3" }],
@@ -169,9 +168,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
         [...document.querySelectorAll<HTMLElement>(".cv-md")].find((node) => node.textContent?.includes(text))!;
 
       const first = bubble("Is the hosted test run done?");
-      const steered = bubble("Also check the PR checks.");
       const last = bubble("Ship it when green.");
-      const steerLabel = userRow("Also check the PR checks.").querySelector(".cv-user__steer-label")!;
       const lastActions = userRow("Ship it when green.").querySelector(".cv-user__actions")!;
       const afterFirst = rowAfter(userRow("Is the hosted test run done?"));
       const firstContent = afterFirst.querySelector(".cv-md, .cv-worked") ?? afterFirst;
@@ -180,7 +177,6 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
       const lastFooterTime = footers.at(-1)!.querySelector(".cv-turn-time")!;
       const lastReply = reply("Meanwhile the PR checks");
       return {
-        steerUnderBubble: Math.round(rect(steerLabel).top - rect(steered).bottom),
         metaRowUnderBubble: Math.round(rect(lastActions).top - rect(last).bottom),
         metaRowHeight: Math.round(rect(lastActions).height),
         olderPromptToNext: Math.round(rect(firstContent).top - rect(first).bottom),
@@ -193,8 +189,6 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
   test("meta rows hug their message and the rhythm has no empty bands", async () => {
     const page = await open();
     const measured = await gaps(page);
-    // Steered sits in the prompt's meta row: 4px under the bubble, centered in a 24px line.
-    expect(measured.steerUnderBubble).toBeLessThanOrEqual(9);
     // The meta row starts 4px under its bubble and is one compact 24px line.
     expect(measured.metaRowUnderBubble).toBeLessThanOrEqual(6);
     expect(measured.metaRowHeight).toBeLessThanOrEqual(24);

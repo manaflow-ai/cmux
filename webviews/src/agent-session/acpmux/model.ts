@@ -456,10 +456,10 @@ const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
 const TURN_GAP = 24;
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), which also carries a steer's read
-/// state; without it (a failed or queued prompt) a steer is its own status line.
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and a steer's status line under it
+/// (SteerMark.tsx, `.cv-user__status`).
 const userMetaHeight = (row: AcpmuxRow) =>
-  row.text && !row.failed && !row.queued ? META_GAP + META_ROW : row.steer ? USER_STATUS_HEIGHT : 0;
+  (row.text && !row.failed && !row.queued ? META_GAP + META_ROW : 0) + (row.steer ? USER_STATUS_HEIGHT : 0);
 const chromeHeight = (row: AcpmuxRow) =>
   row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).

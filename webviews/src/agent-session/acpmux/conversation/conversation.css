@@ -381,7 +381,7 @@
 }
 /* Copy and Edit under a prompt (cx-ncc.60): shown while the pointer is over the prompt or a key
    reached them, as Claude's. The row is one compact line right under the bubble; hidden, it keeps
-   only that line, so pointing at a prompt moves nothing. A steer's read state ends it, always shown. */
+   only that line, so pointing at a prompt moves nothing. */
 .cv-user__actions {
   display: flex;
   align-items: center;
@@ -389,24 +389,14 @@
   height: var(--cv-meta-row);
   margin-top: var(--cv-meta-gap);
   padding-right: 2px;
-}
-.cv-user__actions > :not(.cv-user__steer) {
   opacity: 0;
+  transition: opacity 120ms ease-out;
 }
-@media (prefers-reduced-motion: no-preference) {
-  .cv-user__actions > :not(.cv-user__steer) {
-    transition: opacity 120ms ease-out;
-  }
-}
-.cv-user:hover .cv-user__actions > *,
-.acpmux-row[data-last-prompt] .cv-user__actions > *,
-.cv-user__actions:focus-within > *,
-.cv-user__actions--versions > * {
+.cv-user:hover .cv-user__actions,
+.acpmux-row[data-last-prompt] .cv-user__actions,
+.cv-user__actions:focus-within,
+.cv-user__actions--versions {
   opacity: 1;
-}
-.cv-user__actions > .cv-user__steer {
-  margin: 0 0 0 4px;
-  padding-right: 2px;
 }
 /* The prompt's age and its two ticks lead the row, quiet, as Claude Code desktop's. */
 .cv-user__time {

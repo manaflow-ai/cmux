@@ -650,8 +650,7 @@ const MessageRow = memo(
             <UserBubble row={row} text={row.text ?? ""} />
           )}
           <FailedPrompt row={row} />
-          {/* A prompt's bubble draws its steer in its meta row (UserBubble.tsx). */}
-          {row.steer && (envelope || row.from === "chief") && <SteerMark steer={row.steer} />}
+          {row.steer && <SteerMark steer={row.steer} />}
           {row.status && (
             <div className="cv-user__status">
               <span>{row.status}</span>
