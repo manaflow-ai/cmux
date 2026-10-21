@@ -1,6 +1,9 @@
 import CmuxNextActions
+import CmuxNextAgentPane
+import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
 
 /// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
@@ -16,7 +19,9 @@ import Foundation
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux; another machine's name, as
+/// the sidebar or `acpmux ls` shows it: the session runs there), `group` (another machine's: the name
+/// of that machine's group it joins, made when missing).
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -33,8 +38,56 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        let task = try open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
+        // A host that names another machine (`cmux agent open NAME --host huge-blue`): its chat opens there.
+        let remote = host.flatMap(context.services.machines.remoteDaemon(named:)), group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let task = try remote.map { try adopt(session: session, name: name, key: key, cwd: cwd, group: group, on: $0, services: context.services) }
+            ?? open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
         context.services.registry.track(task)
+    }
+
+    /// Another machine's running chat in a new workspace on that machine's daemon: its agent tab is
+    /// bound to `session` there (`agent-session-adopt`; a chat never leaves its machine, cx-k21v), and
+    /// a chat that acts without asking shows the bypass warning on its row. A refused adopt closes
+    /// the workspace. Nothing takes focus.
+    private static func adopt(session: String, name: String?, key: WorkspaceKey, cwd: String?, group: String?, on daemon: DaemonService,
+                              services: AppServices) throws -> ActionWork {
+        guard let connection = daemon.connection, let endpoint = daemon.remoteEndpoint, let host = AgentTabStore.registryHost(of: daemon) else {
+            throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
+        }
+        let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
+        let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
+        // `group`: that machine's group of the name (made when missing), once the row is listed.
+        let join: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = group.map { name in { id, sidebar in joinGroup(id, named: name, sidebar: sidebar) } }
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
+        return Task { @MainActor in
+            do {
+                let (tab, adopted) = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
+                    try await connection.createTerminal(in: result.key, cwd: cwd)
+                    let tab = try await connection.request(NewConversationTabRequest(agentSession: AgentSessionRef(host: host, hostName: machine), workspace: result.workspace,
+                                                                                     origin: AgentTabStore.createOrigin, mutationID: "adopt-" + key.rawValue))
+                    return (tab, try await AgentSessionAttachClient.adopt(session: session, surface: tab.surface.rawValue, endpoint: endpoint))
+                }
+                AgentBypassSessions.shared.set(session, bypass: !adopted.asking)
+                if let pane = await daemon.store.mirroredPane(of: key) {
+                    for window in services.windows.controllers { window.state.selection.select(tab.tabResourceID?.rawValue ?? "surface:\(tab.surface.rawValue)", in: pane.id) }
+                }
+                return nil
+            } catch let error as AgentSessionAttachError {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(AgentSessionAdoptRefusal.message(code: error.code, machine: machine) ?? AgentRemoteStartRefusal(code: error.code, machine: machine, detail: error.message).userMessage)")
+            } catch {
+                return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
+            }
+        }
+    }
+
+    /// Moves workspace `id` into its machine's group named `name`, or a new group of that name.
+    private static func joinGroup(_ id: String, named name: String, sidebar: SidebarBridge) {
+        let ids = [SidebarWorkspaceID(id)]
+        if let target = SidebarEdits.group(named: name, accepting: ids, in: sidebar.model.sections) {
+            sidebar.handle(.move(ids, toGroup: target))
+        } else {
+            sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false)
+        }
     }
 
     /// Starts the new workspace for `session` (see the type) and returns its
@@ -48,6 +101,11 @@ enum AgentSessionWorkspace {
         let daemon = services.daemon
         guard let connection = daemon.connection, case let repair = services.emptyWorkspaces else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
+        }
+        // A host that names no machine here is refused before anything is made (no empty workspace).
+        let agentTabs = services.agentTabs
+        if let refusal = AgentTabStore.hostRefusal(host, localHost: agentTabs.localHost, chiefHost: agentTabs.chiefHost, daemonIsLocal: daemon.isLocal) {
+            throw ActionFailure(message: refusal)
         }
         let logger = daemon.logger
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
@@ -64,7 +122,7 @@ enum AgentSessionWorkspace {
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).
-                guard let pane = await mirroredPane(of: key, in: daemon.store) else {
+                guard let pane = await daemon.store.mirroredPane(of: key) else {
                     logger.error("agent.openSessionWorkspace: the pane of workspace \(key.rawValue, privacy: .public) did not appear")
                     return ActionWorkFailure("agent.openSessionWorkspace: the new workspace's pane did not appear")
                 }
@@ -85,31 +143,5 @@ enum AgentSessionWorkspace {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }
         }
-    }
-
-    /// The first pane of workspace `key` once the store mirrors it (10 s at most).
-    @MainActor static func mirroredPane(of key: WorkspaceKey, in store: DaemonStore) async -> PaneModel? {
-        if let pane = firstPane(of: key, in: store) { return pane }
-        // concurrency-allow: the observation task exits on cancellation; this bounds a daemon mirror race
-        let mirrored = await withTaskGroup(of: Bool.self) { group -> Bool in
-            group.addTask { await waitForPane(of: key, in: store) }
-            group.addTask {
-                // wakeup-allow: one-shot ten-second daemon mirror deadline
-                try? await Task.sleep(for: .seconds(10))
-                return false
-            }
-            defer { group.cancelAll() }
-            return await group.next() ?? false
-        }
-        return mirrored ? firstPane(of: key, in: store) : nil
-    }
-
-    @MainActor private static func firstPane(of key: WorkspaceKey, in store: DaemonStore) -> PaneModel? {
-        store.workspaces.first { $0.key == key }?.screens.first?.panes.first
-    }
-
-    @MainActor private static func waitForPane(of key: WorkspaceKey, in store: DaemonStore) async -> Bool {
-        for await ready in ObservationStream({ firstPane(of: key, in: store) != nil }) where ready { return true }
-        return false
     }
 }
