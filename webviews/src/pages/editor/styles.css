@@ -21,7 +21,7 @@
   --cmux-editor-ruler: color-mix(in srgb, var(--cmux-editor-foreground) 12%, transparent);
   --cmux-editor-scrollbar: color-mix(in srgb, var(--cmux-editor-foreground) 18%, transparent);
   --cmux-editor-scrollbar-hover: color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent);
-  --cmux-editor-widget-background: var(--surface-popup);
+  --cmux-editor-widget-background: var(--surface-menu);
   --cmux-editor-widget-border: var(--page-separator);
   --cmux-editor-chrome-font-size: 12px;
   --cmux-editor-toolbar-height: 30px;
@@ -202,4 +202,12 @@ body {
 .monaco-editor .monaco-inputbox.synthetic-focus {
   outline: none !important;
   border-color: color-mix(in srgb, var(--page-text) 40%, transparent) !important;
+}
+
+/* The editor's floating widgets (suggestions, hover, find) are menu glass (pages/shared/desktop.css):
+   their Monaco color is the translucent --cmux-editor-widget-background; the blur goes here, since a
+   Monaco theme has no blur. Reduce Transparency makes the color opaque and the blur none. */
+.monaco-editor :is(.suggest-widget, .monaco-hover, .find-widget) {
+  -webkit-backdrop-filter: var(--surface-menu-blur);
+  backdrop-filter: var(--surface-menu-blur);
 }

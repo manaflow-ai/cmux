@@ -6,6 +6,12 @@
 // 5 px radius, 4×8 padding, a separator hairline and the caption font; since 2026-10-14 they are
 // frosted glass instead (tooltip-surface.test.ts).
 //
+// Lucas, 2026-10-21: menus, pickers and popovers are menu glass again, like the native macOS 26 menu
+// beside them: the popup surface as a translucent tint (`--surface-menu`) under a heavy blur
+// (`--surface-menu-blur`), so the page under a menu is a smear, never readable text. Under Reduce
+// Transparency every one is the solid popup surface, unblurred, as before. Toolbars, palettes and
+// forms that are not menus keep the solid surface.
+//
 // The pages are the real stylesheets with the variables the host sets, in a see-through window
 // (a translucent elevated background). The engines come from `playwright install chromium
 // webkit`; where they are not installed, the cases are skipped and say so.
@@ -82,7 +88,7 @@ ${tooltips}
 <div class="hc-msg-toolbar" id="hc-msg-toolbar">React</div>
 <div class="lg-palette" id="lg-palette">Search conversations</div>
 <div class="lg-form" id="lg-form">New message</div>
-<div id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div>`,
+<div class="monaco-editor"><div class="suggest-widget" id="editor-widget" style="background: var(--cmux-editor-widget-background)">Suggest</div></div>`,
     // Tooltips are frosted glass (tooltip-surface.test.ts).
     surfaces: [
       "menu",
@@ -95,6 +101,8 @@ ${tooltips}
       "lg-form",
       "editor-widget",
     ],
+    // Not menus: toolbars, a palette and a form keep the solid surface.
+    solid: ["icon-bar-pill", "hc-msg-toolbar", "lg-palette", "lg-form"],
   };
   // The agent pane: desktop.css, the popup surface, then the pane's sheets (build-agent-pane-web.sh).
   const pane = {
@@ -142,12 +150,14 @@ ${tooltips}`,
       // Leo 10-13: the New Tab suggestions showed the page's rows through them on a wallpaper theme.
       "new-tab-suggestions",
     ],
+    // The summary card is menu glass too (Lucas, 2026-10-21).
+    solid: [] as string[],
   };
 
-  const open = async (browser: Browser, fixture: { css: string; body: string }) => {
+  const open = async (browser: Browser, fixture: { css: string; body: string }, root = "") => {
     const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
     await page.setContent(
-      `<!doctype html><html style="${theme}"><head><style>${fixture.css}</style></head><body>${fixture.body}</body></html>`,
+      `<!doctype html><html ${root} style="${theme}"><head><style>${fixture.css}</style></head><body>${fixture.body}</body></html>`,
     );
     return page;
   };
@@ -170,8 +180,26 @@ ${tooltips}`,
         ["pages", pages],
         ["the agent pane", pane],
       ] as const) {
-        test(`every menu, popover and tooltip in ${where} is the opaque popup surface, unblurred`, async () => {
+        test(`every menu and popover in ${where} is menu glass: a translucent tint, blurred`, async () => {
           const page = await open(browser, fixture);
+          const seen: Record<string, { glass: boolean; blurred: boolean }> = {};
+          for (const id of fixture.surfaces) {
+            const look = await material(page, id);
+            const solid = look.background === POPUP;
+            seen[id] = { glass: !solid && /\/ 0\.\d+\)$|, 0\.\d+\)$/.test(look.background), blurred: look.blurred };
+          }
+          const want = Object.fromEntries(
+            fixture.surfaces.map((id) => [
+              id,
+              fixture.solid.includes(id) ? { glass: false, blurred: false } : { glass: true, blurred: true },
+            ]),
+          );
+          expect(seen).toEqual(want);
+          await page.close();
+        });
+
+        test(`under Reduce Transparency every menu and popover in ${where} is the opaque popup surface, unblurred`, async () => {
+          const page = await open(browser, fixture, "data-reduce-transparency");
           const seen: Record<string, { background: string; blurred: boolean }> = {};
           for (const id of fixture.surfaces) seen[id] = await material(page, id);
           const want = Object.fromEntries(fixture.surfaces.map((id) => [id, { background: POPUP, blurred: false }]));
@@ -200,7 +228,7 @@ ${tooltips}`,
 
       // Coherence pass batch 2: the web popups cast the native popup shadow (PopupStyle.swift), so a
       // menu has the same depth in a page as over the sidebar. The deeper two-layer shadow came with
-      // the glass popups (#19008); popups are solid again, and POLISH asks for subtle shadows.
+      // the glass popups (#19008); POLISH asks for subtle shadows, so the menu glass keeps this one.
       test("the web popup shadow is the native popup shadow", async () => {
         const swift = fs.readFileSync(
           path.resolve(import.meta.dir, "../../Packages/macOS/CmuxNext/Sources/CmuxNextDesign/PopupStyle.swift"),
@@ -214,9 +242,10 @@ ${tooltips}`,
         const page = await open(browser, pages);
         const shadow = await page.$eval("#menu", (node) => getComputedStyle(node).boxShadow);
         // Black at an alpha serializes as rgba() or, from color-mix(), as color(srgb ...).
+        // The glass edge's dark line is a spread layer with no blur, not a drop.
         const drops = shadow
           .split(/,(?![^(]*\))/)
-          .filter((part) => !part.includes("inset"))
+          .filter((part) => !part.includes("inset") && !/ 0px 0px 0px [\d.]+px$/.test(part.trim()))
           .map((part) => part.trim().replace(/^rgba\(0, 0, 0, ([\d.]+)\)/, "color(srgb 0 0 0 / $1)"));
         expect(drops).toEqual([`color(srgb 0 0 0 / ${alpha}) 0px ${offset}px ${blur}px 0px`]);
         await page.close();

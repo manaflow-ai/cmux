@@ -2,6 +2,8 @@
 // `--acpmux-popup-elevation`: a 0.5px composer-edge hairline over `--ui-popup-shadow`, which already
 // draws a 0.5px hairline of its own. Those popups drew two edges. Every web menu and popover draws
 // exactly one: the hairline in `--ui-popup-shadow` (ui/popupSurface.css).
+// Since the menu glass (Lucas, 2026-10-21) that inset edge is the native menu's one-point light rim
+// (`--cmux-hairline-ring`); the dark line outside it is a spread layer, not an inset edge.
 //
 // The check reads the stylesheets: each `box-shadow` that uses a popup token is expanded through
 // the popup tokens' definitions and must hold one inset hairline layer, with no border in the same
@@ -85,7 +87,7 @@ const layers = (value: string) => {
 };
 const hairlines = (value: string) =>
   layers(expand(value)).filter((layer) =>
-    /^inset\s+0\s+0\s+0\s+(?:[\d.]*\d(px)?\b|var\(--cmux-hairline(?![\w-]))/.test(layer),
+    /^inset\s+0\s+0\s+0\s+(?:[\d.]*\d(px)?\b|var\(--cmux-hairline(?:-ring)?(?![\w-]))/.test(layer),
   );
 
 // A border drawn by the rule is an edge too: any `border`/`border-width` that is not 0 or none.

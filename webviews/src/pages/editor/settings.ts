@@ -469,7 +469,7 @@ export const EDITOR_STYLE_DEFAULTS = {
   "--cmux-editor-ruler": "color-mix(in srgb, var(--cmux-editor-foreground) 12%, transparent)",
   "--cmux-editor-scrollbar": "color-mix(in srgb, var(--cmux-editor-foreground) 18%, transparent)",
   "--cmux-editor-scrollbar-hover": "color-mix(in srgb, var(--cmux-editor-foreground) 28%, transparent)",
-  "--cmux-editor-widget-background": "var(--surface-popup)",
+  "--cmux-editor-widget-background": "var(--surface-menu)",
   "--cmux-editor-widget-border": "var(--page-separator)",
   "--cmux-editor-chrome-font-size": "12px",
   "--cmux-editor-toolbar-height": "30px",

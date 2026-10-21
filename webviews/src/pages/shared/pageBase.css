@@ -52,10 +52,13 @@ input {
   min-width: 180px;
   max-width: 280px;
   padding: 4px;
-  border-radius: 8px;
-  background: var(--surface-popup);
-  border: 1px solid var(--page-separator);
-  box-shadow: var(--elevation-2);
+  border-radius: var(--ui-popup-radius, 12px);
+  /* Menu glass (desktop.css); its one edge is the popup rim (ui/popupSurface.css). */
+  background: var(--surface-menu);
+  -webkit-backdrop-filter: var(--surface-menu-blur);
+  backdrop-filter: var(--surface-menu-blur);
+  border: 0;
+  box-shadow: var(--ui-popup-shadow, var(--elevation-2));
   outline: none;
 }
 

@@ -9,7 +9,7 @@ final class ExtensionsMenuCardView: NSView {
 
     init(content: ExtensionsMenuView, style: ExtensionsMenuStyle = .chrome) {
         self.content = content
-        glass = Glass.makeOverlayPanel(content: content, cornerRadius: style.cornerRadius)
+        glass = Glass.makeMenuPanel(content: content)
         super.init(frame: content.frame)
         glass.translatesAutoresizingMaskIntoConstraints = true
         glass.autoresizingMask = [.width, .height]

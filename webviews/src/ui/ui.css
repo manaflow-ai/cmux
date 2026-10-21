@@ -55,7 +55,7 @@
   /* One rim: the hairline in --ui-popup-shadow (ui/popupSurface.css), no border over it. */
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background: var(--surface-popup);
+  background: var(--surface-menu);
   color: var(--ui-fg);
   font-size: var(--text-control);
   line-height: var(--text-control--line-height);

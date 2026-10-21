@@ -52,7 +52,7 @@
   --cmux-md-banner-background: color-mix(in srgb, var(--cmux-app-warning, #b58900) 14%, transparent);
   --cmux-md-error-color: var(--cmux-app-danger, light-dark(#b42318, #ff8a80));
   --cmux-md-link-broken-color: var(--cmux-md-error-color);
-  --cmux-md-popover-background: var(--surface-popup);
+  --cmux-md-popover-background: var(--surface-menu);
   --cmux-md-popover-shadow: var(--elevation-2);
   --cmux-md-popover-font-size: 12px;
 }
@@ -781,6 +781,9 @@ body {
   border: 1px solid var(--cmux-md-border-color);
   border-radius: 8px;
   background: var(--cmux-md-popover-background);
+  /* Menu glass (pages/shared/desktop.css), as every popover. */
+  -webkit-backdrop-filter: var(--surface-menu-blur);
+  backdrop-filter: var(--surface-menu-blur);
   box-shadow: var(--cmux-md-popover-shadow);
   color: var(--cmux-md-text-color);
   font-family: var(--cmux-md-font-family);

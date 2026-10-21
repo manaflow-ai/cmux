@@ -51,9 +51,9 @@
   top: 100%;
   padding: 6px;
   min-width: 160px;
-  border-radius: 10px;
-  background: var(--surface-popup);
-  box-shadow: var(--elevation-2);
+  border-radius: var(--ui-popup-radius);
+  background: var(--surface-menu);
+  box-shadow: var(--acpmux-popup-elevation);
 }
 .acpmux-handoff-targets button { display: block; width: 100%; text-align: left; border: 0; border-radius: 6px; background: none; color: var(--agent-text); padding: 8px; font: inherit; cursor: pointer; }
 .acpmux-handoff-targets button:hover { background: var(--acpmux-menu-hover); }

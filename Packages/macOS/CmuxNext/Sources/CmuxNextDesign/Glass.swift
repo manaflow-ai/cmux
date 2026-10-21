@@ -58,6 +58,14 @@ public struct Glass {
         return surface
     }
 
+    /// A custom menu, picker or popover that hosts `content` edge to edge: the neutral menu glass
+    /// (``FloatingGlassStyle/menu``), like the native menu beside it; opaque under Reduce
+    /// Transparency. A ``PopupHostView`` keeps its 12 pt corner.
+    public static func makeMenuPanel(content: NSView? = nil, interactive: Bool = true) -> OverlaySurfaceView {
+        makeOverlayPanel(content: content, cornerRadius: FloatingGlassStyle.menu.cornerRadius,
+                         interactive: interactive, tone: .neutralGlass(.menu))
+    }
+
     /// A raw glass panel that hosts `content` edge to edge (Liquid Glass,
     /// or the same shape in `NSVisualEffectView` before macOS 26). It has
     /// no Reduce Transparency fallback: floating overlays use

@@ -496,8 +496,10 @@ body {
   display: flex;
   flex-direction: column;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
-  border-radius: 8px;
-  background: var(--cmux-diff-bg);
+  border-radius: 12px;
+  background: var(--surface-menu);
+  -webkit-backdrop-filter: var(--surface-menu-blur);
+  backdrop-filter: var(--surface-menu-blur);
   box-shadow: var(--elevation-2);
   z-index: 120;
   overflow: hidden;
@@ -1452,8 +1454,11 @@ body[data-loading="true"] #status::before {
   min-width: 180px;
   padding: 4px;
   border: 1px solid var(--cmux-diff-border);
-  border-radius: 7px;
-  background: var(--cmux-diff-solid-bg);
+  border-radius: 12px;
+  /* Menu glass (pages/shared/desktop.css), as every menu. */
+  background: var(--surface-menu);
+  -webkit-backdrop-filter: var(--surface-menu-blur);
+  backdrop-filter: var(--surface-menu-blur);
   box-shadow: var(--elevation-2);
 }
 .file-review-controls {
@@ -1705,7 +1710,7 @@ svg[data-icon-fill] {
   outline-offset: 1px;
 }
 
-/* Menus and palettes share one surface. */
+/* Menus and palettes share one surface: menu glass (pages/shared/desktop.css), as every menu. */
 .toolbar-menu {
   position: fixed;
   z-index: 130;
@@ -1715,7 +1720,9 @@ svg[data-icon-fill] {
   padding: 6px;
   border: 1px solid color-mix(in lab, var(--cmux-diff-fg) 13%, transparent);
   border-radius: 12px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  background: var(--surface-menu);
+  -webkit-backdrop-filter: var(--surface-menu-blur);
+  backdrop-filter: var(--surface-menu-blur);
   box-shadow: var(--elevation-2);
   color: var(--cmux-diff-fg);
 }
@@ -1994,8 +2001,10 @@ svg[data-icon-fill] {
 
 /* The base picker popover uses the toolbar menu surface. */
 .base-picker-popover {
-  border-radius: 8px;
-  background: color-mix(in lab, var(--cmux-diff-bg) 92%, var(--cmux-diff-fg));
+  border-radius: 12px;
+  background: var(--surface-menu);
+  -webkit-backdrop-filter: var(--surface-menu-blur);
+  backdrop-filter: var(--surface-menu-blur);
   box-shadow: var(--elevation-2);
 }
 .base-picker-search {

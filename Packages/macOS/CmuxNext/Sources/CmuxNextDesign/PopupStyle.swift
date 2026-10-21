@@ -112,13 +112,17 @@ public final class PopupHostView: NSView {
     }
 
     /// `card` sizes by its frame (the host lays it out). An
-    /// `OverlaySurfaceView` card takes the popup radius.
+    /// `OverlaySurfaceView` card takes the popup radius; a menu panel (`Glass.makeMenuPanel`) keeps
+    /// the menu glass's own corner.
     public init(card: NSView) {
         self.card = card
+        let surface = card as? OverlaySurfaceView
+        let isMenu = surface?.tone.style == FloatingGlassStyle.menu
+        cornerRadius = isMenu ? FloatingGlassStyle.menu.cornerRadius : PopupStyle.standard.cornerRadius
         super.init(frame: .zero)
         wantsLayer = true
         card.translatesAutoresizingMaskIntoConstraints = true
-        if let surface = card as? OverlaySurfaceView { surface.cornerRadius = PopupStyle.standard.cornerRadius }
+        surface?.cornerRadius = cornerRadius
         let elevation = PopupStyle.standard.elevation
         shadowLayer.shadowColor = NSColor.black.cgColor
         shadowLayer.shadowOpacity = Float(elevation.alpha)

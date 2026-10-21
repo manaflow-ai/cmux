@@ -66,6 +66,12 @@ public nonisolated struct FloatingGlassStyle: Sendable, Equatable {
     public static let card = FloatingGlassStyle(cornerRadius: 10, darkVeilAlpha: 0.22, lightVeilAlpha: 0.45,
                                                 darkRim: (0.22, 0.04), lightRim: (0.80, 0.08), castsShadow: false)
 
+    /// Custom menus, pickers and popovers (the palette's actions, Extensions, page menus past the
+    /// window edge): the native macOS 26 menu's look beside them (Lucas, 2026-10-21), a 12 pt
+    /// corner and the lightest veil, so the content behind is a smear under the glass.
+    public static let menu = FloatingGlassStyle(cornerRadius: 12, darkVeilAlpha: 0.25, lightVeilAlpha: 0.50,
+                                                darkRim: (0.30, 0.08), lightRim: (0.85, 0.10), castsShadow: true)
+
     /// The agent cursor's name tag and keystroke caption ("Chief · workspace"): a 22 pt capsule in
     /// the toast's veil and rim, with a shadow, over the page the cursor floats on.
     public static let agentTag = FloatingGlassStyle(cornerRadius: 11, darkVeilAlpha: toast.darkVeilAlpha,

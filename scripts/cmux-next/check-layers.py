@@ -6,7 +6,7 @@ Fails when a webview source file has MORE of these than its baseline row:
             `z-[3]`. Allowed: 0, auto, and the layer tokens (`var(--layer-*)`, Tailwind `z-(--layer-*)`).
   backdrop  `backdrop-filter` (or a Tailwind `backdrop-*` class) in a file that has no
             reduced-transparency fallback (`prefers-reduced-transparency`, `data-reduce-transparency`,
-            or a `var(--surface-blur)` value, which the shared tokens already turn off).
+            or a `var(--surface-blur)` or `var(--surface-menu-blur)` value, which the shared tokens already turn off).
 A count below its baseline fails too, until the baseline is lowered (`--update-baseline`), so the
 ratchet only moves down. `--update-baseline` refuses to raise a count (it writes the first baseline
 when the file does not exist).
@@ -62,7 +62,7 @@ def count(text):
             value = (match.group(1) or "").strip()
             if value in ("none", "") and match.group(1) is not None:
                 continue
-            if "var(--surface-blur)" in value:
+            if "var(--surface-blur)" in value or "var(--surface-menu-blur)" in value:
                 continue
             backdrop += 1
     return {"z": z, "backdrop": backdrop}, sorted(set(lines))
@@ -138,7 +138,7 @@ def main():
         for row in grew:
             print(describe(*row), file=sys.stderr)
         print("  use z-index: var(--layer-*) / Tailwind z-(--layer-*), and give translucent surfaces a "
-              "prefers-reduced-transparency fallback (or backdrop-filter: var(--surface-blur)).", file=sys.stderr)
+              "prefers-reduced-transparency fallback (or backdrop-filter: var(--surface-blur) or var(--surface-menu-blur)).", file=sys.stderr)
     if shrank:
         status = 1
         print("check-layers: fewer violations than the baseline; lower the baseline "

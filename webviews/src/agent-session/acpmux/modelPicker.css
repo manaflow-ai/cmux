@@ -106,8 +106,8 @@
   max-width: min(300px, calc(100vw - 24px));
   padding: 6px;
   border: 0;
-  border-radius: 12px;
-  background-color: var(--surface-popup);
+  border-radius: var(--ui-popup-radius);
+  background-color: var(--surface-menu);
   box-shadow: var(--acpmux-popup-elevation);
 }
 .acpmux-quick-menu .ui-menu-group-label {

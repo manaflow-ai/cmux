@@ -12,7 +12,7 @@
   padding: var(--ui-popup-padding);
   border: 0;
   border-radius: var(--ui-popup-radius);
-  background-color: var(--surface-popup);
+  background-color: var(--surface-menu);
   box-shadow: var(--acpmux-popup-elevation);
   color: var(--agent-text);
 }

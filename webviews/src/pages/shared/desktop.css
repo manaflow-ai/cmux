@@ -63,11 +63,14 @@ body {
   :root:not([data-theme="light"]) {
     --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
     --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+    /* The dark menu glass tint (--surface-menu, below; Reduce Transparency overrides --surface-menu). */
+    --surface-menu-tint: rgb(22 22 22 / 25%);
   }
 }
 :root[data-theme="dark"] {
   --elevation-1: 0 1px 2px color-mix(in srgb, black 12%, transparent);
   --elevation-2: 0 2px 6px color-mix(in srgb, black 16%, transparent);
+  --surface-menu-tint: rgb(22 22 22 / 25%);
 }
 
 @media (min-resolution: 2dppx) {
@@ -366,6 +369,17 @@ input[type="submit"] {
   --tooltip-fade-in: var(--ui-popup-open, 120ms);
   --tooltip-fade-out: var(--ui-popup-close, 80ms);
   --tooltip-rise: 2px;
+  /* MENU GLASS (Lucas, 2026-10-21): menus, pickers and popovers are glass like the native macOS 26
+     context menu next to them, not the solid popup surface. The tint is neutral, never the theme's,
+     as the system menu's is: measured from the native dark menu, a dark gray at a quarter over the
+     blurred backdrop (the page and the window's wallpaper both show through; WebKit's backdrop
+     reaches the native views behind a clear web view). Its edge is a light rim inside a dark line
+     (ui/popupSurface.css). The blur turns text under a menu into a smear, never readable text (the
+     glass of 2026-10-12 had a light blur, so rows read as text on text). Reduce Transparency: the
+     opaque popup surface, no blur. */
+  --surface-menu-tint: rgb(250 250 250 / 60%);
+  --surface-menu: var(--surface-menu-tint);
+  --surface-menu-blur: blur(20px) saturate(1.3);
 }
 
 /* Reduce Motion: the tooltip still fades, with no rise. */
@@ -381,6 +395,8 @@ input[type="submit"] {
     --surface-blur: none;
     --tooltip-tint: var(--surface-popup);
     --tooltip-blur: none;
+    --surface-menu: var(--surface-popup);
+    --surface-menu-blur: none;
   }
 }
 
@@ -430,6 +446,8 @@ input[type="submit"] {
   --surface-blur: none;
   --tooltip-tint: var(--surface-popup);
   --tooltip-blur: none;
+  --surface-menu: var(--surface-popup);
+  --surface-menu-blur: none;
 }
 
 /* Hover intent (ui/hoverIntent.ts, Leo 2026-10-14): a row's hover fill appears on the frame the

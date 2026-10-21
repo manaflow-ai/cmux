@@ -22,7 +22,7 @@ public final class HomeChiefSettingsPopover {
             content.leadingAnchor.constraint(equalTo: body.leadingAnchor),
             content.topAnchor.constraint(equalTo: body.topAnchor),
         ])
-        card = Glass.makeOverlayPanel(content: body, cornerRadius: PopupStyle.standard.cornerRadius)
+        card = Glass.makeMenuPanel(content: body)
         popup.panel.adoptPopupStyle(card: card)
         popup.onDismiss = { [weak self] in
             self?.content.commitEditing()

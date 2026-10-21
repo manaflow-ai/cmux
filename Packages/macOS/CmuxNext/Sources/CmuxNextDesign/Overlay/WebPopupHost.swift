@@ -171,7 +171,8 @@ public final class WebPopupPanel: ContentChildPanel {
         scroll.hasVerticalScroller = true
         SystemScrollers.follow(scroll)
         scroll.documentView = rows
-        let surface = Glass.makeOverlayPanel(content: scroll, cornerRadius: PopupStyle.standard.cornerRadius)
+        // The menu glass, as the page's own menus (pages/shared/desktop.css --surface-menu).
+        let surface = Glass.makeMenuPanel(content: scroll)
         // The one popup shadow (POLISH: subtle shadows, one elevation), like the page's own menus;
         // the window's shadow was the system's, heavier.
         adoptPopupStyle(card: surface)
