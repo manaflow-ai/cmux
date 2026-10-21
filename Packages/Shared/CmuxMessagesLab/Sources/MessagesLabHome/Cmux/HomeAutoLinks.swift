@@ -46,7 +46,7 @@ extension HomeMarkdown {
         }
         let id = raw.split(separator: "/").last.map(String.init) ?? raw
         if let underscore = id.firstIndex(of: "_"), id.distance(from: underscore, to: id.endIndex) > 9 {
-            return String(id[...id.index(underscore, offsetBy: 8)]) + "…"
+            return String(id.prefix(id.distance(from: id.startIndex, to: underscore) + 9)) + "…"
         }
         return id.count > 16 ? String(id.prefix(12)) + "…" : id
     }

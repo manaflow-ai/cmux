@@ -258,7 +258,9 @@ impl Hub {
     }
 
     pub fn session_summary(&self, session: &Session) -> Value {
-        use crate::protocol::session::{QueuedPromptSummary, SessionSummary, TurnSummary};
+        use crate::protocol::session::{
+            QueuedImage, QueuedPromptSummary, SessionSummary, TurnSummary,
+        };
         let m = session.meta();
         let turn = session.turn();
         let summary = SessionSummary {
@@ -278,6 +280,7 @@ impl Hub {
             // Where a fork branched off its parent (the pane's < 1/2 > arrows, cx-ncc.61).
             fork_seq: m.fork_seq,
             spawned_by: self.spawned_by(&m),
+            pull_requests: m.pull_requests.clone(),
             started_by: m.subsession.as_ref().map(|l| l.started_by.clone()),
             short_name: m.subsession.as_ref().map(|l| l.short_name.clone()),
             depth: m.subsession.as_ref().map_or(0, |l| l.depth),
@@ -291,9 +294,13 @@ impl Hub {
             queue_paused: session.queue_paused(),
             // Being moved to another daemon (`transfer_out.rs`): it takes no prompt meanwhile.
             moving: session.moving().is_some(),
+            // Shows a conversation another app runs (`watch.rs`): it takes no prompt until taken over.
+            watching: m.watching.as_ref().map(|w| w.family.clone()),
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
+            // Ctrl-B moves its work: by the kind its harness started as (`processes.rs`).
+            backgrounds_work: session.backgrounds_work.load(Ordering::SeqCst),
             turn: turn.map(|t| TurnSummary {
                 started_at: t.started_at,
                 client: t.client,
@@ -312,6 +319,15 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    // By attachment id: `_acpmux/attachment` reads each back.
+                    images: super::prompt_images::named(&q.run.blocks)
+                        .into_iter()
+                        .map(|image| QueuedImage {
+                            id: image["id"].as_str().unwrap_or_default().to_owned(),
+                            mime_type: image["mimeType"].as_str().unwrap_or_default().to_owned(),
+                            name: image["name"].as_str().map(str::to_owned),
+                        })
+                        .collect(),
                 })
                 .collect(),
             pending_permissions: session.pending_permissions().len() as u64,
@@ -357,6 +373,9 @@ impl Hub {
         let mut summary = serde_json::to_value(summary).unwrap_or(Value::Null);
         summary["qualifiedSessionId"] = Value::String(receipt.qualified_id());
         summary["sessionReceipt"] = receipt.to_value();
+        // The branch its folder has checked out now (`git_watch.rs`); null on
+        // a detached HEAD or outside a repository.
+        summary["gitBranch"] = json!(self.git_branch_now(&m));
         decide(&mut summary);
         summary
     }
@@ -370,10 +389,14 @@ impl Hub {
         v["agentInfo"] = m.agent_info.clone().unwrap_or(Value::Null);
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
+        // The newest command list: a client that has it needs no read of the log for it.
+        if let Some(commands) = &m.available_commands {
+            v["availableCommands"] = commands.clone();
+        }
         v["forkSeq"] = json!(m.fork_seq);
         v["rulesJson"] = m.permission_rules.clone().unwrap_or(Value::Null);
-        // The folder's branch and HEAD when the session started (`git_state.rs`).
-        v["gitBranch"] = json!(m.git_branch);
+        // The folder's HEAD when the session started (`git_state.rs`); its
+        // `gitBranch` is the summary's, the branch checked out now.
         v["gitHead"] = json!(m.git_head);
         // What the session's turns cost together (`turn_usage.rs`).
         v["totals"] = json!(m.totals);

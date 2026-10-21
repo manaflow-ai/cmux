@@ -313,6 +313,15 @@ async function isTombstoned(tx: Tx, entity: "user" | "team", id: string): Promis
   return rows.length > 0;
 }
 
+async function hasPendingRevocation(tx: Tx, userId: string): Promise<boolean> {
+  const rows = await tx
+    .select({ teamId: hexclavePendingRevocations.teamId })
+    .from(hexclavePendingRevocations)
+    .where(eq(hexclavePendingRevocations.userId, userId))
+    .limit(1);
+  return rows.length > 0;
+}
+
 /**
  * Upsert a team unless it is tombstoned. Tombstones are permanent (ids are
  * never reused), so a later "present" answer from a lagging replica cannot
@@ -409,6 +418,9 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
     applySnapshotUser: (state, snapshotStartedAt) => db().transaction(async (tx) => {
       await boundLockWait(tx);
       const previousTeamIds = await lockUserAndTeams(tx, state.user.id, state.teams.map((team) => team.id));
+      // A bulk snapshot is not an ordering signal and must never cancel a
+      // webhook revocation that is already running outside this transaction.
+      if (await hasPendingRevocation(tx, state.user.id)) return false;
       if (await writtenSince(tx, "user", state.user.id, snapshotStartedAt)) return false;
       if (await isTombstoned(tx, "user", state.user.id)) return false;
       const currentTeamIds = await writePresentUser(tx, state, now());

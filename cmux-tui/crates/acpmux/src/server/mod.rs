@@ -66,6 +66,14 @@ pub struct Conn {
     pub(super) holds_calls: std::sync::atomic::AtomicU32,
     /// The acpmux session it runs in, proven at its first `initialize` (`hub/person.rs` (a)).
     caller: std::sync::OnceLock<String>,
+    /// The session a first unix `initialize` named with a token that did not prove it.
+    pub(super) unproven_caller: std::sync::OnceLock<String>,
+    /// The peers this connection leased (`hub/peer_lease.rs`); None once it
+    /// closed, so a lease that settles after the close ends at once.
+    peer_leases: StdMutex<Option<Vec<crate::hub::PeerLease>>>,
+    /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
+    /// None once it closed.
+    ephemeral: StdMutex<Option<Vec<String>>>,
 }
 
 impl Conn {
@@ -98,8 +106,9 @@ impl Conn {
             self.challenged.store(true, Ordering::SeqCst);
         }
         let first_local = n == 1 && m == method::INITIALIZE && self.origin == Origin::Local;
-        if let Some(id) = caller.filter(|_| first_local).and_then(|c| hub.proven_caller(c)) {
-            let _ = self.caller.set(id);
+        if let Some((id, token)) = caller.filter(|_| first_local) {
+            let proven = hub.proven_caller((id.clone(), token)).is_some();
+            let _ = if proven { &self.caller } else { &self.unproven_caller }.set(id);
         }
         if n == 2 && m == method::MUX_PERSON_PROVE && self.challenged.load(Ordering::SeqCst) {
             let proof = params.as_ref().and_then(|p| p.get("proof")).and_then(Value::as_str);
@@ -110,6 +119,31 @@ impl Conn {
             if proof.is_some_and(|p| hub.person.proves(transport, &self.nonce, &self.id, p)) {
                 self.person.store(true, Ordering::SeqCst);
             }
+        }
+    }
+
+    /// Hold `lease` until this connection closes; ended now if it already did.
+    pub(super) fn hold_peer_lease(&self, hub: &Hub, lease: crate::hub::PeerLease) {
+        let mut leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        match leases.as_mut() {
+            Some(held) => {
+                // A renewal supersedes the earlier lease of its name, whose
+                // end would be a no-op (another generation holds the name).
+                held.retain(|old| old.name != lease.name);
+                held.push(lease);
+            }
+            None => {
+                drop(leases);
+                hub.end_peer_lease(&lease);
+            }
+        }
+    }
+
+    /// The connection closed: every peer it leased stops.
+    fn end_peer_leases(&self, hub: &Hub) {
+        let held = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner()).take();
+        for lease in held.unwrap_or_default() {
+            hub.end_peer_lease(&lease);
         }
     }
 
@@ -723,6 +757,9 @@ async fn serve_connection_from(
         person: AtomicBool::new(false),
         holds_calls: std::sync::atomic::AtomicU32::new(0),
         caller: std::sync::OnceLock::new(),
+        unproven_caller: std::sync::OnceLock::new(),
+        peer_leases: StdMutex::new(Some(Vec::new())),
+        ephemeral: StdMutex::new(Some(Vec::new())),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -769,6 +806,12 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
+    // Leases first: ending one is cheap and synchronous, while the ephemeral
+    // release awaits each session's kill. A leased peer must not keep
+    // reconnecting to a forward port its bridge already closed, which another
+    // process could bind (`hub/peer_lease.rs`).
+    conn.end_peer_leases(&hub);
+    ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -945,23 +988,30 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
     (if m <= 2 { y + 1 } else { y }, m, d)
 }
 
+mod agent_messages;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod ephemeral;
 mod fanout;
+mod forum;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
 mod harness_enable;
 mod inventory_watch;
 pub mod local_app;
+mod models_fanout;
+mod new_worktree;
 pub mod peer_auth;
 mod peer_forward;
 pub mod peer_text;
 mod pending;
 mod processes;
+mod worktrees;
+use crate::hub::is_permission_ask;
 pub use pending::event_value;
-use pending::{is_permission_ask, peer_permission_pending, permission_pending};
+use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;

@@ -83,11 +83,45 @@ public nonisolated enum SidebarTunables {
         help: "A round dot per agent acting right now, in the agent's theme color: on its workspace row (hover lists what each one touches) and on its tab chip (prototype).",
         default: false, code: "SidebarTunables.presenceDots")
 
+    /// Rows show their agent sessions' acpmux lane state (`SidebarLaneStatus`): working, waiting
+    /// on you, failed, idle, even when no turn state reached the row. On by default.
+    public static let laneStatus = Tunable<Bool>.toggle(
+        "sidebar.laneStatus", .sidebar, "Rows show acpmux lane status",
+        help: "A workspace row's status mark also follows the acpmux lane of each agent chat in it on this Mac: waiting on you or failed wins, then working, then the row's own status.",
+        default: true, code: "SidebarTunables.laneStatus")
+
+    /// A row names the state of its most urgent agent chat with the Priority view's words (needs
+    /// you, done, failed, lost) at the right of its name (`SidebarLaneStatus`). On by default.
+    public static let rowStatus = Tunable<Bool>.toggle(
+        "sidebar.rowStatus", .sidebar, "Rows name their agent's state",
+        help: "A workspace row says needs you, done, failed or lost at the right of its name, in the Priority view's words, for the most urgent agent chat in it on this Mac.",
+        default: true, code: "SidebarTunables.rowStatus")
+
+    /// Sample agent lanes on every row (`SidebarLaneFixture`), for captures on a slot with no agents.
+    public static let laneFixture = Tunable<Bool>.toggle(
+        "sidebar.laneFixture", .sidebar, "Sample agent states on rows",
+        help: "Gives every workspace row a sample agent chat (needs you, working, done, failed or idle), to see the row states without real sessions.",
+        default: false, code: "SidebarTunables.laneFixture")
+
+    /// The pull requests' hover card on a row's pull request badge (`SidebarPullRequestCard`,
+    /// `sidebar.sessionTree`); on by default.
+    public static let pullRequestCard = Tunable<Bool>.toggle(
+        "sidebar.pullRequestCard", .sidebar, "Pull request hover card",
+        help: "Hovering a row's pull request badge (with the session tree on) lists each pull request with its state, repository and size; a click opens it.",
+        default: true, code: "SidebarTunables.pullRequestCard")
+
     /// Sample rows with 1 to 7 pending items (`SidebarSection.rowBadgePreview()`).
     public static let rowBadgePreview = Tunable<Bool>.toggle(
         "sidebar.rowBadgePreview", .sidebar, "Row badge preview rows",
         help: "Adds sample rows with 1 to 7 pending items to the sidebar, to compare the row badges without real sessions.",
         default: false, code: "SidebarTunables.rowBadgePreview")
+
+    /// A detail line adds exactly its own height to a row, so one-line and two-line rows keep the
+    /// same room above and below their text (Leo 2026-10-20). Off: the app's fixed 12 pt step.
+    public static let evenRowText = Tunable<Bool>.toggle(
+        "sidebar.evenRowText", .sidebar, "Even row text spacing",
+        help: "A row's detail line adds its own height, so rows with one line and rows with two keep the same space above and below their text.",
+        default: true, code: "SidebarTunables.evenRowText")
 
     /// The width transition used when the sidebar is collapsed or expanded.
     /// `.slide` is the shipped behavior; `.slideFade` is a DEV/NIGHTLY
@@ -111,16 +145,25 @@ public nonisolated enum SidebarTunables {
             agentMark.descriptor,
             collapseMotion.descriptor,
             dragThreshold.descriptor,
+            evenRowText.descriptor,
             groupEdgeFraction.descriptor,
             groupExitFraction.descriptor,
+            laneStatus.descriptor,
+            rowStatus.descriptor,
+            laneFixture.descriptor,
             NotificationBadgeLook.tunable.descriptor,
             NotificationIconLook.tunable.descriptor,
             presenceDots.descriptor,
+            pullRequestCard.descriptor,
             rowBadgePreview.descriptor,
             sectionTopFraction.descriptor,
             SidebarChatsDesign.tunable.descriptor,
+            SidebarGroupHeaderStyle.tunable.descriptor,
+            SidebarGroupPalette.tunable.descriptor,
             SidebarRowBadgeStackCap.tunable.descriptor,
             SidebarRowBadgeStyle.tunable.descriptor,
+            simulatePendingUpdate.descriptor,
+            updateCardAutomaticControl.descriptor,
             updateCardButton.descriptor,
             workspaceOntoEnd.descriptor,
             workspaceOntoStart.descriptor,

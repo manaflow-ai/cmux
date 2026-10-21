@@ -19,7 +19,12 @@ import CmuxNextWakeups
 public final class AppStoreModel {
     public enum Tab: String, Sendable, Hashable, CaseIterable {
         case discover
+        /// cmux's own features, each switched on and off by one setting (``AppFeature``).
+        case features
         case installed
+
+        /// `appStore.show`'s `tab` argument, any case; nil for an empty or unknown name (the store opens as it is).
+        public init?(argument: String) { self.init(rawValue: argument.trimmingCharacters(in: .whitespaces).lowercased()) }
     }
 
     /// One entry of the page history: what the page showed, with the
@@ -50,9 +55,13 @@ public final class AppStoreModel {
     public var lookOverride: AppSectionLook?
 
     public let client: AppsClient
+    /// The settings behind the Features tab; nil lists no features (tests, a store without settings).
+    @ObservationIgnored public var features: (any AppFeatureSettings)?
     /// Called after every page navigation (the titlebar arrows re-read
     /// ``canGoBack`` and ``canGoForward``).
     @ObservationIgnored public var onNavigate: (() -> Void)?
+    /// Opens an app's page (the App's `app.open`); Discover's featured Cloud banner shows only while set.
+    @ObservationIgnored public let onOpenApp: (@MainActor (String) -> Void)?
     /// The App's recovery controls for the disconnected banner while
     /// cmux-tui is not connected (Retry Now, Restart cmux-tui); read in the
     /// banner's body, so it follows what they observe. Nil offers none.
@@ -62,8 +71,10 @@ public final class AppStoreModel {
     /// How long a Remove can be undone before it is committed.
     @ObservationIgnored var removalUndoInterval: Duration = .seconds(6)
 
-    public init(client: AppsClient) {
+    public init(client: AppsClient, features: (any AppFeatureSettings)? = nil, onOpenApp: (@MainActor (String) -> Void)? = nil) {
         self.client = client
+        self.features = features
+        self.onOpenApp = onOpenApp
     }
 
     public var layout: AppStoreLayout { layoutOverride ?? AppsTunables.storeLayout.value }
@@ -84,6 +95,35 @@ public final class AppStoreModel {
         client.apps.filter { !$0.manifest.isLocal && $0.available && $0.id != AppStoreListing.storeID }.map(AppStoreListing.init(record:))
     }
 
+    /// The features the Features tab lists: the catalog's entries whose key has landed,
+    /// filtered by the search and the category (``featureCategory``).
+    public var featureListings: [AppFeature] {
+        guard let features else { return [] }
+        return AppFeature.catalog.filter { feature in
+            features.isAvailable(feature) && (featureCategory.map { feature.category == $0 } ?? true) && feature.matches(query)
+        }
+    }
+
+    /// The categories of the features that have landed, in catalog order.
+    public var featureCategories: [AppFeature.Category] {
+        guard let features else { return [] }
+        let present = Set(AppFeature.catalog.filter(features.isAvailable).map(\.category))
+        return AppFeature.Category.allCases.filter(present.contains)
+    }
+
+    /// The Features tab's category chip; nil shows all.
+    public var featureCategory: AppFeature.Category?
+
+    public func isOn(_ feature: AppFeature) -> Bool { features?.isOn(feature) ?? false }
+    public func hasSettings(_ feature: AppFeature) -> Bool { features?.hasSettings(feature) ?? false }
+    /// The card's Settings… link: Settings on the feature's own rows.
+    public func openSettings(_ feature: AppFeature) { features?.openSettings(feature) }
+
+    /// Get (on) or Remove (off) from this page's button: a user gesture.
+    public func setFeature(_ feature: AppFeature, on: Bool) async throws {
+        try await features?.set(feature, on: on)
+    }
+
     public var installedApps: [AppRecord] { client.apps.filter(\.installed) }
     public var selectedListing: AppStoreListing? { allListings.first { $0.id == selection } }
     public func state(of id: String) -> AppRecord? { client.app(id) }
@@ -94,9 +134,9 @@ public final class AppStoreModel {
     /// The App Store's title (window and tab).
     public static var title: String { AppsStrings.windowTitle }
 
-    /// Shows `appID`'s listing, else the Installed tab when `installed`.
-    public func present(appID: String?, installed: Bool) {
-        if let appID { open(appID: appID) } else if installed { show(.installed) }
+    /// Shows `appID`'s listing, else `tab` when given (`appStore.show` with `tab`).
+    public func present(appID: String?, tab: Tab?) {
+        if let appID { open(appID: appID) } else if let tab { show(tab) }
     }
 
     /// Opens a listing (`appStore.show` with `app`): clears filters so it shows.

@@ -60,6 +60,9 @@ struct HomeLiveBook {
         var begun = 0
         /// The run ended `done`: its text waits for the reply.
         var awaitingReply = false
+        /// The newest thought's text, kept after its step ended (a thought's final frame drops the step):
+        /// the run's progress narration until the next thought.
+        var lastThought: String?
 
         var hasTalk: Bool { order.contains { steps[$0]?.isTalk == true } }
     }
@@ -101,6 +104,7 @@ struct HomeLiveBook {
                 var run = Run(activity: entry.activity, touched: touch())
                 run.begun = old?.begun ?? begin()
                 run.done = old?.done ?? []
+                run.lastThought = entry.steps.last { !$0.isTalk }?.text ?? old?.lastThought
                 // Ended steps the owner freed, and steps seeded from rows, keep the text this client holds.
                 let listed = Set(entry.steps.map(\.step))
                 for id in old?.order ?? [] where run.done.contains(id) || (old?.steps[id]?.fromRow == true && !listed.contains(id)) {
@@ -193,6 +197,7 @@ struct HomeLiveBook {
             // Joined mid-step: the snapshot has the text before this frame.
             return .resync
         }
+        if !delta.isTalk, let text = run.steps[delta.step]?.text { run.lastThought = text }
         if delta.isFinal {
             run.done.insert(delta.step)
             if !delta.isTalk {
@@ -262,8 +267,9 @@ struct HomeLiveBook {
             .sorted { (Self.place(run.steps[$0.element]), $0.offset) < (Self.place(run.steps[$1.element]), $1.offset) }
             .compactMap { run.steps[$0.element]?.text }
             .filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        let thought = run.lastThought?.thoughtHeadline
         return HomeLiveRun(participant: key.author, run: key.run, turn: turn(of: key),
-                           text: talk.joined(separator: "\n\n"), activity: run.activity)
+                           text: talk.joined(separator: "\n\n"), activity: run.activity, thought: thought)
     }
 
     private mutating func newRun() -> Run {

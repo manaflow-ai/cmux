@@ -97,6 +97,7 @@ import { getGoVmUsage, GO_SAVED_VM_LIMIT } from "../../../services/vms/goUsage";
 import { getPlanBudgetUsage, isBudgetPlanId, type PlanBudgetUsage } from "../../../services/vms/planUsage";
 import { publishVmOps, vmSyncReplaceOp } from "../../../services/vms/presencePublisher";
 import { idempotencyKeyFromRequest } from "../../../services/vms/routeInput";
+import { enforceVmAllocationRateLimit } from "../../../services/vms/allocationRateLimit";
 
 
 // Provisioning can run minutes; without an explicit budget the platform
@@ -125,6 +126,14 @@ function createResourceFields(resourceReservation: { readonly vcpus: number; rea
     resources: resourceReservation,
     resourceReservation,
   };
+}
+
+function setVmServerTiming(response: Response, timing: VmTimingRecorder): void {
+  try {
+    response.headers.set("Server-Timing", timing.serverTimingHeader());
+  } catch {
+    // Immutable headers on a passthrough Response: the span still has them.
+  }
 }
 
 export async function GET(request: Request): Promise<Response> {
@@ -327,11 +336,6 @@ export async function POST(request: Request): Promise<Response> {
     async ({ user: initialUser, span, authDurationMs, routeStartedAtMs, setResponseFinalizer }) => {
       const timing = new VmTimingRecorder(span, "create", { startedAt: routeStartedAtMs });
       timing.record("auth", authDurationMs);
-      // Start the provider probe after authentication, but never make machine
-      // creation wait for it. The provider request owns its connection setup;
-      // a best-effort probe cannot guarantee socket reuse and otherwise adds
-      // its full latency to the first create.
-      void preconnectFreestyle();
       let admissionRecorded = false;
       let admissionStartedAt = performance.now();
       /** Records request validation even when it exits before provisioning. */
@@ -351,11 +355,7 @@ export async function POST(request: Request): Promise<Response> {
         timing.finish({ status: response.status });
         // Per-stage timings travel with the response too, so a client or a
         // smoke run sees where a create spent its time without Axiom.
-        try {
-          response.headers.set("Server-Timing", timing.serverTimingHeader());
-        } catch {
-          // Immutable headers on a passthrough Response: the span still has them.
-        }
+        setVmServerTiming(response, timing);
         captureVmProvisionOutcome({ userId: initialUser.id, operation: "create", response, span });
       });
 
@@ -363,9 +363,13 @@ export async function POST(request: Request): Promise<Response> {
       if (!parsed.ok) return parsed.response;
       const { candidate, body, idempotencyKey } = parsed;
 
-      const scope = await resolveCreateAccount({ request, span, timing, user: initialUser, body });
+      const scope = await resolveCreateAdmission({ request, span, timing, user: initialUser, body });
       if (!scope.ok) return scope.response;
       const { user, entitlements } = scope;
+
+      // Start the provider probe only after admission. The request itself owns
+      // provider connection setup; this best-effort warmup never gates create.
+      void preconnectFreestyle();
 
       // Let the workflow inspect an idempotent existing row before rejecting
       // an old, now-over-limit shape. New allocations still receive the same
@@ -794,6 +798,23 @@ async function resolveCreateAccount(input: {
     "cmux.vm.max_active": entitlements.maxActiveVms,
   });
   return { ok: true, user, entitlements };
+}
+
+async function resolveCreateAdmission(input: {
+  readonly request: Request;
+  readonly span: Span;
+  readonly timing: VmTimingRecorder;
+  readonly user: AuthedUser;
+  readonly body: CreateBody;
+}): Promise<CreateAccountScope> {
+  const scope = await resolveCreateAccount(input);
+  if (!scope.ok) return scope;
+  const limited = await enforceVmAllocationRateLimit({
+    request: input.request,
+    route: "vm.create",
+    billingTeamId: scope.entitlements.billingTeamId,
+  });
+  return limited ? { ok: false, response: limited } : scope;
 }
 
 /**

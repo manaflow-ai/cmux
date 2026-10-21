@@ -7,6 +7,8 @@ import { afterAll, expect, test } from "bun:test";
 import { JSDOM, VirtualConsole } from "jsdom";
 import type { AcpmuxRow } from "../src/agent-session/acpmux/model";
 import { turnView } from "../src/agent-session/acpmux/conversation/turns";
+// These tests drive the compact (Codex) rail; the full-height map is the default arm (layout.experiment.ts).
+(globalThis as { cmuxExperiments?: Record<string, string> }).cmuxExperiments = { "thread-minimap-layout": "compact" };
 
 const dom = new JSDOM("<!doctype html><div id=root></div>", {
   url: "http://localhost/",
@@ -104,12 +106,19 @@ test("the minimap's turn preview waits its delay, then follows the pointer at on
         if (under !== undefined) pointer("pointerout", tick(under), null);
         under = undefined;
       });
+    // When the card first shows, read in 10 ms steps (each its own act, so React draws in between):
+    // a loaded runner woke a 200 ms wait past the 250 ms delay, and "still hidden after waiting
+    // 200 ms" failed with no early card. A step only ever ends late, so a card first seen 200 ms or
+    // more after the pointer came waited; one at 110 ms (the old delay) is seen near 110 ms.
+    const waitsItsDelay = async (index: number) => {
+      const came = performance.now();
+      await move(index);
+      while (!visible() && performance.now() - came < 850) await wait(10);
+      expect(visible()).toBe(true);
+      expect(performance.now() - came).toBeGreaterThanOrEqual(200);
+    };
 
-    await move(2);
-    await wait(200);
-    expect(visible()).toBe(false);
-    await wait(650);
-    expect(visible()).toBe(true);
+    await waitsItsDelay(2);
     // Warm: the next tick's preview at once.
     await move(3);
     expect(visible()).toBe(true);
@@ -117,11 +126,7 @@ test("the minimap's turn preview waits its delay, then follows the pointer at on
     await leave();
     expect(visible()).toBe(false);
     await wait(600);
-    await move(4);
-    await wait(200);
-    expect(visible()).toBe(false);
-    await wait(650);
-    expect(visible()).toBe(true);
+    await waitsItsDelay(4);
   } finally {
     await act(async () => root.unmount());
   }

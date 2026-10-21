@@ -10,13 +10,25 @@ import Testing
     private let row = CGRect(x: 8, y: 600, width: 224, height: 32)
     private let size = CGSize(width: 280, height: 160)
     private let screen = CGRect(x: 0, y: 0, width: 1440, height: 900)
+    private let gap = HoverCardEscapeGeometry.rowGap
 
     @Test func theCardSitsRightOfTheRowWithItsTopOnTheRowsMiddle() {
         let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
-        #expect(g.card.minX == row.maxX)
+        #expect(g.card.minX == row.maxX + gap)
         #expect(g.card.maxY == row.midY)
         #expect(!g.isLeading)
-        #expect(g.escapeSlot == CGRect(x: row.maxX, y: row.midY, width: size.width, height: row.height / 2))
+        #expect(g.escapeSlot == CGRect(x: row.maxX, y: row.midY, width: size.width + gap, height: row.height / 2))
+        #expect(g.gapStrip == CGRect(x: row.maxX, y: g.card.minY, width: gap, height: size.height))
+    }
+
+    /// Leo 2026-10-20: the card stands off its row, so the row's right end (its x) never touches
+    /// it; the gap alone keeps no card.
+    @Test func theGapBetweenTheRowAndTheCardKeepsNoCardByItself() {
+        let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
+        #expect(gap >= 8 && gap <= 12)
+        let below = CGPoint(x: row.maxX + 3, y: row.minY - 14)
+        #expect(g.zone(at: below) == .gap)
+        #expect(!g.keepsCard(at: below))
     }
 
     @Test func theEscapeSlotDismisses() {
@@ -31,15 +43,19 @@ import Testing
 
     @Test func theStraightPathFromTheRowIntoTheCardKeepsIt() {
         let g = HoverCardEscapeGeometry(anchor: row, cardSize: size, visible: screen)
-        // Right from the row's lower half: row, then card, never a point that drops the card.
+        // Right from the row's lower half: row, gap (kept by the pointer's aim), then card, never
+        // the escape slot or outside.
         let y = row.minY + 4
         var x = row.midX
         while x < g.card.midX {
-            #expect(g.keepsCard(at: CGPoint(x: x, y: y)), "the path drops the card at x \(x)")
+            let zone = g.zone(at: CGPoint(x: x, y: y))
+            #expect(zone == .row || zone == .gap || zone == .card, "the path reaches \(zone) at x \(x)")
             x += 0.5
         }
-        // Down-right from the row's lower half straight into the card's top-left corner.
-        #expect(g.zone(at: CGPoint(x: row.maxX + 2, y: row.midY - 2)) == .card)
+        #expect(g.card.isAimedAt(from: CGPoint(x: row.maxX - 2, y: y), to: CGPoint(x: row.maxX + 2, y: y)),
+                "a pointer moving right across the gap does not aim at the card")
+        // Down-right from the row's lower half, past the gap, into the card's top-left corner.
+        #expect(g.zone(at: CGPoint(x: g.card.minX + 2, y: row.midY - 2)) == .card)
     }
 
     @Test func leavingBothTheRowAndTheCardDismisses() {
@@ -62,9 +78,10 @@ import Testing
         let low = CGRect(x: 8, y: 40, width: 224, height: 32)
         let g = HoverCardEscapeGeometry(anchor: low, cardSize: size, visible: screen)
         #expect(g.card.minY == low.midY)
-        #expect(g.escapeSlot == CGRect(x: low.maxX, y: low.minY, width: size.width, height: low.height / 2))
+        #expect(g.escapeSlot == CGRect(x: low.maxX, y: low.minY, width: size.width + gap, height: low.height / 2))
         #expect(g.zone(at: CGPoint(x: low.maxX + 4, y: low.minY + 2)) == .escape)
-        #expect(g.zone(at: CGPoint(x: low.maxX + 4, y: low.maxY - 2)) == .card)
+        #expect(g.zone(at: CGPoint(x: low.maxX + 4, y: low.maxY - 2)) == .gap)
+        #expect(g.zone(at: CGPoint(x: low.maxX + gap + 4, y: low.maxY - 2)) == .card)
     }
 
     /// A sidebar at the screen's right edge: the card goes left of the row, the slot with it.
@@ -72,18 +89,18 @@ import Testing
         let right = CGRect(x: 1200, y: 600, width: 232, height: 32)
         let g = HoverCardEscapeGeometry(anchor: right, cardSize: size, visible: screen)
         #expect(g.isLeading)
-        #expect(g.card.maxX == right.minX)
+        #expect(g.card.maxX == right.minX - gap)
         #expect(g.zone(at: CGPoint(x: right.minX - 4, y: right.maxY - 2)) == .escape)
-        #expect(g.zone(at: CGPoint(x: right.minX - 4, y: right.minY + 2)) == .card)
+        #expect(g.zone(at: CGPoint(x: right.minX - 4, y: right.minY + 2)) == .gap)
+        #expect(g.zone(at: CGPoint(x: right.minX - gap - 4, y: right.minY + 2)) == .card)
     }
 
-    /// The touching edge stays on a device pixel toward the row at every scale: no seam the
-    /// pointer could fall through on the path into the card.
+    /// The card's near edge stays on a device pixel, at most a pixel short of the gap, at every scale.
     @Test(arguments: [1, 2, 3] as [CGFloat])
-    func theTouchingEdgeSnapsIntoTheRow(scale: CGFloat) {
+    func theNearEdgeSnapsTowardTheRow(scale: CGFloat) {
         let fractional = CGRect(x: 8.3, y: 600.3, width: 224.1, height: 31.7)
         let g = HoverCardEscapeGeometry(anchor: fractional, cardSize: size, visible: screen, scale: scale)
-        let gap = g.card.minX - fractional.maxX
-        #expect(gap <= 0.001 && gap > -1 / scale - 0.001, "@\(scale)x: \(gap) pt")
+        let off = g.card.minX - fractional.maxX - gap
+        #expect(off <= 0.001 && off > -1 / scale - 0.001, "@\(scale)x: \(off) pt")
     }
 }

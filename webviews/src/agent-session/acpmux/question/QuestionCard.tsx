@@ -2,7 +2,7 @@ import React, { useEffect, useId, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { COMPOSER_READY_EVENT } from "../composerFocus";
 import { Check, ChevronDown } from "../conversation/icons";
-import { useT, type Translate } from "../i18n";
+import { usePaneLanguage, useT, type Translate } from "../i18n";
 import { Keycap } from "../Keycap";
 import {
   activeItem,
@@ -12,7 +12,9 @@ import {
   highlightedRow,
   isChosen,
   isOtherRow,
+  primaryAction,
   sendCard,
+  unansweredItems,
   updateCard,
   type CardEffect,
   type CardInput,
@@ -59,7 +61,9 @@ const REPEATS = new Set(["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"]);
 /// An agent's question (Claude Code AskUserQuestion, Codex user input, an interactive ACP
 /// permission, the Chief) as a card, like the Claude app's (Leo 2026-10-19): a "Needs your input"
 /// pill that folds it, the question as its header, radio or checkbox options with their
-/// descriptions, a preview of the highlighted option, an inline Other answer, Skip and Submit.
+/// descriptions, a preview of the highlighted option, an inline Other answer, Skip and Submit. An
+/// ask of several questions says Next while another question is still open, and a Submit that
+/// cannot send yet names the questions it waits for ("Answer References to submit").
 /// Bare keys work while focus is inside the card, and it takes the keyboard on arrival only when
 /// nothing else has it or the composer is empty. ⌘↩ submits, and one click on the last
 /// single-choice question sends it. Escape never answers (plans/cmux-next/agent-questions.md §6):
@@ -138,6 +142,9 @@ function PendingQuestion({
   const t = useT();
   const legendId = useId();
   const previewId = useId();
+  const hintId = useId();
+  const language = usePaneLanguage();
+  const listFormat = new Intl.ListFormat(language, { type: "conjunction" });
   const group = useRef<HTMLFieldSetElement>(null);
   const [stored, setStored] = useState(() => cardState(question));
   // The ask a person already answered: the owner clears it a moment later, and until then a
@@ -197,7 +204,7 @@ function PendingQuestion({
     // Focus follows the highlight (a roving tab stop) while the keyboard is in the list, and a
     // clicked row takes it so its keys work next; the Other field takes it while editing.
     if (next.editingOther) card.querySelector<HTMLInputElement>(".acpmux-question-other input")?.focus();
-    else if (keyboardInList || input.type === "click")
+    else if (keyboardInList || input.type === "click" || input.type === "next")
       card.querySelector<HTMLElement>(`[data-row="${highlightedRow(next)}"]`)?.focus();
   };
   const dispatch = (input: CardInput) => {
@@ -211,7 +218,8 @@ function PendingQuestion({
     apply(step.effect, step.state, input, inList || focused === card);
   };
   const onKeyDown = (event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.isComposing) return;
+    // WebKit sends the Enter that commits an IME candidate after compositionend, as keyCode 229.
+    if (event.defaultPrevented || event.isComposing || event.keyCode === 229) return;
     // ⌘↩ submits from anywhere in the card, the Other field included. With nothing chosen yet it
     // answers like Enter: the highlighted row, then Submit once every item has an answer.
     if (event.key === "Enter" && event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
@@ -284,6 +292,16 @@ function PendingQuestion({
   const multi = item.multiSelect;
   const draft = state.otherDrafts[item.id] ?? "";
   const ready = canSubmit(state) && !sent;
+  // The primary button says what it does: Next while another question is still open, else Submit.
+  // A Submit that cannot send yet names the questions it waits for, so it is never a silent pill.
+  const action = primaryAction(state);
+  const waitingFor =
+    action === "submit" && !ready && !sent && state.question.items.length > 1
+      ? unansweredItems(state).map((index) => {
+          const each = state.question.items[index]!;
+          return each.header ?? t("question.step", { n: index + 1, count: state.question.items.length });
+        })
+      : [];
   const agent = question.source.agentName ?? t("question.agent");
   const answer = state.question.items.length > 1 ? cardAnswer(state) : undefined;
   return (
@@ -379,19 +397,37 @@ function PendingQuestion({
         </p>
       )}
       <div className="acpmux-question-actions">
+        {waitingFor.length > 0 && (
+          <span id={hintId} className="acpmux-question-hint">
+            {t("question.answerToSubmit", { questions: listFormat.format(waitingFor) })}
+          </span>
+        )}
         <button type="button" className="acpmux-question-skip" disabled={sent} onClick={skip}>
           {t("question.skip")}
         </button>
-        <button
-          type="button"
-          className="acpmux-question-submit"
-          aria-keyshortcuts="Meta+Enter"
-          disabled={!ready}
-          onClick={() => dispatch({ type: "submit" })}
-        >
-          {t("question.submit")}
-          <Keycap>⌘↩</Keycap>
-        </button>
+        {action === "next" ? (
+          <button
+            type="button"
+            className="acpmux-question-submit"
+            data-action="next"
+            disabled={sent}
+            onClick={() => dispatch({ type: "next" })}
+          >
+            {t("question.next")}
+          </button>
+        ) : (
+          <button
+            type="button"
+            className="acpmux-question-submit"
+            aria-keyshortcuts="Meta+Enter"
+            aria-describedby={waitingFor.length > 0 ? hintId : undefined}
+            disabled={!ready}
+            onClick={() => dispatch({ type: "submit" })}
+          >
+            {t("question.submit")}
+            <Keycap>⌘↩</Keycap>
+          </button>
+        )}
       </div>
     </fieldset>
   );
@@ -479,6 +515,7 @@ function ChoiceMark({ multi, chosen }: { multi: boolean; chosen: boolean }) {
 function respondentLine(t: Translate, answer: Answer): string | undefined {
   const name = answer.respondent?.displayName;
   const device = answer.respondent?.device;
+  if (name && answer.respondent?.isSession) return t("question.answeredBySession", { name });
   if (name && device) return t("question.answeredBy", { name, device });
   if (name) return t("question.answeredByName", { name });
   if (device) return t("question.answeredOn", { device });

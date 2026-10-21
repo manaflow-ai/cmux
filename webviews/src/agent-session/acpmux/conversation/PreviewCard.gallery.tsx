@@ -73,7 +73,7 @@ export default componentEntry<PreviewCardProps>({
       play: loadPreview,
     },
     "loopback-host": {
-      note: "A local dev server address remains unloaded until the reader clicks Load preview.",
+      note: "A local dev server address is one compact row, with no thumbnail box, until the reader clicks Load preview.",
       chipHost,
       props: { url: loopback },
     },

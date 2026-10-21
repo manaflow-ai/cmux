@@ -80,6 +80,13 @@ extension CEFRuntime {
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
             browserClosed(browser)
+        case .beforeUnloadDialog(let browser, let token, let isReload):
+            // A page with no tab to ask in never keeps its unload waiting: it leaves.
+            if let tab = tabsByBrowser[browser] { tab.beforeUnloadAsked(token: token, isReload: isReload) } else { _ = shim?.beforeUnloadReply(token, 1) }
+        case .pageResource(let browser, let token, let url):
+            answerPageResource(token: token, url: url, tab: tabsByBrowser[browser])
+        case .pageDragEnter(let browser, let pathsJSON):
+            if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
         case .devToolsResult(let browser, let messageID, let success, let json):
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))
@@ -150,6 +157,13 @@ extension CEFRuntime {
     // MARK: Browser lifetime
 
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
+        if shutdownSequence != nil {
+            // Its creation was under way when quit closed every browser (`shutdown`): close it
+            // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
+            pendingWindows[request] = nil
+            shim?.close(browser)
+            return
+        }
         if request != 0, let host = pendingWindows.removeValue(forKey: request) {
             host.windowCreated(browser: browser, request: request)
             return
@@ -165,7 +179,11 @@ extension CEFRuntime {
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
-        windowRequests.linkClicks.onGesture = { [weak self] browser in self?.tabsByBrowser[browser]?.automaticDownloads.userGesture() }
+        windowRequests.linkClicks.onGesture = { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser] else { return }
+            tab.automaticDownloads.userGesture()
+            tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
+        }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         swipeNavigation.start()
         tabsByBrowser[browser] = tab
@@ -274,6 +292,15 @@ extension CEFRuntime {
 
     // MARK: Quit
 
+    /// False once quit began to stop Chromium: CEF aborts making a browser after its shutdown
+    /// began. AppKit still closes the windows after CefShutdown, and a hidden tab's view unhid
+    /// there created one (crash on quit, NIGHTLY 1.0.0-nightly.3953614980201).
+    var acceptsNewBrowsers: Bool { Self.acceptsNewBrowsers(state: state, stopping: shutdownSequence != nil) }
+
+    static func acceptsNewBrowsers(state: State, stopping: Bool) -> Bool {
+        state != .shutDown && !stopping
+    }
+
     /// Closes every browser, waits (without blocking the main thread) until
     /// the Chromium windows are destroyed or `timeout` passes, then calls
     /// CefShutdown. The App awaits this from `applicationShouldTerminate`
@@ -344,7 +371,8 @@ extension CEFShimEvent {
              .devToolsWillOpen(let b), .devToolsOpened(let b, _, _), .devToolsClosed(let b, _),
              .renderTerminated(let b, _, _, _), .renderUnresponsive(let b), .renderResponsive(let b),
              .navigationReroute(let b, _, _), .localFileHandoff(let b, _), .externalURL(let b, _, _), .keyUnhandled(let b, _, _), .installPrompt(let b, _, _), .takeFocus(let b, _),
-             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _):
+             .devToolsMessage(let b, _), .authCallback(let b, _), .permissionPrompt(let b, _, _, _), .permissionDismissed(let b, _), .passwordPrompt(let b, _, _),
+             .beforeUnloadDialog(let b, _, _), .beforeUnloadDismissed(let b), .pageResource(let b, _, _), .pageDragEnter(let b, _):
             b
         case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .unknown:
             nil

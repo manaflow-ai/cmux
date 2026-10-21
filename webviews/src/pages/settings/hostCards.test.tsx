@@ -117,7 +117,9 @@ test("a wallpaper whose id is a file path gets its thumbnail: the id reaches the
 
 test("Shuffle Paintings is a tile that keeps appearance.background daily", async () => {
   const page = await renderPage({ path: "/settings/appearance" });
-  const tile = page.container.querySelector<HTMLButtonElement>('[data-card="backdrop"] [aria-label="Shuffle Paintings"]')!;
+  const tile = page.container.querySelector<HTMLButtonElement>(
+    '[data-card="backdrop"] [aria-label="Shuffle Paintings"]',
+  )!;
   expect(tile).not.toBeNull();
   await act(async () => tile.click());
   await settle();

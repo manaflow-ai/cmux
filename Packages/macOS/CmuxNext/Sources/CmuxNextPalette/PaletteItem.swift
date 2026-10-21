@@ -61,6 +61,9 @@ public struct PaletteItem: Identifiable {
     /// The row shows for an empty query only, never as a match (the
     /// picker's Locations).
     public var hidesWhenTyping = false
+    /// The row matches a query but is left out of the empty query's list (a family member that
+    /// its family's row stands for).
+    public var hidesWhenQueryEmpty = false
     /// A row of a secondary kind (a setting): it ranks below a command with
     /// the same match (ten setting rows are titled "Color"), so 200 setting
     /// rows never bury the commands.

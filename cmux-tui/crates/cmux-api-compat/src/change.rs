@@ -372,7 +372,9 @@ impl Change {
                     conv: Conversion::MapValue { from: from.clone(), to: to.clone() },
                 })
             }
-            Self::Fill { .. } => unreachable!("handled in to_op"),
+            Self::Fill { .. } => {
+                Err(CompatError::InvalidChange("a fill compiles in to_op, not here".to_string()))
+            }
         }
     }
 }

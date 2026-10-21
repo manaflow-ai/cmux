@@ -25,6 +25,25 @@
       }
     }
   },
+  "argument.appStore.tab": {
+    "source": "Tab",
+    "identityLocales": {
+      "de": "Tab is the standard German UI word for a tab (Apple and browsers use it), spelled as in English."
+    }
+  },
+  "store.feature.category.chief": {
+    "source": "Chief",
+    "identityLocales": {
+      "de": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "fr": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ar": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "es": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "zh-Hant": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "zh-Hans": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ko": "Chief is the product name of cmux's lead agent and stays untranslated.",
+      "ja": "Chief is the product name of cmux's lead agent and stays untranslated."
+    }
+  },
   "mobile.ios106PairingUpdate.releaseLabel": {
     "source": "1.0.6 · September 2026",
     "identityLocales": {

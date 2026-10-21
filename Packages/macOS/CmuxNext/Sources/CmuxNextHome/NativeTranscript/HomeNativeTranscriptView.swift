@@ -28,6 +28,11 @@ public final class HomeNativeTranscriptView: NSView {
     /// the background, an op that may not have gone through).
     let noticeLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var notice: String?
+    /// The notice's one action under it (Open System Settings for a denied microphone).
+    let noticeButton = NSButton(title: "", target: nil, action: nil)
+    private(set) var noticeAction: HomeNoticeAction?
+    /// The message box's mic (Debug Settings > Home > Mic button in the message box).
+    let voice = HomeVoiceDictation()
     /// Prepares dropped, pasted and picked files (the data side; the store
     /// by default, a recorder in tests). Nil: the composer takes none.
     public var attachmentPreparer: (any HomeAttachmentPreparing)?
@@ -114,7 +119,11 @@ public final class HomeNativeTranscriptView: NSView {
     public init(store: HomeStore, conversation: ConversationID, me: ParticipantID, diagrams: (any HomeDiagramRendering)? = nil) {
         HomeReduceMotion.install()
         self.me = me
+        // Debug Settings > Home > Rich tables, before the transcript maps its first messages.
+        MessagesLabHomeView.richTables = HomeTunables.richTables.value
         transcript = MessagesLabHomeView(store: store, conversation: conversation, me: me, wake: HomeDemandWake(), diagrams: diagrams)
+        // The running indicator's look (Debug Settings > Home), read at each of its ticks.
+        transcript.turnProgressStyle = { HomeTunables.turnProgress.value.style }
         // One binding per shown conversation; it opens the conversation on
         // the store now and `stop()` closes exactly that open, once.
         binding = HomeStoreBinding(store: store, conversation: conversation)
@@ -129,7 +138,14 @@ public final class HomeNativeTranscriptView: NSView {
         noticeLabel.maximumNumberOfLines = 2
         noticeLabel.isSelectable = false
         addSubview(noticeLabel)
+        noticeButton.isBordered = false
+        noticeButton.font = Typography.caption
+        noticeButton.isHidden = true
+        noticeButton.target = self
+        noticeButton.action = #selector(noticeButtonClicked)
+        addSubview(noticeButton)
         connectAttachments()
+        connectVoice()
         firstRun.isHidden = true
         firstRun.onAction = { [weak self] action in self?.onFirstRunAction(action) }
         firstRun.onAgent = { [weak self] id in self?.onFirstRunAgent(id) }
@@ -179,6 +195,7 @@ public final class HomeNativeTranscriptView: NSView {
         stopped = true
         if let linkPreviews { linkPreviews.coordinator.unregister(linkPreviews) }
         intake?.cancel()
+        voice.close()
         transcript.stop()
         binding.stop()
     }
@@ -291,7 +308,7 @@ public final class HomeNativeTranscriptView: NSView {
         }
     }
 
-    /// Settings > Agents > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
+    /// Settings > Chief > Chief Chat > Bubble Style: iMessage's colours or the theme's, live.
     private func followBubbleStyle() {
         withObservationTracking {
             bubbleStyle = DesignSettings.shared.homeChiefBubblesThemed ? .theme : .iMessage
@@ -332,7 +349,12 @@ public final class HomeNativeTranscriptView: NSView {
         let width = max(0, bounds.width - 32)
         noticeLabel.preferredMaxLayoutWidth = width
         let height = ceil(noticeLabel.intrinsicContentSize.height)
-        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - 8, width: width, height: height)
+        let action: CGFloat = noticeAction == nil ? 0 : ceil(noticeButton.intrinsicContentSize.height)
+        noticeLabel.frame = CGRect(x: 16, y: transcript.fieldTop - height - action - 8, width: width, height: height)
+        if noticeAction != nil {
+            let w = min(width, ceil(noticeButton.intrinsicContentSize.width))
+            noticeButton.frame = CGRect(x: (bounds.width - w) / 2, y: noticeLabel.frame.maxY, width: w, height: action)
+        }
         let avoided = toastAvoidanceRect
         if avoided != lastToastAvoidance {
             lastToastAvoidance = avoided
@@ -341,8 +363,20 @@ public final class HomeNativeTranscriptView: NSView {
     }
 
     /// Shows (or with nil clears) the notice; VoiceOver hears it.
-    public func showNotice(_ text: String?) {
-        guard text != notice else { return }
+    public func showNotice(_ text: String?) { showNotice(text, action: nil) }
+
+    /// Shows the notice with one action under it (a link-styled button).
+    func showNotice(_ text: String?, action: HomeNoticeAction?) {
+        let hadAction = noticeAction != nil
+        noticeAction = text == nil ? nil : action
+        noticeButton.isHidden = noticeAction == nil
+        if let noticeAction {
+            noticeButton.attributedTitle = NSAttributedString(string: noticeAction.title, attributes: [
+                .font: Typography.caption, .foregroundColor: performWithTheme { Palette.accent }, .underlineStyle: NSUnderlineStyle.single.rawValue,
+            ])
+            noticeButton.setAccessibilityLabel(noticeAction.title)
+        }
+        guard text != notice || hadAction != (noticeAction != nil) else { return }
         notice = text
         noticeLabel.stringValue = text ?? ""
         noticeLabel.isHidden = text == nil
@@ -397,25 +431,16 @@ public final class HomeNativeTranscriptView: NSView {
         transcript.isVisibleToUser = window.map { $0.isKeyWindow && $0.occlusionState.contains(.visible) } ?? false
     }
 
-    /// The header band's fade in or out, in seconds. Reduce Motion keeps it, at the crossfade length
-    /// (motion.md rule 7): turned off there, the band appeared and left in one frame.
-    static func headerFadeDuration(shown: Bool) -> TimeInterval {
-        Motion.home.duration(shown ? .fadeIn : .fadeOut)
-    }
-
-    /// The theme's palettes (key and non-key window) for the MessagesLab
+    /// The theme's palette (the key window's, for every window) for the MessagesLab
     /// Fixture colours, and the first-run panel's colours.
     private func applyTheme() {
         let accent = accentOverride, style = bubbleStyle
         let active = performWithTheme { HomeThemePalette.resolveInScope(active: true, style: style, accentOverride: accent) }
-        let inactive = performWithTheme { HomeThemePalette.resolveInScope(active: false, style: style, accentOverride: accent) }
         let measured = performWithTheme { HomeThemePalette.usesMessagesBlueInScope(style: style, accentOverride: accent) }
-        transcript.applyTheme(active: active, inactive: inactive, measuredAccent: measured)
-        // The header's band: a light fade of the window background, shown only
-        // near the top; the design system's fades.
-        let (fade, maxAlpha) = performWithTheme { (Palette.surfaceBackground.withAlphaComponent(1), Palette.legibilityScrimOpacity) }
-        transcript.setHeaderPillBacking(performWithTheme { Palette.capsuleScrim })
-        transcript.setHeaderFade(color: fade, maxAlpha: maxAlpha) { shown in Self.headerFadeDuration(shown: shown) }
+        transcript.applyTheme(active: active, measuredAccent: measured)
+        // The header: a thin glass band over the transcript and a glass name pill, as
+        // Messages on macOS 26 (HeaderGlass.swift).
+        transcript.setHeaderGlass()
         performWithTheme {
             firstRun.applyColors(primary: Palette.textPrimary, secondary: Palette.textSecondary, tertiary: Palette.textTertiary, fill: Palette.elevatedBackground,
                                  hover: Palette.hoverFill, border: Palette.separator, attention: Palette.attention,

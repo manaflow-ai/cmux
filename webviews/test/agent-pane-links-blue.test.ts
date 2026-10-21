@@ -63,6 +63,7 @@ await requireBrowserLane("agent-pane-links-blue.test.ts", async () => {
             canvas.clearRect(0, 0, 1, 1);
             canvas.fillStyle = color;
             canvas.fillRect(0, 0, 1, 1);
+            // oxlint-disable-next-line unicorn/no-useless-spread -- slice returns a Uint8ClampedArray; the spread makes a plain array that serializes out of the page and that the test destructures.
             return [...canvas.getImageData(0, 0, 1, 1).data.slice(0, 3)];
           };
           return [...document.querySelectorAll<HTMLElement>("a")].map((link) => {

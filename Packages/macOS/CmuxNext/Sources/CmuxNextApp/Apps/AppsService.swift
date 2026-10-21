@@ -27,7 +27,7 @@ final class AppsService {
     /// An App Store request made while no main window could hold it (S22:
     /// the App Store is never a window of its own); the first window that
     /// mounts a pane shows it (`windowDidShowContent`).
-    private var waitingStore: (appID: String?, installed: Bool, focus: Bool)?
+    private var waitingStore: (appID: String?, tab: AppStoreModel.Tab?, focus: Bool)?
     var isStoreWaiting: Bool { waitingStore != nil }
     /// App pages (`app:<id>`), one provider per app, registered on first open.
     private var appPages: [String: AppPanePage] = [:]
@@ -38,7 +38,7 @@ final class AppsService {
     /// one client. Captures the client, not the service, so a page set that
     /// outlives the service still makes models.
     private(set) lazy var storePages = AppStorePages { [weak self, client = self.client, recovery = self.services.daemon.recovery] in
-        let model = AppStoreModel(client: client)
+        let model = AppStoreModel(client: client, features: SettingsAppFeatures(settings: { [weak self] in self?.services.settings }, showSettings: { [weak self] key in try? self?.services.settingsWindow.show(section: nil, setting: key, focus: true) })) { app in _ = self?.services.registry.perform("app.open", invocation: ActionInvocation(arguments: ["app": .string(app)], origin: .user)) }
         model.recovery = { recovery.appsRecovery }
         model.onNavigate = { self?.services.locationTrail.pageHistoryDidChange() }
         return model
@@ -90,23 +90,23 @@ final class AppsService {
     /// run shows it as the active window's App Store top page
     /// (TOP-SECTION-ITEMS-ARE-PAGES); automation, which never changes the
     /// view, opens it as a background tab (internal page `app-store`, one
-    /// per window). `appID` opens that listing, `installed` the Installed
-    /// tab. With no main window that can hold it, the request waits for
+    /// per window). `appID` opens that listing, `tab` a store tab (Features,
+    /// Installed); the React store has no Features tab and shows Discover. With no main window that can hold it, the request waits for
     /// one (a closed window comes back, or a new one opens), as Settings
     /// does: S22, the App Store never opens a window of its own.
-    func showStore(appID: String? = nil, installed: Bool = false, focus: Bool = true) {
+    func showStore(appID: String? = nil, tab: AppStoreModel.Tab? = nil, focus: Bool = true) {
         let key = focus ? TopPages.show(.page(.appStore), services: services)
             : services.pages.show(.appStore, in: services.windows.active, focus: false)?.key
         if let key {
             if let page = webStorePages[key] {
-                page.open(route: Self.storeRoute(appID: appID, installed: installed))
+                page.open(route: Self.storeRoute(appID: appID, installed: tab == .installed))
             } else {
-                storePages.present(key, appID: appID, installed: installed)
+                storePages.present(key, appID: appID, tab: tab)
             }
             waitingStore = nil
             return
         }
-        waitingStore = (appID, installed, focus)
+        waitingStore = (appID, tab, focus)
         if case let windows = services.windows, windows.restored, windows.controllers.isEmpty { windows.reopenOrCreateWindow() }
     }
 
@@ -115,7 +115,7 @@ final class AppsService {
     /// exists; an automation run still waits until a pane can hold its tab).
     func windowDidShowContent() {
         guard let request = waitingStore else { return }
-        showStore(appID: request.appID, installed: request.installed, focus: request.focus)
+        showStore(appID: request.appID, tab: request.tab, focus: request.focus)
     }
 
     /// Opens an app's page as a tab of the active window (one per window),

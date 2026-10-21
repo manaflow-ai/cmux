@@ -16,6 +16,21 @@ export function editableTurns(rows: readonly AcpmuxRow[], family: string | undef
   return seqs;
 }
 
+/// Each answered prompt's own turn (its turn summary's seq), the turn a prompt's Fork goes through,
+/// as its right-click Fork does (messageMenu.ts): the new chat keeps the prompt and its answer.
+export function promptTurns(rows: readonly AcpmuxRow[]): Map<string, number> {
+  const seqs = new Map<string, number>();
+  let prompt: string | undefined;
+  for (const row of rows) {
+    if (row.kind === "user" && !row.failed && !row.queued && !row.pending) prompt = row.id;
+    else if (row.kind === "turnSummary" && row.seq !== undefined && prompt !== undefined) {
+      seqs.set(prompt, row.seq);
+      prompt = undefined;
+    }
+  }
+  return seqs;
+}
+
 /// The same prompts as a string, so the App rebuilds its actions only when they change (not on every
 /// streamed row).
 export const editableKey = (seqs: ReadonlyMap<string, number>) =>

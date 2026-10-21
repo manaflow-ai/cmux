@@ -10,8 +10,11 @@ nonisolated extension AcpmuxPaneMethods {
         // `noProject` is the pane's own (Do not work in a project): AcpmuxPathPolicy reads and strips it.
         "session/new": (["cwd", "mcpServers", "_meta"], ["harness", "adopt", "peer", "noProject"]),
         // `context`: a chat's workspace context on its first prompt (cx-ihyx2); acpmux sends it to the
-        // agent and keeps it out of the transcript text.
-        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context"]),
+        // agent and keeps it out of the transcript text. `provenance`: a reply in place to another
+        // agent's message (IncomingMessageCard.tsx); acpmux takes one from the app only as a reply
+        // from a chat it runs (prompt_provenance.rs). `surface`: the place a prompt was typed
+        // (labs.previewFeatures; acpmux hub/composers.rs, cmuxterm-hq#2580).
+        "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "provenance", "surface"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
@@ -26,6 +29,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/view": (["sessionId", "visible"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
+        // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.
+        "_acpmux/watch_take_over": (["sessionId", "ifLive"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
@@ -39,7 +44,9 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/bookmark_get": (["sessionId"], []),
         "_acpmux/bookmark_set": (["sessionId", "seq", "bookmarked"], []),
         "_acpmux/queue_remove": (["sessionId", "promptId"], []),
-        "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "index"], []),
+        // `images`: an edit's kept image ids (acpmux attachment ids the queue lists); it names only
+        // the prompt's own images, so it reaches nothing the chat does not already hold.
+        "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
         "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "_meta"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
@@ -61,6 +68,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/offer_respond": (["sessionId", "offerId", "outcome", "childSessionId"], []),
         // `subagentSessionId`: a child of that chat, which acpmux looks up in the chat's own map.
         "_acpmux/subagent_stop": (["sessionId", "subagentSessionId"], []),
+        // `peerSessionId`: one of that chat's paused pairs, a selector only (acpmux checks the pair has the chat).
+        "_acpmux/agent_pair_resume": (["sessionId", "peerSessionId"], []),
         "acp.session.fork": (["sessionId", "throughSeq"], []),
         "acp.trust.get": (["cwd", "sessionId"], []),
         "acp.trust.set": (["cwd", "level", "sessionId"], []),

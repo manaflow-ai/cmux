@@ -1,5 +1,6 @@
 // A compaction of the chat's context, noted where it happened (acpmux `compaction`): "Compacting
-// the conversation…" while it runs, then how it ended and how much context it left. A compaction
+// the conversation…" while it runs, then how it ended: how much context it left, or why it
+// failed. One compaction is one note, however often Claude Code says it is still compacting. A compaction
 // subrouter ran to move the chat to another account says so. Drawn as a tool row, like a
 // background task's end (BackgroundTaskNote.tsx).
 //
@@ -18,11 +19,11 @@ export function compactTokens(tokens: number): string {
 
 export function CompactionNote({ compaction }: { compaction: AcpmuxCompaction }) {
   const t = useT();
-  const { state, reason, preTokens, postTokens } = compaction;
+  const { state, reason, error, preTokens, postTokens } = compaction;
   const accountSwitch = reason === "account_switch";
   let text: string;
   if (state === "running") text = accountSwitch ? t("compaction.runningAccountSwitch") : t("compaction.running");
-  else if (state === "failed") text = t("compaction.failed");
+  else if (state === "failed") text = error ? t("compaction.failedWithError", { error }) : t("compaction.failed");
   else {
     text = accountSwitch ? t("compaction.completedAccountSwitch") : t("compaction.completed");
     if (preTokens !== undefined && postTokens !== undefined)

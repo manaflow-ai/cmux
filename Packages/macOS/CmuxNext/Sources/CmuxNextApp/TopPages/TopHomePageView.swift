@@ -181,9 +181,10 @@ final class TopHomePageView: NSView {
             // (a picture set by a tool or the CLI) reads the rows again, and the pictures with them.
             var picturedRows: [HomeInboxRequest.Response?]?
             var picturedChiefs: Set<String>?
-            for await (all, archived, _, _, _, _, owned, _, _) in ObservationStream({
+            // The chosen pet character is the avatar of a Chief with none of its own: a new one redraws the list.
+            for await (all, archived, _, _, _, _, owned, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.directory.chiefAvatars,
-                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster)
+                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot)
             }) {
                 guard let self else { return }
                 let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })
@@ -360,6 +361,7 @@ final class TopHomePageView: NSView {
         }
         page.isHidden = false
         host?.isHidden = true
+        split.composing = true
         list.setDraftRow(HomeNewMessageDraft.rowTitle)
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
@@ -400,6 +402,7 @@ final class TopHomePageView: NSView {
         } else {
             page.isHidden = true
             host?.isHidden = false
+            split.composing = false
         }
         return true
     }
@@ -411,6 +414,7 @@ final class TopHomePageView: NSView {
         page.stop()
         page.removeFromSuperview()
         host?.isHidden = false
+        split.composing = false
         list.setDraftRow(nil)
     }
 

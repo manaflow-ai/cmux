@@ -61,7 +61,9 @@ public nonisolated enum MotionTunables {
         .hover: (0.08, "Hover and pressed fills easing in, hover-revealed buttons, divider hover."),
         .hoverReveal: (0.12, "A group header's + and more fading in and out with the pointer (opacity only)."),
         .hoverOut: (0, "Hover and pressed fills clearing: 0 is instant (as in Edge); about 0.12 leaves a short trail on a sweep."),
-        .focus: (0.1, "Pane focus ring and inactive dim."),
+        .focus: (0.1, "Pane focus ring."),
+        .paneDim: (0.15, "The dim over an unfocused pane easing in and out when focus moves."),
+        .focusFlash: (0.5, "The focus ring flashed on a pane focus moved to without a click, fading out (focus.flashOnMove)."),
         .fadeIn: (0.12, "Palette, find bar, notices, hover card appear."),
         .fadeOut: (0.08, "Palette close, find bar, notices, hover card hide."),
         .crossfade: (0.1, "Hover card thumbnail swap; also the Reduce Motion ceiling."),
@@ -88,6 +90,8 @@ public nonisolated enum MotionTunables {
         .pulse: (1.8, "One cycle of the agent-waiting pulse."),
         .flash: (1, "Pane attention flash (two blinks; at least 1 s, the 2 Hz cap)."),
         .sweep: (1.3, "One pass of an unmeasured progress bar's segment (the update card while checking)."),
+        .breath: (2.4, "One breath of the agent-working dot (working look Breathing Dot). Web pages breathe on their own --cmux-breath-period."),
+        .wiggle: (0.3, "One back-and-forth of an item's wiggle in the sidebar's edit mode."),
     ]
 
     static let loops: [MotionLoop: Tunable<Double>] = Dictionary(uniqueKeysWithValues: MotionLoop.allCases.map { loop in

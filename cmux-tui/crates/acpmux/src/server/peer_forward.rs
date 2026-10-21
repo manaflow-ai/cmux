@@ -30,6 +30,8 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     method::MUX_SHUTDOWN,
     // An agent message is taken back on this daemon only (`hub/withdraw.rs`).
     method::MUX_PROMPT_WITHDRAW,
+    // Agent pairs are this daemon's own (`hub/agent_pairs.rs`).
+    method::MUX_AGENT_PAIR_RESUME,
     method::MUX_HANDOFF_PREPARE,
     method::MUX_HANDOFF_GET,
     method::MUX_HANDOFF_DRAFT,
@@ -40,6 +42,7 @@ const SESSION_SCOPED_EXCLUDED: &[&str] = &[
     crate::catalog::RPC_GET,
     crate::catalog::RPC_REFRESH,
     "_acpmux/peer_add",
+    "_acpmux/peer_lease",
     "_acpmux/peer_remove",
     "_acpmux/peer_reconnect",
 ];
@@ -129,6 +132,7 @@ async fn forward_inner(
                             e
                         }
                     })?;
+        strip_asks(hub, &peer.name, &id, m, &mut result);
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
@@ -143,7 +147,47 @@ async fn forward_inner(
         }
         return Ok(Some(result));
     }
+    // `PEER/name` for a peer that is down and lists no such session: say
+    // the peer is unreachable, not that the session does not exist.
+    if !SESSION_SCOPED_EXCLUDED.contains(&m)
+        && let Ok(key) = session_key(params)
+        && hub.resolve(key).is_err()
+        && let Some(e) = hub.peer_down_for(key)
+    {
+        return Err(e);
+    }
     Ok(None)
+}
+
+/// Drop from a peer's reply for its session `id` every ask the peer may
+/// not put before this daemon's clients: the `pending` entries of an
+/// `_acpmux/info` detail or an `_acpmux/attach` `session` that fail
+/// `Hub::peer_ask_counts`, and the ask records in `events`
+/// (`_acpmux/attach`, `_acpmux/events`), which the app reads a nonce and run
+/// from too, that `Hub::peer_history_ask_counts` drops (its own asks from an
+/// older run stay there without their nonce). The rest of the reply, and the
+/// session, stay.
+fn strip_asks(hub: &Hub, peer: &str, id: &str, m: &str, result: &mut Value) {
+    let pending = match m {
+        method::MUX_INFO => Some("/pending"),
+        method::MUX_ATTACH => Some("/session/pending"),
+        _ => None,
+    };
+    if let Some(Value::Array(asks)) = pending.and_then(|p| result.pointer_mut(p)) {
+        asks.retain(|ask| hub.peer_ask_counts(peer, id, ask));
+    }
+    if let Some(Value::Array(records)) = result.get_mut("events") {
+        records.retain_mut(|r| {
+            let kind = r.get("kind").and_then(Value::as_str).unwrap_or("");
+            if !crate::hub::is_permission_ask(kind) {
+                return true;
+            }
+            match r.get_mut("msg") {
+                Some(msg) => hub.peer_history_ask_counts(peer, id, msg),
+                None => false,
+            }
+        });
+    }
 }
 
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many

@@ -19,6 +19,7 @@ use std::time::{Duration, Instant};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt};
 
 const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 
 struct Daemon {
     child: Option<Child>,
@@ -59,6 +60,28 @@ impl Daemon {
         std::fs::write(
             daemon.home.join("config.json"),
             json!({"harnesses": {"fake": {"argv": ["/usr/bin/env", "FAKE_CLAUDE_STEER=1", "python3", FAKE]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+        )
+        .unwrap();
+        daemon.start();
+        daemon
+    }
+
+    /// A daemon whose default harness is `cmux`, the model router's profile:
+    /// Claude Code (claude-stdio, fake_claude.py) under a name that is not `claude*`,
+    /// with `env` on top. Its "fg-shell" waits two minutes for Ctrl-B, past any restart.
+    fn claude_router(tag: &str, env: &[(&str, &str)]) -> Self {
+        let mut daemon = Self::with_env(tag, "approve-all", &[]);
+        daemon.sigterm();
+        let claude_home = daemon.home.join("claude");
+        std::fs::create_dir_all(&claude_home).unwrap();
+        let mut harness_env =
+            json!({"CLAUDE_CONFIG_DIR": claude_home, "FAKE_CLAUDE_FG_WAIT_S": "120"});
+        for (k, v) in env {
+            harness_env[*k] = json!(v);
+        }
+        std::fs::write(
+            daemon.home.join("config.json"),
+            json!({"harnesses": {"cmux": {"argv": ["python3", FAKE_CLAUDE], "kind": "claude-stdio", "env": harness_env}}, "defaultHarness": "cmux", "permissionPolicy": "approve-all"}).to_string(),
         )
         .unwrap();
         daemon.start();
@@ -412,6 +435,276 @@ async fn a_steered_turn_stays_open_across_an_update_restart_until_the_agent_ends
     );
 }
 
+/// An update restart adopts a running Claude chat without initializing its agent again, so the
+/// agent's `steering` capability came back false: every prompt sent into its turns then stopped
+/// the turn ("Sent now · stopped the turn") instead of steering, and the composer's hint flipped
+/// to "⌘↵ to interrupt" (Leo, 2026-10-20: seven live claude-sr2 chats read steering=false).
+#[tokio::test]
+async fn an_adopted_chat_still_steers_after_an_update_restart() {
+    let mut daemon = Daemon::claude_steering("steer-adopt");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+
+    daemon.sigterm();
+    drop(client);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let mut rpc = daemon.rpc().await;
+    let listed = rpc.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session.as_str()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let steering = &entry["_meta"]["acpmux"]["steering"];
+    assert_eq!(steering, true, "the adopted chat lost its steering: {entry}");
+    let steered = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "the steer stopped the adopted turn: {steered}");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+}
+
+/// A chat saved by a build that did not keep `steering` (cc5bd5f68, the daemon that adopted every
+/// open chat three times on 2026-10-20) and adopted since never initializes its agent again, so it
+/// read steering=false for good: all 57 open chats then stopped their turn for every prompt sent
+/// into it (agent-message-steer). A chat whose saved agent is Claude Code's adapter steers: that
+/// adapter always does.
+#[tokio::test]
+async fn a_claude_chat_saved_without_steering_steers_once_adopted() {
+    let mut daemon = Daemon::claude_steering("steer-unsaved");
+    let session = new_session(&daemon).await;
+    let gate = daemon.home.join("gate");
+    make_fifo(&gate);
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("gate: {}", gate.display())}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-gate chunk", |e| chunk(e, "before-gate"));
+
+    daemon.sigterm();
+    drop(client);
+    // The chat as the older build saved it: Claude Code's adapter, no `steering`.
+    let path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta.as_object_mut().unwrap().remove("steering");
+    meta["agentInfo"] = json!({"name": "claude-stdio", "title": "Claude Code"});
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+
+    let mut rpc = daemon.rpc().await;
+    let listed = rpc.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session.as_str()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        entry["_meta"]["acpmux"]["steering"], true,
+        "the adopted chat does not steer: {entry}"
+    );
+    let steered = rpc
+        .call(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "a tell"}], "_meta": {"acpmux": {"steer": true}}}),
+        )
+        .await;
+    assert_eq!(steered["stopReason"], "steered", "the prompt stopped the adopted turn: {steered}");
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+}
+
+/// An update restart adopts a running Claude Code chat's host without starting its agent again,
+/// so Ctrl-B goes by what the adopted host runs, not by the chat's saved `agentInfo` (a build that
+/// never saved it, or a crash before it did): its summary says `backgroundsWork` and Ctrl-B moves
+/// the turn's foreground shell. It read false, so Ctrl-B and subagent Stop were hidden and
+/// `_acpmux/process/background` refused until the chat's next fresh start.
+#[tokio::test]
+async fn an_adopted_claude_chat_still_moves_its_work_after_an_update_restart() {
+    let mut daemon = Daemon::claude_router("bg-adopt", &[]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+
+    daemon.sigterm();
+    drop(client);
+    let path = daemon.home.join("sessions").join(&session).join("session.json");
+    let mut meta: Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+    meta.as_object_mut().unwrap().remove("agentInfo");
+    std::fs::write(&path, serde_json::to_vec_pretty(&meta).unwrap()).unwrap();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+
+    let mut rpc = daemon.rpc().await;
+    let listed = rpc.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session.as_str()))
+        .cloned()
+        .unwrap_or(Value::Null);
+    assert_eq!(
+        entry["_meta"]["acpmux"]["backgroundsWork"], true,
+        "the adopted chat hides Ctrl-B: {entry}"
+    );
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+}
+
+/// A fresh folder holding the fifo `gate` that fake_claude's backlog waits on (`flood`).
+fn flood_gate_dir(tag: &str) -> PathBuf {
+    let dir = std::env::temp_dir().join(format!("amd-{tag}-gate-{}", std::process::id()));
+    let _ = std::fs::remove_dir_all(&dir);
+    std::fs::create_dir_all(&dir).unwrap();
+    make_fifo(&dir.join("gate"));
+    dir
+}
+
+/// Opens `gate` and waits (test polling) until the agent streamed its backlog: with the daemon
+/// down, the agent's host holds every entry for the next one.
+fn flood_while_down(gate: &Path) {
+    std::fs::write(gate, b"go").unwrap();
+    let done = gate.with_extension("done");
+    let deadline = Instant::now() + Duration::from_secs(30);
+    while !done.exists() {
+        assert!(Instant::now() < deadline, "the agent never streamed its backlog");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// The chat's `backgroundsWork` (`session/list`).
+async fn backgrounds_work(daemon: &Daemon, session: &str) -> Value {
+    let listed = daemon.rpc().await.call("session/list", json!({})).await;
+    let entry = listed["sessions"]
+        .as_array()
+        .and_then(|all| all.iter().find(|s| s["sessionId"] == session))
+        .cloned()
+        .unwrap_or(Value::Null);
+    entry["_meta"]["acpmux"]["backgroundsWork"].clone()
+}
+
+/// A Claude Code host that streamed a long backlog while no daemon ran: the next daemon adopts it
+/// at once, still moves its work, and does not wait out the host's state query behind the replay.
+/// Asked before the session read the replay, the query's answer sat behind 8,000 entries nothing
+/// drained: adoption waited the query's 5 s budget, and the chat read `backgroundsWork` false.
+#[tokio::test]
+async fn a_claude_host_with_a_long_backlog_is_adopted_at_once_and_still_moves_its_work() {
+    let gate_dir = flood_gate_dir("bg-flood");
+    let gate = gate_dir.join("gate");
+    let gate_env = gate.to_string_lossy().into_owned();
+    let mut daemon = Daemon::claude_router("bg-flood", &[("FAKE_CLAUDE_FLOOD_GATE", &gate_env)]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+
+    daemon.sigterm();
+    drop(client);
+    flood_while_down(&gate);
+    let started = Instant::now();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    let adopted = started.elapsed();
+    assert!(adopted < Duration::from_secs(4), "adoption took {adopted:?}");
+    assert_eq!(backgrounds_work(&daemon, &session).await, true, "the adopted chat hides Ctrl-B");
+    let mut rpc = daemon.rpc().await;
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
+    daemon.wait_event(&session, "turn_result", |e| e["kind"] == "turn_result");
+    let _ = std::fs::remove_dir_all(&gate_dir);
+}
+
+/// A prompt that finds an adopted Claude Code chat's link lost reaches its host again
+/// (`ensure_child` -> `readopt`, which returns the reattached agent before any start) and the chat
+/// still moves its work. The host was adopted behind a long backlog, whose state query waited out
+/// its budget, so the chat read `backgroundsWork` false from adoption on, and the reattach kept it.
+#[tokio::test]
+async fn a_reattached_claude_host_still_moves_its_work() {
+    let gate_dir = flood_gate_dir("bg-reattach");
+    let gate = gate_dir.join("gate");
+    let gate_env = gate.to_string_lossy().into_owned();
+    let mut daemon = Daemon::claude_router("bg-reattach", &[("FAKE_CLAUDE_FLOOD_GATE", &gate_env)]);
+    let session = new_session(&daemon).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "flood"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "before-flood chunk", |e| chunk(e, "before-flood"));
+    daemon.sigterm();
+    drop(client);
+    flood_while_down(&gate);
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    daemon.wait_event(&session, "the backlog's turn_result", |e| e["kind"] == "turn_result");
+
+    // Another owner takes the host over, which closes the daemon's link.
+    let record: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    let harness_pid = record.harness_pid;
+    match acpmux::agent_host::link::connect(record, 0).await.expect("take over") {
+        acpmux::agent_host::link::Connect::Ready(link, _) => drop(link),
+        _ => panic!("the host refused a same-build owner"),
+    }
+    // Let the daemon's reader see the closed link (a test-only fixed wait).
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let mut client = daemon.rpc().await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "fg-shell"}]}),
+        )
+        .await;
+    daemon.wait_event(&session, "the foreground shell", |e| {
+        e["msg"]["params"]["update"]["toolCallId"] == "toolu_fg"
+    });
+    // The same agent, reached again: no second host started.
+    let starts = daemon.events(&session).iter().filter(|e| e["kind"] == "host_started").count();
+    assert_eq!(starts, 1, "the prompt started a new agent instead of reattaching");
+    let now: acpmux::agent_host::HostRecord =
+        serde_json::from_value(daemon.host_record(&session)).unwrap();
+    assert_eq!(now.harness_pid, harness_pid, "a second agent replaced the live one");
+    assert_eq!(backgrounds_work(&daemon, &session).await, true, "the reattached chat hides Ctrl-B");
+    let mut rpc = daemon.rpc().await;
+    let moved = rpc.call("_acpmux/process/background", json!({"sessionId": session})).await;
+    assert_eq!(moved, json!({"backgrounded": true}));
+    let _ = std::fs::remove_dir_all(&gate_dir);
+}
+
 #[tokio::test]
 async fn permission_prompt_survives_a_daemon_upgrade_restart_and_reaches_the_agent() {
     let mut daemon = Daemon::new("perm", "ask");
@@ -613,6 +906,129 @@ async fn a_plain_cli_shutdown_keeps_hosted_agents_for_the_next_daemon() {
     assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
     daemon.wait_exit();
     assert!(gone_within(harness, Duration::from_secs(10)), "--end-agents left the agent running");
+}
+
+/// What the agent of `session` has in its environment as `name`
+/// (the fake agent's `env:` prompt).
+async fn agent_env(daemon: &Daemon, session: &str, name: &str) -> String {
+    let prefix = format!("{name}=");
+    let values = || -> Vec<String> {
+        daemon
+            .events(session)
+            .iter()
+            .filter_map(|e| e["msg"]["params"]["update"]["content"]["text"].as_str())
+            .filter_map(|t| t.strip_prefix(&prefix).map(str::to_owned))
+            .collect()
+    };
+    let before = values().len();
+    let mut rpc = daemon.rpc().await;
+    rpc.call(
+        "session/prompt",
+        json!({"sessionId": session, "prompt": [{"type": "text", "text": format!("env: {name}")}]}),
+    )
+    .await;
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if let Some(value) = values().get(before) {
+            return value.clone();
+        }
+        assert!(Instant::now() < deadline, "the agent never said {name}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// A connection that presents `token` as session `session`'s caller token,
+/// as the cmux-subsessions server and the acpmux CLI inside it do, and its
+/// reply to `_acpmux/subsession/list`.
+async fn list_as(daemon: &Daemon, session: &str, token: &str) -> Value {
+    let mut caller = daemon.rpc().await;
+    caller
+        .call(
+            "initialize",
+            json!({"protocolVersion": 1,
+                   "_meta": {"acpmux": {"callerSession": {"sessionId": session, "token": token}}}}),
+        )
+        .await;
+    caller.reply("_acpmux/subsession/list", json!({})).await
+}
+
+/// An app update restarts acpmux; the adopted agent and its MCP servers
+/// (cmux-subsessions, cmux) keep the caller token the previous daemon gave
+/// them. The new daemon must still know the session by it: on 2026-10-20 a
+/// coordinator lost control of its ten sub-sessions after the nightly update,
+/// because every sub-session tool was refused with that token.
+#[tokio::test]
+async fn an_adopted_agent_keeps_its_caller_token_across_an_update_restart() {
+    let mut daemon = Daemon::new("callerup", "approve-all");
+    let session = new_session(&daemon).await;
+    let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_eq!(token.len(), 64, "the agent has no caller token: {token:?}");
+    let before = list_as(&daemon, &session, &token).await;
+    assert!(before.get("error").is_none(), "the token did not prove its session: {before}");
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+
+    daemon.sigterm();
+    daemon.start();
+    daemon.wait_event(&session, "host_adopted", |e| e["kind"] == "host_adopted");
+    assert!(alive(harness), "the agent died with the update restart");
+    let after = list_as(&daemon, &session, &token).await;
+    assert!(
+        after.get("error").is_none(),
+        "the adopted agent's caller token no longer proves its session: {after}"
+    );
+    // The token is the session's alone.
+    let other = new_session(&daemon).await;
+    let borrowed = list_as(&daemon, &other, &token).await;
+    assert!(borrowed.get("error").is_some(), "one session's token proved another: {borrowed}");
+    // A new agent process has this run's token; the earlier one stops counting.
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    let fresh = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    assert_ne!(fresh, token, "the restarted agent kept the earlier run's token");
+    let stale = list_as(&daemon, &session, &token).await;
+    assert!(stale.get("error").is_some(), "the replaced agent's token still proves it: {stale}");
+    let current = list_as(&daemon, &session, &fresh).await;
+    assert!(current.get("error").is_none(), "the restarted agent's token: {current}");
+}
+
+/// A caller token the daemon cannot prove (a host of an older build kept an
+/// earlier daemon run's token) is refused with what to do about it, not
+/// only "connect with that session's caller token".
+#[tokio::test]
+async fn an_unproven_caller_token_is_refused_with_how_to_get_a_new_one() {
+    let daemon = Daemon::new("callerbad", "approve-all");
+    let session = new_session(&daemon).await;
+    let refused = list_as(&daemon, &session, &"0".repeat(64)).await;
+    let error = &refused["error"];
+    assert_eq!(error["data"]["reason"], "subsessions.caller_not_proven", "{refused}");
+    // A session this daemon does not have gets no restart advice.
+    let unknown = list_as(&daemon, "no-such-session", &"0".repeat(64)).await;
+    assert_eq!(unknown["error"]["data"]["reason"], "subsessions.caller_required", "{unknown}");
+    let message = error["message"].as_str().unwrap_or_default();
+    assert!(
+        message.contains(&format!("acpmux session restart {session}")),
+        "the refusal does not say how to get a new token: {message}"
+    );
+    // What it says works: the agent restarts, with a token that proves it.
+    let harness = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    let out = daemon_env::acpmux(&daemon.home)
+        .args(["session", "restart", &session])
+        .env("ACPMUX_HOME", &daemon.home)
+        .env("ACPMUX_SOCKET", &daemon.socket)
+        .output()
+        .expect("run acpmux session restart");
+    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+    assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "restarted");
+    let token = agent_env(&daemon, &session, "ACPMUX_SESSION_TOKEN").await;
+    let restarted = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+    assert_ne!(restarted, harness, "the agent process did not restart");
+    let listed = list_as(&daemon, &session, &token).await;
+    assert!(listed.get("error").is_none(), "the restarted agent's token: {listed}");
 }
 
 /// `--keep-agents` stays accepted (a no-op now) for callers that may run an
@@ -1102,6 +1518,86 @@ async fn queue_ops_edits_survive_a_daemon_crash() {
     assert_eq!(order, ["q-2", "q-1"]);
 }
 
+/// A queued prompt that left the queue for its turn (`dequeued`) when the daemon died, before
+/// its turn started, runs once after the restart: a client that resends it gets its real
+/// outcome, not `interrupted`. `ACPMUX_TEST_EXIT_AFTER_DEQUEUE` stops the first daemon there.
+#[tokio::test]
+async fn a_dequeued_prompt_survives_a_daemon_crash() {
+    let seam = [("ACPMUX_TEST_EXIT_AFTER_DEQUEUE", "1")];
+    let mut daemon = Daemon::with_env("qdeq", "approve-all", &seam);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the gate"}], "_meta": {"acpmux": {"promptId": "q-1"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-1"
+    });
+    // The gated turn ends, q-1 leaves the queue for its turn, and the daemon stops there.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_exit();
+    drop(client);
+    let of_q1 = |events: &[Value], kind: &str| {
+        events.iter().filter(|e| e["kind"] == kind && e["msg"]["promptId"] == "q-1").count()
+    };
+    let events = daemon.events(&session);
+    assert_eq!(of_q1(&events, "dequeued"), 1, "q-1 never left the queue: {events:#?}");
+    assert_eq!(of_q1(&events, "turn_started"), 0, "q-1's turn started before the stop");
+
+    daemon.env.clear();
+    daemon.start();
+    let mut resend = daemon.rpc().await;
+    let resent = resend
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the gate"}], "_meta": {"acpmux": {"promptId": "q-1", "resend": true}}}),
+        )
+        .await;
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), resend.lines.next_line())
+            .await
+            .expect("the resent prompt answered in time")
+            .unwrap()
+            .expect("daemon closed the socket");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(resent)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "q-1 never ran: {reply:#}");
+    daemon.wait_event(&session, "q-1's answer", |e| chunk(e, "echo: after the gate"));
+    let events = daemon.events(&session);
+    assert_eq!(events.iter().filter(|e| chunk(e, "echo: after the gate")).count(), 1);
+    assert_eq!(of_q1(&events, "turn_started"), 1, "q-1 ran more than once");
+}
+
+/// A restarted daemon whose chat-log load fails still answers. `_acpmux/attach` and prompts wait
+/// for that load (#22916); a load that panicked never said it was done, so they waited forever.
+/// `ACPMUX_TEST_PANIC_IN_LOAD_LOGS` makes the second daemon's load panic.
+#[tokio::test]
+async fn attach_and_prompts_survive_a_failed_log_load() {
+    let mut daemon = Daemon::new("lpanic", "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    daemon.env = vec![("ACPMUX_TEST_PANIC_IN_LOAD_LOGS".into(), "1".into())];
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    // `Rpc::reply` waits 30 s at most: a hang fails here.
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert!(
+        attached["session"]["queue"].is_array(),
+        "attach answered without the session: {attached:#}"
+    );
+    let answered = rpc
+        .call("session/prompt", json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the failed load"}]}))
+        .await;
+    assert_eq!(answered["stopReason"], "end_turn", "the prompt did not run: {answered:#}");
+    daemon.wait_event(&session, "the prompt's answer", |e| chunk(e, "echo: after the failed load"));
+}
+
 /// A message's provenance (`_meta.acpmux.provenance`, cx-55d27) stays with its queued prompt
 /// across a daemon crash: the rebuilt prompt's `user_message` still names the agent that sent it.
 #[tokio::test]
@@ -1133,4 +1629,182 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
         e["kind"] == "user_message" && e["msg"]["promptId"] == "q-prov"
     });
     assert_eq!(ran["msg"]["_meta"]["provenance"], provenance, "{ran:#}");
+}
+
+/// `_acpmux/info` with `waitLogs: false` answers while a restarted daemon still reads the chat
+/// logs, and says so (`logsLoading`). The app daemon's callers give info 2 s (cmux-tui-core
+/// `agent_message_acpmux.rs`, `agent_session_link.rs`) and read only what the session list
+/// holds; a large log store takes longer to read. Without the flag info still waits for the logs
+/// (#22916). `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the second daemon's log load.
+#[tokio::test]
+async fn info_answers_while_the_chat_logs_load() {
+    const HOLD: Duration = Duration::from_secs(6);
+    let mut daemon = Daemon::new("ilogs", "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    daemon.env = vec![("ACPMUX_TEST_DELAY_LOAD_LOGS_MS".into(), HOLD.as_millis().to_string())];
+    let started = Instant::now();
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    let early = tokio::time::timeout(
+        Duration::from_secs(2),
+        rpc.call("_acpmux/info", json!({"sessionId": session, "waitLogs": false})),
+    )
+    .await
+    .expect("_acpmux/info {waitLogs: false} answered within 2 s while the logs load");
+    assert_eq!(early["sessionId"], session.as_str(), "{early:#}");
+    assert_eq!(early["logsLoading"], true, "info did not say the logs are loading: {early:#}");
+
+    let waited = rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    assert!(started.elapsed() >= HOLD, "info answered before the logs were read: {waited:#}");
+    assert_eq!(waited["logsLoading"], false, "{waited:#}");
+}
+
+/// A config whose `slow` launcher check (`config/launchers.rs`) waits until `<home>/go` exists:
+/// the daemon's startup, and so the run of every prompt it restored (`resume_queues`), waits
+/// for the test. A check a killed daemon left behind ends once the test removes its home.
+fn hold_startup(daemon: &Daemon) {
+    let script = daemon.home.join("hold-startup.sh");
+    let go = daemon.home.join("go");
+    std::fs::write(
+        &script,
+        format!(
+            "#!/bin/sh\ni=0\nwhile [ ! -e '{}' ] && [ -d '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done\necho 'slow 1.0'\n",
+            go.display(),
+            daemon.home.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&script, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
+    std::fs::write(
+        daemon.home.join("config.json"),
+        json!({"harnesses": {"fake": {"argv": ["python3", FAKE]}, "slow": {"argv": [script, "claude", "proxy"]}}, "defaultHarness": "fake", "permissionPolicy": "approve-all"}).to_string(),
+    )
+    .unwrap();
+}
+
+/// A dequeued prompt whose turn never started comes back after a crash (`lost_start.rs`); edited
+/// and moved there before it ran, it keeps that edit and place across a second crash, and still
+/// runs once, with its image. The restarted daemons' startup waits (`hold_startup`), so the
+/// restored prompts wait too.
+#[tokio::test]
+async fn a_restored_dequeued_prompt_keeps_its_edits_across_a_second_crash() {
+    let seam = [("ACPMUX_TEST_EXIT_AFTER_DEQUEUE", "1")];
+    let mut daemon = Daemon::with_env("qdeq2", "approve-all", &seam);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    let image =
+        json!({"type": "image", "mimeType": "image/png", "data": "iVBORw==", "name": "shot.png"});
+    let prompts = [
+        ("q-1", json!([{"type": "text", "text": "first text"}, image])),
+        ("q-2", json!([{"type": "text", "text": "second text"}])),
+    ];
+    for (id, prompt) in prompts {
+        client
+            .send(
+                "session/prompt",
+                json!({"sessionId": session, "prompt": prompt, "_meta": {"acpmux": {"promptId": id}}}),
+            )
+            .await;
+        daemon.wait_event(&session, "queued record", |e| {
+            e["kind"] == "queued" && e["msg"]["promptId"] == id
+        });
+    }
+    // The gated turn ends, q-1 leaves the queue for its turn, and the daemon stops there.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_exit();
+    drop(client);
+    let of = |events: &[Value], kind: &str, id: &str| {
+        events.iter().filter(|e| e["kind"] == kind && e["msg"]["promptId"] == id).count()
+    };
+    let events = daemon.events(&session);
+    assert_eq!(of(&events, "dequeued", "q-1"), 1, "q-1 never left the queue: {events:#?}");
+    assert_eq!(of(&events, "turn_started", "q-1"), 0, "q-1's turn started before the stop");
+
+    // The second daemon puts q-1 back first; it is edited and moved behind q-2 before it runs.
+    daemon.env.clear();
+    hold_startup(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let ids = |attached: &Value| -> Vec<String> {
+        let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+        queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect()
+    };
+    assert_eq!(ids(&attached), ["q-1", "q-2"], "the first restart lost the queue: {attached:#}");
+    let edit = |op: &str, extra: Value| {
+        let mut p = json!({"sessionId": session, "promptId": "q-1", "op": op});
+        p.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
+        p
+    };
+    let updated =
+        rpc.call("_acpmux/queue_edit", edit("update", json!({"text": "first edited"}))).await;
+    assert_eq!(updated["ok"], true, "{updated}");
+    let moved = rpc.call("_acpmux/queue_edit", edit("move", json!({"index": 1}))).await;
+    assert_eq!(moved["ok"], true, "{moved}");
+    let events = daemon.events(&session);
+    assert_eq!(of(&events, "turn_started", "q-1"), 0, "q-1 started on the second daemon");
+    assert_eq!(of(&events, "turn_started", "q-2"), 0, "q-2 started on the second daemon");
+
+    // A second crash before either runs: the third daemon has the edit and the order.
+    daemon.sigkill();
+    drop(rpc);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert_eq!(ids(&attached), ["q-2", "q-1"], "the second restart lost the order: {attached:#}");
+    let queue = attached["session"]["queue"].as_array().unwrap();
+    assert_eq!(
+        queue[1]["prompt"], "first edited",
+        "the second restart lost the edit: {attached:#}"
+    );
+    // A client that resends q-1 waits for its one run.
+    let mut resend = daemon.rpc().await;
+    let resent = resend
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "first text"}], "_meta": {"acpmux": {"promptId": "q-1", "resend": true}}}),
+        )
+        .await;
+    std::fs::write(daemon.home.join("go"), b"").unwrap();
+    let reply = loop {
+        let line = tokio::time::timeout(Duration::from_secs(30), resend.lines.next_line())
+            .await
+            .expect("the resent prompt answered in time")
+            .unwrap()
+            .expect("daemon closed the socket");
+        let v: Value = serde_json::from_str(&line).unwrap();
+        if v.get("id") == Some(&json!(resent)) {
+            break v;
+        }
+    };
+    assert_eq!(reply["result"]["stopReason"], "end_turn", "q-1 never ran: {reply:#}");
+    let edited = |e: &Value| {
+        e["msg"]["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+            && e["msg"]["params"]["update"]["content"]["text"]
+                .as_str()
+                .is_some_and(|t| t.starts_with("echo: first edited"))
+    };
+    let ran = daemon.wait_event(&session, "the edited prompt's answer", edited);
+    let text = ran["msg"]["params"]["update"]["content"]["text"].as_str().unwrap_or_default();
+    assert!(text.contains(" image:"), "the edit dropped q-1's image: {text}");
+    let events = daemon.events(&session);
+    let order: Vec<&str> = events
+        .iter()
+        .filter(|e| e["kind"] == "turn_started")
+        .filter_map(|e| e["msg"]["promptId"].as_str())
+        .filter(|id| id.starts_with("q-"))
+        .collect();
+    assert_eq!(order, ["q-2", "q-1"], "the queued prompts ran out of order or twice");
+    assert_eq!(events.iter().filter(|e| edited(e)).count(), 1, "q-1 ran more than once");
+    let old = |e: &Value| {
+        e["msg"]["params"]["update"]["content"]["text"]
+            .as_str()
+            .is_some_and(|t| t.starts_with("echo: first text"))
+    };
+    assert_eq!(
+        events.iter().filter(|e| old(e)).count(),
+        0,
+        "q-1 ran its text from before the edit"
+    );
 }

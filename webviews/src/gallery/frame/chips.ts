@@ -13,8 +13,10 @@ export function installChipHost(fixture: ChipHostFixture | undefined): void {
     return;
   }
   setProjectIconHost(async (method, params) => {
-    const icon = method === "project.icon" ? fixture.projectIcons?.[params.cwd as string] : undefined;
-    return icon ? { src: icon } : {};
+    if (method !== "project.icon") return {};
+    const icon = fixture.projectIcons?.[params.cwd as string];
+    const glyph = fixture.projectGlyphs?.[params.cwd as string];
+    return { ...(icon ? { src: icon } : {}), ...(glyph ? { glyph } : {}) };
   });
   setChipHost(async (method, params) => {
     if (method === "link.inspect") {

@@ -1,6 +1,7 @@
 // The editor's keys. Monaco handles plain typing, navigation and its own editing chords inside the
 // editor; the app's single key dispatcher resolves every chord first (keybindings.md 4.2), so a chord
-// bound in the app (Cmd-S, Cmd-P, Cmd-D, Cmd-Shift-[ ...) never reaches Monaco. App actions the
+// bound in the app (Cmd-S, Cmd-P, Cmd-W ...) never reaches Monaco, except the app chords that yield
+// to the editor (Cmd-D, Shift-Cmd-L, Cmd-L ...). App actions the
 // editor should run arrive as page commands (`cmux.page.command`), mapped here to Monaco actions:
 // the shared ones (`find`, `save`) and `editorAction` with a Monaco action id from `EDITOR_ACTIONS`,
 // so the Keys lead can bind any of them under an editor context without a page change.
@@ -106,6 +107,39 @@ export function editorAction(command: EditorCommand, text?: string): string | nu
   if (command === "editorAction") return typeof text === "string" && isEditorAction(text) ? text : null;
   if (command === "save") return null;
   return COMMAND_ACTIONS[command] ?? null;
+}
+
+/** A place in the file, 1-based; the column counts UTF-16 code units (Monaco's). */
+export interface RevealPosition {
+  line: number;
+  column: number;
+}
+
+/**
+ * The position of the `reveal` page command's `text`, "line:column" or "line" (a Find result opened
+ * in a tab that already shows its file), or null when it is malformed.
+ */
+export function revealPosition(text: string | undefined): RevealPosition | null {
+  const match = typeof text === "string" ? /^(\d+)(?::(\d+))?$/.exec(text.trim()) : null;
+  if (!match) return null;
+  const line = Number(match[1]);
+  const column = match[2] === undefined ? 1 : Number(match[2]);
+  return line >= 1 && column >= 1 ? { line, column } : null;
+}
+
+/** The config's `reveal` (`{line, column}`), or null when absent or malformed. */
+export function revealOf(value: unknown): RevealPosition | null {
+  const position = value as Partial<RevealPosition> | null | undefined;
+  const line = position?.line;
+  const column = position?.column ?? 1;
+  return typeof line === "number" &&
+    Number.isInteger(line) &&
+    line >= 1 &&
+    typeof column === "number" &&
+    Number.isInteger(column) &&
+    column >= 1
+    ? { line, column }
+    : null;
 }
 
 export function isEditorCommand(value: unknown): value is EditorCommand {

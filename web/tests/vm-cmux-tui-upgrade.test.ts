@@ -53,7 +53,7 @@ canary_crash_loop
     }
   }, 20000);
 
-  test.each(["absent", "untrusted", "trusted"])("no daemon is skipped with a %s supervisor", async (mode) => {
+  test.each(["absent", "unsupported", "trusted", "client-grant"])("cloud auth gate handles a %s supervisor", async (mode) => {
     const root = mkdtempSync(path.join(tmpdir(), "cmux-upgrade-gate-"));
     const run = path.join(root, "run");
     mkdirSync(run);
@@ -67,15 +67,15 @@ ${functions}
       daemon_pid() { ${mode === "absent" ? ":" : "echo 77"}; }
       sleep() { :; }
       pgrep() { ${mode === "absent" ? "return 1" : "return 0"}; }
-      daemon_has_trusted_carrier() { ${mode === "trusted" ? ":" : "return 1"}; }
+      daemon_has_supported_cloud_entry() { ${mode === "trusted" || mode === "client-grant" ? ":" : "return 1"}; }
       canary_crash_loop() { finish "OK fixture-canary"; }
 ${script.slice(gateStart, gateEnd)}
-[ "${mode}" = trusted ] && canary_crash_loop
+[ "${mode}" = trusted ] || [ "${mode}" = client-grant ] && canary_crash_loop
 `;
       const result = await runChild("/bin/sh", ["-c", fixture, "fixture", "target-sha", "target-commit", run], { timeout: 5000 });
       expect(result.status).toBe(0);
       expect(readFileSync(path.join(run, "result"), "utf8").trim()).toBe(
-        mode === "absent" ? "SKIP no-daemon" : mode === "untrusted" ? "SKIP no-trusted-carrier" : "OK fixture-canary",
+        mode === "absent" ? "SKIP no-daemon" : mode === "unsupported" ? "SKIP unsupported-cloud-auth" : "OK fixture-canary",
       );
     } finally {
       rmSync(root, { recursive: true, force: true });

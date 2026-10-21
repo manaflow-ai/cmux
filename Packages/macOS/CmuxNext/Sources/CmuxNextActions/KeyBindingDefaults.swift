@@ -89,7 +89,13 @@ public nonisolated struct KeyBindingDefaults {
                    when: .and([notTerminal, .not(.has(KeyContext.codeEditorFocusedKey))])),
         // Cmd-Shift-R on Home: Reply to Selection (free in the defaults; Cmd-R is Rename Tab and Reload).
         KeyBinding(keys: [Shortcut("r", modifiers: [.command, .shift])], command: "home.replyToSelection", when: onHome),
+        // Cmd-W in the sidebar with several rows selected closes them, as Chrome's Cmd-W closes its
+        // selected tabs (Leo 2026-10-20); with one row selected it still closes the shown tab.
+        KeyBinding(keys: [Shortcut("w", modifiers: [.command])], command: "closeWorkspace", when: sidebarMultiSelection),
     ]
+
+    /// The sidebar list has the keyboard with two or more rows selected.
+    public static let sidebarMultiSelection = WhenClause.has(KeyContext.sidebarMultiSelection)
 
     /// Home has the keyboard: its top page, its conversation view, or the docked Home's page.
     public static let onHome = WhenClause.or([
@@ -174,6 +180,35 @@ public nonisolated struct KeyBindingDefaults {
         "increaseWorkspaceTerminalFontSize", "decreaseWorkspaceTerminalFontSize", "resetWorkspaceTerminalFontSize",
         "groupSelectedWorkspaces", "toggleChecklistItemComplete",
     ]
+
+    /// Actions whose default key an agent chat or a web page also uses: their default binding
+    /// applies everywhere but there (`notWebContent`), so the page's own handler gets the key.
+    /// Cmd-Return steers a running agent turn in the composer (Composer.tsx) and submits forms
+    /// on many sites; the checklist toggle took it first and refused "no todo items".
+    public static let yieldsToWebContent: Set<ActionID> = ["toggleChecklistItemComplete"]
+
+    /// Not an agent chat (`agent`, the acpmux page) and not a web page (`page`).
+    public static let notWebContent = WhenClause.and([
+        .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("page")),
+    ])
+
+    /// The keys a focused text field or composer uses itself (Leo, 2026-10-20): Return sends and
+    /// its Command, Shift and Option forms steer, add a line or send another way; Esc cancels or
+    /// stops a turn; ↑ recalls a prompt or a queued one. A default binding on one of them steps
+    /// aside while text input has the keyboard (`notTextInput`), so the field gets the key, unless
+    /// its action is scoped to a surface (`requires`: the omnibar's Cmd-Return, the file explorer's
+    /// Return).
+    /// The checklist toggle took Cmd-Return from the chat composer and refused "no todo items".
+    public static let textInputKeys: Set<Shortcut> = [
+        Shortcut(Shortcut.returnKey, modifiers: []), Shortcut(Shortcut.returnKey, modifiers: [.command]),
+        Shortcut(Shortcut.returnKey, modifiers: [.shift]), Shortcut(Shortcut.returnKey, modifiers: [.option]),
+        Shortcut(Shortcut.escapeKey, modifiers: []), Shortcut(Shortcut.upArrowKey, modifiers: []),
+    ]
+
+    /// No text field, page editor or terminal TextBox has the keyboard.
+    public static let notTextInput = WhenClause.and([
+        .not(.has(KeyContext.textInputFocus)), .not(.has("textBoxFocused")),
+    ])
 
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific

@@ -5,8 +5,8 @@
 //
 // - Enter queues: the queue row shows the prompt and the composer is free for the next one. The
 //   prompt shows there from the send on, never first as a transcript bubble.
-// - ⌘Enter steers, and an agent that cannot steer is told to stop the turn and run it next
-//   (`_meta.acpmux.interrupt`); the button says so.
+// - Nothing sent stops the turn (Leo 2026-10-20): to an agent that cannot steer, ⌘Enter queues the
+//   prompt too, with no steer control and no `_meta.acpmux.interrupt`.
 // - Esc stops the turn on a second press (escapeStop.ts): the first turns Stop into an Esc hint,
 //   and typing, a click, focus moving or the window ending puts Stop back. An Esc nothing else took
 //   (focus outside the composer, as in a question card) counts too; with no turn, Esc does nothing.
@@ -20,6 +20,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -226,6 +227,7 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
     const page = await browser!.newPage({
       viewport: { width: 900, height: 760 },
     });
+    await installPaintedFrames(page);
     const { port } = vite!.httpServer!.address() as { port: number };
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
@@ -265,16 +267,14 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
 
     test("a prompt sent behind the turn never draws as a transcript bubble before its queue row", async () => {
       const page = await openChat();
-      // Every bubble the transcript draws with the prompt's text, frame by frame.
+      // Every bubble the transcript draws with the prompt's text, painted frame by painted frame.
       await page.evaluate(() => {
         const seen: string[] = [];
         (window as unknown as { bubbles: string[] }).bubbles = seen;
-        const look = () => {
+        window.cmuxAfterPaint(() => {
           for (const row of document.querySelectorAll<HTMLElement>("[data-row-id]"))
             if (row.innerText.includes("queued a beat late")) seen.push(row.dataset.rowId ?? "");
-          requestAnimationFrame(look);
-        };
-        look();
+        });
       });
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("queued a beat late");
@@ -286,16 +286,12 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
       await page.close();
     });
 
-    test("⌘Enter interrupts an agent that cannot steer and sends now", async () => {
+    test("⌘Enter queues to an agent that cannot steer and never stops the turn", async () => {
       const page = await openChat();
       await page.locator(".acpmux-composer-prompt").click();
       await page.keyboard.type("use the new tokenizer");
-      const button = page.getByRole("button", { name: "Interrupt and send" });
-      await button.waitFor();
       await page.keyboard.press("Meta+Enter");
-      await page.waitForFunction(
-        () => document.querySelector(".acpmux-composer-prompt .ProseMirror")?.textContent?.trim() === "",
-      );
+      await page.locator(".acpmux-queued", { hasText: "use the new tokenizer" }).waitFor();
       expect({
         meta: prompts.map(
           (p) =>
@@ -304,8 +300,9 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
               interrupt: p._meta.acpmux.interrupt,
             },
         ),
-        queued: await page.locator(".acpmux-queued").count(),
-      }).toEqual({ meta: [{ steer: true, interrupt: true }], queued: 0 });
+        steerControl: await page.locator(".acpmux-steer-now").count(),
+        cancels: cancels.length,
+      }).toEqual({ meta: [{ steer: undefined, interrupt: undefined }], steerControl: 0, cancels: 0 });
       await page.close();
     });
 
@@ -562,7 +559,10 @@ await requireBrowserLane("agent-pane-steer.test.ts", async () => {
           `http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`,
         );
         await page.locator(".acpmux-composer-prompt").click();
-        await page.getByRole("button", { name: "Send" }).waitFor({ timeout: 5_000 });
+        // The finished chat has drawn: its prompt's bubble comes with the turn's end in one attach.
+        // The empty draft draws no Send (Claude desktop's box: no Send until there is a draft,
+        // Leo 2026-10-20), so the bubble, not Send, says the idle chat is in.
+        await page.locator(".cv-user__bubble", { hasText: turn.prompt }).waitFor({ timeout: 5_000 });
         expect(await stopButton(page).count()).toBe(0);
         await page.keyboard.press("Escape");
         await page.waitForTimeout(200);

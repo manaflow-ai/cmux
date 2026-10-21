@@ -103,6 +103,7 @@ extension CEFTab {
         case .renderUnresponsive: machine.apply(.unresponsiveChanged(true))
         case .renderResponsive: machine.apply(.unresponsiveChanged(false))
         case .permissionPrompt, .permissionDismissed, .passwordPrompt: CEFPermissionPrompts(tab: self).handle(event)
+        case .beforeUnloadDismissed: beforeUnloadDismissed()
         case .devToolsMessage(_, let json):
             agentRelay.deliver(json)
         default:

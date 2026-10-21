@@ -40,6 +40,104 @@ pub(super) fn append_scope_help(scope: &str, text: Cow<'static, str>) -> Cow<'st
     }
 }
 
+/// A task an agent searches for in words of its own, which no one operation
+/// answers: the operations and app actions for it, in one paragraph. `cmux
+/// docs search` and the MCP `cmux_docs` tool return the guides one of whose
+/// keywords is a word of the query.
+#[derive(Clone, Copy, Debug, Serialize)]
+pub(super) struct Guide {
+    pub(super) topic: &'static str,
+    #[serde(skip)]
+    keywords: &'static [&'static str],
+    pub(super) text: &'static str,
+}
+
+pub(super) const GUIDES: &[Guide] = &[
+    Guide {
+        topic: "Show your work to the user without moving their focus",
+        keywords: &[
+            "show",
+            "user",
+            "person",
+            "visible",
+            "see",
+            "focus",
+            "steal",
+            "status",
+            "progress",
+            "report",
+            "chat",
+            "conversation",
+            "notify",
+            "attention",
+        ],
+        text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
+        app_agent_open {session, group}, CLI `cmux agent open SESSION [--group G]`) opens that \
+        session's chat in a new workspace, in sidebar group G (made when missing) when given; \
+        the workspace the user looks at stays. Open a link: \
+        workspace_open_url {url, workspace} loads it in a browser tab on the workspace's right \
+        side and keeps the keyboard focus, but it navigates a browser tab already there, so \
+        when the user's page must stay use browser_profile_open {url, profile: \"default\", pane, \
+        activate: false} (CLI `cmux browser profile open URL --profile default --background \
+        true`), which adds a tab and keeps the pane's selected tab. Post \
+        status on a workspace's sidebar row: workspace_status_set {workspace, key, text, state, \
+        progress, ttl_ms} (CLI `cmux workspace WS status set KEY TEXT`), workspace_progress_set \
+        and workspace_log_append; clear them when the work is done. Ask for attention: \
+        notification_create {title, body} (desktop: false shows no banner). The focus tools \
+        (tab_focus, pane_focus, screen_focus, workspace_focus, agents_tab_select) and focus: true \
+        move the user's focus: use them only when the user asked. The selector `current` is what \
+        the user looks at, not your own workspace.",
+    },
+    Guide {
+        topic: "Set up cmux for the person: trust, harnesses, machines, accounts",
+        keywords: &[
+            "setup",
+            "configure",
+            "install",
+            "onboard",
+            "onboarding",
+            "trust",
+            "login",
+            "signin",
+            "harness",
+            "outdated",
+            "peer",
+            "enroll",
+            "machine",
+            "ssh",
+        ],
+        text: "`cmux setup list` names every setup task (folder trust, harness install and sign-in, \
+        ssh machines, peer updates, accounts, Cloud machines, Tailscale, MCP wiring, Computer \
+        Use, browser import, key bindings, notifications, team invites) with the read-only \
+        commands that check it, the commands that do it, and what only the person can do. \
+        `cmux setup status` checks the tasks setup runs. `cmux setup trust [FOLDER]` records \
+        trust for a folder; it changes nothing when the folder is already trusted, --dry-run \
+        prints the plan, and every result names its undo command. `cmux setup machine \
+        SSH_TARGET [--name NAME]` adds an ssh machine as an acpmux peer (`cmux acp host \
+        setup`), updates a peer on an older build (`cmux acp host update`), and is ok when the \
+        peer is connected and current; it uses key-only ssh, and a host it cannot reach comes \
+        back as needs_user with the ssh command to try. `cmux setup harness [ID ...]` reports \
+        whether each harness (default: every configured or found one) is installed, signed in \
+        and outdated; a missing CLI or sign-in is needs_user with the install docs or `cmux \
+        harness login ID`. `cmux setup status` lists every peer with connected and outdated, \
+        and every harness. Every `cmux setup` command prints one JSON object: state is ok, \
+        changed, planned, needs_user or failed.",
+    },
+];
+
+/// The guides for `query` (see [`Guide`]).
+pub(super) fn guides(query: &str) -> Vec<Guide> {
+    let terms = query
+        .split(|c: char| c.is_whitespace() || matches!(c, '_' | '.' | '-'))
+        .map(str::to_ascii_lowercase)
+        .collect::<Vec<_>>();
+    GUIDES
+        .iter()
+        .filter(|guide| guide.keywords.iter().any(|keyword| terms.iter().any(|t| t == keyword)))
+        .copied()
+        .collect()
+}
+
 #[derive(Clone, Debug, Serialize)]
 struct SearchResult {
     name: String,
@@ -53,6 +151,8 @@ struct SearchResult {
 #[derive(Serialize)]
 struct SearchResponse {
     query: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    guides: Vec<Guide>,
     results: Vec<SearchResult>,
 }
 
@@ -85,7 +185,8 @@ pub(super) fn help() -> &'static str {
 
 pub(super) fn run(plan: Plan) -> i32 {
     let results = search(&plan.query);
-    let response = SearchResponse { query: plan.query, results };
+    let guides = guides(&plan.query);
+    let response = SearchResponse { query: plan.query, guides, results };
     let mut stdout = io::stdout().lock();
     match plan.output {
         OutputMode::Quiet => {}
@@ -95,6 +196,9 @@ pub(super) fn run(plan: Plan) -> i32 {
         }
         OutputMode::Human => {
             let _ = writeln!(stdout, "cmux docs search: {}", response.query);
+            for guide in &response.guides {
+                let _ = writeln!(stdout, "  Guide: {}\n    {}", guide.topic, guide.text);
+            }
             if response.results.is_empty() {
                 let _ = writeln!(stdout, "No matching operations.");
             } else {
@@ -236,6 +340,29 @@ mod tests {
         assert!(has_scope_operations("sidebar"));
         assert!(has_scope_operations("pairing"));
         assert!(has_scope_operations("projection"));
+    }
+
+    /// An agent that searches in its own words for showing its work finds
+    /// the guide, and the guide names only tools that exist.
+    #[test]
+    fn showing_work_to_the_user_finds_its_guide() {
+        for query in ["show the user", "status", "open a chat"] {
+            assert_eq!(guides(query).len(), 1, "{query}");
+        }
+        assert!(guides("browser navigate").is_empty());
+        let operations = catalog()["operations"].as_object().unwrap();
+        for op in [
+            "workspace.open_url",
+            "browser.profile.open",
+            "workspace_status.set",
+            "workspace_progress.set",
+            "workspace_log.append",
+            "notification.create",
+            "tab.focus",
+        ] {
+            assert!(operations.contains_key(op), "{op}");
+            assert!(GUIDES[0].text.contains(&op.replace('.', "_")), "{op}");
+        }
     }
 
     #[test]

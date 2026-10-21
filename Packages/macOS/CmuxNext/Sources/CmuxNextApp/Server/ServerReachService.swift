@@ -243,7 +243,7 @@ final class ServerReachService {
     }
 
     /// Restores servers the registry holds that this run has not seen.
-    private func restore(_ records: [SessionRecord]) {
+    func restore(_ records: [SessionRecord]) {
         guard signedInUser() != nil else { return }
         for record in records {
             guard let fields = record.transport.flatMap(SSHService.fields), let reach = ServerReach(transportFields: fields),

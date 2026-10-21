@@ -20,7 +20,12 @@ export default componentEntry<UrlChipProps>({
   id: "agent-pane.url-chip",
   title: "URL chips",
   area: "Agent pane",
-  covers: ["agent-session/acpmux/chips/LinkChips.tsx#UrlChip"],
+  covers: [
+    "agent-session/acpmux/chips/LinkChips.tsx#UrlChip",
+    // Its hover card.
+    "agent-session/acpmux/chips/LinkHoverCard.tsx#LinkHoverCard",
+    "agent-session/acpmux/chips/PullRequestCard.tsx#PullRequestCardBody",
+  ],
   load: () => import("./LinkChips").then((module) => module.UrlChip),
   styles: () =>
     Promise.all([import("../styles.css"), import("../conversation/conversation.css"), import("./chips.css")]),
@@ -35,6 +40,16 @@ export default componentEntry<UrlChipProps>({
         await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
         await ctx.hover({ selector: ".cv-link-preview" });
         await ctx.click({ selector: ".cv-link-preview__open" });
+      },
+    },
+    "token-url": {
+      props: {
+        href: "http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b",
+        children: "http://127.0.0.1:47811?token=0f3c9a7d51e2b8846a0c3f9e1d7b2a5c6e8f0a1b",
+      },
+      play: async (ctx) => {
+        await ctx.hover({ selector: "a.cv-chip.is-web" });
+        await ctx.waitFor(() => ctx.document.querySelector(".cv-link-preview"));
       },
     },
     "long-url": {

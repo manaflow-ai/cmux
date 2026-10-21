@@ -22,6 +22,7 @@ export const CATEGORY_CARDS = [
   "advancedActions",
   "backdrops",
   "mobile",
+  "chiefPet",
   "density",
 ] as const;
 

@@ -43,9 +43,8 @@ struct AgentTabContent {
         }
         view.model.onOpenPreview = { [weak pane] url in
             guard let pane else { return false }
-            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.open(from: pane) { target, placed in
-                target.newBrowserTab(url: url, background: placed != nil, then: placed)
-            } }
+            // A clicked link's tab, the hover card's Open: as a link clicked in the chat (LinkOpener.openWeb).
+            if url.scheme == "http" || url.scheme == "https" { return pane.services.linkOpener.openWeb(url, from: pane, background: false) }
             return pane.services.registry.openAgentPreview(url, pane: pane.paneKey)
         }
         if !view.model.hasPainted { drawLastPage(key, until: view) }
@@ -82,16 +81,16 @@ struct AgentTabContent {
     private func coverMove(of view: AgentPaneView) {
         let paneView = pane.view, appearance = Self.appearance(of: paneView)
         let size = pane.services.newTabSpares.openingSize(of: view) ?? paneView.contentHost.bounds.size
+        // Only a frame at that size (none for a pane not laid out), and the page stays clear until it drew there, cover or
+        // not: a page shown at its parked size (a split pane's) shifted as it laid out again (Leo 2026-10-20).
         let own = view.redraw.takeRememberedFrame(size: size, appearance: appearance)
-        guard paneView.launchImageView == nil, let image = own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
-        else { return BenchSpans.mark("newTab.cover.none \(size) \(String(describing: appearance))") }
-        BenchSpans.mark(own != nil ? "newTab.cover.own" : "newTab.cover")
-        paneView.showLaunchImage(image)
+        let image = size == .zero || paneView.launchImageView != nil ? nil : own ?? AgentPaneNewTabFrame.shared.image(size: size, appearance: appearance)
+        BenchSpans.mark(image == nil ? "newTab.cover.none \(size) \(String(describing: appearance))" : own != nil ? "newTab.cover.own" : "newTab.cover")
         // The image's deadline shows the page too, should its frame never be reported.
-        paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() }
+        if let image { paneView.showLaunchImage(image); paneView.onLaunchImageCleared = { [weak view] in view?.revealMovedPage() } }
         view.hideMovedPage { [weak paneView] in
             BenchSpans.mark("newTab.cover.cleared")
-            paneView?.clearLaunchImage()
+            if image != nil { paneView?.clearLaunchImage() }
         }
     }
 

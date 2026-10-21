@@ -5,7 +5,7 @@ import Foundation
 import Testing
 
 /// Group chats with Chiefs from the Mac (plans/cmux-next/chief-group-chats-DESIGN.md): the
-/// Chiefs strip under New Message's To:, `cmux chat create --members` and `cmux chat replies`
+/// Chiefs listed under New Message's To:, `cmux chat create --members` and `cmux chat replies`
 /// (one path, `HomeGroupActions`), and the group info's Chiefs Reply row. The mock's Chiefs are
 /// "Chief", "Release Chief" and "Infra Chief"; "Launch" is me, Aziz and Leo.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1)))
@@ -107,9 +107,9 @@ struct ChiefGroupChatActionsTests {
         #expect(ChiefReplyPolicy(argument: text) == policy)
     }
 
-    // MARK: New Message's Chiefs strip
+    // MARK: New Message's Chiefs (listed under To: before anything is typed)
 
-    @Test func theStripOffersEachChiefNotChosenYet() {
+    @Test func newMessageOffersEachChiefNotChosenYet() {
         let ada = HomeContact(id: ParticipantID("ada"), name: "Ada", source: .team)
         let chief = HomeContact(id: self.chief, name: "Chief", source: .agent)
         let unii = HomeContact(id: ParticipantID("agent_unii"), name: "Unii", source: .agent)
@@ -121,7 +121,7 @@ struct ChiefGroupChatActionsTests {
         #expect(draft.chiefShortcuts(contacts: [ada, chief, unii]).isEmpty)
     }
 
-    @Test func theStripShowsAtMostSixChiefs() {
+    @Test func newMessageListsAtMostSixChiefs() {
         let many = (0..<9).map { HomeContact(id: ParticipantID("agent_\($0)"), name: "Chief \($0)", source: .agent) }
         #expect(HomeNewMessageDraft().chiefShortcuts(contacts: many).count == 6)
     }

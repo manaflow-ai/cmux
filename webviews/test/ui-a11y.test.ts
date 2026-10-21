@@ -372,7 +372,8 @@ await requireBrowserLane("ui-a11y.test.ts", async () => {
           await page.keyboard.press("Tab");
           await settle(page, 800);
           expect((await focused(page)).name).toBe(md["nav.back"]);
-          expect(await hints(page, [md["nav.back"]])).toEqual([md["nav.back"]]);
+          // ‹ and › are obvious glyphs: named for screen readers, with no hover hint (Leo, 2026-10-20).
+          expect(await hints(page, [])).toEqual([]);
           await page.keyboard.press(inlineEnd);
           expect((await focused(page)).name).toBe(md["nav.forward"]);
           await page.keyboard.press(inlineEnd);

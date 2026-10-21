@@ -15,8 +15,12 @@ impl Hub {
         meta: &SessionMeta,
         profile: &HarnessProfile,
         session_id: Option<&str>,
+        child: &crate::agent::ChildAgent,
     ) -> Value {
-        let all = crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env);
+        let all =
+            crate::agent_tools::lists_all_tools(&meta.harness, profile, &profile.env, &meta.cwd);
+        // A fork through this child asks for the same list (`fork.rs`).
+        child.all_tools.store(all, std::sync::atomic::Ordering::Relaxed);
         let servers =
             crate::agent_tools::acp_servers_for(meta.remote_origin, &profile.env, id, all);
         let mut params = json!({"cwd": meta.cwd, "mcpServers": servers});
@@ -171,6 +175,14 @@ impl Hub {
         // The MCP servers this chat turned off (`tools.rs`): Claude Code never calls their tools.
         if profile.kind == crate::config::HarnessKind::ClaudeStdio {
             p.argv.extend(super::tools::disallowed_args(&meta.tools));
+            // cmux's own servers run behind the cmux server (code mode), so
+            // they leave its fold instead (`agent_tools::OFF_ENV`).
+            let off: Vec<&str> =
+                meta.tools.off.iter().filter_map(|id| id.strip_prefix("mcp:")).collect();
+            p.env.remove(crate::agent_tools::OFF_ENV);
+            if !off.is_empty() {
+                p.env.insert(crate::agent_tools::OFF_ENV.to_owned(), off.join(","));
+            }
         }
         Ok((p, digest, account_home))
     }

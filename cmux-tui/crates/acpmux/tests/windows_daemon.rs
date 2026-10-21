@@ -66,19 +66,33 @@ struct Daemon {
 
 impl Daemon {
     fn start(exe: &Path, home: &Path, log: PathBuf) -> Self {
-        Self::start_with(exe, home, log, daemon_env::Agents::Deny)
+        Self::start_with(exe, home, log, daemon_env::Agents::Deny, None)
     }
 
     /// A daemon that starts its stand-in agents.
     fn start_agents(exe: &Path, home: &Path, log: PathBuf) -> Self {
-        Self::start_with(exe, home, log, daemon_env::Agents::StandIn)
+        Self::start_with(exe, home, log, daemon_env::Agents::StandIn, None)
     }
 
-    fn start_with(exe: &Path, home: &Path, log: PathBuf, agents: daemon_env::Agents) -> Self {
+    fn start_on_socket(exe: &Path, home: &Path, log: PathBuf, socket: &Path) -> Self {
+        Self::start_with(exe, home, log, daemon_env::Agents::Deny, Some(socket))
+    }
+
+    fn start_with(
+        exe: &Path,
+        home: &Path,
+        log: PathBuf,
+        agents: daemon_env::Agents,
+        socket: Option<&Path>,
+    ) -> Self {
         // Its log lines go to stdout, its errors to stderr: both to `log`.
         let out = std::fs::File::create(&log).unwrap();
         let err = out.try_clone().unwrap();
-        let child = acpmux_with(exe, home, agents)
+        let mut command = acpmux_with(exe, home, agents);
+        if let Some(socket) = socket {
+            command.env("ACPMUX_SOCKET", socket);
+        }
+        let child = command
             .args(["daemon", "run", "--memory", "--listen", "127.0.0.1:0", "--log", "info"])
             .stdout(out)
             .stderr(err)
@@ -100,7 +114,15 @@ impl Drop for Daemon {
 }
 
 fn status(exe: &Path, home: &Path) -> Value {
-    let out = acpmux(exe, home).args(["--json", "status"]).output().expect("run acpmux status");
+    status_on_socket(exe, home, None)
+}
+
+fn status_on_socket(exe: &Path, home: &Path, socket: Option<&Path>) -> Value {
+    let mut command = acpmux(exe, home);
+    if let Some(socket) = socket {
+        command.env("ACPMUX_SOCKET", socket);
+    }
+    let out = command.args(["--json", "status"]).output().expect("run acpmux status");
     assert!(out.status.success(), "acpmux status failed: {}", text(&out));
     serde_json::from_slice(&out.stdout)
         .unwrap_or_else(|e| panic!("status JSON: {e}: {}", text(&out)))
@@ -117,12 +139,21 @@ fn text(out: &Output) -> String {
 
 /// `acpmux status` until the daemon with `pid` answers it over the socket.
 fn wait_ready(exe: &Path, home: &Path, daemon: &mut Daemon) -> Value {
+    wait_ready_on_socket(exe, home, None, daemon)
+}
+
+fn wait_ready_on_socket(
+    exe: &Path,
+    home: &Path,
+    socket: Option<&Path>,
+    daemon: &mut Daemon,
+) -> Value {
     let deadline = Instant::now() + Duration::from_secs(60);
     loop {
         if let Some(code) = daemon.child.try_wait().unwrap() {
             panic!("the daemon exited ({code}) before it was ready:\n{}", daemon.log());
         }
-        let v = status(exe, home);
+        let v = status_on_socket(exe, home, socket);
         if v.get("pid").and_then(Value::as_u64) == Some(u64::from(daemon.child.id())) {
             return v;
         }
@@ -222,6 +253,9 @@ fn read_line(stream: &mut cmux::local_socket::Stream, timeout: Duration) -> Stri
 /// Shared with the LocalService peer: a folder both users may enter (the
 /// hosted step makes it and grants Everyone access).
 const OTHER_USER_DIR: &str = r"C:\amx-peer";
+/// Private daemon state, separate from the shared executable/marker/socket directory.
+const OTHER_USER_HOME: &str = r"C:\amx-peer-home";
+const OTHER_USER_SOCKET: &str = r"C:\amx-peer\acpmux.sock";
 
 /// The daemon runs as this user; a peer of another user (LocalService, from
 /// a scheduled task the hosted step starts) connects twice: `acpmux status`
@@ -231,13 +265,14 @@ const OTHER_USER_DIR: &str = r"C:\amx-peer";
 #[ignore = "hosted Windows runner only: the step starts the LocalService peer"]
 fn other_user_peer_is_refused() {
     let dir = Path::new(OTHER_USER_DIR);
-    let home = dir.join("home");
-    std::fs::create_dir_all(&home).unwrap();
+    let home = Path::new(OTHER_USER_HOME);
+    let socket = Path::new(OTHER_USER_SOCKET);
+    let _ = std::fs::remove_dir_all(home);
     // The peer runs this copy: the build folder may be closed to it.
     let peer_exe = dir.join("acpmux.exe");
     std::fs::copy(exe(), &peer_exe).unwrap();
-    let mut daemon = Daemon::start(&exe(), &home, dir.join("daemon.log"));
-    wait_ready(&exe(), &home, &mut daemon);
+    let mut daemon = Daemon::start_on_socket(&exe(), home, dir.join("daemon.log"), socket);
+    wait_ready_on_socket(&exe(), home, Some(socket), &mut daemon);
     std::fs::write(dir.join("ready"), b"1").unwrap();
     let done = dir.join("child-done");
     let deadline = Instant::now() + Duration::from_secs(90);
@@ -264,14 +299,14 @@ fn other_user_peer_is_refused() {
 #[ignore = "run by the hosted runner's LocalService scheduled task"]
 fn other_user_child() {
     let dir = Path::new(OTHER_USER_DIR);
-    let home = dir.join("home");
-    let socket = home.join("acpmux.sock");
+    let home = Path::new(OTHER_USER_HOME);
+    let socket = Path::new(OTHER_USER_SOCKET);
     let identity = cmux::local_socket::win::current_identity().unwrap();
     let mut report = format!("user: {}\n", identity.user_sid);
     let out = Command::new(dir.join("acpmux.exe"))
         .args(["--json", "status"])
-        .env("ACPMUX_HOME", &home)
-        .env_remove("ACPMUX_SOCKET")
+        .env("ACPMUX_HOME", home)
+        .env("ACPMUX_SOCKET", socket)
         .output();
     match out {
         // The daemon runs, so "not running" is the CLI's refusal of a
@@ -284,7 +319,7 @@ fn other_user_child() {
         },
         Err(e) => report.push_str(&format!("cli: did not run: {e}\n")),
     }
-    match cmux::local_socket::connect(&socket) {
+    match cmux::local_socket::connect(socket) {
         Ok(mut stream) => {
             let _ = stream.write_all(
                 b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"_acpmux/status\",\"params\":{}}\n",

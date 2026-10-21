@@ -3,6 +3,7 @@ import Observation
 import CmuxAgentBrands
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 import QuartzCore
 
 final class WorkspaceRowView: SidebarRowView {
@@ -13,6 +14,10 @@ final class WorkspaceRowView: SidebarRowView {
     let subtitle = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     /// Expanded rows (`sidebar.density`, cx-13w3; WorkspaceRowView+Expanded): the age and the meta line.
     let timeLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont), metaLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    /// How long the agent has worked ("4m"), beside the working dot when the name has room (WorkspaceRowView+Elapsed).
+    let elapsedLabel = SidebarRowView.label(font: SidebarStyle.subtitleFont)
+    var workingSince: Date?
+    let elapsedTicker = DemandTimer(owner: "sidebar.row.elapsed")
     let activity = StatusIndicatorView()
     /// The running agent's brand mark (`SidebarAgentMarkVariant`); hidden when off.
     internal let agentMark = DecorativeImageView() // the row's label says the agent's state
@@ -20,6 +25,8 @@ final class WorkspaceRowView: SidebarRowView {
     /// The last configuration, so a Debug Settings switch of `sidebar.agentMark` redraws the row.
     internal(set) var lastConfiguration: (SidebarWorkspace, SidebarRow, SidebarRowBadgeStyle?)?
     var activityState = StatusIndicatorState.idle
+    /// The Priority chip on the name's line, which colors that line's trailing text.
+    var chip: SidebarPriorityEntry.State? { didSet { if chip != oldValue { needsDisplay = true } } }
     let badge = UnreadBadgeView(), rowBadge = RowBadgeView() // the count, and its replacement (WorkspaceRowView+Badges)
     var rowBadgeStyle = SidebarRowBadgeStyle.corner
     /// The agents acting in the workspace (`sidebar.presenceDots`, cx-gg84).
@@ -36,8 +43,7 @@ final class WorkspaceRowView: SidebarRowView {
     /// The row's menu (cx-a9h6, ChatGPT project style): the right-click menu,
     /// under the button. Shows on hover only, over the end of the title
     /// behind a fade (Lawrence 2026-10-11: no layout shift).
-    let moreButton = SidebarIconButton(icon: .actionMore, pointSize: { Metrics.smallIconSize - Metrics.space1 },
-                                       label: Strings.workspaceMenu)
+    let moreButton = OverflowButton(label: Strings.workspaceMenu)
     /// An expanded row's Pin or Unpin (cx-13w3), on hover beside the menu button.
     let pinButton = SidebarIconButton(icon: .actionPin, pointSize: { Metrics.smallIconSize - Metrics.space2 }, label: Strings.pinWorkspace)
     /// `sidebar.showWorkspaceTabs`: hides or lists the workspace's tabs. Always drawn
@@ -49,6 +55,10 @@ final class WorkspaceRowView: SidebarRowView {
     /// `sidebar.workspaceRow.pullRequest`: the PR / CI badge a hook reported.
     let prBadge = SidebarRowView.label(font: SidebarStyle.subtitleFont)
     var badgeText: String?
+    /// The session tree (`sidebar.sessionTree`, WorkspaceRowView+SessionTree): a started workspace's
+    /// guide line, the pull request badge and the keycap.
+    let treeLine = NSView(), pullRequests = SidebarPullRequestBadgeView(), keycap = SidebarKeycapView()
+    var treeDepth = 0
     internal(set) var disclosure: SidebarTabDisclosure?
     internal(set) var count: Int?
 
@@ -113,8 +123,10 @@ final class WorkspaceRowView: SidebarRowView {
         agentMark.isHidden = true
         mutedMark.imageScaling = .scaleProportionallyDown
         mutedMark.isHidden = true
-        [icon, title, subtitle, timeLabel, metaLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock]
-            .forEach(addSubview)
+        mutedMark.setAccessibilityElement(false)
+        [icon, title, subtitle, timeLabel, metaLabel, elapsedLabel, activity, agentMark, mutedMark, audioButton, badge, rowBadge, presenceDots, closeButton, moreButton, pinButton, disclosureButton, tabCount, prBadge, placeholderBar, statusBlock,
+         treeLine, pullRequests, keycap].forEach(addSubview)
+        setUpSessionTree()
         disclosureButton.isHidden = true
         tabCount.isHidden = true
         prBadge.isHidden = true
@@ -171,6 +183,7 @@ final class WorkspaceRowView: SidebarRowView {
         onToggleTabs = nil
         onToggleAudio = nil
         title.stopMarquee()
+        stopElapsed()
         title.layer?.removeAnimation(forKey: "workspace-title-motion")
         lastTitle = nil
         titleArrivalGeneration &+= 1
@@ -245,11 +258,17 @@ final class WorkspaceRowView: SidebarRowView {
         subtitle.setFont(SidebarStyle.subtitleFont)
         subtitle.setString(row.detail ?? "")
         hasSubtitle = row.detail != nil
-        (isExpanded, timeText) = (shown.expanded, shown.trailingText)
-        timeLabel.setString(shown.trailingText ?? "")
+        // While the agent works, its running time takes the age's place (WorkspaceRowView+Elapsed).
+        let trailingText = shown.chip.map { SidebarPriorityRowView.chipText($0, now: Date()) }
+            ?? (shown.workingSince != nil ? shown.trailingStatus : shown.trailingText)
+        (isExpanded, timeText) = (shown.expanded, trailingText)
+        timeLabel.setString(trailingText ?? "")
+        if workingSince != shown.workingSince { elapsedTicker.cancel() }
+        workingSince = shown.workingSince
         metaLabel.setString(shown.meta ?? "")
         activity.configure(badgesLead ? .idle : shown.activity, style: badgesLead ? nil : ws.activityStyle)
         activityState = shown.activity
+        chip = shown.chip
         agentMarkVariant = content.agentMark
         let markImage = agentMarkVariant == .off || isShowingPlaceholder ? nil
             : ws.agentBrand.flatMap { AgentBrandCatalog.templateImage(brand: $0, size: agentMarkSize) }
@@ -260,6 +279,9 @@ final class WorkspaceRowView: SidebarRowView {
         mutedMark.image = ws.muted && !isShowingPlaceholder
             ? NSImage.icon(symbol: "bell.slash", size: .iconRowSize(forLabelPointSize: SidebarStyle.indicatorSize - Metrics.space1)) : nil
         mutedMark.isHidden = mutedMark.image == nil
+        // The bell-slash alone does not say what is muted: notifications, not the tabs' sound
+        // (the row's accessibility label says it too).
+        mutedMark.themedToolTip = mutedMark.isHidden ? nil : Strings.notificationsMuted
         audio = isShowingPlaceholder ? nil : ws.audio
         audioButton.isHidden = audio == nil
         audioButton.icon = audio == .muted ? .browserTabMuted : .browserTabAudio
@@ -272,6 +294,7 @@ final class WorkspaceRowView: SidebarRowView {
         tabCount.setString(row.tabCount.map(String.init) ?? "")
         badgeText = shown.badge
         prBadge.setString(shown.badge ?? "")
+        configureSessionTree(shown)
         progress = shown.progress
         statusBlock.isHidden = shown.status == nil || isShowingPlaceholder
         statusBlock.configure(shown.status ?? SidebarWorkspaceStatus(), reservesBar: shown.progress != nil)
@@ -283,7 +306,7 @@ final class WorkspaceRowView: SidebarRowView {
         setAccessibilityElement(!isShowingPlaceholder)
         setAccessibilityRole(.row)
         setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue)")
-        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] {
+        for (button, control) in [(closeButton, "close"), (moreButton, "more"), (pinButton, "pin"), (disclosureButton, "disclosure")] as [(NSButton, String)] {
             button.setAccessibilityIdentifier("cmux.sidebar.workspace.\(ws.id.rawValue).\(control)")
         }
         setAccessibilityLabel(accessibilityText(ws, content: shown))

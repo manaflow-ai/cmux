@@ -332,11 +332,12 @@ class GitRangeTests(unittest.TestCase):
         self.git("init", "-q", "-b", "feat-cmux-next")
         self.git("config", "user.email", "t@example.com")
         self.git("config", "user.name", "t")
-        self.base = self.commit("cnx-ios/project.yml", "settings:\n  MARKETING_VERSION: 1.2.1\n", "base")
+        self.base = self.commit("cmux-next-ios/project.yml", "settings:\n  MARKETING_VERSION: 1.2.1\n", "base")
         self.commit("web/x.ts", "x", "web only")
+        # An app commit from before the cnx-ios -> cmux-next-ios rename still counts.
         self.commit("cnx-ios/CnxApp/A.swift", "a", "fix(cnx-ios): app change (#7)")
         self.commit("Packages/iOS/CmuxTabsKit/T.swift", "t", "tabs change")
-        self.head = self.commit("cnx-ios/CnxKit/Package.swift", '.package(path: "../../Packages/iOS/CmuxTabsKit"),', "pkg")
+        self.head = self.commit("cmux-next-ios/CmuxMobileKit/Package.swift", '.package(path: "../../Packages/iOS/CmuxTabsKit"),', "pkg")
 
     def tearDown(self):
         self.tmp.cleanup()

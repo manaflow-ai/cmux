@@ -70,9 +70,16 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resume", timeout: .seconds(960), as: Ignored.self)
     }
 
-    public func attachEndpoint(_ id: String) async throws -> CloudAttachEndpoint {
-        try await send("POST", "/api/vm/\(id)/attach-endpoint", body: ["transport": "cmux-remote"], timeout: .seconds(30),
+    public func attachEndpoint(_ id: String, deviceFingerprint: String? = nil) async throws -> CloudAttachEndpoint {
+        var body: [String: any Sendable] = ["transport": "cmux-remote"]
+        if let deviceFingerprint { body["deviceFingerprint"] = deviceFingerprint }
+        return try await send("POST", "/api/vm/\(id)/attach-endpoint", body: body, timeout: .seconds(30),
                        as: CloudAttachEndpoint.self)
+    }
+
+    public func approveCmuxRemoteEnrollment(_ id: String, invitationID: String) async throws -> CloudEnrollmentApproval {
+        try await send("POST", "/api/vm/\(id)/cmux-remote/approve", body: ["invitationId": invitationID],
+                       timeout: .seconds(60), as: CloudEnrollmentApproval.self)
     }
 
     public func stats(_ id: String) async throws -> CloudMachineStats {
@@ -84,10 +91,11 @@ public struct CloudAPIClient: Sendable {
         _ = try await send("POST", "/api/vm/\(id)/resize", body: ["cpu": cpu, "memoryMb": memoryMb], timeout: .seconds(120), as: Ignored.self)
     }
 
-    public func snapshot(_ id: String, name: String?) async throws -> CloudSnapshot {
+    public func snapshot(_ id: String, name: String?, idempotencyKey: String = UUID().uuidString) async throws -> CloudSnapshot {
         var body: [String: any Sendable] = [:]
         if let name { body["name"] = name }
-        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, timeout: .seconds(300), as: CloudSnapshot.self)
+        return try await send("POST", "/api/vm/\(id)/snapshot", body: body, idempotencyKey: idempotencyKey,
+                              timeout: .seconds(300), as: CloudSnapshot.self)
     }
 
     public func snapshots(_ id: String) async throws -> [CloudSnapshot] {

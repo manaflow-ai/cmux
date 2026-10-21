@@ -51,6 +51,8 @@ public struct Palette {
     /// The scrim's alpha: the most a translucent band over the window's
     /// backdrop may cover (the Home header's top fade peaks there).
     public static var legibilityScrimOpacity: CGFloat { CGFloat(ThemeTokens.legibilityScrimOpacity) }
+    /// The veil's alpha over an unfocused pane (``ThemeTokens/inactivePaneDim``).
+    public static var inactivePaneDim: CGFloat { CGFloat((ThemeContext.active ?? ThemeScope.app.tokens).inactivePaneDim) }
     /// Fields and toolbars that need a faint lift (omnibar, find bar).
     public static var chromeBackground: NSColor { color(\.chromeBackground, dynamic: PaletteDynamic.chromeBackground) }
     /// Floating cards: palette, hover card, editors.
@@ -132,14 +134,39 @@ public struct Palette {
     public static var highlightText: NSColor { color(\.highlightText, opaque: true, dynamic: PaletteDynamic.highlightText) }
 
     /// The theme's accent as a solid fill (``ThemeTokens/accent``): the primary text by default,
-    /// the theme's own hue with `appearance.accent`. A themed menu's highlighted row (`NSMenu.themeRows(in:)`).
+    /// the theme's own hue with `appearance.accent`. A themed menu's highlight washes it (`menuHighlight`).
     public static var accentFill: NSColor { color(\.accent, opaque: true, dynamic: PaletteDynamic.accentFill) }
     /// Glyphs and labels on `accentFill`, at least 4.5:1 (``ThemeTokens/onAccent``).
     public static var onAccent: NSColor { color(\.onAccent, opaque: true, dynamic: PaletteDynamic.onAccent) }
+    /// A themed menu's highlighted row (`NSMenu.themeRows(in:)`): `accentFill` as a faint wash over
+    /// the menu's glass, so labels keep their own ink. A neutral theme gets a gray wash.
+    public static var menuHighlight: NSColor { accentFill.withAlphaComponent(menuHighlightOpacity) }
+    static let menuHighlightOpacity: CGFloat = 0.2
 
     /// The app accent. Deliberately neutral so any control that reads the
     /// accent stays in the theme's grays.
     public static var accent: NSColor { focusRing }
+
+    /// A lit (on) control's glyph, beside the same controls at rest in `textSecondary` (a pane's
+    /// zoomed ⋮ and pinned buttons, the find pill's toggles): the accent, lifted toward the primary
+    /// text just far enough to contrast at least as much as the rest ink, so the theme's hue stays
+    /// (Clay Orange's orange) and a lit control is never less visible than at rest. A theme with no
+    /// accent lights in the primary text (``ThemeTokens/accent``), not `focusRing`'s 40% of it.
+    public static var litGlyph: NSColor { litGlyph(in: ThemeContext.active ?? ThemeScope.app.tokens).nsColor }
+
+    static func litGlyph(in tokens: ThemeTokens) -> ThemeRGB {
+        let surface = tokens.windowBackground.withAlpha(1)
+        let accent = tokens.accent.composited(over: surface), primary = tokens.textPrimary.composited(over: surface)
+        let floor = tokens.textSecondary.composited(over: surface).contrast(with: surface)
+        if accent.contrast(with: surface) >= floor { return accent }
+        // The least lift that reaches the floor; a primary text fainter than the floor is still the brightest ink.
+        var low = 0.0, high = 1.0
+        for _ in 0..<12 {
+            let mid = (low + high) / 2
+            if accent.mixed(toward: primary, mid).contrast(with: surface) >= floor { high = mid } else { low = mid }
+        }
+        return accent.mixed(toward: primary, high)
+    }
 
     /// Text on top of `textPrimary` fills (inverted badges).
     public static var textOnPrimary: NSColor { color(\.contentBackground, opaque: true, dynamic: PaletteDynamic.textOnPrimary) }

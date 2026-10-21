@@ -82,6 +82,38 @@ impl ClientRegistry {
         Ok(lease)
     }
 
+    /// Makes `lease` a read-only view: it never owns the surface's geometry,
+    /// and its resizes are passive.
+    pub(super) fn mark_view_lease_read_only(
+        &self,
+        client: u64,
+        surface: SurfaceId,
+        lease: &str,
+    ) -> anyhow::Result<()> {
+        let mut state = self.state.lock().unwrap();
+        let record = state
+            .clients
+            .get_mut(&client)
+            .ok_or_else(|| anyhow::anyhow!("unknown client {client}"))?;
+        let attached = record
+            .attached
+            .get_mut(&surface)
+            .ok_or_else(|| anyhow::anyhow!("client {client} has no surface {surface}"))?;
+        anyhow::ensure!(
+            attached.view_sizes.contains_key(lease),
+            "view attachment lease is not attached to surface {surface}"
+        );
+        attached.read_only_leases.insert(lease.to_string());
+        if attached.geometry_lease.as_deref() == Some(lease) {
+            attached.geometry_lease = attached
+                .view_sizes
+                .keys()
+                .find(|other| !attached.read_only_leases.contains(*other))
+                .cloned();
+        }
+        Ok(())
+    }
+
     pub(super) fn commit_surface(
         &self,
         client: u64,
@@ -206,6 +238,13 @@ impl ClientRegistry {
         let Some(attached) = record.attached.get_mut(&surface) else {
             return Ok(ViewResizePreparation::Superseded);
         };
+        if attached.read_only_leases.contains(lease) {
+            return Ok(ViewResizePreparation::Passive {
+                changed: false,
+                name: record.name.clone(),
+                kind: record.kind.clone(),
+            });
+        }
         let previous_view_size = attached.view_sizes.get(lease).copied().flatten();
         let changed = previous_view_size != Some(size);
         attached.view_sizes.insert(lease.to_string(), Some(size));
@@ -365,6 +404,7 @@ impl ClientRegistry {
             .is_some_and(|lease| attached.geometry_lease.as_deref() == Some(lease));
         if let Some(lease) = &removed_lease {
             attached.view_sizes.remove(lease);
+            attached.read_only_leases.remove(lease);
         }
         let rollback = attached.size_rollbacks.remove(&stream);
         if let Some(removed) = rollback {
@@ -378,11 +418,12 @@ impl ClientRegistry {
         }
         let final_stream = attached.streams.is_empty() && attached.pending_streams.is_empty();
         let geometry_replacement = if removed_geometry_owner && !final_stream {
+            let sizing = |lease: &String| !attached.read_only_leases.contains(lease);
             let replacement = attached
                 .lease_by_stream
                 .iter()
-                .find(|(stream, _)| attached.streams.contains_key(stream))
-                .or_else(|| attached.lease_by_stream.iter().next())
+                .find(|(stream, lease)| attached.streams.contains_key(stream) && sizing(lease))
+                .or_else(|| attached.lease_by_stream.iter().find(|(_, lease)| sizing(lease)))
                 .map(|(_, lease)| lease.clone());
             attached.geometry_lease = replacement.clone();
             let size = replacement

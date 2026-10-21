@@ -86,8 +86,11 @@ impl HostShared {
         // old size and parses on the old grid.
         let pty_previous = if changed {
             let previous = pty_size(size.0, size.1, *cell_pixels);
-            if let Err(error) =
-                self.master.lock().unwrap().resize(pty_size(cols, rows, *cell_pixels))
+            if let Err(error) = self
+                .master
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .resize(pty_size(cols, rows, *cell_pixels))
             {
                 self.smart.close_failed_transition(source_cursor);
                 return Err(error);
@@ -98,7 +101,11 @@ impl HostShared {
         };
         let restore_pty = || {
             if let Some(previous) = pty_previous {
-                let _ = self.master.lock().unwrap().resize(previous);
+                let _ = self
+                    .master
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .resize(previous);
             }
         };
         let (response_sender, response_receiver) = sync_channel(1);
@@ -178,7 +185,7 @@ impl HostShared {
         let previous = (term.cols(), term.rows());
         let acknowledgement_queued = (|| -> anyhow::Result<bool> {
             let requested_change = previous != (cols, rows);
-            let master = self.master.lock().unwrap();
+            let master = self.master.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
             let resize_sizes = if requested_change {
                 Some((
                     pty_size(previous.0, previous.1, cell_pixels),
@@ -308,7 +315,11 @@ impl HostShared {
             && previous != (cols, rows)
             && let Some(pty_previous) = pty_previous
         {
-            let _ = self.master.lock().unwrap().resize(pty_previous);
+            let _ = self
+                .master
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .resize(pty_previous);
         }
         ParserResizeResult {
             acknowledgement_queued: acknowledgement_queued.map_err(|error| error.to_string()),
