@@ -59,6 +59,57 @@ bool TakeHostClose(int browser_id) {
   return host_closes().erase(browser_id) > 0;
 }
 
+bool IsHostClose(int browser_id) {
+  return host_closes().count(browser_id) > 0;
+}
+
+namespace {
+
+struct BeforeUnloadQuestion {
+  int browser_id;
+  CefRefPtr<CefJSDialogCallback> callback;
+};
+
+std::map<int, BeforeUnloadQuestion>& before_unload_questions() {
+  static std::map<int, BeforeUnloadQuestion> map;
+  return map;
+}
+
+// Removes the browser's questions and returns their callbacks.
+std::vector<CefRefPtr<CefJSDialogCallback>> TakeBeforeUnload(int browser_id) {
+  std::vector<CefRefPtr<CefJSDialogCallback>> taken;
+  auto& map = before_unload_questions();
+  for (auto it = map.begin(); it != map.end();) {
+    if (it->second.browser_id == browser_id) {
+      taken.push_back(it->second.callback);
+      it = map.erase(it);
+    } else {
+      ++it;
+    }
+  }
+  return taken;
+}
+
+}  // namespace
+
+int StoreBeforeUnloadCallback(int browser_id, CefRefPtr<CefJSDialogCallback> callback) {
+  static int next = 1;
+  int token = next++;
+  before_unload_questions()[token] = {browser_id, callback};
+  return token;
+}
+
+bool AnswerBeforeUnload(int browser_id, bool accept) {
+  // Taken first: Continue can re-enter the dialog handler (OnResetDialogState).
+  std::vector<CefRefPtr<CefJSDialogCallback>> callbacks = TakeBeforeUnload(browser_id);
+  for (auto& callback : callbacks) callback->Continue(accept, CefString());
+  return !callbacks.empty();
+}
+
+bool DropBeforeUnload(int browser_id) {
+  return !TakeBeforeUnload(browser_id).empty();
+}
+
 static bool g_extension_developer_mode = false;
 // accept_language_list from cmux_shim_initialize, for every request context.
 static std::string g_accept_languages;
@@ -382,8 +433,20 @@ void cmux_shim_close_all(void) {
   auto all = browsers();
   for (auto& [id, browser] : all) {
     MarkHostClose(id);
+    // Quit never asks: a question already showing is answered Leave.
+    AnswerBeforeUnload(id, true);
     browser->GetHost()->CloseBrowser(true);
   }
+}
+
+int cmux_shim_before_unload_reply(int token, int accept) {
+  auto& map = before_unload_questions();
+  auto it = map.find(token);
+  if (it == map.end()) return 0;
+  CefRefPtr<CefJSDialogCallback> callback = it->second.callback;
+  map.erase(it);
+  callback->Continue(accept != 0, CefString());
+  return 1;
 }
 
 int cmux_shim_live_browser_count(void) {

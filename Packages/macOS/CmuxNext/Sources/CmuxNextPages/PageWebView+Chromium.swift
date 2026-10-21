@@ -38,6 +38,9 @@ extension PageWebView {
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view.
     public var focusView: NSView { chromiumSession?.page.contentView ?? webView }
 
+    /// The Chromium page that shows the page now; nil on WebKit.
+    public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
+
     /// The page zoom both engines show: `uiScale` times ``additionalZoom``.
     var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
 

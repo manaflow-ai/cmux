@@ -6,7 +6,7 @@ import Testing
 struct TerminalClipboardReadProvenanceTests {
     @Test func anUnprovenLocalPTYStillRequiresConsent() {
         let host = TerminalClipboardReadService.requestHost
-        #expect(host.kind == .remote)
+        #expect(host.kind == .unknown)
         #expect(ClipboardReadSetting.allow.decision(host: host.kind) == .ask)
     }
 }

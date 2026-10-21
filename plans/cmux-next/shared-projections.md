@@ -31,8 +31,11 @@ Remount bugs are the third kind: component state that starts empty and re-reads.
 | --- | --- | --- |
 | New Tab chat cards (`newtab/listMotion.ts`) | A change that landed as the page showed again faded and slid cards on the first frame back. Motion started while hidden replayed on show (fixed in #22395 for this list only). | Fixed: entrances go through `entranceAllowed` (this PR). |
 | Open Tabs, Recently Closed (`listMotion.ts`) | Same as the cards. | Fixed with the cards (same hook). |
-| Agent pane transcript rows (`App.tsx` `enteringRows`, `.acpmux-row--enter`) | A row that streamed in while the tab was hidden got its entrance class; WebKit suspended the CSS animation and played it when the user came back. | Next PR (`next/shared-projection-transcript`). |
-| Streaming reply blocks (`conversation/Markdown.tsx` `.cv-enter`) | Same, for blocks of a reply that streamed while hidden. | Next PR, with the rows. |
+| Agent pane transcript rows (`App.tsx` `enteringRows`, `.acpmux-row--enter`) | A row that streamed in while the tab was hidden got its entrance class; WebKit suspended the CSS animation and played it when the user came back. | Fixed: a row arriving while entrances wait draws in place (`next/shared-projection-transcript`). |
+| Streaming reply blocks (`conversation/Markdown.tsx` `.cv-enter`) | Same, for blocks of a reply that streamed while hidden. | Fixed with the rows; the thread glide (`glide`) too. |
+| Revealed reply text (`conversation/RevealedMarkdown.tsx`, `.cv-fresh`) | WebKit runs no frames while hidden, so text that streamed while away revealed after the first frame back: its blocks entered and its characters faded in. | Fixed: text received while entrances wait shows at once, with no fade. |
+| Code handoff (`conversation/StreamingCode.tsx` `CodeHandoff`) | A fence that closed while hidden cross-faded from plain to highlighted on return. | Fixed: it hands over without the fade. |
+| A sent image's thumbnail (`conversation/UserBubble.tsx` `.cv-enter`) | Enters on mount, so a prompt with an image sent from another client while hidden fades in on return. | Follow-up (rare). |
 | Every other finite CSS or Web Animation in the page (menus, minimap glide, tree motion, title fades) | Started while hidden, played on return. | Fixed page-wide: `installRevealSettle` finishes finite animations on hide and on show (this PR). |
 | All chats list (`newtab/AllChatsList.tsx` `useChatPages`) | List in component state; every mount (spare adoption, workspace reopen) started empty and read its first page again. A switch does not remount it. | Covered by #22115 (`settledCache.ts`, `chatStore.ts`), which removes the mount read. Not duplicated here. |
 | New Tab recent chats across pages | Each page listed its own connection's sessions; a hidden window's pages lagged. | Covered by #22115 (one chat store per app run). |
@@ -88,22 +91,30 @@ expect(seen).toEqual({ fetches: [], entrances: [] });
 It hides the page, runs `away`, shows it, runs `back`, lets the first frame back pass, and returns
 the fetches and entrances (Web Animations and elements that gained `.cv-enter`,
 `.acpmux-row--enter` or `data-kind-switch`) in that window. Each fixed view has a test with it:
-`new-tab-switch-back.test.tsx` (chat cards, All chats); the transcript PR adds its own.
+`new-tab-switch-back.test.tsx` (chat cards, All chats); `transcript-switch-back.test.tsx` (rows, reply blocks).
 
 ## 5. Guard
 
-`scripts/cmux-next/check-switch-fetches.py` (in `bun run check`) reads the views listed in it (New
-Tab, composer, agent pane, transcript) and fails on:
+`scripts/cmux-next/check-switch-fetches.py` reads every agent-page source under
+`webviews/src/agent-session/acpmux` (galleries and tests excluded), with comments and strings
+masked, and fails on:
 
-- a `visibilitychange` or `focus` listener in a file that is not on its allowlist;
-- a `useEffect` with no dependencies or only stable ones whose body reads data (`callNative(`,
-  `.request(`, `fetch(`, `load(`), unless the line before it carries
-  `// mount-read: <reason>`.
+- a `visibilitychange` or `pageshow` listener, or a `focus` listener on the window or document,
+  whose file and event `ALLOWED_LISTENERS` does not list (an element's own `focus` is not a switch);
+- a `useEffect` or `useLayoutEffect` with no dependencies, or only stable read functions
+  (`callNative`, `fetchPage`, `load...`, `reload`, `refresh...`), that reads data or is itself a named
+  read, unless the line above it carries `// mount-read: <reason>` or `ALLOWED_MOUNT_READS` lists the
+  file. An effect that subscribes and reads on each push is the pattern and passes.
 
-Each allowlist entry names its reason. Adding one is a review question.
+Each allowlist entry names its reason or the change that removes it; adding one is a review
+question. It runs from `bun run check:switch-fetches` (in `bun run check`), and
+`scripts/cmux-next/tests/check-switch-fetches.test.sh` (fixtures, self-test, the tree) runs in the
+cmux-next workflow's script tests.
 
 ## 6. Exceptions and follow-ups
 
+- **Harness health on every focus** (`harnesses/HarnessesScreen.tsx`): re-reads to catch a Sign In
+  run in a terminal; it should re-read only once one ran, as `App.tsx` `healthStale` does.
 - **Start mode on return** (`startMode.ts`): fixed. acpmux watches the settings file
   (`hub/settings_watch.rs`) and sends `_acpmux/start_mode_changed` when
   `agents.defaultPermissionMode` changes, so `watchPage` is gone.

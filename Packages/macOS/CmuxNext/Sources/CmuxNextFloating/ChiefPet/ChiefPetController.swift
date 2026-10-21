@@ -7,8 +7,8 @@ import CmuxNextWakeups
 /// show and kept, with its spot, while hidden), and the notice bubble over it
 /// (`ChiefPetFeed`). A finished notice leaves on its own after
 /// `doneSeconds`; one that waits for the user stays until its tab is read.
-/// The rail's chevron folds and unfolds the notices; a click on the pet or the rail's compose
-/// opens the reply box (`ChiefPetController+Reply`).
+/// The rail's chevron folds and unfolds the notices; a click on the pet, the rail's compose or
+/// Message the Chief opens the reply box (`ChiefPetController+Reply`).
 @MainActor
 public final class ChiefPetController {
     /// How long a finished notice stays up.
@@ -35,6 +35,9 @@ public final class ChiefPetController {
     private(set) var mascot = ChiefPetMascot.initial
     /// The notices unfolded into a column (the rail's chevron); folded, a deck.
     private(set) var expanded = false
+    /// Message the Chief ran while `home.chiefPetEnabled` was off: the pet shows for this message only
+    /// and goes when its reply box closes; the setting turning on keeps it.
+    var transient = false
 
     public init(makePanel: @escaping () -> ChiefPetPanel,
          actions: ChiefPetActions,
@@ -71,17 +74,32 @@ public final class ChiefPetController {
     func sync(_ on: Bool) {
         isOn = on
         if on {
+            transient = false
             panelOnce().present()
             render(animated: false)
         } else {
             // Turned off, it forgets what it showed: a later show starts from new arrivals.
-            closeReply()
             feed.clear()
             expiries.values.forEach { $0.cancel() }
             expiries.removeAll()
+            // A message summoned with the setting off (or turning off) keeps its box until it closes.
+            if transient, replyPanel?.isVisible == true { return render(animated: false) }
+            transient = false
+            closeReply()
             render(animated: false)
             panel?.dismiss()
         }
+    }
+
+    /// Message the Chief (`home.messageChiefPet`): the pet with its reply box open, at once. `petOn` is
+    /// `home.chiefPetEnabled` as the action read it; off, the pet shows for this message only and goes
+    /// again when the box closes, so the setting stays as the person left it. An open box stays open.
+    public func summon(petOn: Bool) {
+        if !petOn || !isOn { transient = true }
+        let panel = panelOnce()
+        // On but ordered out (the app hidden): it comes back now, not on some later sync.
+        if !panel.isVisible { panel.present() }
+        openReply()
     }
 
     /// An agent event that alerts here (the notification service's arrival).
@@ -148,6 +166,17 @@ public final class ChiefPetController {
         }
     }
 
+    /// Places the shown bubble and reply box toward the quadrant with room around the pet's frame now.
+    func followPet() {
+        guard let panel, let visible = panel.visibleFrame() ?? ChiefPetPanel.screenUnderPointer()?.visibleFrame else { return }
+        if let bubble, bubble.isVisible {
+            let height = ChiefPetBubblePanel.height(count: feed.notices.count, expanded: expanded)
+            let frame = ChiefPetBubblePanel.frame(height: height, over: panel.frame, in: visible)
+            if frame != bubble.frame { bubble.setFrame(frame, display: false) }
+        }
+        placeReply()
+    }
+
     func hideBubble() {
         guard let bubble, bubble.isVisible else { return }
         bubble.parent?.removeChildWindow(bubble)
@@ -159,6 +188,13 @@ public final class ChiefPetController {
         let made = makePanel()
         if mascot != .initial { made.pet.image = mascot.image }
         made.onClick = { [weak self] in self?.toggleReply() }
+        // The right-click menu: the settings close the reply box first, so they come up alone.
+        made.onSettings = { [weak self] in
+            self?.closeReply()
+            self?.actions.openSettings()
+        }
+        made.onHide = { [weak self] in self?.actions.hide() }
+        made.hideAllowed = { [weak self] in self?.actions.canHide() ?? false }
         // With no notices the chevron opens the Chief.
         made.onExpand = { [weak self] in
             guard let self else { return }
@@ -167,8 +203,10 @@ public final class ChiefPetController {
             self.panel?.setExpanded(self.expanded)
             self.render(animated: false)
         }
-        // A drag moves the bubble with the pet (a child window); at its end the bubble turns
-        // to the side with room (above, or below near the screen's top).
+        // A drag moves the bubble with the pet (a child window), and each step turns it (and the
+        // reply box) toward the quadrant with room, so the drop moves nothing. Only frames
+        // change: nothing is redrawn and nothing fades in again.
+        made.pet.onDragMoved = { [weak self] in self?.followPet() }
         made.pet.onDragEnded = { [weak self, weak made] in
             made?.saveOrigin()
             self?.render(animated: false)

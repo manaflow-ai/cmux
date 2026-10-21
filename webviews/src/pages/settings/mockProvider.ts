@@ -345,7 +345,9 @@ export class MockSettingsProvider {
       },
       "cmux.settings.backdrop.image.usage": () => ({
         bytes: (this.host.backdrops ?? []).filter((row) => row.collection === "yours").length * 1_000_000,
+        folder: "/Users/me/Library/Application Support/cmux/Backgrounds",
       }),
+      "cmux.settings.backdrop.image.folder": () => ({ id: null }),
       "cmux.settings.backdrop.workspace": (params) => this.workspaceBackground(String(params.workspace)),
       "cmux.settings.backdrop.workspace.set": (params) => {
         const workspace = this.workspaceBackground(String(params.workspace));
@@ -442,7 +444,7 @@ export class MockSettingsProvider {
       "cmux.settings.backdrop.image.collage.save",
       "cmux.settings.backdrop.image.collage.get",
       "cmux.settings.backdrop.image.collage.delete",
-      "cmux.settings.backdrop.image.adjust",
+      "cmux.settings.backdrop.image.folder",
       "cmux.settings.backdrop.workspace",
       "cmux.settings.backdrop.workspace.set",
       "cmux.settings.backdrop.workspace.preview",

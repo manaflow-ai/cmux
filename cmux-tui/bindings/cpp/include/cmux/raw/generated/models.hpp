@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "5e69f4f6edf2b8c3c330c70dcc2f1d5ece8784de7423f90cc4a35d660bc1c512";
+inline constexpr std::string_view kProtocolIrSha256 = "618580395ad650b750fb7be122cdc20524f93ba299cc62b7afebb68b22ff6b12";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -443,6 +443,7 @@ struct NotifyRequest;
 struct PageCredentialRequest;
 struct PairingResponseRequest;
 struct PaneNeighborRequest;
+struct ParkTabsRequest;
 struct PasteImageRequest;
 struct PasteImageResult;
 struct PinWorkspaceRequest;
@@ -4122,6 +4123,11 @@ struct PaneSurfaceResult {
     Field<std::string> terminal_id{};
     Field<std::string> terminal_incarnation{};
     friend bool operator==(const PaneSurfaceResult&, const PaneSurfaceResult&) = default;
+};
+
+struct ParkTabsRequest {
+    std::vector<TabRef> surfaces{};
+    friend bool operator==(const ParkTabsRequest&, const ParkTabsRequest&) = default;
 };
 
 struct ParticipantAvatarChangedEvent {
@@ -8445,6 +8451,12 @@ template <>
 struct Codec<PaneNeighborRequest> {
     static Result<Json> encode(const PaneNeighborRequest& value);
     static Result<PaneNeighborRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ParkTabsRequest> {
+    static Result<Json> encode(const ParkTabsRequest& value);
+    static Result<ParkTabsRequest> decode(const Json& value);
 };
 
 template <>

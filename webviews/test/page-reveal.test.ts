@@ -90,3 +90,19 @@ test("a document without getAnimations finishes nothing", () => {
   const { window } = new JSDOM("<!doctype html>");
   expect(finishPageAnimations(window.document)).toBe(0);
 });
+
+test("motion off is not away: a paced view keeps its pace and catches up only on return", async () => {
+  const { pageAway } = await import("../src/agent-session/shared/pageReveal");
+  const { doc, set, frame } = page();
+  installRevealSettle(doc);
+  doc.documentElement.dataset.agentMotion = "off";
+  expect(pageAway(doc)).toBe(false);
+  set("hidden");
+  expect(pageAway(doc)).toBe(true);
+  set("visible");
+  expect(pageAway(doc)).toBe(true);
+  frame();
+  frame();
+  expect(pageAway(doc)).toBe(false);
+  expect(entranceAllowed(doc)).toBe(false);
+});

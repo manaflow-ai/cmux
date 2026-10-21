@@ -12,14 +12,25 @@ extension HomeService {
     }
 
     /// The people New Message offers: team members, then people of the
-    /// user's DMs, then the user's Chiefs. The cloud source learns their
-    /// names for new groups.
+    /// user's DMs, then the user's Chiefs (not archived ones, which the list
+    /// hides). The cloud source learns their names for new groups.
     func contacts() -> [HomeContact] {
         let me = homeStore.me?.id ?? homeSource.me.id
         let team = directory.teamMembers
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
-        return HomeContact.merged(team: team, connections: HomeContact.connections(in: homeStore.rows, me: me),
-                                  agents: HomeContact.agents(in: homeStore.rows, me: me))
+        let rows = TopHomePageView.visible(homeStore.rows, archivedChiefs: directory.archivedChiefs, me: me)
+        return HomeContact.merged(team: team, connections: HomeContact.connections(in: rows, me: me),
+                                  agents: HomeContact.agents(in: rows, me: me))
+    }
+
+    /// New Message's list: its Chiefs (main first) and how each row draws (HomeChiefRoster+NewMessage).
+    func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
+        draft.chiefShortcuts(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
+    }
+    func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
+        chiefRoster.look(recipient, rows: homeStore.rows, avatars: directory.chiefAvatars,
+                         fallback: HomeHostView.defaultTileAvatar(mascot: services.settings?.snapshot.homeChiefPetMascot),
+                         harnesses: directory.chiefHarnesses)
     }
 
     /// Starts a DM or a group; the page shows it once the inbox lists it.
@@ -104,7 +115,7 @@ extension HomeService {
             rows: { [weak self] in TopHomePageView.visible(store.rows, archivedChiefs: self?.directory.archivedChiefs ?? [], me: store.me?.id) },
             me: { store.me?.id }, contacts: { [weak self] in self?.contacts() ?? [] },
             chiefAvatars: { [weak self] in self?.directory.chiefAvatars ?? [:] },
-            defaultChiefAvatar: { HomeHostView.defaultTileAvatar },
+            defaultChiefAvatar: { [weak self] in HomeHostView.defaultTileAvatar(mascot: self?.services.settings?.snapshot.homeChiefPetMascot) },
             chiefHarnesses: { [weak self] in self?.directory.chiefHarnesses ?? [:] },
             chiefRoster: { [weak self] in self?.chiefRoster ?? HomeChiefRoster() })
         source.onSelect = { [weak self] id in self?.pendingSelection = id }
@@ -124,7 +135,7 @@ extension HomeService {
 
     /// Reads each listed local Chief's own avatar for its tile (its picture in the daemon's
     /// Chief registry, which the profile and chiefs tools write, else its profile.json text;
-    /// none: 🫡), as each Chief's header does. A Chief's picture never shows on another's row.
+    /// none: the chosen pet character), as each Chief's header does. A Chief's picture never shows on another's row.
     func refreshChiefAvatars() {
         let chiefs = Set(homeStore.rows.filter { !isCloudConversation($0.id) }
             .flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })

@@ -310,7 +310,10 @@ extension AgentPaneTransport {
                 granted = !facts.needsGesture || (AcpmuxPaneMethods.answerAllowed(facts.method, gestures) && gestures.consume()) || credit
                 // A new chat on this Mac needs no gesture, but its send's (or the folder pick's) goes with its first
                 // prompt however long the start takes, past ``AgentPaneUserGestures/lifetime`` (hq#2569 item 5).
-                if facts.startsLocalSession, startGesture || gestures.consume() {
+                // A folder pick that took the Send's gesture (``grantPicked(_:)``) gives it to this start.
+                if facts.startsLocalSession, startGesture
+                    || pickCredit.take(connection: id, now: gestures.uptime, lifetime: AgentPaneUserGestures.lifetime) == true
+                    || gestures.consume() {
                     startCredit.give(connection: id, at: gestures.uptime)
                 }
                 if granted, facts.needsGesture, remoteWire, facts.method == "acp.trust.set" {
@@ -322,9 +325,9 @@ extension AgentPaneTransport {
                 return Self.refuse(.refuse(.gestureRequired, method: facts.method, requestID: facts.pageID), socket: socket)
             }
         }
-        // P2: a config option that is not free needs the user's native confirmation unless the
-        // daemon says that the value keeps the session asking. A mode needs only the gesture rule
-        // (Lawrence 2026-10-07: no sheet for full access).
+        if let refusal = fullAccessRefusal(facts, socket: socket) { return refusal }
+        // P2: a config option that is not free needs the native confirmation unless the daemon says the value
+        // keeps the session asking. A mode needs only the gesture rule (Lawrence 2026-10-07: no sheet for full access).
         if let setting = facts.setting, setting.asked.needsSheet {
             let answer = await webModes(setting.sessionId, setting.configId, setting.value)
             guard id == current, self.socket === socket else { return .stop(.staleConnection) }
@@ -374,7 +377,9 @@ extension AgentPaneTransport {
             noteSent(facts, relayID: relayID)
             // The switch's queued prompt goes out: the switch has ended, its tickets with it.
             // A prompt went out: a seed ticket it did not redeem and the start's credit end too.
-            if facts.method == "session/prompt" { gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear() }
+            if facts.method == "session/prompt" {
+                gestures.clearTickets(); gestures.dropSeedTicket(); startCredit.clear(); pickCredit.clear()
+            }
         }
         if let error = await Self.encodeAndSend(box, relayID: relayID, socket: socket) {
             if let relayID { ids.cancel(relayID) }

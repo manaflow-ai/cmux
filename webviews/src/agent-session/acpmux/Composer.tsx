@@ -22,6 +22,7 @@ import {
   SearchIcon,
   PlanIcon,
   SlashIcon,
+  ReturnIcon,
   StopIcon,
   type ComposerPermissionAccess,
 } from "./ComposerPickers";
@@ -47,6 +48,7 @@ import {
   useDraftActionsVersion,
   writePersistedDraft,
 } from "./composerDraft";
+import { useDictationListening } from "./dictation";
 import { MarkdownField, type MarkdownFieldHandle } from "./MarkdownField";
 import { type StringKey, useT } from "./i18n";
 import { remoteComposer } from "./remoteEditing";
@@ -55,10 +57,12 @@ import { useComposerChrome } from "./composerChrome";
 import { useMenuPressGuard } from "./menuPressGuard";
 import { useRowFit } from "./composerRowFit";
 import { useComposerSettings } from "./composerSettings";
-import { ESCAPE_STOP_WINDOW_MS, escapeStopPress } from "./escapeStop";
+import { useEscapeStop } from "./escapeStop";
 import { usePromptHistory } from "./composer/promptHistory";
 import { AttachmentStrip, attachmentErrorText, useAttachmentIntake } from "./composer/attachmentIntake";
 import type { SendBlock } from "./useFolderTrustAsk";
+import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
+import { useHeaderState } from "./header/headerState";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -78,7 +82,12 @@ export const COMPOSER_LABELS = {
   placeholder: "composer.placeholder",
   placeholderQueued: "composer.placeholderQueued",
   placeholderSteer: "composer.placeholderSteer",
-  placeholderInterrupt: "composer.placeholderInterrupt",
+  suggestFailing: "composer.suggestFailing",
+  suggestDraft: "composer.suggestDraft",
+  suggestOpen: "composer.suggestOpen",
+  suggestionKey: "composer.suggestionKey",
+  suggestionHint: "composer.suggestionHint",
+  placeholderSteerQuick: "composer.placeholderSteerQuick",
   add: "composer.add",
   mention: "composer.mention",
   attach: "composer.attach",
@@ -88,6 +97,7 @@ export const COMPOSER_LABELS = {
   send: "composer.send",
   stop: "composer.stop",
   escapeAgainToStop: "composer.escapeAgainToStop",
+  escapeKey: "composer.escapeKey",
   commands: "composer.commands",
   noCommands: "composer.noCommands",
   noMatchingCommands: "composer.noMatchingCommands",
@@ -136,6 +146,10 @@ export type ComposerWake = { attachments?: ComposerAttachment[]; shell?: boolean
 
 type Props = {
   snapshot: AcpmuxSnapshot;
+  /// The native tab's folder, which the header's PR chip describes. A fresh chat's folder pick
+  /// (`projectDraft`) moves `snapshot`'s cwd but not the tab's until the chat starts, so the
+  /// header's PR belongs to another folder then.
+  headerCwd?: string;
   chips: React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>;
   /// Sends a prompt. False when nothing can take it yet (no acpmux), so the prompt keeps it. A
   /// promise holds the prompt in the composer until the host takes it: it clears when the promise
@@ -195,7 +209,7 @@ type Props = {
   onNewWorktree?(cwd: string): void;
   /// A started chat's Choose folder…: the host's folder panel (see ComposerContext).
   onBrowseFolder?(): Promise<string | undefined>;
-  /// The location row's SSH… and cmux Cloud… rows open the host's connect flows.
+  /// The location row's SSH… and New Cloud Machine rows open the host's connect flows.
   onConnect?(kind: "ssh" | "cloud"): void;
   /// This Mac's name for the location row.
   localName?: string;
@@ -233,6 +247,7 @@ type Props = {
 /// so its arguments can follow.
 export function Composer({
   snapshot,
+  headerCwd,
   chips: Chips,
   onSend,
   onStop,
@@ -317,6 +332,11 @@ export function Composer({
   // The @ picker (MentionMenu.tsx): the row moved to, by its key, and the prompt text Esc closed it on.
   const [mentionActive, setMentionActive] = useState<string | undefined>();
   const [mentionDismissed, setMentionDismissed] = useState<string | undefined>();
+  // The suggested prompt Esc put away: its chat and PR, so it stays away for this chat only.
+  const [suggestionDismissed, setSuggestionDismissed] = useState<string | undefined>();
+  // The handle is made once: its notices read the current locale's strings.
+  const tRef = useRef(t);
+  tRef.current = t;
   const field = useRef<MarkdownFieldHandle>(null);
   const fieldRef = useCallback(
     (handle: MarkdownFieldHandle | null) => {
@@ -335,6 +355,8 @@ export function Composer({
   const composing = useRef(false);
   // Send and Stop are separate buttons, so focus on Send moves to whichever replaces it.
   const refocusSend = useRef(false);
+  /** Stop had focus when pressed: it leaves with the turn, so the prompt takes focus back. */
+  const refocusField = useRef(false);
   /// The session id owns the prompt. A page can switch sessions without remounting the composer.
   const persistedSession = useRef(sessionId);
   const hydratedSession = useRef<string | undefined>(undefined);
@@ -355,13 +377,6 @@ export function Composer({
   const { plainFooter, showContextUsage, escapeDoublePress } = useComposerSettings();
   useRowFit(bar, plainFooter);
   const usage = snapshot.summary?.usage;
-  /// The first Esc of a double press that stops the turn, while its window is open (escapeStop.ts).
-  const escapeArmedAt = useRef<number | undefined>(undefined);
-  const [escapeArmed, setEscapeArmed] = useState<number | undefined>(undefined);
-  const disarmEscape = () => {
-    escapeArmedAt.current = undefined;
-    setEscapeArmed(undefined);
-  };
   /// Set while the host has not yet taken a prompt the composer still holds: Enter sends no copy.
   const sending = useRef(false);
   /// The newest submit, for the handle's `send` (rendered after the trust answer lands).
@@ -395,6 +410,10 @@ export function Composer({
     handle.writeText(before + inserted + value.slice(selectionEnd), caret, caret);
   };
   useLayoutEffect(() => {
+    if (refocusField.current && !snapshot.isWorking) {
+      refocusField.current = false;
+      if (!document.activeElement || document.activeElement === document.body) field.current?.focus();
+    }
     if (!refocusSend.current) return;
     const focused = document.activeElement;
     // The user moved on before the turn started: leave their focus alone.
@@ -424,9 +443,17 @@ export function Composer({
           ]);
       },
       attach(attachment) {
+        // A pick past the most the composer holds says so, as a dropped file does.
+        const held = attachmentsRef.current.filter((chip) => chip.id !== attachment.id);
+        if (held.length >= MAX_ATTACHMENTS) {
+          setAttachError(attachmentErrorText({ name: attachment.name, reason: "tooMany" }, tRef.current));
+          return;
+        }
+        // Ahead of the render, so each of several picks attached at once counts the ones before it.
+        attachmentsRef.current = [...held, attachment];
         setAttachments((current) => {
-          const held = current.filter((chip) => chip.id !== attachment.id);
-          return held.length >= MAX_ATTACHMENTS ? current : [...held, attachment];
+          const kept = current.filter((chip) => chip.id !== attachment.id);
+          return kept.length >= MAX_ATTACHMENTS ? current : [...kept, attachment];
         });
       },
       detach(ids) {
@@ -452,7 +479,7 @@ export function Composer({
         }
       },
     }),
-    [setAttachments],
+    [setAttachments, setAttachError],
   );
   useEffect(() => {
     // The prompt's DOM value is the typed text; a draft never replaces it.
@@ -636,8 +663,12 @@ export function Composer({
     if (!remote.canSend) return false;
     // The folder's trust question is open: the prompt stays where it is.
     if (blocked && !force) return false;
-    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy.
-    if (sending.current) return false;
+    // The host has not taken the last prompt yet: it is still here, so Enter sends no copy, and
+    // the composer says so instead of doing nothing.
+    if (sending.current) {
+      setAttachError(t("composer.stillSending"));
+      return false;
+    }
     // The field holds markdown with its typed text escaped; the agent gets the text as typed.
     const draftText = unwrapped();
     const prompt = (field.current?.agentText(draftText) ?? draftText).trim();
@@ -707,6 +738,8 @@ export function Composer({
       },
       () => {
         sending.current = false;
+        const note = t("composer.stillSending");
+        setAttachError((current) => (current === note ? undefined : current));
       },
     );
     return true;
@@ -797,23 +830,59 @@ export function Composer({
     }
   };
   const stopTurn = () => {
-    if (Date.now() - sentAt.current > STOP_GUARD_MS) onStop();
+    if (Date.now() - sentAt.current > STOP_GUARD_MS) {
+      refocusField.current = document.activeElement === sendButton.current;
+      onStop();
+    }
+  };
+  // Enter sends unless it picks a command: with the menu closed, with nothing to pick (an unknown
+  // command or a pasted path), or on a command already typed in full that takes no arguments.
+  const returnSends = () => {
+    const typedInFull =
+      matches[selected]?.command.name === query &&
+      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
+    return !open || matches.length === 0 || typedInFull;
+  };
+  const sendOnReturn = (event: { preventDefault(): void }) => {
+    if (!returnSteers) return submit(event);
+    event.preventDefault();
+    return send(false, true);
+  };
+  // The Return an input method or Dictation passed on (keyCode 229) reaches no key handler, and
+  // the browser inserts its paragraph instead (Leo's dictated prompt, d5829ff). Return never adds
+  // a line here (Shift-Return does): it sends, or picks the menu's command, as a Return key would.
+  const returnInput = () => {
+    if (shell) return;
+    if (mentionAt && mentions[mentionSelected]) return pickMention(mentions[mentionSelected]);
+    if (returnSends()) return void sendOnReturn({ preventDefault() {} });
+    if (matches.length > 0) pick(matches[selected].command);
   };
   const keyDown = (event: KeyboardEvent) => {
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
-    // Any other key between the two presses of Esc starts the double press over.
-    if (event.key !== "Escape" && escapeArmedAt.current !== undefined) disarmEscape();
     if (interrupt(event)) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
-    // ⌘Return while a turn runs steers: the prompt goes in now instead of after the turn. (The
-    // Quick Composer keeps its own ⌘Return and Esc, below.)
+    // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
+    // it away for this chat (and still does whatever Esc does there).
+    if (suggested && plain && event.key === "Tab") {
+      event.preventDefault();
+      if (field.current) field.current.type(suggested);
+      else {
+        setText(suggested);
+        setCaret(suggested.length);
+      }
+      return;
+    }
+    if (suggested && plain && event.key === "Escape") setSuggestionDismissed(suggestionKey);
+    // While a turn runs, ⌘Return queues the prompt for after it; Return steers (below). Nothing
+    // sent from the composer stops the turn: only Stop and Esc do (Leo 2026-10-20). (The Quick
+    // Composer keeps its own ⌘Return and Esc, below.)
     const quick = Boolean(onOpenInWindow);
     const commandReturn =
       event.key === "Enter" && event.metaKey && !event.shiftKey && !event.altKey && !event.ctrlKey && !quick;
-    if (commandReturn && steerable) {
+    if (commandReturn && queues && (text.trim() || attachments.length > 0)) {
       event.preventDefault();
-      send(false, true);
+      send(false);
       return;
     }
     // ⌘Return on an empty prompt after a turn answers the recap card's question (RecapCard.tsx).
@@ -893,16 +962,19 @@ export function Composer({
       }
     }
     // Esc on an empty prompt stops the turn, as Stop does: by default the second of two presses
-    // does (escapeStop.ts), and the first only says so in the placeholder. Menus, pickers and the
+    // does (escapeStop.ts), and the first turns Stop into an Esc hint. Menus, pickers and the
     // @ list take their Esc above, so one press still closes them.
     if (event.key === "Escape" && plain && !open && stop && !quick) {
       event.preventDefault();
       // Holding Esc down is one press: its auto-repeat is not the second.
-      if (event.repeat) return;
-      const press = escapeStopPress(escapeArmedAt.current, Date.now(), escapeDoublePress);
-      escapeArmedAt.current = press.armedAt;
-      setEscapeArmed(press.armedAt);
-      if (press.stop) stopTurn();
+      escapeStop.press(event.repeat);
+      return;
+    }
+    // Esc with nothing to stop lets go of the keyboard, as Claude desktop's does: the caret goes, and a
+    // printed key or a click brings it back (composerFocus.ts). Menus and pickers took theirs above.
+    if (event.key === "Escape" && plain && !open && !quick) {
+      const focused = document.activeElement;
+      if (focused instanceof HTMLElement && form.current?.contains(focused)) focused.blur();
       return;
     }
     // ⌘Return sends whatever is typed, even over an open command menu, then opens the window.
@@ -921,14 +993,8 @@ export function Composer({
       onOpenInWindow(sent);
       return;
     }
-    // Enter sends unless it picks a command: with the menu closed, with nothing
-    // to pick (an unknown command or a pasted path), or on a command already
-    // typed in full that takes no arguments.
-    const typedInFull =
-      matches[selected]?.command.name === query &&
-      (!matches[selected]?.command.hint || matches[selected]?.command.source === "cmux");
-    if (event.key === "Enter" && plain && (!open || matches.length === 0 || typedInFull)) {
-      submit(event);
+    if (event.key === "Enter" && plain && returnSends()) {
+      sendOnReturn(event);
       return;
     }
     if (!open) return;
@@ -958,44 +1024,100 @@ export function Composer({
   };
 
   const stop = !shell && snapshot.isWorking && !text.trim();
-  // A prompt typed while a turn runs can go in now; an agent that cannot steer stops the turn.
-  const steerable = !shell && snapshot.isWorking && remote.canSend && !blocked && Boolean(text.trim());
-  const steerKind = snapshot.summary?.steering ? "steer" : "interrupt";
+  // Stop shows for the whole turn, a typed prompt or not; Esc stops only from an empty prompt.
+  const running = !shell && snapshot.isWorking;
+  const hasDraft = Boolean(text.trim() || attachments.length);
+  // Esc stops the turn on a double press (escapeStop.ts). The Quick Composer's page-level Esc hides
+  // its panel, so only the pane counts an Esc that reaches the page.
+  const escapeStop = useEscapeStop({
+    stoppable: stop,
+    session: sessionId,
+    double: escapeDoublePress,
+    pageEscape: !onOpenInWindow,
+    onStop: stopTurn,
+  });
   // While a turn runs, what is sent waits behind it, so the empty prompt says so.
   const queues = !shell && snapshot.isWorking && remote.canSend && !blocked;
-  // Mid-turn it teaches both keys, as Claude's composer does (Leo 2026-10-18): Return queues and
-  // ⌘Return steers or interrupts. The Quick Composer's ⌘Return opens the window, and ⌘Return needs
-  // typed text, so with only attachments staged it says just that Return queues.
-  // The hint lasts the double press's window, and only while there is a turn to stop. Any other
-  // key disarms it at once, in keyDown.
-  const escapeHint = escapeArmed !== undefined && stop;
-  // A turn that ends (or a prompt typed) takes the arm with it, and so does a switch to another
-  // chat (the composer stays mounted across sessions): the next turn, or chat, starts unarmed.
-  const escapeArmedSession = useRef(sessionId);
-  useEffect(() => {
-    const switched = escapeArmedSession.current !== sessionId;
-    escapeArmedSession.current = sessionId;
-    if ((stop && !switched) || escapeArmedAt.current === undefined) return;
-    escapeArmedAt.current = undefined;
-    setEscapeArmed(undefined);
-  }, [stop, sessionId]);
-  useEffect(() => {
-    if (escapeArmed === undefined) return;
-    const timer = window.setTimeout(() => {
-      if (escapeArmedAt.current === escapeArmed) escapeArmedAt.current = undefined;
-      setEscapeArmed((current) => (current === escapeArmed ? undefined : current));
-    }, ESCAPE_STOP_WINDOW_MS);
-    return () => window.clearTimeout(timer);
-  }, [escapeArmed]);
-  const placeholder = escapeHint
+  // An agent that steers takes Return into the running turn: it reads the prompt when its current
+  // step ends, and nothing is cancelled. ⌘Return queues the prompt for after the turn (Claude's
+  // keys, Leo 2026-10-20). Attachments go along, so staged files alone can steer too. An agent
+  // that cannot steer queues on both keys.
+  const steers = queues && snapshot.summary?.steering === true;
+  const returnSteers = steers && (Boolean(text.trim()) || attachments.length > 0);
+  // The steer control shows once a prompt is typed.
+  const steerable = steers && Boolean(text.trim());
+  // Mid-turn it teaches both keys, as Claude's composer does: Return steers and ⌘Return queues.
+  // The Quick Composer's ⌘Return opens the window, so there it names Return alone; an agent that
+  // cannot steer says it queues.
+  // While the double press is armed, the placeholder says to press Esc again, as Stop's hint does.
+  const placeholder = escapeStop.armed
     ? COMPOSER_LABELS.escapeAgainToStop
     : !queues
       ? COMPOSER_LABELS.placeholder
-      : onOpenInWindow || attachments.length > 0
+      : !steers
         ? COMPOSER_LABELS.placeholderQueued
-        : steerKind === "steer"
-          ? COMPOSER_LABELS.placeholderSteer
-          : COMPOSER_LABELS.placeholderInterrupt;
+        : onOpenInWindow
+          ? COMPOSER_LABELS.placeholderSteerQuick
+          : COMPOSER_LABELS.placeholderSteer;
+  // A dictation waiting for words says so in the empty prompt, in italic (dictation.css).
+  const dictating = useDictationListening();
+  // An idle new chat suggests the open PR another chat in this checkout made, Tab to take it
+  // (promptSuggestion.ts; Leo 2026-10-18). It never sends: Tab writes it, Return sends it.
+  const cwd = snapshot.summary?.cwd;
+  const branch = snapshot.summary?.branch;
+  // The chat folder's own PR, which the App reads with gh for the header's chip: no session summary
+  // reports a PR yet, so this is the live source.
+  const headerPullRequest = useHeaderState().pullRequest;
+  const headerHere = headerCwd === undefined || folder(headerCwd) === folder(cwd);
+  const livePullRequest = useMemo<LivePullRequest | undefined>(
+    () =>
+      headerPullRequest && headerHere
+        ? {
+            number: headerPullRequest.number,
+            title: headerPullRequest.title,
+            state: headerPullRequest.state,
+            checks: headerPullRequest.checks.state,
+          }
+        : undefined,
+    [headerPullRequest, headerHere],
+  );
+  const suggestion = useMemo<PromptSuggestion | undefined>(
+    () =>
+      !shell && !snapshot.isWorking && snapshot.rows.length === 0 && remote.canSend && !blocked
+        ? promptSuggestion(
+            snapshot.sessions,
+            { sessionId: snapshot.sessionId, cwd, branch },
+            Date.now(),
+            livePullRequest,
+          )
+        : undefined,
+    [
+      shell,
+      snapshot.isWorking,
+      snapshot.rows.length,
+      remote.canSend,
+      blocked,
+      snapshot.sessions,
+      snapshot.sessionId,
+      cwd,
+      branch,
+      livePullRequest,
+    ],
+  );
+  const suggestionKey = suggestion && `${snapshot.sessionId ?? ""}|${cwd}|${suggestion.number}`;
+  // Exactly empty, as the field draws its placeholder: a typed space hides the suggestion, so Tab
+  // must not take it then.
+  const suggested =
+    suggestion && !dictating && suggestionKey !== suggestionDismissed && text === "" && attachments.length === 0
+      ? t(
+          suggestion.kind === "failing"
+            ? COMPOSER_LABELS.suggestFailing
+            : suggestion.kind === "draft"
+              ? COMPOSER_LABELS.suggestDraft
+              : COMPOSER_LABELS.suggestOpen,
+          { number: String(suggestion.number), title: suggestion.title },
+        )
+      : undefined;
   // Focus leaving the composer closes the menu and takes back what + wrote.
   const blur = (event: React.FocusEvent<HTMLFormElement>) => {
     if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
@@ -1146,6 +1268,24 @@ export function Composer({
   ) : keepLocationSlot ? (
     <div className="acpmux-composer-strip-placeholder" aria-hidden="true" />
   ) : null;
+  // Stop, for the whole turn. Claude desktop's box (Leo 2026-10-20) draws it left of the mic, the
+  // mic keeping the right edge; the other look keeps it at the cluster's end.
+  const stopButton = running ? (
+    <button
+      key="stop"
+      ref={sendButton}
+      type="button"
+      className="acpmux-send acpmux-cancel"
+      data-escape-armed={escapeStop.armed ? "" : undefined}
+      aria-label={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+      // tooltip-allow: names the icon-only Stop, and once armed says to press the Esc it shows again.
+      title={t(escapeStop.armed ? COMPOSER_LABELS.escapeAgainToStop : COMPOSER_LABELS.stop)}
+      onClick={stopTurn}
+    >
+      {/* The first Esc of the double press: Stop says which key stops the turn. */}
+      {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
+    </button>
+  ) : null;
   return (
     <form
       ref={form}
@@ -1250,10 +1390,14 @@ export function Composer({
           {/* An editable prompt that drives a listbox: a native combobox cannot hold a multi-line prompt. */}
           <MarkdownField
             ref={fieldRef}
-            className={shell ? "acpmux-composer-prompt is-hidden" : "acpmux-composer-prompt"}
+            className={
+              shell ? "acpmux-composer-prompt is-hidden" : `acpmux-composer-prompt${dictating ? " is-dictating" : ""}`
+            }
             value={text}
-            placeholder={t(placeholder)}
+            placeholder={dictating ? t("dictation.listening") : (suggested ?? t(placeholder))}
+            placeholderKey={suggested && !dictating ? t(COMPOSER_LABELS.suggestionKey) : undefined}
             attributes={{
+              "aria-description": suggested ? `${suggested}. ${t(COMPOSER_LABELS.suggestionHint)}` : undefined,
               role: "combobox",
               "aria-label": t(COMPOSER_LABELS.prompt),
               "aria-multiline": "true",
@@ -1276,6 +1420,7 @@ export function Composer({
             onChange={(markdown, at) => edit(markdown, at)}
             onCaret={setCaret}
             onKeyDown={keyDown}
+            onReturnInput={returnInput}
             onCompositionChange={(value) => {
               composing.current = value;
             }}
@@ -1410,57 +1555,61 @@ export function Composer({
               </SpeedToggleHost.Provider>
             )}
             <span className="acpmux-composer-actions">
-              {/* Steer comes in at the cluster's leading edge, so the mic and Send keep their places
-                  when typing during a turn turns Stop into Steer and Send (hq#1957). */}
+              {/* While a turn runs, a typed prompt gets one icon control, not a word (Leo
+                  2026-10-20): ↵ puts it into the turn now, as Return does; ⌘Return queues it. It
+                  comes in at the cluster's leading edge, so Stop and the mic keep their places
+                  (hq#1957). */}
               {steerable && (
                 <button
                   key="steer"
                   type="button"
-                  className="acpmux-steer"
-                  aria-label={t(steerKind === "steer" ? "composer.steerLabel" : "composer.interruptLabel")}
-                  /* tooltip-allow: the button shows a verb; the tooltip says what it does and its shortcut */
-                  title={t(steerKind === "steer" ? "composer.steerTooltip" : "composer.interruptTooltip")}
+                  className="acpmux-send acpmux-send-ready acpmux-steer-now"
+                  aria-label={t("composer.steerLabel")}
+                  // tooltip-allow: names the icon-only control, what it does and its key.
+                  title={t("composer.steerTooltip")}
+                  // Keep focus and the caret in the prompt, as the mic does.
+                  onMouseDown={(event) => event.preventDefault()}
                   onClick={() => {
                     send(false, true);
                     field.current?.focus();
                   }}
                 >
-                  {t(steerKind === "steer" ? "composer.steer" : "composer.interrupt")}
+                  <ReturnIcon />
                 </button>
               )}
               {!plainFooter && speed && <FastToggle speed={speed} />}
+              {plainFooter && stopButton}
               {/* The mic stays at every width; the prompt shrinks instead (composerRowFit.ts). */}
               {accessory && (
                 <span className="acpmux-fit-mic" data-fit-part="mic" data-fit-forms="full">
                   {accessory}
                 </span>
               )}
-              {stop ? (
-                <button
-                  key="stop"
-                  ref={sendButton}
-                  type="button"
-                  className="acpmux-send acpmux-cancel"
-                  aria-label={t(COMPOSER_LABELS.stop)}
-                  title={t(COMPOSER_LABELS.stop)}
-                  onClick={stopTurn}
-                >
-                  <StopIcon />
-                </button>
-              ) : remote.canSend ? (
+              {!plainFooter && stop ? (
+                stopButton
+              ) : remote.canSend && (!plainFooter || shell || (hasDraft && !(running && steerable))) ? (
+                // Claude desktop's box (Leo 2026-10-20): no Send until there is a draft, the mic
+                // alone on the right; Send comes in after it with the first letter. Mid-turn it
+                // queues the draft, unless the ↵ control is there to put it into the turn.
                 <button
                   key="send"
                   ref={sendButton}
                   type="submit"
                   disabled={Boolean(blocked) && !shell}
-                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && (text.trim() || attachments.length)) ? " acpmux-send-ready" : ""}`}
+                  className={`acpmux-send${(shell ? shellText.trim() : !blocked && hasDraft) ? " acpmux-send-ready" : ""}`}
                   aria-label={shell ? t("composer.shellRun") : t(COMPOSER_LABELS.send)}
                   title={
                     shell
                       ? t("composer.shellRun")
                       : blocked?.reason
                         ? t(blocked.reason)
-                        : t(snapshot.isWorking ? "composer.queueTooltip" : "composer.sendTooltip")
+                        : t(
+                            !snapshot.isWorking
+                              ? "composer.sendTooltip"
+                              : returnSteers
+                                ? "composer.queueLaterTooltip"
+                                : "composer.queueTooltip",
+                          )
                   }
                 >
                   <ArrowUpIcon />

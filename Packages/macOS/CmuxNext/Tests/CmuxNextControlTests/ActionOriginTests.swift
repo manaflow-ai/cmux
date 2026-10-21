@@ -153,7 +153,9 @@ import Testing
 
     /// Raw app screenshots can include a browser page. Automation must use
     /// the browser host's guarded capture, which masks secrets in every frame,
-    /// instead of bypassing it through the generic action socket.
+    /// instead of bypassing it through the generic action socket. Design mode
+    /// also snapshots selected page regions into a composer, so only a person
+    /// may enable that capture path.
     @Test func appScreenshotsAreRefusedOverTheSocket() async {
         let registry = ActionRegistry.standard()
         registry.context = [.browserFocused, .webViewFocused]
@@ -161,6 +163,7 @@ import Testing
             "window.screenshot", "pane.screenshot", "tab.screenshot",
             "browserScreenshotPage", "browserScreenshotSection",
             "devtools.captureScreenshot", "devtools.captureFullPageScreenshot", "devtools.captureNodeScreenshot",
+            "toggleBrowserDesignMode",
         ]
         var ran: [ActionID] = []
         for id in ids { registry.bind(id, invoke: { _ in ran.append(id) }) }

@@ -1,9 +1,10 @@
 // The chat's pull requests above the composer (cx-ncc.81, Claude desktop's PR bars): each one a
 // `gh pr create` in the chat opened (sessionSummary.ts), newest first, with its number, repository,
-// title and state, each a chip as wide as its text (the title cut off at a fixed width) with its
-// dismiss button inside. The chat folder's pull request, which the header chip follows live, shows its
-// live state and title. The newest two show and the rest wait behind Show more; a dismissed bar
-// stays hidden for this chat (the page's storage, so a reload keeps it hidden).
+// title and state, each a chip as wide as its text, its title cut off only when the composer's
+// column is full, with its dismiss button inside. The chat folder's pull request, which the header
+// chip follows live, shows its live state and title. The newest two show and the rest wait behind
+// Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
+// hidden).
 import { useEffect, useRef, useState } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";

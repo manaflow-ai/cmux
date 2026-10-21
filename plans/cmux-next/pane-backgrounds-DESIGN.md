@@ -8,7 +8,7 @@ that people might want and implement it. Think from first principles."
 
 A background does three jobs, in this order:
 
-1. **Legibility.** Text over it stays readable (the tint floor, `WindowBackdrop.legibleTintOpacity`).
+1. **Legibility.** Text over it stays readable through the window's own opacity, blur and glass, applied the same way over every picture (Leo, 2026-10-20: no picture-dependent floor).
 2. **Orientation.** It tells places apart at a glance: which window, which workspace, which pane
    (the agent's pane versus mine, prod versus dev, the pane I am typing in).
 3. **Taste.** It makes the app the person's own.
@@ -71,7 +71,7 @@ All three target a pane (`--pane`, default the focused pane), so agents can mark
 | 9 | Close and restore / relaunch | app-local file `pane-backgrounds.json` (+ `pane-tints.json`) keyed `<session>/<pane resource id>`; daemon restore keeps resource ids | now |
 | 10 | Panes without a durable id (old daemons) | no override offered (the action refuses with a reason) | now |
 | 11 | Dim or blur inactive panes | already: Ghostty `unfocused-split-opacity` / `unfocused-split-fill` (ThemeBridge) | done |
-| 12 | Legibility over busy images | the pane draws the same tint floor as the window (`legibleTintOpacity`, WCAG contrast per text role) | now |
+| 12 | Legibility over busy images | the pane draws the window's tint and blur; Opacity and Material decide readability, never the picture | now |
 | 13 | Window glass interplay | the pane copy draws art + tint only (no Liquid Glass view per pane); Window Glass keeps its art opacity | now |
 | 14 | Light/dark variants | the shared art view picks the dynamic image's variant per appearance | now (reused) |
 | 15 | Browser and Markdown panes | they are clear over art already (surface-backgrounds.md); they inherit the pane scope like terminals | now |

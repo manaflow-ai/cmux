@@ -45,8 +45,9 @@ import PackageDescription
 //   CmuxNextFocusUI -> Actions, Design (AppKit overlays of keys: the shortcut hint overlay and capture
 //     waiter, the which-key controller, overlay, rows and strings; the focus state machine, key rules
 //     and key delivery stay in the App)
-//   CmuxNextComputerUse -> AgentActivity, Compat, Settings (the macOS Computer Use helper: launch,
-//     v2 helper and its disclaimed spawner, the cua helper manifest reader; setup stays in the App)
+//   CmuxNextComputerUse -> AgentActivity, Compat, Settings, Wakeups (the macOS Computer Use helper:
+//     launch, v2 helper and its disclaimed spawner, signed Unix peer checks, the cua helper manifest
+//     reader; setup stays in the App)
 //   CmuxNextHistory -> Design, Icons (history model, SQLite visit log, cmux://history page; no daemon)
 //   CmuxNextPages -> Design, Settings (the one host for React pages: PageWebView, cmux-page://<id>/
 //     scheme, engine-neutral bridge, PageRouter + PageProvider; no daemon; the App supplies providers;
@@ -211,6 +212,7 @@ let package = Package(
                 "CmuxNextDiff",
                 "CmuxNextHome",
                 "CmuxNextHomeEngine",
+                "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
                 "CmuxNextAgentUpdates",
@@ -298,6 +300,13 @@ let package = Package(
             resources: [
                 .process("Resources"),
             ],
+            swiftSettings: uiSwiftSettings
+        ),
+        // The Chief pet's glue outside the App (code-quality SW14): its rows in the Chief Settings
+        // popover (Show Chief Pet, Pet Character) and the notice it makes from a daemon notification.
+        .target(
+            name: "CmuxNextChiefPetWiring",
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextFloating", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -543,7 +552,7 @@ let package = Package(
         // reader. Setup (ComputerUseSetup) stays in the App.
         .target(
             name: "CmuxNextComputerUse",
-            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings"],
+            dependencies: ["CmuxNextAgentActivity", "CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Resource usage for hover cards and `resources` (CPU and memory per
@@ -680,6 +689,7 @@ let package = Package(
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
         .target(
             name: "CmuxNextVSCodeServer",
+            dependencies: ["CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -821,7 +831,7 @@ let package = Package(
         // and the App Store window. The App supplies the operation sink.
         .target(
             name: "CmuxNextApps",
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextSettings", "CmuxNextWakeups"],
             resources: [
                 .process("Resources/Localizable.xcstrings"),
                 .copy("Resources/AppPlatform"),
@@ -1348,8 +1358,8 @@ let package = Package(
             swiftSettings: daemonSwiftSettings
         ),
         // The cmux iPhone host (Settings > Mobile): follows the account and
-        // mobile.allowIPhoneConnections, runs the bundled cnx-hostd through
-        // CmuxNextMobile's CnxHostSupervisor, lists and removes the account's
+        // mobile.allowIPhoneConnections, runs the bundled cmux-mobile-host through
+        // CmuxNextMobile's MobileHostSupervisor, lists and removes the account's
         // phones, and projects the Settings page's card.
         .target(
             name: "CmuxNextMobileHost",

@@ -339,6 +339,15 @@ export class SettingsStore {
     });
   }
 
+  /** Shuffle a Folder…: the app asks for a folder and shuffles its pictures (`folder:<path>`). */
+  async chooseBackdropFolder(): Promise<void> {
+    await this.trackAppearance([BACKGROUND], async () => {
+      const reply = await this.request("cmux.settings.backdrop.image.folder", {});
+      if (!reply.ok) this.setError(BACKGROUND, rowError(reply.error));
+      else await Promise.all([this.refresh(), this.refreshHost()]);
+    });
+  }
+
   /** Downloads the image or movie at `url` and sets it (backgrounds plan phase 3). Resolves to the
    * refusal code the picker words, or null once it is the background. */
   async addBackdropLink(url: string): Promise<string | null> {
@@ -361,12 +370,6 @@ export class SettingsStore {
   /** Shows one of the person's images, or with no id the backgrounds folder, in Finder. */
   revealBackdropImage(id?: string): void {
     void this.request("cmux.settings.backdrop.image.reveal", id ? { id } : {});
-  }
-
-  /** Places the background picture by hand in its window; false when no window shows one. */
-  async adjustBackdrop(): Promise<boolean> {
-    const reply = await this.request("cmux.settings.backdrop.image.adjust", {});
-    return reply.ok;
   }
 
   /** Draws and saves `collage` and makes it the background. An edit is saved under a new id;
@@ -394,10 +397,10 @@ export class SettingsStore {
     return reply.ok;
   }
 
-  /** The bytes the person's own images take; null when the host cannot say. */
-  async backdropUsage(): Promise<number | null> {
+  /** The bytes the person's own images take and their folder; null when the host cannot say. */
+  async backdropUsage(): Promise<{ bytes: number; folder: string | null } | null> {
     const reply = await this.request("cmux.settings.backdrop.image.usage", {});
-    return reply.ok ? reply.value.bytes : null;
+    return reply.ok ? { bytes: reply.value.bytes, folder: reply.value.folder ?? null } : null;
   }
 
   /** Opens the Wallpaper pane of System Settings, where macOS downloads a wallpaper the picker
@@ -424,7 +427,7 @@ export class SettingsStore {
     return reply.ok;
   }
 
-  /** Saves the workspace `id`'s own glass tint over art; null follows the work's own tint. */
+  /** Saves the workspace `id`'s own glass tint over art; null follows All Workspaces' opacity. */
   async setWorkspaceOpacity(id: string, opacity: number | null): Promise<boolean> {
     const reply = await this.request("cmux.settings.backdrop.workspace.set", {
       workspace: id,
@@ -606,7 +609,7 @@ export class SettingsStore {
    * Runs `work` (a write, a host op that sets the background, a theme level) as one step of
    * Appearance's undo stack: the states of `keys` (and the keys their writes also change, and with
    * `themes` the theme levels) are read before and after it, and what changed is recorded, named
-   * `label` or by the first change ("Background → Shuffle Daily"). Other parts of Appearance (the
+   * `label` or by the first change ("Background → Shuffle Paintings"). Other parts of Appearance (the
    * Theme pane's rotation) call it to make their changes undoable too.
    */
   async trackAppearance<T>(

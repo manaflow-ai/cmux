@@ -121,13 +121,10 @@ export type HostLists = {
   }>;
   /** Where an unset number row's slider sits when the app resolves it (the theme's window opacity). */
   derived?: Record<string, number>;
-  /** Where a number row's slider starts when the app narrows its range (over a background
-   * picture, the window Opacity's legibility floor: a lower value paints the same tint). */
-  derived_min?: Record<string, number>;
 };
 
 /**
- * The Mobile page's iPhone card: the cnx phone host the app runs while the schema row
+ * The Mobile page's iPhone card: the iPhone host the app runs while the schema row
  * `mobile.allowIPhoneConnections` is on and an account is signed in. Every text is localized by
  * the host.
  */
@@ -367,7 +364,16 @@ export type HarnessesState = {
 /** One Harnesses gesture: Sign in and Check open a terminal tab with `harness login`; Update
  * (one `id`) and Update all start owner-bound native terminal jobs. */
 export type HarnessesRun = {
-  action: "refresh" | "signIn" | "check" | "registry" | "update" | "updateAll" | "autoUpdate" | "resumeUpdate" | "dismissUpdate";
+  action:
+    | "refresh"
+    | "signIn"
+    | "check"
+    | "registry"
+    | "update"
+    | "updateAll"
+    | "autoUpdate"
+    | "resumeUpdate"
+    | "dismissUpdate";
   id?: string;
   /** With `resumeUpdate` and `dismissUpdate`: the retained intent key, not a new operation id. */
   intent?: string;
@@ -441,7 +447,8 @@ export type SettingsOps = {
   /** Native: delete a collage (never the background in use). */
   "cmux.settings.backdrop.image.collage.delete": [{ id: string }, Record<string, never>];
   /** Native: the bytes the person's own background images take. */
-  "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number }];
+  "cmux.settings.backdrop.image.usage": [Record<string, never>, { bytes: number; folder?: string }];
+  "cmux.settings.backdrop.image.folder": [Record<string, never>, { id: string | null }];
   /** Native: opens the Wallpaper pane of System Settings, where macOS downloads its wallpapers. */
   "cmux.settings.backdrop.wallpaper_settings": [Record<string, never>, Record<string, never>];
   /** Native: a workspace's own background (cx-t2x.5); `value` null follows appearance.background. */
