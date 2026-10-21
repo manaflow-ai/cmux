@@ -48,7 +48,8 @@ struct AccentNeverOrangeTests {
     /// The default accent (`setting.appearance.accent`), from the generated defaults.
     private static func defaultAccent() throws -> ThemeAccent {
         let data = try Data(contentsOf: repoRoot.appending(path: "schemas/defaults/cmux-next.json"))
-        let defaults = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let snapshot = try #require(try JSONSerialization.jsonObject(with: data) as? [String: Any])
+        let defaults = try #require(snapshot["defaults"] as? [String: Any])
         let raw = try #require(defaults["setting.appearance.accent"] as? String)
         return try #require(ThemeAccent(rawValue: raw), "unknown default accent \(raw)")
     }

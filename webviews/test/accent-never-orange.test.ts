@@ -76,11 +76,10 @@ const tokenOrange = (color: ThemeRGB) => isOrange(color.red, color.green, color.
 
 /** The default accent, from the generated defaults (the settings registry's fallback). */
 function defaultAccent(): AppAccent {
-  const defaults = JSON.parse(fs.readFileSync(path.join(REPO, "schemas/defaults/cmux-next.json"), "utf8")) as Record<
-    string,
-    unknown
-  >;
-  const accent = defaults["setting.appearance.accent"];
+  const snapshot = JSON.parse(fs.readFileSync(path.join(REPO, "schemas/defaults/cmux-next.json"), "utf8")) as {
+    defaults: Record<string, unknown>;
+  };
+  const accent = snapshot.defaults["setting.appearance.accent"];
   if (!APP_ACCENTS.includes(accent as AppAccent)) throw new Error(`unknown default accent ${String(accent)}`);
   return accent as AppAccent;
 }
