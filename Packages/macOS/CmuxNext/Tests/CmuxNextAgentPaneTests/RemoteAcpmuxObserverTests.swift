@@ -38,18 +38,18 @@ import Testing
     }
 
     nonisolated final class Frames: Sendable {
-        let items = Mutex<[[String: Any]]>([])
+        // The lock holds only the frames' text, which is Sendable; each read decodes outside it.
+        let texts = Mutex<[String]>([])
         let closes = Mutex<[String]>([])
 
-        func append(_ text: String) {
-            guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { return }
-            items.withLock { $0.append(object) }
+        func append(_ text: String) { texts.withLock { $0.append(text) } }
+
+        func objects() -> [[String: Any]] {
+            texts.withLock { $0 }.compactMap { try? JSONSerialization.jsonObject(with: Data($0.utf8)) as? [String: Any] }
         }
 
-        func reply(_ id: Int) -> [String: Any]? { items.withLock { $0.first { $0["id"] as? Int == id } } }
-        func notifications(_ method: String) -> [[String: Any]] {
-            items.withLock { $0.filter { $0["method"] as? String == method } }
-        }
+        func reply(_ id: Int) -> [String: Any]? { objects().first { $0["id"] as? Int == id } }
+        func notifications(_ method: String) -> [[String: Any]] { objects().filter { $0["method"] as? String == method } }
     }
 
     static func wire() async throws -> (RemoteAcpmuxWire, FakeClient, Frames) {
