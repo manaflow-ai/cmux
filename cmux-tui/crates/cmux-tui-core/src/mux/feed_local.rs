@@ -179,6 +179,7 @@ impl Mux {
             preview,
             level: notification.level,
             surface: notification.surface,
+            workspace_id: notification.workspace_id.clone(),
             source: notification.source,
             desktop: notification.desktop,
             reply: notification.reply,
