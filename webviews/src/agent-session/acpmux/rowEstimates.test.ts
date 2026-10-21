@@ -12,9 +12,18 @@
 // task's result kept the old 16px below it.
 import { expect, test } from "bun:test";
 import { layoutConversation } from "./model";
+import { turnView } from "./conversation/turns";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
-const footer = (id: string) => ({ id, version: 1, at: 0, kind: "turnSummary", status: "completed" });
+// A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
+const footer = (id: string) => ({
+  id,
+  version: 1,
+  at: 0,
+  kind: "turnSummary",
+  status: "completed",
+  text: "An answer long enough to wrap onto many lines. ".repeat(30),
+});
 const prompt = (id: string) => ({ id, version: 1, at: 0, kind: "user", text: "Next" });
 const heightsOf = (rows: unknown[]) => [...layoutConversation(rows as never, 720).heights];
 
@@ -62,4 +71,30 @@ test("a task's result is its 26px line and the 8px message gap", () => {
     { id: "r", version: 1, at: 0, kind: "user", text: "Run the tests", received: { offerId: "o", title: "Tests" } },
   ]);
   expect(height).toBe(34);
+});
+
+test("a footer shaped by turnView, which carries its answer's text, is its 24px line and gap", () => {
+  const answer = "A longer answer that wraps. ".repeat(40);
+  const source = [
+    { id: "u1", version: 1, at: 1_000, kind: "user", text: "First" },
+    { id: "a1", version: 1, at: 2_000, kind: "assistant", text: answer },
+    { id: "s1", version: 1, at: 3_000, kind: "turnSummary", status: "completed", durationMs: 2_000 },
+    { id: "u2", version: 1, at: 4_000, kind: "user", text: "Second" },
+    { id: "a2", version: 1, at: 5_000, kind: "assistant", text: answer },
+    { id: "s2", version: 1, at: 6_000, kind: "turnSummary", status: "completed", durationMs: 2_000 },
+  ];
+  const rows = turnView(source as never, new Set(), { now: 7_000 });
+  const footers = rows.flatMap((row, index) => (row.kind === "turnSummary" ? [index] : []));
+  expect(footers.length).toBe(2);
+  expect(rows[footers[0]!]!.text).toBe(answer);
+  const { heights } = layoutConversation(rows, 720);
+  expect(heights[footers[0]!]).toBe(48);
+  expect(heights[footers[1]!]).toBe(32);
+});
+
+test("a hidden row after the chat's last footer leaves it the last one", () => {
+  const hidden = { id: "h", version: 1, at: 0, kind: "user", text: "", incoming: { kind: "hidden" } };
+  const heights = heightsOf([reply("a", "Done."), footer("f"), hidden]);
+  expect(heights[1]).toBe(32);
+  expect(heights[2]).toBe(0);
 });
