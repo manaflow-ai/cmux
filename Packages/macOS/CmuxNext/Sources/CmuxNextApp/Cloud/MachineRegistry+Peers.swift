@@ -12,7 +12,7 @@ extension MachineRegistry {
         let id = ssh.first { matches([$0.host.destination.host, $0.host.destination.displayName, $0.host.label]) }?.machineID
             ?? cloud.first { matches([$0.machine.title]) }?.machineID
             ?? servers.first { matches([$0.name]) }?.machineID
-        return id.flatMap(machineName)
+        return id.flatMap { machineName($0) }
     }
 
     /// The other machines whose agent chats the sidebar's Priority view ranks: each reachable
