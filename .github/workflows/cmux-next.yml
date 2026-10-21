@@ -21,7 +21,9 @@ name: cmux-next
 # A same-repository pull request runs every tier the router picks on its own
 # branch, with no label (#22303), except the two heavy app compiles (native and
 # scheme), which need full-ci again (2026-10-21: the Mac queue was ~350 jobs
-# deep); a MEMBER or OWNER dev-build PR keeps its scheme compile. A fork pull
+# deep); a MEMBER or OWNER dev-build PR keeps its scheme compile, and the
+# native tier compiles the PR's head on the build fleet instead
+# (app-compile-fleet; the Mac Release compile only when it gives no verdict). A fork pull
 # request runs the fast tier and,
 # for a CmuxNext .swift change, the Release compile, and the other Mac tiers
 # only with the full-ci label, on its hosted fallback. full-ci also makes the router
