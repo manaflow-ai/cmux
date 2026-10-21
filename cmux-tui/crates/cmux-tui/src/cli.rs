@@ -26,6 +26,8 @@ mod capability_cache;
 #[cfg(unix)]
 mod chief;
 mod chief_target;
+#[cfg(unix)]
+mod cloud_machines;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
