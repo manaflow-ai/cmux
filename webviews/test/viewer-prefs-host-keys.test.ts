@@ -56,8 +56,17 @@ test("every diff pref the page persists is a key the host accepts", async () => 
 
 test("a session-local option is never persisted", async () => {
   const persisted = Object.keys(sanitizeViewerPrefs(EVERY_OPTION));
-  // `collapsed` is session-local by design; `groupByKind` is session-local until it has a
-  // `diff.groupByKind` schema row, and the test above is what lets it become persisted safely.
+  // The collapse-all toggle is session-local by design: it is a way of reading this diff now, not
+  // a preference about every diff.
   expect(persisted).not.toContain("collapsed");
-  expect(persisted).not.toContain("groupByKind");
+});
+
+test("the file grouping is kept, because the host now has a row for it", async () => {
+  // It shipped as a toolbar toggle that reset itself on every reopen: the page sent
+  // `diff.groupByKind`, the host had no schema row for it, and `saveViewerPrefs` swallowed the
+  // refusal. Both halves are asserted here, because either one alone is the silent bug again.
+  const accepted = await hostKeys();
+  expect(accepted.has("groupByKind")).toBe(true);
+  expect(sanitizeViewerPrefs(EVERY_OPTION).groupByKind).toBe(true);
+  expect(sanitizeViewerPrefs({ groupByKind: "yes" })).toEqual({});
 });
