@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixture prompts, thoughts and commands, not shipped UI.
 // The steps of a turn read as one list (Leo 2026-10-13, cmux NEXT on macOS 27): tool calls,
 // thoughts and a background shell's end all draw as one 26px row style on one rhythm, whether
-// they share a transcript row or not. A thought shows in full, wrapped, with no tooltip, and a
-// row shows nothing more on hover: its disclosure chevron is there at rest.
+// they share a transcript row or not. A finished thought is one quiet row like the others that
+// opens to its full text, wrapped, with no tooltip (Leo 2026-10-20), and a row shows nothing more
+// on hover: its disclosure chevron is there at rest.
 //
 // Before: the background task's end used a smaller font in a 22px row with its own margins, a
 // step in the next transcript row sat 10px further down than one in the same row, a thought was
@@ -185,9 +186,8 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
         };
       }),
     );
-    // The thought wraps to several lines; every other step is one line.
-    const single = rows.filter((row) => !row.text.startsWith("Thought"));
-    expect(single.map((row) => row.height)).toEqual(single.map(() => 26));
+    // The finished thought is folded to one line too.
+    expect(rows.map((row) => row.height)).toEqual(rows.map(() => 26));
     expect(new Set(rows.map((row) => row.fontSize)).size).toBe(1);
     // Each step starts where the one above it ends.
     const gaps = rows.slice(1).map((row, index) => row.top - (rows[index]!.top + rows[index]!.height));
@@ -199,10 +199,20 @@ await requireBrowserLane("agent-pane-step-rows.test.ts", async () => {
     await page.close();
   });
 
-  test("a thought shows in full, wrapped, with no tooltip", async () => {
+  test("a finished thought is one quiet row that opens to its full text, wrapped, with no tooltip", async () => {
     const page = await open();
     await openRun(page);
-    const thought = page.locator(".cv-thought");
+    const toggle = page.locator("button.cv-thought");
+    expect((await toggle.innerText()).trim()).toBe("Thought");
+    expect(await page.locator(".cv-thought__body, .cv-thought__text").count()).toBe(0);
+    await toggle.click();
+    // The fold plays, then the text has its height.
+    const thought = page.locator(".cv-thought__body");
+    await page.waitForFunction(
+      () => (document.querySelector(".cv-thought__body")?.getBoundingClientRect().height ?? 0) > 26,
+      undefined,
+      { timeout: 5_000 },
+    );
     expect((await thought.innerText()).replace(/\s+/g, " ")).toContain(THOUGHT);
     expect(await thought.evaluate((node) => node.closest("[title]") === null && !node.querySelector("[title]"))).toBe(
       true,
