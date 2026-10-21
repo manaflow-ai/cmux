@@ -72,6 +72,18 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       shows: (page) =>
         page.evaluate(() => [...document.images].some((image) => image.complete && image.naturalWidth > 0)),
     },
+    // The summary card is a popover in a pane too narrow for its inline column (#21564): the
+    // Summary button opens it, and it lists the subagents.
+    ...["summary", "card-kinds", "card-waiting", "card-collapsed", "card-closed", "card-outside-click"].map(
+      (variant): Case => ({ entry: "subagents", variant, play: "steps" }),
+    ),
+    {
+      entry: "subagents",
+      variant: "card-open-pane",
+      play: "steps",
+      shows: has(".acpmux-summary-card .acpmux-summary-agents"),
+    },
+    { entry: "subagents", variant: "card-open-child", play: "steps", shows: has(".cv-subagent-of") },
   ];
 
   setDefaultTimeout(240_000);
