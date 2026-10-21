@@ -28,7 +28,14 @@ import { armIds, validateExperiments, type Experiment } from "../experiments/exp
 import { validateTunables, type Tunable } from "../experiments/tunable";
 import { optionAccepts, validateOptions, type GalleryOption } from "./options";
 import type { MockOptions } from "../pages/settings/mockProvider";
-import type { AccountsState, AgentsState, DevicesState, HarnessesState, HostLists, IntegrationsState } from "../pages/settings/ops";
+import type {
+  AccountsState,
+  AgentsState,
+  DevicesState,
+  HarnessesState,
+  HostLists,
+  IntegrationsState,
+} from "../pages/settings/ops";
 import type { MockData } from "../pages/passwords/mockProvider";
 
 /** Initial gestures use the real controls, so local forms remain interactive. */
