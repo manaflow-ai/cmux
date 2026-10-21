@@ -2307,6 +2307,12 @@
       "title" : "Character",
       "type" : "string"
     },
+    "home.clipboardHistory" : {
+      "default" : true,
+      "description" : "The Chief's + menu lists text and images you copied recently, so you can add one with a click. The list stays in memory on this Mac and skips passwords. When off, cmux doesn't read your clipboard for it.",
+      "title" : "Clipboard History in the + Menu",
+      "type" : "boolean"
+    },
     "home.server" : {
       "default" : "hosted",
       "description" : "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login. Also accepts a dictionary {\"selfHosted\": \"http(s)://host[:port]\"} in a raw profile.",

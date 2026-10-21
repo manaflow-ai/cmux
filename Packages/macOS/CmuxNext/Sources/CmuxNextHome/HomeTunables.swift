@@ -38,7 +38,7 @@ public nonisolated struct HomeTunables {
     /// How many recent copies the composer's + menu lists (`home.clipboardHistory` keeps about 20).
     public static let plusMenuClipboardRows = Tunable<Double>.number(
         "home.plusMenu.clipboardRows", section, "Clipboard rows in the + menu",
-        help: "How many of your recent copies the Chief composer's + menu lists, newest first. 0 hides the Clipboard section.",
+        help: "How many of your recent copies the Chief composer's + menu lists, newest first. 0 turns the menu off: the + opens the file picker at once.",
         default: 6, range: 0...20, step: 1, unit: .count, code: "HomeTunables.plusMenuClipboardRows")
 
     /// Whether the clipboard history also reads at activation while macOS's pasteboard privacy for
