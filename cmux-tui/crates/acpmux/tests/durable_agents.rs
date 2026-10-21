@@ -1376,6 +1376,31 @@ async fn a_dequeued_prompt_survives_a_daemon_crash() {
     assert_eq!(of_q1(&events, "turn_started"), 1, "q-1 ran more than once");
 }
 
+/// A restarted daemon whose chat-log load fails still answers. `_acpmux/attach` and prompts wait
+/// for that load (#22916); a load that panicked never said it was done, so they waited forever.
+/// `ACPMUX_TEST_PANIC_IN_LOAD_LOGS` makes the second daemon's load panic.
+#[tokio::test]
+async fn attach_and_prompts_survive_a_failed_log_load() {
+    let mut daemon = Daemon::new("lpanic", "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    daemon.env = vec![("ACPMUX_TEST_PANIC_IN_LOAD_LOGS".into(), "1".into())];
+    daemon.start();
+
+    let mut rpc = daemon.rpc().await;
+    // `Rpc::reply` waits 30 s at most: a hang fails here.
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    assert!(
+        attached["session"]["queue"].is_array(),
+        "attach answered without the session: {attached:#}"
+    );
+    let answered = rpc
+        .call("session/prompt", json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the failed load"}]}))
+        .await;
+    assert_eq!(answered["stopReason"], "end_turn", "the prompt did not run: {answered:#}");
+    daemon.wait_event(&session, "the prompt's answer", |e| chunk(e, "echo: after the failed load"));
+}
+
 /// A message's provenance (`_meta.acpmux.provenance`, cx-55d27) stays with its queued prompt
 /// across a daemon crash: the rebuilt prompt's `user_message` still names the agent that sent it.
 #[tokio::test]

@@ -650,7 +650,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CmuxNextWorkspaceNamingTests",
-            dependencies: ["CmuxNextWorkspaceNaming"],
+            dependencies: ["CmuxNextWorkspaceNaming", "CmuxNextBridge", "CmuxNextDaemon"],
             swiftSettings: uiSwiftSettings
         ),
         // Phone tabs (plans/cmux-next/phone.md): simulators through simctl, real
@@ -1025,6 +1025,7 @@ let package = Package(
         // app's warnings, errors, faults and crashes, written off the main actor.
         .target(
             name: "CmuxNextErrorJournal",
+            dependencies: ["CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1334,6 +1335,7 @@ let package = Package(
                 "CmuxNextDaemon",
                 "CmuxNextDaemonRecovery",
                 "CmuxNextDaemonService",
+                "CmuxNextDesign",
                 "CmuxNextDiff",
                 "CmuxNextFeed",
                 "CmuxNextFileGrid",

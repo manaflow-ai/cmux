@@ -294,11 +294,12 @@ extension PaneController {
         })
     }
 
+    /// Asks for the tab's new name as a Cmd-Shift-P step that starts from its title; Return runs
+    /// Rename Tab with it.
     func rename(_ id: StripTabID) {
-        guard let tab = tab(id), let window = view.window else { return }
-        RenamePrompt.run(title: Strings.renameTabTitle, initial: tab.displayTitle, in: window) { [weak self] name in
-            self?.commitRename(id, name: name)
-        }
+        guard let tab = tab(id) else { return }
+        services.registry.ask("renameTab", ActionInvocation(target: ActionTargetRef(kind: .tab, id: id.rawValue)),
+                              ActionArgumentAsk(argument: "name", initialText: tab.displayTitle))
     }
 
     func commitRename(_ id: StripTabID, name: String) {

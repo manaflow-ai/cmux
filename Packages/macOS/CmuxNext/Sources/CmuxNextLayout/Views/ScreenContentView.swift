@@ -35,12 +35,13 @@ final class ScreenContentView: NSView {
     var scrollRidesFrames = false
     /// A close waits for `syncScroll` to place its camera, then takes its first frame (`leadIfPending`).
     var leadsFrame = false
-    /// A close's neighbours spring into its space: their terminals keep their grids until they
-    /// land (`LayoutViewContext.closingScreens`, the PTY resizes once at rest).
-    var closing = false {
+    /// A split's or a close's panes spring to their new sizes: their terminals keep their grids
+    /// until every pane landed (`LayoutViewContext.gridHoldScreens`, the PTY resizes once at rest).
+    /// A press during the motion (rapid Cmd-D) keeps the hold, so the grids go once for the whole chain.
+    var holdsGrids = false {
         didSet {
-            guard closing != oldValue else { return }
-            if closing { context.closingScreens.insert(screenID) } else { context.closingScreens.remove(screenID) }
+            guard holdsGrids != oldValue else { return }
+            if holdsGrids { context.gridHoldScreens.insert(screenID) } else { context.gridHoldScreens.remove(screenID) }
         }
     }
     var motionState: ScreenPaneMotionState
@@ -191,7 +192,8 @@ final class ScreenContentView: NSView {
         let animateFrames = animate && (!structural || carried || inFlight) && (releasedDivider == nil || splits)
         if structural, !inFlight { (arriving, newDockColumns) = (Set(arrivals.keys), PaneArrival.newDocks(arrivals, from: before, to: baseGeometry)) }
 
-        // Panes.
+        // Panes. A new pane's sliver rides its neighbour's edge as it showed before this change.
+        let shownBefore = arrivals.isEmpty ? [:] : paneFrames
         for (pane, target) in baseGeometry.panes {
             if var existing = paneFrames[pane] {
                 if carried {
@@ -209,6 +211,7 @@ final class ScreenContentView: NSView {
                 }
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
+                if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
                 zoomMotion.returning(pane)
                 frame.setTarget(target, alpha: 1)
                 paneFrames[pane] = frame
@@ -260,10 +263,15 @@ final class ScreenContentView: NSView {
                 // A split's new divider starts on the edge of the pane beside it, where that edge shows now
                 // (an even split may put it past the new pane, on the next pane's edge); an unzoom's are
                 // there at once, under the zoomed pane springing back (it ranks above them).
-                let edge = arrivals.isEmpty ? .zero : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
-                                                                              skipping: Set(arrivals.keys)) ?? arrivals.values.first?.edgeOffset ?? .zero
+                let start = arrivals.isEmpty ? nil : SplitMotion.startShift(of: target.rect, axis: target.axis, panes: paneFrames,
+                                                                             skipping: Set(arrivals.keys))
+                let edge = arrivals.isEmpty ? .zero : start?.shift ?? arrivals.values.first?.edgeOffset ?? .zero
                 var frame = AnimatedFrame(target.rect.offsetBy(dx: edge.dx, dy: edge.dy), alpha: 1)
                 frame.setTarget(target.rect, alpha: 1)
+                // It moves with that edge from its first frame (a split landing mid-motion).
+                if let velocity = start?.velocity {
+                    if target.axis == .horizontal { frame.x.velocity = velocity } else { frame.y.velocity = velocity }
+                }
                 dividerFrames[kind] = frame
             }
         }
@@ -286,7 +294,8 @@ final class ScreenContentView: NSView {
         // A close's neighbours start covering the closed pane's space in the frame it leaves:
         // no frame shows the hole before they move (`leadIfPending`, after `syncScroll`).
         leadsFrame = departing && animateFrames && !covering
-        if departing && animateFrames && !covering { closing = true }
+        // A split's chain and a close's neighbours keep their terminals' grids until they land.
+        if (departing || !arrivals.isEmpty) && animateFrames && !covering { holdsGrids = true }
         reconcileDock()
         reconcileCanvasStacking()
         // The scroll follows in `syncScroll`, which the root calls with the
@@ -294,7 +303,7 @@ final class ScreenContentView: NSView {
         applyPresentation()
         let moving = animate && hasMotion
         if !moving { releaseCovered() }
-        if !(moving && closing) { closing = false }
+        if !(moving && holdsGrids) { holdsGrids = false }
         return moving
     }
 
@@ -337,7 +346,7 @@ final class ScreenContentView: NSView {
     func tearDown() {
         // A drag on a screen that goes away gets no release either.
         endDrag()
-        closing = false
+        holdsGrids = false
         for pane in paneFrames.keys where !context.livePanes.contains(pane) {
             context.release(pane)
         }
