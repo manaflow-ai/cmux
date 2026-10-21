@@ -1014,14 +1014,20 @@ impl AgentPort for Acpmux {
             .filter(|p| p.get("state").and_then(Value::as_str) == Some("running"))
             .filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned))
             .collect();
+        // One process that will not die does not keep the rest running.
         let mut ended = 0;
+        let mut errors = Vec::new();
         for id in &running {
-            client
-                .request("_acpmux/process/kill", json!({"processId": id}))
-                .map_err(|e| format!("process kill {id}: {e}"))?;
-            ended += 1;
+            match client.request("_acpmux/process/kill", json!({"processId": id})) {
+                Ok(_) => ended += 1,
+                Err(e) => errors.push(format!("process kill {id}: {e}")),
+            }
         }
-        Ok(ended)
+        if errors.is_empty() {
+            Ok(ended)
+        } else {
+            Err(format!("ended {ended}; {}", errors.join("; ")))
+        }
     }
 
     fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {

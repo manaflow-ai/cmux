@@ -1554,6 +1554,18 @@ impl Brain {
         json!({"stopped": true, "subagents": stopped, "note": format!("Stopped by the user: {}.", stopped.join(", "))})
     }
 
+    /// A background shell (Claude Code's run_in_background) outlives the
+    /// turn that started it: a stop or cancel of the subagent ends it too.
+    pub(super) fn end_background_processes(&self, id: &str, session: &str) {
+        match self.agents.kill_processes(session) {
+            Ok(0) => {}
+            Ok(n) => (self.log)(&format!("subagent {id}: ended {n} background process(es)")),
+            Err(e) => (self.log)(&format!(
+                "subagent {id}: ending its background processes: {e}"
+            )),
+        }
+    }
+
     /// chief.stop: every subagent at work stops (`session/cancel`; its
     /// report comes quiet), with the background processes its runs left
     /// running, and every queued one is dropped. Their ids.
@@ -1594,17 +1606,7 @@ impl Brain {
                         (self.log)(&format!("subagent {id}: stopping it: {e}"));
                         continue;
                     }
-                    // A background shell (Claude Code's run_in_background)
-                    // outlives the turn: the owner's stop ends it too.
-                    match self.agents.kill_processes(&session) {
-                        Ok(0) => {}
-                        Ok(n) => {
-                            (self.log)(&format!("subagent {id}: ended {n} background process(es)"))
-                        }
-                        Err(e) => (self.log)(&format!(
-                            "subagent {id}: ending its background processes: {e}"
-                        )),
-                    }
+                    self.end_background_processes(&id, &session);
                 }
                 // Its session is not made yet: nothing to stop.
                 (_, None) => continue,
