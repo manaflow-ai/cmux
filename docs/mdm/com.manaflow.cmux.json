@@ -2333,7 +2333,7 @@
     },
     "layout.linkPlacement" : {
       "default" : "split-right",
-      "description" : "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one.",
+      "description" : "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane.",
       "enum" : [
         "split-right",
         "new-column",
@@ -3019,6 +3019,12 @@
       "title" : "More Screenshot Folders",
       "type" : "array"
     },
+    "sessions.allowFullAccess" : {
+      "default" : true,
+      "description" : "Off, cmux won't switch an agent into a mode that skips approvals.",
+      "title" : "Allow Full-Access Modes",
+      "type" : "boolean"
+    },
     "sessions.keepAwake" : {
       "default" : "pluggedIn",
       "description" : "Stops idle sleep while an agent on this Mac is working. Your display can still turn off, and closing the lid still puts the Mac to sleep.",
@@ -3296,6 +3302,18 @@
       "default" : true,
       "description" : "Off: the top and bottom sections never scroll and the workspace list gets smaller.",
       "title" : "Scroll Tall Sections",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.enabled" : {
+      "default" : false,
+      "description" : "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle.",
+      "title" : "Priority View",
+      "type" : "boolean"
+    },
+    "sidebar.priorityView.shown" : {
+      "default" : true,
+      "description" : "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged.",
+      "title" : "Show Priority View",
       "type" : "boolean"
     },
     "sidebar.sectionLook" : {
@@ -3888,7 +3906,7 @@
       "type" : "string"
     },
     "tabs.cmdWClosesPinnedTabs" : {
-      "default" : false,
+      "default" : true,
       "description" : "When off, Cmd-W on a pinned tab selects the next tab and keeps the pinned tab. Close a pinned tab from its menu.",
       "title" : "Cmd-W Closes Pinned Tabs",
       "type" : "boolean"
@@ -4090,6 +4108,17 @@
         "off"
       ],
       "title" : "Animations",
+      "type" : "string"
+    },
+    "ui.calm" : {
+      "default" : "off",
+      "description" : "Calm: nothing slides, springs or spins, hover cards stay closed and the pointer leaves no highlight on tabs, rows and buttons. Still: Calm, and every animation is instant. Your other motion and hover card settings come back when it is off.",
+      "enum" : [
+        "off",
+        "calm",
+        "still"
+      ],
+      "title" : "Calm Mode",
       "type" : "string"
     },
     "ui.paneAnimations" : {
