@@ -7,40 +7,6 @@
   ],
   "exemptions": [
     {
-      "reason": "ci-guards.yml's `preflight` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base.",
-      "tests": [
-        "tests/test_benchmark_dev_fleet_warm_slots.py",
-        "tests/test_build_graph_health.py",
-        "tests/test_ci_process_tree_reaping.py",
-        "tests/test_ci_test_execution_registry.py",
-        "tests/test_cmux_cua_drag_cursor_harness.py",
-        "tests/test_cmux_next_reel.py",
-        "tests/test_cmux_next_tour.py",
-        "tests/test_dev_fleet_warm_slot.py",
-        "tests/test_docs_deploy_auth_guard.py",
-        "tests/test_e2e_backend_scripts.py",
-        "tests/test_fake_socket_env.py",
-        "tests/test_lint_xcstrings.py",
-        "tests/test_localization_catalog.py",
-        "tests/test_localization_defaults.py",
-        "tests/test_localize_changes.py",
-        "tests/test_merge_pbxproj.py",
-        "tests/test_merge_xcstrings.py",
-        "tests/test_pairing_scheme_is_explicit_in_tests.py",
-        "tests/test_pairing_scheme_lint.py",
-        "tests/test_pr_media.py",
-        "tests/test_r2_presign.py",
-        "tests/test_release_changelog_lines.py",
-        "tests/test_release_media.py",
-        "tests/test_resources_plist_unique_keys.py",
-        "tests/test_review_fabric.py",
-        "tests/test_swift_incremental_diagnostics.py",
-        "tests/test_swift_testing_require_not_nested.py",
-        "tests/test_web_complexity_scope.py",
-        "tests/test_zig_free_step_lockfiles.py"
-      ]
-    },
-    {
       "reason": "A classic-app shell or CLI regression on a macOS runner lane (run_python_test_lane.py in ci-macos.yml). ci.yml calls ci-macos.yml only for pull requests into main; cmux-next has its own Mac tiers.",
       "tests": [
         "tests/test_cmux_cua_build_cache_safety.py",
@@ -119,9 +85,8 @@
       ]
     },
     {
-      "reason": "ci-guards.yml's `release-ios` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic iOS TestFlight and App Store upload workflows.",
+      "reason": "ci-guards.yml's `release-ios` group, which guards only main's iOS release path: ios-testflight.yml and ios-appstore-upload.yml (scheduled and dispatched from main; their upload, assignment and secret jobs require refs/heads/main and the release environment), the ios/scripts TestFlight and App Store upload tooling those workflows alone run (upload-testflight.sh, generate-testflight-notes.sh, fetch-testflight-notes-history.sh, resolve_testflight_distribution.py, asc_assign_external_testflight_group.py), scripts/ci/ios_upload_batch_decision.py and ios/fastlane. No feat-cmux-next workflow runs any of them, and nothing feat-cmux-next ships (nightly-next, its iOS build in test-ios.yml) reads them, so a feat pull request cannot break an upload; an edit to them takes effect only on main, and ci.yml routes this group by path on every pull request into main. The group's guards of shared tooling (the iOS package conventions diff and test-ios.yml's dispatch ref) moved to `preflight`, which feat pull requests route.",
       "tests": [
-        "tests/test_ci_ios_conventions_diff.py",
         "tests/test_ios_appstore_lane_identity.py",
         "tests/test_ios_appstore_upload_marker.py",
         "tests/test_ios_screenshot_capture_guard.py",
@@ -133,58 +98,7 @@
         "tests/test_ios_testflight_pro_distribution.py",
         "tests/test_ios_upload_array_expansion.py",
         "tests/test_ios_upload_batching.py",
-        "tests/test_ios_upload_lean_checkout.py",
-        "tests/test_ios_workflow_dispatch_ref.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's `app-host-cache` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic app host's Xcode build caches.",
-      "tests": [
-        "tests/test_ci_prune_xcode_compilation_cache.py",
-        "tests/test_ci_reload_build_cache_keys.py",
-        "tests/test_ci_sanitize_xcode_source_packages_cache.py",
-        "tests/test_ios_selected_test_execution.py",
-        "tests/test_local_build_cache_policy.py",
-        "tests/test_local_build_cache_preflight.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's `quality-determinism` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. Most test the classic app's shell integration.",
-      "tests": [
-        "tests/test_bash_integration_no_done_notifications.py",
-        "tests/test_issue_1138_sidebar_pr_polling.py",
-        "tests/test_issue_15067_bash_watcher_churn.py",
-        "tests/test_issue_5164_starship_prompt_composition.py",
-        "tests/test_lint_errno_in_test_assertions.py",
-        "tests/test_shell_surface_scoped_keys.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's `release-tooling` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic release and GhosttyKit build tooling.",
-      "tests": [
-        "tests/test_check_ghostty_zig_workflows.py",
-        "tests/test_ci_release_helper_archs.py",
-        "tests/test_ci_release_product_reuse.py",
-        "tests/test_ensure_ghosttykit_zig.py",
-        "tests/test_prune_nightly_release_assets.py",
-        "tests/test_reuse_release_product.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's `app-host-execution` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic app host's Swift test execution.",
-      "tests": [
-        "tests/test_ci_guard_tests_emit_no_workflow_commands.py",
-        "tests/test_swift_package_execution.py",
-        "tests/test_swift_test_execution.py",
-        "tests/test_swift_testing_suite_timeout.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's `app-host-watchdog` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base. They test the classic app host's xcodebuild watchdog.",
-      "tests": [
-        "tests/test_ci_xcodebuild_noninteractive_helper.py",
-        "tests/test_hung_test_watchdog.py",
-        "tests/test_run_with_timeout_process_tree.py"
+        "tests/test_ios_upload_lean_checkout.py"
       ]
     },
     {
@@ -193,20 +107,6 @@
         "tests/test_remote_daemon_notices.py",
         "tests/test_remote_daemon_release_assets.py",
         "tests/test_remote_daemon_release_verification.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's workflow-guard-history job (the SwiftPM lockfile policy), which only ci.yml's guards job runs, for pull requests into main.",
-      "tests": [
-        "tests/test_check_package_resolved_policy.py",
-        "tests/test_package_resolved_policy_remote_inputs.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's workflow-guard-source-lints job, which only ci.yml's guards job runs, for pull requests into main.",
-      "tests": [
-        "tests/test_ci_source_lint_guard_structure.py",
-        "tests/test_lint_stored_dispatch_work_items.py"
       ]
     },
     {
@@ -232,12 +132,6 @@
       "reason": "Only the scripts/verify-local.py recipe runs it, and no pull request job runs the recipe. It tests the classic cmux.xcodeproj normalizer.",
       "tests": [
         "tests/test_normalize_pbxproj.py"
-      ]
-    },
-    {
-      "reason": "ci-guards.yml's `preflight-agent-chat` group. ci.yml runs it, routed by path (workflow_guard_groups.py), only for pull requests into main; cmux-next-guards.yml runs only the `ci` and `release-notary` groups. To route it, run the path-routed groups in cmux-next-guards.yml's CI guard group job, judged against the base.",
-      "tests": [
-        "tests/test_web_complexity_source_enumeration.py"
       ]
     },
     {

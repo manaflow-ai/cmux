@@ -18,6 +18,7 @@ Two halves:
 """
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
@@ -40,7 +41,10 @@ GATE_SCRIPTS = {
     "defaults stamp": "scripts/ci/defaults_guard.py",
     "prepush gate": "scripts/cmux-next/prepush-gate.py",
     "crash-class rules": "scripts/ci/crash_class_fast_gate.py",
+    "webviews checks": "scripts/ci/fast_gate_webviews_checks.py",
 }
+CI_WEB = ROOT / ".github/workflows/ci-web.yml"
+WEBVIEWS_CHECKS = ROOT / "scripts/ci/fast_gate_webviews_checks.py"
 
 
 def workflow() -> dict:
@@ -179,11 +183,40 @@ class WorkflowShape(unittest.TestCase):
         self.assertIn("state=success", body)
         self.assertIn("state=failure", body)
 
-    def test_web_tools_install_only_for_web_changes(self):
+    def test_web_tools_install_only_for_web_changes_or_the_webviews_checks(self):
         steps = job(workflow())["steps"]
         bun = next(s for s in steps if s.get("uses", "").startswith("oven-sh/setup-bun@"))
         self.assertIn("steps.prepare.outputs.web == 'true'", bun["if"])
+        self.assertIn("steps.prepare.outputs.checks == 'true'", bun["if"])
         self.assertEqual(bun["with"]["bun-version"], "1.4.2")
+        run = step_named(steps, "Fast gates")
+        self.assertIn('--checks "$CHECKS"', run["run"])
+        self.assertEqual(run["env"]["CHECKS"], "${{ steps.prepare.outputs.checks }}")
+
+    def test_a_dispatch_never_saves_a_cache(self):
+        # A dispatch runs on feat-cmux-next's ref after pull request code ran: a cache it saved would be the base's.
+        steps = job(workflow())["steps"]
+        for step in steps:
+            if step.get("uses", "").startswith("actions/cache@"):
+                self.assertIn("github.event_name == 'pull_request'", step["if"], step.get("name"))
+        for name in ("Restore the Bun package cache", "Restore the pinned lint tools"):
+            restore = step_named(steps, name)
+            self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
+            self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"], name)
+
+    def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
+        # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
+        # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
+        # The type check compiles and stays with ci-web.
+        doc = yaml.safe_load(CI_WEB.read_text(encoding="utf-8"))
+        steps = [s for j in doc["jobs"].values() for s in j.get("steps", []) if s.get("id") == "webviews-check"]
+        self.assertEqual(len(steps), 1)
+        failing = set(re.findall(r"bun run (\S+) \|\| status=1", steps[0]["run"])) - {"typecheck"}
+        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
+        module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(module)
+        self.assertEqual(set(module.CHECKS), failing)
+        self.assertIn("check:fixed-waits", module.CHECKS)
 
     def test_wired_into_the_guards_tooling_tests(self):
         guards = yaml.safe_load(GUARDS.read_text(encoding="utf-8"))
@@ -287,6 +320,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(git(work, "rev-parse", "HEAD^1"), self.tip)
         self.assertEqual(git(work, "rev-parse", "HEAD^2"), self.pr_head)
         self.assertEqual(out["web"], "false")
+        self.assertEqual(out["checks"], "true")  # a dispatch runs the webviews checks on the current tip
 
     def test_dispatch_conflict_fails_clearly_and_still_names_the_base(self):
         seed = self.seed
@@ -342,6 +376,7 @@ class ScriptBehavior(unittest.TestCase):
                              "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(self.outputs()["merge"], git(work, "rev-parse", "HEAD"))
+        self.assertEqual(self.outputs()["checks"], "false")  # ci-web runs them on this same merge
         self.assertNotIn("head_sha", self.outputs(), "head and base come from resolve, not from here")
 
     def test_pull_request_merge_onto_another_base_fails(self):
@@ -363,6 +398,26 @@ class ScriptBehavior(unittest.TestCase):
                              "--base", self.tip, "--output", str(self.tmp / "out.txt"))
         self.assertEqual(result.returncode, 1)
         self.assertIn("not the pull request head", result.stderr)
+
+    def test_a_catalog_or_protocol_spec_change_runs_the_webviews_checks_on_a_pull_request(self):
+        # ci-web runs them only for a webviews/ change; check:catalog-keys and acpmux-protocol:check read these.
+        seed = self.seed
+        for path in ("Resources/Localizable.xcstrings", "cmux-tui/crates/acpmux/spec/acpmux-protocol.json"):
+            with self.subTest(path=path):
+                git(seed, "checkout", "-q", "pr")
+                head = commit(seed, {path: f"{path}\n"}, f"change {path}")
+                git(seed, "push", "-q", "-f", str(self.remote), "pr:refs/pull/7/head")
+                work = self.tmp / f"work-{path.count('/')}"
+                subprocess.run(["git", "clone", "-q", "-b", "feat-cmux-next", f"file://{self.remote}", str(work)],
+                               check=True)
+                git(work, "fetch", "-q", "origin", "refs/pull/7/head")
+                git(work, "-c", "user.name=t", "-c", "user.email=t@example.com", "merge", "-q", "--no-ff",
+                    "--no-edit", "FETCH_HEAD")
+                (self.tmp / "out.txt").unlink(missing_ok=True)
+                result = self.script(work, "prepare", "--event", "pull_request", "--head", head,
+                                     "--base", self.tip, "--output", str(self.tmp / "out.txt"))
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(self.outputs()["checks"], "true")
 
     def test_a_web_change_asks_for_the_web_tools(self):
         seed = self.seed
@@ -387,7 +442,8 @@ class ScriptBehavior(unittest.TestCase):
     def test_run_calls_every_gate_against_the_base(self):
         work, out = self.prepared()
         summary = self.tmp / "summary.md"
-        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--summary", str(summary))
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true",
+                             "--summary", str(summary))
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         calls = {entry["gate"]: entry for entry in self.gate_log()}
         self.assertEqual(set(calls), set(GATE_SCRIPTS))
@@ -395,6 +451,7 @@ class ScriptBehavior(unittest.TestCase):
         self.assertEqual(calls["web lint"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["prepush gate"]["argv"][:4], ["--base", base, "--head", merge])
         self.assertEqual(calls["defaults stamp"]["argv"], ["check-stamp", "--base", base])
+        self.assertEqual(calls["webviews checks"]["argv"], ["--base", base])
         ratchet = calls["crash ratchet"]["argv"]
         self.assertEqual(ratchet[:2], ["--script", "scripts/cmux-next/crash_ratchet.py"])
         self.assertEqual(Path(ratchet[ratchet.index("--head") + 1]).resolve(), work.resolve())
@@ -414,24 +471,139 @@ class ScriptBehavior(unittest.TestCase):
         for red in GATE_SCRIPTS:
             with self.subTest(red=red):
                 self.log.unlink(missing_ok=True)
-                result = self.script(work, "run", "--base", self.tip, "--web", "true", fail=red)
+                result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "true", fail=red)
                 self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
                 self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS))
                 self.assertRegex(result.stdout + result.stderr, rf"(?m)^.*{re.escape(red)}.*fail")
 
     def test_no_web_change_skips_web_lint_only(self):
         work, out = self.prepared()
-        result = self.script(work, "run", "--base", self.tip, "--web", "false")
+        result = self.script(work, "run", "--base", self.tip, "--web", "false", "--checks", "true")
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"web lint"})
-        self.assertIn("web lint", result.stdout)
-        self.assertIn("skipped", result.stdout)
+        self.assertIn("web lint: skipped (no web path changed)", result.stdout)
+
+    def test_a_pull_request_event_skips_the_webviews_checks(self):
+        work, out = self.prepared()
+        result = self.script(work, "run", "--base", self.tip, "--web", "true", "--checks", "false")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual({e["gate"] for e in self.gate_log()}, set(GATE_SCRIPTS) - {"webviews checks"})
+        self.assertIn("webviews checks: skipped", result.stdout)
 
     def test_run_refuses_a_base_that_is_not_a_commit(self):
         work, _ = self.prepared()
         result = self.script(work, "run", "--base", "0" * 40, "--web", "false")
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(self.gate_log(), [])
+
+
+# A stand-in for bun: `install` succeeds; `run CHECK` prints webviews/findings/CHECK (each line a finding) and
+# fails when that file has any.
+FAKE_BUN = textwrap.dedent("""\
+    #!/bin/sh
+    [ "$1" = install ] && exit 0
+    f="findings/$2"
+    [ -s "$f" ] || { echo "$2: ok"; exit 0; }
+    echo "$2: found"; cat "$f"; exit 1
+""")
+
+
+class WebviewsChecksGate(unittest.TestCase):
+    """scripts/ci/fast_gate_webviews_checks.py fails only on findings the pull request adds over BASE."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="webviews-checks-test-"))
+        self.addCleanup(subprocess.run, ["rm", "-rf", str(self.tmp)])
+        self.bin = self.tmp / "bin"
+        self.bin.mkdir()
+        (self.bin / "bun").write_text(FAKE_BUN)
+        (self.bin / "bun").chmod(0o755)
+        self.repo = self.tmp / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "feat-cmux-next")
+        spec = importlib.util.spec_from_file_location("fast_gate_webviews_checks", WEBVIEWS_CHECKS)
+        self.module = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(self.module)
+
+    def findings(self, by_check: dict[str, str], message: str) -> str:
+        files = {"webviews/package.json": "{}\n", "webviews/marker.txt": message + "\n"}
+        for check in self.module.CHECKS:
+            files[f"webviews/findings/{check}"] = by_check.get(check, "")
+        return commit(self.repo, files, message)
+
+    def gate(self, base: str) -> subprocess.CompletedProcess:
+        env = {**os.environ, "PATH": f"{self.bin}:{os.environ['PATH']}"}
+        return subprocess.run([sys.executable, str(WEBVIEWS_CHECKS), "--base", base, "--repo", str(self.repo)],
+                              capture_output=True, text=True, env=env)
+
+    def test_a_check_the_pull_request_breaks_fails(self):
+        base = self.findings({}, "base, green")
+        self.findings({"check:fixed-waits": "  test/agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0\n"},
+                      "the merge")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("check:fixed-waits failed", result.stdout)
+
+    def test_replay_of_22975_its_own_finding_over_a_red_base_fails(self):
+        # #22975 merged with 01ea78b3, the commit that added check:fixed-waits: the base already had two findings,
+        # the merge adds a third, in a test file of its own.
+        red = ("  test/agent-pane-history-paging.test.ts: 3 fixed waits, baseline 2\n"
+               "    test/agent-pane-history-paging.test.ts:191\n"
+               "  test/agent-pane-stream-jitter.test.ts: 23 fixed waits, baseline 22\n"
+               "    test/agent-pane-stream-jitter.test.ts:178\n")
+        base = self.findings({"check:fixed-waits": red}, "01ea78b3")
+        self.findings({"check:fixed-waits": red.replace(":191", ":195")
+                       + "  test/agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0\n"}, "#22975 merged")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        added = result.stdout.split("adds, over the base", 1)[1]
+        self.assertIn("agent-pane-queued-images.test.ts: 2 fixed waits, baseline 0", added)
+        self.assertNotIn("history-paging", added)  # a line number the merge moved is not a new finding
+
+    def test_a_base_red_the_pull_request_adds_nothing_to_passes(self):
+        red = "  test/a.test.ts: 3 fixed waits, baseline 2\n"
+        base = self.findings({"check:fixed-waits": red}, "red base")
+        self.findings({"check:fixed-waits": red}, "the merge, same red")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("fails on the base", result.stdout)
+        self.assertIn("all passed", result.stdout)
+
+    def test_one_more_wait_in_a_file_the_base_already_fails_is_the_pull_requests(self):
+        base = self.findings({"check:fixed-waits": "  test/a.test.ts: 3 fixed waits, baseline 2\n"}, "red base")
+        self.findings({"check:fixed-waits": "  test/a.test.ts: 4 fixed waits, baseline 2\n"}, "the merge")
+        self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_every_check_runs_after_a_red_one(self):
+        base = self.findings({}, "base")
+        self.findings({check: "  x\n" for check in self.module.CHECKS}, "all red")
+        result = self.gate(base)
+        self.assertEqual(result.returncode, 1)
+        for check in self.module.CHECKS:
+            self.assertIn(f"{check}: found", result.stdout)
+
+    def test_a_second_finding_that_reads_like_a_base_one_is_new(self):
+        base = self.findings({"check:catalog-keys": "  Localizable: key ok_button twice\n"}, "red base")
+        self.findings({"check:catalog-keys": "  Localizable: key ok_button twice\n" * 2}, "the merge")
+        self.assertEqual(self.gate(base).returncode, 1)
+
+    def test_a_base_that_cannot_be_checked_out_charges_the_red_here(self):
+        self.findings({}, "base")
+        self.findings({"check:fixed-waits": "  x\n"}, "red")
+        result = self.gate("f" * 40)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("could not check out the base", result.stdout)
+
+    def test_the_checkout_root_and_timings_are_not_findings(self):
+        added = self.module.added("  /w/merge/webviews/a.ts: bad (12.5s)\n", "  /w/base/webviews/a.ts: bad (3s)\n",
+                                  "/w/merge", "/w/base")
+        self.assertEqual(added, [])
+
+    def test_the_base_worktree_is_removed(self):
+        base = self.findings({}, "base")
+        self.findings({"check:fixed-waits": "  x\n"}, "red")
+        self.gate(base)
+        self.assertEqual(len(git(self.repo, "worktree", "list").splitlines()), 1)
 
 
 if __name__ == "__main__":

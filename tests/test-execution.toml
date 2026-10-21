@@ -505,6 +505,10 @@ path = "tests/test_localization_catalog.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_next_line.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_backdrop_art_generator.py"
 lane = "linux-guard"
 
@@ -1466,6 +1470,10 @@ path = "tests/test_ci_prune_media_derived_data.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_tour_requirements.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_media_module_cache_stamp.py"
 lane = "linux-guard"
 
@@ -1650,6 +1658,10 @@ path = "tests/test_cmux_next_fast_gates.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_paths.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_perf_source_guard.py"
 lane = "linux-guard"
 
@@ -1667,4 +1679,8 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_lane_coverage.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_ci_pr_media_privacy.py"
 lane = "linux-guard"

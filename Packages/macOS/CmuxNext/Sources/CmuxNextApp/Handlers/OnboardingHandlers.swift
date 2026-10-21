@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextCookieImport
 import CmuxNextDesign
+import CmuxNextImportCards
 import CmuxNextOnboarding
 
 /// Import and default-app actions. Import from Browser opens the tool window
@@ -53,6 +54,11 @@ enum OnboardingHandlers {
             track: { registry.track($0) },
             destination: ChromiumCookieDestination { writes, profile in try await cef.importCookies(writes, into: profile) }))
         registry.bind("browser.importCookies", run: { invocation in try cookieImports.run(invocation) })
+        // Import suggestion cards (Home, New Tab, Settings › Import): the same import run as the window's.
+        ImportSuggestionsCenter.shared.bind(into: registry, host: ImportCardsHost(
+            runImport: { plan, keys, progress in try await AppOnboardingServices(owner: services.onboarding).runImport(plan, keys: keys, progress: progress) },
+            importedProfiles: { Set(await services.onboarding.importStore.sources().map(\.sourceKey)) },
+            openSettings: { route in try? services.settingsWindow.show(section: nil, route: route) }))
         // Every entrypoint previews the exact snapshot and waits for the
         // person's answer before any browser, SSH host or agent is restored.
         registry.bind("workspace.importClassic", run: { _ in
