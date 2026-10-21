@@ -715,6 +715,10 @@ jobs:
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_ci_admission_placement.py
 
+      - name: Validate that roll-up gates never read an absent signal as green
+        if: ${{ matrix.group == 'ci' }}
+        run: python3 tests/test_ci_gate_absent_signal.py
+
       - name: Validate the Linux tests dispatch lane
         if: ${{ matrix.group == 'ci' }}
         run: python3 tests/test_linux_tests_lane.py

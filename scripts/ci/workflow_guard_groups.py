@@ -53,6 +53,8 @@ GROUPS = (
 # derived from ci-guards.yml by direct_path_owners() and need no entry here.
 PATH_OWNERS = {
     ".github/workflows/ci-main-full-suite.yml": frozenset(("ci",)),
+    # tests/test_ci_gate_absent_signal.py imports the gate verdict.
+    "scripts/ci/gate_verdict.py": frozenset(("ci",)),
 
     # test_ci_runner_capability_resolver.py reads the capability map, the
     # resolver it imports, the reusable workflow that publishes the map, and
