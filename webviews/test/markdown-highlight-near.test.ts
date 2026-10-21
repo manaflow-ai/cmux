@@ -4,13 +4,15 @@
 // had scrolled to. A block that comes near is colored then, and keeps its colors while it is edited.
 //
 // The real editor on a jsdom page, with an IntersectionObserver the test drives.
-import { afterEach, beforeAll, describe, expect, test } from "bun:test";
+import { afterAll, afterEach, beforeAll, describe, expect, test } from "bun:test";
 import { TextSelection } from "@milkdown/kit/prose/state";
 import { JSDOM } from "jsdom";
 import type { MarkdownEditor as Editor } from "../src/pages/markdown/editor";
 
 let dom: JSDOM;
 let MarkdownEditor: typeof Editor;
+const scope = globalThis as Record<string, unknown>;
+const ownIntersectionObserver = scope.IntersectionObserver;
 
 /** Stands in for the browser's observer: the test says which observed elements come near. */
 class TestIntersectionObserver {
@@ -39,7 +41,6 @@ class TestIntersectionObserver {
 
 beforeAll(async () => {
   dom = new JSDOM("<!doctype html><body></body>", { pretendToBeVisual: true });
-  const scope = globalThis as Record<string, unknown>;
   for (const key of [
     "window",
     "document",
@@ -69,6 +70,10 @@ beforeAll(async () => {
   ({ MarkdownEditor } = await import("../src/pages/markdown/editor"));
 });
 
+afterAll(() => {
+  scope.IntersectionObserver = ownIntersectionObserver;
+});
+
 const editors: Editor[] = [];
 afterEach(async () => {
   for (const editor of editors.splice(0)) await editor.destroy();
@@ -84,6 +89,8 @@ async function setup() {
   const root = document.createElement("div");
   document.body.append(root);
   const asked: string[] = [];
+  // Off: the highlighter has no tokens yet (a grammar still loading).
+  const grammars = { loaded: true };
   const editor = new MarkdownEditor({
     root,
     host: {
@@ -93,7 +100,7 @@ async function setup() {
       // Colors a block's first five characters, so a colored block shows a styled span.
       highlight: (_code, language) => {
         asked.push(language);
-        return [{ from: 0, to: 5, style: "color: red" }];
+        return grammars.loaded ? [{ from: 0, to: 5, style: "color: red" }] : null;
       },
     },
   });
@@ -107,7 +114,7 @@ async function setup() {
     const elements = indexes.map((index) => blocks()[index]!);
     for (const observer of TestIntersectionObserver.all) observer.show(elements);
   };
-  return { asked, view, blocks, colored, show };
+  return { editor, grammars, asked, view, blocks, colored, show };
 }
 
 describe("markdown code highlighting near the viewport", () => {
@@ -152,5 +159,18 @@ describe("markdown code highlighting near the viewport", () => {
     type(inside(1) + 1, "more text ");
     expect(md.colored()[3]).toBe(true);
     expect(md.colored().filter(Boolean)).toHaveLength(1);
+  });
+
+  test("a near block still waiting on its grammar is colored after a reload from disk changes its neighbors", async () => {
+    const md = await setup();
+    md.grammars.loaded = false;
+    md.show([3]);
+    expect(md.colored()[3]).toBe(false);
+    // The file changes on disk around block 3: the reload replaces blocks 2 to 4 with equal block 3.
+    md.editor.load(FILE.replace("value2 = 2", "value2 = 22").replace("value4 = 4", "value4 = 44"));
+    md.grammars.loaded = true;
+    md.show([3]);
+    md.editor.refreshHighlight();
+    expect(md.colored()[3]).toBe(true);
   });
 });
