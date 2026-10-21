@@ -27,7 +27,7 @@ afterAll(() => {
 });
 
 const settle = async (done: () => boolean) => {
-  for (let tries = 0; tries < 50 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  for (let tries = 0; tries < 500 && !done(); tries += 1) await new Promise((resolve) => setTimeout(resolve, 0));
 };
 
 type Hooks = { answer: (method: string, params: any) => Promise<unknown>; emit: (target: string, step: any) => void };

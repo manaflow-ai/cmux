@@ -62,12 +62,17 @@ one.
 - Harness install and sign-in: `cmux setup harness [ID ...]` (default:
   every configured or found harness) says per harness whether it is
   installed, signed in and outdated. A signed-out one is `needs_user` with
-  `cmux harness login ID`: run it in a terminal beside your chat and the
-  user finishes the sign-in in the browser. A missing CLI is `needs_user`
-  with the install docs as `url`. An outdated one names its `update`
-  command; run it only when the user wants the update. Run
-  `cmux setup harness ID` again after the user acts. `signed_in: null`
-  means cmux cannot see the sign-in; it is still `ok`.
+  `cmux harness login ID` (a harness not configured yet: its own login
+  command, such as `codex login`): run `user_action.command` in a terminal
+  beside your chat and the user finishes the sign-in in the browser. A
+  missing CLI is `needs_user` with the install docs as `url`. An outdated
+  one names its `update` command; run it only when the user wants the
+  update. Run `cmux setup harness ID` again after the user acts.
+  `signed_in: null` means cmux cannot see the sign-in; it is still `ok`,
+  and `auth_detail` says why when cmux knows. Setup never reads the login
+  keychain itself and does not start a harness whose sign-in may be there
+  (a Keychain item in its profile env, Codex keeping its login in the
+  keychain, a Claude Code adapter).
   `cmux harness doctor ID --json` runs a real prompt turn when a harness
   that looks ready still fails.
 - Add an ssh machine: `cmux setup machine SSH_TARGET [--name NAME]`. It is
@@ -84,3 +89,18 @@ one.
   Ask first before adding a machine the user did not name.
   `cmux setup status` lists every peer with `connected` and `outdated`, and
   the `fix` for each one that needs it.
+- MCP outside cmux: `cmux setup mcp [claude|codex ...]` gives Claude Code
+  and Codex started outside cmux (a terminal, another app) the cmux MCP
+  server, through their own `mcp add`; chats cmux starts already have it.
+  `needs_user` with `user_action.kind` `setting` means the person turns on
+  `"mcp": {"enabled": true}` in the settings file the text names; hand them
+  that line, do not edit the file. Kind `conflict` means their own server
+  is named `cmux`: ask before removing it. `undo` is the shell line that
+  puts each changed config back.
+- Computer Use: `cmux setup computer-use` turns it on: cmux shows the user
+  a sheet to allow it (tell them to click Allow), then each missing macOS
+  grant comes back as `user_action` kind `grant`; run its `command` to
+  open the System Settings pane and tell them which switch to turn on.
+  Kind `wait` means it is starting: run the task again in a few seconds.
+  Kind `declined` means it was not allowed (they said no, or cmux had no
+  window to show the sheet in): ask them before running it again.

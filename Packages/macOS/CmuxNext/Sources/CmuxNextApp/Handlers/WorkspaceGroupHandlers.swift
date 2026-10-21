@@ -2,6 +2,7 @@ import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextSettings
 import CmuxNextSidebar
 
 /// Workspace groups (sidebar sections): every verb from architecture.md 7
@@ -24,9 +25,9 @@ enum WorkspaceGroupHandlers {
             (try? context.group(invocation)).map { isCollapsed($0, context) ? WorkspaceVerbStrings.expandGroup : WorkspaceVerbStrings.collapseGroup }
         }
         registry.bind("nextWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
-                      run: { _ in selectGroup(context, offset: 1) })
+                      run: { _ in try selectGroup(context, offset: 1) })
         registry.bind("prevWorkspaceGroup", requires: DaemonCapabilities.shared.profiles, daemon: context.services.machines.local,
-                      run: { _ in selectGroup(context, offset: -1) })
+                      run: { _ in try selectGroup(context, offset: -1) })
     }
 
     private static func bindMembers(_ registry: ActionRegistry, _ context: AppActionContext) {
@@ -108,6 +109,12 @@ enum WorkspaceGroupHandlers {
                                                      ("workspaceGroup.moveDown", .down), ("workspaceGroup.moveToBottom", .bottom)]
         for (id, direction) in moves {
             registry.bind(id, requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in try move(invocation, direction, context) })
+            // At the edge of its section the row is disabled with the reason (the first group's Move Up).
+            context.setTargetReason(id) { invocation in
+                guard let group = try? sidebarID(context.group(invocation), context), let sidebar = try? context.sidebar(),
+                      sidebar.model.group(group) != nil, SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) == nil else { return nil }
+                return edgeReason(direction)
+            }
         }
         registry.bind("workspaceGroup.collapseOthers", requires: DaemonCapabilities.shared.profiles, daemon: home, run: { invocation in
             let group = sidebarID(try context.group(invocation), context)
@@ -128,7 +135,7 @@ enum WorkspaceGroupHandlers {
             try WorkspaceGroupUndo.remove(invocation, context, message: WorkspaceGroupUndo.deletedToast)
         })
         registry.bind("workspaceGroup.copyID", run: { invocation in context.copy(try context.group(invocation).id.rawValue) })
-        registry.bind("workspaceGroup.editConfig", run: { _ in try SettingsHandlers.openCmuxConfig(context) })
+        registry.bind("workspaceGroup.editConfig", run: { invocation in try WorkspaceGroupConfigEditor(context: context).open(invocation) })
 
         // A pinned (saved) group stays when its workspaces close.
         registry.bind("workspaceGroup.togglePin", requires: DaemonCapabilities.shared.workspaceGroupPin, daemon: home, run: { invocation in
@@ -190,7 +197,9 @@ enum WorkspaceGroupHandlers {
         // The group's slot, the path a double-click in the group takes: the row shows in the group from the press
         // and is placed once the daemon lists it. Setting the group right after the create raced that listing:
         // without the workspace's public id the place went out as the raw command, and it stayed outside the group.
-        let slot = windows.controller(for: target).flatMap { shownGroupID(id, in: $0.sidebar.model) }.map(WorkspaceSlot.endOfGroup)
+        let slot = windows.controller(for: target).flatMap { controller in
+            shownGroupID(id, in: controller.sidebar.model).map { groupSlot($0, in: controller.sidebar.model, context) }
+        }
         spawn.slot = slot
         spawn.onListed = { key, bridge in
             // A slot that did not resolve where it is listed (the group is in another room) placed nothing.
@@ -203,7 +212,30 @@ enum WorkspaceGroupHandlers {
                 try await $0.state.placePersonalWorkspace(session: session, key: workspace, resource: resource, group: .set(id))
             }
         }
-        Task { _ = try? await windows.createWorkspace(spawn, on: daemon, into: target) }
+        // The CLI answers after the create, and a palette or menu run shows its failure.
+        context.report {
+            do {
+                _ = try await windows.createWorkspace(spawn, on: daemon, into: target)
+                return nil
+            } catch {
+                return ActionWorkFailure("new workspace", error)
+            }
+        }
+    }
+
+    /// Where New Workspace in Group puts the new workspace in group `shown` (cmux.json
+    /// `workspaceGroups`, by the group's anchor folder): after its first workspace (`top`, and
+    /// `afterCurrent`, whose reference is the anchor for the header's + and the CLI), else last.
+    private static func groupSlot(_ shown: CmuxNextSidebar.GroupID, in model: SidebarModel, _ context: AppActionContext) -> WorkspaceSlot {
+        let members = model.group(shown)?.workspaces.map(\.id.rawValue) ?? []
+        let config = context.services.settings?.snapshot.workspaceGroups ?? WorkspaceGroupConfig()
+        let anchor = WorkspaceGroupConfigLook.anchorDirectory(of: members.compactMap { context.services.machines.workspace(id: $0)?.0 })
+        switch config.placement(for: anchor) {
+        case .top, .afterCurrent:
+            return members.first.map(WorkspaceSlot.below) ?? .endOfGroup(shown)
+        case .end:
+            return .endOfGroup(shown)
+        }
     }
 
     /// The id `model` lists personal group `id` under (`SidebarModel.groupID(personal:)`), nil when it lists none.
@@ -267,10 +299,13 @@ enum WorkspaceGroupHandlers {
         try context.sidebar().handle(.toggleCollapse(.group(sidebarID(group, context))))
     }
 
-    private static func selectGroup(_ context: AppActionContext, offset: Int) {
-        guard let window = context.activeWindow, let sidebar = try? context.sidebar(),
-              !context.roomGroups.isEmpty else { return }
+    /// Shows the first workspace of the next (or previous) group of the room. A navigation with
+    /// nowhere to go (R136: no group, or no group with a workspace) is refused quietly.
+    private static func selectGroup(_ context: AppActionContext, offset: Int) throws {
+        guard let window = context.activeWindow else { throw ActionFailure.invalidTarget(RefusalStrings.noWindowOpen) }
+        let sidebar = try context.sidebar()
         let groups = context.roomGroups
+        guard !groups.isEmpty else { throw ActionFailure.noTarget(RefusalStrings.noWorkspaceGroups) }
         // By personal id: on the sidebar document the group lists as its item (`itm_g_<id>`).
         let activeGroupIndex = sidebar.model.activeGroupPersonalID.flatMap { current in groups.firstIndex { $0.id.rawValue == current } }
         let start = activeGroupIndex ?? (offset > 0 ? -1 : groups.count)
@@ -282,6 +317,7 @@ enum WorkspaceGroupHandlers {
                 return
             }
         }
+        throw ActionFailure.noTarget(RefusalStrings.noWorkspaceGroupToGoTo)
     }
 
     /// Moves the targeted group among its section's rows. `reorderGroup` counts every row of the
@@ -289,8 +325,18 @@ enum WorkspaceGroupHandlers {
     private static func move(_ invocation: ActionInvocation, _ direction: SidebarGroupMove, _ context: AppActionContext) throws {
         let group = sidebarID(try context.group(invocation), context)
         let sidebar = try context.sidebar()
-        guard let index = SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) else { return }
+        guard let index = SidebarEdits.groupIndex(group, direction, in: sidebar.model.sections) else {
+            throw ActionFailure.invalidTarget(sidebar.model.group(group) == nil ? RefusalStrings.noWorkspaceGroup(group.rawValue) : edgeReason(direction))
+        }
         sidebar.handle(.reorderGroup(group, index: index))
+    }
+
+    /// Why a group move toward `direction` cannot go further.
+    private static func edgeReason(_ direction: SidebarGroupMove) -> String {
+        switch direction {
+        case .top, .up: RefusalStrings.groupAlreadyAtTop
+        case .down, .bottom: RefusalStrings.groupAlreadyAtBottom
+        }
     }
 
     private static func acknowledge(_ invocation: ActionInvocation, _ context: AppActionContext) throws {

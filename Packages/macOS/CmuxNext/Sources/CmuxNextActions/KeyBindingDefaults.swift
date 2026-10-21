@@ -64,6 +64,30 @@ public nonisolated struct KeyBindingDefaults {
         }
     }
 
+    /// Workspaces as tabs (`sidebar.workspacesAsTabs`, a Debug tunable, off; Leo, relayed
+    /// 2026-10-21): Cmd-Shift-] / [ step the sidebar's workspaces (`nextSidebarTab` with `scope`
+    /// `workspaces`: sidebar order, across groups, a collapsed group one stop, wrapping, never Home
+    /// or another top item). They go after the Chrome tab keys, so they win over `nextSurface`.
+    /// The table holds them only while the tunable is on (`ActionRegistry.includesWorkspaceTabKeys`),
+    /// so off, the keymap, the shortcut list and its conflicts are the shipped ones. Home keeps its own keys.
+    public static let workspacesAsTabs: [KeyBinding] = {
+        let when = WhenClause.and([.has(KeyContext.workspacesAsTabs), .not(onHome)])
+        let scope: [String: ActionValue] = ["scope": .string("workspaces")]
+        return [
+            KeyBinding(keys: [Shortcut("]", modifiers: [.command, .shift])], command: "nextSidebarTab", arguments: scope, when: when),
+            KeyBinding(keys: [Shortcut("[", modifiers: [.command, .shift])], command: "prevSidebarTab", arguments: scope, when: when),
+        ]
+    }()
+
+    /// The workspaces-as-tabs keys while the tunable is on, whose action is on and not removed or rebound in cmux.json.
+    @MainActor static func workspacesAsTabs(registry: ActionRegistry) -> [KeyBinding] {
+        guard registry.includesWorkspaceTabKeys() else { return [] }
+        return workspacesAsTabs.filter { binding in
+            registry.disabledFeature(for: binding.command) == nil && registry.effectiveShortcut(for: binding.command) != nil
+                && !registry.shortcutOverrides.keys.contains(binding.command) && registry.chordOverrides[binding.command] == nil
+        }
+    }
+
     /// Scoped defaults that replace a global default key in their context:
     /// placed after the catalog's defaults, so in their context they win and
     /// elsewhere the global key runs. Any page adds its own keys here with a

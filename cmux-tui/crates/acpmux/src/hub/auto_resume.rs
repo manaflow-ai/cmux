@@ -203,6 +203,8 @@ impl TurnInfo {
             prompt_id: prompt_id.to_owned(),
             turn_seq: 0,
             control,
+            activity: None,
+            plan_step: None,
         }
     }
 }

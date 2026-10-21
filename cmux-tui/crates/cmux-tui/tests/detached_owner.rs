@@ -172,8 +172,13 @@ fn cmux_next_ensure_refuses_the_owner_of_a_recreated_state_dir() {
     let first = fixture.run("ensure");
     assert_eq!(first["status"], "started", "{first}");
 
+    // The owner still writes in its state dir, so removing it in place can
+    // race a new file (ENOTEMPTY). Move it away first: the path is then free
+    // at once, as after a delete, and the old tree goes best effort.
     let state = fixture.dir.join("state");
-    fs::remove_dir_all(&state).unwrap();
+    let deleted = fixture.dir.join("state-deleted");
+    fs::rename(&state, &deleted).unwrap();
+    let _ = fs::remove_dir_all(&deleted);
     fs::create_dir_all(&state).unwrap();
 
     let output = fixture.command("ensure").output().unwrap();
