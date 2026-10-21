@@ -1,95 +1,42 @@
-import { beforeEach, describe, expect, mock, test } from "bun:test";
-import type { AuthedUser } from "../services/vms/auth";
+import { describe, expect, mock, test } from "bun:test";
 
-const user = {
-  id: "user-run",
-  isAnonymous: false,
-  displayName: "Run User",
-  primaryEmail: "run@example.com",
-  billingCustomerType: "team",
+const request = new Request("https://cmux.test/api/runs", {
+  method: "POST",
+  headers: { "content-type": "application/json", "idempotency-key": "run-key" },
+});
+
+const run = {
+  userId: "user-run",
   billingTeamId: "team-run",
-  selectedTeamId: "team-run",
-  teams: [],
-  teamIds: ["team-run"],
-  userBillingPlanId: null,
-  billingPlanId: "pro",
-  billingSeats: 1,
-} satisfies AuthedUser;
-
-let allocationRefusal: Response | null = null;
-const enforceVmAllocationRateLimit = mock(async () => allocationRefusal);
-const createRun = mock(async () => { throw new Error("allocation refusal must precede run persistence"); });
-const launchQueuedCloudVmAttempts = mock(async () => {});
-const repositoryModule = await import("../services/runs/repository");
-const routeHelpersModule = await import("../services/vms/routeHelpers");
-
-mock.module("../services/vms/routeHelpers", () => ({
-  ...routeHelpersModule,
-  withAuthedVmApiRoute: async (
-    _request: Request,
-    _route: string,
-    _attributes: Record<string, unknown>,
-    _failureLog: string,
-    handler: (context: { user: AuthedUser }) => Promise<Response>,
-  ) => handler({ user }),
-  resolveVmProvisioningAccountScope: async () => ({
-    ok: true,
-    entitlements: {
-      billingTeamId: "team-run",
-      billingCustomerType: "team",
-      planId: "pro",
-      maxActiveVms: 5,
-    },
-  }),
-  runAfterResponse: () => {},
-  jsonResponse: (body: unknown, status = 200, headers: Record<string, string> = {}) =>
-    new Response(JSON.stringify(body), { status, headers: { "content-type": "application/json", ...headers } }),
-  vmErrorResponse: (input: { error: string; status: number; message: string; action: string }) =>
-    Response.json(input, { status: input.status }),
-}));
-mock.module("../services/vms/allocationRateLimit", () => ({ enforceVmAllocationRateLimit }));
-mock.module("../services/runs/repository", () => ({
-  ...repositoryModule,
-  createRun,
-  requestDigest: () => "sha256:fixture",
-}));
-mock.module("../services/runs/dogfood", () => ({ launchQueuedCloudVmAttempts }));
-
-const route = await import("../app/api/runs/route");
-
-function request(): Request {
-  return new Request("https://cmux.test/api/runs", {
-    method: "POST",
-    headers: { "content-type": "application/json", "idempotency-key": "run-key" },
-    body: JSON.stringify({
-      source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40) },
-      recipe: "parallel-review",
-      desiredAttempts: 32,
-      provider: "cloud-vm",
-      routing: { requestedProvider: "freestyle" },
-    }),
-  });
-}
+  idempotencyKey: "run-key",
+  requestDigest: "sha256:fixture",
+  source: { repository: "manaflow-ai/cmux", commit: "a".repeat(40) },
+  recipe: "parallel-review",
+  provider: "cloud-vm" as const,
+  desiredAttempts: 32,
+};
 
 describe("Run create allocation admission", () => {
-  beforeEach(() => {
-    allocationRefusal = null;
-    enforceVmAllocationRateLimit.mockClear();
-    createRun.mockClear();
-    launchQueuedCloudVmAttempts.mockClear();
-  });
+  test("allocation refusal precedes persistence for a 32-attempt Run", async () => {
+    // Import inside the test so loading this file cannot preempt another
+    // suite's auth mocks through allocationRateLimit -> routeHelpers.
+    const { createRunWithAllocationAdmission } = await import("../services/runs/allocationAdmission");
+    const refusal = Response.json({ error: "vm_allocation_rate_limited" }, { status: 429 });
+    const check = mock(async () => refusal);
+    const persist = mock(async () => { throw new Error("allocation refusal must precede run persistence"); });
 
-  test("allocation refusal precedes a 32-attempt Run", async () => {
-    allocationRefusal = Response.json({ error: "vm_allocation_rate_limited" }, { status: 429 });
+    const result = await createRunWithAllocationAdmission(
+      { request, billingTeamId: "team-run", run },
+      { check, persist },
+    );
 
-    const response = await route.POST(request());
-
-    expect(response.status).toBe(429);
-    expect(enforceVmAllocationRateLimit).toHaveBeenCalledWith(expect.objectContaining({
+    expect(result).toEqual({ kind: "limited", response: refusal });
+    expect(check).toHaveBeenCalledWith({
+      request,
       route: "run.create",
       billingTeamId: "team-run",
-    }));
-    expect(createRun).not.toHaveBeenCalled();
-    expect(launchQueuedCloudVmAttempts).not.toHaveBeenCalled();
+      cost: 32,
+    });
+    expect(persist).not.toHaveBeenCalled();
   });
 });
