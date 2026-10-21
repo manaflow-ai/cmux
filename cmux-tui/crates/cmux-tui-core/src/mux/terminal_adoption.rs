@@ -96,6 +96,9 @@ impl Mux {
         // fresh registry (SurfaceOptions::adopt_template_terminal).
         let mut template_claimed = false;
         let mut claimed_template = None;
+        // Hosts this pass marks adopting together, with their rows.
+        let mut adopting = Vec::new();
+        let mut candidates = Vec::new();
         let mut recovery_workspace = None;
         // Sidecars are host-owned write-ahead completion records. Reconcile
         // them before live discovery records so a daemon crash after host
@@ -242,13 +245,27 @@ impl Mux {
                 }
                 continue;
             }
-            if let Err(error) = self.transition_terminal_lifecycle(
-                "terminal-adopting",
-                "adopt-terminal",
-                &terminal_id,
-                TerminalLifecycle::Adopting,
-                Some(&record.incarnation),
-            ) {
+            // A second record for this terminal is cleaned up, not adopted.
+            handled_terminals.insert(terminal_id.clone());
+            let incarnation = record.incarnation.clone();
+            adopting.push((terminal, incarnation));
+            candidates.push((record, record_path, public_id));
+        }
+
+        // Every host this pass adopts is marked adopting in one registry
+        // transaction: a commit each cost 2.6 ms per host before the first
+        // answer (plans/cmux-next/service-start-PERF.md 5b).
+        let marked = {
+            let mut registry = self.workspace_registry.lock().unwrap();
+            let (marked, revision) = commit_terminals_adopting(&mut registry, &adopting)?;
+            if let Some(revision) = revision {
+                self.emit_terminal_registry_changed(&registry, revision);
+            }
+            marked
+        };
+        for ((record, record_path, public_id), marked) in candidates.into_iter().zip(marked) {
+            let terminal_id = record.terminal_id.clone();
+            if let Err(error) = marked {
                 let current =
                     self.workspace_registry.lock().unwrap().terminal_record(&terminal_id)?;
                 if current.as_ref().is_some_and(|terminal| {
@@ -269,7 +286,7 @@ impl Mux {
                     }
                     continue;
                 }
-                return Err(error);
+                anyhow::bail!("terminal {terminal_id} could not be marked adopting: {error}");
             }
             if terminal_host_record_liveness(&record_path, &record) == TerminalHostLiveness::Dead {
                 // Commit the durable exit before deleting the record. The
@@ -289,11 +306,11 @@ impl Mux {
                 handled_terminals.insert(terminal_id.clone());
                 continue;
             }
+            handled_terminals.insert(terminal_id.clone());
             if claimed_template.as_ref() == Some(&terminal_id) {
                 // A Cloud clone's first answer must already list the template
                 // terminal under its new identity: a client that listed
                 // nothing (the Cloud prompt sync) created a second workspace.
-                handled_terminals.insert(terminal_id.clone());
                 self.adopt_template_terminal_inline(&options, record, record_path)?;
                 continue;
             }
@@ -302,7 +319,6 @@ impl Mux {
             // answer, nor every other terminal (launch to a live terminal,
             // plans/cmux-next/service-start-PERF.md 5b). The tab is adopting,
             // not dead, until then (R41).
-            handled_terminals.insert(terminal_id.clone());
             match public_id {
                 // An imported or recovered row has no prefetched id: read it now.
                 Some(public_id) => {
