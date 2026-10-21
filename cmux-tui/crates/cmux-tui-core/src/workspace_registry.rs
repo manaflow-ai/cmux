@@ -45,6 +45,7 @@ mod journal_extensions;
 mod mutation_ledger;
 pub(crate) mod mutation_ledger_retention;
 mod open_guard;
+pub(crate) mod output_cleanup;
 pub(crate) mod personal_bookmarks;
 mod personal_browser_profiles;
 pub(crate) mod personal_mutations;
@@ -2487,20 +2488,38 @@ impl WorkspaceRegistry {
         let session_lock =
             platform::normalize_filesystem_path(session_dir.join(SESSION_WRITER_LOCK_FILE));
         let lease = SessionLease::acquire(&session_lock)?;
-        open_guard::refuse_orphaned_journal(&db_path)?;
-        let connection = open_registry_database(&db_path)
-            .with_context(|| format!("open workspace registry {}", db_path.display()))?;
-        let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
-        platform::restrict_file(&db_path)?;
-        Self::initialize(
-            connection,
-            session_name.to_string(),
-            machine_id,
-            resource_effect_pepper,
-            Some(session_guard),
-            Some(lease),
-            Some(db_path),
-        )
+        // Before the orphan check: an interrupted swap is put back first.
+        let swapped = output_cleanup::swap_at_open(&db_path);
+        let opened = (|| {
+            open_guard::refuse_orphaned_journal(&db_path)?;
+            let connection = open_registry_database(&db_path)
+                .with_context(|| format!("open workspace registry {}", db_path.display()))?;
+            let connection = open_guard::quarantine_if_unreadable(&db_path, connection)?;
+            platform::restrict_file(&db_path)?;
+            Self::initialize(
+                connection,
+                session_name.to_string(),
+                machine_id,
+                resource_effect_pepper,
+                Some(session_guard),
+                Some(lease),
+                Some(db_path.clone()),
+            )
+        })();
+        match opened {
+            Ok(registry) => {
+                if !swapped {
+                    output_cleanup::remove_previous_registry_later(&db_path);
+                }
+                Ok(registry)
+            }
+            Err(error) if swapped => {
+                // The locks were released with the failed attempt.
+                output_cleanup::roll_back_swap(&db_path, &error);
+                Self::open(&root, session_name)
+            }
+            Err(error) => Err(error),
+        }
     }
 
     fn initialize(

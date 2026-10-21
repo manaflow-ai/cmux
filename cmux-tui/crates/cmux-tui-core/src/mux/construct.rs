@@ -328,6 +328,7 @@ impl Mux {
             journal_ingress,
             output_store,
             journal_maintenance: Mutex::new(None),
+            output_cleanup: Default::default(),
             journal_hook_dispatcher_started: AtomicBool::new(false),
             journal_hook_runtime: Arc::new(crate::journal_hooks::JournalHookRuntime::default()),
             journal_event_epoch: Mutex::new(0),
@@ -452,6 +453,9 @@ impl Mux {
         mux.retry_pending_agent_hooks()?;
         crate::journal_hooks::start(&mux)?;
         mux.start_journal_maintenance()?;
+        if let Err(error) = mux.start_output_cleanup() {
+            eprintln!("cmux-tui: output cleanup: not started: {error:#}");
+        }
         crate::state::project_watch::start(&mux);
         Ok(mux)
     }

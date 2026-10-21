@@ -198,6 +198,11 @@ impl Mux {
             if target == 0 {
                 return Ok(());
             }
+            // The live rows are almost all output that the pending cleanup
+            // removes; sealing them first is wasted work.
+            if self.output_cleanup_pending() {
+                return Ok(());
+            }
 
             for batch in 0..JOURNAL_MAINTENANCE_SEAL_BATCHES_PER_TICK {
                 if sealed_through >= target {
@@ -489,7 +494,7 @@ impl Mux {
                 let head = page.head_sequence;
                 let empty = page.records.is_empty();
                 for record in page.records {
-                    reducer.apply(&record)?;
+                    reducer.apply_read(&record)?;
                 }
                 if empty {
                     break head;
@@ -510,7 +515,7 @@ impl Mux {
                     break;
                 }
                 sequence = record.sequence;
-                reducer.apply(&record)?;
+                reducer.apply_read(&record)?;
             }
             if empty || sequence >= head {
                 break head;

@@ -347,10 +347,22 @@ impl RestoreReducer {
         })
     }
 
+    #[cfg(test)]
     pub(crate) fn apply(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.last_sequence.checked_add(1) == Some(record.sequence),
             "journal records are not contiguous after checkpoint"
+        );
+        self.apply_read(record)
+    }
+
+    /// A record from a journal reader, which refuses every gap that output
+    /// cleanup did not prune (`journal_pruned_ranges`): records only have
+    /// to ascend here.
+    pub(crate) fn apply_read(&mut self, record: &SessionJournalRecord) -> anyhow::Result<()> {
+        anyhow::ensure!(
+            record.sequence > self.last_sequence,
+            "journal records are not in order after checkpoint"
         );
         self.last_sequence = record.sequence;
         if record.replay != JournalReplayPolicy::Required {
