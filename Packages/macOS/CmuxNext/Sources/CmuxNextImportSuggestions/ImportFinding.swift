@@ -82,8 +82,10 @@ public nonisolated struct ImportFinding: Codable, Sendable, Hashable, Identifiab
     public var fingerprint: String {
         switch kind {
         case .browser, .iterm2:
-            let profiles = profiles.map { "\($0.directoryName)=\($0.kinds.map(\.rawValue).sorted().joined(separator: "+"))" }.sorted()
-            return ([id, access.rawValue] + profiles).joined(separator: "|")
+            // One entry per profile and kind, so a profile imported elsewhere (fewer entries)
+            // keeps the card dismissed and only a new one brings it back (ImportSuggestionState.hides).
+            let held = profiles.flatMap { profile in profile.kinds.map { "\(profile.directoryName)=\($0.rawValue)" } }.sorted()
+            return ([id, access.rawValue] + held).joined(separator: "|")
         case .claudeCode, .codex, .ghostty, .cmuxClassic:
             return [id, access.rawValue].joined(separator: "|")
         }

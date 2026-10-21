@@ -52,7 +52,15 @@ public nonisolated struct ImportSuggestionState: Codable, Sendable, Equatable {
 
     public init() {}
 
-    public func hides(_ finding: ImportFinding) -> Bool { dismissed[finding.id] == finding.fingerprint }
+    /// Dismissed while nothing new appeared: the same source and access, and every profile and
+    /// kind it holds now was there when the person dismissed it (fewer is still dismissed).
+    public func hides(_ finding: ImportFinding) -> Bool {
+        guard let stored = dismissed[finding.id] else { return false }
+        let then = stored.split(separator: "|", omittingEmptySubsequences: false)
+        let now = finding.fingerprint.split(separator: "|", omittingEmptySubsequences: false)
+        guard then.count >= 2, now.count >= 2, then.prefix(2) == now.prefix(2) else { return false }
+        return Set(now.dropFirst(2)).isSubset(of: Set(then.dropFirst(2)))
+    }
 
     public mutating func dismiss(_ finding: ImportFinding) { dismissed[finding.id] = finding.fingerprint }
 

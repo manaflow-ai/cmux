@@ -49,6 +49,11 @@ struct ImportCardDeckTests {
         newProfile.profiles.append(.init(directoryName: "Profile 2", kinds: [.history]))
         let cards = Self.deck([newProfile, grown], state: state).cards(for: .newTab, now: Self.now)
         #expect(cards.map(\.id) == ["browser.chrome"])
+        // A profile imported elsewhere (Chrome holds less now) is not new: still gone.
+        var fewer = Self.chrome
+        fewer.profiles = Array(fewer.profiles.prefix(1))
+        fewer.profiles[0].kinds = Array(fewer.profiles[0].kinds.prefix(1))
+        #expect(Self.deck([fewer], state: state).cards(for: .newTab, now: Self.now).isEmpty)
         // Settings keeps the dismissed one, with Show Again.
         let settings = Self.deck([Self.claude], state: state).cards(for: .settings, now: Self.now)
         #expect(settings.first?.dismissed == true)
