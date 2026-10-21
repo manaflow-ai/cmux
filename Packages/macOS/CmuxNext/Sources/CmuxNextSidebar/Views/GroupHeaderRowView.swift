@@ -273,7 +273,7 @@ final class GroupHeaderRowView: SidebarRowView {
             ? ThemeTokens.readable(line, over: tokens.sidebarBackground, minimum: ThemeTokens.minimumTextContrast).nsColor
             : tokens.textPrimary.nsColor
         name.textColor = ink
-        count.textColor = ink
+        count.textColor = ink.withAlphaComponent(SidebarStyle.groupHeaderCountInkAlpha)
         glyph.symbolInk = ink
         let quiet = tokens.textSecondary.nsColor
         pin.contentTintColor = quiet
@@ -300,9 +300,6 @@ final class GroupHeaderRowView: SidebarRowView {
         ChromeHover.paint(pill, fill.nsColor, animated: fadesNextFill)
         paintFill(nil)
     }
-
-    /// The chevron and the space around it: a click here collapses or expands.
-    var disclosureFrame: NSRect { chevronFrame.insetBy(dx: -Metrics.space1, dy: -Metrics.space2) }
 
     override func layout() {
         super.layout()
