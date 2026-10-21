@@ -58,6 +58,22 @@ import Testing
         #expect(column.page.frame.width == landed, "one layout at the landed size: \(column.page.frame)")
     }
 
+    /// Leo 2026-10-21: after a restart the chat was laid out wider than its pane, pinned to its
+    /// right edge, its text and composer cut off at the left. A host at its rest place and size
+    /// shows its content at the clip's bounds whatever its spring flag says: held content belongs
+    /// to a frame on its way, never to one that is there.
+    @Test func aHostAtRestHoldsNothing() {
+        let column = Screen()
+        column.host.restSize = CGSize(width: 200, height: 300)
+        column.host.restOffset = CGVector(dx: -200, dy: 0)
+        column.host.isOnLayoutSpring = true
+        // The frame is at its rest, but nothing cleared the spring flag.
+        column.host.restOffset = .zero
+        column.host.frame = CGRect(x: 0, y: 0, width: 200, height: 300)
+        let clip = column.page.superview?.bounds ?? .zero
+        #expect(column.page.frame == clip, "content held at a host at rest: \(column.page.frame) in \(clip)")
+    }
+
     @Test func aPaneOpeningOnTheRightLaysOutAtItsRestSizeAndRidesItsRightEdge() {
         // The new pane's first frame: a sliver at its right edge, growing leftward to 400 pt.
         let column = Screen(hostFrame: CGRect(x: 580, y: 0, width: 20, height: 300))
