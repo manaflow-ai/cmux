@@ -56,8 +56,7 @@ struct RemoteTmuxAttachRenamedSessionTests {
         }
     }
 
-    /// The id mode is the first attach only: it targets the id, and the connection's
-    /// reconnects use `.attach` by name once the stream has reached control mode.
+    /// The first attach of a discovered session targets its id.
     @Test func theIdModeTargetsTheSessionId() {
         #expect(
             RemoteTmuxControlAttachMode.attachSessionID(3).tmuxArguments(sessionName: "work")
