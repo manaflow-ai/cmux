@@ -418,6 +418,9 @@ jobs:
       - name: The fast gates workflow and its merge and gate script
         run: python3 tests/test_cmux_next_fast_gates.py
 
+      - name: Capture-only control methods are compiled out of release builds
+        run: python3 tests/test_cmux_next_debug_only_controls.py
+
       - name: A quit scheduled on the run loop never exits a test process
         run: python3 tests/test_cmux_next_deferred_terminate.py
 

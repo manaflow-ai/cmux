@@ -67,6 +67,9 @@ public nonisolated struct WorkspaceRowContent: Hashable, Sendable {
     /// The Priority view's chip (`SidebarWorkspace.agentChip`): the row view draws its word as the
     /// name line's trailing text in the chip's color, in place of the age or one-line status.
     public var chip: SidebarPriorityEntry.State?
+    /// What the working agent does now (`SidebarWorkspace.agentStep`), in place of the second
+    /// line's text: the row view draws it as "Now: …". Set only on a row that has a second line.
+    public var now: String?
 
     public init(icon: WorkspaceIcon? = nil, detail: String? = nil, tabCount: Int? = nil, badge: String? = nil,
                 activity: StatusIndicatorState = .idle, progress: SidebarProgress? = nil, showsWorking: Bool = false,
