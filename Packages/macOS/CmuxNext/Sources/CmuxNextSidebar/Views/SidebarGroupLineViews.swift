@@ -80,9 +80,12 @@ final class SidebarGroupLineViews {
 
     /// Shows at once, at its frame, the line of each group in `lines` that has
     /// none (a group whose rows a drag hid: the last apply left its line out),
-    /// and leaves every other line, moving or not, as it is.
+    /// and leaves every other line, moving or not, as it is. The shown line joins `lines`: a fold keeps the lines
+    /// it does not touch from there, and without it the next fold took this line away.
     func showMissing(_ lines: [SidebarGroupLine], in list: NSView, below decorations: NSView) {
         for line in lines where views[line.group] == nil {
+            self.lines.removeAll { $0.group == line.group }
+            self.lines.append(line)
             let view = GroupLineView()
             list.addSubview(view, positioned: .below, relativeTo: decorations)
             views[line.group] = view
