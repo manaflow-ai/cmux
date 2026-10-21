@@ -124,10 +124,10 @@ import { Inspector, type ExportOutcome } from "./Inspector";
 import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
-import { type BackgroundCommand, backgroundCommands } from "./summary/backgroundWork";
+import { useChatInspector } from "./inspector/ChatInspector";
+import { type ProcessSource, useProcessRegistry } from "./inspector/processes";
 import { openProcessTerminal } from "./processTerminal";
-import { useSessionRail } from "./summary/SessionRail";
-import { type ProcessSource, useProcessRegistry } from "./summary/sessionProcesses";
+import { type BackgroundCommand, backgroundCommands } from "./summary/backgroundWork";
 import { pendingToolCalls, waitingSubagents } from "./summary/SubagentStatusList";
 import { AgentsPill } from "./subagents/AgentsPill";
 import { SubagentTray } from "./subagents/SubagentTray";
@@ -3887,9 +3887,8 @@ function AcpmuxPane() {
     },
     [snapshot.rows, openDiff],
   );
-  // The session side rail (Debug Settings `agent.sessionRail`): its button in the header, the rail beside the chat.
-  // The rail's Background tasks read acpmux's process registry through the pane's client. A
-  // reconnect makes a new client, so the source changes with it and the rail lists again.
+  // The Inspector's Background tasks and Servers read acpmux's process registry through the pane's
+  // client. A reconnect makes a new client, so the source changes with it and they list again.
   const [clientEpoch, setClientEpoch] = useState(0);
   const processSource = useMemo<ProcessSource>(
     () => ({
@@ -3903,14 +3902,6 @@ function AcpmuxPane() {
     (id: string) => directClient.current?.killProcess(id) ?? Promise.reject(new Error()),
     [],
   );
-  const sessionRail = useSessionRail({
-    snapshot,
-    machineName,
-    onOpenOutput: openOutput,
-    processSource,
-    sessionId: shownSessionId,
-    onStopProcess: stopProcess,
-  });
   // The chat's background commands (summary/backgroundWork.ts): the transcript's still running, and
   // the registry's, read while the summary card shows, a turn runs or a command is known to run (the
   // hook stays on while one it knows runs, so its end arrives). The tray shows a registry command
@@ -4397,6 +4388,23 @@ function AcpmuxPane() {
       setAutoOpenSubagents,
     ],
   );
+  // The Inspector (Debug Settings `agent.inspector`): its toggle at the header's end, the panel
+  // beside or over the chat. On, it takes the summary card's place.
+  const inspector = useChatInspector({
+    snapshot,
+    machineName,
+    repository: githubRepository,
+    shell,
+    onOpenOutput: quick ? undefined : openOutput,
+    onOpenUrl: quick
+      ? undefined
+      : (url) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.preview, url, mode: "open" })),
+    onOpenImage: quick ? undefined : openImage,
+    processSource,
+    sessionId: shownSessionId,
+    onStopProcess: stopProcess,
+    subagents: cardSubagents,
+  });
   // The running line's counts (conversation/WorkingFor.tsx), with the tray off (Debug Settings):
   // the subagents still running, the background commands that have not ended and the started chats
   // that run. A count of one opens its subagent, the command's row or the chat; of several, the
@@ -4423,8 +4431,24 @@ function AcpmuxPane() {
   );
   // The turn's tokens so far, said after its time (direct.ts `turnTokens`).
   const turnTokens = snapshot.isWorking ? snapshot.turnTokens : undefined;
-  const counted = useRef({ runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard });
-  counted.current = { runningAgents, runningCommands, runningSessions, sourceRows, transcriptRows, summaryCard };
+  const counted = useRef({
+    runningAgents,
+    runningCommands,
+    runningSessions,
+    sourceRows,
+    transcriptRows,
+    summaryCard,
+    inspector,
+  });
+  counted.current = {
+    runningAgents,
+    runningCommands,
+    runningSessions,
+    sourceRows,
+    transcriptRows,
+    summaryCard,
+    inspector,
+  };
   const workingCounts = useMemo<WorkingCounts>(() => {
     // A shell's Bash row, opening its turn's "Worked for" when that is closed and the run that
     // holds the call. The reveal lets go after a moment, so the run closes again like any other.
@@ -4449,25 +4473,35 @@ function AcpmuxPane() {
       sessions: runningSessions.length,
       tokens: turnTokens,
       openAgents: () => {
-        const { runningAgents: agents, summaryCard: card } = counted.current;
+        const { runningAgents: agents, summaryCard: card, inspector: panel } = counted.current;
         if (agents.length === 1) showSubagent(agents[0]!.id);
+        // The Inspector takes the summary card's place while it is on (its panel is never drawn).
+        else if (panel.reveal) panel.reveal("subagents");
         else card.show();
       },
       openCommands: () => {
-        const { runningCommands: commands, summaryCard: card } = counted.current;
-        if (commands.length !== 1 || !showToolRow(commands[0]!.toolCallId)) card.show();
+        const { runningCommands: commands, summaryCard: card, inspector: panel } = counted.current;
+        if (commands.length === 1 && showToolRow(commands[0]!.toolCallId)) return;
+        if (panel.reveal) panel.reveal("tasks");
+        else card.show();
       },
       openSessions: () => {
-        const { runningSessions: sessions, summaryCard: card } = counted.current;
+        const { runningSessions: sessions, summaryCard: card, inspector: panel } = counted.current;
         if (sessions.length === 1) openOfferChat(sessions[0]!.sessionId);
+        else if (panel.reveal) panel.reveal("subagents");
         else card.show();
       },
     };
   }, [runningAgents.length, runningCommands.length, runningSessions.length, turnTokens, showSubagent, openFold]);
   // A tray command opens its terminal beside the chat; where none opens (a peer's chat, or a
-  // command only the transcript knows), the summary card, which lists it.
+  // command only the transcript knows), the summary card, which lists it, or the Inspector's
+  // Background tasks while the Inspector takes the card's place.
   const openTrayCommand = useCallback((command: BackgroundCommand) => {
-    const showCard = () => counted.current.summaryCard.show();
+    const showCard = () => {
+      const { summaryCard: card, inspector: panel } = counted.current;
+      if (panel.reveal) panel.reveal("tasks");
+      else card.show();
+    };
     if (!command.toolCallId) return showCard();
     void openProcessTerminal(command.toolCallId).then((opened) => {
       if (!opened) showCard();
@@ -7195,8 +7229,8 @@ function AcpmuxPane() {
                           configureQuickActions({ quickActions: before }),
                         );
                       }}
-                      sessionRail={sessionRail.button}
-                      summary={<SummaryButton card={summaryCard} />}
+                      inspector={inspector.button}
+                      summary={inspector.on ? null : <SummaryButton card={summaryCard} />}
                       menu={chatMenu}
                       onMenuOpen={readTabState}
                       expand={continuing && canContinue ? "continue" : undefined}
@@ -7204,7 +7238,7 @@ function AcpmuxPane() {
                     />
                   </div>
                 </header>
-                {!summaryCard.column && summaryPanel}
+                {!inspector.on && !summaryCard.column && summaryPanel}
                 {!diffView && checkpoints.review}
                 {snapshot.missingSession && (
                   <p className="acpmux-link-missing" role="alert">
@@ -7305,10 +7339,11 @@ function AcpmuxPane() {
           !(replaying && replaying === snapshot.sessionId) &&
           !inspectorOpen &&
           !diffView &&
+          !inspector.on &&
           summaryCard.column &&
           summaryPanel}
         {/* Beside the chat view only: New Tab, Harnesses and a replay have no session header. */}
-        {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && sessionRail.rail}
+        {!harnessesOpen && !showNewTab && !(replaying && replaying === snapshot.sessionId) && inspector.panel}
         {artifact && (
           <ArtifactPanel
             key={artifact.opened}

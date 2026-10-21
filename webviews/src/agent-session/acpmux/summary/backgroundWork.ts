@@ -3,13 +3,13 @@
 // above the composer shows what still runs (subagents/runningTray.ts `trayItems`); with the tray
 // off in Debug Settings, the running turn's line counts them (conversation/WorkingFor.tsx).
 //
-// Commands come from two places. acpmux's process registry (sessionProcesses.ts) knows every
+// Commands come from two places. acpmux's process registry (inspector/processes.ts) knows every
 // harness's background commands and how each ended; the transcript knows Claude's background Bash
 // calls and their `background_task_update` ends (sessionSummary.ts). The registry wins: a
 // transcript task whose call started a listed process is that process.
 import type { StartedSession } from "../started/startedSessions";
 import type { SummaryBackgroundTask } from "./sessionSummary";
-import type { RailProcess } from "./sessionProcesses";
+import type { InspectorProcess } from "../inspector/processes";
 
 /// One background command as the card lists it.
 export type BackgroundCommand = {
@@ -40,7 +40,7 @@ const PROCESS_STATE: Record<string, BackgroundCommand["state"]> = {
 /// running, so a transcript task it does not know that still says running (a record from before the
 /// registry, or one that ended unseen) is left out rather than shown running forever.
 export function backgroundCommands(
-  processes: readonly RailProcess[],
+  processes: readonly InspectorProcess[],
   transcript: readonly SummaryBackgroundTask[],
   listed: boolean,
 ): BackgroundCommand[] {

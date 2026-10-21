@@ -15,7 +15,8 @@ nonisolated extension ActionSurfaceCatalog {
         "openFolder": [p(.sidebarBackground, .create, 4)],
         "palette.openFolderInVSCodeInline": [p(.workspaceRow, .create, 100, folder: .new)],
         "reopenPreviousSession": [p(.sidebarBackground, .create, 8, folder: .new)],
-        "reopenClosedWorkspace": [p(.sidebarBackground, .create, 7, folder: .new)],
+        // A row's More ▸ too, and last in a multi-selection's menu (Chrome's Reopen Closed Tab).
+        "reopenClosedWorkspace": [p(.sidebarBackground, .create, 7, folder: .new), p(.workspaceRow, .close, 506, folder: .close)],
         "moveWorkspaceUp": [p(.workspaceRow, .move, 201, folder: .move)],
         "moveWorkspaceDown": [p(.workspaceRow, .move, 202, folder: .move)],
         "palette.moveWorkspaceToTop": [p(.workspaceRow, .move, 200, folder: .move)],
@@ -108,7 +109,7 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.moveDown": [p(.workspaceGroup, .move, 302, folder: .move, label: ObjectMenuLabels.moveDown)],
         "workspaceGroup.moveToBottom": [p(.workspaceGroup, .move, 303, folder: .move, label: ObjectMenuLabels.moveToBottom)],
         "workspaceGroup.moveToWindow": [p(.workspaceGroup, .move, 311, folder: .move, label: ObjectMenuLabels.moveToWindow)],
-        "workspaceGroup.closeWorkspaces": [p(.workspaceGroup, .close, 501, label: ObjectMenuLabels.closeGroup)],
+        "workspaceGroup.closeWorkspaces": [p(.workspaceGroup, .close, 501, label: ObjectMenuLabels.closeAllInGroup)],
         "workspaceGroup.closeOthers": [p(.workspaceGroup, .close, 503)],
         "workspaceGroup.duplicate": [p(.workspaceGroup, .identity, 131, folder: .options)],
         "workspaceGroup.moveToNewWindow": [p(.workspaceGroup, .move, 310, folder: .move, label: ObjectMenuLabels.moveToNewWindow)],

@@ -59,6 +59,7 @@ pub mod peer_link;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;
+pub mod probe_prompt;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod protected_folders;

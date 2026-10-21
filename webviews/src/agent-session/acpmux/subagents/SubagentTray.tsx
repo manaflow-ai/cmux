@@ -20,7 +20,7 @@ import { memo, useId, useState } from "react";
 import { formatDuration } from "../conversation/turns";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
-import { StopButton as ProcessStopButton } from "../summary/RailTasks";
+import { StopButton as ProcessStopButton } from "../inspector/TasksSection";
 import type { BackgroundCommand } from "../summary/backgroundWork";
 import { subagentStatus, subagentStatusLabel } from "../summary/SubagentStatusList";
 import { AgentLine } from "./AgentLine";

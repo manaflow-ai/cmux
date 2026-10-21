@@ -455,7 +455,7 @@ button.cv-subagent > :last-child {
   border-top: var(--cmux-hairline, 0.5px) solid var(--acpmux-composer-edge, transparent);
 }
 /* A line (AgentLine.tsx) is its button and, for a running subagent or a registry command, its
-   stop button (SubagentGroup.tsx, summary/RailTasks.tsx). */
+   stop button (SubagentGroup.tsx, inspector/TasksSection.tsx). */
 .acpmux-agent-line {
   display: flex;
   align-items: center;
@@ -470,7 +470,7 @@ button.cv-subagent > :last-child {
   flex: none;
   margin-left: 2px;
 }
-.acpmux-agent-line > .acpmux-rail-task__stop {
+.acpmux-agent-line > .acpmux-chat-inspector-stop {
   margin: 0 4px 0 2px;
 }
 /* Running work's icon is the theme's accent, never a brand color. */

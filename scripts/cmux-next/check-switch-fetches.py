@@ -53,6 +53,8 @@ ALLOWED_LISTENERS = {
     "data",
     (f"{ACPMUX}/pageKey.ts", "focus"): "marks the page key or not for the caret; reads no data",
     (f"{ACPMUX}/pageKey.ts", "visibilitychange"): "the same, on hide and show",
+    (f"{ACPMUX}/composer/keptAttachments.ts", "visibilitychange"): "sends a resting write of the "
+    "chat's unsent attachments before the page can go away (#23139); a write, not a read",
     (f"{ACPMUX}/harnesses/HarnessesScreen.tsx", "focus"): "follow-up: re-reads harness health on "
     "every focus to catch a Sign In run in a terminal; should re-read only once one ran, as App.tsx "
     "`healthStale` does",

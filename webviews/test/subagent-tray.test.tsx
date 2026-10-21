@@ -354,7 +354,7 @@ describe("the tray", () => {
       ]);
       for (const line of lines) await act(async () => line.querySelector<HTMLButtonElement>("button")!.click());
       expect(opened).toEqual(["agent:Watcher", "command:s/1", "chat:c1"]);
-      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-rail-task__stop")!.click());
+      await act(async () => lines[1]!.querySelector<HTMLButtonElement>(".acpmux-chat-inspector-stop")!.click());
       expect(stopped).toEqual(["s/1"]);
     } finally {
       await done();
