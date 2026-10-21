@@ -294,11 +294,14 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
         // `.loadStart` sends the color scheme again rather than trusting a memo
         // no live page ever heard.
         sentColorScheme = nil
-        // No first paint or load end is coming for the document that was
-        // loading, so the page area stops standing in for it rather than
-        // keeping the theme base for good (`CEFTab+LoadingBackground`).
-        documentDidSettle()
         machine.apply(.processExited(exit))
+        // After the sad tab, not before it: no first paint or load end is
+        // coming for the document that was loading, so the page area stops
+        // standing in for it (`CEFTab+LoadingBackground`) -- but settling
+        // repaints the base white, and doing that before the view that reads
+        // `state.processExit` is laid out shows a white page area for a frame
+        // in a dark theme.
+        documentDidSettle()
         reloadWhenShown = host.visibleTab !== self
         findRequests.cancel()
         runtime.recordRendererExit(exit, tab: self)

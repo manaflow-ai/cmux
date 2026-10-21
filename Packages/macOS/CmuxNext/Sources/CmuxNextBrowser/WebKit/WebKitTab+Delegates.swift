@@ -149,7 +149,11 @@ extension WebKitTab: WKNavigationDelegate {
     public func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
         // No commit or finish is coming, so the page area goes back to
         // WebKit's own background rather than keeping none for good.
-        pageDidFinish()
+        // Unconditionally, not through `pageDidFinish`: a crash can leave
+        // `webView.url` nil, which that one reads as a blank page and skips,
+        // putting the tab back in the stuck state this is here to prevent.
+        pageBaseHold.cancel()
+        setDrawsPageBackground(true)
         apply(.processExited(BrowserProcessExit(reason: .crashed)))
     }
 

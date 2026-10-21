@@ -102,6 +102,9 @@ def _frames(folder: Path) -> dict:
 def _record(driver, folder: Path, seconds: float, act=None) -> dict:
     """Records the window for `seconds`, running `act()` a moment in; returns its frames."""
     folder.mkdir(parents=True, exist_ok=True)
+    # A leftover file from an earlier run in the same `out` would be read as
+    # this run's frames the moment the poll below starts.
+    (folder / "frames.json").unlink(missing_ok=True)
     started = driver.call("debug.window_record", {"dir": str(folder), "seconds": seconds})
     if "error" in started:
         return {"error": f"window_record: {started['error']}"}
@@ -239,6 +242,12 @@ def judge(data: dict, refresh: float) -> dict:
             if worst - base > tolerance:
                 problems.append(f"the page flashed: {key} rose from {base:.3f} at rest to {worst:.3f} "
                                 f"(over {tolerance:.2f}) while the page loaded")
+    if unmeasured:
+        # A run that reports itself unmeasured never also fails. The loop above
+        # can record a `luminance` problem and only then find `peak` too short,
+        # which today cannot happen (the recorder appends to both arrays for
+        # the same frames) but must not become a FAIL on a half-measured run.
+        problems = []
     verdict["frames"] = {"rest": len(rest.get("peak") or []), "navigate": len(navigate.get("peak") or [])}
     verdict["unstyled"] = _unstyled_handover(rest, data.get("unstyled") or {})
     verdict["problems"] = problems
