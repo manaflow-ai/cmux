@@ -226,6 +226,11 @@ class Matrix:
         self.fork1 = f"{self.tag}-f1"
         ok, why = self.fork(self.parent, self.fork1)
         if not ok:
+            # A harness whose agent offers no session/fork is refused with that reason: the
+            # palette then says so too. Recorded apart from a failure.
+            if "does not offer session/fork" in why:
+                self.unsupported = True
+                return "unsupported", why[why.find("message") :][:160]
             return "fail", f"fork: {why}"
         prompts = self.prompts(self.fork1)
         missing = [p for p in self.parent_prompts if p not in prompts]
@@ -353,6 +358,9 @@ class Matrix:
         have_fork1 = False
         for case in CASES:
             if only and case not in only and not (case == "transcript" and needs_fork1 & set(only)):
+                continue
+            if getattr(self, "unsupported", False) and case != "empty":
+                rows.append({"case": case, "result": "n/a", "detail": "the harness cannot fork"})
                 continue
             if case in needs_fork1 and not have_fork1:
                 rows.append({"case": case, "result": "fail", "detail": "no fork to test (transcript failed)"})
