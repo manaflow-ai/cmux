@@ -34,8 +34,11 @@ function statusLine(calls: ReturnType<typeof call>[]): AcpmuxRow {
 }
 
 const drawn = (status: AcpmuxRow) => renderToStaticMarkup(<WorkingFor row={status} now={() => status.at + 26_000} />);
-// The line draws nothing before its words: no working mark, no activity dots, no hidden spans.
-const stillMarkup = (html: string) => !/cv-working-mark|cv-activity__dots|aria-hidden/.test(html);
+// The line draws nothing before its words: no working mark, no activity dots, and its first child
+// is the label itself.
+const stillMarkup = (html: string) =>
+  /^<div[^>]*><(?:span|output) class="cv-(?:worked__label|thinking|activity__label)/.test(html) &&
+  !/cv-working-mark|cv-activity__dots/.test(html);
 const text = (html: string) =>
   html
     .replace(/<[^>]+>/g, " ")

@@ -1,8 +1,8 @@
 // The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does. No mark blinks before it; the
-// ticking time says the turn is alive. After that it counts the work still going in the background, as Claude's
-// phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command", only subagents still
+// ticking time says the turn is alive. After that it counts the work still going in the
+// background, as Claude's phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command", only subagents still
 // running and background shells that have not ended. Each count opens what it counts. The counts
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
 // rows below. Before them, as Claude desktop's line does, it says the turn's tokens so far

@@ -3,8 +3,8 @@
 // `data-status-indicators="static"` on the root: the app's WebTheme bootstrap sets it from the theme
 // payload (`statusIndicators`), which this test runs as the app does, and under it, or under Reduce
 // Motion, no web loop may run: the mic's wait pulse, the model picker and harness spinners, the
-// floating chat's breathing dot, the Thinking sweep, the running line's working dots, the todo
-// list's spinner, the activity line's dots, the Jump to Latest dots and Home's "writing" pulse.
+// floating chat's breathing dot, the Thinking sweep, the todo list's spinner, the Jump to Latest
+// dots and Home's "writing" pulse.
 // The diff viewer does not get the pane's theme, so its spinners stop under Reduce Motion alone.
 // Static also gives the color-only marks a shape each.
 // This loads the real stylesheets in Chromium and lists the animations that never end.
