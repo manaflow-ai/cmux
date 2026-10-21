@@ -395,7 +395,7 @@ jobs:
 
       - name: cargo clippy
         working-directory: cmux-tui
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked --keep-going -- -D warnings
 
       # cmux-rd-ffi is its own Cargo workspace (outside --workspace), so the
       # cmux-tui lint/test steps never build it. Its tests pin the C header
@@ -713,7 +713,7 @@ jobs:
       - name: cargo clippy (macOS targets)
         id: clippy
         working-directory: cmux-tui
-        run: cargo clippy --workspace --all-targets --locked -- -D warnings
+        run: cargo clippy --workspace --all-targets --locked --keep-going -- -D warnings
 
       # Focused mode runs the requested filter here too (cx-jcfoz): before, this job ran only
       # its fixed groups, so a filtered dispatch reported macOS green without running the
@@ -1060,7 +1060,7 @@ jobs:
             # Process-heavy CLI tests can exceed the runner's child-process
             # limit on the smaller macOS and Windows matrix runners, and
             # timing-bound tests flake at 32 threads on Linux.
-            cargo test --workspace --exclude cmux-tui-core --locked -- --test-threads=2
+            cargo test --workspace --exclude cmux-tui-core --locked --no-fail-fast -- --test-threads=2
             mkdir -p target
             cargo test -p cmux-tui-core --locked --no-run --message-format=json \
               > target/cmux-tui-core-test-binaries.jsonl
