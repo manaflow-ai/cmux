@@ -381,6 +381,10 @@ impl Mux {
                     loss.record();
                 }
             }
+            // Its agent ended with it, before a respawn gives the terminal a new shell.
+            if let Some(public_terminal_id) = public_terminal_id.as_ref() {
+                self.end_agent_session_of_exited_terminal(public_terminal_id);
+            }
             // The respawn decided above starts here, with no lock held.
             #[cfg(any(unix, windows))]
             if let Some(decision) = respawn {
