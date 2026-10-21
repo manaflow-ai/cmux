@@ -264,6 +264,11 @@ pub enum Command {
     /// list, show (everything one printed, live with --follow), kill.
     #[command(subcommand, alias = "ps")]
     Process(crate::cli::process::ProcessCmd),
+    /// This machine's git worktrees, cleaned up after the agents that made
+    /// them: list, clean (archive work only there, then remove), restore,
+    /// archives.
+    #[command(subcommand, alias = "wt")]
+    Worktree(crate::cli::worktree::WorktreeCmd),
     /// Everything else about one session: info, cancel, stop, rename, fork, set, allow, deny, answer, export, import, tail.
     #[command(subcommand, alias = "s")]
     Session(SessionCmd),
