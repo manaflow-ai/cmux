@@ -368,6 +368,7 @@ try {
   // echo-fed seed shells and test -s guards; see ../services/vms/images/devbox/Dockerfile).
   // Cache seeds cover root and the work user (uid 1000).
   await step("cmux-etc", "mkdir -p /etc/cmux /etc/skel");
+  await step("vm-kind-default", "printf 'team\\n' > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind");
   await put("cmux-bashrc", "/etc/cmux/bashrc");
   await put("cmux-prompt.bash", "/etc/cmux/prompt.bash");
   await step("python-completion-dir", "mkdir -p /usr/local/share/bash-completion/completions");
@@ -559,6 +560,7 @@ try {
   // The cmux-tui daemon supervisor + its systemd unit (see the header).
   const service = devboxDaemonUnit();
   await put("cmux-devbox-boot", "/usr/local/bin/cmux-devbox-boot", 0o755);
+  await put("cmux-vm-kind-sync", "/usr/local/bin/cmux-vm-kind-sync", 0o755);
   await put("cmux-tui-state-mount", "/usr/local/bin/cmux-tui-state-mount", 0o755);
   await put("cmux-prompt-sync", "/usr/local/bin/cmux-prompt-sync", 0o755);
   await vm.fs.writeFile("/etc/systemd/system/cmux-tui-daemon.service", `${service}\n`, { mode: 0o644 });

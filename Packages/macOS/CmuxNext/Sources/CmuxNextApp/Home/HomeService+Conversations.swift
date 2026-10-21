@@ -12,14 +12,24 @@ extension HomeService {
     }
 
     /// The people New Message offers: team members, then people of the
-    /// user's DMs, then the user's Chiefs. The cloud source learns their
-    /// names for new groups.
+    /// user's DMs, then the user's Chiefs (not archived ones, which the list
+    /// hides). The cloud source learns their names for new groups.
     func contacts() -> [HomeContact] {
         let me = homeStore.me?.id ?? homeSource.me.id
         let team = directory.teamMembers
         cloudSource.remember(team.map { Participant(id: $0.id, kind: .human, displayName: $0.name) })
-        return HomeContact.merged(team: team, connections: HomeContact.connections(in: homeStore.rows, me: me),
-                                  agents: HomeContact.agents(in: homeStore.rows, me: me))
+        let rows = TopHomePageView.visible(homeStore.rows, archivedChiefs: directory.archivedChiefs, me: me)
+        return HomeContact.merged(team: team, connections: HomeContact.connections(in: rows, me: me),
+                                  agents: HomeContact.agents(in: rows, me: me))
+    }
+
+    /// New Message's list: its Chiefs (main first) and how each row draws (HomeChiefRoster+NewMessage).
+    func newMessageChiefs(_ draft: HomeNewMessageDraft) -> [HomeContact] {
+        draft.chiefShortcuts(contacts: chiefRoster.mainFirst(contacts(), rows: homeStore.rows))
+    }
+    func recipientLook(_ recipient: HomeRecipient) -> HomeRecipientLook {
+        chiefRoster.look(recipient, rows: homeStore.rows, avatars: directory.chiefAvatars, fallback: HomeHostView.defaultTileAvatar,
+                         harnesses: directory.chiefHarnesses)
     }
 
     /// Starts a DM or a group; the page shows it once the inbox lists it.
@@ -83,6 +93,16 @@ extension HomeService {
     /// `home.*` group actions (AppActions+HomeGroups) all run it.
     var groupActions: HomeGroupActions {
         HomeGroupActions(store: homeStore, muting: groupMuting, contacts: { [weak self] in self?.contacts() ?? [] })
+    }
+
+    /// The one path every "Send Message…" entry point resolves its chat through (right-click
+    /// rows, Send to Chief, Forward…, `cmux chat send`, MCP): AppActions+HomeMessaging.
+    var messageRouting: HomeMessageRouting {
+        HomeMessageRouting(store: homeStore, actions: groupActions,
+                           chief: { [weak self] in
+            guard let self, let chief = TopHomePageView.chief(self) else { return nil }
+            return ConversationID(chief)
+        })
     }
 
     /// The Home sidebar's data source (the vendored MessagesLab sidebar reads it):

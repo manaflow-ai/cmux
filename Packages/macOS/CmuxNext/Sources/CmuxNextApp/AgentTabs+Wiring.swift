@@ -113,7 +113,9 @@ extension AgentTabStore {
         tabs.launchImages = AgentPaneLaunchImages(beside: services.environment.sidebarSnapshotFile)
         tabs.unsentDrafts = AgentUnsentDrafts(beside: services.environment.sidebarSnapshotFile)
         // The Chief home's acpmux: the Chief host's subagent tabs attach there.
-        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag))
+        let chief = ChiefHomeAcpmux(home: ChiefHome.resolve(tag: services.environment.tag)) { [weak services] in
+            await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
+        }
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         tabs.localSessionHost = chief.localRouter(tabs.host)
         // This Mac's stable install id (the Cloud device id): only this host attaches to its acpmux.

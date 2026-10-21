@@ -67,7 +67,11 @@ echo "==> free disk ${free_gb} GB"
 (( free_gb >= 80 )) || { echo "nightly-cas-identity.sh: needs 80 GB free (seven Release DerivedData trees and four caches); ${free_gb} GB free" >&2; exit 1; }
 
 for c in "$base" "$head"; do
-  git cat-file -e "$c^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$c" || { echo "nightly-cas-identity.sh: cannot fetch $c" >&2; exit 1; }
+  # A cmux-ci step checkout may have no origin remote; a commit on a pushed side
+  # branch is then fetched from the public repository by its SHA.
+  git cat-file -e "$c^{commit}" 2>/dev/null || git fetch --quiet --no-tags origin "$c" 2>/dev/null \
+    || git fetch --quiet --no-tags https://github.com/manaflow-ai/cmux.git "$c" \
+    || { echo "nightly-cas-identity.sh: cannot fetch $c" >&2; exit 1; }
 done
 git worktree add --quiet --detach "$src" "$head"
 

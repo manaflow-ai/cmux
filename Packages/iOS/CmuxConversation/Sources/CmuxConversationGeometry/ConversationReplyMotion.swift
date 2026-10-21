@@ -6,6 +6,7 @@ import Foundation
 /// `CKUIBehavior` for its thresholds, and the inline-reply layout dynamics of
 /// `CKTranscriptCompositionalLayout` for the bubble's trip into the thread
 /// and back.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationReplyMotion {
     // MARK: Swipe to reply
 

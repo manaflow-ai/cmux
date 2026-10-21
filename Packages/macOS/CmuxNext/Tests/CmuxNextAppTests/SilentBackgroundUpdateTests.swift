@@ -27,7 +27,7 @@ import Testing
 
     @Test func aBackgroundCheckDownloadAndResultShowNothing() {
         let updater = Self.updater()
-        for phase: UpdateIndicatorPhase in [.checking, .downloading(progress: nil), .downloading(progress: 0.4), .note(.upToDate),
+        for phase: UpdateIndicatorPhase in [.checking, .downloading(.starting), .downloading(UpdateTransfer(stage: .downloading, fraction: 0.4)), .note(.upToDate),
                                             .checking, .note(.checkFailed)] {
             updater.debugIndicatorPhase = phase
             #expect(updater.card == nil, "a background \(phase) showed \(String(describing: updater.card))")
@@ -46,7 +46,7 @@ import Testing
         // Later the scheduled check runs by itself: the person did not ask for this one.
         updater.debugIndicatorPhase = .checking
         #expect(updater.card == nil, "the scheduled check showed \(String(describing: updater.card))")
-        updater.debugIndicatorPhase = .downloading(progress: 0.5)
+        updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
         #expect(updater.card == nil, "the scheduled download showed \(String(describing: updater.card))")
         updater.debugIndicatorPhase = .note(.checkFailed)
         #expect(updater.card == nil, "the scheduled check's failure showed \(String(describing: updater.card))")
@@ -83,7 +83,7 @@ import Testing
         // Automatic downloads on, deferred (Low Data Mode, metered link): no card until it is downloaded.
         updater.debugIndicatorPhase = .available(version: "2.0")
         #expect(updater.card == nil, "a found, not yet downloaded update showed \(String(describing: updater.card))")
-        updater.debugIndicatorPhase = .downloading(progress: 0.5)
+        updater.debugIndicatorPhase = .downloading(UpdateTransfer(stage: .downloading, fraction: 0.5))
         #expect(updater.card == nil)
         updater.debugIndicatorPhase = .ready(version: "2.0")
         #expect(updater.readyCard != nil, "the downloaded update shows no card")

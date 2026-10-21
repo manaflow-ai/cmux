@@ -25,8 +25,8 @@ use events::stream_events;
 use open::{OpenRequest, parse_open};
 #[cfg(test)]
 use open::{is_web_url, parse_open_with};
-use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot};
-pub(super) use run::{action_run_params, insert_run_key, request_with_retry};
+use page::{SCREENSHOT_TIMEOUT, parse_page, save_screenshot, takes_caller};
+pub(super) use run::{action_run_params, insert_run_key, request_with_retry, safe_to_resend};
 
 mod agent_open;
 mod call;
@@ -604,7 +604,7 @@ pub(super) fn connect_command(global: &GlobalArgs) -> Result<UnixStream, Value> 
     // request runs there. `--app-socket` names the app socket itself.
     if flag == "--socket" {
         // An app's refusal is an object with a code (a classic app in
-        // password mode refuses ping before `auth.login`); a daemon's
+        // older password-mode app refuses ping before `auth.login`; a daemon's
         // refusal of the unknown line is a plain string.
         let pong = exchange(&mut stream, "system.ping", json!({}), READ_TIMEOUT);
         let is_app = match &pong {
@@ -962,7 +962,7 @@ fn with_caller(method: &str, mut params: Value) -> (Value, bool) {
         object.remove("caller");
         return (params, false);
     }
-    if !CALLER_METHODS.contains(&method) {
+    if !takes_caller(method) {
         return (params, false);
     }
     let Some(caller) = caller_from(|key| std::env::var(key).ok()) else { return (params, false) };

@@ -14,6 +14,10 @@ public struct ControlActionRequest: Sendable, Hashable {
     public var callerApp: String?
     /// `action.run` `focus: true`: change this client's view anyway.
     public var focus: Bool
+    /// `action.run` `background: true`: a tab the run opens stays unselected in
+    /// its pane, so the pane keeps showing what the person chose
+    /// (plans/cmux-next/agent-browser-passkey-DESIGN.md 3.1).
+    public var background = false
     /// The router aimed this run at the column right of its agent caller's
     /// chat (`caller.agent_session`, beside_caller in ControlCaller).
     /// `caller.agent_session`: the agent that sent the run (ControlCaller).

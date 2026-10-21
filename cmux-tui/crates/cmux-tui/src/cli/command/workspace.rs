@@ -1,6 +1,7 @@
 //! `workspace create`: the new workspace's first terminal may start in a
 //! folder (`--cwd`) and run a command (`--shell <script>` or exact argv after
-//! `--`), as classic `cmux new-workspace --cwd --command` did.
+//! `--`), as classic `cmux new-workspace --cwd --command` did. It opens in
+//! the background unless `--focus` is given.
 
 use super::*;
 
@@ -10,9 +11,12 @@ pub(super) fn workspace_create(
     argv: Option<Vec<String>>,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
-    // Creating a workspace never moves focus (socket focus policy); agents
-    // still pass `--no-focus`, so it is accepted and does nothing.
+    // Creating a workspace does not move focus (socket focus policy) unless
+    // `--focus` asks; agents still pass `--no-focus`, which is the default.
     let _ = flags.boolean("no-focus");
+    if flags.boolean("focus") {
+        params.insert("focus".into(), Value::Bool(true));
+    }
     if let Some(name) = flags.take("name") {
         params.insert("name".into(), Value::String(name));
     }

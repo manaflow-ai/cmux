@@ -69,6 +69,9 @@ public enum BrowserTabIntent {
     /// `new Notification(...)` with notifications allowed). The host shows
     /// a banner and runs `notification.click` when it is clicked.
     case webNotification(BrowserWebNotification)
+    /// The page asked for protected media (a Widevine key system) that this engine cannot serve
+    /// (``BrowserProtectedMedia``). The host may reopen the tab in WebKit.
+    case protectedMediaUnavailable(BrowserProtectedMedia)
     /// The page's popup window asked for a new size or position
     /// (`chrome.windows.update` with bounds). A popup panel follows; a tab
     /// ignores it.

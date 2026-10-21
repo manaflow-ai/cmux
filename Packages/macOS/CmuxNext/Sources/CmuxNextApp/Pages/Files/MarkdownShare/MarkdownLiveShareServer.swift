@@ -89,10 +89,10 @@ final class MarkdownLiveShareServer {
             let listener: NWListener
             do { listener = try NWListener(using: parameters) } catch { throw Failure.listenerFailed("\(error)") }
             listener.stateUpdateHandler = { [weak self] state in
-                MainActor.assumeIsolated { self?.listenerChanged(state) }
+                MainActor.assumeIsolated { self?.listenerChanged(state) } // main-proof: listener.start(queue: .main) below
             }
             listener.newConnectionHandler = { [weak self] connection in
-                MainActor.assumeIsolated { self?.accept(connection) }
+                MainActor.assumeIsolated { self?.accept(connection) } // main-proof: listener.start(queue: .main) below
             }
             self.listener = listener
             listener.start(queue: .main)
@@ -127,7 +127,7 @@ final class MarkdownLiveShareServer {
         connections[id] = connection
         connection.stateUpdateHandler = { [weak self] state in
             switch state {
-            case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) }
+            case .failed, .cancelled: MainActor.assumeIsolated { self?.forget(id) } // main-proof: connection.start(queue: .main)
             default: break
             }
         }
@@ -141,8 +141,9 @@ final class MarkdownLiveShareServer {
     }
 
     private func receive(_ connection: NWConnection, head: Data) {
+        // Every connection starts on queue .main (accept), so Network calls this on main.
         connection.receive(minimumIncompleteLength: 1, maximumLength: Self.headLimit) { [weak self] data, _, complete, error in
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { // main-proof: connection.start(queue: .main) in accept
                 guard let self else { return }
                 var head = head
                 if let data { head.append(data) }
@@ -168,10 +169,13 @@ final class MarkdownLiveShareServer {
         switch route {
         case .page(let token):
             guard let share = shares[token] else { break }
-            let text = (try? String(contentsOf: share.file, encoding: .utf8)) ?? ""
             let events = "/md/\(token)/\(share.name.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? token)/events"
-            let page = renderer.document(text, title: share.name, eventsPath: events)
-            return send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            Task { [weak self, file = share.file, name = share.name] in // one off-main read per page request
+                let text = await Task.detached { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }.value
+                guard let page = self?.renderer.document(text, title: name, eventsPath: events) else { return connection.cancel() }
+                self?.send(Self.response(200, type: "text/html; charset=utf-8", body: Data(page.utf8)), on: connection, close: true)
+            }
+            return
         case .events(let token):
             guard shares[token] != nil else { break }
             shares[token]?.streams[ObjectIdentifier(connection)] = connection

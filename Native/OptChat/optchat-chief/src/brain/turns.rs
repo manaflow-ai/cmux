@@ -53,7 +53,17 @@ pub fn stuck_notice(status: &optchat_host::Status) -> Option<String> {
 impl Brain {
     /// Starts a turn worker when idle with something queued.
     pub(super) fn maybe_start_turn(&mut self) {
+        // An update asked for a handoff: no new turn starts here; the next
+        // host takes the queue.
+        if self.handoff_if_idle() {
+            return;
+        }
         if self.phase != Phase::Idle || !self.queue.iter().any(Queued::wakes) || !self.ready() {
+            return;
+        }
+        // An adopted turn session still runs (an update relaunch): it ends
+        // first, then its resume runs.
+        if self.orphan_wait.is_some() {
             return;
         }
         // A turn an upstream error cut waits out its backoff first; a new
@@ -410,39 +420,30 @@ impl Brain {
         }
         self.phase = Phase::Running;
         self.stop_wanted = false;
+        self.tool_stopped = false;
+        self.denial_stopped = None;
+        // A user message or a report replaces the `until: event` wakes.
+        self.drop_event_wakes(
+            items
+                .iter()
+                .any(|i| matches!(i.source, Source::Message { .. } | Source::Spawn(_))),
+        );
         let items_sources: Vec<&'static str> =
             items.iter().map(|i| source_name(&i.source)).collect();
-        // Per-turn ambient state is read before choosing the policy. The whole
-        // Home view is untrusted: terminal/browser titles and URLs are just as
-        // attacker-controlled as terminal screen text. Asking whenever Home is
-        // available also covers a later `chief workspace` refresh in this turn.
         let home = self
             .settings
             .home_view
             .as_ref()
             .and_then(crate::home_view::HomeView::read);
-        let ambient_requires_approval = self.settings.home_view.is_some();
-        // The strictest origin wins. Paired-device work asks unless the owner
-        // explicitly opted into auto-approval; another participant and
-        // ambient Home text always ask.
-        self.turn_remote = std::mem::take(&mut self.remote_taint)
-            || items.iter().any(|i| {
-                matches!(
-                    i.source,
-                    Source::Message {
-                        remote: Some(_),
-                        ..
-                    } | Source::Resume { remote: true, .. }
-                )
-            });
-        let participant_requires_approval = items.iter().any(Queued::requires_approval);
-        self.turn_ask = participant_requires_approval
-            || ambient_requires_approval
-            || (self.turn_remote && !self.chief.remote_auto_approve);
-        self.clear_turn_approvals();
+        // The Chief never asks (Lawrence, 2026-10-20). The owner's turns, from
+        // this Mac, a paired device or Home, run with the configured policy;
+        // a turn that carries another person's text runs with policy `ask`
+        // and every local effect it asks for is refused at once
+        // (`turn_permission`), with no question to anyone.
+        self.turn_ask = items.iter().any(Queued::requires_approval);
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
-        // The shared rule (cmux_chief::policy::turn_policy, the corpus's
-        // `policy` cases).
         let policy = if self.turn_ask {
             crate::approval::ASK.to_owned()
         } else {
@@ -560,9 +561,19 @@ impl Brain {
             ),
         };
         // The kept session, when this turn has the same session shape and
-        // keeps the frozen view: only what it has not read goes to it.
-        let sig =
-            keep.then(|| keep_sig(&engine, &preset, system_prompt.as_deref(), &view.text, ttl));
+        // keeps the frozen view: only what it has not read goes to it. The
+        // policy is part of the shape: an approve-all session never serves a
+        // turn another person started, and an `ask` one never an owner turn.
+        let sig = keep.then(|| {
+            keep_sig(
+                &engine,
+                &preset,
+                system_prompt.as_deref(),
+                &view.text,
+                ttl,
+                &policy,
+            )
+        });
         let kept = self.kept.take();
         let stale = self
             .state
@@ -797,7 +808,7 @@ impl Brain {
         // its turn is never passed by later ones).
         // Messages never set the interrupt now; only chief.stop does, and a
         // boundary must not clear it.
-        if !self.owner_stopped {
+        if !self.owner_stopped && !self.tool_stopped && self.denial_stopped.is_none() {
             self.interrupt.clear();
         }
         let side = self.turn_side();
@@ -872,17 +883,6 @@ impl Brain {
         // in between tool calls when the session steers, else it waits and
         // the next turn starts the moment this one ends. Native: the engine
         // delivers it after the next tool results. Only chief.stop stops.
-        let side = self.turn_side();
-        let human = self
-            .queue
-            .iter()
-            .filter(|q| q.conversation == side)
-            .any(|q| matches!(q.source, Source::Message { .. }));
-        if human {
-            // A pending approval holds the tool call: a newer message denies
-            // it, so the turn reaches its next tool boundary and reads it.
-            self.deny_pending("a newer message");
-        }
         if matches!(self.settings.engine, Engine::Acpmux) {
             self.try_steer();
         }
@@ -1166,6 +1166,14 @@ impl Brain {
         // A turn that failed after it said something posts both: its last
         // words alone (often "Let me check.") would read as the answer.
         let owner_stopped = std::mem::take(&mut self.owner_stopped);
+        // The Chief ended the turn itself (`stop`, `sleep`): everything it
+        // meant to say went by send, reply or react, so its last text is not
+        // posted and the cancel is no failure; unlike an owner stop, the
+        // turn still closes its messages.
+        // A turn stopped for asking again for what it was denied ends like
+        // a Chief stop, but says so in one line.
+        let denial_stopped = self.denial_stopped.take();
+        let tool_stopped = std::mem::take(&mut self.tool_stopped) || denial_stopped.is_some();
         // A turn the owner stopped posts nothing, even one that ended
         // normally before it saw the interrupt (the stop was accepted).
         let quiet = superseded || owner_stopped;
@@ -1179,7 +1187,9 @@ impl Brain {
         // before the note but still open).
         let steered_waits = self.queue.iter().any(|q| q.logged);
         let failure_note = match &outcome.error {
-            Some(error) if !(quiet || outcome.orphan.is_some() || steered_waits) => {
+            Some(error)
+                if !(quiet || tool_stopped || outcome.orphan.is_some() || steered_waits) =>
+            {
                 Some(failure_note(error))
             }
             _ => None,
@@ -1187,10 +1197,15 @@ impl Brain {
         if owner_stopped {
             (self.log)(&format!("turn {key} stopped by the owner: nothing posted"));
         }
+        if tool_stopped {
+            (self.log)(&format!(
+                "turn {key} ended by the Chief's stop: nothing more posted"
+            ));
+        }
         let text = ended_turn_text(
             outcome.reply,
             outcome.error,
-            quiet,
+            quiet || tool_stopped,
             outcome.refused,
             &failed,
         );
@@ -1206,6 +1221,15 @@ impl Brain {
         } else {
             text
         };
+        let text = match &denial_stopped {
+            Some(what) if !quiet => {
+                (self.log)(&format!("turn {key} stopped: it asked again for {what}"));
+                format!(
+                    "I stopped: I kept trying to {what}, and a turn another person started may not do that."
+                )
+            }
+            _ => text,
+        };
         if let Some(note) = &failure_note
             && let Err(e) = self.chat.append(Kind::Note, note)
         {
@@ -1213,12 +1237,10 @@ impl Brain {
         }
         if superseded {
             (self.log)(&format!("turn {key} stopped for a newer message"));
-            // The turn that answers both keeps this one's remote origin.
-            self.remote_taint |= self.turn_remote;
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.clear_turn_approvals();
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
         self.interrupt.set_gate(false);
         if let Some(orphan) = outcome.orphan {
             self.state.orphans.push(orphan);
@@ -1416,6 +1438,8 @@ impl Brain {
     fn is_cut(&self, key: &str, outcome: &TurnOutcome) -> Option<Cut> {
         if self.stop_wanted
             || self.owner_stopped
+            || self.tool_stopped
+            || self.denial_stopped.is_some()
             || self.cuts >= MAX_CUTS
             || self.state.turn.as_ref().is_none_or(|t| t.key != key)
         {
@@ -1527,9 +1551,10 @@ impl Brain {
                 logged: false,
             });
         }
-        self.turn_remote = false;
         self.turn_ask = false;
-        self.clear_turn_approvals();
+        self.turn_denied.clear();
+        self.repeat_denials = 0;
+        self.denial_stopped = None;
         self.interrupt.set_gate(false);
         self.stop_wanted = false;
         self.save_with(extra);
@@ -1777,6 +1802,7 @@ fn keep_sig(
     system: Option<&str>,
     view: &str,
     ttl: CacheTtl,
+    policy: &str,
 ) -> u64 {
     use std::hash::{Hash, Hasher};
     let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -1788,6 +1814,7 @@ fn keep_sig(
         system,
         view,
         ttl.as_str(),
+        policy,
     )
         .hash(&mut h);
     h.finish()

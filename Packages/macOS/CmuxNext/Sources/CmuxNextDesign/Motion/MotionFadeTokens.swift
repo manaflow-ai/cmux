@@ -20,6 +20,10 @@ public nonisolated enum MotionFade: String, Sendable, CaseIterable {
     case fadeOut
     /// Content swap in place (hover card image, reduced-motion replacement).
     case crossfade
+    /// A wash over a whole window easing in and out: the inactive-window
+    /// tint that darkens the window under the palette (Leo 2026-10-20: shown
+    /// in one frame it was too jarring). Reduce Motion caps it at `crossfade`.
+    case scrim
     /// Drag lift shadow.
     case lift
     /// A room, workspace or terminal theme switch recoloring in place.
@@ -54,6 +58,8 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
     case pulse
     /// Pane attention flash (two blinks).
     case flash
+    /// Unmeasured progress: a segment crosses its track once.
+    case sweep
 
     /// Seconds per period, never under `minimumPeriod` (a Debug Settings
     /// override included).
@@ -72,6 +78,7 @@ public nonisolated enum MotionLoop: String, Sendable, CaseIterable {
         case .spinner: 0.1
         case .pulse: Self.shortestFlashCycle
         case .flash: Self.shortestFlashCycle * 2
+        case .sweep: Self.shortestFlashCycle
         }
     }
 }

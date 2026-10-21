@@ -507,7 +507,7 @@ impl Hub {
             return Err(refused(
                 "subsessions.depth_limit",
                 format!(
-                    "start_session refused: depth limit reached. This session is at depth {} and may start sessions only down to depth {} (source: {}). Do the work in this session instead, or ask for a deeper limit: the user can raise it (Settings > Agents > Sub-sessions > Deepest Nesting, or this session's limits in its sidebar), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                    "start_session refused: depth limit reached. This session is at depth {} and may start sessions only down to depth {} (source: {}). Do the work in this session instead, or ask for a deeper limit: the user can raise it (Settings > Agents > Sub-sessions > Deepest Nesting), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                     depth - 1,
                     limits.max_depth,
                     limits.max_depth_source.as_str()
@@ -521,7 +521,7 @@ impl Hub {
                 return Err(refused(
                     "subsessions.width_limit",
                     format!(
-                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session, or this session's limits in its sidebar), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
+                        "start_session refused: width limit reached. This session has {used} open sub-sessions and may have at most {} open at once (source: {}). Close finished ones with stop_session (close: true) to free a slot, or ask for more: the user can raise it (Settings > Agents > Sub-sessions > Open Sub-sessions per Session), and your parent session can raise it within its own limit with set_session_limits; ask it with send_message.",
                         limits.max_children,
                         limits.max_children_source.as_str()
                     ),
@@ -612,6 +612,8 @@ impl Hub {
         {
             let mut m = probe.meta.lock().unwrap_or_else(|e| e.into_inner());
             m.permission_rules = pm.permission_rules.clone();
+            // Titled by its name, else by its prompt and then a generated title (`titles.rs`).
+            super::titles::title_subsession(&mut m, req.name.as_deref());
             for row in &pm.tools.off {
                 if !m.tools.off.contains(row) {
                     m.tools.off.push(row.clone());

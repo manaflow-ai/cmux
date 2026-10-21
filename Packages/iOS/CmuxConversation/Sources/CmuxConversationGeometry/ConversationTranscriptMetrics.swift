@@ -3,6 +3,7 @@ import CoreGraphics
 /// Transcript sizing rules read from ChatKit on iOS 26.5 and 27.0 (iPhone 17
 /// Pro and Pro Max simulators, Large text), shared by every surface that
 /// lays out bubbles.
+// lint:allow namespace-type -- vendored CmuxConversation snapshot
 public enum ConversationTranscriptMetrics {
     /// What ChatKit keeps free beside the widest balloon: `CKUIBehavior
     /// balloonMaxWidthForTranscriptWidth:` takes the transcript width less the

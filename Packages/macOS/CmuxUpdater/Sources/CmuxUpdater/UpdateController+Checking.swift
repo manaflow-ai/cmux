@@ -196,7 +196,7 @@ extension UpdateController {
         readyCheckTask = nil
     }
 
-    private func describeLifecycleState(_ state: UpdateState) -> String {
+    func describeLifecycleState(_ state: UpdateState) -> String {
         switch state {
         case .idle: return "idle"
         case .permissionRequest: return "permissionRequest"

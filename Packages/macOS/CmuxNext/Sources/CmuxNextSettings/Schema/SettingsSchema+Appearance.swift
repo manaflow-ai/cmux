@@ -84,18 +84,29 @@ nonisolated enum AppearanceSettingsSchema {
                 summary: SettingsText.keyed("settings.appearance.background.summary", "Image behind your terminals"),
                 kind: .choice([SettingChoice("none", SettingsText.keyed("settings.choice.none", "None")),
                                SettingChoice(BackdropSelectionSetting.dailyID,
-                                             SettingsText.keyed("settings.choice.shuffleDaily", "Shuffle Daily"))] + backgroundChoices),
+                                             SettingsText.keyed("settings.choice.shufflePaintings", "Shuffle Paintings"))] + backgroundChoices),
                 default: .string(BackdropSelectionSetting.defaultSelection?.id ?? "none"),
-                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré"]
+                keywords: ["painting", "art", "wallpaper", "backdrop", "desktop", "attribution", "museum", "dark", "doré", "shuffle", "folder"]
+            ),
+            SettingDescriptor(
+                BackdropSelectionSetting.rotationPath, section: .appearance, group: window,
+                title: SettingsText.keyed("settings.appearance.backgroundRotation", "Change Picture"),
+                help: SettingsText.keyed("settings.appearance.backgroundRotation.help", "How often a shuffled background turns to its next picture."),
+                summary: SettingsText.keyed("settings.appearance.backgroundRotation.summary", "How often Shuffle changes the picture"),
+                kind: .choice([SettingChoice("15m", SettingsText.keyed("settings.choice.every15Minutes", "Every 15 Minutes")),
+                               SettingChoice("hourly", SettingsText.keyed("settings.choice.everyHour", "Every Hour")),
+                               SettingChoice("daily", SettingsText.keyed("settings.choice.everyDay", "Every Day"))]),
+                default: .string(BackdropRotation.defaultRotation.rawValue),
+                keywords: ["shuffle", "rotate", "rotating", "wallpaper", "interval", "change picture", "background"]
             ),
             PaneBackgroundsSetting.descriptor(group: window),
             SettingDescriptor(
                 ExperimentalAppearanceSetting().configPath, section: .appearance, group: window,
                 title: SettingsText.keyed("settings.appearance.experimentalControls", "Experimental Appearance Controls"),
                 help: SettingsText.keyed("settings.appearance.experimentalControls.help",
-                                        "Show the wallpaper grid and live appearance tuner while they are being integrated."),
+                                        "Applies Hue and Saturation to the window's tint. Off, they have no effect."),
                 kind: .toggle, default: .bool(false),
-                keywords: ["experimental", "wallpaper", "tuner", "transparency", "hue", "saturation", "labs"]
+                keywords: ["experimental", "tuning", "tint", "transparency", "hue", "saturation", "labs"]
             ),
             SettingDescriptor(
                 WindowBackgroundSetting.opacityPath, section: .appearance, group: window,

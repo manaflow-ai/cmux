@@ -188,6 +188,7 @@ public final class Commands {
     public static final CommandMetadata PAGE_CREDENTIAL = new CommandMetadata("page-credential", Authority.LOCAL_ADMIN, 12, "page-credential-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PAIRING_RESPONSE = new CommandMetadata("pairing-response", Authority.LOCAL_ADMIN, 7, null, StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PANE_NEIGHBOR = new CommandMetadata("pane-neighbor", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata PARK_TABS = new CommandMetadata("park-tabs", Authority.CONTROL, 12, "tab-park-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PASTE_IMAGE = new CommandMetadata("paste-image", Authority.CONTROL, 12, "terminal-image-paste-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PIN_WORKSPACE = new CommandMetadata("pin-workspace", Authority.CONTROL, 12, "profiles-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata PING = new CommandMetadata("ping", Authority.CONTROL, 6, null, StreamKind.NONE, Map.of(), Map.of());
@@ -265,6 +266,7 @@ public final class Commands {
     public static final CommandMetadata TERMINAL_HISTORY = new CommandMetadata("terminal-history", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_READ_RANGE = new CommandMetadata("terminal-read-range", Authority.CONTROL, 12, "terminal-snapshot-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata TERMINAL_RESOURCES = new CommandMetadata("terminal-resources", Authority.CONTROL, 12, "terminal-resources-v1", StreamKind.NONE, Map.of(), Map.of());
+    public static final CommandMetadata TERMINAL_RESUME_COMMAND = new CommandMetadata("terminal-resume-command", Authority.CONTROL, 12, "resume-command", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNDO_LAYOUT = new CommandMetadata("undo-layout", Authority.CONTROL, 9, "layout-undo-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_SCREEN_GROUP = new CommandMetadata("ungroup-screen-group", Authority.CONTROL, 12, "screen-groups-v1", StreamKind.NONE, Map.of(), Map.of());
     public static final CommandMetadata UNGROUP_TAB_GROUP = new CommandMetadata("ungroup-tab-group", Authority.CONTROL, 12, "tab-groups-v1", StreamKind.NONE, Map.of(), Map.of());
@@ -471,6 +473,7 @@ public final class Commands {
         values.put("page-credential", PAGE_CREDENTIAL);
         values.put("pairing-response", PAIRING_RESPONSE);
         values.put("pane-neighbor", PANE_NEIGHBOR);
+        values.put("park-tabs", PARK_TABS);
         values.put("paste-image", PASTE_IMAGE);
         values.put("pin-workspace", PIN_WORKSPACE);
         values.put("ping", PING);
@@ -548,6 +551,7 @@ public final class Commands {
         values.put("terminal-history", TERMINAL_HISTORY);
         values.put("terminal-read-range", TERMINAL_READ_RANGE);
         values.put("terminal-resources", TERMINAL_RESOURCES);
+        values.put("terminal-resume-command", TERMINAL_RESUME_COMMAND);
         values.put("undo-layout", UNDO_LAYOUT);
         values.put("ungroup-screen-group", UNGROUP_SCREEN_GROUP);
         values.put("ungroup-tab-group", UNGROUP_TAB_GROUP);

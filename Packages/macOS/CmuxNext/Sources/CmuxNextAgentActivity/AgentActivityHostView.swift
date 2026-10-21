@@ -31,6 +31,7 @@ public final class AgentActivityHostView: NSView {
         configuration.userContentController.addUserScript(
             WKUserScript(source: Self.theme(.app).applyScript, injectionTime: .atDocumentStart,
                          forMainFrameOnly: true))
+        // webview-allow: agent activity view not ported to the page host yet; it stays in WebKit
         let webView = WKWebView(frame: .zero, configuration: configuration)
         self.webView = webView
         super.init(frame: .zero)

@@ -22,8 +22,9 @@ final class WorkspaceHoverCardController: HoverCardSource {
     /// Lawrence 2026-10-19: "We need it to instantly disappear with fade opacity when I mouse
     /// out." The card touches its row, so it needs no grace for the pointer to travel to it:
     /// leaving the row and the card fades it out at once, as a tab card does. A gap or header
-    /// in the list (`hoverCardBridges`) holds it for the reshow window, so the next row slides
-    /// it over instead of hiding and reshowing it.
+    /// between rows (`hoverCardBridges`) holds it for the reshow window, so the next row slides
+    /// it over instead of hiding and reshowing it. Leo 2026-10-20: the card sits below an empty
+    /// escape slot beside the row (`HoverCardPlacement.besideRow`); moving there dismisses it.
     var leave: HoverCardLeave { .hides(reshow: HoverCardTiming.reshowWindow) }
     weak var list: SidebarListView?
     /// The app's one coordinator; the App injects it.
@@ -35,6 +36,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
         }
     }
     private var body: WorkspaceHoverCardView?
+    /// The group headers' summary card body, reused group to group.
+    private var groupBody: GroupHoverCardView?
     private var bodyID: HoverTargetID?
     /// Ticks the shown card's running times once a second (one-shot, re-armed by each tick);
     /// idle while no live card shows, so a quiet sidebar wakes nothing.
@@ -57,6 +60,18 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     static func targetID(_ id: WorkspaceID) -> HoverTargetID { HoverTargetID("ws:\(id.rawValue)") }
 
+    static func targetID(_ id: GroupID) -> HoverTargetID { HoverTargetID("grp:\(id.rawValue)") }
+
+    private func groupID(_ id: HoverTargetID) -> GroupID? {
+        id.rawValue.hasPrefix("grp:") ? GroupID(String(id.rawValue.dropFirst(4))) : nil
+    }
+
+    /// This list's group whose summary card shows now.
+    var shownGroupID: GroupID? {
+        guard let id = coordinator.machine.shownTarget?.id, let group = groupID(id), list?.groups[group] != nil else { return nil }
+        return group
+    }
+
     private func workspaceID(_ id: HoverTargetID) -> WorkspaceID? {
         id.rawValue.hasPrefix("ws:") ? WorkspaceID(String(id.rawValue.dropFirst(3))) : nil
     }
@@ -67,32 +82,43 @@ final class WorkspaceHoverCardController: HoverCardSource {
         return ws
     }
 
-    var isVisible: Bool { shownID != nil }
+    var isVisible: Bool { shownID != nil || shownGroupID != nil }
 
     // MARK: HoverCardSource
 
     var hoverCardWindow: NSWindow? { list?.window }
 
     func hoverCardHit(at screenPoint: CGPoint) -> HoverCardHit? {
-        guard let list, let window = list.window,
-              let id = list.hoverCardWorkspace(at: list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)),
-              let anchor = list.hoverCardAnchor(for: id)
-        else { return nil }
+        guard let list, let window = list.window else { return nil }
+        let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        if let group = list.hoverCardGroup(at: point), let anchor = list.hoverCardAnchor(forGroup: group) {
+            // A group waits its own, longer delay: the person rests on it "for a while".
+            return HoverCardHit(target: HoverTarget(id: Self.targetID(group), window: window.windowNumber,
+                                                    delay: DesignSettings.shared.groupHoverCard.delay, leave: leave),
+                                anchor: anchor)
+        }
+        guard let id = list.hoverCardWorkspace(at: point), let anchor = list.hoverCardAnchor(for: id) else { return nil }
         return HoverCardHit(target: HoverTarget(id: Self.targetID(id), window: window.windowNumber, delay: delay, leave: leave),
                             anchor: anchor)
     }
 
-    /// A point in the visible list on no row (a header, a gap between rows).
+    /// A point in the visible list on no row, between its first row and its last (a header, a
+    /// gap between rows). The empty list below the last row bridges to nothing: the card goes
+    /// there at once, as anywhere else off the row and the card (Leo 2026-10-20).
     func hoverCardBridges(at screenPoint: CGPoint) -> Bool {
-        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor else { return false }
-        return list.visibleRect.contains(list.convert(window.convertPoint(fromScreen: screenPoint), from: nil))
+        guard let list, let window = list.window, !list.isHiddenOrHasHiddenAncestor,
+              let first = list.displayed.rows.first, let last = list.displayed.rows.last else { return false }
+        let point = list.convert(window.convertPoint(fromScreen: screenPoint), from: nil)
+        return list.visibleRect.contains(point) && point.y >= first.y && point.y < last.maxY
     }
 
     func hoverCardAnchor(for id: HoverTargetID) -> CGRect? {
-        workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
+        if let group = groupID(id) { return list?.hoverCardAnchor(forGroup: group) }
+        return workspaceID(id).flatMap { list?.hoverCardAnchor(for: $0) }
     }
 
     func hoverCardBody(for id: HoverTargetID) -> HoverCardBody? {
+        if let group = groupID(id) { return groupCardBody(for: group, id: id) }
         guard let list, let ws = workspaceID(id), let workspace = list.workspaces[ws] else { return nil }
         let body = body ?? WorkspaceHoverCardView()
         self.body = body
@@ -106,7 +132,34 @@ final class WorkspaceHoverCardController: HoverCardSource {
         bodyID = id
         body.setCustom(customContent(for: ws, id: id, card: content.cardFacts))
         updateTicker()
+        return HoverCardBody(view: body, placement: .besideRow, themeAnchor: list) { [weak body] in body?.applyColors() }
+    }
+
+    /// A group header's summary card (`GroupHoverCardSummary`): no sampling, no ticker.
+    private func groupCardBody(for group: GroupID, id: HoverTargetID) -> HoverCardBody? {
+        guard let list, let item = list.groups[group] else { return nil }
+        let body = groupBody ?? GroupHoverCardView()
+        groupBody = body
+        body.configure(Self.groupSummary(item, options: DesignSettings.shared.groupHoverCard, now: Date()))
+        bodyID = id
         return HoverCardBody(view: body, placement: .beside, themeAnchor: list) { [weak body] in body?.applyColors() }
+    }
+
+    /// What `group`'s card says: its workspaces as the shared group summary counts them.
+    static func groupSummary(_ group: SidebarGroup, options: GroupHoverCardOptions, now: Date) -> GroupHoverCardSummary {
+        let members = group.workspaces.map { ws in
+            GroupHoverCardMember(title: ws.title, activity: GroupHoverCardMember.Activity(ws.agentWorking && ws.activity == .idle ? .working : ws.activity),
+                                 unread: Self.unreadCount(ws.unread), lastActivity: ws.lastActivity, branch: ws.branch, ports: ws.ports)
+        }
+        return GroupHoverCardSummary.make(title: SidebarGroup.named(group.name), kind: .workspaceGroup, members: members, options: options, now: now)
+    }
+
+    private static func unreadCount(_ unread: UnreadState) -> Int {
+        switch unread {
+        case .none: 0
+        case .dot: 1
+        case let .count(n): max(0, n)
+        }
     }
 
     func hoverCardActivated(_ id: HoverTargetID) {
@@ -148,7 +201,8 @@ final class WorkspaceHoverCardController: HoverCardSource {
 
     /// Arms the next one-second tick while a card with a running time shows, stops it otherwise.
     private func updateTicker() {
-        guard bodyID != nil, let body, let delay = body.nextTickDelay else {
+        // A group's summary card has no running time: only a workspace card ticks.
+        guard let id = bodyID, workspaceID(id) != nil, let body, let delay = body.nextTickDelay else {
             ticker.cancel()
             return
         }
@@ -166,6 +220,7 @@ final class WorkspaceHoverCardController: HoverCardSource {
     func tokensChanged() {
         coordinator.dismiss(.action)
         body = nil
+        groupBody = nil
         bodyID = nil
     }
 }

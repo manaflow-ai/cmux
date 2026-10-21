@@ -9,6 +9,7 @@ import {
   hexclaveTombstones,
   hexclaveUsers,
   hexclaveWebhookEvents,
+  stackIdentitySnapshots,
   type HexclaveWebhookOutcome,
 } from "../../../db/schema";
 import type {
@@ -105,8 +106,10 @@ async function lock(tx: Tx, key: string): Promise<void> {
   await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`);
 }
 
-const userLockKey = (userId: string) => `hexclave:user:${userId}`;
-const teamLockKey = (teamId: string) => `hexclave:team:${teamId}`;
+/** Advisory-lock identity shared with caches derived from this user mirror. */
+export const hexclaveUserLockKey = (userId: string) => `hexclave:user:${userId}`;
+/** Advisory-lock identity shared with caches derived from this team mirror. */
+export const hexclaveTeamLockKey = (teamId: string) => `hexclave:team:${teamId}`;
 
 export function userRow(user: HexclaveServerUser, now: Date): typeof hexclaveUsers.$inferInsert {
   return {
@@ -267,10 +270,10 @@ async function boundLockWait(tx: Tx): Promise<void> {
 }
 
 async function lockUserAndTeams(tx: Tx, userId: string, sourceTeamIds: readonly string[]): Promise<string[]> {
-  await lock(tx, userLockKey(userId));
+  await lock(tx, hexclaveUserLockKey(userId));
   const previousTeamIds = await mirrorTeamIdsForUser(tx, userId);
   for (const teamId of [...new Set([...previousTeamIds, ...sourceTeamIds])].sort()) {
-    await lock(tx, teamLockKey(teamId));
+    await lock(tx, hexclaveTeamLockKey(teamId));
   }
   return previousTeamIds;
 }
@@ -333,7 +336,7 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
   return {
     reconcileUser: (userId, read, options = {}) => db().transaction(async (tx) => {
       await boundLockWait(tx);
-      await lock(tx, userLockKey(userId));
+      await lock(tx, hexclaveUserLockKey(userId));
       const fetched = await read();
       if (fetched.kind === "present" && fetched.user.id !== userId) throw new Error("Hexclave returned a different user");
       // A tombstoned user stays gone: a "present" read after a confirmed deletion is stale.
@@ -371,7 +374,7 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
 
     reconcileTeam: (teamId, read) => db().transaction(async (tx) => {
       await boundLockWait(tx);
-      await lock(tx, teamLockKey(teamId));
+      await lock(tx, hexclaveTeamLockKey(teamId));
       const team = await read();
       if (team && team.id !== teamId) throw new Error("Hexclave returned a different team");
       const members = await tx
@@ -383,6 +386,13 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
       if (!team) {
         await tx.insert(hexclaveTombstones).values({ entityType: "team", entityId: teamId, deletedAt: at }).onConflictDoNothing();
         await tx.delete(hexclaveTeams).where(eq(hexclaveTeams.id, teamId));
+        // Snapshot JSON is the complete authorization cache, including users
+        // a missed earlier webhook never placed in the mirror membership table.
+        // Delete by team identity in this transaction, not only by memberIds.
+        await tx.delete(stackIdentitySnapshots).where(sql`exists (
+          select 1 from jsonb_array_elements(coalesce(${stackIdentitySnapshots.teams}, '[]'::jsonb)) as snapshot_team
+          where snapshot_team->>'id' = ${teamId}
+        )`);
         return { team: null, memberIds };
       }
       if (!await writePresentTeam(tx, team, at)) return { team: null, memberIds };
@@ -391,7 +401,7 @@ export function createDrizzleHexclaveMirrorStore(db: () => Db, now: () => Date =
 
     applySnapshotTeam: (team, snapshotStartedAt) => db().transaction(async (tx) => {
       await boundLockWait(tx);
-      await lock(tx, teamLockKey(team.id));
+      await lock(tx, hexclaveTeamLockKey(team.id));
       if (await writtenSince(tx, "team", team.id, snapshotStartedAt)) return false;
       return writePresentTeam(tx, team, now());
     }),
