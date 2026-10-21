@@ -96,7 +96,7 @@ nonisolated extension ActionSurfaceCatalog {
         "notifications.dismissal.timeout", "notifications.dismissal.never", "palette.newAgentChat", "palette.quickAgentChat",
         "palette.launchClaudeTeams", "palette.launchCodexTeams", "palette.forkAgentConversationRight",
         "palette.forkAgentConversationLeft", "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
-        "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "computerUseStop",
+        "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace", "palette.forkAgentConversationNewWindow", "computerUseStop",
         "newCloudWorkspace", "newCloudMachine", "palette.cloud.fork", "palette.cloud.snapshot",
         "palette.cloud.restore", "palette.cloud.promoteTemplate", "palette.cloud.status", "palette.cloud.ports",
         "palette.cloud.handoff", "cloudMove", "cloudBringBack", "cloudSSH", "cloudExec", "cloudFilesList", "cloudFileRead", "cloudFileWrite",
@@ -131,6 +131,7 @@ nonisolated extension ActionSurfaceCatalog {
         "bookmark.open", "bookmark.openInNewTab", "bookmark.openInBackgroundTab", "bookmark.openAll", "bookmark.edit",
         "bookmark.move", "bookmark.remove", "bookmark.import", "bookmark.importFromBrowser", "bookmark.export",
         "bookmark.setIcon", "bookmark.clearIcon", "machine.setIcon", "machine.clearIcon",
+        "agentChat.toggleNotificationMute",
     ]
 
     /// Why the CLI has no verb for an action (`cmux action run <id>` still runs it).
@@ -155,7 +156,6 @@ nonisolated extension ActionSurfaceCatalog {
     static let cliExemptionsByReason: [SurfaceExemption: [ActionID]] = [
         .ownerVerb: ownerVerbActions,
         .unimplemented: [
-            "agentChat.toggleNotificationMute",
             "palette.openFindPane",
             "palette.openFilesPane",
         ],

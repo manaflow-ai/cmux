@@ -270,6 +270,7 @@ extension ActionDescriptor {
                           "palette.forkAgentConversationRight", "palette.forkAgentConversationLeft",
                           "palette.forkAgentConversationTop", "palette.forkAgentConversationBottom",
                           "palette.forkAgentConversationNewTab", "palette.forkAgentConversationNewWorkspace",
+                          "palette.forkAgentConversationNewWindow",
                       ]),
         PaletteFamily("sidebarSection", title: familyTitle("palette.family.sidebarSection", "Sidebar Section: Layout…"),
                       symbol: "sidebar.left", members: [
