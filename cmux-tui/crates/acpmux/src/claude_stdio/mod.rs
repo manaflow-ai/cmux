@@ -191,25 +191,40 @@ const LOGGED_SNAPSHOT_ITEMS: usize = 16;
 /// (`_acpmux.workflowProgressItems`); the translated `subagent_progress`
 /// keeps what changed (`workflows.rs`).
 pub fn logged_line(raw: &Value) -> Message {
-    let kind = format!(
+    let line = trimmed_snapshot(raw).unwrap_or_else(|| raw.clone());
+    Message::notification(&logged_kind(raw), line)
+}
+
+/// [`logged_line`] that moves the line into its record instead of copying it
+/// (the agent host logs every streamed line this way).
+pub fn logged_line_owned(raw: Value) -> Message {
+    let kind = logged_kind(&raw);
+    let line = trimmed_snapshot(&raw).unwrap_or(raw);
+    Message::notification(&kind, line)
+}
+
+fn logged_kind(raw: &Value) -> String {
+    format!(
         "claude.{}{}",
         raw.get("type").and_then(Value::as_str).unwrap_or("?"),
         raw.get("subtype").and_then(Value::as_str).map(|s| format!(".{s}")).unwrap_or_default()
-    );
-    let snapshot = raw.get("workflow_progress").and_then(Value::as_array);
-    let line = match (raw.as_object(), snapshot) {
-        (Some(fields), Some(items)) if items.len() > LOGGED_SNAPSHOT_ITEMS => {
-            let mut kept: serde_json::Map<String, Value> = fields
-                .iter()
-                .filter(|(key, _)| *key != "workflow_progress")
-                .map(|(key, value)| (key.clone(), value.clone()))
-                .collect();
-            kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
-            Value::Object(kept)
-        }
-        _ => raw.clone(),
-    };
-    Message::notification(&kind, line)
+    )
+}
+
+/// The line without its workflow snapshot, when the snapshot is too long to log whole.
+fn trimmed_snapshot(raw: &Value) -> Option<Value> {
+    let fields = raw.as_object()?;
+    let items = raw.get("workflow_progress").and_then(Value::as_array)?;
+    if items.len() <= LOGGED_SNAPSHOT_ITEMS {
+        return None;
+    }
+    let mut kept: serde_json::Map<String, Value> = fields
+        .iter()
+        .filter(|(key, _)| *key != "workflow_progress")
+        .map(|(key, value)| (key.clone(), value.clone()))
+        .collect();
+    kept.insert("_acpmux".into(), json!({"workflowProgressItems": items.len()}));
+    Some(Value::Object(kept))
 }
 
 /// The model choices offered in pickers before Claude Code's own list answers.

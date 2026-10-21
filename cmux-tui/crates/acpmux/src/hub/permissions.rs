@@ -321,17 +321,16 @@ impl Hub {
                     .and_then(Value::as_str)
                     .filter(|_| !replayed)
                 {
-                    let mut preview = m.preview.clone().unwrap_or_default();
+                    // In place: the preview was copied whole on every streamed chunk.
+                    let preview = m.preview.get_or_insert_with(String::new);
                     preview.push_str(text);
                     if preview.len() > 2000 {
-                        let cut = preview.len() - 2000;
-                        let mut idx = cut;
+                        let mut idx = preview.len() - 2000;
                         while !preview.is_char_boundary(idx) {
                             idx += 1;
                         }
-                        preview = preview[idx..].to_owned();
+                        preview.drain(..idx);
                     }
-                    m.preview = Some(preview);
                 }
             }
             "tool_call" | "tool_call_update" => {
