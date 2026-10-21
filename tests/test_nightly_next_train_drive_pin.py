@@ -20,6 +20,7 @@ import yaml
 
 ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW = ROOT / ".github/workflows/nightly-next-train.yml"
+DRIVE = ROOT / "scripts/ci/nightly_next_train_drive.py"
 CHECK_STEP = "Check the tip is on feat-cmux-next"
 MINT_STEP = "Mint release App token"
 
@@ -52,8 +53,11 @@ class DrivePinTests(unittest.TestCase):
 
     def test_tip_reaches_scripts_only_through_env(self):
         for step in drive_steps():
-            self.assertNotIn("inputs.tip", str(step.get("run", "")), step.get("name"))
-            self.assertNotIn("inputs.tip", str(step.get("with", "")), step.get("name"))
+            for key in ("run", "with"):
+                text = str(step.get(key, ""))
+                self.assertNotIn("inputs.tip", text, step.get("name"))
+                # Nothing may move the checkout to the tip either.
+                self.assertNotRegex(text, r"git\s+(checkout|switch|worktree|reset)\b[^\n]*TIP", step.get("name"))
 
     def test_tip_check_runs_before_the_token_and_always(self):
         steps = drive_steps()
@@ -61,6 +65,17 @@ class DrivePinTests(unittest.TestCase):
         self.assertLess(check, step_index(steps, MINT_STEP))
         self.assertNotIn("if", steps[check])
         self.assertNotIn("continue-on-error", steps[check])
+
+    @unittest.skipUnless(DRIVE.exists(), "main carries only the dispatch copy of the workflow, not the drive")
+    def test_drive_checks_the_cars_before_any_car_guard_runs(self):
+        # The car guards check out each car; a crafted base (good_build) can
+        # name any commit, so the drive refuses cars off the tip first
+        # (require_on_tip, tests/test_nightly_next_train.py).
+        source = DRIVE.read_text(encoding="utf-8")
+        check = source.find("train.require_on_tip(source, cars, args.tip)")
+        guards = source.find("run_car_guards(cars, guard)")
+        self.assertGreater(check, 0)
+        self.assertLess(check, guards)
 
     def test_tip_check_refuses_commits_off_the_head(self):
         script = drive_steps()[step_index(drive_steps(), CHECK_STEP)]["run"]
