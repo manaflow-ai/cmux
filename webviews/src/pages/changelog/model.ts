@@ -274,11 +274,12 @@ export function mergedView(notes: ReleaseNotes[], language: string): ReleaseView
 }
 
 /** A release day's title, Conductor style (2026-10-20): the curated headline of its newest build
-    that has curated entries. Undefined when none has one: such a day lists its readable
-    changes, or says "Maintenance and fixes" when it has none. */
+    that has curated entries. A digest made from summary lines ("summary-N") is not curated: the
+    pipeline heads it with its first line, a commit subject. Undefined when none has one: such a
+    day lists its readable changes, or says "Maintenance and fixes" when it has none. */
 export function releaseTitle(notes: ReleaseNotes[], language: string): string | undefined {
   for (const n of notes) {
-    if (!n.whatsNew || n.whatsNew.entries.length === 0) continue;
+    if (!n.whatsNew?.entries.some((e) => !e.id.startsWith("summary-"))) continue;
     const title = localized(n.whatsNew.headline, language).trim();
     if (title) return title;
   }
