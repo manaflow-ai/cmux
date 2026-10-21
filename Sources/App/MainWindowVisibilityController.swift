@@ -301,10 +301,7 @@ final class MainWindowVisibilityController {
             return
         }
 
-        // lawmux: the hotkey also maximizes the revealed window.
-        if let revealed = showApplicationWindows(windows: windows, reason: reason) {
-            LawmuxGlobalHotkeyWindowMaximizer.maximize(revealed)
-        }
+        _ = showApplicationWindows(windows: windows, reason: reason)
     }
 
     @discardableResult

@@ -11336,10 +11336,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     func toggleApplicationVisibilityFromGlobalHotkey() {
-        mainWindowVisibilityController.toggleApplicationVisibility(
-            windows: mainWindowsForVisibilityController(),
-            reason: .globalHotkey
-        )
+        // lawmux: return to the app that was frontmost before the hotkey, and
+        // maximize on the cursor's screen. See LawmuxGlobalHotkey.
+        LawmuxGlobalHotkey.shared.toggle {
+            mainWindowVisibilityController.showApplicationWindows(
+                windows: mainWindowsForVisibilityController(),
+                reason: .globalHotkey
+            )
+        }
     }
 
     @discardableResult
