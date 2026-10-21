@@ -31,6 +31,7 @@ struct PageChromiumWindowImageTests {
     @Test func aWindowListsTheChromiumPagesItShows() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 800, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
         let (shown, _) = try await chromiumView()
         shown.frame = NSRect(x: 100, y: 50, width: 300, height: 200)
         window.contentView?.addSubview(shown)
@@ -39,11 +40,27 @@ struct PageChromiumWindowImageTests {
         hidden.isHidden = true
         window.contentView?.addSubview(hidden)
         let (elsewhere, _) = try await chromiumView()
+        // The New Tab spare waits in an alpha-0 parking view far outside the content.
+        let parking = NSView(frame: NSRect(x: 100_000, y: 100_000, width: 800, height: 600))
+        parking.alphaValue = 0
+        window.contentView?.addSubview(parking)
+        let (spare, _) = try await chromiumView()
+        spare.frame = parking.bounds
+        parking.addSubview(spare)
+        // A page holding its paint is alpha 0 itself, even inside the content.
+        let (holding, _) = try await chromiumView()
+        holding.frame = NSRect(x: 0, y: 0, width: 100, height: 100)
+        holding.alphaValue = 0
+        window.contentView?.addSubview(holding)
+        let (offWindow, _) = try await chromiumView()
+        offWindow.frame = NSRect(x: 5_000, y: 0, width: 100, height: 100)
+        window.contentView?.addSubview(offWindow)
 
         let listed = PageRegistry.shownChromiumPages(in: window)
         #expect(listed.map { ObjectIdentifier($0.page) } == [ObjectIdentifier(shown)])
         #expect(listed.first?.rect == NSRect(x: 100, y: 50, width: 300, height: 200))
-        for view in [shown, hidden, elsewhere] { view.close() }
+        for view in [shown, hidden, elsewhere, spare, holding, offWindow] { view.close() }
+        window.close()
     }
 
     @Test func aChromiumPageGivesItsImage() async throws {
