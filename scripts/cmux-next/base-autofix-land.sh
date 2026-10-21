@@ -14,9 +14,9 @@
 # The Mac exports (the action and settings exports) are never made here: a held one waits for the
 # next run's Mac job, and the run fails, so the next run's "since" still covers it. What is built
 # from the action exports (the docs shortcuts, the app-host files) is made again on the tip from the
-# exports there when none of them was held: the tip then holds this run's exports, or a newer commit's
-# own copy (base-autofix-push.sh lands them as progress past a move of their inputs), and the checks
-# compare the built files with the exports committed beside them. The defaults snapshot, which reads
+# exports there when this run made them (ACTIONS_MADE_AT) and none was held: the tip then holds this
+# run's exports, or a newer commit's own copy (base-autofix-push.sh lands them as progress past a
+# move of their inputs), and the checks compare the built files with the exports committed beside them. The defaults snapshot, which reads
 # both exports, also needs the tip's settings stamp current: the tip has one, and the tip's own
 # defaults_guard.py check-stamp passes in the checkout of the tip (the guard finds the repository
 # from its own path, so a copy elsewhere reads nothing and passes). Otherwise,
@@ -76,8 +76,10 @@ main() {
     esac
   }
 
-  # The tip's action exports are this run's or a newer commit's own: none of them was held.
+  # The tip's action exports are this run's or a newer commit's own: this run made them
+  # (ACTIONS_MADE_AT; the CI target graph job makes none and has no bun), and none was held.
   exports_landed() { # <held so far>
+    [[ -n "$actions_made_at" ]] || return 1
     ! grep -qE "$action_exports" <<<"$1"
   }
 
