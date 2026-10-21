@@ -8,8 +8,8 @@ const listeners = new Set<() => void>();
 
 /// The host pushed the theme: the transcript follows at once.
 export function configureCodexToolRuns(value: unknown): void {
-  // Native AgentPaneTunables sends true by default; missing theme data stays compatible with
-  // browser and older hosts until they explicitly opt in.
+  // Native AgentPaneTunables sends false by default (each call keeps its row); missing theme data
+  // reads as off too.
   const next = value === true;
   if (next === current) return;
   current = next;

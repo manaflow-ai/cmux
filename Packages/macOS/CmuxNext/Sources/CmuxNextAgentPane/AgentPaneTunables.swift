@@ -235,11 +235,13 @@ public nonisolated struct AgentPaneTunables {
     /// conversation/turns.ts `codexRuns`, cx-ncc.108): the run in flight is one line naming its
     /// newest call, and a run any later row follows settles into its summary line. Off keeps every
     /// call's row. The page gets it with the theme (`AgentPaneTheme`, `codexToolRuns`), again on
-    /// each change. The Debug toggle remains available for comparing the ungrouped presentation.
+    /// each change. Off by default: a running turn lists each call as it lands, as the Codex and
+    /// Claude Code desktop apps do (Leo 2026-10-20: "we're swallowing up a few too many of these").
+    /// The toggle stays for comparing the folded presentation.
     public static let codexToolRuns = Tunable<Bool>.toggle(
         "agentPane.debug.codexToolRuns", PageTunables.section, "Codex-style tool runs in the agent pane",
         help: "While a turn runs, each run of tool calls is one line: the newest call, then a summary once text follows.",
-        default: true, code: "AgentPaneTunables.codexToolRuns")
+        default: false, code: "AgentPaneTunables.codexToolRuns")
 
     /// Repaints every window when ``codexToolRuns`` changes, so open agent pages get it with the
     /// theme at once (as AppServices.observeBorders does for ``chatWidth``). The first theme push
