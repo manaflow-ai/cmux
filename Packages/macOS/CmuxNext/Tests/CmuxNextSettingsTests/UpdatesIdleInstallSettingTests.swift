@@ -22,9 +22,10 @@ struct UpdatesIdleInstallSettingTests {
         #expect(snapshot.updates.idleInstallQuietSeconds == 30)
     }
 
-    @Test func anOutOfRangeCapKeepsTheDefaultAndSaysWhy() {
+    /// Like every number setting, a value past the range clamps to its edge and says why.
+    @Test func anOutOfRangeCapClampsToTheRangeAndSaysWhy() {
         let snapshot = Self.parse(["idleInstallMaxWaitSeconds": .number(86_400)])
-        #expect(snapshot.updates.idleInstallMaxWaitSeconds == 900)
+        #expect(snapshot.updates.idleInstallMaxWaitSeconds == UpdatesSettings.idleInstallMaxWaitRange.upperBound)
         #expect(snapshot.diagnostics.contains { $0.path == "updates.idleInstallMaxWaitSeconds" })
     }
 
