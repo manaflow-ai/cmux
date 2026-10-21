@@ -71,6 +71,7 @@ def simple_reply(th, tid, text):
 
 TURNS = [0]
 STATE = {}
+HELD = []
 def command_turn(th, kind, reply=None):
     TURNS[0] += 1
     tid = "turn-cmd-%d" % TURNS[0]
@@ -200,7 +201,9 @@ while True:
                                          ("say", "Review: no issues found."), ("item", {"type": "exitedReviewMode", "id": "rv-out-" + tid, "review": "ok"})])
     elif meth == "thread/goal/set":
         th = p.get("threadId")
-        goal = {"threadId": th, "objective": p.get("objective") or "Ship it", "status": p.get("status") or "active", "tokenBudget": None, "tokensUsed": 0, "timeUsedSeconds": 0, "createdAt": 1, "updatedAt": 1}
+        status = p.get("status") or "active"
+        if "already-done" in (p.get("objective") or ""): status = "complete"
+        goal = {"threadId": th, "objective": p.get("objective") or "Ship it", "status": status, "tokenBudget": None, "tokensUsed": 0, "timeUsedSeconds": 0, "createdAt": 1, "updatedAt": 1}
         send({"id": rid, "result": {"goal": goal}})
         ev("thread/goal/updated", threadId=th, turnId=None, goal=goal)
         if goal["status"] == "active" and "no-turn" not in (p.get("objective") or ""):
@@ -224,8 +227,13 @@ while True:
         r = ts_result(cwd); r["thread"] = thread(cwd, hist)
         if meth == "thread/read": r = {"thread": r["thread"]}
         send({"id": rid, "result": r})
+    elif meth == "thread/unsubscribe":
+        send({"id": rid, "result": {}})
+        while HELD: send({"id": HELD.pop(), "result": {}})
     elif meth == "thread/settings/update" and os.environ.get("FIX_REJECT_SETTINGS"):
         send({"id": rid, "error": {"code": -32600, "message": "thread/settings/update requires experimentalApi"}})
+    elif meth == "thread/settings/update" and os.environ.get("FIX_HOLD_SETTINGS") and (p.get("collaborationMode") or {}).get("mode") == "default":
+        HELD.append(rid)  # answered after the client closed the session (thread/unsubscribe)
     elif meth == "thread/settings/update":
         if p.get("collaborationMode"): STATE["collab"] = p["collaborationMode"].get("mode")
         send({"id": rid, "result": {}})
