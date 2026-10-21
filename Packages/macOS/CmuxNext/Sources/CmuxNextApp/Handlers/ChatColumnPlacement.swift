@@ -15,10 +15,21 @@ extension ChatColumnPlacement {
             screen.zoomedPane != nil && screen.panes.contains { $0 === controller.pane }
         }
         return resolve(from: controller.layoutPaneID, columns: columns, recent: content.recentPanes, zoomed: zoomed) { column in
-            guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs,
-                  tabs.count == 1 else { return false }
-            return isChat(tabs[0], services: services)
+            guard column.root.panes.count == 1, let tabs = content.panes[column.root.panes[0]]?.pane.tabs else { return false }
+            return loneChat(in: tabs, isChat: { isChat($0, services: services) },
+                            isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) != nil
         }
+    }
+
+    /// The one chat to dock when every other tab is a New Tab page; nil for any other mix.
+    nonisolated static func loneChat<Tab>(in tabs: [Tab], isChat: (Tab) -> Bool, isNewTabPage: (Tab) -> Bool) -> Tab? {
+        var chat: Tab?
+        for tab in tabs {
+            if isNewTabPage(tab) { continue }
+            guard chat == nil, isChat(tab) else { return nil }
+            chat = tab
+        }
+        return chat
     }
 
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
@@ -48,7 +59,8 @@ extension ChatColumnPlacement {
             return strip
         case .dockChat:
             guard let respawn, controller.daemon.supports(DaemonCapabilities.shared.tabColumnRespawn),
-                  let chat = controller.pane.tabs.first else { return controller }
+                  let chat = loneChat(in: controller.pane.tabs, isChat: { isChat($0, services: services) },
+                                      isNewTabPage: { services.agentTabs.isNewTabPage($0.id) }) else { return controller }
             // The new tab left in the pane takes focus, not the docked chat.
             let pane = controller.layoutPaneID
             TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
