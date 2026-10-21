@@ -1,6 +1,6 @@
 /* The Inspector (ChatInspector.tsx): the chat's right-hand panel. Push: a column in the shell's flex row
    beside the chat, which reflows narrower; with the default it pushes only when the pane's right gutter has no
-   room for it, and with Settings Push always. Overlay (the default, when the gutter has room): a glass dropdown
+   room for it, and with Settings Push always. Overlay (the default, when the gutter has room): a dropdown
    that floats in the gutter beside the transcript's column, never over its text, from just under the chat
    header (--acpmux-inspector-top, the header's height; the header's tools, its own toggle among them, stay
    above it) and as tall as its sections, up to the pane's foot. It stays open until its toggle closes it. Its width comes from the viewer's drag (inline style); it slides in from the right
@@ -22,20 +22,16 @@
 .acpmux-chat-inspector[data-placement="push"] {
   border-left: var(--cmux-hairline, 0.5px) solid var(--agent-border);
 }
-/* Floating: the tooltip's frosted glass (desktop.css --tooltip-*; the opaque popup surface under
-   Reduce Transparency), its one-pixel rim, and 12px (ChatInspector.tsx FLOAT_MARGIN) from the
-   pane's right edge. */
+/* Floating: a dropdown with a one-pixel rim, 12px (ChatInspector.tsx FLOAT_MARGIN) from the pane's
+   right edge, as tall as its sections up to the pane's foot. */
 .acpmux-chat-inspector[data-placement="overlay"] {
   position: absolute;
   z-index: var(--layer-overlay);
   top: calc(var(--acpmux-inspector-top, 0px) + 4px);
   right: 12px;
   max-height: calc(100% - var(--acpmux-inspector-top, 0px) - 16px);
-  border: var(--cmux-hairline, 0.5px) solid var(--cmux-separator, var(--agent-border));
+  border: var(--cmux-hairline, 0.5px) solid var(--agent-border);
   border-radius: 12px;
-  background: var(--tooltip-tint);
-  -webkit-backdrop-filter: var(--tooltip-blur);
-  backdrop-filter: var(--tooltip-blur);
   box-shadow: var(--elevation-2);
 }
 /* It slides in from the pane's right edge and back out (ui/presence.ts, data-presence): pushing, it

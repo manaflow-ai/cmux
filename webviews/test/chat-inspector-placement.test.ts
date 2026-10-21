@@ -2,8 +2,8 @@
 // 2026-10-21: "a popup or dropdown-looking thing that DOESN'T close when you click out of it and
 // DOESN'T shift the layout. OR it shifts the layout if there isn't enough space"). In a wide pane it
 // floats in the right gutter beside the transcript's centered column, and the transcript does not
-// move; in a narrow one it pushes the chat aside, and the panel's rect meets no transcript row and
-// not the composer. A click elsewhere in the chat leaves it open; its toggle closes it. In Leo's
+// move; in a narrow one, a pane of a split included, it pushes the chat aside, and the panel's rect
+// meets no transcript row and not the composer. A click elsewhere in the chat leaves it open; its toggle closes it. In Leo's
 // chat it lay over the transcript at a narrow width: his prompt sat on "Background tasks".
 //
 // The page is the pane's dev entry with its browser host, talking JSON-RPC to a stand-in acpmux
@@ -104,7 +104,9 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
         expect(before.length).toBeGreaterThan(0);
         expect({
           placement: await panel.getAttribute("data-placement"),
-          moved: after.map((row, index) => Math.abs(row.left - before[index]!.left) + Math.abs(row.right - before[index]!.right)),
+          moved: after.map(
+            (row, index) => Math.abs(row.left - before[index]!.left) + Math.abs(row.right - before[index]!.right),
+          ),
           covers: after.filter((row) => meets(row, box)).length,
         }).toEqual({ placement: "overlay", moved: after.map(() => 0), covers: 0 });
       } finally {
@@ -112,22 +114,26 @@ await requireBrowserLane("chat-inspector-placement.test.ts", async () => {
       }
     });
 
-    test(`${name}: in a narrow pane it pushes the chat, and never covers a row or the composer`, async () => {
-      current = browsers.get(name)!;
-      const page = await pane!.open({ width: 900, height: 700 });
-      try {
-        const { panel } = await openInspector(page);
-        const box = await rect(page);
-        const rows = await transcript(page);
-        expect(rows.length).toBeGreaterThan(0);
-        expect({
-          placement: await panel.getAttribute("data-placement"),
-          covers: rows.filter((row) => meets(row, box)),
-        }).toEqual({ placement: "push", covers: [] });
-      } finally {
-        await page.close();
-      }
-    });
+    // A pane of a split (560 and 700), a narrow window (900) and one whose gutter is still too narrow
+    // for the panel (1200).
+    for (const width of [560, 700, 900, 1200]) {
+      test(`${name}: in a ${width}px pane it pushes the chat, and never covers a row or the composer`, async () => {
+        current = browsers.get(name)!;
+        const page = await pane!.open({ width, height: 700 });
+        try {
+          const { panel } = await openInspector(page);
+          const box = await rect(page);
+          const rows = await transcript(page);
+          expect(rows.length).toBeGreaterThan(0);
+          expect({
+            placement: await panel.getAttribute("data-placement"),
+            covers: rows.filter((row) => meets(row, box)),
+          }).toEqual({ placement: "push", covers: [] });
+        } finally {
+          await page.close();
+        }
+      });
+    }
 
     test(`${name}: a click elsewhere in the chat leaves it open; its toggle closes it`, async () => {
       current = browsers.get(name)!;
