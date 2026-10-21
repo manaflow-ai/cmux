@@ -190,7 +190,7 @@ To put one new tab in a specific place, whatever the setting, use these commands
 
 ## `tabs.newTabTemplate`
 
-The layout of the New Tab page. The dots at the bottom of the page switch it in place and save the choice here.
+The layout of the New Tab page. The template dots under the page (a widget, see `tabs.newTabWidgets` below) switch it in place and save the choice here.
 
 ```json
 {
@@ -207,6 +207,27 @@ The layout of the New Tab page. The dots at the bottom of the page switch it in 
 - `terminal`: the `cards` screen. New Tab never opens a terminal by itself; pick one on the page or use New Terminal Tab.
 
 Cmd-T and the + button always open the New Tab page. Change the template in **Settings > General > Tabs** or with `cmux settings set tabs.newTabTemplate console`.
+
+## `tabs.newTabWidgets`
+
+By default the New Tab page shows a short greeting and the composer, with the project and machine in the composer's bottom row. Everything else on the page is a widget you turn on. Each template draws its widgets its own way: recent chats are cards on `cards` and rows on `threads`.
+
+```json
+{
+  "tabs": { "newTabWidgets": { "chats": true, "modeSwitch": true } }
+}
+```
+
+| Key | Default | Shows |
+| --- | --- | --- |
+| `greeting` | `true` | A short greeting by the time of day over the composer. |
+| `projects` | `false` | The `default` template's card of this Mac and its recent projects. |
+| `actions` | `false` | The chats that need you, and New Terminal, New Browser Tab and New Chat. |
+| `chats` | `false` | The recent chats (cards, rows or All Chats, by template) and Recently Closed. |
+| `modeSwitch` | `false` | The Search and Ask switch over the composer. Tab switches modes either way. |
+| `styleDots` | `false` | The template dots under the page. |
+
+With every widget off the page still does everything: type a URL or a prompt, press Tab to switch between asking and searching, and find any chat with the palette (Cmd-P). Change them in **Settings > General > Tabs** or with `cmux settings set tabs.newTabWidgets.chats true`.
 
 ## `app.forkConversationDefaultDestination`
 

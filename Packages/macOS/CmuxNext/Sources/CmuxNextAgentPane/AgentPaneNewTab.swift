@@ -63,12 +63,16 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
     /// true: the page shows the widget view under its composer (Debug Settings `newTab.widgets`,
     /// ``AgentPaneTunables/newTabWidgets``); nil shows none.
     public var widgets: Bool?
+    /// The page's widgets the user turned on (`tabs.newTabWidgets.*`: "greeting", "projects",
+    /// "actions", "chats", "modeSwitch", "styleDots"); the page draws the greeting and the composer
+    /// and only these besides. nil (a host from before them) shows every one. The page validates it.
+    public var pageWidgets: [String]?
 
     public init(kind: AgentPaneTabKind, hotkeys: [AgentPaneTabKind: String] = [:], cwd: String? = nil,
                 location: String? = nil, omnibar: AgentPaneOmnibar = AgentPaneOmnibar(), projects: [String] = [],
                 layout: AgentPaneNewTabLayout? = nil,
                 lastAgent: String? = nil, lastPicks: AgentPaneLastPicks? = nil, home: String? = nil,
-                template: String? = nil, widgets: Bool? = nil) {
+                template: String? = nil, widgets: Bool? = nil, pageWidgets: [String]? = nil) {
         self.kind = kind
         self.hotkeys = Dictionary(uniqueKeysWithValues: hotkeys.map { ($0.key.rawValue, $0.value) })
         self.cwd = cwd
@@ -79,6 +83,7 @@ public nonisolated struct AgentPaneNewTab: Codable, Sendable, Equatable {
         self.projects = projects
         self.layout = layout
         self.template = template
+        self.pageWidgets = pageWidgets
         self.lastAgent = lastAgent
         self.lastPicks = lastPicks
         self.home = home

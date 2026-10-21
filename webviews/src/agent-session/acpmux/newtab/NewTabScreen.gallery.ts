@@ -287,6 +287,24 @@ export default agentPaneEntry({
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
+    // The page as it opens by default (Leo 2026-10-20, newtab/pageWidgets.ts): the app sends only
+    // the greeting widget, so the page is the greeting and the composer, the project strip in the
+    // box's bottom row, with chats on this Mac it does not list.
+    ...Object.fromEntries(
+      (["default", "cards"] as const).map((template) => [
+        `minimal-${template}`,
+        {
+          note: `The ${template === "default" ? "Default" : "Cards"} template with only the greeting widget on (the app's default): a quiet greeting over the composer, the project and machine in the composer, no project card, quick actions, chats, Search | Ask switch or template dots.`,
+          ready: newTab({ template, pageWidgets: ["greeting"] }),
+          snapshot: noChat(manySessions(12)),
+          play: async (ctx: PlayContext) => {
+            await ctx.waitFor(() => ctx.document.querySelector(".nt-greeting") !== null);
+            const extra = ctx.document.querySelector(".nt-stage, .nt-cards, .nt-create, .nt-mode-track, .nt-style");
+            if (extra) throw new Error(`the minimal page shows ${extra.className}`);
+          },
+        },
+      ]),
+    ),
     // The New Tab composer's states, as the chat composer's (agent-pane.composer composer-*): the
     // same chips, pills, caret and rim (test/composer-caret-focus.test.ts).
     ...Object.fromEntries(

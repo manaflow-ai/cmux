@@ -54,6 +54,7 @@ import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
 import { StyleSwitch } from "./newtab/StyleSwitch";
+import { pageWidgetSet } from "./newtab/pageWidgets";
 import { pageStyle, pickNewTabStyle, screenTemplate, shownTemplate } from "./newtab/templates";
 import { newTabPageSubmit } from "./newtab/pageSubmit";
 import { isAgentHome, projectLabel, sessionTitle, type AcpmuxSessionEntry } from "./sessionList";
@@ -6343,8 +6344,9 @@ function AcpmuxPane() {
           data-dock={!reviewing && !freshView && !diffView && !inspectorOpen ? "float" : undefined}
           data-summary={summaryCard.column ? "inline" : "popover"}
         >
-          {!harnessesOpen && showNewTab && !newTab.history && (
-            // The page's style, under it; a pick shows in place at once.
+          {!harnessesOpen && showNewTab && !newTab.history && pageWidgetSet(newTab.pageWidgets).has("styleDots") && (
+            // The page's style, under it (a widget, off by default: newtab/pageWidgets.ts); a pick
+            // shows in place at once.
             <StyleSwitch
               current={pageStyle(shownTemplate(newTab))}
               onCancel={() => window.dispatchEvent(new Event(FOCUS_LOCATION_EVENT))}
@@ -6392,6 +6394,7 @@ function AcpmuxPane() {
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
+              pageWidgets={pageWidgetSet(newTab.pageWidgets)}
               snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}

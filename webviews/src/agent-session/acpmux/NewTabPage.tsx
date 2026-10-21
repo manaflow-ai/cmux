@@ -26,6 +26,7 @@ import {
   type AcpmuxSessionEntry,
 } from "./sessionList";
 import { type StringKey, type Translate, translate, useT } from "./i18n";
+import { parsePageWidgets, type PageWidget } from "./newtab/pageWidgets";
 import { parseNewTabTemplate, type NewTabTemplate } from "./newtab/templates";
 import { seedWarmNewTab } from "./newtab/warmSnapshot";
 
@@ -98,6 +99,9 @@ export type NewTabHost = {
   history?: boolean;
   /// The widget view under the composer (Debug Settings `newTab.widgets`, newtab/WidgetCards.tsx).
   widgets?: boolean;
+  /// The page's widgets the user turned on (`tabs.newTabWidgets.*`, newtab/pageWidgets.ts); unset
+  /// shows every one, as a host from before them did.
+  pageWidgets?: PageWidget[];
 };
 
 /// Reads `newTab` from the handshake: `true`, or `{hotkeys, kind, cwd, host}`. Nil for a plain chat.
@@ -121,6 +125,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
   const omnibar = omnibarContext(object.omnibar);
   const openTabs = Array.isArray(object.openTabs) ? omnibarContext({ tabs: object.openTabs })?.tabs : undefined;
   const template = parseNewTabTemplate(object.template);
+  const pageWidgets = parsePageWidgets(object.pageWidgets);
   return {
     hotkeys,
     initialKind,
@@ -144,6 +149,7 @@ export function newTabHost(handshake: { newTab?: unknown; cwd?: unknown }): NewT
     ...(object.focusesField === false ? { focusesField: false } : {}),
     ...(object.history === true ? { history: true } : {}),
     ...(object.widgets === true ? { widgets: true } : {}),
+    ...(pageWidgets ? { pageWidgets } : {}),
   };
 }
 
