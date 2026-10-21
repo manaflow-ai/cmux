@@ -28,12 +28,12 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
     // MARK: Rate and estimate formatting
 
     @Test func rateAndDurationFormatToTheCentAndTwoUnits() {
-        #expect(MachineCostText.price(0.2645, locale: Self.enUS) == "$0.26")
-        #expect(MachineCostText.price(12.3456, locale: Self.enUS) == "$12.35")
-        #expect(MachineCostText.duration(8_040, locale: Self.enUS) == "2h 14m")
-        #expect(MachineCostText.duration(3 * 86_400 + 4 * 3_600 + 59, locale: Self.enUS) == "3d 4h")
+        #expect(SidebarMachine.Cost.price(0.2645, locale: Self.enUS) == "$0.26")
+        #expect(SidebarMachine.Cost.price(12.3456, locale: Self.enUS) == "$12.35")
+        #expect(SidebarMachine.Cost.duration(8_040, locale: Self.enUS) == "2h 14m")
+        #expect(SidebarMachine.Cost.duration(3 * 86_400 + 4 * 3_600 + 59, locale: Self.enUS) == "3d 4h")
         // Under a minute reads as one minute, never "0m".
-        #expect(MachineCostText.duration(12, locale: Self.enUS) == "1m")
+        #expect(SidebarMachine.Cost.duration(12, locale: Self.enUS) == "1m")
     }
 
     @Test func aRunningMachineShowsRateTimeAndEstimate() throws {
@@ -41,20 +41,20 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         #expect(cost.runningSeconds(now: Self.now) == 8_040)
         // 0.2645 $/h x 2h 14m = $0.5907.
         #expect(abs((cost.estimatedCostUsd(now: Self.now) ?? 0) - 0.590_716) < 0.000_01)
-        #expect(MachineCostText.usage(cost, now: Self.now, locale: Self.enUS)
+        #expect(cost.usage(now: Self.now, locale: Self.enUS)
             == [SidebarStrings.costRate("$0.26"), SidebarStrings.costRunning("2h 14m"), SidebarStrings.costSoFar("$0.59")].joined(separator: " · "))
     }
 
     @Test func aFreshMachineReadsUnderOneCent() throws {
         let cost = try #require(CloudCreationRows.cost(Self.machine(.running, runningFor: 60), limits: nil))
-        #expect(MachineCostText.usage(cost, now: Self.now, locale: Self.enUS)
+        #expect(cost.usage(now: Self.now, locale: Self.enUS)
             == [SidebarStrings.costRate("$0.26"), SidebarStrings.costRunning("1m"), SidebarStrings.costUnderSoFar("$0.01")].joined(separator: " · "))
     }
 
     @Test func aMachineWithoutARateShowsOnlyItsTime() throws {
         let cost = try #require(CloudCreationRows.cost(Self.machine(.running, rate: nil), limits: nil))
         #expect(cost.estimatedCostUsd(now: Self.now) == nil)
-        #expect(MachineCostText.usage(cost, now: Self.now, locale: Self.enUS) == SidebarStrings.costRunning("2h 14m"))
+        #expect(cost.usage(now: Self.now, locale: Self.enUS) == SidebarStrings.costRunning("2h 14m"))
     }
 
     // MARK: Paused
@@ -65,7 +65,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         let cost = try #require(CloudCreationRows.cost(Self.machine(.paused), limits: nil))
         #expect(cost.runningSince == nil)
         #expect(cost.estimatedCostUsd(now: Self.now) == nil)
-        #expect(MachineCostText.usage(cost, now: Self.now, locale: Self.enUS) == SidebarStrings.costRateWhenRunning("$0.26"))
+        #expect(cost.usage(now: Self.now, locale: Self.enUS) == SidebarStrings.costRateWhenRunning("$0.26"))
 
         let fields = CloudHandlers.costFields(Self.machine(.paused), now: Self.now)
         #expect(fields["hourly_rate_usd"] == .double(0.2645))
@@ -84,9 +84,9 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         #expect(SidebarMachine.Cost.Cap(maxActiveVms: 3, running: 2) == .capped(running: 2, max: 3))
         #expect(SidebarMachine.Cost.Cap(maxActiveVms: 0, running: 0) == .closed)
 
-        #expect(MachineCostText.cap(.uncapped(running: 2)) == SidebarStrings.capNone(2))
-        #expect(MachineCostText.cap(.capped(running: 2, max: 3)) == SidebarStrings.capOf(2, 3))
-        #expect(MachineCostText.cap(.closed) == SidebarStrings.capClosed)
+        #expect(SidebarMachine.Cost.Cap.uncapped(running: 2).text == SidebarStrings.capNone(2))
+        #expect(SidebarMachine.Cost.Cap.capped(running: 2, max: 3).text == SidebarStrings.capOf(2, 3))
+        #expect(SidebarMachine.Cost.Cap.closed.text == SidebarStrings.capClosed)
     }
 
     /// The cap comes from `limits`, not from how many machines the list holds.
@@ -96,7 +96,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         let closed = try #require(CloudCreationRows.cost(Self.machine(.paused, rate: nil, runningFor: nil),
                                                          limits: CloudMachineLimits(maxActiveVms: 0, activeVmCount: 0)))
         #expect(closed.cap == .closed)
-        #expect(MachineCostText.lines(closed, now: Self.now, locale: Self.enUS) == [SidebarStrings.capClosed])
+        #expect(closed.lines(now: Self.now, locale: Self.enUS) == [SidebarStrings.capClosed])
         #expect(try #require(CloudCreationRows.cost(Self.machine(.running), limits: nil)).cap == nil)
     }
 
@@ -144,7 +144,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
         #expect(lines.count == 3)
 
         #expect(SectionHeaderRowView.machineToolTip(status: SidebarStrings.statusConnected, cost: cost, now: Self.now)
-            == ([SidebarStrings.statusConnected] + MachineCostText.lines(cost, now: Self.now)).joined(separator: "\n"))
+            == ([SidebarStrings.statusConnected] + cost.lines(now: Self.now)).joined(separator: "\n"))
         #expect(SectionHeaderRowView.machineToolTip(status: nil, cost: nil, now: Self.now) == nil)
     }
 

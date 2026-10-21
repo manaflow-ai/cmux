@@ -22818,7 +22818,7 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@/h"
+            "value": "%@/sat"
           }
         },
         "da": {
@@ -22842,19 +22842,19 @@
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@/h"
+            "value": "%@/hora"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@/h"
+            "value": "%@/heure"
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@/h"
+            "value": "%@/ora"
           }
         },
         "ja": {
@@ -22890,7 +22890,7 @@
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "%@/h"
+            "value": "%@/hora"
           }
         },
         "ru": {

@@ -79,7 +79,7 @@ public nonisolated struct SidebarMachine: Hashable, Sendable {
     /// registry), drawn in place of its kind's symbol; nil draws the symbol.
     public var icon: WorkspaceIcon?
     /// A Cloud machine's rate, running time and the account's machine cap,
-    /// shown in the header's tooltip (`MachineCostText`); nil for machines
+    /// shown in the header's tooltip (`Cost.lines`); nil for machines
     /// that bill nothing.
     public var cost: Cost?
 

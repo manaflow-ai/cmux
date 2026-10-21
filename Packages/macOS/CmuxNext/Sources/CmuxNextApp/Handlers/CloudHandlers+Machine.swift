@@ -348,7 +348,7 @@ extension CloudHandlers {
         if let used = stats.memoryUsedMb, let total = stats.memoryTotalMb { lines.append(String(format: "memory: %.0f / %.0f MB", used, total)) }
         if let used = stats.diskUsedMb, let total = stats.diskTotalMb { lines.append(String(format: "disk: %.0f / %.0f MB", used, total)) }
         if let address = session.machine.address?.ipv4 { lines.append("address: \(address)") }
-        if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ MachineCostText.usage($0, now: now) }) { lines.append(usage) }
+        if let usage = CloudCreationRows.cost(session.machine, limits: nil).flatMap({ $0.usage(now: now) }) { lines.append(usage) }
         return lines.joined(separator: "\n")
     }
 }

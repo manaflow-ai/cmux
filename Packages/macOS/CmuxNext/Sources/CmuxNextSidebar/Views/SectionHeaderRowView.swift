@@ -94,9 +94,9 @@ final class SectionHeaderRowView: SidebarRowView {
     }
 
     /// The header's tooltip: the status words or detail, then a Cloud
-    /// machine's cost and the account's cap (`MachineCostText`) as of `now`.
+    /// machine's cost and the account's cap (`SidebarMachine.Cost.lines`) as of `now`.
     static func machineToolTip(status: String?, cost: SidebarMachine.Cost?, now: Date) -> String? {
-        let lines = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost.map { MachineCostText.lines($0, now: now) } ?? [])
+        let lines = [status].compactMap { $0?.isEmpty == false ? $0 : nil } + (cost?.lines(now: now) ?? [])
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 
