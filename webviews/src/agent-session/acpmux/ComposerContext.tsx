@@ -4,8 +4,8 @@ import { Menu, MenuButton, MenuItem, MenuPopup, MenuRadioGroup, MenuRadioItem, M
 import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
-import { EnvironmentIcon, EnvironmentPicker } from "./EnvironmentPicker";
-import type { EnvironmentKind } from "./environments";
+import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
+import type { ConnectKind, EnvironmentKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
@@ -61,6 +61,7 @@ export function ComposerContext({
   onNewChat,
   onBrowseFolder,
   onConnect,
+  saved,
   onRefreshMachines,
 }: {
   summary?: Summary;
@@ -91,7 +92,10 @@ export function ComposerContext({
   onBrowseFolder?(): Promise<string | undefined>;
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
+  /// The New Tab page's saved environments, in the environment picker. While one is picked it
+  /// alone names where the chat starts: the folder and New Worktree controls step aside.
+  saved?: SavedEnvironmentRows;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
 }) {
@@ -162,13 +166,19 @@ export function ComposerContext({
   const computerDisabled = readOnly && (started || !onConnect);
   // Preview (`labs.previewFeatures`): the computer control is the environment picker.
   const environmentsShown = environments && !computerDisabled;
+  const savedRows = environmentsShown && !readOnly ? saved : undefined;
+  const savedPick = savedRows?.environments.find((environment) => environment.id === savedRows.current);
+  const pickEnvironment = (id: string) => {
+    if (savedRows?.current !== undefined) savedRows.onClear();
+    pickComputer(id);
+  };
   // Preview: New Worktree is a control of its own beside the folder, as Codex's Worktree and
   // Claude's chips are (hq#2569 #9), for a new chat on this computer in a folder.
   const worktree =
-    environmentsShown && !readOnly && selectedComputer === "local" && currentFolder && onNewWorktree
+    environmentsShown && !readOnly && !savedPick && selectedComputer === "local" && currentFolder && onNewWorktree
       ? () => onNewWorktree(currentFolder)
       : undefined;
-  const folderShown = !(readOnly && !newChats && !currentFolder);
+  const folderShown = !savedPick && !(readOnly && !newChats && !currentFolder);
   return (
     <div className="acpmux-composer-strip">
       <div className="acpmux-composer-context" data-readonly={readOnly ? "true" : undefined}>
@@ -243,18 +253,19 @@ export function ComposerContext({
             <EnvironmentPicker
               label={t(CONTEXT_LABELS.environment)}
               menu="Computer"
-              value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+              value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
               face={
                 <LocationFace
-                  icon={<EnvironmentIcon kind={currentComputer?.kind ?? "local"} />}
-                  value={currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
+                  icon={<EnvironmentIcon kind={savedPick?.kind ?? currentComputer?.kind ?? "local"} />}
+                  value={savedPick?.name ?? currentComputer?.label ?? t(CONTEXT_LABELS.chooseComputer)}
                   chevron
                 />
               }
               environments={computers}
               current={selectedComputer}
-              onPick={pickComputer}
+              onPick={pickEnvironment}
               {...(!started && onConnect ? { onConnect } : {})}
+              {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
             />
           ) : (
