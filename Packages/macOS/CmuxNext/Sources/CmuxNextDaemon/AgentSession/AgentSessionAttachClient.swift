@@ -48,11 +48,38 @@ public actor AgentSessionAttachClient {
         self.requestTimeout = requestTimeout
     }
 
-    /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on.
+    /// Subscribes and returns the attach page's JSON. Pushes go to `events` from then on. The
+    /// chat's mode (the reply's `agentMode`, then each `agent-session-mode` push of a daemon with
+    /// `agent-session-adopt-v1`) goes to ``AgentBypassSessions`` instead.
     public func attach(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?,
                        events: @escaping EventHandler) async throws -> Data {
-        handler.set(events)
-        return try await call("agent-session-attach", page(afterSeq, beforeSeq, limit, kinds))
+        handler.set { event, line in
+            guard event == "agent-session-mode" else { return events(event, line) }
+            AgentBypassSessions.note(.push, of: line)
+        }
+        _ = try await liveTransport()
+        var params = page(afterSeq, beforeSeq, limit, kinds)
+        if servesAdopt { params["mode_events"] = true }
+        let data = try await call("agent-session-attach", params)
+        AgentBypassSessions.note(.attachReply, of: data)
+        return data
+    }
+
+    /// `agent-session-mode` (`agent-session-adopt-v1`) of tab `surface` over a connection of its
+    /// own: the mode of the chat it is bound to goes to ``AgentBypassSessions``. A daemon without
+    /// the verb is not asked.
+    public static func readMode(surface: UInt64, endpoint: @escaping EndpointProvider) async throws {
+        let client = AgentSessionAttachClient(surface: surface, endpoint: endpoint)
+        let result: Result<Data?, any Error>
+        do { result = .success(try await client.mode()) } catch { result = .failure(error) }
+        await client.close()
+        if let data = try result.get() { AgentBypassSessions.note(.answer, of: data) }
+    }
+
+    /// The `agent-session-mode` answer; nil from a daemon without the verb.
+    private func mode() async throws -> Data? {
+        _ = try await liveTransport()
+        return servesAdopt ? try await call("agent-session-mode", [:]) : nil
     }
 
     public func events(afterSeq: UInt64?, beforeSeq: UInt64?, limit: Int?, kinds: [String]?) async throws -> Data {

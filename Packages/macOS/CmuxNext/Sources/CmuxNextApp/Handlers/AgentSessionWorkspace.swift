@@ -1,7 +1,9 @@
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextSidebar
 import Foundation
 
 /// `agent.openSessionWorkspace`: a new workspace whose selected tab is the
@@ -17,7 +19,9 @@ import Foundation
 /// Arguments: `session` (required, the acpmux session id), `name` (the
 /// workspace name), `key` (a caller-chosen workspace key, a lowercase UUID,
 /// so the caller can rename the workspace later), `cwd` (the terminal's), `host`
-/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux).
+/// (`chief:<home id>`: the session runs in this app's Chief home's acpmux; another machine's name, as
+/// the sidebar or `acpmux ls` shows it: the session runs there), `group` (another machine's: the name
+/// of that machine's group it joins, made when missing).
 enum AgentSessionWorkspace {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         registry.bind("agent.openSessionWorkspace", run: { invocation in
@@ -34,9 +38,9 @@ enum AgentSessionWorkspace {
         let cwd = invocation["cwd"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         // The Chief host's own acpmux runs the session (`chief:<home id>`); absent: this Mac's.
         let host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
-        // A host that names another machine (`cmux agent open huge-blue/NAME`): its chat opens there.
-        let remote = host.flatMap(context.services.machines.remoteDaemon(named:))
-        let task = try remote.map { try adopt(session: session, name: name, key: key, cwd: cwd, on: $0, services: context.services) }
+        // A host that names another machine (`cmux agent open NAME --host huge-blue`): its chat opens there.
+        let remote = host.flatMap(context.services.machines.remoteDaemon(named:)), group = invocation["group"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
+        let task = try remote.map { try adopt(session: session, name: name, key: key, cwd: cwd, group: group, on: $0, services: context.services) }
             ?? open(session: session, name: name, key: key, cwd: cwd, host: host, services: context.services)
         context.services.registry.track(task)
     }
@@ -45,13 +49,17 @@ enum AgentSessionWorkspace {
     /// bound to `session` there (`agent-session-adopt`; a chat never leaves its machine, cx-k21v), and
     /// a chat that acts without asking shows the bypass warning on its row. A refused adopt closes
     /// the workspace. Nothing takes focus.
-    private static func adopt(session: String, name: String?, key: WorkspaceKey, cwd: String?, on daemon: DaemonService,
+    private static func adopt(session: String, name: String?, key: WorkspaceKey, cwd: String?, group: String?, on daemon: DaemonService,
                               services: AppServices) throws -> ActionWork {
         guard let connection = daemon.connection, let endpoint = daemon.remoteEndpoint, let host = AgentTabStore.registryHost(of: daemon) else {
             throw ActionFailure(message: MiscHandlerStrings.daemonOffline)
         }
         let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
         let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
+        NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: group.map { name in { id, sidebar in
+            let ids = [SidebarWorkspaceID(id)]
+            if let target = SidebarEdits.group(named: name, accepting: ids, in: sidebar.model.sections) { sidebar.handle(.move(ids, toGroup: target)) } else { sidebar.groupFlow.newGroup(of: ids, name: name, byUser: false) }
+        } }, windows: services.windows)
         return Task { @MainActor in
             do {
                 let (tab, adopted) = try await WorkspaceCreation.createWithFirstTab(key, name: name, on: connection, repair: repair) { result in
@@ -66,7 +74,7 @@ enum AgentSessionWorkspace {
                 }
                 return nil
             } catch let error as AgentSessionAttachError {
-                return ActionWorkFailure("agent.openSessionWorkspace: \(AgentRemoteStartRefusal(code: error.code, machine: machine, detail: error.message).userMessage)")
+                return ActionWorkFailure("agent.openSessionWorkspace: \(AgentSessionAdoptRefusal.message(code: error.code, machine: machine) ?? AgentRemoteStartRefusal(code: error.code, machine: machine, detail: error.message).userMessage)")
             } catch {
                 return ActionWorkFailure("agent.openSessionWorkspace: \(error)")
             }

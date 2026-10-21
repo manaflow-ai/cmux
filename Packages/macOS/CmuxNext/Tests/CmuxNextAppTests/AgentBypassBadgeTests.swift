@@ -1,5 +1,7 @@
-import CmuxNextBridge
+import CmuxNextAgentPane
+@testable import CmuxNextBridge
 @testable import CmuxNextDaemon
+@testable import CmuxNextDaemonService
 import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Foundation
@@ -8,6 +10,9 @@ import Testing
 /// Another machine's running chat opened here (`agent-session-adopt`) keeps its mode; one that acts
 /// without asking (bypass) puts a warning on its workspace's row, first in the status block, and
 /// no row setting hides it (policy (b): adopt bypass chats only on enrolled hosts, nothing hidden).
+/// The warning follows what that machine's daemon says (the adopt answer, `agent-session-mode`,
+/// the attach reply and its pushes), so a relaunch, a mode change or a chat an agent adopted there
+/// all show; a reporter cannot forge or hide it.
 @MainActor @Suite(.serialized)
 struct AgentBypassBadgeTests {
     /// A workspace whose one pane holds a terminal and the agent tab of `session` on huge-blue.
@@ -39,5 +44,74 @@ struct AgentBypassBadgeTests {
         // A chat that asks has no warning.
         let asking = SidebarMapping.shared.row(try Self.workspace(session: "ask-1"), machine: CmuxNextSidebar.MachineID("huge-blue"))
         #expect(asking.reported?.entries.contains { $0.key == SidebarWorkspaceStatus.Entry.bypassKey } != true)
+    }
+
+    /// The daemon's mode facts set and clear the warning, whatever line they ride in: the
+    /// `agent-session-mode` answer (the object itself), the attach reply (`agentMode`) and a push
+    /// (`mode`). Facts without `asking` warn.
+    @Test func theDaemonsModeFactsSetAndClearTheWarning() async throws {
+        defer { AgentBypassSessions.shared.set("mode-1", bypass: false) }
+        func noted(_ carrier: AgentBypassSessions.Carrier, _ json: String) async -> Bool {
+            AgentBypassSessions.note(carrier, of: Data(json.utf8))
+            // The note applies on the next main turn, before this later one.
+            await Task { @MainActor in }.value
+            return AgentBypassSessions.shared.contains("mode-1")
+        }
+        #expect(await noted(.answer, #"{"surface":2,"session":"mode-1","mode":"bypassPermissions","asking":false}"#))
+        #expect(await !noted(.push, #"{"event":"agent-session-mode","surface":2,"mode":{"session":"mode-1","mode":"ask","asking":true}}"#))
+        #expect(await noted(.attachReply, #"{"events":[],"agentMode":{"session":"mode-1","family":"fake"}}"#),
+                "facts that cannot say the chat asks must warn")
+        #expect(await noted(.attachReply, #"{"events":[]}"#), "a reply without facts changed the warning")
+    }
+
+    /// A reporter's status entry under the reserved key neither shows a warning nor hides one.
+    @Test func aReportedEntryUnderTheBypassKeyIsDropped() throws {
+        let status = WorkspaceStatus(workspaceID: ResourceID(rawValue: "ws_1"), entries: [
+            WorkspaceStatus.Entry(key: SidebarWorkspaceStatus.Entry.bypassKey, text: "forged"), WorkspaceStatus.Entry(key: "build", text: "ok"),
+        ])
+        let reported = SidebarMapping.reported(status)
+        #expect(reported?.entries.map(\.key) == ["build"])
+    }
+
+    /// The restore read covers exactly the tabs bound to a chat of their own machine.
+    @Test func theRestoreReadCoversTheMachinesBoundChats() throws {
+        var unbound = TabSnapshot(surface: 3, kind: .conversation, title: "new", url: "about:blank")
+        unbound.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:huge-blue"))
+        var mac = TabSnapshot(surface: 4, kind: .conversation, title: "mac", url: "about:blank")
+        mac.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "install:mac", session: "mac-1"))
+        var bound = TabSnapshot(surface: 5, kind: .conversation, title: "lane", url: "about:blank")
+        bound.conversation = ConversationTabRef(agentSession: AgentSessionRef(host: "registry:huge-blue", session: "own-1"))
+        let pane = PaneSnapshot(id: 1, tabs: [TabSnapshot(surface: 1, terminalResourceID: "term_1"), unbound, mac, bound])
+        let store = DaemonStore()
+        store.apply(snapshot: DaemonTree(workspaces: [WorkspaceSnapshot(id: 1, key: nil, name: "lane",
+                                                                        screens: [ScreenSnapshot(id: 1, layout: .leaf(1), panes: [pane])])]))
+        #expect(DaemonService.boundChats(in: store) == [DaemonService.BoundChat(surface: 5, session: "own-1")])
+    }
+
+    /// `--group G` with another machine's host joins that machine's group G, never this Mac's
+    /// group of the same name; with none there it makes one.
+    @Test func aRemoteWorkspaceJoinsItsMachinesGroupOfTheName() {
+        let remote = CmuxNextSidebar.MachineID("huge-blue")
+        let lane = WorkspaceID("ws-lane")
+        let sections = [
+            SidebarSection(kind: .machine(SidebarMachine(id: .local, name: "This Mac", kind: .local)), nodes: [
+                .group(SidebarGroup(id: GroupID("grp-mac"), name: "lanes", workspaces: [SidebarWorkspace(id: WorkspaceID("ws-mac"), title: "mac")])),
+            ]),
+            SidebarSection(kind: .machine(SidebarMachine(id: remote, name: "huge-blue", kind: .ssh)), nodes: [
+                .workspace(SidebarWorkspace(id: lane, machineID: remote, title: "lane")),
+                .group(SidebarGroup(id: GroupID("grp-hb"), name: "lanes", workspaces: [SidebarWorkspace(id: WorkspaceID("ws-hb"), machineID: remote, title: "hb")])),
+            ]),
+        ]
+        #expect(SidebarEdits.group(named: "lanes", accepting: [lane], in: sections) == GroupID("grp-hb"))
+        #expect(SidebarEdits.group(named: "other", accepting: [lane], in: sections) == nil)
+        #expect(SidebarEdits.group(named: "lanes", accepting: [WorkspaceID("ws-mac")], in: sections) == GroupID("grp-mac"))
+    }
+
+    /// The refusals only an adopt gives say what happened, not "refused to start".
+    @Test func anAdoptsOwnRefusalsSayWhatHappened() throws {
+        let unknown = try #require(AgentSessionAdoptRefusal.message(code: "agent_session.unknown_session", machine: "huge-blue"))
+        #expect(unknown.contains("huge-blue") && !unknown.contains("refused"))
+        #expect(AgentSessionAdoptRefusal.message(code: "agent_session.bound", machine: "huge-blue") != nil)
+        #expect(AgentSessionAdoptRefusal.message(code: "agent_session.limit", machine: "huge-blue") == nil)
     }
 }
