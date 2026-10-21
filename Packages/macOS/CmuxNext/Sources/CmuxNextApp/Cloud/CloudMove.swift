@@ -268,7 +268,10 @@ struct CloudMove {
     private func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation) async throws -> CloudMachineSession {
         // The app server link's socket serves one connection, the app's own: the CLIs need another.
         guard session.appLink == nil else { throw Failure(message: CloudMoveStrings.linkUnsupported(session.machine.title)) }
-        if session.daemon.connection == nil { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
+        // A paused machine (idle auto-pause) resumes on this attach; a live one connects.
+        if session.daemon.connection == nil {
+            if session.machine.status == .paused { session.attach(origin: CloudHandlers.connectOrigin(for: invocation)) } else { session.connect(origin: CloudHandlers.connectOrigin(for: invocation)) }
+        }
         let daemon = session.daemon
         guard await Self.holds(within: .seconds(180), until: { daemon.connection != nil && AgentTabStore.registryHost(of: daemon) != nil }) else {
             throw Failure(message: CloudMoveStrings.notConnected(session.machine.title), retry: .move(machineID: session.machineID))
@@ -328,7 +331,7 @@ struct CloudMove {
     }
 
     /// Whether `condition` holds within `limit`: an observation, bounded by a one-shot deadline.
-    private static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
+    static func holds(within limit: Duration, until condition: @escaping @MainActor @Sendable () -> Bool) async -> Bool {
         if condition() { return true }
         // concurrency-allow: the observation task exits on cancellation; this bounds a machine link's start
         return await withTaskGroup(of: Bool.self) { group -> Bool in

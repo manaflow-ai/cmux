@@ -187,8 +187,10 @@ final class CloudMachineProgressView: NSView {
             lastReached = current
             detailLabel.stringValue = CloudStrings.stageNext(stage)
         }
-        buttons.isHidden = stage.failure == nil
-        typingLabel.isHidden = stage.failure != nil
+        // Paused is not a failure: one click on Retry resumes the machine.
+        buttons.isHidden = stage.failure == nil && !stage.isPaused
+        copyButton.isHidden = stage.isPaused
+        typingLabel.isHidden = stage.failure != nil || stage.isPaused
         renderElapsed()
         if stage.isFinished { ticker.cancel() } else if isShown, !ticker.isScheduled { tick() }
         setAccessibilityLabel([titleLabel.stringValue, CloudStrings.stage(stage), detailLabel.stringValue].joined(separator: ". "))
@@ -205,4 +207,5 @@ final class CloudMachineProgressView: NSView {
 
     var titleText: String { titleLabel.stringValue }
     var detailText: String { detailLabel.stringValue }
+    var showsButtons: Bool { !buttons.isHidden }
 }

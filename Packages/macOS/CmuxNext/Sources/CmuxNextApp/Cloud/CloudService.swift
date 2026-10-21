@@ -338,6 +338,8 @@ final class CloudService {
             session = CloudMachineSession(machine: machine, link: link)
         }
         session.daemon.workTracker = machines.local.workTracker
+        // An attach to a paused machine resumes it through Resume Machine's own path.
+        session.resumer = { [weak self] id in try await self?.resumeMachine(id) }
         machines.add(session)
         session.connect()
         return session
@@ -387,6 +389,14 @@ final class CloudService {
         try await api.resumeMachine(machineID)
         await refresh()
         logger.info("resumed machine \(machineID, privacy: .public)")
+    }
+
+    /// The machine's idle auto-pause (`PUT /api/vm/{id}/idle-pause`): minutes
+    /// of idle before cmux Cloud pauses it; 0 is Off.
+    func setIdlePause(_ machineID: String, minutes: Int) async throws {
+        try await api.setIdlePause(machineID, minutes: minutes)
+        machines.session(machineID)?.machine.idlePauseMinutes = minutes
+        logger.info("set idle pause \(machineID, privacy: .public) to \(minutes) min")
     }
 
     func renameMachine(_ machineID: String, to name: String) async throws {

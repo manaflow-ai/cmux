@@ -204,6 +204,25 @@ enum CloudHandlers {
         return false
     }
 
+    /// Attaches to `session` (``CloudMachineSession/attach(origin:)``): a
+    /// paused machine (cmux Cloud's idle auto-pause) resumes, and the work
+    /// waits for its daemon instead of refusing with "not connected". A
+    /// machine that is not paused returns at once, as before.
+    static func attached(_ session: CloudMachineSession, _ invocation: ActionInvocation,
+                         within limit: Duration = .seconds(300)) async throws {
+        session.attach(origin: connectOrigin(for: invocation))
+        guard session.resuming else { return }
+        let daemon = session.daemon
+        _ = await CloudMove.holds(within: limit) { daemon.connection != nil || session.resumeFailure != nil }
+        if let failure = session.resumeFailure { throw ActionFailure(message: failure) }
+        guard daemon.connection != nil else { throw ActionFailure(message: CloudStrings.notConnected) }
+    }
+
+    /// Whether `session` can take an attach now or after a resume.
+    static func attachable(_ session: CloudMachineSession) -> Bool {
+        session.daemon.connection != nil || (session.appLink == nil && session.machine.status == .paused)
+    }
+
     static func commandArgument(_ invocation: ActionInvocation) throws -> String {
         guard let command = invocation["command"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !command.isEmpty else {
             throw ActionFailure(message: CloudStrings.commandRequired)
