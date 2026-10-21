@@ -122,7 +122,8 @@ struct AgentPaneRelaunchWakeTests {
         let held = AgentPaneWakeState(shell: true, shellText: "cargo test")
         tabs.wakeStates["tab_slow"] = held
         let page = try #require(tabs.view(for: "tab_slow"))
-        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "reconnect"]))
+        _ = await page.model.respond(to: AgentPaneRequest(body: ["method": "ready", "params": ["reconnect": true]]))
+        try #require(page.model.hasHandshake, "the reconnect handshake did not run")
         let asked = Asked()
         tabs.relaunchWake.read = { _, _ in
             asked.count += 1
@@ -131,9 +132,9 @@ struct AgentPaneRelaunchWakeTests {
         #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that had not taken its state dropped it")
         #expect(asked.count == 0, "a page that had not taken its state was asked for one")
 
-        // After its ready, a page that does not answer in time keeps the tab's kept state.
+        // After its ready took the state, a page that does not answer in time keeps what it was given.
         _ = try await Self.ready(page)
-        tabs.wakeStates["tab_slow"] = held
+        #expect(tabs.wakeStates["tab_slow"] == nil && page.model.pendingWake == nil)
         #expect(await tabs.relaunchWakeStates()["tab_slow"] == held, "a page that did not answer in time saved nothing over it")
         #expect(asked.count == 1)
     }

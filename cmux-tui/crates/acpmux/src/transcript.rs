@@ -80,6 +80,9 @@ pub struct Transcript {
     /// lands as its turn ends is run as the next prompt and logged again with the
     /// same promptId and no `steer` (`hub/steer_end.rs`); that record replaces its row.
     waiting_steers: Vec<(String, usize)>,
+    /// Item indices removed since the TUI last read them, in order, so it can move
+    /// state it keys by index (folds) with the rows that stay.
+    pub(crate) removed_items: Vec<usize>,
 }
 
 /// Line diff of two texts: `+`, `-` and ` ` prefixed lines, in order. LCS
@@ -186,6 +189,16 @@ fn text_of(content: &Value) -> String {
     }
 }
 
+/// Whether a user row's `shown` text is prompt `text`: the TUI's echo of a prompt with
+/// images adds an `[image: …]` line (`tui/mod.rs`).
+fn shows_prompt(shown: &str, text: &str) -> bool {
+    match shown.strip_prefix(text) {
+        Some("") => true,
+        Some(rest) => rest.starts_with(if text.is_empty() { "[image: " } else { "\n[image: " }),
+        None => false,
+    }
+}
+
 impl Transcript {
     pub(crate) fn invalidate_layout(&mut self, from: usize) {
         self.layout_dirty_from = self.layout_dirty_from.min(from);
@@ -195,6 +208,7 @@ impl Transcript {
     fn remove_user_item(&mut self, pos: usize) -> Item {
         self.invalidate_layout(pos);
         let item = self.items.remove(pos);
+        self.removed_items.push(pos);
         let moved: std::collections::HashMap<usize, u64> = self
             .user_at
             .drain()
@@ -531,24 +545,25 @@ impl Transcript {
                 let text = msg.get("text").and_then(Value::as_str).unwrap_or("").to_owned();
                 let steer = msg.get("steer").and_then(Value::as_bool).unwrap_or(false);
                 let prompt_id = msg.get("promptId").and_then(Value::as_str).unwrap_or("");
-                if !steer {
+                if !steer
+                    && !prompt_id.is_empty()
+                    && let Some(w) = self.waiting_steers.iter().position(|(id, _)| id == prompt_id)
+                {
                     // A steer the turn ended before reading, now run as this prompt: its row
-                    // gives way. A newer prompt means every steer before it was read.
-                    if let Some(pos) = self
-                        .waiting_steers
-                        .iter()
-                        .find(|(id, _)| !prompt_id.is_empty() && id == prompt_id)
-                        .map(|(_, pos)| *pos)
-                    {
-                        self.remove_user_item(pos);
-                    }
-                    self.waiting_steers.clear();
+                    // gives way. Only its own: another steer's re-run may still be queued.
+                    let (_, pos) = self.waiting_steers.remove(w);
+                    self.remove_user_item(pos);
                 }
                 // A queued message becomes the live one when its turn starts:
                 // it moves to the end so it sits after the turn that ran before it.
-                let promoted = self.items.iter().position(
-                    |i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text),
-                );
+                // A steer starts no turn, so it never takes a queued row.
+                let promoted = (!steer)
+                    .then(|| {
+                        self.items.iter().position(
+                            |i| matches!(i, Item::User { text: t, queued: true, .. } if *t == text),
+                        )
+                    })
+                    .flatten();
                 match promoted {
                     Some(pos) => {
                         let item = self.remove_user_item(pos);
@@ -561,14 +576,23 @@ impl Transcript {
                             // Already on screen from the local echo.
                             self.optimistic.remove(pos);
                         } else {
-                            self.items.push(Item::User { text, steer, queued: false });
+                            self.items.push(Item::User {
+                                text: text.clone(),
+                                steer,
+                                queued: false,
+                            });
                         }
                     }
                 }
                 if steer
                     && !prompt_id.is_empty()
-                    && let Some(idx) =
-                        self.items.iter().rposition(|i| matches!(i, Item::User { steer: true, .. }))
+                    && let Some(idx) = (0..self.items.len()).rev().find(|&i| {
+                        let shown = match &self.items[i] {
+                            Item::User { text: t, steer: true, .. } => shows_prompt(t, &text),
+                            _ => false,
+                        };
+                        shown && !self.waiting_steers.iter().any(|(_, w)| *w == i)
+                    })
                 {
                     self.waiting_steers.push((prompt_id.to_owned(), idx));
                 }

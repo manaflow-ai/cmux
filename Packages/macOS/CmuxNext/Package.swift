@@ -17,7 +17,7 @@ import PackageDescription
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> system frameworks only (the only sanctioned wakeup primitives:
 //     FrameScheduler, DemandTimer, Backoff, WakeupLedger; plans/cmux-next/idle-wakeups.md)
-//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
+//   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph); CmuxNextActions -> system frameworks only; CmuxNextDaemon -> Wakeups
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -821,8 +821,9 @@ let package = Package(
         // (with its App Store card, Chief in Sidebar) and the Chief's tools in the docked Home's tab row.
         .target(
             name: "CmuxNextAgentLanes",
-            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextApps", "CmuxNextBridge", "CmuxNextCompat", "CmuxNextDesign",
-                           "CmuxNextHome", "CmuxNextHomeEngine", "CmuxNextSidebar", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextActions", "CmuxNextAgentActivity", "CmuxNextAgentPane", "CmuxNextApps", "CmuxNextBridge",
+                           "CmuxNextCompat", "CmuxNextDaemon", "CmuxNextDesign", "CmuxNextHome", "CmuxNextHomeEngine",
+                           "CmuxNextSidebar", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1058,6 +1059,8 @@ let package = Package(
             name: "CmuxNextDesign",
             dependencies: [
                 "CmuxNextCompat",
+                // The shared overflow button's ⋮ glyph (OverflowButton, action.more.vertical).
+                "CmuxNextIcons",
                 "CmuxNextWakeups",
                 .product(name: "CmuxTheme", package: "CmuxTheme"),
                 // cmux-motion's curves and color mix for ColorTransition (cx-3rf4z).
