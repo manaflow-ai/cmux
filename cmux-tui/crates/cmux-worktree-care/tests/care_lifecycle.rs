@@ -502,7 +502,7 @@ fn care_a_claude_session_registered_in_a_worktree_keeps_it() {
     )
     .unwrap();
     let zero = [0, 0, 0];
-    let registry = claude.clone();
+    let registry = claude;
     let options = Options {
         roots: vec![base.clone()],
         sessions: Vec::new(),

@@ -1434,6 +1434,10 @@ path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_media_auto_tour.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_media_path_map.py"
 lane = "linux-guard"
 
@@ -1623,4 +1627,12 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_media_auto_tour.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_fast_gates.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
