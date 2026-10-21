@@ -126,15 +126,15 @@ public nonisolated struct AgentPaneTunables {
         "agent.pageHost", PageTunables.section, "Agent pane on the page host",
         help: "New agent tabs load cmux-page://cmux.agent/ on the shared page host.",
         default: false, code: "AgentPaneTunables.pageHost")
-    /// The agent chat engine spike (Leo 2026-10-20: should cmux's own pages use the Chromium we ship
-    /// for browser tabs?): new agent tabs go on the page host and its page leaves the
+    /// The agent chat in Chromium (Leo 2026-10-20 spike; on by default since Lawrence asked for every
+    /// cmux page in Chromium, 2026-10-21): new agent tabs go on the page host and its page leaves the
     /// ``PageWebKitReason/agentChat`` hold, so it shows in Chromium when `browser.defaultEngine` is
-    /// Chromium. Measuring only: a Chromium page is an opaque child window, so window glass does not
-    /// show through it. The warmed spare stays WebKit.
+    /// Chromium. A Chromium page is an opaque child window, so window glass does not show through
+    /// it. Off keeps the agent chat on WebKit.
     public static let chromium = Tunable<Bool>.toggle(
         "agent.chromium", PageTunables.section, "Agent chat in Chromium (spike)",
         help: "New agent tabs show in Chromium instead of WebKit, on the page host, when the browser engine is Chromium.",
-        default: false, code: "AgentPaneTunables.chromium")
+        default: true, code: "AgentPaneTunables.chromium")
     /// The Inspector at the right of every agent chat, Chief included (cx-ncc.101; Leo 2026-10-20):
     /// Environment, Context, Connectors, Changes, Servers, Subagents, Background tasks and Outputs,
     /// with a header toggle that shows and hides it. On by default; off brings back the summary card.
