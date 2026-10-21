@@ -2246,133 +2246,133 @@
       }
     },
     "settingsWindow.collage.noPictures": {
-      "comment": "Shown when none of a collage's pictures could be read.",
+      "comment": "Shown when a picture in a collage could not be read, so the collage was not saved.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تعذّرت قراءة أي من هذه الصور."
+            "value": "تعذّرت قراءة إحدى صور هذه المجموعة."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nijedna od ovih slika se ne može pročitati."
+            "value": "Jedna od slika u ovom kolažu se ne može pročitati."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen af billederne kunne læses."
+            "value": "Et af billederne i collagen kunne ikke læses."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keines dieser Bilder konnte gelesen werden."
+            "value": "Ein Bild dieser Collage konnte nicht gelesen werden."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "None of these pictures could be read."
+            "value": "A picture in this collage couldn’t be read."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No se pudo leer ninguna de estas imágenes."
+            "value": "No se pudo leer una de las imágenes de este collage."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune de ces images n’a pu être lue."
+            "value": "Une image de ce collage n’a pas pu être lue."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nessuna di queste immagini è leggibile."
+            "value": "Un’immagine di questo collage non è leggibile."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どの画像も読み込めませんでした。"
+            "value": "このコラージュの画像を読み込めませんでした。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "មិនអាចអានរូបភាពណាមួយទាំងនេះបានទេ។"
+            "value": "មិនអាចអានរូបភាពមួយក្នុងកូឡាហ្សនេះបានទេ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 사진들을 하나도 읽을 수 없습니다."
+            "value": "이 콜라주의 사진 중 하나를 읽을 수 없습니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ingen av disse bildene kunne leses."
+            "value": "Et av bildene i denne collagen kunne ikke leses."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nie udało się odczytać żadnego z tych obrazów."
+            "value": "Nie udało się odczytać jednego z obrazów tego kolażu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Não foi possível ler nenhuma destas imagens."
+            "value": "Não foi possível ler uma das imagens desta colagem."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не удалось прочитать ни одно из этих изображений."
+            "value": "Не удалось прочитать одно из изображений этого коллажа."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "อ่านรูปภาพเหล่านี้ไม่ได้เลย"
+            "value": "อ่านรูปภาพหนึ่งในภาพตัดปะนี้ไม่ได้"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bu görsellerin hiçbiri okunamadı."
+            "value": "Bu kolajdaki görsellerden biri okunamadı."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Не вдалося прочитати жодне з цих зображень."
+            "value": "Не вдалося прочитати одне із зображень цього колажу."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Không đọc được ảnh nào trong số này."
+            "value": "Không đọc được một ảnh trong ảnh ghép này."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "这些图片都无法读取。"
+            "value": "无法读取此拼贴中的一张图片。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "這些圖片都無法讀取。"
+            "value": "無法讀取此拼貼中的一張圖片。"
           }
         }
       }

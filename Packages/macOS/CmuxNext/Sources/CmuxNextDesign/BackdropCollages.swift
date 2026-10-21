@@ -170,8 +170,8 @@ public nonisolated struct BackdropCollages: Sendable {
     }
 
     /// The collage drawn on ``canvas``: the fill, then each layer's picture filling its frame
-    /// (cropped to the frame's shape around its center), rounded and faded as set. Nil when no
-    /// layer's picture could be read.
+    /// (cropped to the frame's shape around its center), rounded and faded as set. Nil when a
+    /// layer's picture cannot be read (or there is none): a collage never saves without one.
     static func render(_ collage: BackdropCollage) -> CGImage? {
         let size = canvas
         guard let space = CGColorSpace(name: CGColorSpace.sRGB),
@@ -191,7 +191,7 @@ public nonisolated struct BackdropCollages: Sendable {
                       kCGImageSourceCreateThumbnailFromImageAlways: true,
                       kCGImageSourceCreateThumbnailWithTransform: true,
                       kCGImageSourceThumbnailMaxPixelSize: Int(max(frame.width, frame.height) * 1.5),
-                  ] as CFDictionary) else { continue }
+                  ] as CFDictionary) else { return nil }
             let scale = max(frame.width / CGFloat(picture.width), frame.height / CGFloat(picture.height))
             let drawn = CGRect(x: frame.midX - CGFloat(picture.width) * scale / 2, y: frame.midY - CGFloat(picture.height) * scale / 2,
                                width: CGFloat(picture.width) * scale, height: CGFloat(picture.height) * scale)

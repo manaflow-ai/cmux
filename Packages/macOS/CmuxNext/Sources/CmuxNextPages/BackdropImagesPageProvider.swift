@@ -86,6 +86,7 @@ public final class BackdropImagesPageProvider: PageProvider {
             let invalid = PageError(code: BackdropCollages.SaveError.invalid.code, message: "not a collage")
             guard let value = params["collage"],
                   let collage = try? JSONDecoder().decode(BackdropCollage.self, from: Data(value.compactText.utf8)) else { throw invalid }
+            for layer in collage.layers { try await offered(layer.source) }
             let collages = collages
             do {
                 return ["id": .string(try await Task.detached { try collages.save(collage) }.value)]
@@ -122,6 +123,26 @@ public final class BackdropImagesPageProvider: PageProvider {
             throw PageError.invalidParams("id is not one of your images")
         }
         return selection
+    }
+
+    /// Checks a collage layer is a picture the picker offers, readable now: a painting
+    /// (downloaded first: most do not ship with cmux), a macOS wallpaper or one of your own
+    /// images. Never any file by path: the page reads the collage's drawing back.
+    private func offered(_ source: String) async throws {
+        let invalid = PageError(code: BackdropCollages.SaveError.invalid.code, message: "not a picture the picker offers")
+        switch BackdropSelection(id: source) {
+        case .art(let art):
+            guard await BackdropArtDownloads.shared.file(for: art) != nil else {
+                throw PageError(code: BackdropCollages.SaveError.noPictures.code, message: "a painting did not download")
+            }
+        case .system(let path):
+            let wallpapers = AppleWallpapers.system.desktopPictures.path + "/"
+            guard URL(fileURLWithPath: path).standardizedFileURL.path.hasPrefix(wallpapers) else { throw invalid }
+        case let selection? where images.contains(selection):
+            return
+        default:
+            throw invalid
+        }
     }
 
     private func usage() async throws -> JSONValue {
