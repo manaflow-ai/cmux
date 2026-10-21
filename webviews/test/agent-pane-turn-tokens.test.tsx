@@ -113,7 +113,9 @@ function fakeDaemon(
     socket.onmessage?.({ data: JSON.stringify({ jsonrpc: "2.0", method, params }) });
   /// The connection drops; the client opens a new one and attaches again.
   const drop = () => socket.onclose?.({ code: 1006, reason: "", wasClean: false });
-  return { open, push, notify, drop };
+  /// Where the next attach page starts (a long turn outgrows the page).
+  const pageFrom = (seq: number) => (attachFrom = seq);
+  return { open, push, notify, drop, pageFrom };
 }
 
 async function connect(daemon: ReturnType<typeof fakeDaemon>) {
@@ -251,6 +253,31 @@ test("once older pages bring a mid-turn attach's start, every rebuild keeps its 
     daemon.push(record([["mux", "turn_result", { status: "completed" }], prompt("again"), started, call(7_000)], 7));
     await settle();
     expect(snapshot().turnTokens).toBe(7_000);
+  } finally {
+    client.close();
+    if (!hadWindow) delete scope.window;
+  }
+});
+
+test("a reconnect whose page starts after the turn began keeps the count it held", async () => {
+  // The chat was read whole; then the turn outgrows the attach page and the socket drops. The new
+  // page starts mid-turn, but the client still holds every call before it.
+  const daemon = fakeDaemon(record([prompt("fix the build"), started, call(41_200), call(43_800)]));
+  const { client, snapshot } = await connect(daemon);
+  const scope = globalThis as { window?: unknown };
+  const hadWindow = "window" in scope;
+  // The client schedules its reconnect on `window`; this test has no DOM.
+  if (!hadWindow) scope.window = globalThis;
+  try {
+    expect(snapshot().turnTokens).toBe(85_000);
+    daemon.push(record([call(46_000)], 5));
+    await settle();
+    expect(snapshot().turnTokens).toBe(131_000);
+    daemon.pageFrom(4);
+    daemon.drop();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(snapshot().isWorking).toBe(true);
+    expect(snapshot().turnTokens).toBe(131_000);
   } finally {
     client.close();
     if (!hadWindow) delete scope.window;
