@@ -276,8 +276,10 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         connectingView = nil
         DebugTimings.markLaunch("workspace_content_shown")
         titleObservation?.cancel()
-        titleObservation = Task { [weak self] in
-            for await title in ObservationStream({ workspace.displayName }) { self?.root.titlebar.title = title }
+        // Named as its sidebar row is (`WorkspaceAutoNameReader.titlebarName`): a workspace on the
+        // daemon's default name reads as its front tab (a torn-off chat's window read "workspace-41").
+        titleObservation = Task { [weak self, names = WorkspaceAutoNameWiring(services: services), selection = state.selection] in
+            for await title in ObservationStream({ names.reader.titlebarName(workspace) { selection.selection(in: $0.id) } }) { self?.root.titlebar.title = title }
         }
         // The new workspace's panes: the coordinator restores its pane and, now that the content is installed, re-applies it.
         controller.didShow()
@@ -511,7 +513,7 @@ final class ShellWindow: NSWindow, OverlayPlaneHosting, BrowserWindowOcclusionPr
     var editTeardown = (depth: 0, pending: false)
 
     override func makeFirstResponder(_ responder: NSResponder?) -> Bool {
-        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: controller.focus.state.pane, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
+        if let controller = windowController as? WindowController, AgentPaneView.refusesSelfFocus(responder, inInputEvent: (NSApp as? CmuxApplication)?.isHandlingSendEvent() == true, focusModelApplies: controller.focus.isApplying, focusedPane: { controller.focus.currentState().pane }, pane: { if case .content(let pane) = FocusResponderClassifier.classify($0, in: controller) { pane } else { nil } }) { return false }
         let accepted = BenchSpans.measure("window.makeFirstResponder") { super.makeFirstResponder(responder) }
         if accepted { cursorRectHold?.firstResponderDidChange(in: self); BenchSpans.measure("focus.reportResponder") { reportResponder() } }
         return accepted

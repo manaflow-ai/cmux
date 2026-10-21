@@ -6,6 +6,12 @@ extension Strings {
     /// The bell's tooltip while the view is hidden or shown (the shortcut follows).
     static var priorityShow: String { String(localized: "sidebar.priority.show", defaultValue: "Show Priority View", bundle: .module) }
     static var priorityHide: String { String(localized: "sidebar.priority.hide", defaultValue: "Hide Priority View", bundle: .module) }
+    /// After the bell's label while its dot shows: how many chats the dot stands for
+    /// (`SidebarPriorityPanel.attentionCount`: waiting on the person, finished unseen, failed or
+    /// lost), so not "Needs you", which is only one of those states.
+    static func priorityAttentionCount(_ count: Int) -> String {
+        String(localized: "sidebar.priority.attentionCount", defaultValue: "Needs attention: \(count)", bundle: .module)
+    }
     static var priorityEmpty: String {
         String(localized: "sidebar.priority.empty", defaultValue: "No agent chats right now", bundle: .module)
     }

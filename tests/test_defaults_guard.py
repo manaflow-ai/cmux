@@ -478,6 +478,20 @@ class SettingsExportStampTests(unittest.TestCase):
         self.assertIn("cmux-next-pr-autofix.yml", result.stdout)
         self.assertIn("scripts/cmux-next/regenerate-settings-exports.sh", result.stdout)
 
+    def test_source_stamp_prints_the_stamp_a_ref_s_sources_give(self):
+        """base-autofix-push.sh lands settings exports past a settings-area move only when the tip's
+        sources give the very stamp the exports carry; this is the stamp it compares."""
+        head = self.repo.git("rev-parse", "HEAD")
+        result = self.repo.guard("source-stamp", "--ref", head)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout, self.repo.root.joinpath(STAMP).read_text())
+        self.repo.write(f"{SETTINGS_SOURCES}/README.md", "still not an input\n")
+        notes = self.repo.commit("a note beside the sources", snapshot=False)
+        self.assertEqual(self.repo.guard("source-stamp", "--ref", notes).stdout, result.stdout)
+        self.repo.write(f"{SETTINGS_SOURCES}/Beta.swift", "// beta, edited\n")
+        edited = self.repo.commit("a source edit", snapshot=False)
+        self.assertNotEqual(self.repo.guard("source-stamp", "--ref", edited).stdout, result.stdout)
+
 
 if __name__ == "__main__":
     unittest.main()

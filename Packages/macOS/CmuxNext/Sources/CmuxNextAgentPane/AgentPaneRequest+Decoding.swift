@@ -109,6 +109,8 @@ extension AgentPaneRequest {
             } else {
                 self = .unsupported(method)
             }
+        case "run.attach":
+            self = AgentPaneRunAttach(params: params ?? [:]).map(AgentPaneRequest.runAttach) ?? .invalidRunAttach
         case "tab.typeAhead":
             if let text = params?["text"] as? String {
                 self = .typeAhead(String(text.prefix(Self.maximumOpenTabText)))
@@ -197,6 +199,14 @@ extension AgentPaneRequest {
         case "workspace.chooseFolder": self = .chooseFolder
         case "chat.folder.choose": self = .chooseChatFolder
         case "chat.attach.choose": self = .chooseAttachments
+        case "chat.attach.dropped":
+            if let kind = (params?["kind"] as? String).flatMap(AgentPaneDroppedPaths.Kind.init(rawValue:)),
+               let names = params?["names"] as? [String], (1...AgentPaneDroppedPaths.maximumNames).contains(names.count),
+               names.allSatisfy(AgentPaneDroppedPaths.isAskedName) {
+                self = .attachDropped(kind, names: names)
+            } else {
+                self = .unsupported(method)
+            }
         case "workspace.useFolder":
             // Any text: a path that is not an existing absolute folder is refused by the host
             // (`transport.path_invalid`), so the page never takes it for an older host.
@@ -251,7 +261,7 @@ extension AgentPaneRequest {
         case "chat.newHere":
             if let cwd = (params?["cwd"] as? String).flatMap(Self.headerFolder) { self = .newChatHere(cwd) } else { self = .unsupported(method) }
         case "chat.openTab":
-            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id) } else { self = .unsupported(method) }
+            if let id = params?["sessionId"] as? String, !id.isEmpty, id.count <= 256 { self = .chatTab(id, AgentForkDestination(placement: params?["placement"] as? String)) } else { self = .unsupported(method) }
         case "chat.upload":
             if let files = AgentPaneUpload.files(params) { self = .upload(files) } else { self = .unsupported(method) }
         case "chat.toolCard.respond":

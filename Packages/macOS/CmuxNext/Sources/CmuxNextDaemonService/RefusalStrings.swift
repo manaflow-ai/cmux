@@ -101,7 +101,7 @@ public nonisolated enum RefusalStrings {
     /// A feature with no implementation in this build.
     static var notInThisVersion: String { text("handlers.refusal.notInThisVersion", "Not available in this version of cmux yet.") }
     /// The local daemon has not answered yet (first connection or a restart).
-    static var daemonConnecting: String {
+    public static var daemonConnecting: String {
         text("handlers.refusal.daemonConnecting", "cmux is still starting its background service. Try again in a moment.")
     }
     /// The local daemon could not start (the window shows why).

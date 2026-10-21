@@ -202,7 +202,7 @@ export function ComposerPickers({
   // probe alone (a timeout) keeps it.
   // Once a chat has a message its harness is fixed (Leo 2026-10-13): the picker lists that
   // harness's models only, with no harness rail and no Add harness… (Leo 2026-10-19: a rail of one
-  // harness, then Add harness…, read as an offer to switch), and another harness is Continue in…,
+  // harness, then Add harness…, read as an offer to switch), and another harness is Continue In…,
   // never a pick. Debug Settings' "Allow switching harness in a started chat" (`harnessSwitch`)
   // keeps the whole rail and its switch.
   const locked = !harnessSwitch && !!summary?.harness && ((summary.turnCount ?? 0) > 0 || snapshot.rows.length > 0);
@@ -1145,6 +1145,7 @@ export function Picker({
   warnUnrestricted = false,
   returnFocus = true,
   heading,
+  tooltip,
 }: {
   label: string;
   className: string;
@@ -1156,6 +1157,9 @@ export function Picker({
   returnFocus?: boolean;
   /// A question over the choices, as an approval menu asks it.
   heading?: string;
+  /// What the menu holds, as the trigger's tooltip: only a trigger that draws an icon and no text
+  /// passes one (a picker showing its choice's name needs none).
+  tooltip?: string;
 }) {
   const [open, setOpen] = useState(false);
   const [active, setActive] = useState(0);
@@ -1290,6 +1294,8 @@ export function Picker({
         className="acpmux-picker-button"
         data-menu={label}
         aria-label={label}
+        // tooltip-allow: only an icon-only trigger (the composer's +) passes a tooltip.
+        title={tooltip}
         aria-haspopup="listbox"
         aria-expanded={open}
         aria-controls={open ? menuId : undefined}

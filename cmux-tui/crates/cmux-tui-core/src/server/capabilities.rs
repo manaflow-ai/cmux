@@ -43,6 +43,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
+        capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
     }
     if mux.host_replica().is_some_and(|replica| replica.running()) {
         capabilities.push(cloud_host_replica::CAPABILITY);
@@ -77,6 +78,8 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(agent_inventory::watch::ADMISSION_CAPABILITY);
         capabilities
             .push(agent_session_attach::agent_session_observe::AGENT_SESSION_OBSERVE_CAPABILITY);
+        capabilities
+            .push(agent_session_attach::agent_session_children::AGENT_SESSION_CHILDREN_CAPABILITY);
     }
     #[cfg(unix)]
     if mux.serves_agent_session_start() {

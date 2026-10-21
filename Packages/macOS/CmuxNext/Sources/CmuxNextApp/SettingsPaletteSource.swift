@@ -130,6 +130,8 @@ final class SettingsPaletteSource: PaletteSettingsSource {
             PaletteSettingCustomInput(placeholder: "\(number.range.lowerBound.formatted())–\(number.range.upperBound.formatted())") {
                 parse($0, for: descriptor) != nil
             }
+        case .choiceOrURL:
+            PaletteSettingCustomInput(placeholder: "http://mini.tail1234.ts.net:7320") { parse($0, for: descriptor) != nil }
         case .sound, .url, .theme, .fontFamily, .text:
             PaletteSettingCustomInput(placeholder: descriptor.title) { parse($0, for: descriptor) != nil }
         }
@@ -140,6 +142,9 @@ final class SettingsPaletteSource: PaletteSettingsSource {
         let trimmed = text.trimmingCharacters(in: .whitespaces)
         let candidate: JSONValue = switch descriptor.kind {
         case .number, .choiceOrNumber: Double(trimmed).map(JSONValue.number) ?? .string(trimmed)
+        // A typed address is the object form (`{"selfHosted": url}`); a choice stays its string.
+        case .choiceOrURL(let choices, let urlKey):
+            choices.contains { $0.value == trimmed } ? .string(trimmed) : .object([urlKey: .string(trimmed)])
         default: .string(trimmed)
         }
         return descriptor.accepts(candidate) ? candidate : nil
