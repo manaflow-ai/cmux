@@ -36,6 +36,11 @@ pub struct SessionSummary {
     /// The session whose agent started this one (its `spawnedBy` tag), kept
     /// only while that parent is listed; one level.
     pub spawned_by: Option<String>,
+    /// The pull request URLs its `gh pr create` calls printed, oldest first;
+    /// absent from a peer on an older acpmux.
+    #[serde(default)]
+    #[schemars(default)]
+    pub pull_requests: Vec<String>,
     /// The session whose agent started this one with its `start_session`
     /// tool (`hub/subsessions.rs`); null for a session a person or client
     /// started. Kept when the parent is closed or gone, so a client draws
@@ -310,14 +315,29 @@ pub struct LastTurn {
     pub ended_at: u64,
 }
 
+/// Also the page fields of `_acpmux/watch` (`hub::session_pages`).
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 #[schemars(deny_unknown_fields)]
-pub struct SessionsParams {}
+pub struct SessionsParams {
+    /// Page size, at least 1. Without it the reply is the whole list.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[schemars(range(min = 1))]
+    pub limit: Option<u64>,
+    /// A previous reply's `nextCursor`: the page starts after that session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cursor: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
 pub struct SessionsResult {
-    /// Local and peer sessions, newest first.
+    /// Local and peer sessions, newest first, then by `sessionId`.
     pub sessions: Vec<SessionSummary>,
+    /// With `limit`: the cursor for the next page, null when the list is
+    /// done. Absent without `limit`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub next_cursor: Option<Option<String>>,
 }
 
 /// A purged session: only its id is left.

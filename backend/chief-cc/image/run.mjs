@@ -7,6 +7,7 @@
 // root-only input file, which is removed at start.
 import { spawn } from "node:child_process"
 import { readFileSync, rmSync, writeFileSync, renameSync } from "node:fs"
+import { createServer } from "node:http"
 
 const run = process.argv[2] ?? ""
 if (!/^run_[0-9]{1,15}$/.test(run)) process.exit(2)
@@ -39,6 +40,50 @@ const note = (ev, now = false) => {
   if (now || queue.length >= 200) flush()
   else if (!timer) timer = setTimeout(flush, 60)
 }
+
+// The Chief's network tool (chief-net.mjs, run by the agent user) on 127.0.0.1:4018, the one local port
+// besides the model forward that the agent's table (apps/api/src/chief-brain-cc/net.ts) leaves open. GET
+// shows the settings; PUT sends a change to the Worker, which checks it, keeps it for the Chief's next
+// turns and answers the script, and root applies that here at once. One change at a time.
+let net = input.net ?? null
+const provider = input.provider ?? null
+let changing = Promise.resolve()
+const applyNet = (script) =>
+  new Promise((done) => {
+    const p = spawn("/bin/bash", ["-s"], { stdio: ["pipe", "pipe", "pipe"] })
+    let out = ""
+    let err = ""
+    p.stdout.on("data", (d) => (out += d))
+    p.stderr.on("data", (d) => (err = (err + d).slice(-1000)))
+    p.on("close", (code) => done({ ok: code === 0 && out.includes("net ok"), err: err.trim() }))
+    p.stdin.end(script)
+  })
+const changeNet = async (patch) => {
+  const r = await fetch(notesUrl, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify({ run, net: patch }), signal: AbortSignal.timeout(15_000) }).catch(() => null)
+  const body = await r?.json().catch(() => null)
+  if (!r?.ok || !body?.net) return [r?.status === 400 ? 400 : 502, { error: body?.error ?? `the change was not saved (${r?.status ?? "no answer"})` }]
+  const applied = await applyNet(body.script)
+  if (!applied.ok) return [500, { error: `saved for the next turns, but not applied now: ${applied.err}`, net: body.net }]
+  net = body.net
+  return [200, { net, provider, ...(applied.err ? { warnings: applied.err } : {}) }]
+}
+createServer((req, res) => {
+  const reply = ([status, body]) => [res.writeHead(status, { "content-type": "application/json" }), res.end(`${JSON.stringify(body, null, 2)}\n`)]
+  if (req.url !== "/net") return reply([404, { error: "GET or PUT /net" }])
+  if (req.method === "GET") return reply([200, { net, provider }])
+  if (req.method !== "PUT") return reply([405, { error: "GET or PUT /net" }])
+  let text = ""
+  req.on("data", (d) => (text += d).length > 65_536 && req.destroy())
+  req.on("end", () => {
+    let patch
+    try {
+      patch = JSON.parse(text)
+    } catch {
+      return reply([400, { error: "the change must be JSON" }])
+    }
+    changing = changing.then(() => changeNet(patch).catch((e) => [500, { error: String(e).slice(0, 300) }])).then(reply)
+  })
+}).listen(4018, "127.0.0.1")
 
 const env = {
   HOME: "/home/chief",

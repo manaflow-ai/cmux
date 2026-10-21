@@ -305,6 +305,27 @@ export interface PermissionRespondParams {
 
 export type PermissionRespondResult = Record<string, unknown>;
 
+/**
+ * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
+ * to the background, and the one tool call to move (none: every
+ * foreground task, as Claude Code's own Ctrl-B does).
+ */
+export interface ProcessBackgroundParams {
+  /** The chat's id, name or unique prefix. */
+  sessionId: string;
+  /** Only the task this tool call started. */
+  toolCallId?: (string | null);
+}
+
+export type ProcessBackgroundResult = {
+  /**
+   * Claude Code moved something: the tasks arrive as `process_update`s
+   * with origin `user_backgrounded`. False when nothing ran in the
+   * foreground (or no turn ran).
+   */
+  backgrounded: boolean;
+} & Record<string, unknown>;
+
 /** A purged session: only its id is left. */
 export type PurgedSession = {
   sessionId: string;
@@ -415,6 +436,11 @@ export type SessionSummary = {
   pendingPermissions: number;
   policy?: (string | null);
   preview?: (string | null);
+  /**
+   * The pull request URLs its `gh pr create` calls printed, oldest first;
+   * absent from a peer on an older acpmux.
+   */
+  pullRequests?: string[];
   queue: QueuedPromptSummary[];
   /** A turn failed: the prompts behind it wait for a client to resume them. */
   queuePaused: boolean;
@@ -459,10 +485,21 @@ export type SessionSummary = {
   updatedAt: number;
 } & Record<string, unknown>;
 
-export type SessionsParams = Record<string, never>;
+/** Also the page fields of `_acpmux/watch` (`hub::session_pages`). */
+export interface SessionsParams {
+  /** A previous reply's `nextCursor`: the page starts after that session. */
+  cursor?: (string | null);
+  /** Page size, at least 1. Without it the reply is the whole list. */
+  limit?: (number | null);
+}
 
 export type SessionsResult = {
-  /** Local and peer sessions, newest first. */
+  /**
+   * With `limit`: the cursor for the next page, null when the list is
+   * done. Absent without `limit`.
+   */
+  nextCursor?: (string | null);
+  /** Local and peer sessions, newest first, then by `sessionId`. */
   sessions: SessionSummary[];
 } & Record<string, unknown>;
 

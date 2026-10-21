@@ -98,3 +98,26 @@ test("a hidden row after the chat's last footer leaves it the last one", () => {
   expect(heights[1]).toBe(32);
   expect(heights[2]).toBe(0);
 });
+
+test("another agent's message is its 26px line in 2px margins and the 8px message gap", () => {
+  const message = { from: "cmux16/glass-lens", text: "Draft is up." };
+  const [height] = heightsOf([
+    { id: "m", version: 1, at: 0, kind: "user", text: "Draft is up.", incoming: { kind: "message", message } },
+  ]);
+  expect(height).toBe(2 + 26 + 2 + 8);
+});
+
+test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {
+  const [height] = heightsOf([
+    { id: "n", version: 1, at: 0, kind: "user", text: "Task done", incoming: { kind: "notice", text: "Task done" } },
+  ]);
+  expect(height).toBe(2 + 26 + 8);
+});
+
+test("a steer the agent has not read adds its Send now line under the steer's status", () => {
+  const steer = (state: string) => ({ id: "s", version: 1, at: 0, kind: "user", text: "Also this", steer: state });
+  const [landed] = heightsOf([steer("landed")]);
+  const [waiting] = heightsOf([steer("waiting")]);
+  // `.cv-user__pending`: 4px above a 16px line.
+  expect(waiting! - landed!).toBe(20);
+});

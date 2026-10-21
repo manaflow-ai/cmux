@@ -247,6 +247,39 @@ def run_hostname(rid, sid):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+def run_gh_pr_create(rid, sid):
+    """"gh-pr-create": opens two pull requests as Claude Code and codex-acp report them (the
+    command only on the tool call, the URL only in its result), views a third that it did not
+    open, shows the first again, greps for "gh pr create", and chains a view after a create."""
+    calls = [
+        ("pr-1", "gh pr create --fill", {"command": "gh pr create --fill"},
+         "https://github.com/manaflow-ai/cmux/pull/7\n"),
+        ("pr-2", "Run gh pr create", {"command": ["bash", "-lc", "gh pr create -B main --title x"]},
+         "Creating pull request for b into main\n\nhttps://github.com/manaflow-ai/cmux-tui/pull/8"),
+        ("view-1", "gh pr view 9", {"command": "gh pr view 9 --json url"},
+         '{"url":"https://github.com/manaflow-ai/cmux/pull/9"}'),
+        ("pr-3", "gh pr create --fill", {"command": "gh pr create --fill"},
+         "https://github.com/manaflow-ai/cmux/pull/7"),
+        # gh exits 1 when the branch has a pull request already, printing its URL: not opened now.
+        ("pr-5", "gh pr create --fill", {"command": "gh pr create --fill"},
+         "a pull request for branch \"c\" into branch \"main\" already exists:\nhttps://github.com/manaflow-ai/cmux/pull/12",
+         "failed"),
+        # Mentions gh pr create but runs grep: not counted.
+        ("grep-1", "grep -rn 'gh pr create' notes", {"command": "grep -rn 'gh pr create' notes"},
+         "https://github.com/manaflow-ai/cmux/pull/10"),
+        # gh pr create is not its whole command: the view's pull/11 is not counted.
+        ("pr-4", "gh pr create --fill && gh pr view 11", {"command": "gh pr create --fill && gh pr view 11 --json url -q .url"},
+         "https://github.com/manaflow-ai/cmux/pull/7\nhttps://github.com/manaflow-ai/cmux/pull/11"),
+    ]
+    for tid, title, raw, out, *status in calls:
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": tid, "title": title, "kind": "execute",
+                     "status": "in_progress", "rawInput": raw})
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": tid, "status": (status or ["completed"])[0],
+                     "content": [{"type": "content", "content": {"type": "text", "text": out}}]})
+    update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "opened"}})
+    send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
 def handle_prompt(rid, params):
     sid = params["sessionId"]
     blocks = params.get("prompt", [])
@@ -261,6 +294,8 @@ def handle_prompt(rid, params):
         return
     if os.environ.get("FAKE_ASK_MODE") == "1" and "hostname" in text:
         return run_hostname(rid, sid)
+    if text == "gh-pr-create":
+        return run_gh_pr_create(rid, sid)
     # Connection-loss simulation for auto-resume tests. "net-fail-once: X" fails that prompt
     # with a transport error once per session; "net-down" fails it and every later prompt of
     # the session the same way. Any other prompt after a net-fail-once is answered as usual.
@@ -737,6 +772,17 @@ CLAUDE_MODELS = [("default", "Default"), ("claude-opus-5-5", "Opus 5.5"), ("clau
                  ("claude-haiku-5-5", "Haiku 5.5"), ("claude-fable-5-1", "Fable 5.1")]
 
 
+def stdin_lines(early):
+    """stdin's lines, starting with the bytes read while waiting at the start gate."""
+    if early:
+        if not early.endswith(b"\n"):
+            early += sys.stdin.buffer.readline()
+        # Split and decoded as stdin is: only at newlines (serde_json leaves U+2028 unescaped).
+        import io
+        yield from io.TextIOWrapper(io.BytesIO(early), encoding=sys.stdin.encoding, errors=sys.stdin.errors)
+    yield from sys.stdin
+
+
 def main():
     global LAST_MCP_SERVERS
     # `--fake-login` (the terminal sign-in): sign in and exit.
@@ -748,13 +794,21 @@ def main():
         import signal
         signal.signal(signal.SIGTERM, signal.SIG_IGN)
     # FAKE_START_GATE=<path>: start (read stdin) only once that file exists: a slow agent start.
+    # It still watches stdin while it waits: once the daemon that started it is gone (EOF), it exits, so a
+    # test that never opens the gate leaves no agent behind (257 of them polled forever on huge-blue, 2026-10-21).
+    # What arrives meanwhile is kept for after the gate.
     gate = os.environ.get("FAKE_START_GATE")
+    early = b""
     if gate:
-        import time
+        import select
         while not os.path.exists(gate):
-            time.sleep(0.02)
+            if select.select([sys.stdin.fileno()], [], [], 0.02)[0]:
+                chunk = os.read(sys.stdin.fileno(), 65536)
+                if not chunk:
+                    return
+                early += chunk
     sessions = 0
-    for line in sys.stdin:
+    for line in stdin_lines(early):
         line = line.strip()
         if not line:
             continue
