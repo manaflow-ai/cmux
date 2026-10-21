@@ -282,6 +282,33 @@ describe("Hexclave mirror reconcile", () => {
     expect(inbox.rows.has("msg_seat_retry")).toBe(false);
   });
 
+  test("a failed seat dirty mark for a membership discovered by user update is retried", async () => {
+    let available = true;
+    const dirtyTeamIds: string[] = [];
+    const { hexclave, inbox, post, retry } = harness({
+      sync: {
+        markTeamSeatsDirty: async (teamId) => {
+          if (!available) throw new Error("seat queue unavailable");
+          dirtyTeamIds.push(teamId);
+        },
+      },
+    });
+    seed(hexclave);
+    await post("user.created", serverUser());
+    dirtyTeamIds.length = 0;
+    hexclave.teams.set(OTHER_TEAM_ID, serverTeam({ id: OTHER_TEAM_ID, display_name: "Other" }));
+    hexclave.addMember(OTHER_TEAM_ID, USER_ID);
+    available = false;
+
+    await post("user.updated", serverUser(), "msg_user_seat_retry");
+    expect(inbox.rows.get("msg_user_seat_retry")).toMatchObject({ attempts: 1 });
+    available = true;
+    await retry();
+
+    expect(dirtyTeamIds.sort()).toEqual([OTHER_TEAM_ID, TEAM_ID].sort());
+    expect(inbox.rows.has("msg_user_seat_retry")).toBe(false);
+  });
+
   test("every event type reconciles from Hexclave, not from its payload", async () => {
     for (const type of hexclaveWebhookEventTypes) {
       const { hexclave, mirror, post } = harness();
