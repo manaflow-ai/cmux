@@ -49,10 +49,15 @@ enum DebugTimings {
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }()
 
+    /// Milliseconds since the process started, on the launch marks' clock.
+    nonisolated static func millisecondsSinceProcessStart(at date: Date = Date()) -> Double {
+        date.timeIntervalSince(processStart) * 1_000
+    }
+
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        let ms = date.timeIntervalSince(processStart) * 1_000
+        let ms = millisecondsSinceProcessStart(at: date)
         let first = launchMarks.withLock { marks in
             guard !marks.contains(where: { $0.name == name }) else { return false }
             marks.append((name, ms))
@@ -67,6 +72,9 @@ enum DebugTimings {
     }
 
     static func install() {
+        #if DEBUG
+        DebugWindowRecord.watchLaunch()
+        #endif
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
