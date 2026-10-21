@@ -9864,6 +9864,22 @@
         "ty": "uint16",
         "nullable": true
       },
+      "/split": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/split/direction": {
+        "ty": "string",
+        "required": true
+      },
+      "/split/pane_id": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/split/split_id": {
+        "ty": "string",
+        "nullable": true
+      },
       "/title": {
         "ty": "string",
         "nullable": true
