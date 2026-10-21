@@ -22,12 +22,7 @@ export function WhereIsEverybodyView({ data, strings, now, placement, onOpenAgen
       <div className="cv-toolbar">
         <ul className="cv-counts">
           {STATES.map((state) => (
-            <li
-              key={state}
-              className="cv-count"
-              data-state={state}
-              data-zero={counts[state] ? undefined : ""}
-            >
+            <li key={state} className="cv-count" data-state={state} data-zero={counts[state] ? undefined : ""}>
               <StateMark state={state} strings={strings} />
               <span className="cv-count-label">{strings.t(stateKey(state))}</span>
               <span className="cv-count-value">{counts[state]}</span>
