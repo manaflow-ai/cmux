@@ -57,7 +57,7 @@ not in `cmux`):
 | Metric | macOS (no root) | Linux |
 |---|---|---|
 | CPU-seconds, CPU % | `proc_pid_rusage(RUSAGE_INFO_V6)` user + system | `/proc/pid/stat` |
-| wakeups/s | `ri_pkg_idle_wkups + ri_interrupt_wkups` | voluntary context switches of every thread |
+| wakeups/s | `ri_interrupt_wkups` (all wakeups from idle; `ri_pkg_idle_wkups`, a subset, is 0 on Apple silicon and is reported apart) | voluntary context switches of every thread |
 | RSS, footprint | `ri_resident_size`, `ri_phys_footprint` (Activity Monitor "Memory") | VmRSS, Pss |
 | peak footprint | sum of each kind's peak over 0.5-2 s samples | same |
 | threads, syscalls | `proc_pidinfo(PROC_PIDTASKINFO)` | `/proc/pid/status`, `/proc/pid/io` syscr+syscw |

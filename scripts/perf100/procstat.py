@@ -3,9 +3,11 @@
 macOS (one call per process, no wakeup of the process read):
   proc_pid_rusage(RUSAGE_INFO_V6), u64 words:
     2, 3   ri_user_time, ri_system_time (mach ticks)       -> cpu_ns
-    4      ri_pkg_idle_wkups                               -> wakeups (Activity Monitor "Idle Wake Ups",
-                                                              top IDLEW; a subset of interrupt wakeups)
-    5      ri_interrupt_wkups                              -> interrupt_wakeups (every interrupt wakeup)
+    5      ri_interrupt_wkups                              -> wakeups (every wakeup of the process from
+                                                              idle; ri_pkg_idle_wkups is a subset of it)
+    4      ri_pkg_idle_wkups                               -> pkg_idle_wakeups (package-idle exits only;
+                                                              always 0 on Apple silicon, measured
+                                                              2026-10-21 on cmux-lawrence-2)
     8      ri_resident_size                                -> rss
     9      ri_phys_footprint                               -> footprint (Activity Monitor "Memory")
     18, 19 ri_diskio_bytesread / ri_diskio_byteswritten    -> disk_read_io, disk_write_io (I/O that
@@ -39,17 +41,17 @@ IS_MAC = sys.platform == "darwin"
 IS_LINUX = sys.platform.startswith("linux")
 MB = 1048576.0
 
-FIELDS = ("cpu_ns", "wakeups", "interrupt_wakeups", "rss", "footprint", "max_footprint", "threads", "disk_write_logical",
+FIELDS = ("cpu_ns", "wakeups", "pkg_idle_wakeups", "rss", "footprint", "max_footprint", "threads", "disk_write_logical",
           "disk_write_io", "disk_read_io", "syscalls", "csw", "energy_nj")
 # Fields that only grow over a process's life: a window reports last - first.
-CUMULATIVE = ("cpu_ns", "wakeups", "interrupt_wakeups", "disk_write_logical", "disk_write_io", "disk_read_io", "syscalls", "csw",
+CUMULATIVE = ("cpu_ns", "wakeups", "pkg_idle_wakeups", "disk_write_logical", "disk_write_io", "disk_read_io", "syscalls", "csw",
               "energy_nj")
 
 if IS_MAC:
     SOURCES = {
         "cpu": "proc_pid_rusage(RUSAGE_INFO_V6) ri_user_time + ri_system_time",
-        "wakeups": "proc_pid_rusage ri_pkg_idle_wkups (Activity Monitor Idle Wake Ups); ri_interrupt_wkups "
-                   "(a superset) as interrupt_wakeups",
+        "wakeups": "proc_pid_rusage ri_interrupt_wkups (all wakeups from idle; includes ri_pkg_idle_wkups, "
+                   "which is 0 on Apple silicon and reported apart as pkg_idle_wakeups)",
         "rss": "proc_pid_rusage ri_resident_size",
         "footprint": "proc_pid_rusage ri_phys_footprint (Activity Monitor Memory; footprint(1) total)",
         "threads": "proc_pidinfo(PROC_PIDTASKINFO) pti_threadnum",
@@ -129,8 +131,8 @@ def _read_mac(pid: int) -> dict | None:
                                      ctypes.byref(task), ctypes.c_int(size)) == size
     return {
         "cpu_ns": (buf[2] + buf[3]) * _timebase.numer // _timebase.denom,
-        "wakeups": buf[4],
-        "interrupt_wakeups": buf[5],
+        "wakeups": buf[5],
+        "pkg_idle_wakeups": buf[4],
         "rss": buf[8],
         "footprint": buf[9],
         "max_footprint": buf[30],
@@ -195,7 +197,7 @@ def _read_linux(pid: int) -> dict | None:
     return {
         "cpu_ns": (int(fields[11]) + int(fields[12])) * 1_000_000_000 // _CLK,
         "wakeups": switches,
-        "interrupt_wakeups": None,
+        "pkg_idle_wakeups": None,
         "rss": rss,
         "footprint": pss if pss is not None else rss,
         "max_footprint": kb("VmHWM"),
@@ -354,14 +356,14 @@ class Window:
             name = key(row["kind"])
             if name is None:
                 continue
-            e = out.setdefault(name, {"procs": 0, "exited": 0, "cpu_ns": 0, "wakeups": 0, "interrupt_wakeups": 0,
+            e = out.setdefault(name, {"procs": 0, "exited": 0, "cpu_ns": 0, "wakeups": 0, "pkg_idle_wakeups": 0,
                                       "rss": 0, "footprint": 0, "threads": 0, "disk_write_logical": 0,
                                       "disk_write_io": 0, "syscalls": 0, "energy_nj": 0})
             if row["exited"]:
                 e["exited"] += 1
             else:
                 e["procs"] += 1
-            for field in ("cpu_ns", "wakeups", "interrupt_wakeups", "rss", "footprint", "threads",
+            for field in ("cpu_ns", "wakeups", "pkg_idle_wakeups", "rss", "footprint", "threads",
                           "disk_write_logical", "disk_write_io", "syscalls", "energy_nj"):
                 if field in steady and row["exited"]:
                     continue
@@ -377,7 +379,7 @@ class Window:
                 "cpu_s": round(e["cpu_ns"] / 1e9, 3),
                 "cpu_pct": round(100 * e["cpu_ns"] / 1e9 / s, 3),
                 "wakeups_per_s": round(e["wakeups"] / s, 2),
-                "interrupt_wakeups_per_s": round(e["interrupt_wakeups"] / s, 2) if IS_MAC else None,
+                "pkg_idle_wakeups_per_s": round(e["pkg_idle_wakeups"] / s, 2) if IS_MAC else None,
                 "rss_mb": round(e["rss"] / MB, 1),
                 "footprint_mb": round(e["footprint"] / MB, 1),
                 "peak_footprint_mb": round(max(peak, e["footprint"]) / MB, 1),

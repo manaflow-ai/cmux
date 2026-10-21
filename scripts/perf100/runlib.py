@@ -16,7 +16,7 @@ SCHEMA = "perf100.run.v1"
 # harness clients) are reported but stay out of the cmux total.
 CMUX_GROUPS = ("app", "tui", "acpmux", "browser", "helpers")
 GROUP_ORDER = CMUX_GROUPS + ("agents", "workload", "harness")
-GROUP_METRICS = ("procs", "exited_procs", "cpu_s", "cpu_pct", "wakeups_per_s", "interrupt_wakeups_per_s", "rss_mb", "footprint_mb", "peak_footprint_mb",
+GROUP_METRICS = ("procs", "exited_procs", "cpu_s", "cpu_pct", "wakeups_per_s", "pkg_idle_wakeups_per_s", "rss_mb", "footprint_mb", "peak_footprint_mb",
                  "threads", "disk_written_mb", "disk_written_mb_per_min", "disk_io_written_mb", "syscalls_per_s",
                  "energy_mw")
 
