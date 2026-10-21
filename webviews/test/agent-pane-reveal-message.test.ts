@@ -110,6 +110,32 @@ describe("revealing one message", () => {
     expect(scrolled).toEqual(["user-1"]);
   });
 
+  test("a row the reader left behind is dropped, not scrolled into the chat they moved to", async () => {
+    // Row ids start over with each session (`assistant-<seq>`), so the id of a row still waiting to
+    // be drawn can belong to an unrelated row in the chat the pane has moved to.
+    const { root, scrolled, document } = transcript(["user-1"]);
+    let chat: string | undefined = "session-a";
+
+    expect(
+      await revealMessageWhenShown("msg_01", () => "assistant-9", root, {
+        waitMs: 300,
+        pollMs: 10,
+        chat: () => chat,
+      }),
+    ).toBe(true);
+    expect(scrolled).toEqual([]);
+
+    chat = "session-b";
+    const body = document.body as unknown as { innerHTML: string };
+    body.innerHTML += '<div data-row-id="assistant-9">another chat\'s row</div>';
+    const other = document.querySelector('[data-row-id="assistant-9"]');
+    (other as unknown as { scrollIntoView: () => void }).scrollIntoView = () => scrolled.push("assistant-9");
+
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    expect(scrolled).toEqual([]);
+    expect(other?.classList.contains(REVEALED_TURN_CLASS)).toBe(false);
+  });
+
   test("gives up quietly when the message never arrives", async () => {
     const { root, scrolled } = transcript(["assistant-2"]);
 

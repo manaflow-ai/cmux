@@ -3220,7 +3220,11 @@ function AcpmuxPane() {
     // once the transcript has it, and leave the view alone when this session never saw it.
     const message = revealedMessage(value);
     if (message !== undefined) {
-      return void revealMessageWhenShown(message, (id) => showMessage.current(id));
+      // The chat it belongs to goes along: row ids start over with each session, so a row still
+      // waiting to be drawn when the reader moves to another chat is dropped, never scrolled in.
+      return void revealMessageWhenShown(message, (id) => showMessage.current(id), document, {
+        chat: () => shownChat.current,
+      });
     }
     const agent = revealedSubagent(value);
     if (agent === undefined) return void revealTurnWhenShown(value);
@@ -3610,8 +3614,9 @@ function AcpmuxPane() {
   // A wide pane reserves a right-side summary column; a narrow pane keeps the summary as a
   // popover under the header button so it never covers the composer controls.
   const shownSessionId = snapshot.sessionId ?? snapshot.summary?.sessionId;
-  /// The chat shown now, for a permission card's deny with instructions (PermissionAsk), which reads
-  /// it after the deny goes, never a render's stale copy.
+  /// The chat shown now, for a permission card's deny with instructions (PermissionAsk) and for a
+  /// `?message=` link's row waiting to be drawn (`reveal`), both of which read it after the render
+  /// that asked, never a stale copy.
   const shownChat = useRef(shownSessionId);
   useLayoutEffect(() => {
     shownChat.current = shownSessionId;
