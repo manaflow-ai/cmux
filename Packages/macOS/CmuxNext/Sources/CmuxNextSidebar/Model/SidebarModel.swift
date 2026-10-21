@@ -573,7 +573,9 @@ public final class SidebarModel {
     func listOptions() -> SidebarLayoutOptions {
         var o = SidebarLayoutOptions()
         o.filterMatches = filterMatches
-        o.showWorkspaceTabs = showWorkspaceTabs
+        // Workspaces as tabs lists no tab rows under a workspace, as minimal mode.
+        o.workspacesAsTabs = SidebarTunables.workspacesAsTabs.value
+        o.showWorkspaceTabs = showWorkspaceTabs && !o.workspacesAsTabs
         o.collapsedWorkspaces = collapsedWorkspaces
         o.activeWorkspaceID = activeWorkspaceID
         // A group opened by a structural set (another client) forgets its revealed members.

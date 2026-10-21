@@ -31,13 +31,15 @@ pub(crate) struct PromptId {
     /// The id came from `--prompt-id`: the daemon also looks for it in the
     /// session's log, which outlives a daemon restart.
     pub resend: bool,
+    /// `--from`: the prompt is this agent's message (`_meta.acpmux.fromAgent`, `hub/digest.rs`).
+    pub from_agent: Option<String>,
 }
 
 impl PromptId {
     pub(crate) fn new(given: Option<String>) -> Self {
         match given {
-            Some(id) => Self { id, resend: true },
-            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false },
+            Some(id) => Self { id, resend: true, from_agent: None },
+            None => Self { id: uuid::Uuid::now_v7().to_string(), resend: false, from_agent: None },
         }
     }
 
@@ -53,6 +55,9 @@ impl PromptId {
         let mut mux = json!({"steer": steer, "promptId": self.id, "resend": self.resend});
         if let Some(p) = provenance {
             mux["provenance"] = p.clone();
+        }
+        if let Some(name) = &self.from_agent {
+            mux["fromAgent"] = json!(name);
         }
         json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
@@ -698,10 +703,19 @@ async fn collect_once(
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
 }
 
+/// The most JSON a page of the daemon's log may hold (`_acpmux/attach` `maxBytes`; it
+/// defaults to 1 MiB). A reply is read from one page of the newest transcript records; raw
+/// harness lines are left out so they cannot crowd the turn out of it.
+const TRANSCRIPT_PAGE_BYTES: usize = 4 << 20;
+
 /// The assistant reply of one turn, read from the session's log: the last
 /// assistant item between that turn's start and its result.
 async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let events = v.get("events").and_then(Value::as_array).cloned().unwrap_or_default();
     Ok(reply_of_turn(&events, turn))
 }
@@ -737,7 +751,11 @@ pub(crate) async fn last_replies(
     id: &str,
     count: usize,
 ) -> Result<Vec<String>> {
-    let v = client.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 5000})).await?;
+    // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
+    let page = json!({
+        "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
+    });
+    let v = client.request(method::MUX_ATTACH, page).await?;
     let mut t = Transcript::default();
     for e in v.get("events").and_then(Value::as_array).cloned().unwrap_or_default() {
         t.apply_event(&e);
@@ -820,7 +838,8 @@ mod prompt_tests {
         let session = hub.resolve(&id).unwrap();
         assert!(session.turn().is_some(), "the turn should still be running");
         // The same id again is answered by the first run, not a second turn.
-        let again = PromptId { id: prompt.id.clone(), resend: true };
+        let again =
+            PromptId { id: prompt.id.clone(), resend: true, from_agent: prompt.from_agent.clone() };
         let dup = queue_prompt(client.clone(), &id, "slow", false, None, &again).await.unwrap();
         assert_eq!(dup["duplicate"], true);
         let user_messages =

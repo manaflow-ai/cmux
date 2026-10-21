@@ -142,6 +142,10 @@ public actor BrowserImporter {
             batch.extensions = ChromiumExtensionsReader().read(profile: path)
         case (.firefox, .openTabs):
             if let file = FirefoxSessionReader().sessionFile(in: path) { batch.openTabs = FirefoxSessionReader().parse(try Data(contentsOf: file)) }
+        case (.firefox, .searchEngines):
+            batch.searchEngine = FirefoxSearchEngineReader().read(profile: path)
+        case (.safari, .searchEngines):
+            batch.searchEngine = SafariSearchEngineReader().read()
         default:
             return
         }

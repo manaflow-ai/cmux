@@ -136,6 +136,18 @@ public final class MessagesLabHomeView: NSView {
         set { controller.onStop = newValue }
     }
 
+    /// The host's Stop all agents: Option-click on the stop button.
+    public var onStopAll: (() -> Void)? {
+        get { controller.onStopAll }
+        set { controller.onStopAll = newValue }
+    }
+
+    /// The stop button's tooltip while the Chief works; nil: "Stop".
+    public var stopToolTip: String? {
+        get { controller.stopToolTip }
+        set { controller.stopToolTip = newValue }
+    }
+
     /// The window is key and visible (read cursor).
     public var isVisibleToUser: Bool {
         get { projection.isVisibleToUser }

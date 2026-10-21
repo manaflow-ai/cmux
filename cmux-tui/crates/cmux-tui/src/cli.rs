@@ -9,6 +9,8 @@ mod action_hint;
 mod agent_input_hint;
 mod agent_message;
 #[cfg(unix)]
+mod agent_view;
+#[cfg(unix)]
 mod agents;
 #[cfg(unix)]
 mod agents_doctor;
@@ -63,6 +65,8 @@ mod scope_help;
 mod screen_help;
 #[cfg(unix)]
 mod script;
+#[cfg(unix)]
+mod setup;
 mod shorthand;
 #[cfg(unix)]
 mod skew;
@@ -286,6 +290,7 @@ pub fn run(args: &[String], startup_usage: &str) -> i32 {
         .or_else(|| coderouter::run_if_requested(args))
         .or_else(|| apps_run::run_if_requested(args))
         .or_else(|| script::run_if_requested(args))
+        .or_else(|| setup::run_if_requested(args))
         .or_else(|| status::run_args(args))
     {
         return code;
@@ -403,6 +408,9 @@ fn run_app_scope(args: &[String]) -> Option<i32> {
 #[cfg(unix)]
 fn run_app_action_fallback(args: &[String]) -> Option<i32> {
     let (global, command_args) = parse_globals(args).ok()?;
+    if let Some((name, action_args)) = agent_view::action(&command_args) {
+        return app::run_cli_action(&global, &name, &action_args);
+    }
     let words = command_args.iter().take_while(|arg| !arg.starts_with('-')).count();
     if words < 2 {
         return None;
@@ -859,6 +867,7 @@ const ROOT_HELP_SCOPES_SUFFIX: &str = "\
   closed        List and reopen closed tabs, screens, workspaces
   git           Read a repository's status and changes; capture checkpoints
   status        Show loading indicators for scripts and agents
+  setup         Set up cmux from an agent: list tasks, trust, machines, harnesses (JSON)
   sidebar       Manage sidebar views and local plugins
   pairing       Resolve pairing requests
   projection    Read and update frontend projections

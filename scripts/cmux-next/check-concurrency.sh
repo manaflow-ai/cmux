@@ -44,11 +44,17 @@
 #               `nonisolated deinit`, with main-actor cleanup in
 #               `guard Thread.isMainThread else { return }` plus
 #               `MainActor.assumeIsolated { ... }`.
+#   generic main-actor class: in a uiSwiftSettings target it declares
+#               `nonisolated deinit`. Without one its implicit deinit is
+#               isolated, and the Release compile's optimizer crashes on it
+#               (EarlyPerfInliner, swift-frontend 6.3, macOS 14 target: #23050's
+#               FirstMouseHostingView, fixed in #23233; #20408 before it).
 #   workspace opens: `NSWorkspace.shared.open(url)` and the Finder reveal
 #               calls block the main thread in LaunchServices (cx-050n); only
 #               CmuxNextCompat/NSWorkspace+Background.swift makes them.
 #   CHECK_CONCURRENCY_ONLY=crash-class runs only the isolated-deinit,
-#               task-local and workspace-open rules; CI blocks on it.
+#               generic-class deinit, task-local and workspace-open rules; CI
+#               blocks on it.
 #   task-local bindings: only `$local.withValueInTask` (CmuxNextActions/
 #               TaskLocal+InTask.swift) calls `.withValue(`. Bound where no task
 #               is current, a task local lives in the thread's fallback storage,
@@ -167,6 +173,9 @@ MAIN_ACTOR = [
 ]
 
 ISOLATED_DEINIT = re.compile(r"^\s*isolated\s+deinit\b")
+# A generic class declaration (`final class Name<T>`); `nonisolated class` is not main-actor.
+GENERIC_CLASS = re.compile(r"^\s*(@\w+(\([^)]*\))?\s+)*((public|package|internal|private|fileprivate|open|final)\s+)*class\s+\w+\s*<")
+NONISOLATED_DEINIT = re.compile(r"^\s*nonisolated\s+deinit\b")
 # A plain deinit takes the target's default isolation: main-actor in a uiSwiftSettings target.
 PLAIN_DEINIT = re.compile(r"^\s*deinit\b")
 TASK_LOCAL_BINDING = re.compile(r"\.withValue\s*\(")
@@ -186,6 +195,10 @@ def crash_class_hits(code, lines, index, module, main_lines, relative):
     if PLAIN_DEINIT.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]:
         hits.append("deinit of a main-actor class in a main-actor-default target is isolated (its hop traps "
                     "inside an action's task-local scope, cx-t7hu); write nonisolated deinit")
+    if (GENERIC_CLASS.match(code) and module in MAIN_ACTOR_MODULES and main_lines[index]
+            and not declares_nonisolated_deinit(lines, index) and not allowed(lines, index)):
+        hits.append("generic main-actor class with no `nonisolated deinit` (its isolated deinit crashes the Release "
+                    "compile's optimizer, #23050 / #23233); declare `nonisolated deinit {}`")
     if TASK_LOCAL_BINDING.search(code) and relative != TASK_LOCAL_HELPER and not allowed(lines, index):
         hits.append("task local bound with withValue (where no task is current the runtime frees a marker "
                     "with free() that its task allocator made, cx-bpcj); use $local.withValueInTask")
@@ -193,6 +206,25 @@ def crash_class_hits(code, lines, index, module, main_lines, relative):
         hits.append("synchronous NSWorkspace open or reveal (LaunchServices and Finder calls block the main "
                     "thread until the watchdog fires, cx-050n); use openInBackground / revealInBackground")
     return hits
+
+
+def declares_nonisolated_deinit(lines, index):
+    """Whether the class declared at `index` has a `nonisolated deinit` at its own depth."""
+    depth = 0
+    opened = False
+    for line in lines[index:]:
+        code = main_actor_scope.strip(line)  # no braces from string literals or comments
+        if opened and depth == 1 and NONISOLATED_DEINIT.match(code):
+            return True
+        for char in code:
+            if char == "{":
+                depth += 1
+                opened = True
+            elif char == "}":
+                depth -= 1
+        if opened and depth <= 0:
+            return False
+    return False
 
 
 def allowed(lines, index, escape=ALLOW):

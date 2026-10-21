@@ -2,7 +2,7 @@
 // full text wrapped into a tall thin column. A tooltip for truncated text shows the full text,
 // wrapping, up to the source row's width (at least ~480 px), and never narrower than the line.
 // Tooltips also carry a shortcut hint in the secondary ink, like the native one.
-import { afterEach, expect, test } from "bun:test";
+import { afterEach, expect, jest, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { HoverGroup, HoverIntent } from "./hoverIntent";
 import { installTooltips, tooltipWidth } from "./titleTooltips";
@@ -112,13 +112,21 @@ test("rows passing under a scroll do not flash their tooltips; the row under the
   const tip = () => doc.querySelector<HTMLElement>(".ui-title-tooltip")!;
   await hover(a);
   expect(tip().hidden).toBe(false);
-  doc.dispatchEvent(new dom!.window.Event("scroll"));
-  a.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: b }));
-  await hover(b);
-  expect(tip().hidden).toBe(true);
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  expect(tip().hidden).toBe(false);
-  expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Second");
+  // The scroll's quiet time and the frames after it run on a clock the test moves.
+  jest.useFakeTimers();
+  try {
+    doc.dispatchEvent(new dom!.window.Event("scroll"));
+    a.dispatchEvent(new dom!.window.MouseEvent("pointerout", { bubbles: true, relatedTarget: b }));
+    b.dispatchEvent(new dom!.window.MouseEvent("pointerover", { bubbles: true }));
+    // Inside the scroll's quiet time (150 ms) the row under the pointer shows nothing.
+    jest.advanceTimersByTime(100);
+    expect(tip().hidden).toBe(true);
+    jest.advanceTimersByTime(300);
+    expect(tip().hidden).toBe(false);
+    expect(tip().querySelector(".ui-tooltip-text")?.textContent).toBe("Second");
+  } finally {
+    jest.useRealTimers();
+  }
 });
 
 // Leo, 2026-10-14: tooltips showed at once on every control the pointer passed. They wait the hover

@@ -8,8 +8,8 @@
 // The transcript knows commands too: Claude's background Bash calls, those Ctrl-B moved there
 // included (conversation/runInBackground.ts), and their `background_task_update` ends
 // (summary/sessionSummary.ts). `backgroundCommands` merges the two into the one list the
-// Inspector's Background tasks, the summary card, the running turn's line and the transcript's
-// "Running in background" row read. The registry wins: a transcript task whose call started a
+// Inspector's Background tasks, the summary card, the running turn's line and the tray above the
+// composer (subagents/runningTray.ts) read. The registry wins: a transcript task whose call started a
 // listed process is that process.
 import { useEffect, useState } from "react";
 import type { SummaryBackgroundTask } from "../summary/sessionSummary";
@@ -157,6 +157,11 @@ export type BackgroundCommand = {
   endedAt?: number;
 };
 
+/// The key a command enters its list under (ui/presence.ts `useArrivals`): the call that started it,
+/// which stays when the registry lists a command only the transcript knew (its id becomes the
+/// registry's).
+export const arrivalKey = (command: BackgroundCommand) => command.toolCallId ?? command.id;
+
 /// A registry state as a command's: `exited` finished, `killed` stopped.
 const PROCESS_STATE: Record<string, BackgroundCommand["state"]> = {
   running: "running",
@@ -265,4 +270,42 @@ export function splitServers(processes: readonly InspectorProcess[]): {
     else tasks.push(process);
   }
   return { servers, tasks };
+}
+
+/// The ids of the registry's running servers: the Inspector lists those commands under Servers,
+/// never under Background tasks.
+const servingIds = (processes: readonly InspectorProcess[]): ReadonlySet<string> =>
+  new Set(splitServers(processes).servers.map((server) => server.id));
+
+const served = (command: BackgroundCommand, serving: ReadonlySet<string>) =>
+  command.processId !== undefined && serving.has(command.processId);
+
+/// What the Inspector lists: the registry's running servers under Servers, and every other
+/// command (`backgroundCommands`, with all processes passed, so a transcript task a server stands
+/// for is not listed again) under Background tasks.
+export function inspectorLists(
+  processes: readonly InspectorProcess[],
+  transcript: readonly SummaryBackgroundTask[],
+  listed: boolean,
+): { servers: InspectorServer[]; tasks: BackgroundCommand[] } {
+  const servers = splitServers(processes).servers;
+  const serving = servingIds(processes);
+  return {
+    servers,
+    tasks: backgroundCommands(processes, transcript, listed).filter((command) => !served(command, serving)),
+  };
+}
+
+/// The Inspector section a background command opens (App.tsx `openCommands` and
+/// `openTrayCommand`): Background tasks while a command that is not a dev server runs, Servers when
+/// every running command is one (the Inspector draws no Background tasks for those), else
+/// Subagents (only subagents and started chats run). `running` is the chat's running commands,
+/// servers included, as the running line counts them.
+export function backgroundSection(
+  processes: readonly InspectorProcess[],
+  running: readonly BackgroundCommand[],
+): "tasks" | "servers" | "subagents" {
+  const serving = servingIds(processes);
+  if (running.some((command) => !served(command, serving))) return "tasks";
+  return running.length > 0 ? "servers" : "subagents";
 }

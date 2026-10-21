@@ -19,6 +19,9 @@ mod catalog_reload;
 mod complete;
 pub mod composers;
 mod cursor_ext;
+mod digest;
+pub(crate) mod file_uploads;
+pub use file_uploads::FEATURE as FILE_PUT_FEATURE;
 mod fork;
 mod fork_at;
 pub mod forum;
@@ -48,6 +51,7 @@ mod prompt_images;
 mod prompt_ledger;
 mod queue;
 mod queue_edit;
+pub use digest::declared_sender;
 pub use queue::QueuedPrompt;
 mod resolve;
 mod route_switch;
@@ -55,6 +59,7 @@ pub use pool::{PrewarmRequest, RssProbe, tree_rss_bytes};
 pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
+mod git_watch;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -76,6 +81,7 @@ mod tags;
 mod tap;
 mod titles;
 mod tools;
+mod watch;
 pub use new_request::{
     NewRequest, declared_model_json, profile_takes_model_at_spawn, terminal_harness_refusal,
 };
@@ -86,7 +92,7 @@ mod peer_cache;
 mod peer_lease;
 pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET};
+pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET, is_permission_ask};
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -97,6 +103,7 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+mod subsession_answer;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 mod drafts;
@@ -143,12 +150,12 @@ pub const IDLE_CHILD: std::time::Duration = std::time::Duration::from_secs(5 * 6
 /// Git hash and date stamped at build time (see build.rs).
 pub const BUILD: &str = env!("ACPMUX_BUILD");
 
-/// Fan-out item: one appended record for one session. `remote` carries the
-/// peer name and the peer's session summary when the session lives elsewhere.
+/// Fan-out item: one appended record for one session, shared by every receiver, never copied.
+/// `remote` carries the peer name and the peer's summary when the session lives elsewhere.
 #[derive(Debug, Clone)]
 pub struct HubEvent {
     pub session_id: String,
-    pub record: EventRecord,
+    pub record: Arc<EventRecord>,
     pub remote: Option<RemoteRef>,
 }
 
@@ -173,6 +180,8 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// A session above may answer it (`questions::ancestor_answerable`): fixed when it was asked.
+    pub(super) ancestor_may_answer: bool,
     /// The session's status before this prompt made it Waiting (`settle_permission`).
     pub(super) prev_status: SessionStatus,
 }
@@ -222,6 +231,9 @@ pub struct PromptOptions {
     pub interrupt: bool,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
+    /// Another agent's name when it sent the prompt with no provenance: the session a
+    /// connection proved it runs in, or `_meta.acpmux.fromAgent` (`digest.rs`).
+    pub agent: Option<String>,
     /// An automatic continuation (`auto_resume.rs`): runs only while the chat still ends on
     /// this turn, checked again once it holds the turn lock, else refused unrecorded.
     pub after_turn: Option<String>,
@@ -342,6 +354,8 @@ pub struct Hub {
     pub(super) harness_watch: harness_watch::HarnessWatchState,
     /// The settings file watched for start-mode changes (`settings_watch.rs`).
     pub(super) settings_watch: settings_watch::SettingsWatchState,
+    /// The HEAD of each attached session's folder, watched for a checkout (`git_watch.rs`).
+    pub(super) git_watch: git_watch::GitWatchState,
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
@@ -437,6 +451,7 @@ impl Hub {
             start_mode_state: Default::default(),
             harness_watch: Default::default(),
             settings_watch: Default::default(),
+            git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
@@ -573,6 +588,10 @@ impl Hub {
         self.mark_lost_waits(&waiting, &hosted);
         self.mark_unknown_outcomes(&hosted);
         self.restore_queues();
+        // A watched chat goes on following its transcript where it stopped (`watch.rs`).
+        if tokio::runtime::Handle::try_current().is_ok() {
+            sessions.iter().for_each(|s| self.start_watch(s));
+        }
         tracing::info!(
             "loaded the chat logs of {} sessions in {} ms",
             sessions.len(),
@@ -616,6 +635,9 @@ impl Hub {
             let mut meta = session.meta.lock().unwrap();
             meta.event_count += extra;
             meta.last_seq = last;
+            // The log ran ahead of the saved session (a hard stop): a newer command list may be
+            // in that tail, so a client reads the log for it instead of trusting the saved one.
+            meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
     }
@@ -644,6 +666,8 @@ impl Hub {
         // A Claude chat saved without `steering` (an older build) still steers once adopted.
         meta.steering |= crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         let steering = meta.steering;
+        // Until it starts, an adopted chat goes by the agent it last ran (its saved `agentInfo`).
+        let backgrounds_work = crate::claude_stdio::steers_by_info(meta.agent_info.as_ref());
         Arc::new(Session {
             id: meta.id.clone(),
             seq: AtomicU64::new(meta.last_seq),
@@ -675,6 +699,7 @@ impl Hub {
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
             steering: AtomicBool::new(steering),
+            backgrounds_work: AtomicBool::new(backgrounds_work),
             steer_now: Default::default(),
             steer_end: tokio::sync::watch::channel(None).0,
             fork_from: StdMutex::new(None),
@@ -843,7 +868,7 @@ impl Hub {
         }
         let _ = self.events.send(HubEvent {
             session_id: session.id.clone(),
-            record: record.clone(),
+            record: Arc::new(record.clone()),
             remote: None,
         });
         (record, stored)
@@ -1007,7 +1032,8 @@ impl Hub {
     /// may have run to completion.
     pub(super) fn mark_unknown_outcomes(&self, hosted: &std::collections::HashSet<String>) {
         for session in self.sessions() {
-            if hosted.contains(&session.id) {
+            // A watched chat's open turn is the other app's, and goes on (`watch.rs`).
+            if hosted.contains(&session.id) || session.meta().watching.is_some() {
                 continue;
             }
             // Scan the whole log: a long turn can stream far more records
@@ -1038,12 +1064,10 @@ impl Hub {
         }
     }
 
-    /// Saves the session's record; never a purged session's. A late save
-    /// (a generated title after the turn, a tag) would write its record
-    /// back after the purge deleted it, and the next daemon start loaded it
-    /// as a closed session: the Chief's compactor, which purges each node's
-    /// session when the node is built, left about 450 of them in two hours
-    /// (2026-10-20).
+    /// Saves the session's record; never a purged session's. A late save (a generated title after
+    /// the turn, a tag) would write its record back after the purge deleted it, and the next daemon
+    /// start loaded it as a closed session: the Chief's compactor, which purges each node's session
+    /// when the node is built, left about 450 of them in two hours (2026-10-20).
     pub(super) fn save_meta(&self, session: &Session) {
         if session.purged.load(Ordering::SeqCst) {
             return;
@@ -1108,10 +1132,9 @@ impl Hub {
     }
 }
 
-/// `sessions` newest first. Each session's `updated_at` is read once: other
-/// tasks move it at any time (every logged event), and a key that is read
-/// again on each comparison is not a total order, which makes Rust's sort
-/// panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
+/// `sessions` newest first. Each session's `updated_at` is read once: other tasks move it at any
+/// time (every logged event), and a key that is read again on each comparison is not a total order,
+/// which makes Rust's sort panic (the Chief daemon, 2026-10-14). Ties keep the session id order, so
 /// the list is the same for the same values.
 fn newest_first(sessions: Vec<Arc<Session>>) -> Vec<Arc<Session>> {
     let mut keyed: Vec<_> = sessions
