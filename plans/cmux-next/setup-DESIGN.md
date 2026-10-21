@@ -69,9 +69,13 @@ The Chief loads the `cmux-setup` skill (shipped in optchat-chief's
    Claude Code's and Codex's files keep their one writer. The record already
    holding the level is `ok`; `undo` names the level it held before.
    It writes even when an auto-trust rule already answers: acpmux does not
-   count a rule alone as the person's answer (a Web turn still asks). Once
-   #23151 lands, a parent's or main repo's record answers too (`via`);
-   forgetting such a folder must point at `via`, with a test.
+   count a rule alone as the person's answer (a Web turn still asks). A
+   linked worktree, or any folder in a repository, takes the record made for
+   its worktree's root or its repository (#23151; `via` in the result names
+   that folder). That answer already holding the level is `ok`. Forgetting
+   it forgets it at `via`, as the pane's Undo does, so every worktree of the
+   repository asks again; `written` names the folder whose record changed
+   and `through` whether the daemon or the record file took it.
 2. `harness [ID]` (next): `harness doctor` and `login --status` for each
    harness; a missing CLI or sign-in comes back as `needs_user` with the
    login command.

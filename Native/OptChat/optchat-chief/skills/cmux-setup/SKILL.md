@@ -55,7 +55,10 @@ one.
   Trust only a folder the user named or asked you to work in: trust lets
   agents run the folder's own hooks and configs without asking.
   `--level untrusted` records a refusal; `--level unknown` forgets the
-  answer. It never edits Claude Code's or Codex's own files.
+  answer. A worktree shares its repository's answer: `via` names the folder
+  that answer was made for, and forgetting it there makes every worktree of
+  the repository ask again (`written` says which folder changed). It never
+  edits Claude Code's or Codex's own files.
 - Harness install and sign-in: `cmux harness doctor ID --json` names the
   failing step and its fix; `cmux harness login ID` starts the sign-in.
 - Add an ssh machine: `cmux setup machine SSH_TARGET [--name NAME]`. It is
