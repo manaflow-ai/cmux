@@ -29,6 +29,7 @@ export function BackgroundTaskNote({ task }: { task: AcpmuxBackgroundTask }) {
         type="button"
         className="cv-tool cv-bgtask"
         data-state={state}
+        /* tooltip-allow: the row shows the command cut to its working step; the whole command is on hover */
         title={task.command || undefined}
         onClick={() => void openProcessTerminal(task.toolCallId)}
       >

@@ -28,7 +28,7 @@ extension AgentPaneView {
     public static func debugOpenClickedLink(_ url: URL) -> Bool {
         let gestures = AgentPaneUserGestures()
         gestures.record(click: true)
-        return AgentPaneNavigation.openOutside(url, gestures: gestures) { routedOpenURL($0, false) }
+        return AgentPaneNavigation.openOutside(url, gestures: gestures) { routedOpenURL($0, []) }
     }
 }
 #endif

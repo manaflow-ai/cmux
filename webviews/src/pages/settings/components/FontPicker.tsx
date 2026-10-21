@@ -41,8 +41,9 @@ export function FontPicker({
   const [query, setQuery] = useState("");
   const [anchor, setAnchor] = useState<HTMLButtonElement | null>(null);
   // A press on the button while the list is open closes it as a press outside; the click that
-  // follows must not open it again.
-  const closedAt = useRef(0);
+  // follows must not open it again. Never closed yet: no guard, or a click in the page's first
+  // 400 ms would do nothing.
+  const closedAt = useRef(Number.NEGATIVE_INFINITY);
   const showing = useRef<string | null>(null);
   const dwell = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelDwell = () => {
