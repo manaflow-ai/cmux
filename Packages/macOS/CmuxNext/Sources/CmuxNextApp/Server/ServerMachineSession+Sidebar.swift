@@ -19,10 +19,13 @@ extension ServerMachineSession {
             }
         } else {
             // The brain's socket on this Mac: a down brain is unreachable, not "connecting".
+            // Its binary is this Mac's own install, so an older one is the app update's to say
+            // (the sidebar footer and update card), never "Update available" on the row: the
+            // local Chief owner outlives an app update and keeps the old build's capabilities.
             let base = SidebarBridge.machine(for: session.daemon, name: session.name, kind: .server, compatibility: compatibility).status
             status = switch session.daemon.store.connectionState {
             case .failed, .disconnected: base == .updateRequired ? base : .unreachable
-            case .connecting, .connected: base
+            case .connecting, .connected: base == .updateAvailable ? .connected : base
             }
         }
         let detail: String? = switch session.reach.route {
