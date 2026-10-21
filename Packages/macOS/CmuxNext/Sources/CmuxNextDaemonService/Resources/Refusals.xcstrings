@@ -25156,6 +25156,137 @@
         }
       }
     },
+    "handlers.refusal.agentTabRunsOnHost": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "this session runs on %@: open it without a host, or from that machine's workspace"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このセッションは %@ で実行されています: ホストを指定せずに開くか、そのマシンのワークスペースから開いてください"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تعمل هذه الجلسة على %@: افتحها بدون مضيف، أو من مساحة عمل ذلك الجهاز"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ova sesija radi na %@: otvorite je bez hosta ili iz radnog prostora te mašine"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne session kører på %@: åbn den uden en vært, eller fra den maskines arbejdsområde"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "diese Sitzung läuft auf %@: öffne sie ohne Host oder aus dem Arbeitsbereich dieser Maschine"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta sesión se ejecuta en %@: ábrela sin host o desde el espacio de trabajo de esa máquina"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cette session s'exécute sur %@ : ouvrez-la sans hôte, ou depuis l'espace de travail de cette machine"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "questa sessione è in esecuzione su %@: aprila senza host o dall'area di lavoro di quella macchina"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "វគ្គនេះដំណើរការលើ %@៖ បើកវាដោយគ្មានម៉ាស៊ីនមេ ឬពីកន្លែងធ្វើការរបស់ម៉ាស៊ីននោះ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "이 세션은 %@에서 실행 중입니다: 호스트 없이 열거나 해당 머신의 워크스페이스에서 여세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "denne økten kjører på %@: åpne den uten vert, eller fra arbeidsområdet til den maskinen"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ta sesja działa na %@: otwórz ją bez hosta lub z obszaru roboczego tej maszyny"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "esta sessão é executada em %@: abra-a sem um host ou a partir do espaço de trabalho dessa máquina"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "этот сеанс работает на %@: откройте его без указания хоста или из рабочего пространства этой машины"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซสชันนี้ทำงานบน %@: เปิดโดยไม่ระบุโฮสต์ หรือเปิดจากเวิร์กสเปซของเครื่องนั้น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "bu oturum %@ üzerinde çalışıyor: ana makine belirtmeden veya o makinenin çalışma alanından açın"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "цей сеанс працює на %@: відкрийте його без хоста або з робочого простору тієї машини"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "phiên này chạy trên %@: hãy mở mà không chỉ định máy chủ, hoặc từ không gian làm việc của máy đó"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此会话运行在 %@ 上：请不指定主机打开，或从该机器的工作区打开"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "此工作階段在 %@ 上執行：請不指定主機開啟，或從該機器的工作區開啟"
+          }
+        }
+      }
+    },
     "handlers.refusal.unknownLocalhostChoice": {
       "extractionState": "manual",
       "localizations": {
