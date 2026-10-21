@@ -64,6 +64,11 @@ pub(super) async fn route(
     m: &str,
     params: Value,
 ) -> Result<Value, RpcError> {
+    // A read-only paired machine reads, nothing else (`pairing.rs`), before any dispatcher.
+    let params = super::pairing::gate(conn, m, params)?;
+    if let Some(reply) = super::pairing::dispatch(hub, conn, m, &params).await {
+        return reply;
+    }
     // The secret methods check their own callers and never reach a peer (`secrets.rs`).
     if let Some(reply) = super::secrets::dispatch(hub, conn, m, &params).await {
         return reply;
