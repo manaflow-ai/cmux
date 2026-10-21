@@ -18,12 +18,13 @@ import Foundation
         -> (source: AgentPaneSource?, host: any AgentPaneHostProviding) {
         #if DEBUG
         let allowsDevServer = true
+        // Debug only: `CMUX_NEXT_AGENT_PANE_NONE=1` acts as a build without the page (tests of its refusals).
+        let bundledPage = environment["CMUX_NEXT_AGENT_PANE_NONE"] == "1" ? nil : AgentPaneView.bundledPage
         #else
         let allowsDevServer = false
+        let bundledPage = AgentPaneView.bundledPage
         #endif
-        let source = AgentPaneSource.resolve(
-            environment: environment, bundledPage: AgentPaneView.bundledPage, allowsDevServer: allowsDevServer
-        )
+        let source = AgentPaneSource.resolve(environment: environment, bundledPage: bundledPage, allowsDevServer: allowsDevServer)
         if showcase || environment["CMUX_NEXT_AGENT_PANE_MOCK"] == "1" {
             return (source, MockAgentPaneHost())
         }
