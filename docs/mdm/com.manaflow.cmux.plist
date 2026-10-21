@@ -874,6 +874,18 @@
 		</dict>
 		<dict>
 			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>When an agent in a sub-session asks a question, the session that started it can answer, and the answer shows who gave it. Permission requests always wait for you. Off: only you answer.</string>
+			<key>pfm_name</key>
+			<string>agents.subsessions.answerQuestions</string>
+			<key>pfm_title</key>
+			<string>Let Sessions Answer Their Sub-sessions' Questions</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
 			<integer>50</integer>
 			<key>pfm_description</key>
 			<string>The most sub-sessions one session can have open at the same time. Closing a sub-session frees its place.</string>
@@ -2074,6 +2086,18 @@
 			<string>Dim Inactive Windows</string>
 			<key>pfm_type</key>
 			<string>real</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<true/>
+			<key>pfm_description</key>
+			<string>The glass takes the colors of your desktop picture and follows it when the picture or Space changes.</string>
+			<key>pfm_name</key>
+			<string>appearance.wallpaperTint</string>
+			<key>pfm_title</key>
+			<string>Tint with Desktop Wallpaper</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
 		</dict>
 		<dict>
 			<key>pfm_default</key>
