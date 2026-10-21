@@ -6,7 +6,7 @@ public import Observation
 /// request for a Cloud machine), instead of a sheet over their work. `ask`
 /// shows its card in every window's sidebar, oldest first and one at a time,
 /// and returns true only for the card's prominent button; another button, the
-/// x, a cancelled caller or a caller that went away (`while`) answer false. Only the card's own views send the
+/// x, a cancelled caller or an asker that went away answer false. Only the card's own views send the
 /// answers (`SidebarIntent.noticeAction` / `dismissNotice`); no socket does.
 @MainActor @Observable
 public final class SidebarAsks {
@@ -23,16 +23,17 @@ public final class SidebarAsks {
     public var card: SidebarNoticeCard? { asks.first?.card }
 
     /// Shows `card` (a unique id; its prominent action is the yes) until the person answers.
-    /// `holds` (observed): while it is true the asker is still there to take the answer; once it is
-    /// false (the agent that asked went away) the card goes and the answer is false.
-    public func ask(_ card: SidebarNoticeCard, while holds: (@MainActor @Sendable () -> Bool)? = nil) async -> Bool {
+    /// `asker` (an agent chat) is watched with `present` (observed): once the asker is gone, the
+    /// card goes and the answer is false. An asker not present when asked (shown nowhere here) never expires it.
+    public func ask(_ card: SidebarNoticeCard, asker: String? = nil, present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
         var card = card
         card.awaitsAnswer = true
         let id = card.id
-        // task-owner: one watch of the asker per open question; cancelled when it is answered
-        let watch = holds.map { holds in
-            Task { @MainActor [weak self] in
-                for await held in ObservationStream(holds) where !held { self?.answer(id, action: nil); return }
+        let watch = asker.flatMap { asker -> Task<Void, Never>? in
+            guard present(asker) else { return nil }
+            // task-owner: one watch of the asker per open question; cancelled when it is answered
+            return Task { @MainActor [weak self] in
+                for await here in ObservationStream({ present(asker) }) where !here { self?.answer(id, action: nil); return }
             }
         }
         defer { watch?.cancel() }
@@ -47,10 +48,10 @@ public final class SidebarAsks {
 
     /// Asks with a card of `yes` (prominent) and `no` buttons; the x is `no` too.
     public func ask(_ title: String, detail: String, lines: [String] = [], symbol: String? = nil, yes: String, no: String,
-                    while holds: (@MainActor @Sendable () -> Bool)? = nil) async -> Bool {
+                    asker: String? = nil, present: @escaping @MainActor @Sendable (String) -> Bool = { _ in true }) async -> Bool {
         let actions = [SidebarNoticeCard.Action(id: "yes", title: yes, prominent: true), SidebarNoticeCard.Action(id: "no", title: no)]
         return await ask(SidebarNoticeCard(id: "ask.\(UUID().uuidString)", symbol: symbol, title: title, detail: detail, lines: lines,
-                                           actions: actions, dismissLabel: no), while: holds)
+                                           actions: actions, dismissLabel: no), asker: asker, present: present)
     }
 
     /// Answers the open question `id` with the button `action` (nil: the x).
