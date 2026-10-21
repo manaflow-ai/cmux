@@ -85,6 +85,9 @@
   align-items: center;
   gap: 4px 10px;
   min-width: 0;
+  /* One control's height whether or not the row shows one, so the rules don't step. */
+  box-sizing: border-box;
+  min-height: calc(var(--cmux-control-height) + 13px);
   padding: 6px 0;
   border-bottom: 1px solid var(--page-separator);
 }
@@ -112,7 +115,9 @@
   border: 1px solid var(--page-separator);
   background: transparent;
   border-radius: 999px;
-  padding: 2px 12px;
+  box-sizing: border-box;
+  height: var(--cmux-control-height);
+  padding: 0 12px;
   white-space: nowrap;
 }
 

@@ -6,6 +6,7 @@ import type { HunkReview } from "../changes/hunkReview";
 import type { HarnessHealth } from "../HarnessHealthNotice";
 import type { AcpmuxSnapshot } from "../model";
 import type { MessageBranch } from "./branches";
+import type { RetryModel } from "./retryModelSections";
 
 export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
@@ -37,8 +38,13 @@ export type TurnActions = {
   /// Retry with another model (cx-ncc.62): the chat harness's models, the one it runs, and the retry
   /// that moves the chat to the model picked and sends the prompt again there.
   retryWith?: {
-    models: readonly { id: string; name: string }[];
+    /// `release`: the release an alias runs, when the harness named it (retryModelSections.ts).
+    models: readonly RetryModel[];
     current?: string;
+    /// The harness's name and its curated top models (topModels/): the menu lists models in the
+    /// composer picker's order, the rest under More models.
+    harness?: string;
+    top?: readonly string[];
     retry: (rowId: string, prompt: string, model: string) => void;
   };
   /// Re-run the current harness's declared login command after an authentication failure.
