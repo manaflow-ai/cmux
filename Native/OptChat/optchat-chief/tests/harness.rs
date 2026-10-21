@@ -379,6 +379,18 @@ fn a_non_claude_harness_reads_its_instructions_from_agents_md_with_cli_memory_to
     let agents_md = std::fs::read_to_string(paths.session.join("AGENTS.md")).unwrap();
     assert_eq!(agents_md, system_text(None, &setup.tools));
     assert!(!paths.session.join("CLAUDE.md").exists());
+    // The Chief's own tools never wait on an approval: acpmux takes an
+    // allow only from the person's app (2026-10-20 stuck turn).
+    for name in ["settings.json", "settings.local.json"] {
+        let settings: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(paths.session.join(".claude").join(name)).unwrap(),
+        )
+        .unwrap();
+        let allow = settings["permissions"]["allow"].as_array().unwrap();
+        for tool in optchat_chief::approval::turn_allowed_tools() {
+            assert!(allow.iter().any(|v| v == tool), "{name}: {tool}");
+        }
+    }
 }
 
 #[test]
