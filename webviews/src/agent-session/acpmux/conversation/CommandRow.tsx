@@ -7,6 +7,7 @@ import { useId, useMemo } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import { menuPartRef } from "./menuParts";
+import { BackgroundHint } from "./BackgroundHint";
 import { ShellBlock } from "./ShellBlock";
 import { Check, ChevronRight, Spinner, TerminalSquare } from "./icons";
 import { isFailed, isRunning, toolDuration } from "./toolGroups";
@@ -56,6 +57,7 @@ export function CommandRow({ item }: { item: AcpmuxActivity }) {
           )}
         </span>
         <span className="cv-command__meta">
+          {running && <BackgroundHint />}
           {running ? (
             <Spinner size={12} />
           ) : failed ? (
