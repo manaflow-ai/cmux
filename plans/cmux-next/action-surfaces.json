@@ -30295,6 +30295,34 @@
       "title_table" : "SidebarSectionActions"
     },
     {
+      "cli" : "focusMove",
+      "cli_name" : "action chief-open-subagent",
+      "context_menu" : "focusMove",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.openSubagent",
+      "main_menu" : null,
+      "mcp" : "focusMove",
+      "palette" : "focusMove",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Chief Subagent",
+      "title_key" : "action.chief.openSubagent",
+      "title_table" : "SidebarSectionActions"
+    },
+    {
       "cli" : "offered",
       "cli_name" : "sidebar add-item",
       "context_menu" : "offered",
@@ -41651,9 +41679,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.moveToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "label" : "Move to Space…",
               "order" : 5,
               "visible_when" : {
@@ -42024,9 +42056,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspace.moveToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "order" : 7,
               "visible_when" : {
                 "debug_only" : false,
@@ -42037,9 +42073,13 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "space",
+                "target_kind" : "room"
+              },
               "enabled_when" : "can_perform",
               "id" : "workspace.duplicateToSpace",
-              "kind" : "action",
+              "kind" : "choices",
               "order" : 8,
               "visible_when" : {
                 "debug_only" : false,

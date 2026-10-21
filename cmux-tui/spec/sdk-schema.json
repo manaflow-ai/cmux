@@ -22426,12 +22426,20 @@
       "presence": "required",
       "nullable": false
      },
+     "auth": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true
+     },
      "access_token": {
       "type": {
        "kind": "scalar",
        "name": "string"
       },
-      "presence": "required",
+      "presence": "optional",
       "nullable": false
      },
      "expires_at": {
@@ -22439,7 +22447,7 @@
        "kind": "scalar",
        "name": "uint64"
       },
-      "presence": "required",
+      "presence": "optional",
       "nullable": false
      },
      "client_version": {
@@ -22459,7 +22467,7 @@
    },
    "stream": null,
    "constraints": [
-    "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback). See plans/cmux-next/home-cloud-proxy.md and spec/commands.md."
+    "Trusted local connections only. Leases the app's cmux Cloud session to the daemon (memory only; never echoed). api_base_url is an https origin (http only for loopback); access_token and expires_at are required. With auth \"tailscale\" (capability cloud-selfhost-v1) the lease names a self-hosted chat server: an http or https origin on a tailnet host (*.ts.net, 100.64.0.0/10, fd7a:115c:a1e0::/48), no access_token, no expiry, and no Authorization header is sent. See plans/cmux-next/home-cloud-proxy.md, plans/cmux-next/dm-group-chat-DESIGN.md and spec/commands.md."
    ]
   },
   "cloud-session-clear": {
@@ -22729,6 +22737,24 @@
    "stream": null,
    "constraints": [
     "Trusted local connections only. Reads the lease person's open message requests (POST /v1/read home.requests.list); no fields are accepted. Returns {requests} with rows whose conversation is not a conversation id dropped. Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
+   ]
+  },
+  "cloud-selfhost-info": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "cloud-selfhost-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "JsonValue"
+   },
+   "stream": null,
+   "constraints": [
+    "Trusted local connections only. Needs a self-hosted lease (cloud-session-set with auth \"tailscale\"), else cloud_conversation_rejected with reason not_selfhost. Reads GET /v1/selfhost/info without an Authorization header and returns {kind:\"selfhost\", user_id, login?, display_name?, server_name?}; user_id becomes the lease's account (events carry it as account, cloud-session-status as participant). Calls the cloud; errors carry error_code, reason and retryable. See spec/commands.md."
    ]
   },
   "cloud-conversation-snapshot": {

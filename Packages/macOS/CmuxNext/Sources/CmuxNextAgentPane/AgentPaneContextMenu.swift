@@ -74,7 +74,8 @@ struct AgentPaneMessageTarget: Equatable, Sendable {
 @MainActor
 enum AgentPaneContextMenu {
     /// WebKit's edit items the pane keeps, in WebKit's order.
-    static let editItems: Set<String> = ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", "WKMenuItemIdentifierPaste"]
+    static let editItems: Set<String> = ["WKMenuItemIdentifierCut", "WKMenuItemIdentifierCopy", pasteItem]
+    static let pasteItem = "WKMenuItemIdentifierPaste"
     /// WebKit's Look Up, kept on selected text: it shows the definition at the selection.
     static let lookUpItem = "WKMenuItemIdentifierLookUp"
     static let inspectItem = "WKMenuItemIdentifierInspectElement"
@@ -93,6 +94,8 @@ enum AgentPaneContextMenu {
         var search: (String) -> Void = { _ in }
         /// One of the page's own menu actions (`window.cmuxAcpmuxActions`) by name.
         var page: (String, [String: String]) -> Void = { _, _ in }
+        /// The web view WebKit's Paste item runs `paste:` on (``AgentPaneDroppedPaths``); nil keeps WebKit's own action.
+        var pasteTarget: AnyObject?
     }
 
     /// The selected transcript text the page reported with the menu (it reports a selection only
@@ -140,6 +143,13 @@ enum AgentPaneContextMenu {
     private static func fill(_ menu: NSMenu, target: AgentPaneMessageTarget?, selection: String?, devTools: Bool,
                              chatMenu: [NSMenuItem], actions: Actions) {
         let edits = menu.items.filter { editItems.contains($0.identifier?.rawValue ?? "") }
+        // WebKit's Paste item pastes in the web process, past the view's `paste:`: it goes through the
+        // view instead, which records the pasteboard's files first, as Cmd-V does. It keeps the
+        // enabled state WebKit gave it (or the view validates it, as it does Edit > Paste).
+        if let target = actions.pasteTarget, let paste = edits.first(where: { $0.identifier?.rawValue == pasteItem }) {
+            paste.target = target
+            paste.action = #selector(NSText.paste(_:))
+        }
         let inspect = devTools ? menu.items.first { $0.identifier?.rawValue == inspectItem } : nil
         let lookUp = menu.items.first { $0.identifier?.rawValue == lookUpItem }
         let copyImage = menu.items.first { $0.identifier?.rawValue == copyImageItem }

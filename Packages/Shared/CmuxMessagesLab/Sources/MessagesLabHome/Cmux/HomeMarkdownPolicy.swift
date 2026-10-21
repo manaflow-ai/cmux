@@ -17,8 +17,13 @@ enum HomeMarkdownPolicy {
         set { done.withLock { $0 = newValue } }
     }
 
+    /// MessagesLab f79bdbe: springs.json is this package's resource (Bundle.main has none), as
+    /// MessagesLabLocalization.bundle; set before the first motion (install() here, the harness).
+    static func installSprings() { Springs.bundle = .module }
+
     /// Thread safe (the sidebar preview may run off the main thread).
     static func install() {
+        installSprings()  // every Home entry calls install() before its first view (ChatController.init too)
         // Set inside the lock: a second caller returns only once the policy is in place.
         done.withLock { was in
             guard !was else { return }
