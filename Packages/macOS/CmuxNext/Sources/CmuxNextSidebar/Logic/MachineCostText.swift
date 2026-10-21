@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A Cloud machine's cost in words, for its sidebar header's tooltip and
 /// Cloud Machine Status: "$0.26/h · Running 2h 14m · About $0.58 so far",

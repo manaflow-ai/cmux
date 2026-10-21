@@ -164,7 +164,7 @@ private typealias SidebarStrings = CmuxNextSidebar.Strings
     }
 
     private static func header(_ machine: SidebarMachine) -> SectionHeaderRowView {
-        let section = SidebarSection(kind: .machine(machine), nodes: [
+        let section = CmuxNextSidebar.SidebarSection(kind: .machine(machine), nodes: [
             .workspace(SidebarWorkspace(id: WorkspaceID("ws-\(machine.id.rawValue)"), title: "api", lastActivity: Date())),
         ])
         let row = SidebarRow(key: .section(section.id), y: 0, height: 28, section: section.id, workspace: nil, siblingIndex: 0,

@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 /// A top-level sidebar section: the pinned area or one machine.
 public nonisolated enum SectionID: Hashable, Sendable {
