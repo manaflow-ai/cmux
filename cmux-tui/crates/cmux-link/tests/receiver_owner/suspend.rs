@@ -111,3 +111,21 @@ fn receiver_owner_suspend_clock_failure_closes_retained_readers() {
         "the original clock failure was forgotten"
     );
 }
+
+#[test]
+fn receiver_owner_suspend_renewal_extends_the_stream_but_not_its_partial_hello() {
+    let (owner, active, clock) = suspended_owner();
+    publish(&owner, active, NOW);
+    let verifier = owner.verifier();
+    let hello = verifier.begin_handshake(expected().host, 4, &[b'a'; 32]).unwrap();
+    let stream =
+        verifier.verify(fixture()["token"].as_str().unwrap(), &expected()).unwrap().lease.unwrap();
+    *clock.lock().unwrap() = Some(Duration::from_secs(11));
+    publish(&owner, active, NOW + 1_000);
+    *clock.lock().unwrap() = Some(Duration::from_secs(40));
+    assert!(hello.deadline().is_none(), "renewal extended the original partial hello budget");
+    assert!(stream.deadline().is_some(), "the current authenticated stream did not renew");
+    assert!(verifier.begin_handshake(expected().host, 4, &[b'a'; 32]).is_ok());
+    *clock.lock().unwrap() = Some(Duration::from_secs(41));
+    assert!(stream.deadline().is_none(), "renewed stream outlived the new elapsed deadline");
+}
