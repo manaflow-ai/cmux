@@ -1484,8 +1484,10 @@ jobs:
       attestations: write
     uses: ./.github/workflows/cmux-tui-build-package.yml
     with:
-      version: 0.0.0-nightly.19700101.0
-      pypi_version: 0.0.0.dev197001010
+      # Exercise release stamping: 0.0.0-* is reserved for raw artifacts,
+      # whose CLI intentionally reports the workspace version instead.
+      version: 0.0.1-nightly.19700101.0
+      pypi_version: 0.0.1.dev197001010
       package_npm: ${{ inputs.mode == 'full' }}
       package_pypi: ${{ inputs.mode == 'full' }}
       include_windows: ${{ inputs.mode == 'full' }}
