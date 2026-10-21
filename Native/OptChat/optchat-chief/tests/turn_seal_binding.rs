@@ -32,6 +32,7 @@ fn serve(home: &Path, chief: Arc<ChiefTools>) -> PathBuf {
                 turn_prefix: "optchat-home-".to_owned(),
                 subagent_prefix: "optchat-sub-home-".to_owned(),
                 agent_parent: std::fs::canonicalize("/bin/bash").ok(),
+                owner_daemons: Vec::new(),
             }),
         },
     )

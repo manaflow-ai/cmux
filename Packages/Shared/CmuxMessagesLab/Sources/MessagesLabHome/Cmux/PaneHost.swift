@@ -679,7 +679,8 @@ final class ChatController: NSObject, NSTextViewDelegate {
         linkPress = nil
         linkDragTaken = false
         // cmux: a press on an approval card's button is the button's (no selection, link drag or tapback hold).
-        if approvalPressBegan(at: p) { return }
+        // Not while the tapback picker is open: that press closes the picker (`clicked`), it approves nothing.
+        if picker == nil, approvalPressBegan(at: p) { return }
         if e.clickCount == 1 {
             if onDragLink != nil, let url = linkURL(at: p) { linkPress = (url, p) }
             selection.mouseDown(p)
@@ -726,6 +727,9 @@ final class ChatController: NSObject, NSTextViewDelegate {
         hold.cancel()
         if held || thread.swallowed(e) { return }
         if selection.mouseUp() { return }
+        // cmux: a release on a card's button whose press began elsewhere clicks nothing (a button
+        // clicks only when pressed and released on it, as in AppKit; `approvalPressEnded` took those).
+        if picker == nil, onApprovalButton(at: p) { return }
         if e.clickCount == 2 { doubleClicked(p) } else if e.clickCount == 1 { clicked(p) }
     }
 

@@ -1227,8 +1227,21 @@ which refuses to loosen a gate (`remote.ask` or `home.ask` off,
 another participant's work runs, settles or waits in the queue, or while an
 `ask` child is live, whoever asks (a command an approved remote turn runs
 reaches the host the same way). No chat message
-changes them. With the host stopped, the CLI edits the file directly (no turn
-can run then). Tightening a gate is always allowed.
+changes them. The tools socket also checks who asks: a loosening reaches
+`Brain::set_setting` only from the owner path, the cmux daemon listening on
+the host's `--daemon-socket` (or the app's daemon), which forwards
+`chief.settings.set` for the owner's trusted connection alone. The socket
+reads that from its peer (the daemon socket's listener pid, outside any
+acpmux agent), never from the request, so the Chief's own turns, its
+subagents, other agents and any other program, a hand-run `optchat-chief
+settings set` included, may only tighten a gate while the host runs. With the
+host stopped, the CLI edits the file directly (no turn can run then), and
+refuses to loosen a gate when it runs for an agent (`ACPMUX_SESSION_ID`,
+`ACPMUX_SESSION_NAME`, a turn seal or an acpmux agent among its parents).
+Tightening a gate is always allowed. Tightening one while a turn it would
+have gated runs (`approvals.autoApproveAll` off during another participant's
+or a paired device's turn, for example) stops that turn as `chief.stop`
+does, so the next turn runs under `ask`.
 
 Policy analysis (the relay rules of this repository's CLAUDE.md):
 

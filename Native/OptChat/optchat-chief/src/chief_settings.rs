@@ -219,6 +219,23 @@ pub fn parse_reply_threads(value: &str) -> Result<ReplyThreads, String> {
         .ok_or_else(|| format!("expected auto, always or never, not {:?}", value.trim()))
 }
 
+/// Whether setting `key` to `value` loosens an approval gate:
+/// `approvals.autoApproveAll` or `remote.autoApprove` on, `remote.ask` or
+/// `home.ask` off. Only the owner path loosens one (the daemon's owner-gated
+/// `chief.settings.set`, or the Mac's own CLI with no host and no agent);
+/// tightening and every other key are open to the host's other callers.
+/// A value that does not parse is no loosening (the host refuses it).
+pub fn loosens_gate(key: &str, value: &str) -> bool {
+    let Ok(on) = parse_bool(value) else {
+        return false;
+    };
+    match key {
+        AUTO_APPROVE_ALL | REMOTE_AUTO_APPROVE => on,
+        REMOTE_ASK | HOME_ASK => !on,
+        _ => false,
+    }
+}
+
 /// A boolean setting value: `true` or `false`.
 pub fn parse_bool(value: &str) -> Result<bool, String> {
     match value.trim() {

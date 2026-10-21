@@ -936,6 +936,15 @@ impl Call {
 /// during remote-origin or another participant's work.
 pub type Control = Arc<dyn Fn(ControlRequest) -> Result<String, String> + Send + Sync>;
 
+/// The refusal of a loosening `key = value` from a caller other than the
+/// owner path (`TurnBinding::is_owner_daemon`).
+pub fn loosen_refusal(key: &str, value: &str) -> String {
+    format!(
+        "refused: {key} = {} loosens an approval gate; only the owner changes that, in the Chief settings in Home (never a turn, an agent or another program)",
+        value.trim()
+    )
+}
+
 /// What `optchat-chief settings` and `chief agents spawn` ask the host.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ControlRequest {
@@ -1037,6 +1046,13 @@ fn connection(conn: UnixStream, served: &Served) {
             })
             .clone()
     };
+    // Whether the caller is the owner path (the cmux daemon forwarding the
+    // owner's `chief.settings.set`), read from the socket peer, never from
+    // the request: the only caller that loosens an approval gate.
+    let owner = || match (&served.turn, peer) {
+        (Some(binding), Some(pid)) => binding.is_owner_daemon(pid),
+        _ => false,
+    };
     let control = served.control.as_ref();
     let Ok(mut out) = conn.try_clone() else {
         return;
@@ -1081,12 +1097,24 @@ fn connection(conn: UnixStream, served: &Served) {
                         }
                         None => ControlRequest::Show,
                     };
-                    let answer = match control {
-                        Some(control) => match control(ask) {
+                    // Loosening a gate is the owner's alone: this Chief's
+                    // turns, other agents and any other program on the
+                    // socket may only tighten one.
+                    let refused = match &ask {
+                        ControlRequest::Set(k, v)
+                            if crate::chief_settings::loosens_gate(k, v) && !owner() =>
+                        {
+                            Some(loosen_refusal(k, v))
+                        }
+                        _ => None,
+                    };
+                    let answer = match (refused, control) {
+                        (Some(why), _) => json!({"error": why}),
+                        (None, Some(control)) => match control(ask) {
                             Ok(text) => json!({"text": text}),
                             Err(e) => json!({"error": e}),
                         },
-                        None => json!({"error": "settings are not served here"}),
+                        (None, None) => json!({"error": "settings are not served here"}),
                     };
                     if writeln!(out, "{answer}").is_err() {
                         return;

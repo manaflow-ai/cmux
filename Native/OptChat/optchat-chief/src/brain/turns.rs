@@ -456,9 +456,12 @@ impl Brain {
                     } | Source::Resume { remote: true, .. }
                 )
             });
-        let participant_requires_approval = items.iter().any(Queued::requires_approval);
-        self.turn_participant =
-            std::mem::take(&mut self.participant_taint) || participant_requires_approval;
+        // A participant's turn stopped before it finished (a gate tightened
+        // under it) leaves its messages open: the turn that answers them
+        // keeps that origin and asks.
+        let participant_requires_approval = std::mem::take(&mut self.participant_taint)
+            || items.iter().any(Queued::requires_approval);
+        self.turn_participant = participant_requires_approval;
         let remote_requires_approval = self.turn_remote && self.chief.remote_gate();
         // `approvals.autoApproveAll`: the owner chose that no turn asks.
         self.turn_why = if self.chief.auto_approve_all {

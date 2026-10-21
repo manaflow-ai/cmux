@@ -849,11 +849,79 @@ fn with_auto_approve_all_a_teammates_turn_runs_with_the_configured_policy_and_no
         h.brain.set_setting("remote.autoApprove", "true").is_err(),
         "nothing else loosens in a teammate's turn"
     );
-    // Turning it off is always allowed, even here.
+    // Turning it off is always allowed, even here (and stops this turn).
     h.brain
         .set_setting("approvals.autoApproveAll", "false")
         .unwrap();
     assert_eq!(saved(&h)["approvals"]["autoApproveAll"], false);
+    h.agents.wait_cancels(1);
+    finish(&mut h);
+}
+
+fn cancels(h: &Harness) -> usize {
+    h.agents.inner.lock().unwrap().cancels.len()
+}
+
+#[test]
+fn turning_auto_approve_all_off_stops_a_teammates_turn_it_let_run_and_the_next_asks() {
+    let settings = json!({"approvals": {"autoApproveAll": true}});
+    let mut h = harness_with(Some(settings), false, shared(), started());
+    teammate_running(&mut h, "@Chief clean the build directory");
+    assert_eq!(policy(&h, 0), "approve-all");
+    h.brain
+        .set_setting("approvals.autoApproveAll", "false")
+        .unwrap();
+    // Stopped as chief.stop stops a turn: the rest of its work does not
+    // run with the policy it started under.
+    h.agents.wait_cancels(1);
+    finish(&mut h);
+    // Even the owner's next turn answers the teammate's open message, so
+    // it asks; and nothing loosens a gate before it ran.
+    assert!(
+        h.brain
+            .set_setting("approvals.autoApproveAll", "true")
+            .is_err()
+    );
+    // (A group conversation: the owner mentions the Chief too.)
+    deliver_mention(&mut h, "user_local", "@Chief go on");
+    h.settle();
+    assert_eq!(policy(&h, 1), "ask");
+}
+
+#[test]
+fn turning_auto_approve_all_off_stops_a_device_turn_the_device_gate_covers() {
+    let settings = json!({"approvals": {"autoApproveAll": true}, "remote": {"ask": true}});
+    let mut h = harness(Some(settings), false, started());
+    running(&mut h, true, "clean up");
+    assert_eq!(policy(&h, 0), "approve-all");
+    h.brain
+        .set_setting("approvals.autoApproveAll", "false")
+        .unwrap();
+    h.agents.wait_cancels(1);
+    finish(&mut h);
+    deliver(&mut h, false, "and now?");
+    h.settle();
+    assert_eq!(policy(&h, 1), "ask");
+}
+
+#[test]
+fn turning_auto_approve_all_off_leaves_a_turn_no_gate_covers_running() {
+    // A device turn with remote.ask off, and the owner's own turn: neither
+    // would ask without auto-approve-all, so neither stops.
+    let settings = json!({"approvals": {"autoApproveAll": true}});
+    let mut h = harness(Some(settings.clone()), false, started());
+    running(&mut h, true, "clean up");
+    h.brain
+        .set_setting("approvals.autoApproveAll", "false")
+        .unwrap();
+    assert_eq!(cancels(&h), 0);
+    finish(&mut h);
+    let mut h = harness(Some(settings), false, started());
+    running(&mut h, false, "clean up");
+    h.brain
+        .set_setting("approvals.autoApproveAll", "false")
+        .unwrap();
+    assert_eq!(cancels(&h), 0);
     finish(&mut h);
 }
 

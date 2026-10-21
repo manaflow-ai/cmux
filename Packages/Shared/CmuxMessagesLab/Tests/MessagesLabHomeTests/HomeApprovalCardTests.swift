@@ -1,3 +1,4 @@
+import AppKit
 import CmuxAgentQuestion
 @testable import CmuxHomeCore
 import CmuxHomeRender
@@ -418,6 +419,69 @@ import Testing
         #expect(shownCard(rig, hit.row.ref)?.pointer == .init(allow: false), "the pointer now hovers Deny")
         controller.approvalPointerMoved(nil)
         #expect(shownCard(rig, hit.row.ref)?.pointer == nil)
+    }
+
+    /// A mouse event at `p` in the rig's window (the controller reads only its click count and number).
+    func mouse(_ type: NSEvent.EventType, _ p: CGPoint, _ rig: HomeChatRig) throws -> NSEvent {
+        try #require(NSEvent.mouseEvent(with: type, location: p, modifierFlags: [], timestamp: 0,
+                                        windowNumber: rig.window.windowNumber, context: nil, eventNumber: 0,
+                                        clickCount: 1, pressure: 1))
+    }
+
+    /// A point on the card off its buttons (its headline, top left).
+    func offTheButtons(_ rig: HomeChatRig, _ hit: MessagesWindowView.Hit) throws -> CGPoint {
+        let p = CGPoint(x: hit.body.minX + 12, y: hit.body.minY + 10)
+        try #require(rig.view.controller.demo?.hit(p) != nil)
+        try #require(!rig.view.controller.onApprovalButton(at: p))
+        return p
+    }
+
+    /// Through the mouse path: a press and a release on Allow decide; this is what the next two
+    /// tests take away.
+    @Test func aMousePressAndReleaseOnAllowDecide() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-mouse", decider: decider)
+        defer { rig.stop() }
+        let controller = rig.view.controller
+        let p = try center(of: hit, allow: true)
+        controller.mouseDown(at: p, try mouse(.leftMouseDown, p, rig))
+        controller.mouseUp(at: p, try mouse(.leftMouseUp, p, rig))
+        await HomeChatRig.until { decider.calls.count == 1 }
+        #expect(decider.calls.first?.2 == true)
+    }
+
+    /// Review of 44ba8784: a release on Allow after a press elsewhere went through `clicked` and
+    /// approved. A button clicks only when pressed and released on it.
+    @Test func aReleaseOnAButtonWhosePressBeganElsewhereClicksNothing() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-press-elsewhere", decider: decider)
+        defer { rig.stop() }
+        let controller = rig.view.controller
+        let off = try offTheButtons(rig, hit)
+        let allow = try center(of: hit, allow: true)
+        controller.mouseDown(at: off, try mouse(.leftMouseDown, off, rig))
+        controller.mouseUp(at: allow, try mouse(.leftMouseUp, allow, rig))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(decider.calls.isEmpty)
+        #expect(shownCard(rig, hit.row.ref)?.busy != true, "nothing in flight")
+    }
+
+    /// Review of 44ba8784: with the tapback picker open, a press on a card's button took the press
+    /// and its release approved. That press only closes the picker.
+    @Test func withThePickerOpenAPressOnAButtonOnlyClosesThePicker() async throws {
+        let decider = FakeDecider()
+        let (rig, hit) = try await shown(permission: "p-picker", decider: decider)
+        defer { rig.stop() }
+        let controller = rig.view.controller
+        controller.showPicker(for: hit)
+        try #require(controller.picker != nil)
+        let allow = try center(of: hit, allow: true)
+        controller.mouseDown(at: allow, try mouse(.leftMouseDown, allow, rig))
+        #expect(controller.approvalPress == nil, "the card took no press")
+        controller.mouseUp(at: allow, try mouse(.leftMouseUp, allow, rig))
+        for _ in 0..<50 { await Task.yield() }
+        #expect(decider.calls.isEmpty)
+        #expect(controller.picker == nil, "the picker closed")
     }
 
     // MARK: Every click that cannot decide says why

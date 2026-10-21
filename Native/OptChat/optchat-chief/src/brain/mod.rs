@@ -1442,11 +1442,7 @@ impl Brain {
         }
         let on = parse_bool(value)?;
         // Loosening a gate: an auto-approve on, or an ask gate off.
-        let loosens = if key == REMOTE_AUTO_APPROVE || key == AUTO_APPROVE_ALL {
-            on
-        } else {
-            !on
-        };
+        let loosens = crate::chief_settings::loosens_gate(key, value);
         // Another participant's or a paired device's message waiting, or
         // being steered into the running turn.
         let foreign = |q: &Queued| {
@@ -1488,7 +1484,38 @@ impl Brain {
             .map_err(|e| format!("saving {}: {e}", self.settings.settings_file.display()))?;
         self.chief = next;
         (self.log)(&format!("setting {key} = {on}"));
+        if !loosens {
+            self.stop_turn_a_gate_now_covers(key);
+        }
         Ok(format!("{key} = {on}"))
+    }
+
+    /// A gate was tightened (`key`): a running turn that started without
+    /// asking but would ask now (another participant's, a paired device's
+    /// under `remote.ask`, one that reads Home under `home.ask`) is stopped
+    /// as `chief.stop` stops one, so its work is not finished with the
+    /// looser policy it started under. Its origin carries to the next turn,
+    /// which runs under `ask`; its messages stay open for that turn.
+    fn stop_turn_a_gate_now_covers(&mut self, key: &str) {
+        if self.phase != Phase::Running || self.turn_ask {
+            return;
+        }
+        let gates = self.chief;
+        let asks_now = !gates.auto_approve_all
+            && (self.turn_participant
+                || (self.turn_remote && gates.remote_gate())
+                || (self.settings.home_view.is_some() && gates.home_ask));
+        if !asks_now {
+            return;
+        }
+        self.remote_taint |= self.turn_remote;
+        self.participant_taint |= self.turn_participant;
+        self.deny_pending("an approval setting was turned on");
+        self.owner_stopped = true;
+        self.interrupt.request_hard();
+        (self.log)(&format!(
+            "{key} tightened: stopped the running turn, which would ask now"
+        ));
     }
 
     fn queue(&mut self, text: String, source: Source) {

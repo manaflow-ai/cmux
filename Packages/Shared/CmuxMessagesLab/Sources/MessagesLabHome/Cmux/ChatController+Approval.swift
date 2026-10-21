@@ -6,7 +6,9 @@ import AppKit
 /// hover and the click all hit-test with ``HomeApprovalRowProvider/clickable(_:at:size:)`` at the
 /// point in the row body (the same body rect, width and layout function the row bitmap draws
 /// with). A press on a button is the button's: no selection, link drag or tapback hold starts, and
-/// the release on the same button clicks it, as an AppKit button does. A thread view's card takes
+/// the release on the same button clicks it, as an AppKit button does; a release on a button whose
+/// press began elsewhere clicks nothing, and with the tapback picker open a press only closes it.
+/// (`clicked` still clicks a button: the debug socket and a whole synthesized click use it.) A thread view's card takes
 /// its click on the press instead (PaneThread's monitor, `MessagesWindowView.hostControl`).
 ///
 /// Before this, the transcript's click path (`clicked`) never asked the provider: only an open
@@ -29,6 +31,13 @@ extension ChatController {
         guard case let .custom(c) = hit.row.part,
               let allow = HomeApprovalRowProvider.clickable(c, at: Self.bodyPoint(hit, p), size: hit.body.size) else { return nil }
         return ApprovalTarget(ref: hit.row.ref, allow: allow)
+    }
+
+    /// Whether `p` (the host's coordinates) is on a shown card's button, enabled or not.
+    func onApprovalButton(at p: CGPoint) -> Bool {
+        guard let hit = demo?.hit(p), case let .custom(c) = hit.row.part, c.kind == HomeApprovalRowProvider.kind,
+              let card = HomeApprovalRowProvider.payload(c) else { return false }
+        return HomeApprovalRowProvider.button(at: Self.bodyPoint(hit, p), card, width: hit.body.width) != nil
     }
 
     /// `p` in the hit row's body (origin at its top left, y down), as the row draws.
@@ -108,6 +117,10 @@ extension ChatController {
         }
     }
 
+    /// The pointer is drawn in the card's bitmap, so it lives in the card's part: a change goes
+    /// through `.setCustomPart` like any card change. Only an actual change dispatches
+    /// (`restyleApproval` skips an equal card), so a move within one button costs nothing; keeping
+    /// it view-local would need the row draw to read the controller, which it does not.
     private func setApprovalPointer(_ target: ApprovalTarget?, pressed: Bool) {
         let pointer = target.map { HomeApprovalRowProvider.Pointer(allow: $0.allow, pressed: pressed) }
         let old = approvalPointer

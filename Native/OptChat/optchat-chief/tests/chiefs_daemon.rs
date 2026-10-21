@@ -186,6 +186,7 @@ fn binding() -> optchat_chief::turn_caller::TurnBinding {
         turn_prefix: "optchat-lead-".to_owned(),
         subagent_prefix: "optchat-sub-lead-".to_owned(),
         agent_parent: std::fs::canonicalize("/bin/bash").ok(),
+        owner_daemons: Vec::new(),
     }
 }
 

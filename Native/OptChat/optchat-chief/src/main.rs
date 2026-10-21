@@ -27,8 +27,9 @@ optchat-chief settings [show | set approvals.autoApproveAll true|false | set rem
                                                            per-Chief settings; approvals.autoApproveAll: no turn asks, other
                                                            people's included; remote.ask: ask before acting on requests from
                                                            other devices; home.ask: ask in turns that read Home (all default
-                                                           false; loosened only by the owner, outside a remote-origin or
-                                                           another person's turn)
+                                                           false; loosened only by the owner: in Home's Chief settings
+                                                           while a host runs, here only with no host and not from an
+                                                           agent; tightening works from anywhere)
 optchat-chief import-claude-code dry-run|write [--projects DIR] [--mux-home DIR] [--append-after-live]
                                                            Claude Code transcripts (default ~/.claude/projects) as messages;
                                                            dry-run prints counts only, write appends them (host stopped)
@@ -222,10 +223,18 @@ fn main() -> std::process::ExitCode {
             };
             let result = set.and_then(|set| {
                 match optchat_chief::tools::ask_settings(&paths.tools_socket, set) {
-                    // No host: no turn runs, so the Mac's own CLI edits the file.
+                    // No host: no turn runs, so the Mac's own CLI edits the file;
+                    // an agent's (a turn's, a subagent's, another harness's) may
+                    // only tighten a gate (the running host's rule, tools.rs).
                     Err(e) if e.contains("not running") => {
                         let file = paths.root.join("settings.json");
                         let mut s = optchat_chief::chief_settings::ChiefSettings::load(&file);
+                        if let Some((key, value)) = set
+                            && optchat_chief::chief_settings::loosens_gate(key, value)
+                            && run_by_agent()
+                        {
+                            return Err(optchat_chief::tools::loosen_refusal(key, value));
+                        }
                         if let Some((key, value)) = set {
                             use optchat_chief::chief_settings::{
                                 AUTO_APPROVE_ALL, CACHE_TTL, HOME_ASK, REMOTE_ASK,
@@ -408,4 +417,19 @@ fn home(flags: &Flags) -> PathBuf {
         .value("mux-home")
         .map(PathBuf::from)
         .unwrap_or_else(mux_home)
+}
+
+/// Whether this CLI runs for an agent rather than the person: an acpmux
+/// session's env (`ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME`), a Chief turn's
+/// seal or a subagent's marker, or an acpmux agent among its parents.
+fn run_by_agent() -> bool {
+    [
+        "ACPMUX_SESSION_ID",
+        "ACPMUX_SESSION_NAME",
+        optchat_chief::chief_profile::TURN_KEY_ENV,
+        "OPTCHAT_SUBAGENT",
+    ]
+    .iter()
+    .any(|key| std::env::var_os(key).is_some_and(|v| !v.is_empty()))
+        || optchat_chief::turn_caller::under_acpmux_agent(std::process::id() as i32)
 }

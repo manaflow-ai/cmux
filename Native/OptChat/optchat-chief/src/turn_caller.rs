@@ -34,6 +34,12 @@ pub struct TurnBinding {
     /// The executable that spawns agents (this host's acpmux, symlinks
     /// resolved). None: no caller is bound, so no caller is the turn.
     pub agent_parent: Option<PathBuf>,
+    /// The cmux daemons whose owner-gated `chief.settings.set` reaches this
+    /// host (its `--daemon-socket`, the app's daemon). The process that
+    /// listens on one of them, outside any acpmux agent, is the owner path
+    /// ([`TurnBinding::is_owner_daemon`]): the only caller that loosens an
+    /// approval gate. Empty: no caller does.
+    pub owner_daemons: Vec<PathBuf>,
 }
 
 /// The session role a caller runs under.
@@ -57,7 +63,36 @@ impl TurnBinding {
             turn_prefix: format!("{turn_prefix}-"),
             subagent_prefix: format!("optchat-sub-{home_id}-"),
             agent_parent: crate::acpmux_peer::expected(),
+            owner_daemons: Vec::new(),
         }
+    }
+
+    /// This binding, with `daemons` as the owner path's daemon sockets.
+    pub fn with_owner_daemons(mut self, daemons: Vec<PathBuf>) -> TurnBinding {
+        self.owner_daemons = daemons;
+        self
+    }
+
+    /// Whether the process `pid` (a socket peer) is the owner path: the
+    /// cmux daemon listening on one of `owner_daemons`, which forwards
+    /// `chief.settings.set` only for the owner's trusted connection
+    /// (cmux-tui `chief_control::require_owner`), and not under an acpmux
+    /// agent. The listener is read from the socket itself (the server peer
+    /// of a fresh connection), never from what a caller says; a request's
+    /// fields cannot make a turn, a subagent, another agent or a terminal
+    /// the daemon.
+    pub fn is_owner_daemon(&self, pid: i32) -> bool {
+        if pid <= 0 || self.owner_daemons.is_empty() {
+            return false;
+        }
+        if let Some(exe) = self.agent_parent.as_deref()
+            && agent_session_name(pid, exe).is_some()
+        {
+            return false;
+        }
+        self.owner_daemons
+            .iter()
+            .any(|socket| listener_pid(socket) == Some(pid))
     }
 
     /// The role of the process `pid` (a socket peer).
@@ -121,6 +156,22 @@ pub fn under_this_process(pid: i32) -> bool {
         }
     }
     false
+}
+
+/// Whether `pid` runs under an acpmux agent of this host's acpmux (`ACPMUX_BIN`,
+/// else the one beside this executable): an agent's tool, a turn's shell, a
+/// subagent's command. Without a known acpmux, false.
+pub fn under_acpmux_agent(pid: i32) -> bool {
+    crate::acpmux_peer::expected().is_some_and(|exe| agent_session_name(pid, &exe).is_some())
+}
+
+/// The pid of the process listening on the Unix socket `path`: the server
+/// peer of a fresh connection (the kernel records the listener's
+/// credentials at `listen`, so the daemon need not accept it). None when
+/// nothing listens.
+fn listener_pid(path: &Path) -> Option<i32> {
+    let stream = std::os::unix::net::UnixStream::connect(path).ok()?;
+    crate::acpmux_peer::peer_pid(&stream).ok()
 }
 
 /// The `ACPMUX_SESSION_NAME` of the nearest acpmux agent at or above `pid`.

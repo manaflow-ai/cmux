@@ -535,6 +535,26 @@ fn agent_launch_disabled() -> bool {
         || env("CMUX_AGENTS_DISABLED").is_some_and(|v| v.trim() == "1")
 }
 
+/// The cmux daemon sockets whose listener is the owner path of the tools
+/// socket (`TurnBinding::owner_daemons`): `daemon_socket`, the app's daemon
+/// (`CMUX_APP_DAEMON_SOCKET`) and the Chief's owner daemon
+/// (`CMUX_CHIEF_OWNER_SOCKET`), each once.
+fn owner_daemons(daemon_socket: &str) -> Vec<PathBuf> {
+    let mut daemons: Vec<PathBuf> = Vec::new();
+    let candidates = [
+        Some(daemon_socket.to_owned()),
+        Some(crate::cmux_env::app_daemon_socket(daemon_socket, &env)),
+        env(crate::cmux_env::OWNER_KEY),
+    ];
+    for socket in candidates.into_iter().flatten() {
+        let socket = PathBuf::from(socket);
+        if !socket.as_os_str().is_empty() && !daemons.contains(&socket) {
+            daemons.push(socket);
+        }
+    }
+    daemons
+}
+
 /// Runs the host; returns the exit code.
 pub fn run(flags: &Flags, started_ms: u64) -> i32 {
     // SIGTERM, SIGINT and SIGHUP stop the host and what it started (E20).
@@ -1355,10 +1375,16 @@ fn start(
             chief: Some(chief_tools.clone()),
             // The turn names of `Settings::turn_prefix`, the subagent names
             // of the sub preset (`optchat-sub-<home id>-<id>`).
-            turn: Some(crate::turn_caller::TurnBinding::for_home(
-                &turn_prefix(home),
-                &crate::paths::home_id(home),
-            )),
+            // The owner path (loosening an approval gate): the daemon this
+            // host serves and the app's daemon, which forward the owner's
+            // `chief.settings.set` here.
+            turn: Some(
+                crate::turn_caller::TurnBinding::for_home(
+                    &turn_prefix(home),
+                    &crate::paths::home_id(home),
+                )
+                .with_owner_daemons(owner_daemons(daemon_socket)),
+            ),
         },
     )
     .map_err(|e| format!("serving the memory tools: {e}"))?;
