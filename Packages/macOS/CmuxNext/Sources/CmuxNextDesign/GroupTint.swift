@@ -37,8 +37,8 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         if case let .palette(token) = self { token } else { .grey }
     }
 
-    /// The members' line and the editors' swatches: a custom color is kept
-    /// readable over the sidebar.
+    /// The editors' swatches and the tab group underline: a custom color is
+    /// kept readable over the sidebar.
     @MainActor public var headerFill: NSColor {
         switch self {
         case let .palette(token): token.headerFill
@@ -88,6 +88,10 @@ public nonisolated enum GroupTint: Hashable, Sendable {
         let tokens = ThemeContext.active ?? ThemeScope.app.tokens
         return tokens.sidebarBackground.withAlpha(1).mixed(toward: lineRGB(themed: themed), tokens.isDark ? 0.14 : 0.10)
     }
+
+    /// A sidebar group's members' line under the solid band: the band's exact rest color
+    /// (`headerChip(themed:).fill`, Leo 2026-10-19), so bar and line read as one group.
+    @MainActor public func lineFill(themed: Bool) -> NSColor { headerChip(themed: themed).fill.nsColor }
 
     /// A tab group chip's fill in the active scope (`GroupColor.chipFill`); a custom color is
     /// washed into the sidebar so the name stays primary text.

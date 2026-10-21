@@ -83,7 +83,7 @@ enum SidebarStyle {
     static var titleLeading: CGFloat { horizontalInset }
     /// How far a group member's content moves in past the row's own
     /// leading edge, which already starts right of the line (`groupGutter`).
-    static var groupMemberIndent: CGFloat { Metrics.space1 }
+    static var groupMemberIndent: CGFloat { Metrics.space2 }
     /// The size a group header's name, glyphs, buttons and corner scale from: 26 of a 32 pt row,
     /// scaled with the row height. The colored bar itself fills the row, as tall as a workspace
     /// row (Lawrence 2026-10-19: "the height of the group headers is identical to the height of
@@ -101,13 +101,23 @@ enum SidebarStyle {
     }
     /// How much of the header's ink the member count takes: lighter than the name.
     static let groupHeaderCountInkAlpha: CGFloat = 0.7
-    /// The members' bar: 3 pt at the 32 pt row, scaled; at the members' leading edge.
-    static var groupBarWidth: CGFloat { max(2, (Metrics.sidebarRowHeight * 0.1).rounded()) }
-    static var groupBarX: CGFloat { (Metrics.sidebarRowHeight * 0.12).rounded() }
+    /// The members' line: thin, as Chrome's (Leo 2026-10-19); at the members' leading edge.
+    static var groupBarWidth: CGFloat { Metrics.space1 }
+    /// The line's left edge, from the bar's: its right edge meets the end of the bar's corner arc,
+    /// as Chrome's does (Leo's reference, 2026-10-19).
+    static var groupBarX: CGFloat { max(0, groupHeaderCornerRadius - groupBarWidth) }
     /// A member row starts right of its group's line (cx-q5jw, the Edge
     /// group line): its hover and selection fills never cover the line, so
     /// the line runs unbroken from the header to the last member.
     static var groupGutter: CGFloat { groupBarX + groupBarWidth + Metrics.space1 }
+    /// The deliberate cut between a group's header bar and its members' line
+    /// (Leo 2026-10-19, Chrome's tab groups: "a neat little cut", then after
+    /// the renders "a liiiitle more cut-y": 8 pt to Chrome's 6), unless
+    /// `sidebar.groupLineJoinsHeader` joins them.
+    static var groupLineCut: CGFloat { Metrics.space4 }
+    /// The group header bar's corners: the rows' radius (cb00fe652ad, Lawrence 2026-10-20), where
+    /// Chrome's are about 6 pt.
+    static var groupHeaderCornerRadius: CGFloat { rowCornerRadius }
     /// The group header's color dot, on the line's x (cx-25az).
     static var groupDotSize: CGFloat { max(6, (Metrics.sidebarRowHeight * 0.28).rounded()) }
     static var headerFont: NSFont { Typography.header }
