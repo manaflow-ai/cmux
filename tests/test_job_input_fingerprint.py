@@ -9,6 +9,7 @@ small repository and compares keys before and after one edit.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -25,6 +26,8 @@ except ModuleNotFoundError:
     HAS_TOML = False
 
 WORKFLOW = """name: cmux-next
+env:
+  SHARED: "1"
 jobs:
   fast-tier:
     name: cmux-next fast tier
@@ -60,7 +63,8 @@ FILES = {
                      '[workspace.dependencies]\ndep = { path = "crates/dep" }\nother = { path = "crates/other" }\n',
     "ws/Cargo.lock": "# lock\n",
     "ws/crates/core/Cargo.toml": '[package]\nname = "core"\n\n[dependencies]\ndep.workspace = true\n',
-    "ws/crates/core/src/lib.rs": 'pub const A: &str = include_str!("../../../../assets/a.txt");\n',
+    "ws/crates/core/src/lib.rs": 'pub const A: &str = include_str!("../../../../assets/a.txt");\n'
+                                 'pub const OPS: &str = include_str!("../../../../spec/operations.json");\n',
     "ws/crates/core/src/mux/tests/matrix.rs": 'fn cases() -> String {\n'
                                           '    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../..");\n'
                                           '    std::fs::read_to_string(root.join("fixtures/cases.json")).unwrap()\n}\n',
@@ -69,6 +73,7 @@ FILES = {
     "ws/crates/other/Cargo.toml": '[package]\nname = "other"\n',
     "ws/crates/other/src/lib.rs": "pub fn other() {}\n",
     "assets/a.txt": "a\n",
+    "spec/operations.json": "{}\n",
     "fixtures/cases.json": "[]\n",
     "fixtures/unrelated.json": "[]\n",
     "docs/readme.md": "docs\n",
@@ -134,7 +139,8 @@ class JobInputFingerprint(unittest.TestCase):
 
     @unittest.skipUnless(HAS_TOML, "the cargo closure needs tomllib (Python 3.11)")
     def test_cargo_key_follows_the_crates_and_files_its_entries_read(self):
-        for name in ("ws/crates/core/src/lib.rs", "ws/crates/dep/src/lib.rs", "ws/Cargo.lock",
+        # spec/operations.json: a path with an "n" (#22956 review: `[^"\\n]` in a git grep class drops n).
+        for name in ("spec/operations.json", "ws/crates/core/src/lib.rs", "ws/crates/dep/src/lib.rs", "ws/Cargo.lock",
                      "assets/a.txt", "fixtures/cases.json", "scripts/cmux-next/fast-tier.py"):
             with self.subTest(name=name):
                 self.assertTrue(self.changes("fast-tier-cargo", name), f"{name} is a cargo input")
@@ -162,6 +168,13 @@ class JobInputFingerprint(unittest.TestCase):
         current = (self.repo.root / workflow).read_text()
         self.assertFalse(self.changes("fast-tier", workflow, current.replace("echo other", "echo else")))
 
+    def test_the_workflow_env_counts_for_every_job(self):
+        workflow = ".github/workflows/cmux-next.yml"
+        for job in ("fast-tier", "fast-tier-cargo") if HAS_TOML else ("fast-tier",):
+            with self.subTest(job=job):
+                current = (self.repo.root / workflow).read_text()
+                self.assertTrue(self.changes(job, workflow, current.replace('SHARED: "', 'SHARED: "x')))
+
     def test_the_runner_extras_count(self):
         self.assertNotEqual(self.repo.key("fast-tier", "xcode=26.0")[0], self.repo.key("fast-tier", "xcode=26.1")[0])
 
@@ -180,6 +193,16 @@ class JobInputFingerprint(unittest.TestCase):
                         "let dir = URL(fileURLWithPath: #filePath).deletingLastPathComponent()\n")
         self.repo.commit()
         self.assertEqual(self.repo.key("fast-tier")[0], "")
+
+    @unittest.skipUnless(HAS_TOML, "the cargo closure needs tomllib (Python 3.11)")
+    def test_the_real_cargo_inputs_include_what_the_crates_and_zig_install_read(self):
+        result = subprocess.run([sys.executable, "-I", str(SCRIPT), "fast-tier-cargo", "--root", str(ROOT)],
+                                capture_output=True, text=True, timeout=120)
+        self.assertIn("key=job-pass-", result.stdout, result.stderr[-2000:])
+        inputs = {line.split(" ", 1)[1] for line in result.stderr.splitlines() if re.match(r"^[0-9a-f]{12} ", line)}
+        for path in ("cmux-tui/spec/resource-operations-v2.json", "scripts/ghostty-zig-version.sh",
+                     "cmux-tui/bindings/zig/build.zig.zon"):
+            self.assertIn(path, inputs)
 
     def test_the_real_tree_gives_both_jobs_a_key_or_says_why_not(self):
         for job in ("fast-tier", "fast-tier-cargo"):
