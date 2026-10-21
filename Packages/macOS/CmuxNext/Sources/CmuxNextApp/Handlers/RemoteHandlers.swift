@@ -30,10 +30,8 @@ enum RemoteHandlers {
             if let text = invocation["destination"]?.stringValue {
                 return try connect(text)
             }
-            CloudPresenter.askText(RemoteStrings.connectTitle, initial: "", button: RemoteStrings.connect, in: CloudHandlers.window(context)) { text in
-                guard let text, !text.trimmingCharacters(in: .whitespaces).isEmpty else { return }
-                do { try connect(text) } catch { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
-            }
+            // The host as a Cmd-Shift-P step; Return runs this again with it.
+            registry.ask("remote.connect", invocation, ActionArgumentAsk(argument: "destination"))
         }
         // A terminal of another machine in this pane (a mixed workspace,
         // plans/cmux-next/data-model.md 1.2b): any connected session, SSH,

@@ -13,7 +13,7 @@ import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { SUBAGENT_OF, SUBAGENT_ROW } from "./subagents/subagentRows";
 import type { ComposerAttachment } from "./attachments";
 import { STARTED_SESSIONS, type StartedSession, hasStatusLine } from "./started/startedSessions";
-import { BACKGROUND_WORK } from "./summary/backgroundWork";
+import { BACKGROUND_WORK } from "./conversation/backgroundWork";
 
 /** One item of an agent's todo list (an ACP `plan` entry). */
 export type AcpmuxPlanEntry = { content: string; status: "pending" | "in_progress" | "completed" };
@@ -388,6 +388,9 @@ export type AcpmuxSnapshot = {
     promptCapabilities?: { image?: boolean; audio?: boolean };
     /// The agent takes a prompt mid-turn (acpmux `steering`); without it a steer stops the turn.
     steering?: boolean;
+    /// acpmux's Ctrl-B (`_acpmux/process/background`) moves its running work: a Claude Code
+    /// chat, whatever its harness is named (acpmux `backgroundsWork`).
+    backgroundsWork?: boolean;
     /// A turn failed: the queued prompts wait until the user resumes the queue (acpmux `queuePaused`).
     queuePaused?: boolean;
     /// The MCP servers the harness says it loaded (acpmux `mcpServers`, from Claude Code's
@@ -525,16 +528,13 @@ const META_GAP = 4;
 const META_ROW = 24;
 const MESSAGE_GAP = 8;
 const TURN_GAP = 24;
-/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), a steer's status line under it
-/// (SteerMark.tsx, `.cv-user__status`), and while the agent has not read the steer its Send now line
-/// (PendingSteer.tsx, `.cv-user__pending`: 4px above a 16px line, as the status line).
+/// A prompt's meta row (`.cv-user__actions`, UserBubble.tsx), and the line under a steer the agent
+/// has not read yet (PendingSteer.tsx, `.cv-user__pending`); a read steer draws nothing more.
 /// A Chief's prompt (ChiefPromptBubble.tsx) draws no action row.
 const userMetaHeight = (row: AcpmuxRow) =>
   (row.text && !row.failed && !row.queued && row.from !== "chief" && !chiefEnvelope(row.text)
     ? META_GAP + META_ROW
-    : 0) +
-  (row.steer ? USER_STATUS_HEIGHT : 0) +
-  (row.steer === "waiting" ? USER_STATUS_HEIGHT : 0);
+    : 0) + (row.steer === "waiting" ? USER_STATUS_HEIGHT : 0);
 const chromeHeight = (row: AcpmuxRow) =>
   row.kind === "user" ? USER_BUBBLE_PADDING + userMetaHeight(row) + (row.status ? USER_STATUS_HEIGHT : 0) : 0;
 /// The bubble's share of its row and its side padding, which sits inside that share (border-box).

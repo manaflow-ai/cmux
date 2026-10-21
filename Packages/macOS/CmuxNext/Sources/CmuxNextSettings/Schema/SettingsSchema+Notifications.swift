@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDesign
 
 /// One group of `SettingsSchema` rows (its own type: the schema type's line budget is per type).
@@ -96,6 +97,18 @@ nonisolated enum NotificationSettingsSchema {
                     SettingChoice(DockBounceMode.untilActive.rawValue, SettingsText.keyed("settings.choice.dockBounceUntilActive", "Until You Switch to cmux")),
                 ]),
                 default: .string(defaults.dockBounce.rawValue), keywords: ["dock", "bounce", "attention", "badge"]
+            ),
+            SettingDescriptor(
+                ["notifications", "showPreviews"], section: .notifications, group: banners,
+                title: SettingsText.keyed("settings.notifications.showPreviews", "Show Message in Banners"),
+                help: SettingsText.keyed("settings.notifications.showPreviews.help",
+                                        "Whether a banner shows what the agent said, or only where and what state."),
+                kind: .choice([
+                    SettingChoice(NotificationPreviews.always.rawValue, SettingsText.keyed("settings.choice.previewsAlways", "Always")),
+                    SettingChoice(NotificationPreviews.whenUnlocked.rawValue, SettingsText.keyed("settings.choice.previewsWhenUnlocked", "When Unlocked")),
+                    SettingChoice(NotificationPreviews.never.rawValue, SettingsText.keyed("settings.choice.previewsNever", "Never")),
+                ]),
+                default: .string(defaults.showPreviews.rawValue), keywords: ["preview", "privacy", "message", "lock screen", "banner"]
             ),
             SettingDescriptor(
                 ["feed", "mirrorNotifications", "agents"], section: .notifications, group: feed,

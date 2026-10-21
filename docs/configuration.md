@@ -1006,3 +1006,31 @@ Settings > General > Agent Chat shows the same keys.
   whole chat, at its latest edit.
 
 A value cmux does not know keeps that key's default and is reported as a diagnostic.
+
+## `home.server`
+
+Which server Home's direct messages and group chats use. Settings > Accounts > Messages Server
+edits it.
+
+- `"hosted"` (the default): cmux Cloud for this build, with your cmux sign-in.
+- `{"selfHosted": "<origin>"}`: your own `cmux-chat-server` (on a Mac mini or a Linux server),
+  reached over Tailscale.
+
+```json
+{ "home": { "server": "hosted" } }
+```
+
+```json
+{ "home": { "server": { "selfHosted": "http://mini.tail1234.ts.net:7320" } } }
+```
+
+The address is an origin: `http://` or `https://`, a host and an optional port, with no path,
+query or user name. Use the server's MagicDNS name (`<name>.<tailnet>.ts.net`) or its Tailscale
+address. The session daemon accepts a self-hosted server only when its host is a `*.ts.net` name,
+an address in `100.64.0.0/10` or an address in `fd7a:115c:a1e0::/48`, over http or https; it
+refuses any other host. No token or password is sent to a self-hosted server: it identifies you by
+your Tailscale login, and the cmux Cloud sign-in is not used for it. Plain http is fine on the
+tailnet, because WireGuard already encrypts and authenticates the connection.
+
+A value that is neither form falls back to cmux Cloud and shows a settings diagnostic. Agents
+cannot change this setting.
