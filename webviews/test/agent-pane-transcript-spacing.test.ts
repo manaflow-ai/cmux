@@ -190,7 +190,9 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     const page = await open();
     const measured = await gaps(page);
     // The meta row starts 4px under its bubble and is one compact 24px line.
+    expect(measured.metaRowUnderBubble).toBeGreaterThanOrEqual(2);
     expect(measured.metaRowUnderBubble).toBeLessThanOrEqual(6);
+    expect(measured.metaRowHeight).toBeGreaterThanOrEqual(20);
     expect(measured.metaRowHeight).toBeLessThanOrEqual(24);
     // An older prompt's hidden row reserves only its own line (4 + 24), then the 8px message gap.
     expect(measured.olderPromptToNext).toBeLessThanOrEqual(37);
@@ -198,6 +200,7 @@ await requireBrowserLane("agent-pane-transcript-spacing.test.ts", async () => {
     expect(measured.promptToWorked).toBeGreaterThanOrEqual(0);
     expect(measured.promptToWorked).toBeLessThanOrEqual(10);
     // A reply's footer starts right under the reply.
+    expect(measured.replyToFooterText).toBeGreaterThanOrEqual(0);
     expect(measured.replyToFooterText).toBeLessThanOrEqual(10);
     // Turns sit a fixed 24px apart: the footer's line to the next prompt.
     expect(measured.footerToNextPrompt).toBeGreaterThanOrEqual(20);
