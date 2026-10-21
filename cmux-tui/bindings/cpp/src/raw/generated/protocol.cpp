@@ -25049,6 +25049,11 @@ Result<Json> Codec<NewFrontendBrowserTabRequest>::encode(const NewFrontendBrowse
         if (!encoded) return std::move(encoded).error();
         object.emplace("rows", std::move(encoded).value());
     }
+    if (!value.split.is_absent()) {
+        auto encoded = encode_value(value.split);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("split", std::move(encoded).value());
+    }
     if (!value.title.is_absent()) {
         auto encoded = encode_value(value.title);
         if (!encoded) return std::move(encoded).error();
@@ -25157,6 +25162,16 @@ Result<NewFrontendBrowserTabRequest> Codec<NewFrontendBrowserTabRequest>::decode
             auto decoded = decode_value<std::uint16_t>(*field_rows);
             if (!decoded) return std::move(decoded).error();
             result.rows = Field<std::uint16_t>(std::move(decoded).value());
+        }
+    }
+    const Json* field_split = value.find("split");
+    if (field_split) {
+        if (field_split->is_null()) {
+            result.split = Field<ConversationTabSplit>::null();
+        } else {
+            auto decoded = decode_value<ConversationTabSplit>(*field_split);
+            if (!decoded) return std::move(decoded).error();
+            result.split = Field<ConversationTabSplit>(std::move(decoded).value());
         }
     }
     const Json* field_title = value.find("title");
@@ -41232,6 +41247,9 @@ constexpr std::array<CommandFieldRequirement, 5> kCommand164FieldRequirements{{
     {"split", 0U, "conversation-tab-split-v1"},
     {"transaction", 0U, "conversation-tab-transaction-v1"},
 }};
+constexpr std::array<CommandFieldRequirement, 1> kCommand165FieldRequirements{{
+    {"split", 0U, "frontend-browser-tab-split-v1"},
+}};
 constexpr std::array<CommandFieldRequirement, 7> kCommand166FieldRequirements{{
     {"cwd", 12U, "terminal-placement-env-v1"},
     {"env", 12U, "terminal-placement-env-v1"},
@@ -41526,7 +41544,7 @@ constexpr std::array<CommandMetadata, 281> kCommands{{
     {"move-workspace-to-group", "control", 12U, "workspace-groups-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-browser-tab", "control", 5U, "", false, "", "", std::span<const CommandFieldRequirement>{}},
     {"new-conversation-tab", "control", 12U, "conversation-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand164FieldRequirements)},
-    {"new-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},
+    {"new-frontend-browser-tab", "control", 12U, "frontend-browser-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand165FieldRequirements)},
     {"new-pane", "control", 9U, "", false, "", "", std::span<const CommandFieldRequirement>(kCommand166FieldRequirements)},
     {"new-pane-right", "control", 9U, "viewport-splits-v1", false, "", "", std::span<const CommandFieldRequirement>(kCommand167FieldRequirements)},
     {"new-remote-terminal-tab", "control", 12U, "remote-terminal-tabs-v1", false, "", "", std::span<const CommandFieldRequirement>{}},

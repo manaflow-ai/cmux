@@ -185,13 +185,20 @@ extension PaneController {
 
     /// New browser tab in this pane (`PaneBrowserTabOpener`), selected and
     /// focused when it lands unless `background`. False when refused.
+    /// `split`: in a new pane on that side of this one instead, made there in one
+    /// daemon commit (only when ``opensBrowserSplitsDirectly``).
     @discardableResult
     func newBrowserTab(url: URL? = nil, engine requested: String? = nil, inherited: String? = nil,
                        adopting child: (any BrowserTab)? = nil, background: Bool = false, profile: String? = nil,
-                       notice: String? = nil, opener: SurfaceID? = nil, then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
+                       notice: String? = nil, opener: SurfaceID? = nil, split: SplitDirection? = nil,
+                       then: (@MainActor (SurfaceID) -> Void)? = nil) -> Bool {
         PaneBrowserTabOpener(controller: self).open(url: url, engine: requested, inherited: inherited, adopting: child, background: background,
-                                                    profile: profile, notice: notice, opener: opener, then: then)
+                                                    profile: profile, notice: notice, opener: opener, split: split, then: then)
     }
+
+    /// Whether a new browser tab can open straight in a new split of this pane
+    /// (`frontend-browser-tab-split-v1`, ``PaneBrowserTabOpener/splitsDirectly``).
+    var opensBrowserSplitsDirectly: Bool { PaneBrowserTabOpener(controller: self).splitsDirectly }
 
     /// Several tabs (close others, to the left, to the right) close in one
     /// daemon commit with `batch-close-v1` (`close-tabs`). Like a single

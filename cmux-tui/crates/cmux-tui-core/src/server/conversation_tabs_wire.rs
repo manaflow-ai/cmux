@@ -27,6 +27,7 @@ use super::{
     BudgetedText, MessageWriter, Mux, PaneId, SurfaceId, WorkspaceId, paired_surface_size,
 };
 use crate::Actor;
+use crate::mux::TabSplit;
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
     AGENT_SESSION_TABS_CAPABILITY, CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY,
@@ -88,6 +89,8 @@ pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-spl
 
 /// The new pane of a conversation tab's split: its side of the source pane
 /// and, as `split-client-keys-v1`, the caller-minted public id of the pane.
+/// `new-frontend-browser-tab {pane, split}` (`frontend-browser-tab-split-v1`)
+/// takes the same object.
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 pub(super) struct ConversationTabSplitParams {
@@ -100,7 +103,8 @@ pub(super) struct ConversationTabSplitParams {
 }
 
 impl ConversationTabSplitParams {
-    fn target(self, pane: Option<PaneId>) -> anyhow::Result<ConversationTabTarget> {
+    /// The validated split of `pane`; malformed input is a bad request.
+    pub(super) fn tab_split(self, pane: Option<PaneId>) -> anyhow::Result<TabSplit> {
         let pane = pane.ok_or_else(|| anyhow::anyhow!("bad request: split needs pane"))?;
         let direction = match self.direction.as_str() {
             "right" => "right",
@@ -121,12 +125,7 @@ impl ConversationTabSplitParams {
                 anyhow::anyhow!("bad request: split_id {split_id:?} is not a split id")
             })?;
         }
-        Ok(ConversationTabTarget::Split {
-            pane,
-            direction,
-            pane_id: self.pane_id,
-            split_id: self.split_id,
-        })
+        Ok(TabSplit { pane, direction, pane_id: self.pane_id, split_id: self.split_id })
     }
 }
 
@@ -253,7 +252,7 @@ pub(super) fn create(
     } = params;
     super::validate_client_transaction(transaction.as_deref())?;
     let target = match (pane, workspace, split) {
-        (_, None, Some(split)) => split.target(pane)?,
+        (_, None, Some(split)) => ConversationTabTarget::Split(split.tab_split(pane)?),
         (_, None, None) => ConversationTabTarget::Pane(pane),
         (None, Some(workspace), None) => ConversationTabTarget::Workspace(workspace),
         (_, Some(_), Some(_)) => anyhow::bail!("bad request: split goes with pane, not workspace"),

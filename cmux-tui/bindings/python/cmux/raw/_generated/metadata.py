@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67'
+IR_SHA256 = '231372419d7bd614db88b95d32d81579c218cd1194a4321410b542410b52c4ed'
 
 
 @dataclass(frozen=True)
@@ -2233,6 +2233,7 @@ COMMANDS = {
             'pane': CommandFieldMetadata(None, None),
             'profile_id': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
+            'split': CommandFieldMetadata(None, 'frontend-browser-tab-split-v1'),
             'title': CommandFieldMetadata(None, None),
             'url': CommandFieldMetadata(None, None),
         },

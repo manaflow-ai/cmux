@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67";
+pub const ir_sha256 = "231372419d7bd614db88b95d32d81579c218cd1194a4321410b542410b52c4ed";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -7084,6 +7084,8 @@ pub const NewFrontendBrowserTabRequest = struct {
     pane: wire.Field(Id) = .absent,
     profile_id: wire.Field([]const u8) = .absent,
     rows: wire.Field(u16) = .absent,
+    /// With pane: the tab goes in a new pane on that side of pane, in one pane.split commit whose one pane-added delta holds the pane with the tab; pane never lists it. Refused with after.
+    split: wire.Field(ConversationTabSplit) = .absent,
     title: wire.Field([]const u8) = .absent,
     url: []const u8,
 
@@ -7102,6 +7104,9 @@ pub fn newFrontendBrowserTab(client: anytype, request: NewFrontendBrowserTabRequ
             .authority = "control",
             .since = 12,
             .capability = "frontend-browser-tabs-v1",
+            .fields = &.{
+                .{ .name = "split", .since = null, .capability = "frontend-browser-tab-split-v1" },
+            },
         },
         request,
     );

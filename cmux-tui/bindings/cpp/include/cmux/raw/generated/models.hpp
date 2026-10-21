@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67";
+inline constexpr std::string_view kProtocolIrSha256 = "231372419d7bd614db88b95d32d81579c218cd1194a4321410b542410b52c4ed";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -3882,6 +3882,7 @@ struct NewFrontendBrowserTabRequest {
     Field<Id> pane{};
     Field<std::string> profile_id{};
     Field<std::uint16_t> rows{};
+    Field<ConversationTabSplit> split{};
     Field<std::string> title{};
     std::string url{};
     friend bool operator==(const NewFrontendBrowserTabRequest&, const NewFrontendBrowserTabRequest&) = default;

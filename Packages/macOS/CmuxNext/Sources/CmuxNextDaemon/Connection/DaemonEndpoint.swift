@@ -109,6 +109,9 @@ public struct DaemonCapabilities: Sendable {
     /// `new-conversation-tab {pane, split}`: a chat or New Tab page tab in a new split, in one
     /// daemon commit and one `pane-added` delta (a person's Cmd-D, atomically).
     public let conversationTabSplit = "conversation-tab-split-v1"
+    /// `new-frontend-browser-tab {pane, split}`: a browser tab in a new split, in one daemon
+    /// commit and one `pane-added` delta (a link opened to the right never shows in its pane first).
+    public let frontendBrowserTabSplit = "frontend-browser-tab-split-v1"
     /// `send {terminal_id}` to a terminal still being created: the daemon queues the input and
     /// writes it after the commit (cx-wb5.78, ``SendTerminalInputRequest``).
     public let terminalInputWhileCreating = "terminal-input-while-creating-v1"
@@ -461,7 +464,7 @@ public struct DaemonCapabilities: Sendable {
                                             attachIdentity, creationReceipts, creationAttemptKeys, terminalColorOverrides,
                                             workspaceKind, workspaceAgentFolder, workspaceAgentStart, conversationTabs, agentSessionTabs, agentSessionAttach, agentSessionStart, agentSessionStartKeyedReason, agentSessionTrust, pageTabs, pageTabRoute, windowRecords, appScreens, conversationSearch, conversationThreads, conversationThread, conversationInboxState, homeInbox, chiefEvents, cloudConversations, cloudHostReplica, pageCredential, scopedPageCredential, wsListen, wsListenOrigins, localAttachments,
                                             tabWorkspaceName, terminalSnapshotHistory, terminalSnapshotLocalHistory, terminalSnapshotImages,
-                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, terminalInputWhileCreating,
+                                            terminalClipboardRead, personalMixedOrder, sidebarLayout, sidebarDoc, placementShift, paletteUsage, browserDevices, browserFit, browserFitWidth, projectList, splitClientKeys, splitClientSplitID, conversationTabSplit, frontendBrowserTabSplit, terminalInputWhileCreating,
                                             workspaceGroupIcon, workspaceGroupPin, screenGroupIcon, tabGroupIcon, sessionIcon, chiefInspect, feedLocalOwner, remoteTerminalTabs, detachedTerminals, tabRestart, tabRestartKeptLayout, tabPark,
                                             originClaim, pageRouter, sessionJournal, terminalResources, keybindings, iconAssets, linkPreview, sharedSizing,
                                             machineIdentity, agentCLIAppProvider, agentCLIAppInvalidation, agentInventoryWatchAdmission, sendExpectForeground, stash] }

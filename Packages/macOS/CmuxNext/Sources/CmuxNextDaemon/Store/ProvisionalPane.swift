@@ -21,7 +21,8 @@ public struct ProvisionalPane: Sendable, Hashable {
     public let surface: SurfaceID
     /// The tab it shows when it is not a terminal: a conversation tab under a provisional id
     /// (`conversation-tab-split-v1`), which the daemon's tab replaces when its pane arrives
-    /// (`ProvisionalTab.echoed`). Nil: a terminal tab under `tabID` and `terminalID`.
+    /// (`ProvisionalTab.echoed`), or a browser tab's stand-in (`frontend-browser-tab-split-v1`,
+    /// ``ProvisionalTab/browser(_:)``). Nil: a terminal tab under `tabID` and `terminalID`.
     public let tab: TabSnapshot?
     /// `split_<32 hex>`, sent as the split's `split_id` (`split-client-split-id-v1`): the public
     /// id of the split it shows under, which the daemon's split keeps, so the daemon's layout
@@ -34,7 +35,8 @@ public struct ProvisionalPane: Sendable, Hashable {
     }
 
     /// A provisional pane holding `tab`, a new conversation tab (an agent chat or the New Tab page)
-    /// that `new-conversation-tab {split}` creates (``ProvisionalTab/conversation(_:)``).
+    /// that `new-conversation-tab {split}` creates (``ProvisionalTab/conversation(_:)``), or a new
+    /// browser tab that `new-frontend-browser-tab {split}` creates (``ProvisionalTab/browser(_:)``).
     @MainActor public init(holding tab: TabSnapshot) {
         self.init(tab: tab)
     }
