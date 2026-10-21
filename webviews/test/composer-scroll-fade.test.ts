@@ -47,10 +47,15 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
   const FIELD = ".acpmux-composer-prompt";
   const EDITABLE = ".acpmux-composer-prompt [contenteditable='true']";
 
+  /// Three painted frames: a paste's own scroll to its end runs a frame after it, and the edge marks
+  /// follow that scroll's event.
   const settle = (page: Page) =>
-    page
-      .evaluate(() => new Promise((done) => requestAnimationFrame(() => requestAnimationFrame(() => done(undefined)))))
-      .then(() => page.waitForTimeout(150));
+    page.evaluate(
+      () =>
+        new Promise((done) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => requestAnimationFrame(() => done(undefined)))),
+        ),
+    );
 
   /// The prompt's scroll position, its edge marks and its computed mask.
   const edges = (page: Page) =>
@@ -150,7 +155,7 @@ await requireBrowserLane("composer-scroll-fade.test.ts", async () => {
         const box = (await page.locator(FIELD).boundingBox())!;
         await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
         await page.mouse.wheel(0, -4000);
-        await page.waitForTimeout(400);
+        await page.waitForFunction((selector) => document.querySelector(selector)!.scrollTop === 0, FIELD);
         await settle(page);
         seen = await edges(page);
         expect(seen.top).toBe(0);
