@@ -1411,15 +1411,16 @@ async fn a_queued_prompt_keeps_its_provenance_across_a_daemon_crash() {
 
 /// A config whose `slow` launcher check (`config/launchers.rs`) waits until `<home>/go` exists:
 /// the daemon's startup, and so the run of every prompt it restored (`resume_queues`), waits
-/// for the test. Bounded, so a check a killed daemon left behind ends by itself.
+/// for the test. A check a killed daemon left behind ends once the test removes its home.
 fn hold_startup(daemon: &Daemon) {
     let script = daemon.home.join("hold-startup.sh");
     let go = daemon.home.join("go");
     std::fs::write(
         &script,
         format!(
-            "#!/bin/sh\ni=0\nwhile [ ! -e '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done\necho 'slow 1.0'\n",
-            go.display()
+            "#!/bin/sh\ni=0\nwhile [ ! -e '{}' ] && [ -d '{}' ] && [ $i -lt 1200 ]; do sleep 0.05; i=$((i+1)); done\necho 'slow 1.0'\n",
+            go.display(),
+            daemon.home.display()
         ),
     )
     .unwrap();
