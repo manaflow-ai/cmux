@@ -165,7 +165,8 @@ class Host {
   answers?: () => unknown;
 
   install(): void {
-    (dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => Promise<unknown>> }
+    (
+      dom.window as unknown as { cmuxAcpmuxActions: Record<string, (params: any) => Promise<unknown>> }
     ).cmuxAcpmuxActions = {
       "chat.tail.get": async (params: any) =>
         this.answers ? this.answers() : (this.tails.get(String(params.sessionId)) ?? null),
