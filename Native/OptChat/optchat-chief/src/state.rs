@@ -511,9 +511,8 @@ impl PendingTurn {
             .iter()
             .map(|seq| Item {
                 seq: *seq,
-                // This pre-provenance format cannot establish that its
-                // messages were owner-authored, so recovery must ask.
-                requires_approval: true,
+                // This pre-provenance format names no other person: the
+                // owner's (the Chief never asks, 2026-10-20).
                 ..Item::default()
             })
             .collect()
@@ -523,13 +522,12 @@ impl PendingTurn {
 /// One logged item's source, so a restart can finish its bookkeeping: a
 /// human message moves the read cursor, a child's report marks the child
 /// reported (else reconcile would queue the same report again).
-/// Persisted records created before effect provenance was stored fail closed.
-/// New constructors still use `Default::default()` (owner-authorized false),
-/// and serialization writes the field explicitly so a round trip is stable.
-fn legacy_requires_approval() -> bool {
-    true
-}
-
+/// `requires_approval` (another person's text: its turn's local effects
+/// are refused) is stored as `other_person`. Records of older builds stored
+/// `requires_approval`, true also for the owner's own turns that only had
+/// unknown provenance; a resume carried it forward, so one old record gated
+/// every turn after each restart (2026-10-20). Their key is ignored: they
+/// read as the owner's.
 #[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Item {
     /// The conversation seq of a human message.
@@ -556,7 +554,11 @@ pub struct Item {
     pub remote: bool,
     /// The message came from someone other than the Chief's owner, or the
     /// resumed turn otherwise required approval for effects.
-    #[serde(default = "legacy_requires_approval")]
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub requires_approval: bool,
     /// The resume note of a cut turn: a cut resume turn resumes again.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
@@ -578,7 +580,11 @@ pub struct Resume {
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub remote: bool,
     /// The cut turn required approval independently of remote.autoApprove.
-    #[serde(default = "legacy_requires_approval")]
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub requires_approval: bool,
     /// The full text of the cut turn's human messages, in log order: the
     /// resume turn's new messages carry them after the note (they are in
@@ -594,7 +600,11 @@ pub struct SpawnRef {
     pub subs: Vec<(String, u64)>,
     /// The report came from a subagent whose effects required approval.
     /// Older persisted reports have unknown provenance and fail closed.
-    #[serde(default = "legacy_requires_approval")]
+    #[serde(
+        default,
+        rename = "other_person",
+        skip_serializing_if = "std::ops::Not::not"
+    )]
     pub requires_approval: bool,
     /// The user stopped the subagent: its report is logged with the next
     /// turn and starts none (the reference client's stopped report).
@@ -992,35 +1002,16 @@ mod security_tests {
     use super::{Item, PendingTurn, Resume, SpawnRef};
 
     #[test]
-    fn legacy_pending_turns_require_approval_but_new_owner_records_round_trip() {
-        let old_item: Item = serde_json::from_str(r#"{"seq":1}"#).unwrap();
-        let old_resume: Resume = serde_json::from_str(r#"{"messages":["continue"]}"#).unwrap();
-        assert!(old_item.requires_approval);
-        assert!(old_resume.requires_approval);
-
-        let item = Item::default();
-        let resume = Resume::default();
-        assert!(!item.requires_approval);
-        assert!(!resume.requires_approval);
-        let item_again: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
-        let resume_again: Resume =
-            serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
-        assert!(!item_again.requires_approval);
-        assert!(!resume_again.requires_approval);
-
+    fn old_approval_flags_are_dropped_and_another_person_round_trips() {
+        // Records of older builds: an explicit old flag and a missing one.
+        let old_item: Item = serde_json::from_str(r#"{"seq":1,"requires_approval":true}"#).unwrap();
+        let old_resume: Resume =
+            serde_json::from_str(r#"{"messages":["continue"],"requires_approval":true}"#).unwrap();
         let old_spawn: SpawnRef =
             serde_json::from_str(r#"{"spawn":"spawn-1","subs":[],"quiet":false}"#).unwrap();
-        assert!(old_spawn.requires_approval);
-        let spawn = SpawnRef {
-            spawn: "spawn-1".to_owned(),
-            subs: Vec::new(),
-            requires_approval: false,
-            quiet: false,
-        };
-        let spawn_again: SpawnRef =
-            serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
-        assert!(!spawn_again.requires_approval);
-
+        assert!(!old_item.requires_approval);
+        assert!(!old_resume.requires_approval);
+        assert!(!old_spawn.requires_approval);
         let legacy_turn = PendingTurn {
             seqs: vec![Some(7), None],
             ..PendingTurn::default()
@@ -1029,7 +1020,30 @@ mod security_tests {
             legacy_turn
                 .opening()
                 .iter()
-                .all(|item| item.requires_approval)
+                .all(|item| !item.requires_approval)
         );
+
+        let item = Item {
+            requires_approval: true,
+            ..Item::default()
+        };
+        let resume = Resume {
+            requires_approval: true,
+            ..Resume::default()
+        };
+        let spawn = SpawnRef {
+            spawn: "spawn-1".to_owned(),
+            subs: Vec::new(),
+            requires_approval: true,
+            quiet: false,
+        };
+        let item_again: Item = serde_json::from_slice(&serde_json::to_vec(&item).unwrap()).unwrap();
+        let resume_again: Resume =
+            serde_json::from_slice(&serde_json::to_vec(&resume).unwrap()).unwrap();
+        let spawn_again: SpawnRef =
+            serde_json::from_slice(&serde_json::to_vec(&spawn).unwrap()).unwrap();
+        assert!(item_again.requires_approval);
+        assert!(resume_again.requires_approval);
+        assert!(spawn_again.requires_approval);
     }
 }
