@@ -80,6 +80,36 @@ const host: Partial<HostLists> = {
   settings_file: "/Users/sample/.config/cmux/cmux.json",
   // Most variants omit artwork; the backdrop variant supplies sample thumbnails.
   backdrops: [],
+  // Settings › Import: what the host's scan found (ImportSuggestionsCenter.settingsJSON), sent by
+  // default since #22710, one card hidden with Not Now.
+  import_suggestions: {
+    title: "Found on This Mac",
+    empty: "Nothing to bring over right now. cmux looks again when you come back to it.",
+    cards: [
+      {
+        id: "browser.chrome",
+        kind: "browser",
+        title: "Chrome",
+        facts: "3 profiles · history, bookmarks and cookies",
+        benefit: "Sites you're signed into in Chrome stay signed in here, and your history fills the address bar.",
+        state: "ready",
+        primary: { action: "start", title: "Import" },
+        secondary: [{ action: "dismiss", title: "Not Now" }],
+        dismissed: false,
+      },
+      {
+        id: "agents.claudeCode",
+        kind: "claudeCode",
+        title: "Claude Code",
+        facts: "412 sessions",
+        benefit: "Your Claude Code history becomes searchable chats. Open one to pick up where you left off.",
+        state: "ready",
+        primary: { action: "start", title: "Show Chats" },
+        secondary: [{ action: "restore", title: "Show Again" }],
+        dismissed: true,
+      },
+    ],
+  },
 };
 const click = (selector: string): PageFixtureStep => ({ selector, action: "click" });
 const input = (selector: string, value: string): PageFixtureStep => ({ selector, action: "input", value });
@@ -169,6 +199,17 @@ Object.assign(variants, {
         { id: "aider", name: "Aider", kind: "terminal", source: "user-file", problem: null },
       ],
     },
+  }),
+  // Settings > Agents > Agent integrations, opened: installed, needs repair, a file cmux did
+  // not create in the way (no Install, the command to copy), and not installed.
+  "agents-integrations": variant("agents", {
+    note: "Agent integrations opened: one row per hook state, a conflict with no Install, and the manual command.",
+    focus: "agents.integrations",
+  }),
+  "agents-integrations-no-cli": variant("agents", {
+    note: "Agent integrations in a build without the cmux CLI: it says so and gives the command.",
+    focus: "agents.integrations",
+    integrations: { loading: false, problem: "unavailable", command: "cmux agent hook install", providers: [] },
   }),
   "agents-harnesses-unreachable": variant("agents", {
     note: "Harnesses when the acpmux daemon did not answer.",
@@ -726,6 +767,11 @@ Object.assign(variants, {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
+  // Settings > Chief > Chief Pet with the pet off (the default): the Chief's character stays checked.
+  "chief-pet-off": variant("chief", {
+    focus: "home.chiefPetMascot",
+    note: "Chief Pet, pet off: the chosen character (Orb) is checked; Show Pet floats it.",
+  }),
   "agents-add-custom": variant("agents", {
     focus: "agents.add",
     steps: [wait("[data-agents-custom]")],
@@ -878,6 +924,7 @@ export default settingsPageEntry({
     "pages/settings/components/AccentPicker.tsx",
     "pages/settings/components/AccountsSection.tsx",
     "pages/settings/components/AgentHarnesses.tsx",
+    "pages/settings/components/AgentIntegrations.tsx",
     "pages/settings/components/ComputerUseCard.tsx",
     "pages/settings/components/ChiefsCard.tsx#ChiefsCard",
     "pages/settings/components/HarnessesCard.tsx",
