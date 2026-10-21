@@ -278,3 +278,95 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* A reply's image thumbnail (ReplyImage.tsx `thumb`): glass of one fixed shape in every state
+ * (waiting, Load image, unavailable, shown), so an image that loads never moves the reply. The image
+ * fits inside whole; a click opens it in the image viewer. */
+.cv-thumb {
+  box-sizing: border-box;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: min(100%, 360px);
+  aspect-ratio: 16 / 10;
+  margin: 6px 0;
+  padding: 4px;
+  overflow: hidden;
+  vertical-align: top;
+  border: 0;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--cv-fg) 4%, transparent);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--cv-fg) 10%, transparent),
+    inset 0 1px 0 color-mix(in srgb, #fff 6%, transparent);
+  color: var(--cv-text-muted);
+  font: inherit;
+  font-size: 12px;
+}
+button.cv-thumb {
+  appearance: none;
+  cursor: zoom-in;
+}
+button.cv-thumb:focus-visible {
+  outline: 2px solid var(--agent-accent-soft);
+  outline-offset: 2px;
+}
+.cv-thumb__img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  border-radius: 7px;
+}
+.cv-thumb__name {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* A placeholder or an unavailable file's card sits in the frame's middle, without its own border. */
+.cv-thumb .cv-image-placeholder,
+.cv-thumb .cv-image-file {
+  flex-wrap: wrap;
+  justify-content: center;
+  padding: 0 8px;
+  border: 0;
+  text-align: center;
+}
+/* Thumbnails of one paragraph or list item (Markdown.tsx Thumbs): one alone, or a row where each
+ * takes the same share, so a before/after pair sits side by side, its label under each. */
+.cv-thumbs {
+  display: block;
+  max-width: 100%;
+}
+.cv-thumbs.is-row {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 8px;
+  width: min(100%, 728px);
+  margin: 6px 0;
+}
+.cv-thumbs.is-row .cv-thumb {
+  width: 100%;
+  margin: 0;
+}
+.cv-thumbs__item {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.cv-thumbs__caption {
+  overflow: hidden;
+  color: var(--cv-text-muted);
+  font-size: 12px;
+  line-height: 16px;
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.cv-li__images {
+  display: block;
+}
