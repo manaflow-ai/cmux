@@ -1727,17 +1727,17 @@ mod tests {
         assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Udp, addr: new }));
     }
 
-    /// The phone roams to a new TURN allocation. The Mac replays what it
-    /// sent recently once on the new route, not once per event of the roam:
-    /// the phone's first datagram from the new relay changes the route (a
-    /// replay), and its announcement of the new address arrives right after.
-    /// A second copy of the same burst overflowed a socket buffer on CI
-    /// (Linux caps them at `rmem_max`, about 208 KB), and a datagram that was
-    /// in neither copy waited out TCP's 1 s retransmission inside the
-    /// tunnel: the `stalled 1.0s` flake of
-    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`.
+    /// The phone roams to a new TURN allocation, and the Mac replays what it
+    /// sent recently on the new route newest first. What went into the dead
+    /// route is the newest, and a replay can overflow a buffer on the path
+    /// this side does not size (the TURN server's relay socket; Linux caps
+    /// buffers at `rmem_max`, about 208 KB), which drops what arrives last.
+    /// Oldest first, that was the datagram TCP inside the tunnel was missing,
+    /// and it waited out its 1 s retransmission: the `stalled 1.0s` flake of
+    /// `wireguard_roam_with_udp_blocked_takes_a_fresh_turn_tls_allocation`
+    /// (the new relay's socket dropped 8 to 18 datagrams in every round).
     #[tokio::test]
-    async fn a_roam_replays_recent_datagrams_once_on_the_new_route() {
+    async fn a_roam_replays_the_newest_datagrams_first() {
         let old_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let new_relay = UdpSocket::bind("127.0.0.1:0").await.unwrap();
         let (old, new) = (old_relay.local_addr().unwrap(), new_relay.local_addr().unwrap());
@@ -1781,17 +1781,61 @@ mod tests {
             relayed: vec![new.to_string()],
             relayed_tls: vec![new.to_string()],
         });
-        let mut copies = std::collections::HashMap::<u8, usize>::new();
+        let mut order = Vec::new();
         let mut buffer = [0u8; 2048];
         while let Ok(Ok((len, _))) =
             tokio::time::timeout(Duration::from_millis(200), new_relay.recv_from(&mut buffer)).await
         {
             if len == 208 {
-                *copies.entry(buffer[4]).or_default() += 1;
+                order.push(buffer[4]);
             }
         }
-        assert_eq!(copies.len(), 20, "every recent datagram reaches the new route: {copies:?}");
-        assert!(copies.values().all(|&n| n == 1), "replayed more than once: {copies:?}");
+        assert!(order.len() >= 20, "every recent datagram reaches the new route: {order:?}");
+        assert_eq!(order[..20], (0..20u8).rev().collect::<Vec<_>>()[..], "newest first: {order:?}");
+    }
+
+    /// The roam's new TURN allocation can get the old one's relayed address
+    /// (the server handed the port out again). A `reach` naming it then
+    /// confirms the route: it is not one sent before the change. Ignored,
+    /// the phone stayed unconfirmed for the rest of the roam (the flake's
+    /// `no roam_turn`, about 1 round in 100 with the test server's 100 relay
+    /// ports).
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn a_new_allocation_on_the_old_relayed_address_is_confirmed() {
+        let turn = crate::testing::TestTurn::start().await;
+        let options = DialOptions {
+            ice_servers: vec![turn.ice.clone()],
+            turn_tls_roots: Some(std::sync::Arc::clone(&turn.roots)),
+            include_loopback: true,
+            ..DialOptions::default()
+        };
+        let first = TurnCarrier::allocate(&options).await.expect("a TURN allocation");
+        let relayed = first.relayed;
+        let mut second = TurnCarrier::allocate(&options).await.expect("a second TURN allocation");
+        second.relayed = relayed;
+        let mac: SocketAddr = "127.0.0.1:9".parse().unwrap();
+        let (reach_out, _reaches) = mpsc::unbounded_channel();
+        let (_control, control) = mpsc::unbounded_channel();
+        let mut underlay = HybridUnderlay::new(
+            UnderlaySpec {
+                socket: UdpSocket::bind("127.0.0.1:0").await.unwrap(),
+                peer_endpoints: &[mac.to_string()],
+                peer_relayed: &[],
+                peer_relayed_tls: &[],
+                peer_version: WG_VERSION,
+                turn: Some(first),
+                reach_out,
+                path: watch::channel(LinkPath::NoPath).0,
+                control,
+            },
+            &options,
+        );
+        underlay.authenticated(Origin { path: TURN_PATH, addr: Some(mac) });
+        assert_eq!(underlay.direct, Some(Route { carrier: Carrier::Turn, addr: mac }));
+        underlay.apply(Control::Turn(second));
+        assert!(!underlay.confirmed);
+        underlay.apply(Control::Reached { from: Some(relayed), via_turn: false });
+        assert!(underlay.confirmed, "a reach naming the new allocation confirms the route");
     }
 
     #[test]
