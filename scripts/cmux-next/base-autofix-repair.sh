@@ -11,8 +11,11 @@
 #
 # With CMUX_BASE_AUTOFIX_AGAIN=1 (base-autofix-land.sh, on a tip that moved the inputs of a held
 # file) it makes only what that tip's own tree decides: the same Linux repairs. The Mac exports and
-# the webviews patch were made at an older commit, so they are not applied, and what is built from
-# the exports (docs shortcuts, app-host files, the defaults snapshot) waits for the next run.
+# the webviews patch were made at an older commit, so they are not applied. What is built from the
+# exports (docs shortcuts, app-host files) is made from the tip's committed action exports when
+# CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT=1 says they are current there, and the defaults snapshot
+# when CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT=1 says the settings exports are too; otherwise
+# they wait for the next run.
 #
 # Usage: scripts/cmux-next/base-autofix-repair.sh REPO
 # CMUX_BASE_AUTOFIX_SCRIPT: the repair (default: base-autofix.sh beside this one).
@@ -36,7 +39,12 @@ args=()
 shortcuts="${SHORTCUTS:-false}" apphost="${APPHOST:-false}"
 if [[ "$again" == 1 ]]; then
   shortcuts=false apphost=false
-  args+=(--unverified-exports --unverified-settings-exports)
+  if [[ "${CMUX_BASE_AUTOFIX_ACTION_EXPORTS_CURRENT:-}" == 1 ]]; then
+    shortcuts=true apphost=true
+  else
+    args+=(--unverified-exports)
+  fi
+  [[ "${CMUX_BASE_AUTOFIX_SETTINGS_EXPORTS_CURRENT:-}" == 1 ]] || args+=(--unverified-settings-exports)
 else
   # Regenerated action and settings exports: the defaults snapshot follows both. The docs shortcuts
   # and app-host files follow the action exports only when this run regenerated them, never a

@@ -22,6 +22,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -181,8 +182,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     attributes: Record<string, string> = {},
   ): Promise<Page> {
     const page = await browser!.newPage({ viewport: { width, height } });
-    // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on <html>.
-    const set = { ...(foldThoughts && { "data-fold-long-thoughts": "on" }), ...attributes };
+    await installPaintedFrames(page);
+    // The Debug tunables (agentPane.debug.foldLongThoughts and the others), as the app sets them on
+    // <html>: the fold is on unless the app sets it off.
+    const set = { ...(!foldThoughts && { "data-fold-long-thoughts": "off" }), ...attributes };
     if (Object.keys(set).length)
       await page.addInitScript((names: Record<string, string>) => {
         const apply = () => {
@@ -198,9 +201,45 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${chat.id}`);
     await page.getByText("Paragraph 24.", { exact: false }).waitFor({ timeout: 25_000 });
     // Rows place by their drawn heights a frame after they mount.
-    await page.waitForTimeout(300);
+    await settle(page);
     return page;
   }
+
+  /// Resolves once the view is at rest: no glide running, and three painted frames in a row show the
+  /// rows and the scroll position where the frame before had them.
+  const settle = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<void>((done, fail) => {
+          let last = "";
+          let alike = 0;
+          const deadline = performance.now() + 10_000;
+          window.cmuxAfterPaint(() => {
+            const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
+            if (!scroller) return;
+            const gliding = scroller
+              .getAnimations({ subtree: true })
+              .some(
+                (animation) =>
+                  animation.playState === "running" && animation.effect?.getTiming().iterations !== Infinity,
+              );
+            const rows = [...scroller.querySelectorAll(".acpmux-row")].map((row) =>
+              Math.round(row.getBoundingClientRect().top),
+            );
+            const now = `${Math.round(scroller.scrollTop)} ${scroller.scrollHeight} ${rows.join()}`;
+            alike = !gliding && now === last ? alike + 1 : 0;
+            last = now;
+            if (alike >= 3) {
+              done();
+              return false;
+            }
+            if (performance.now() > deadline) {
+              fail(new Error(`the view did not come to rest in 10 s (gliding: ${gliding})`));
+              return false;
+            }
+          });
+        }),
+    );
 
   /// What a painted frame shows: how far the view sits above the transcript's end, where it is
   /// scrolled to, and how far the last line of text sits above the view's foot (the bottom stack's
@@ -255,18 +294,20 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       // resize before that callback, and no task runs between it and the paint. A resize that
       // lands after it is read here by a forced layout the page never painted (the rows rewrapped,
       // not yet placed), so that read is not a frame.
-      const tick = () => {
-        if ((window as any).__frames !== frames) return;
-        const painted = `${innerWidth}x${innerHeight}`;
-        setTimeout(() => {
+      let painted = "";
+      window.cmuxAfterPaint(
+        () => {
+          if ((window as any).__frames !== frames) return false;
           if (`${innerWidth}x${innerHeight}` === painted) frames.push(sample());
-        }, 0);
-        requestAnimationFrame(tick);
-      };
-      requestAnimationFrame(tick);
+        },
+        () => {
+          painted = `${innerWidth}x${innerHeight}`;
+        },
+      );
     }, text);
   const stop = async (page: Page): Promise<Frame[]> => {
-    await page.waitForTimeout(250);
+    // The frames run on until the last glide has played out and the view holds still.
+    await settle(page);
     return page.evaluate(() => {
       const frames = (window as any).__frames as unknown[];
       (window as any).__frames = undefined;
@@ -318,8 +359,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     return page.evaluate(
       () =>
         new Promise<number>((done) =>
-          requestAnimationFrame(() =>
-            requestAnimationFrame(() => {
+          window.cmuxPaintFrame().then(() =>
+            window.cmuxPaintFrame().then(() => {
               const view = document.querySelector(".acpmux-scroll")!.getBoundingClientRect();
               const stack = document.querySelector(".acpmux-main[data-dock=float] > .acpmux-dock");
               const foot = stack ? stack.getBoundingClientRect().top : view.bottom;
@@ -340,7 +381,8 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
   async function toStart(page: Page) {
     await page.locator(".acpmux-scroll").hover();
     for (let step = 0; step < 6; step++) await page.mouse.wheel(0, -4000);
-    await page.waitForTimeout(300);
+    await page.waitForFunction(() => document.querySelector(".acpmux-scroll")!.scrollTop === 0);
+    await settle(page);
   }
   /// The command's toggle, at the start of the turn.
   const commandToggle = (page: Page) => page.locator("button[aria-expanded]", { hasText: "ls build" }).first();
@@ -389,7 +431,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
       push(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
       if (index === 28) push(chat, "mux", "queued", { promptId: "q-1", text: "Then add a test for the jitter" });
       if (index === 30) push(chat, "mux", "queued", { promptId: "q-2", text: "And document the cap" });
-      await page.waitForTimeout(60);
+      await page.getByText(`Paragraph ${index}.`, { exact: false }).waitFor({ state: "attached" });
     }
     await page.locator(".acpmux-queued", { hasText: "document the cap" }).waitFor();
     const frames = await stop(page);
@@ -414,13 +456,14 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const page = await open(chat, 900);
     await page.locator(".acpmux-scroll").hover();
     await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(300);
+    await settle(page);
     const anchor = "Paragraph 12.";
     await watch(page, anchor);
     for (let index = 25; index <= 30; index++) {
       push(chat, "in", "agent_message_chunk", chunk(paragraph(index)));
       if (index === 27) push(chat, "mux", "queued", { promptId: "q-1", text: "Then add a test for the jitter" });
-      await page.waitForTimeout(60);
+      // A few painted frames for each chunk, as a reply streams.
+      for (let frame = 0; frame < 4; frame++) await page.evaluate(() => window.cmuxPaintFrame());
     }
     await page.locator(".acpmux-queued").waitFor();
     const tops = (await stop(page)).map((frame) => frame.top);
@@ -451,7 +494,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     const words = (paragraph(25) + paragraph(26) + paragraph(27)).split(/(?<= )/);
     for (let index = 0; index < words.length; index += 3) {
       push(chat, "in", "agent_message_chunk", chunk(words.slice(index, index + 3).join("")));
-      await page.waitForTimeout(16);
+      await page.evaluate(() => window.cmuxPaintFrame());
     }
     await page.getByText("Paragraph 27.", { exact: false }).waitFor();
     const frames = await stop(page);
@@ -554,13 +597,19 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
           return true;
         }).length;
       }, text);
+    /// Resolves once the pointer is over `selector` and the row holding it has no fade left to run.
+    const hovered = (selector: string) =>
+      page.waitForFunction((selector) => {
+        const row = document.querySelector(`${selector}:hover`)?.closest(".acpmux-row");
+        return !!row && row.getAnimations({ subtree: true }).every((animation) => animation.playState !== "running");
+      }, selector);
     await toStart(page);
     const prompt = page.locator(".acpmux-row.acpmux-user").first();
     await prompt.hover();
-    await page.waitForTimeout(250);
+    await hovered(".acpmux-row.acpmux-user");
     const onPrompt = await shown("Why does the build retry?");
     await commandToggle(page).hover();
-    await page.waitForTimeout(250);
+    await hovered("button[aria-expanded]");
     expect({ onPrompt, onTool: await shown("ls build") }).toEqual({ onPrompt: 1, onTool: 0 });
     await page.close();
   });
@@ -582,7 +631,7 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     expect(await thoughtToggle(page).count()).toBe(0);
     await page.locator(".acpmux-scroll").hover();
     await page.mouse.wheel(0, -1600);
-    await page.waitForTimeout(300);
+    await settle(page);
     await watch(page, "Paragraph 12.");
     push(chat, "in", "tool_call", {
       ...update({
@@ -611,9 +660,10 @@ await requireBrowserLane("agent-pane-chat-column.test.ts", async () => {
     await watch(page, "Thought");
     await toggle.click();
     await page.getByText("Step 60: check the retry path.", { exact: false }).waitFor({ state: "attached" });
-    await page.waitForTimeout(300);
+    await settle(page);
     await toggle.click();
-    await page.waitForTimeout(300);
+    await page.locator(".cv-fold").waitFor({ state: "detached" });
+    await settle(page);
     const tops = (await stop(page)).map((frame) => frame.top);
     expect(await toggle.getAttribute("aria-expanded")).toBe("false");
     expect(new Set(tops)).toEqual(new Set([tops[0]!]));

@@ -65,7 +65,9 @@ pub fn accepts(row: &Row, value: &Value, domains: &Domains) -> Result<(), Refusa
         return Ok(());
     }
     let accepted = if is_backdrop_selection(row) {
-        Accepted::Shape("none, a listed painting, system:<absolute path> or file:<absolute path>")
+        Accepted::Shape(
+            "none, a listed painting, system:<absolute path>, file:<absolute path> or folder:<absolute path>",
+        )
     } else if row.validation == super::Validation::Domain(DomainKind::ChatRoots) {
         Accepted::Shape(
             "an array of absolute folders outside / , the home folder, other volumes and privacy-protected folders",
@@ -117,12 +119,17 @@ fn row_accepts(row: &Row, value: &Value, domains: &Domains) -> bool {
     }
     if is_backdrop_selection(row) {
         let Some(text) = value.as_str() else { return false };
-        // `system:<absolute path>` (a macOS wallpaper) or `file:<absolute
-        // path>` (the person's own image), as Swift `BackdropSelectionSetting`.
+        // `system:<absolute path>` (a macOS wallpaper), `file:<absolute
+        // path>` (the person's own image) or `folder:<absolute path>` (the
+        // pictures of a folder shuffled, never `/` alone), as Swift
+        // `BackdropSelectionSetting`.
         let path = ["system:", "file:"]
             .iter()
             .any(|prefix| text.strip_prefix(prefix).is_some_and(|path| path.starts_with('/')));
-        return path || is_accepted(&row.kind, value, domains);
+        let folder = text
+            .strip_prefix("folder:")
+            .is_some_and(|path| path.starts_with('/') && path.len() > 1);
+        return path || folder || is_accepted(&row.kind, value, domains);
     }
     is_accepted(&row.kind, value, domains)
 }

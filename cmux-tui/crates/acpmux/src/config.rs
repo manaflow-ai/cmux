@@ -799,6 +799,14 @@ pub struct Config {
     /// ended. Default 90000.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent_start_timeout_ms: Option<u64>,
+    /// `silentTurnMs`: how long a turn may go with no sign of its model at work
+    /// (no message, thought, tool call, plan, request or model harness line;
+    /// the agent's own bookkeeping does not count) before the chat logs
+    /// `turn_silent`, so a client can say the model has not answered
+    /// (`hub/silent_turn.rs`).
+    /// Default 90000; 0 turns it off.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub silent_turn_ms: Option<u64>,
     /// `autoResumeDelaysMs`: the wait before each automatic continuation of a turn a
     /// connection error cut off (`hub/auto_resume.rs`), one entry per attempt. Default
     /// `[10000, 60000, 300000, 1200000]`; `[]` turns it off. Checked on load: at most 4
@@ -905,6 +913,14 @@ impl Config {
     /// `agentStartTimeoutMs`, or its 90 s default.
     pub fn agent_start_timeout(&self) -> std::time::Duration {
         std::time::Duration::from_millis(self.agent_start_timeout_ms.unwrap_or(90_000))
+    }
+
+    /// `silentTurnMs`, or its 90 s default; None when it is 0 (off).
+    pub fn silent_turn(&self) -> Option<std::time::Duration> {
+        match self.silent_turn_ms.unwrap_or(90_000) {
+            0 => None,
+            ms => Some(std::time::Duration::from_millis(ms)),
+        }
     }
 
     /// Family of a configured profile.
@@ -1247,7 +1263,7 @@ mod codex_adapter;
 mod discover;
 pub use codex_adapter::{CODEX_ACP_PACKAGE, adapter_package_launch, resolve_adapter_package_bin};
 pub use discover::{
-    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, add_coderouter_route,
+    CODEROUTER_CLAUDE_PROFILE, CODEROUTER_CLAUDE_ROUTE_ENV, UNIICHAT_PROFILE, add_coderouter_route,
     coderouter_claude_route, discover_harnesses, discover_harnesses_from,
 };
 mod peer;
