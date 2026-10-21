@@ -154,8 +154,12 @@ class PullRequestTiers(unittest.TestCase):
         self.assertEqual(result["swift_filter"], r"^(CmuxNextAppTests)\.")
 
     def test_a_shared_module_selects_its_dependents(self):
-        result = tiers([f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"])
-        self.assertEqual(result["swift_targets"].split(), ["CmuxNextAppTests", "CmuxNextKeepAwakeTests", "CmuxNextPhoneAccessTests", "CmuxNextWorkspaceNamingTests"])
+        path = f"{PACKAGE}/Sources/CmuxNextSidebar/SidebarView.swift"
+        result = tiers([path])
+        selected = result["swift_targets"].split()
+        self.assertEqual(selected, sorted(graph_dependents({"CmuxNextSidebar"}) | graph_readers(path)))
+        self.assertIn("CmuxNextAppTests", selected)
+        self.assertNotIn("CmuxNextDaemonTests", selected)
         self.assertEqual(result["daemon"], "false")
 
     def test_every_target_selects_the_tests_that_reach_it(self):
@@ -183,15 +187,18 @@ class PullRequestTiers(unittest.TestCase):
 
     def test_a_file_a_test_reads_selects_that_test(self):
         # CmuxNextSettingsTests reads the schema. Since the bundles are build output
-        # (ce0b9e76a9b) the schema is also a web-bundle input, so the targets that ship
-        # a bundle, the app that embeds them, and CmuxNextPhoneAccessTests,
-        # CmuxNextMobileHostTests and CmuxNextHomeEngineTests (their targets depend on
-        # CmuxNextAgentPane and CmuxNextPages) are selected with it, and nothing else.
-        result = tiers(["schemas/settings/settings-schema.json"])
-        self.assertEqual(result["swift_targets"].split(), sorted([
-            "CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests", "CmuxNextPaletteTests",
-            "CmuxNextPhoneAccessTests", "CmuxNextMobileHostTests", "CmuxNextHomeEngineTests",
-        ]))
+        # (ce0b9e76a9b) the schema is also a web-bundle input, so the test targets that
+        # depend on a target shipping a bundle are selected with it, and nothing else.
+        # The graph names those dependents (#23260 and #22683 each added one).
+        import cmux_next_route as route_module
+        path = "schemas/settings/settings-schema.json"
+        result = tiers([path])
+        selected = result["swift_targets"].split()
+        bundles = {name for name in route_module.BUNDLE_TARGETS if name in GRAPH["targets"]}
+        self.assertEqual(selected, sorted(graph_dependents(bundles) | graph_readers(path)))
+        for name in ("CmuxNextSettingsTests", "CmuxNextAppTests", "CmuxNextAgentPaneTests", "CmuxNextPagesTests"):
+            self.assertIn(name, selected)
+        self.assertNotIn("CmuxNextDaemonTests", selected)
 
     def test_a_local_package_selects_the_targets_that_use_it(self):
         result = tiers(["Packages/Shared/CmuxHomeCore/Sources/CmuxHomeCore/Thread.swift"])
