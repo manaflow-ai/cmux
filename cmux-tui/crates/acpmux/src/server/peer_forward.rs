@@ -220,3 +220,27 @@ fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
     crate::hub::merge_mux_meta(forwarded, json!({PEER_HOPS_FIELD: hops + 1}));
     Ok(())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A history read forwarded to a peer names its byte limit: a peer on an older build pages to
+    /// no limit of its own, and 5000 records of long tool outputs were one 32.8 MB reply that reset
+    /// the link with its 29 chats (2026-10-21).
+    #[test]
+    fn a_forwarded_history_read_names_its_byte_limit() {
+        for m in [method::MUX_ATTACH, method::MUX_EVENTS] {
+            let mut p = json!({"sessionId": "s", "limit": 5000});
+            bound_page(m, &json!({"limit": 5000}), &mut p);
+            assert_eq!(p["maxBytes"], crate::hub::page_bytes(&json!({})), "{m}");
+            // A limit the client asked for goes as this daemon caps it.
+            let mut p = json!({"sessionId": "s"});
+            bound_page(m, &json!({"maxBytes": 1u64 << 40}), &mut p);
+            assert_eq!(p["maxBytes"], crate::hub::MAX_PAGE_BYTES, "{m}");
+        }
+        let mut p = json!({"sessionId": "s"});
+        bound_page(method::SESSION_PROMPT, &json!({}), &mut p);
+        assert!(p.get("maxBytes").is_none());
+    }
+}
