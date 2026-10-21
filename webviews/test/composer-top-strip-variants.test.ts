@@ -72,6 +72,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const top = (document.querySelector(".acpmux-composer-queue") ?? document.querySelector(".acpmux-composer-strip"))!;
     const style = getComputedStyle(top);
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
+    const lead = box.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon");
     // A location icon's ink starts 1.5 px inside its box (ui/ghost.css); a queue's number at its box.
     const icon = top.querySelector(".acpmux-location-icon");
     const mark = top.querySelector(".acpmux-queued-mark");
@@ -86,7 +87,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       cardMasked: getComputedStyle(box, "::before").content !== "none",
       cardTopRadius:
         parseFloat(getComputedStyle(box).borderTopLeftRadius) + parseFloat(getComputedStyle(box).borderTopRightRadius),
-      contentEdge: field.getBoundingClientRect().left - cardBox.left,
+      // The prompt's text column, or the + glyph's 16 px box where + stands beside the prompt
+      // (the Claude desktop box, composerLocation.css).
+      contentEdge: (lead ?? field).getBoundingClientRect().left - cardBox.left,
       inkFromCard: ink - cardBox.left,
     };
   }
@@ -229,6 +232,7 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
     const top = (document.querySelector(".acpmux-composer-queue") ?? document.querySelector(".acpmux-composer-strip"))!;
     const topBox = top.getBoundingClientRect();
     const field = box.querySelector(".ProseMirror, textarea, [contenteditable]")!;
+    const lead = box.querySelector(".acpmux-composer-inner .acpmux-composer-plus .acpmux-icon");
     // The folder icon's ink is its ghost bearing (1.5 px, ui/ghost.css) inside its box; a queue's
     // number is its text, left-aligned.
     const icon = top.querySelector(".acpmux-location-icon");
@@ -251,7 +255,9 @@ await requireBrowserLane("composer-top-strip-variants.test.ts", async () => {
       fill: getComputedStyle(top).backgroundColor,
       cardFill: getComputedStyle(box).backgroundColor,
       cardMasked: getComputedStyle(box, "::before").content !== "none",
-      contentEdge: field.getBoundingClientRect().left - cardBox.left,
+      // The prompt's text column, or the + glyph's 16 px box where + stands beside the prompt
+      // (the Claude desktop box, composerLocation.css).
+      contentEdge: (lead ?? field).getBoundingClientRect().left - cardBox.left,
       inkFromCard: ink - cardBox.left,
     };
   }

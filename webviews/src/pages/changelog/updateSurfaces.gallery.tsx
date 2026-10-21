@@ -1,7 +1,7 @@
 // l10n-allow-file: gallery fixtures (public-safe release notes from release-notes/next/highlights), not shipped UI.
 // The Updated card and the update-ready highlights (cx-urd.61) on the app theme, at sidebar width.
-// The card draws a near-opaque surface, so each card state shows on a plain page and on a
-// wallpaper (Leo 2026-10-13): the page is transparent over the wallpaper in the app.
+// The card draws the composer's translucent surface, so each card state shows on a plain page and
+// on a wallpaper (Leo 2026-10-13): the page is transparent over the wallpaper in the app.
 import { useState } from "react";
 import { componentEntry } from "../../gallery/format";
 import { createStrings } from "../shared/i18n";
@@ -131,11 +131,11 @@ export default componentEntry<Props>({
   },
   variants: {
     card: {
-      note: 'Card #01 Compact list (u2441): "Updated to nightly 3845050", the top changes one line each, the count of the rest beside See What\'s New, the x on hover only. On a plain page.',
+      note: "Card #01 Compact list (u2441): \"Updated to nightly 3845050\", the top changes one line each, the count of the rest beside See What's New, the x on hover only. The composer's surface on a plain page.",
       props: { surface: "card", data: base },
     },
     "card-wallpaper": {
-      note: "The same card on a wallpaper: the 13% text tint over a 94% elevated fill, so the card reads at any window opacity or blur and rows behind it never show through (2026-10-20).",
+      note: "The same card on a wallpaper: the composer's surface, the text at 13% over it with an 18% edge (Leo 2026-10-13).",
       props: { surface: "card", data: base, wallpaper: true },
     },
     "card-one-change": {

@@ -931,8 +931,7 @@ impl Call {
 
 /// The host's per-Chief settings over the socket (`optchat-chief settings`):
 /// `Some((key, value))` sets one, None shows them all. Not a model tool:
-/// the MCP server never offers it, and the host refuses turning
-/// `remote.autoApprove` on during remote-origin work.
+/// the MCP server never offers it.
 pub type Control = Arc<dyn Fn(ControlRequest) -> Result<String, String> + Send + Sync>;
 
 /// What `optchat-chief settings` and `chief agents spawn` ask the host.
