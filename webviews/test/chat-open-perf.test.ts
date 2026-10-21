@@ -14,12 +14,14 @@
 //
 // Twice: once with the daemon quiet, once with BUSY_LANES chats working, each reporting a change
 // of its own — the "high load" half of the ask, which a list of 120 idle chats does not measure.
-// What that load reaches is not the same in both phases, and the ceilings say so: a cold open
-// holds the pane's last snapshot until its attach page is in (SWITCH_HOLD_MS in direct.ts), so a
-// change arriving inside a cold draw window is folded into the client's list and drawn nowhere.
-// A cached open releases that hold on the frame it draws, so the load does redraw the page there
-// and through every settle window. The load is therefore measured where the brief's hardest claim
-// lives — "instant if cached" while forty chats report — and costs a cold open only the parse.
+// What that load reaches is not the same in both phases. A cold open holds the pane's last
+// snapshot while its attach goes out, for up to SWITCH_HOLD_MS (400 ms, direct.ts), and a change
+// arriving under that hold is folded into the client's sessions and drawn nowhere — so a cold draw
+// (244-330 ms here, inside the cap) is the one part of a run the load does not redraw. Everything
+// else it does: a cached open releases the hold on the frame it draws, and both phases then watch
+// SETTLE_MS unheld, which is where most of a cold window's changes land too. So the load is
+// measured where the brief's hardest claim lives — "instant if cached" while forty chats report —
+// and the no-shift, no-blank rules are held over frames the load really is redrawing.
 // Under load the millisecond budgets get the dev bundle's render frame as slack; the frame counts
 // and the no-shift, no-blank rules are held to the same numbers.
 //
@@ -547,10 +549,19 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
       const run = await openEachTwice("loaded");
       // The load was on while each open was measured, not merely on at some point in the run: a
       // window is the draw plus SETTLE_MS of watching, so half the ticks of the settle alone is a
-      // floor no real window misses and a silent end to the load cannot pass.
-      const leastPerWindow = Math.floor(SETTLE_MS / BUSY_TICK_MS / 2);
-      for (const windows of Object.values(run.loadDuring))
-        for (const window of windows) expect(window.pushes).toBeGreaterThanOrEqual(leastPerWindow);
+      // floor no real window misses and a silent end to the load cannot pass. At least one either
+      // way, so raising BUSY_TICK_MS past the settle cannot turn the floor into zero.
+      const leastPerWindow = Math.max(1, Math.floor(SETTLE_MS / BUSY_TICK_MS / 2));
+      // Asserted per phase and in place, so the red names which window was quiet instead of
+      // printing a bare number out of six.
+      expect(
+        Object.fromEntries(
+          Object.entries(run.loadDuring).map(([phase, windows]) => [
+            phase,
+            windows.map((window) => (window.pushes >= leastPerWindow ? "loaded" : window.pushes)),
+          ]),
+        ),
+      ).toEqual({ cold: picked.map(() => "loaded"), cached: picked.map(() => "loaded") });
       holdToTheBrief(run, DEV_RENDER_MS);
     } finally {
       busy = false;
