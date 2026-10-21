@@ -5,15 +5,12 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextLayout
 
-// Swap, close, rename, flash, workspace font size, and pane kinds this
-// build does not have (simulator, sidebar-as-pane), which are bound
-// with a typed reason instead of left unbound.
+// Swap, close, rename, flash and workspace font size.
 extension PaneHandlers {
     static func bindPaneVerbs(into registry: ActionRegistry, context ctx: AppActionContext) {
         bindSwaps(registry, ctx)
         bindLifecycle(registry, ctx)
         bindFontSize(registry, ctx)
-        bindUnported(registry)
     }
 
     private static func bindSwaps(_ registry: ActionRegistry, _ ctx: AppActionContext) {
@@ -90,10 +87,7 @@ extension PaneHandlers {
                 ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
                 return
             }
-            guard let window = ctx.services.windows.active?.window ?? ctx.refuse(RefusalStrings.noWindowForRename) else { return }
-            RenamePrompt.run(title: HandlerStrings.renamePaneTitle, initial: pane.name ?? "", in: window) { name in
-                ctx.send("rename-pane") { try await $0.renamePane(handle, to: name) }
-            }
+            ctx.services.registry.ask("renamePane", invocation, ActionArgumentAsk(argument: "name", initialText: pane.name ?? ""))
         })
         registry.bind("triggerFlash", invoke: { invocation in
             guard let pane = ctx.paneController(invocation) else { return }
@@ -145,17 +139,5 @@ extension PaneHandlers {
                 if applied == 0 { ctx.refuse(RefusalStrings.noLiveTerminal) }
             })
         }
-    }
-
-    private static func bindUnported(_ registry: ActionRegistry) {
-        let simulator = RefusalStrings.simulatorUnported
-        // palette.newSimulatorPane opens the phone tab (PhoneHandlers). The keyboard-only simulator
-        // actions wait for a focused-phone context (simulatorFocused; plans/cmux-next/simulators-DESIGN.md).
-        for id: ActionID in ["simulatorHome", "simulatorRotateLeft", "simulatorRotateRight",
-                             "simulatorToggleAppearance", "simulatorToggleSoftwareKeyboard"] {
-            registry.bindUnavailable(id, reason: simulator)
-        }
-        registry.bindUnavailable("palette.openFilesPane", reason: RefusalStrings.filesPaneUnported)
-        registry.bindUnavailable("palette.openFindPane", reason: RefusalStrings.findPaneUnported)
     }
 }

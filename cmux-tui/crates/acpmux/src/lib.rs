@@ -35,6 +35,8 @@ pub mod cua_socket;
 pub mod cua_v2;
 pub mod daemon;
 pub mod deliver;
+pub mod forum;
+pub mod forum_mcp;
 pub mod git_state;
 pub mod hand;
 pub mod harness_admin;

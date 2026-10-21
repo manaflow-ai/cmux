@@ -355,8 +355,10 @@
 }
 
 /* ---------- Side preview panel (ArtifactPanel.tsx) ---------- */
-/* Beside the chat and its composer; a narrow pane gives it the whole width. */
+/* Beside the chat and its composer; a narrow pane gives it the whole width. It slides in from the
+   pane's right edge, its own width (data-enter, ui/presence.ts). */
 .acpmux-artifact {
+  --ui-enter-distance: 100%;
   flex: 0 0 clamp(320px, 46%, 760px);
   min-width: 0;
   display: flex;
@@ -1335,9 +1337,47 @@ pre.cv-math-source {
   margin-inline-end: 6px;
   color: var(--cv-text-muted);
 }
-/* "Thinking" stays still in the muted color. No mark blinks before it or before "Working for". */
+/* "Thinking" in the muted color. No mark blinks before it or before "Working for": the word itself
+   shimmers, as in the Codex and ChatGPT apps, a band of the theme accent crossing it on the shared
+   clock (ui/spinnerClock.ts). Reduce Motion, the static status look and agent motion off hold it
+   still in the muted color. */
 .cv-thinking {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--cv-text-muted);
+}
+/* The running turn's line as its last row (`below`) is as tall as the footer that takes its place
+   when the turn ends (the meta row), so the end never moves the answer over it. */
+.cv-worked.is-below {
+  height: var(--cv-meta-row);
+  padding-top: 2px;
+}
+/* Its row drops the transcript row's 34px floor (.acpmux-row), so it is the footer's 32px and its
+   estimate's (model.ts fallbackRowHeight), not 2px taller. */
+.acpmux-row:is(.acpmux-thinking, .acpmux-working):has(> .cv-worked.is-below) {
+  min-height: 0;
+}
+/* The live line waits, its height kept, while the answer streams over it (Thinking.tsx). */
+.cv-worked.is-quiet {
+  visibility: hidden;
+}
+@media (prefers-reduced-motion: no-preference) {
+  :root:not([data-status-indicators="static"]) .cv-thinking.is-shimmer {
+    background: linear-gradient(
+        100deg,
+        var(--cv-text-muted) 35%,
+        color-mix(in srgb, var(--agent-accent, var(--cv-text)) 70%, var(--cv-text)) 50%,
+        var(--cv-text-muted) 65%
+      )
+      0 0 / 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: cmux-shimmer var(--cmux-breath-period, 2.4s) linear infinite;
+  }
 }
 
 .cv-tools {
@@ -1426,10 +1466,17 @@ pre.cv-math-source {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* A short interim note folded into a run of calls (turns.ts mergeShortNotes): the agent's words in
+   the run's quiet color, wrapped on the rows' 20px lines. */
+.cv-tool-note {
+  margin: 3px 0;
+  line-height: 20px;
+  color: var(--cv-text-muted);
+}
 .cv-tool__detail {
   color: var(--cv-text-dim);
 }
-/* Quiet and always there: a transcript row shows nothing more on hover (Leo 2026-10-13). */
+/* Quiet and always there. On hover a row adds only a finished call's check and time (above). */
 .cv-tool__chevron {
   margin-left: -4px;
   color: var(--cv-text-dim);
@@ -1656,6 +1703,19 @@ pre.cv-math-source {
 }
 .cv-command__ok {
   color: var(--acpmux-add);
+}
+/* A finished call's check and run time show only while the row is pointed at or focused, as in
+   the Codex app: at rest a run reads as its words. A failure keeps its red mark ("exit 1",
+   "failed") in sight; its time waits for the hover too. Opacity, not display, so the row never
+   reflows under the pointer. */
+.cv-tool :is(.cv-command__ok, .cv-command__time) {
+  opacity: 0;
+}
+.cv-tool > .cv-command__meta {
+  margin-left: auto;
+}
+.cv-tool:is(:hover, :focus-visible) :is(.cv-command__ok, .cv-command__time) {
+  opacity: 1;
 }
 /* A lone shell row's background state (ToolRow.tsx, BackgroundMark.tsx) sits at its right edge. */
 .cv-tool__meta {

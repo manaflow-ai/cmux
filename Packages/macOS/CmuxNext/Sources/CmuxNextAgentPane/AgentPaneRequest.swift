@@ -104,6 +104,8 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case openChat(String)
     /// `chats.openInTerminal {key}`: Open in Terminal from an All chats row's right-click menu.
     case openChatInTerminal(String)
+    /// `chats.watch {key}`: View Only from an All chats row's right-click menu.
+    case watchChat(String)
     /// `chats.page {query?, cursor?, limit?}`: one page of the New Tab page's All chats list.
     case chatsPage(AgentPaneChatsQuery)
     /// `environment.list|save|remove`: the New Tab page's saved environments (``AgentPaneEnvironmentRequest``).
@@ -131,8 +133,9 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     case tabRowTools(width: Double)
     /// New side chat: open the fork `sessionId` the page just made beside this chat.
     case sideChat(String)
-    /// A chat this one made (a fork, a Continue in…), opened in a tab of its own.
-    case chatTab(String)
+    /// A chat this one made (a fork, a Continue In…), opened at a destination of its own: a tab,
+    /// a split, a new workspace or a new window (`placement`; none is a tab).
+    case chatTab(String, AgentForkDestination)
     /// `chat.subagentPane {subagent, focus}`: this chat's subagent in an agent pane of its own,
     /// right of the chat (``AgentSubagentPanes``); `focus` moves keyboard focus to it.
     case subagentPane(String, focus: Bool)

@@ -137,6 +137,7 @@ enum PhoneHandlers {
             }
             pane.newTerminalTab(typing: line + "\r")
         }
+        bindShortcuts(into: registry, context: context)
         // The pane menu's New Simulator Pane opens the phone tab (one model for both names).
         registry.bind("palette.newSimulatorPane", run: { invocation in registry.perform("phone.show", invocation: invocation) })
         work("phone.recordStart") { invocation, phones in
@@ -157,6 +158,44 @@ enum PhoneHandlers {
         work("phone.paste") { invocation, phones in
             try await phones.send(.pasteboard(invocation["text"]?.stringValue ?? ""), to: try await device(invocation, phones).id)
         }
+    }
+
+    /// The phone tab's keyboard shortcuts (`simulatorFocused`, published while a phone tab has the
+    /// keyboard): each drives the phone the targeted or focused phone tab shows. The phone is read
+    /// at once, so a run with no phone tab is refused before any work starts.
+    private static func bindShortcuts(into registry: ActionRegistry, context: AppActionContext) {
+        let services = context.services
+        func shortcut(_ id: ActionID, _ body: @escaping @MainActor (PhoneDeviceID, PhoneService) async throws -> Void) {
+            registry.bind(id, run: { invocation in
+                guard let device = focusedPhone(invocation, context) else { return }
+                let phones = services.phones
+                // task-owner: the action run; a capturing caller (CLI, MCP) awaits it through the registry.
+                registry.track(Task { @MainActor in
+                    do {
+                        try await body(device, phones)
+                        return nil
+                    } catch {
+                        let reason = (error as? PhoneError)?.description ?? String(describing: error)
+                        registry.refuse(reason)
+                        return ActionWorkFailure(stringLiteral: reason)
+                    }
+                })
+            })
+        }
+        shortcut("simulatorHome") { try await $1.send(.button(.home), to: $0) }
+        shortcut("simulatorRotateLeft") { try await $1.rotate($0, .left) }
+        shortcut("simulatorRotateRight") { try await $1.rotate($0, .right) }
+        shortcut("simulatorToggleAppearance") { try await $1.toggleAppearance($0) }
+        shortcut("simulatorToggleSoftwareKeyboard") { try await $1.send(.softwareKeyboard, to: $0) }
+    }
+
+    /// The phone the targeted or focused phone tab shows; refuses (and returns nil) without one.
+    static func focusedPhone(_ invocation: ActionInvocation, _ context: AppActionContext) -> PhoneDeviceID? {
+        guard let pane = context.scope(invocation).pane, case .page(let view)? = pane.currentContent, view.page == .phone,
+              let device = (view.content as? PhoneTabView)?.route.flatMap(PhoneDeviceID.init) else {
+            return context.refuse(MiscHandlerStrings.noPhoneTab)
+        }
+        return device
     }
 
     /// A required number argument (sent as a string so points may have fractions).

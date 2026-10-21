@@ -213,6 +213,10 @@ path = "tests/test_ci_runner_capability_resolver.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_runner_routing_table.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_health_report.py"
 lane = "linux-guard"
 
@@ -1013,6 +1017,10 @@ path = "tests/test_cmux_next_prepush_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_cmux_next_perf_gate_unlit.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_app_store_rules.py"
 lane = "linux-guard"
 
@@ -1090,6 +1098,10 @@ lane = "linux-guard"
 
 [[test]]
 path = "tests/test_pr_red_checks_comment.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
 
 [[test]]
@@ -1434,6 +1446,10 @@ path = "tests/test_cmux_next_media_tour_gate.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_media_auto_tour.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_cmux_next_media_path_map.py"
 lane = "linux-guard"
 
@@ -1614,9 +1630,33 @@ path = "tests/test_car_guards.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_post_edit_checks.py"
+lane = "linux-guard"
+
+[[test]]
 path = "tests/test_ci_cmux_ci_client_guarded.py"
 lane = "linux-guard"
 
 [[test]]
-path = "tests/test_media_auto_tour.py"
+path = "tests/test_cmux_next_fast_gates.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_cmux_next_perf_source_guard.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_crash_class_fast_gate.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_gallery_select.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_guard_hooks_from_base.py"
+lane = "linux-guard"
+
+[[test]]
+path = "tests/test_crash_class_fast_gate.py"
 lane = "linux-guard"
