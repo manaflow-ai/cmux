@@ -181,6 +181,8 @@ struct SidebarPriorityRowActionsTests {
             fixture.registry.perform(row.actionID, invocation: invocation)
         }
         #expect(fixture.marks == AgentPriorityMarks.State(), "a row action ran with the view off")
+        // An agent chat has focus: Archive Chat with no target is that chat's.
+        fixture.registry.context = [.agentPaneFocused]
         fixture.registry.perform(Row.archive.actionID, invocation: ActionInvocation())
         #expect(focused.count == 1, "the focused chat's Archive waits on the Priority view")
     }
