@@ -1133,8 +1133,9 @@ pre.cv-math-source {
   flex: none;
   margin-inline-start: 6px;
 }
-/* The working mark (WorkingMark.tsx): the pane's one running motion, three accent dots that pulse
-   in turn on a slow 2s cycle, centred on the 20px line. */
+/* The working mark (WorkingMark.tsx): the pane's one running motion, three dots in the theme's
+   accent that pulse in turn on a 1.4s cycle, centred on the 20px line. The pane's own accent is its
+   text color, so the theme's accent (--cmux-accent) goes first. */
 .cv-working-mark {
   flex: none;
   display: inline-flex;
@@ -1147,17 +1148,17 @@ pre.cv-math-source {
   width: 3px;
   height: 3px;
   border-radius: 50%;
-  background: var(--agent-accent, currentColor);
+  background: var(--cmux-accent, var(--agent-accent, currentColor));
 }
 @media (prefers-reduced-motion: no-preference) {
   .cv-working-mark > span {
-    animation: cv-working-dot 2s ease-in-out infinite;
+    animation: cv-working-dot 1.4s ease-in-out infinite;
   }
   .cv-working-mark > span:nth-child(2) {
-    animation-delay: 0.25s;
+    animation-delay: 0.2s;
   }
   .cv-working-mark > span:nth-child(3) {
-    animation-delay: 0.5s;
+    animation-delay: 0.4s;
   }
 }
 @keyframes cv-working-dot {
@@ -1169,6 +1170,15 @@ pre.cv-math-source {
   30% {
     opacity: 1;
   }
+}
+/* A command in flight leads with the terminal glyph (WorkingFor.tsx) in the dots' place. */
+.cv-worked__glyph {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-inline-end: 6px;
+  color: var(--cv-text-muted);
 }
 /* "Thinking" stays still in the muted color; the working dots carry the motion. */
 .cv-thinking {

@@ -1,7 +1,7 @@
 // The line over a running turn's work: "Working for 42s", ticking each second from the prompt,
 // or held at `durationMs` while text streams. While a call runs (`row.doing`, turns.ts) it names
 // that call beside the time instead, as Claude desktop's line does, after the same small animated
-// mark as "Thinking". After that it counts the work still going in the background, as Claude's
+// mark as "Thinking", or after the terminal glyph when the call is a command. After that it counts the work still going in the background, as Claude's
 // phone app does ("Working… · 5 running tasks"): "· 2 agents · 1 command", only subagents still
 // running and background shells that have not ended. Each count opens what it counts. The counts
 // follow on the same fixed-height line, so one that comes or goes moves neither the label nor the
@@ -9,6 +9,7 @@
 import { createContext, useContext, useEffect, useState } from "react";
 import { type Translate, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
+import { TerminalSquare } from "./icons";
 import { formatDuration } from "./turns";
 import { WorkingMark } from "./WorkingMark";
 
@@ -56,7 +57,13 @@ export function WorkingFor({ row, now = Date.now }: { row: AcpmuxRow; now?: () =
   // line is not painted either: the call it names is matched on its own tool row.
   return (
     <div className="cv-worked has-divider" data-find-skip>
-      <WorkingMark />
+      {row.doingCommand ? (
+        <span className="cv-worked__glyph" aria-hidden="true">
+          <TerminalSquare />
+        </span>
+      ) : (
+        <WorkingMark />
+      )}
       {row.doing ? (
         <>
           <span className="cv-worked__label cv-worked__doing">{row.doing}</span>
