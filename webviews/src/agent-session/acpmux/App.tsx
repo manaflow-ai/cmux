@@ -5544,7 +5544,7 @@ function AcpmuxPane() {
           "chat.menu.openImage": async () => openReportedImage(),
           // Its Open on a path: the path chip's open, which the host checks again (link.openPath).
           "chat.menu.openPath": ({ path }) => callChipHost("link.openPath", { path: String(path ?? "") }),
-          // A fork and a started Continue in… open in a tab of their own, so the chat keeps its tab
+          // A fork and a started Continue In… open in a tab of their own, so the chat keeps its tab
           // and stays in the sidebar (Leo 2026-10-13). A host that opens none (an older app, the
           // floating chat) gets the new chat in this tab, as before.
           "chat.fork": async ({ throughSeq }) => {

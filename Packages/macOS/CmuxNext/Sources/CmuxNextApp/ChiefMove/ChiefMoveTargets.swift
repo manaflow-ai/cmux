@@ -1,4 +1,4 @@
-/// The "Move Chief to…" list (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac
+/// The "Move Chief To…" list (remote-groups-DESIGN.md slice 6, chief-migration-DESIGN.md 8a): This Mac
 /// first, then every SSH or paired-server host the person made a remote group (a server moves over SSH like
 /// an SSH host), then cmux Cloud. Pure:
 /// the handler reads the machines, this decides the list.
