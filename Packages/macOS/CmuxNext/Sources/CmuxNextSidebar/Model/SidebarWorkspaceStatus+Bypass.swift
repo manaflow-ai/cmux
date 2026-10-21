@@ -1,7 +1,7 @@
 public import CmuxNextDesign
 import Foundation
 
-extension SidebarWorkspaceStatus.Entry {
+nonisolated extension SidebarWorkspaceStatus.Entry {
     /// The key of ``bypass``: no reporter's entry (a reported one under this key is replaced).
     public static let bypassKey = "cmux.agent.bypass"
 
@@ -12,7 +12,7 @@ extension SidebarWorkspaceStatus.Entry {
     }
 }
 
-extension Strings {
+nonisolated extension Strings {
     static var agentBypass: String {
         String(localized: "sidebar.workspace.agentBypass", defaultValue: "Bypass: acts without asking", bundle: .module)
     }
