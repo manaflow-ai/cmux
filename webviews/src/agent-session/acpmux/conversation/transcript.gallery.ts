@@ -1113,7 +1113,7 @@ export default agentPaneEntry({
           activity(
             [
               envShell("acpmux ls 2>&1 | head -40"),
-              envShell("acpmux history huge-blue/activity-indicators | tail -c 4000"),
+              envShell("acpmux history linux-box/activity-indicators | tail -c 4000"),
               envShell("acpmux history transcript-density | tail -c 4000"),
               tool("grep -l -i chief /tmp/l*.txt /tmp/r*.txt", "execute", "completed", {
                 command:
@@ -1325,7 +1325,7 @@ export default agentPaneEntry({
           summary(5.5, {
             status: "failed",
             error:
-              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://cmux-lawrences-mac-mini:31415/v1/messages',
+              'API Error: 401 {"type":"error","error":{"type":"authentication_error","message":"unauthorized"}} from http://studio-mac:31415/v1/messages',
           }),
         ],
         { harness: "claude-sr" },
