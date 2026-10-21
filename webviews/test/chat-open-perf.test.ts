@@ -53,6 +53,10 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
   /// that frame, and what pins the round trips is the frame count: a cached open draws on the first
   /// frame after the select.
   const DEV_RENDER_MS = 200;
+  /// The frames a cached open may take to draw. This, not the millisecond budget, is what tells a
+  /// cached open from a cold one here: a cold open takes ten-plus frames, so the few frames allowed
+  /// leave room for a loaded runner without letting an acpmux round trip through.
+  const CACHED_DRAW_FRAMES = 3;
   /// How long after a chat draws the sampler watches it for shifts and blank frames.
   const SETTLE_MS = 700;
   /// `CMUX_CHAT_OPEN_PERF_VIDEO=<dir>` records the run, for a before/after on a pull request.
@@ -354,6 +358,25 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           ? `, first bad frame ${JSON.stringify(opened.find((entry) => entry.first)!.first)}`
           : ""),
     );
+    // What a passing run leaves behind. A file that passes has its log thrown away
+    // (scripts/ci/run-webviews-tests.sh keeps only workflow annotations of one), so until this the
+    // margins of the one gate on chat-open speed were readable on a red run only: nobody could see
+    // a budget it was about to miss, on CI or on a fleet mini. A notice survives both.
+    // The brief's budget is named apart from the ceiling asserted, which is that plus the dev
+    // bundle's render frame: a cold open back at 520 ms is comfortably inside the ceiling and 120 ms
+    // outside what Leo asked for, and this line is all a green run leaves to read it in.
+    const asked = name === "cached" ? CACHED_PAINT_MS : COLD_PAINT_MS;
+    const cadence = opened.map((entry) => entry.cadence.length);
+    console.log(
+      `::notice title=chat-open-perf (${name})::worst draw ` +
+        `${Number.isFinite(worst) ? worst.toFixed(0) : "never"} ms of ${asked} ms asked for ` +
+        `(${asked + DEV_RENDER_MS} ms the ceiling here, the dev bundle's render frame on top), ` +
+        `draw frame count ${cadence.join("/")}` +
+        (name === "cached" ? ` of ${CACHED_DRAW_FRAMES} allowed` : "") +
+        `, shifted frames ${opened.reduce((all, entry) => all + entry.shifted, 0)}, ` +
+        `blank frames ${opened.reduce((all, entry) => all + entry.blank, 0)}, ` +
+        `${CHAT_COUNT} chats, ${CALL_MS} ms a call and ${ATTACH_MS} ms an attach`,
+    );
     return worst;
   };
 
@@ -401,7 +424,7 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
     // few frames allowed leave room for a loaded runner without letting a round trip through. The
     // budgets below are the brief's plus the dev bundle's render frame, so they are a ceiling, not
     // the line between the two.
-    for (const opened of cached) expect(opened.cadence.length).toBeLessThanOrEqual(3);
+    for (const opened of cached) expect(opened.cadence.length).toBeLessThanOrEqual(CACHED_DRAW_FRAMES);
     expect(worstCached).toBeLessThan(CACHED_PAINT_MS + DEV_RENDER_MS);
     expect(worstCold).toBeLessThan(COLD_PAINT_MS + DEV_RENDER_MS);
   });
