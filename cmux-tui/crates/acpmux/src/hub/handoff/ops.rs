@@ -290,6 +290,8 @@ impl Hub {
                             || !crate::web_modes::mode_of(&sm).is_some_and(|m| {
                                 crate::hub::start_mode::FULL_ACCESS_MODES.contains(&m.as_str())
                             }),
+                        // A restricted chat hands off to a restricted chat (`hub/restricted.rs`).
+                        restricted: sm.restricted,
                         ..Default::default()
                     })
                     .await?;

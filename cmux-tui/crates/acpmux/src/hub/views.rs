@@ -297,6 +297,8 @@ impl Hub {
             // The agent takes a prompt mid-turn (`_meta.acpmux.steer`); else a steer waits, or
             // with `interrupt` stops the turn and runs next.
             steering: session.steering.load(Ordering::SeqCst),
+            // A restricted chat (`hub/restricted.rs`): the pane says what it runs without.
+            restricted: m.restricted.then_some(true),
             turn: turn.map(|t| TurnSummary {
                 started_at: t.started_at,
                 client: t.client,
