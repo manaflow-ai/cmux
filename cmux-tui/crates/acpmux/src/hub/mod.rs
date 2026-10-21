@@ -625,6 +625,9 @@ impl Hub {
             let mut meta = session.meta.lock().unwrap();
             meta.event_count += extra;
             meta.last_seq = last;
+            // The log ran ahead of the saved session (a hard stop): a newer command list may be
+            // in that tail, so a client reads the log for it instead of trusting the saved one.
+            meta.available_commands = None;
             session.seq.fetch_max(last, Ordering::SeqCst);
         }
     }
