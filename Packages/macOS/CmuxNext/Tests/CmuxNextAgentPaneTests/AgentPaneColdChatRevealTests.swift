@@ -115,8 +115,11 @@ struct AgentPaneColdChatRevealTests {
         _ = await view.model.respond(to: AgentPaneRequest(body: ["method": "pane.painted",
                                                                  "params": ["drewKeptTail": true]]))
         #expect(view.loadingView.leftFading == false, "a chat already on screen was faded in over itself")
-        try await Self.settle { view.pageContent.alphaValue == 1 }
-        #expect(view.pageContent.alphaValue == 1)
+        // Where a fade can be seen, the frame says it too. Not the page's alpha: `leave` clears that
+        // for a page it is not hidden over, fading or not, so an alpha of 1 here proves nothing.
+        if Motion.canAnimate(in: view), Motion.home.duration(.fadeIn) > 0 {
+            #expect(view.loadingView.superview == nil, "the chat's page faded in over rows already drawn")
+        }
     }
 
     /// The same report without the fact is a chat read cold, which keeps the fade it had.
