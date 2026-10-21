@@ -183,8 +183,10 @@ impl Hub {
 
     /// After a hold: the agent messages it held go in again by themselves after the
     /// `autoResumeDelaysMs` wait for their hold count (the last wait once those are used up; the
-    /// default waits when it is `[]`). Only these holds: a message released and held again since
-    /// waits its own next wait.
+    /// default waits when it is `[]`), or once more while a continuation of the cut turn may
+    /// still answer (it releases them). Only these holds: a message released and held again
+    /// since waits its own next wait. Also run for the holds a daemon start restored
+    /// (`resume_queues`).
     pub(super) fn retry_held_agent_messages(self: &Arc<Self>, session: &Arc<Session>) {
         let held: Vec<(String, usize)> = session
             .queue()
@@ -202,6 +204,12 @@ impl Hub {
             let delay = delays[retries.min(delays.len() - 1)];
             tokio::time::sleep(std::time::Duration::from_millis(delay)).await;
             if session.meta().status == SessionStatus::Closed {
+                return;
+            }
+            // A continuation of the cut turn releases what it held, the person's prompts too:
+            // going first would supersede it (`auto_resume.rs`). Wait again instead.
+            if hub.continuation_pending(&session) {
+                hub.retry_held_agent_messages(&session);
                 return;
             }
             let ids: Vec<String> = {

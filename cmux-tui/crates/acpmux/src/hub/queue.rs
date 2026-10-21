@@ -736,6 +736,8 @@ impl Hub {
         // And what a resumed agent pair still held when the daemon stopped (`agent_pairs.rs`).
         self.resume_agent_pair_drains();
         for session in self.sessions() {
+            // Agent messages a failed turn held before the restart go in again by themselves.
+            self.retry_held_agent_messages(&session);
             let restored: Vec<QueuedPrompt> = session
                 .queue
                 .lock()
