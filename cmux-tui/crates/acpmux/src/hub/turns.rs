@@ -282,6 +282,13 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A family prompt that waited is checked again: the receiver may ask
+        // less than its sender now (`subsession_guard.rs`).
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         // A continuation Stop overtook since it fired is refused here (`auto_resume.rs`).
         let turn = TurnInfo::prompted(client, &text, &turn_id, &prompt_id, control);
         if let Err(e) = self.start_turn(session, after_turn.as_deref(), turn) {
@@ -314,7 +321,12 @@ impl Hub {
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
-        session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        // A family prompt (`subsessions.rs`) never clears the floor a Web
+        // turn left: only a local turn the person or a client starts does.
+        let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
+        if control == Control::Web || !family {
+            session.floor.last_turn_web.store(control == Control::Web, Ordering::SeqCst);
+        }
         self.reset_stream(session);
         let msg = json!({"text": text, "client": client, "promptId": prompt_id, "turnId": turn_id});
         let msg = crate::prompt_provenance::marked(msg, provenance.as_ref());
@@ -349,6 +361,12 @@ impl Hub {
         if let Err(e) =
             self.check_dispatch(session, control, trust_gate, &prompt_id, &turn_id, client).await
         {
+            self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
+            drop(guard);
+            return Err(e);
+        }
+        if let Err(e) = self.family_dispatch_check(session, run.provenance.as_ref()).await {
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
             self.refuse_started_turn(session, &prompt_id, &turn_id, &e);
             drop(guard);
             return Err(e);
@@ -741,39 +759,6 @@ impl Hub {
         if matches!(queued, Ok(Ok(()))) {
             let _ = tokio::time::timeout(std::time::Duration::from_secs(5), handled).await;
         }
-    }
-
-    /// A bare "agent process closed" from a process that died while it
-    /// started (`initialize`, `session/new`): the same error with the last
-    /// stderr line that says why, once the inbound loop has taken what the
-    /// process printed. Any other error is returned as is.
-    pub(super) async fn explain_start_failure(session: &Session, mut e: RpcError) -> RpcError {
-        if e.message != "agent process closed" {
-            return e;
-        }
-        let last = || {
-            session
-                .stderr_tail
-                .lock()
-                .unwrap()
-                .iter()
-                .rev()
-                .map(|l| l.trim().to_owned())
-                .find(|l| explains_exit(l))
-        };
-        Self::drain_inbound(session).await;
-        let mut found = last();
-        if found.is_none() {
-            // The stderr reader can trail stdout's close by a moment: one
-            // bounded wait for its last lines, then the bare error.
-            tokio::time::sleep(std::time::Duration::from_millis(150)).await;
-            Self::drain_inbound(session).await;
-            found = last();
-        }
-        if let Some(line) = found {
-            e.message = format!("agent process closed ({}): {line}", session.meta().harness);
-        }
-        e
     }
 
     /// Keep the outcome of the last turn on the session (`lastTurn` in the

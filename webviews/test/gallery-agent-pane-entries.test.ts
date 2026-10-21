@@ -32,6 +32,10 @@ type Case = {
   shows?: (page: Page) => Promise<boolean>;
   /** The page size, when the state breaks only in a smaller gallery-matrix frame (default 1000x800). */
   viewport?: { width: number; height: number };
+  /** Drawn in the gallery health run's component frame at `viewport`'s size, as that run draws it. */
+  frame?: "component";
+  /** Modules (URL globs) that do not arrive until the stage has been read, as on a busy runner. */
+  held?: string[];
 };
 
 await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
@@ -165,6 +169,19 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       play: "steps",
       shows: async (page) => (await page.getByRole("dialog", { name: "Weekly builds" }).count()) > 0,
     },
+    // A reply's Markdown or HTML fence, first draft or rewrite, opens beside the chat from its code
+    // card's Open preview, at the health run's frame (normal width, the entry's 640 px). The
+    // highlighted card's chunk loads after the page's first frame (CodeBlock.tsx); until it does,
+    // the plain card must offer Open preview too, or a play on a busy runner finds no button.
+    ...["markdown", "html", "versions"].map((variant): Case => ({
+      entry: "artifact-panel",
+      variant,
+      play: "error",
+      viewport: { width: 760, height: 640 },
+      frame: "component",
+      held: ["**/conversation/HighlightedCode.tsx*"],
+      shows: has(".acpmux-artifact"),
+    })),
   ];
 
   setDefaultTimeout(240_000);
@@ -179,8 +196,11 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
   const { createServer } = await import("vite");
   let vite: Awaited<ReturnType<typeof createServer>> | undefined;
   let browser: Browser | undefined;
-  const url = ({ entry, variant }: Case) =>
-    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(`agent-pane.${entry}`, { variant })}`;
+  const url = ({ entry, variant, viewport, frame }: Case) =>
+    `http://127.0.0.1:${(vite!.httpServer!.address() as { port: number }).port}${galleryFrame(
+      `agent-pane.${entry}`,
+      frame ? { variant, frame, ...viewport } : { variant },
+    )}`;
 
   beforeAll(async () => {
     vite = await createServer({
@@ -203,6 +223,9 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       await trustedGalleryInput(page);
       const errors: string[] = [];
       page.on("pageerror", (error) => errors.push(error.message));
+      const held: (() => Promise<void>)[] = [];
+      for (const glob of item.held ?? [])
+        await page.route(glob, (route) => void held.push(() => route.continue().catch(() => undefined)));
       for (;;) {
         try {
           await page.goto(url(item));
@@ -227,6 +250,7 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
         JSON.stringify((window as unknown as { cmuxGalleryPlayReport?: unknown }).cmuxGalleryPlayReport ?? {}),
       );
       const shows = item.shows ? await item.shows(page) : true;
+      await Promise.all(held.map((release) => release()));
       await page.close();
       expect(errors).toEqual([]);
       expect(ready).toBe("1");
