@@ -213,8 +213,11 @@ COPY desktop/start-vnc.sh /usr/local/bin/start-vnc.sh
 COPY desktop/cmux-desktop-boot /usr/local/bin/cmux-desktop-boot
 COPY desktop/cmux-desktop.service /etc/systemd/system/cmux-desktop.service
 COPY desktop/desktop-env.sh /etc/cmux/desktop-env.sh
-RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot \
-  && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
+# Cloud browser role (plans/cmux-next/cloud-browser-DESIGN.md CB-2): shipped, never enabled here.
+COPY desktop/cmux-cloud-browser /usr/local/bin/cmux-cloud-browser
+COPY desktop/cmux-cloud-browser.service /etc/systemd/system/cmux-cloud-browser.service
+RUN chmod 0755 /usr/local/bin/start-vnc.sh /usr/local/bin/cmux-desktop-boot /usr/local/bin/cmux-cloud-browser \
+  && bash -n /usr/local/bin/cmux-cloud-browser && bash -n /usr/local/bin/start-vnc.sh && sh -n /usr/local/bin/cmux-desktop-boot && sh -n /etc/cmux/desktop-env.sh \
   && mkdir -p /etc/cmux/icons \
   && cp /opt/google/chrome/product_logo_128.png /etc/cmux/icons/google-chrome.png \
   && cp "$(find /usr/share/icons -name 'org.xfce.thunar.png' -path '*128*' | head -1)" /etc/cmux/icons/thunar.png \
@@ -406,15 +409,19 @@ RUN bash -n /etc/cmux/agent-config.sh \
 # by the driver at create time, never baked). Without systemd it also runs the
 # desktop supervisor as the work user.
 COPY cmux-devbox-boot /usr/local/bin/cmux-devbox-boot
+COPY cmux-vm-kind-sync /usr/local/bin/cmux-vm-kind-sync
 COPY cmux-tui-state-mount /usr/local/bin/cmux-tui-state-mount
 # The Ghostty generation panes announce as TERM_PROGRAM_VERSION next to
 # TERM_PROGRAM=ghostty (the supervisor reads it; base images without the .deb
 # still record the pin). The Freestyle bake writes the same file.
 RUN chmod 0755 /usr/local/bin/cmux-devbox-boot \
+  && chmod 0755 /usr/local/bin/cmux-vm-kind-sync \
   && chmod 0755 /usr/local/bin/cmux-tui-state-mount \
   && sh -n /usr/local/bin/cmux-devbox-boot \
+  && sh -n /usr/local/bin/cmux-vm-kind-sync \
   && sh -n /usr/local/bin/cmux-tui-state-mount \
   && mkdir -p /etc/cmux \
+  && printf 'team\n' > /etc/cmux/vm-kind && chmod 0644 /etc/cmux/vm-kind \
   && echo "$CMUX_IMAGE_GHOSTTY_DEB_URL" | sed -n 's|.*/ghostty_\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)[-_].*|\1|p' > /etc/cmux/ghostty-version \
   && grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+$' /etc/cmux/ghostty-version
 

@@ -66,3 +66,24 @@ How to read the table:
   - latency is bound by the model and the route.
 
   The floor is parity: one direct request with no process start (rows 2, 3, 4 and 7 of the design doc).
+
+## Phase 2: a kept turn session (2026-10-20, a226)
+
+Run on the Mac mini `cmux-macmini` (Apple M4, macOS 26.3.1, Claude Code 2.1.300), not on this Mac. Two runs, one harness at a time (no parallel runs), Opus 5.5, effort medium, sr2, sticky, 6 turns, 100 KB view. `chief-keep` is the new default (`--harness chief-keep`): one Claude Code process for all turns, Claude Code's own 1h marks, and each turn sends only its new message.
+
+Warm turns 2 to 6 of both runs (10 turns per harness):
+
+| Metric | Unii | Chief before (fresh session) | Chief after (kept session) |
+|---|---|---|---|
+| Warm hit | 99.2% | 98.8% | 99.7% |
+| TTFT p50 / p90 s | 4.33 / 8.54 | 2.39 / 3.93 | 1.97 / 2.39 |
+| Turn p50 / p90 s | 4.34 / 8.54 | 3.50 / 4.81 | 2.40 / 2.94 |
+| Process start per turn s | 0 | 0.26 here (1.15 p50 in production, with acpmux) | 0 |
+| Uncached input tokens per turn | 4 | 339 | 4 |
+| Cost per warm turn $ | 0.0238 | 0.0281 | 0.0253 |
+| Prompt tokens, turn 1 | 39.6k | 45.05k | 45.05k |
+
+Notes:
+- In run 2 the kept session's turn 1 read the prefix that the fresh-session run had just written (same prompt bytes), so turn 1 cost is not compared here.
+- Unii's latency on this route varied much (two turns at 8.5-8.9 s). The model and the route are most of every number here.
+- **Not closed: the 5.5k extra prompt tokens.** With a 1 KB view and Haiku: Unii 3,276; Chief with an empty system prompt and ToolSearch only 996; + the Chief system prompt (11.6 KB) about +4.07k; + Bash +1.7k; + Read/Edit/Write +1.3k; + WebFetch/WebSearch +0.7k. So about 4.1k is the Chief's own instructions (person profile and user instructions) and about 1.4k is tools. Both are read from the cache on warm turns (0.1x price), and the Chief uses all of these tools, so we did not remove them.

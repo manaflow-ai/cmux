@@ -13,7 +13,7 @@
 import type { KeyboardEvent } from "react";
 import { KeyboardScope } from "../../ui/KeyboardScope";
 import type { Strings } from "../shared/i18n";
-import { dayLabel, groupByDay, mergedView } from "./model";
+import { dayLabel, groupByDay, mergedView, releaseTitle } from "./model";
 import { cardVersion } from "./UpdateSurfaces";
 import { BuildNumbers, ChangesFold, Groups, Hero, Maintenance, type PartsContext } from "./ReleaseParts";
 import type { ChangelogSnapshot, ChangelogStore } from "./store";
@@ -30,7 +30,7 @@ export function JournalPage({
   s: ChangelogSnapshot;
   ledger?: boolean;
 }) {
-  const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id) };
+  const ctx: PartsContext = { strings, onTry: (id) => void store.tryIt(id), rowMedia: ledger };
   const span = new Set(s.inSpan);
   const fresh = s.builds.filter((b) => span.has(b.build));
   const earlier = s.span ? s.builds.filter((b) => !span.has(b.build)) : s.builds;
@@ -120,6 +120,9 @@ function DaySection({
   };
   const view = mergedView(loaded, ctx.strings.language);
   const installed = builds.some((b) => b.build === s.current);
+  const title = ledger ? releaseTitle(loaded, ctx.strings.language) : undefined;
+  // The release title already names the lead change when it starts with it ("X, and 3 more").
+  const heroTitled = !title || !view.hero || !title.startsWith(view.hero.title);
   if (ledger)
     return (
       <section className="clj-section cll-release" ref={near} aria-label={dayLabel(day, ctx.strings.language)}>
@@ -131,7 +134,8 @@ function DaySection({
           </div>
         </div>
         <div className="cll-body">
-          <SectionBody view={view} pending={pending} ctx={ctx} />
+          {title && <h2 className="cll-title">{title}</h2>}
+          <SectionBody view={view} pending={pending} ctx={ctx} heroTitled={heroTitled} />
           {builds.length > 1 && <BuildNumbers builds={builds} />}
         </div>
       </section>
@@ -164,17 +168,19 @@ function SectionBody({
   pending,
   ctx,
   unpublished = false,
+  heroTitled = true,
 }: {
   view: ReturnType<typeof mergedView>;
   pending: boolean;
   ctx: PartsContext;
   unpublished?: boolean;
+  heroTitled?: boolean;
 }) {
   if (pending && view.count === 0 && view.changes.length === 0)
     return <div className="clj-placeholder" aria-busy="true" />;
   return (
     <>
-      {view.hero && <Hero item={view.hero} ctx={ctx} />}
+      {view.hero && <Hero item={view.hero} ctx={ctx} titled={heroTitled} />}
       {view.count === 0 && !unpublished && <Maintenance strings={ctx.strings} />}
       {unpublished && <p className="cl-muted">{ctx.strings.t("changelog.page.unavailable")}</p>}
       <Groups view={view} ctx={ctx} />

@@ -133,6 +133,7 @@ extension DaemonStore {
         resyncRetry = nil
         needsResync = false
         resyncPacer.reset()
+        personalRefetch = PersonalRefetch()
         self.driver = nil
     }
 
@@ -144,8 +145,41 @@ extension DaemonStore {
         let connected = batch.contains { if case .connected = $0.event { true } else { false } }
         // A snapshot that failed past its retry budget is retried on the
         // next daemon event (something changed), not on a timer.
-        if apply(batch: batch) == .resync || needsResync {
+        let followup = apply(batch: batch)
+        if followup == .resync || needsResync {
             resync(seedAgents: connected)
+        } else if followup == .personal {
+            refetchPersonal()
+        }
+    }
+
+    /// Fetches `list-personal` alone and applies it (`personal-changed`: a group's fold, a room
+    /// edit). The tree is not refetched: a fold costs the personal state, never every workspace,
+    /// screen and tab (plans/cmux-next/state-ownership-DESIGN.md). The applied sequence stays
+    /// below the personal change until it lands, so a read-your-writes waiter sees it. A failed
+    /// fetch falls back to a resync; a snapshot meanwhile supersedes it.
+    func refetchPersonal() {
+        guard let driver else { return }
+        guard !personalRefetch.inFlight else { personalRefetch.again = true; return }
+        personalRefetch.inFlight = true
+        let covering = personalRefetch.seen
+        let barrier = snapshotBarrier
+        // task-owner: at most one list-personal at a time (personalRefetch.inFlight); its request has the connection's deadline
+        Task { @MainActor in
+            let state = try? await driver.connection.listPersonal()
+            personalRefetch.inFlight = false
+            guard self.driver != nil else { return }
+            guard let state else { return resync() }
+            // A snapshot that landed or is landing holds this personal state or a newer one; a change after
+            // its barrier is fetched once it lands (`snapshotCoveredPersonal`, or `again` below).
+            if !isResyncing, snapshotBarrier == barrier, personalRefetch.pending != nil {
+                withOverlayLifted(writer: "personal refetch") { applyPersonal(state) }
+                advanceAppliedSequence(to: personalRefetch.landed(covering: covering))
+            }
+            if personalRefetch.again {
+                personalRefetch.again = false
+                refetchPersonal()
+            }
         }
     }
 
@@ -173,6 +207,7 @@ extension DaemonStore {
                 let (tree, barrier) = try await driver.connection.snapshot()
                 apply(snapshot: tree)
                 snapshotBarrier = max(snapshotBarrier, barrier)
+                snapshotCoveredPersonal(through: barrier)
                 advanceAppliedSequence(to: barrier)
                 resyncPacer.reset()
                 if seedAgents { apply(agents: try await driver.connection.agents()) }

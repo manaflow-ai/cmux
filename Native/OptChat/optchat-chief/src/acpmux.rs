@@ -45,6 +45,8 @@ pub struct SessionSpec {
 pub const CHIEF_TAG: &str = "cmux.chief";
 /// `turn` or `compactor`, next to `cmux.chief`.
 pub const CHIEF_ROLE_TAG: &str = "cmux.chief.role";
+/// The compactor's `cmux.chief.role`.
+pub const COMPACTOR_ROLE: &str = "compactor";
 
 /// The tags of a Chief session of `role` for home `home_id`.
 pub fn chief_tags(home_id: &str, role: &str) -> BTreeMap<String, String> {
@@ -193,6 +195,12 @@ pub trait AgentPort: Send + Sync {
     /// interrupt). The turn then ends with stop reason `cancelled`.
     fn cancel(&self, _session: &str) -> Result<(), String> {
         Err("cancel is not supported".into())
+    }
+    /// Takes a prompt that still waits in `session`'s queue out of it
+    /// (`_acpmux/queue_remove`): true when it was removed, false when it no
+    /// longer waits (it ran or was removed).
+    fn remove_queued(&self, _session: &str, _prompt_id: &str) -> Result<bool, String> {
+        Err("removing queued prompts is not supported".into())
     }
     /// Sets `session`'s harness mode (`session/set_mode`).
     fn set_mode(&self, _session: &str, _mode: &str) -> Result<(), String> {
@@ -985,6 +993,16 @@ impl AgentPort for Acpmux {
             .request("session/cancel", json!({"sessionId": session}))
             .map(|_| ())
             .map_err(|e| format!("cancel: {e}"))
+    }
+
+    fn remove_queued(&self, session: &str, prompt_id: &str) -> Result<bool, String> {
+        self.client()?
+            .request(
+                "_acpmux/queue_remove",
+                json!({"sessionId": session, "promptId": prompt_id}),
+            )
+            .map(|v| v["removed"].as_bool().unwrap_or(false))
+            .map_err(|e| format!("queue_remove: {e}"))
     }
 
     fn set_mode(&self, session: &str, mode: &str) -> Result<(), String> {

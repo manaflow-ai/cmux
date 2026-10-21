@@ -128,3 +128,14 @@ fn every_agent_prompt_never_drives_a_tab_another_agent_holds() {
         assert_eq!(text.matches("- Browser:").count(), 1, "{name}");
     }
 }
+
+/// Lawrence 2026-10-20: when work is done, the Chief shows its diff, page or
+/// file beside its chat by default, from the report's `<show>` block.
+#[test]
+fn the_chief_prompt_shows_done_work_in_the_right_column() {
+    let text = chief_system_text(None, &Tools::Mcp, false, false);
+    let flat = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    assert!(flat.contains("- After work:"), "no after-work rule");
+    assert!(flat.contains("ends with a <show> block"), "no show block");
+    assert!(flat.contains("show.afterReport"), "no setting named");
+}

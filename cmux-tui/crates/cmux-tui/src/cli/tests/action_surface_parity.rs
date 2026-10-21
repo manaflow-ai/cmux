@@ -49,11 +49,11 @@ fn no_offered_app_cli_name_is_shadowed_by_the_mux_grammar() {
 }
 
 /// `cmux servers add --code CODE --words "W1 W2 W3 W4" [--chief] [--name N]`
-/// approves a server's pairing code (a Chief brain's `optchat-chief cloud
-/// pair`) when the server's four words match: the app offers
-/// `server.addServer` under that CLI name, the mux grammar (its `server`
-/// scope is the local session owner) does not take the words, and the flags
-/// arrive as the action's `code`, `words`, `chief` and `name` arguments.
+/// still serializes the legacy action request so old clients get the app's
+/// stable person-only refusal. The mux grammar (its `server` scope is the local
+/// session owner) does not take the words, and the flags arrive as the action's
+/// `code`, `words`, `chief` and `name` arguments. Enrollment itself is available
+/// only through the in-app Add Server flow.
 #[test]
 fn servers_add_runs_the_add_server_action_with_its_arguments() {
     let surfaces = action_surfaces();

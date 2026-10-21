@@ -136,7 +136,7 @@ import Testing
             for i in otherDrafts.indices where (i + frame) % 3 == 0 {
                 otherDrafts[i].segments[0, default: ""] += "word\(frame) "
                 otherDrafts[i].lastSeq += 1
-                h.store.drafts[others[i]] = otherDrafts[i]
+                h.store.showDraft(otherDrafts[i], turn: otherDrafts[i].turn, author: otherDrafts[i].participant, in: others[i])
                 if (i + frame) % 12 == 0 { h.store.typing[others[i]] = frame % 8 < 4 ? [peers[i]] : [] }
                 await drain(2) // one owner frame, one main-actor turn (its observation hop)
             }
@@ -144,7 +144,7 @@ import Testing
                 chiefText += Self.sentence
                 chiefDraft.segments[0] = chiefText
                 chiefDraft.lastSeq += 1
-                h.store.drafts[Self.conversation] = chiefDraft
+                h.store.showDraft(chiefDraft, turn: chiefDraft.turn, author: chiefDraft.participant, in: Self.conversation)
                 chiefChanges += 1
                 await drain()
             }
@@ -209,7 +209,7 @@ import Testing
             var draft = HomeTurnDraft(participant: ParticipantID("agent_\(i)"), turn: IdempotencyKey("turn_\(i)"))
             draft.segments[0] = "streaming text \(i)"
             draft.lastSeq = 1
-            h.store.drafts[ConversationID("conv_agent_\(i)")] = draft
+            h.store.showDraft(draft, turn: draft.turn, author: draft.participant, in: ConversationID("conv_agent_\(i)"))
             h.store.typing[ConversationID("conv_agent_\(i)")] = [ParticipantID("agent_\(i)")]
             await drain()
         }
@@ -219,7 +219,7 @@ import Testing
         var mine = HomeTurnDraft(participant: h.chief, turn: IdempotencyKey("turn_chief"))
         mine.segments[0] = "on it"
         mine.lastSeq = 1
-        h.store.drafts[Self.conversation] = mine
+        h.store.showDraft(mine, turn: mine.turn, author: mine.participant, in: Self.conversation)
         await drain()
         #expect(h.view.projection.refreshPasses > before, "the Chief's own reply did not reach its transcript")
     }

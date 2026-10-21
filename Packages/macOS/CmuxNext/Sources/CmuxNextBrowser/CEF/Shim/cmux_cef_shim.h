@@ -239,6 +239,12 @@ CMUX_SHIM_EXPORT void cmux_shim_set_extension_developer_mode(int enabled);
 // default_search_provider_data.template_url_data as JSON (browser.searchEngine);
 // NULL or "" restores Chromium's own default. UI thread.
 CMUX_SHIM_EXPORT void cmux_shim_set_default_search(const char* template_url_json);
+// Chrome enterprise policies Chromium reads natively (CefSettings.chrome_policy_id):
+// a managed preference domain such as "com.google.Chrome", read the way Chrome
+// reads it (forced values mandatory, others recommended). NULL or "" reads none.
+// Call before cmux_shim_initialize; later calls do nothing.
+// plans/cmux-next/chrome-enterprise-policy-DESIGN.md.
+CMUX_SHIM_EXPORT void cmux_shim_set_chrome_policy_id(const char* policy_id);
 // Page background before the first paint and for documents without one
 // (CefSettings.background_color and CefBrowserSettings.background_color),
 // as opaque 0xAARRGGBB; 0 keeps Chromium's default. Browsers created after

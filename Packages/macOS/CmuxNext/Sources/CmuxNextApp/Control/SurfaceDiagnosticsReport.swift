@@ -126,6 +126,11 @@ enum SurfaceDiagnosticsReport {
             "hibernated": .array(services.cache.dormantTabs.ids.sorted().map(JSONValue.string)),
             "hibernated_total": JSONValue(hibernation.hibernatedCount),
             "restored_total": JSONValue(hibernation.restoredCount),
+            "frozen": .array(hibernation.frozen.sorted().map(JSONValue.string)),
+            "neighbor_radius": JSONValue(hibernation.neighborRadius),
+            "awake_neighbors": .array(hibernation.awakeNeighbors.sorted().map(JSONValue.string)),
+            "prewarmed_total": JSONValue(hibernation.prewarmedCount),
+            "cold_shows_total": JSONValue(hibernation.coldShows),
             "exemptions": .object(hibernation.exemptions.mapValues { .string($0.rawValue) }),
         ]
     }
