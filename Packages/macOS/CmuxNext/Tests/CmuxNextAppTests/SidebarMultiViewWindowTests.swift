@@ -13,7 +13,10 @@ import Testing
 /// content is on screen, frame by frame; a click on a row off screen, or a shown workspace closing, returns to
 /// one; the window's record brings the set back. With the toggle off an edge drop still merges.
 /// Each workspace `k0`...`k3` has one pane with a terminal and a browser tab; the window shows `k0`.
-@MainActor @Suite(.serialized) struct SidebarMultiViewWindowTests {
+/// The drags need a display: on a host without one the window is clamped to its minimum size and the drop zones
+/// resolve differently (the fleet's display-less minis), so the suite runs where there is a screen.
+@MainActor @Suite(.serialized, .enabled(if: !NSScreen.screens.isEmpty, "the drag tests need a display"))
+struct SidebarMultiViewWindowTests {
     @MainActor final class Fixture {
         let services: AppServices
         let state: WindowState
@@ -49,10 +52,11 @@ import Testing
             frame()
         }
 
-        static func tree(_ keys: [String]) -> DaemonTree {
+        /// `unread`: `k1`'s first tab holds an unread notification.
+        static func tree(_ keys: [String], unread: Bool = false) -> DaemonTree {
             var tree = DaemonTree(registryID: "s-local", workspaces: keys.enumerated().map { index, key in
                 WorkspaceSnapshot(id: WorkspaceHandle(rawValue: UInt64(index + 1)), key: WorkspaceKey(rawValue: key), name: key,
-                                  screens: [key == "k1" ? twoPanes : SpaceSwitchBench.screen(Int(key.dropFirst()) ?? index)])
+                                  screens: [key == "k1" ? twoPanes(unread: unread) : SpaceSwitchBench.screen(Int(key.dropFirst()) ?? index)])
             })
             tree.personal = PersonalState(workspaces: keys.enumerated().map { index, key in
                 PersonalWorkspace(sessionID: "s-local", workspaceKey: WorkspaceKey(rawValue: key), index: index)
@@ -61,8 +65,9 @@ import Testing
         }
 
         /// `k1`'s screen: two panes side by side, a terminal each.
-        static var twoPanes: ScreenSnapshot {
-            let first = PaneSnapshot(id: PaneID(rawValue: 101), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~")])
+        static func twoPanes(unread: Bool) -> ScreenSnapshot {
+            let note = unread ? TabNotification(notification: NotificationID(rawValue: 7), unread: true, level: .info, source: "agent") : nil
+            let first = PaneSnapshot(id: PaneID(rawValue: 101), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 201), title: "~", notification: note)])
             let second = PaneSnapshot(id: PaneID(rawValue: 102), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 202), title: "~")])
             return ScreenSnapshot(id: ScreenID(rawValue: 101), layout: .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5,
                                                                               a: .leaf(first.id), b: .leaf(second.id)), panes: [first, second])
@@ -307,6 +312,23 @@ import Testing
             #expect(f.shown == ["k0", "k1"])
             #expect(f.controller.focus.state.pane == pressed.paneKey,
                     "the focused pane is \(f.controller.focus.state.pane ?? "-"), not the pressed \(pressed.paneKey)")
+        }
+    }
+
+    /// A workspace beside the focused one draws an attention ring that comes after it went on screen.
+    @Test func aWorkspaceBesideDrawsARingThatComesAfterTheDrop() async throws {
+        try await Self.withMultiView {
+            let f = try await Fixture()
+            defer { f.close() }
+            try f.dragRow("k1", to: .left)
+            try #require(f.shown == ["k0", "k1"])
+            let k1 = try #require(f.visible.first { $0.workspace.id == "k1" })
+            try #require(k1.layoutModel.attention.isEmpty)
+            f.services.machines.local.store.apply(snapshot: Fixture.tree(f.keys, unread: true))
+            try await Task.sleep(for: .milliseconds(100))
+            f.frame()
+            #expect(f.state.workspaceID == "k0")
+            #expect(!k1.layoutModel.attention.isEmpty, "k1's unread tab draws no ring beside k0")
         }
     }
 
