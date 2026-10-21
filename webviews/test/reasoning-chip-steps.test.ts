@@ -1,7 +1,8 @@
-// The Reasoning chip held before a session reports (#20946: the New Tab composer, a new chat) steps
-// down as the chat's own does (composerRowFit.ts effortShort): a narrow composer names the level's
-// short form whole ("Med"), never a cut one ("M…" at 300 px, cg-ui-coord 2026-10-15). A wide one
-// names it in full.
+// The effort the model button names after the model (Leo 2026-10-20: one "Opus 5.5  Medium" button,
+// no Reasoning chip), held before a session reports (#20946: the New Tab composer, a new chat) or
+// reported, steps down as the row narrows (composerRowFit.ts effortShort): a narrow composer names
+// the level's short form whole ("Med"), never a cut one ("M…" at 300 px, cg-ui-coord 2026-10-15). A
+// wide one names it in full.
 //
 // The gallery's real panes in Chromium: `agent-pane.new-tab` (`reasoning-chip`) and
 // `agent-pane.composer` (`new-chat-reasoning`), and a New Tab whose agent reported its levels
@@ -62,35 +63,35 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1", undefined, {
       timeout: 120_000,
     });
-    await page.locator(".acpmux-chips .acpmux-effort").waitFor();
+    await page.locator(".acpmux-chips .acpmux-model .acpmux-model-detail").first().waitFor({ state: "attached" });
     await page.evaluate(() => document.fonts.ready);
     await page.waitForTimeout(200);
     return page;
   };
 
-  /** Runs in the page: the effort chip's drawn labels (text and ::before) and any it cuts. */
+  /** Runs in the page: the model button's drawn effort labels (text and ::before) and any it cuts. */
   function effortChip() {
-    const button = document.querySelector<HTMLElement>(".acpmux-chips .acpmux-effort .acpmux-picker-button")!;
+    const button = document.querySelector<HTMLElement>(".acpmux-chips .acpmux-model .acpmux-picker-button")!;
     const shown = (element: Element) =>
       element.getClientRects().length > 0 && getComputedStyle(element).visibility === "visible";
     const box = button.getBoundingClientRect();
     const labels: string[] = [];
     const cut: string[] = [];
     const parts: Element[] = [];
-    const walker = document.createTreeWalker(button, NodeFilter.SHOW_TEXT);
-    for (let node = walker.nextNode(); node; node = walker.nextNode())
-      if (node.textContent?.trim() && node.parentElement && shown(node.parentElement)) {
-        labels.push(node.textContent.trim());
-        parts.push(node.parentElement);
+    const details = [...button.querySelectorAll(".acpmux-model-detail")];
+    for (const element of details)
+      if (element.textContent?.trim() && shown(element)) {
+        labels.push(element.textContent.trim());
+        parts.push(element);
       }
-    for (const element of [button, ...button.querySelectorAll("*")]) {
+    for (const element of details) {
       const content = getComputedStyle(element, "::before").content;
       if (/^".+"$/.test(content) && shown(element)) {
         labels.push(content.slice(1, -1).trim());
         parts.push(element);
       }
     }
-    // The visible parts only: the chip lays its other forms out of the row, hidden, so they still
+    // The visible parts only: the button lays its other forms out of the row, hidden, so they still
     // measure (composerRowFit.ts), and its own scroll width counts them.
     for (const element of parts) {
       const style = getComputedStyle(element);
@@ -100,7 +101,7 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
       if (style.textOverflow === "ellipsis" && element.scrollWidth > element.clientWidth + 0.5)
         cut.push(`"${value}" ends in an ellipsis`);
       const rect = element.getBoundingClientRect();
-      if (rect.left < box.left - 0.5 || rect.right > box.right + 0.5) cut.push(`"${value}" runs outside its chip`);
+      if (rect.left < box.left - 0.5 || rect.right > box.right + 0.5) cut.push(`"${value}" runs outside its button`);
     }
     return { labels, cut };
   }
@@ -115,11 +116,13 @@ await requireBrowserLane("reasoning-chip-steps.test.ts", async () => {
   ];
   for (const [where, entry, variant, expected] of cases)
     for (const width of [760, 400, 300])
-      test(`${where} at ${width} px: the reasoning chip reads "${expected[width]}" whole`, async () => {
+      test(`${where} at ${width} px: the model button's effort reads "${expected[width]}" whole`, async () => {
         const page = await open(entry, variant, width);
         const chip = await page.evaluate(effortChip);
         expect(chip.cut, "no label cut").toEqual([]);
         expect(chip.labels, "the level's whole name").toEqual([expected[width]!]);
+        // One model control: no separate Reasoning chip beside it.
+        expect(await page.locator(".acpmux-chips .acpmux-effort").count()).toBe(0);
         await page.close();
       });
 });

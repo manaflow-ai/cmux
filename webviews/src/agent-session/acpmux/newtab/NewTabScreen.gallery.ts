@@ -253,37 +253,41 @@ export default agentPaneEntry({
           throw new Error("Add harness shows on the page with a harness installed");
       },
     },
-    // The chip's model picker opens whole: the card does not clip it to its search field
-    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the picker, not the page.
+    // The model button opens its one menu (Leo 2026-10-20), whole: the card does not clip it
+    // (Lawrence 2026-10-13). Points near its top and bottom edges hit the menu, not the page, and
+    // its More models submenu ends on Add harness….
     "model-picker-open": {
-      note: "The New Tab chip's model picker, open: at least its search field and about six rows, never cut by the card. Its list ends on Add harness….",
+      note: "The New Tab model button's menu, open: the harness rail and the numbered models, never cut by the card; More models ends on Add harness….",
       ready: newTab(),
       snapshot: noChat(),
       play: async (ctx) => {
         await ctx.waitFor(() => ctx.document.querySelector(".nt-field") !== null);
         await ctx.click({ role: "button", name: "Model" });
         await ctx.waitFor(() => {
-          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-mp");
-          if (!menu || menu.style.visibility !== "visible") return false;
+          const menu = ctx.document.querySelector<HTMLElement>(".acpmux-quick-menu");
+          if (!menu || !menu.querySelector('[role="menuitemradio"]')) return false;
           const box = menu.getBoundingClientRect();
-          if (box.height < 219) return false;
+          if (box.height < 120) return false;
           const x = box.left + box.width / 2;
           return [box.top + 6, box.bottom - 6].every((y) => menu.contains(ctx.document.elementFromPoint(x, y)));
         });
-        const options = ctx.document.querySelectorAll(".acpmux-mp-models [role=option]");
-        if (!options[options.length - 1]?.classList.contains("acpmux-mp-add-harness"))
-          throw new Error("the model picker's list does not end on Add harness…");
+        await ctx.hover({ text: "More models" });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-more"));
+        const rows = ctx.document.querySelectorAll(".acpmux-quick-more [role^=menuitem]");
+        if (!rows[rows.length - 1]?.textContent?.includes("Add harness"))
+          throw new Error("the model menu's More models does not end on Add harness…");
       },
     },
-    // Reasoning is its own chip beside the model chip, with its own menu (P0 #8): acpmux starts
-    // Claude Code on Medium, so the chip names it before any chat exists.
+    // The effort is part of the one model button (Leo 2026-10-20: "Opus 5.5  Medium"), and its
+    // levels are the menu's Effort submenu (P0 #8: a live pick, never a picture): acpmux starts
+    // Claude Code on Medium, so the button names it before any chat exists.
     "reasoning-chip": {
-      note: "Before any chat: the Reasoning chip names the level acpmux starts Claude Code on (Medium) and opens the reasoning menu on its own, apart from the model chip.",
+      note: "Before any chat: the model button names the model and the level acpmux starts Claude Code on (Medium); its menu's Effort row opens the levels. No separate Reasoning chip.",
       ready: newTab(),
       snapshot: reasoningChat(),
     },
     "reasoning-chip-stage": {
-      note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the model and Reasoning chips in the box, text at rest, the soft pill only on the hovered one.",
+      note: "The Default template's stage layout before any chat: its own composer at the foot of the page, the one model button (model and effort) in the box, text at rest, the soft pill only on the hovered control.",
       ready: newTab({ template: "default" }),
       snapshot: reasoningChat(),
     },
