@@ -1,8 +1,9 @@
 // l10n-allow-file: test fixtures.
 // What's New shows the nightly reel (whats-new lane, 2026-10-20): the nightly publishes a video of
 // each build's pull requests (scripts/cmux-next/media/reel.py), but the page never showed it. Now
-// the host names a build's reel when one was built (`reel` on its notes), and "Since your last
-// update" starts with one card per reel of the span, newest first, each a link to the video.
+// the host names a build's reel when one was built (`cmux.changelog.reel`; the mock reads it from
+// the fixture's notes), and "Since your last update" starts with one card per reel of the span,
+// newest first, each a link to the video.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
