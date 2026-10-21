@@ -19,24 +19,29 @@ struct AgentPanePendingAsksTests {
     /// Fake daemons by socket: each holds its own sessions' open requests and the peer chats it
     /// mirrors (an SSH or Cloud peer's, listed in its watch with `peer`), and records every read.
     /// It resolves a key as acpmux does (hub `resolve`, then server/peer_forward.rs): `local/<id>`
-    /// names this daemon's own session only; a bare id that is not its own but a peer's is
-    /// forwarded to that peer, whose open requests come back.
+    /// names this daemon's own session; a bare id that is not its own but a peer's is forwarded
+    /// to that peer, whose reply comes back marked with the peer's name (`peer`). `localPeer`: a
+    /// peer that happens to be named `local`, whose rows acpmux keys `local/<id>`, so a
+    /// `local/<id>` that is not the daemon's own is forwarded there.
     @MainActor final class Daemons {
         var pending: [String: [String: [[String: Any]]]] = [:]
         var mirrored: [String: [String: [[String: Any]]]] = [:]
+        var localPeer: [String: [String: [[String: Any]]]] = [:]
         var reads: [(socket: String, session: String)] = []
 
         var reader: AgentPanePendingAsks {
             AgentPanePendingAsks { [self] socket, key in
                 reads.append((socket, key))
-                let entries: [[String: Any]]?
-                if key.hasPrefix("local/") {
-                    entries = pending[socket]?[String(key.dropFirst("local/".count))]
-                } else {
-                    entries = pending[socket]?[key] ?? mirrored[socket]?[key]
+                let local = key.hasPrefix("local/") ? String(key.dropFirst("local/".count)) : nil
+                if let own = pending[socket]?[local ?? key] { return ["sessionId": local ?? key, "pending": own] }
+                // Not its own: forwarded to the peer that lists it, and marked with that peer.
+                if let local, let entries = localPeer[socket]?[local] {
+                    return ["sessionId": local, "pending": entries, "peer": "local"]
                 }
-                guard let entries else { return nil }  // not_found on that daemon
-                return ["sessionId": key, "pending": entries]
+                if local == nil, let entries = mirrored[socket]?[key] {
+                    return ["sessionId": key, "pending": entries, "peer": "build-host"]
+                }
+                return nil  // not_found on that daemon
             }
         }
 
@@ -151,6 +156,21 @@ struct AgentPanePendingAsksTests {
         #expect(Self.permissionIds(try await Self.call(["sessionId": .string("local/own")], model: pane, daemons: daemons)) == ["o1"])
         #expect(try await Self.call(["sessionId": .string("build-host/peer-chat")], model: pane, daemons: daemons) == .null)
         #expect(daemons.reads.map { $0.session } == ["local/peer-chat", "local/own", "local/own"])
+    }
+
+    /// A peer may be named `local` (acpmux peer names are any session name), and acpmux keys its
+    /// rows `local/<id>`: a read of `local/<id>` that is not the daemon's own chat is forwarded
+    /// there. Every forwarded reply names its `peer` (server/peer_forward.rs) and a daemon's own
+    /// chat never does, so such a reply answers null and no ask of it reaches the page.
+    @Test func aReplyForwardedFromAPeerIsRefused() async throws {
+        let daemons = Daemons()
+        daemons.pending[Self.mainSocket] = ["own": [["permissionId": "o1"]]]
+        daemons.localPeer[Self.mainSocket] = ["peer-chat": [["permissionId": "x1"]]]
+        let pane = Self.pane(socket: Self.mainSocket)
+
+        #expect(try await Self.call(["sessionId": .string("peer-chat")], model: pane, daemons: daemons) == .null)
+        #expect(Self.permissionIds(try await Self.call(["sessionId": .string("own")], model: pane, daemons: daemons)) == ["o1"])
+        #expect(daemons.reads.map { $0.session } == ["local/peer-chat", "local/own"])
     }
 
     @Test func aChatTheDaemonCannotReadAnswersNull() async throws {
