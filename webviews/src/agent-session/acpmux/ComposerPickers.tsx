@@ -255,8 +255,8 @@ export function ComposerPickers({
       ? (resolvedModel(summary) ?? (summary.harness ? loadResolvedDefaults()[summary.harness] : undefined))
       : summary?.model;
   // A profile the catalog does not map to its family (a second Claude account's harness id) still
-  // runs a catalogued model: any harness's row for that id names it and its default level, so the
-  // chips never fall back to the raw id or to the word Reasoning.
+  // runs a catalogued model: its family's row for that id (else any harness's) names it and its
+  // default level, so the chips never fall back to the raw id or to the word Reasoning.
   const catalogModel =
     catalogRow(
       pickerCatalog?.harnesses.find(
@@ -264,7 +264,12 @@ export function ComposerPickers({
       )?.models,
       runningModel,
     ) ??
-    pickerCatalog?.harnesses.map((entry) => catalogRow(entry.models, runningModel)).find((row) => row !== undefined);
+    [
+      ...(pickerCatalog?.harnesses.filter((entry) => entry.id === summary?.family) ?? []),
+      ...(pickerCatalog?.harnesses ?? []),
+    ]
+      .map((entry) => catalogRow(entry.models, runningModel))
+      .find((row) => row !== undefined);
   const efforts: Choice[] = reasoningChoices(effort?.options ?? [], catalogModel, t);
   // Claude Code's Ultracode: a switch beside the levels, offered where the model runs Extra High.
   // It rides the free effort option (ultracode on, Extra High off): acpmux's own `ultracode` id is a
@@ -491,7 +496,10 @@ export function ComposerPickers({
   const ownName = model?.name && model.name !== model.id ? model.name : undefined;
   const runningName = summary?.model
     ? (ownName ??
-      (catalogModel && catalogRow([catalogModel], summary.model) ? catalogModel.name : undefined) ??
+      // Only the exact row: "claude-opus-5-5[1m]" keeps its wide-context name (modelIdName).
+      (catalogModel?.id === summary.model || catalogModel?.release === summary.model
+        ? catalogModel?.name
+        : undefined) ??
       modelIdName(summary.model, t))
     : undefined;
   // Before the session reports, the predicted model's name holds the chip's width (cx-ncc.58).
@@ -1046,10 +1054,10 @@ export function ContextRing({
   const fraction = known ? Math.min(1, Math.max(0, used / size)) : 0;
   const percent = Math.round(fraction * 100);
   const label = known ? t(PICKER_LABELS.context, { percent }) : t("context.title");
-  // A 1px track ring, and the share used as a filled wedge inside it (a pie, not a spinner):
-  // a circle stroked as wide as its diameter, dashed to the share, with butt ends.
-  const wedgeRadius = 2.75;
-  const wedgeCircumference = 2 * Math.PI * wedgeRadius;
+  // As Claude desktop's: a 14 px ring, a faint track with the share used drawn over it as an arc
+  // from twelve o'clock (round ends), not a pie and not a spinner.
+  const arcRadius = 6;
+  const arcCircumference = 2 * Math.PI * arcRadius;
   useEffect(() => {
     // Keep the automation path truthful too: before the first usage report the ring is
     // intentionally inert, so opening it by label must not reveal an empty 0% popover.
@@ -1088,24 +1096,28 @@ export function ContextRing({
           openAtPress.current = null;
         }}
       >
-        <svg width={16} height={16} viewBox="0 0 16 16" aria-hidden="true" focusable="false">
-          <circle cx="8" cy="8" r={7} fill="none" stroke="currentColor" strokeOpacity={0.35} strokeWidth={1} />
-          {fraction >= 1 ? (
-            <circle cx="8" cy="8" r={wedgeRadius * 2} fill="currentColor" />
-          ) : (
-            fraction > 0 && (
-              <circle
-                cx="8"
-                cy="8"
-                r={wedgeRadius}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={wedgeRadius * 2}
-                strokeLinecap="butt"
-                strokeDasharray={`${wedgeCircumference * fraction} ${wedgeCircumference}`}
-                transform="rotate(-90 8 8)"
-              />
-            )
+        <svg width={14} height={14} viewBox="0 0 14 14" aria-hidden="true" focusable="false">
+          <circle
+            cx="7"
+            cy="7"
+            r={arcRadius}
+            fill="none"
+            stroke="currentColor"
+            strokeOpacity={0.3}
+            strokeWidth={1.75}
+          />
+          {fraction > 0 && (
+            <circle
+              cx="7"
+              cy="7"
+              r={arcRadius}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={1.75}
+              strokeLinecap={fraction >= 1 ? "butt" : "round"}
+              strokeDasharray={`${arcCircumference * fraction} ${arcCircumference}`}
+              transform="rotate(-90 7 7)"
+            />
           )}
         </svg>
       </button>

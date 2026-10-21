@@ -1527,8 +1527,10 @@ export function VirtualTranscript({
       setDockLift(0);
       return;
     }
-    const lift = () =>
-      getComputedStyle(dock).position === "absolute" ? Math.ceil(dock.getBoundingClientRect().height) + DOCK_GAP : 0;
+    const lift = () => {
+      const height = dock.getBoundingClientRect().height;
+      return getComputedStyle(dock).position === "absolute" && height > 0 ? Math.ceil(height) + DOCK_GAP : 0;
+    };
     // Before the frame paints, as the viewport's own size is: a composer that grew a line, or a
     // queue that appeared, never draws a frame with the latest row under it. The room is how far
     // the stack reaches over the view: none for a stack in the flow under it, or with no box

@@ -1055,13 +1055,14 @@
   --acpmux-row-inset: 4px;
   --acpmux-row-gap: 0px;
   --acpmux-row-group-gap: 0px;
-  --acpmux-row-edge: 12px;
+  --acpmux-row-edge: 14px;
   min-height: 28px;
-  margin-top: 4px;
+  /* Claude desktop (2x capture, Leo 2026-10-20): the row's middle 22 px under the box. */
+  margin-top: 8px;
   /* Room under the row so it never sits on the window's edge (Leo 2026-10-20, as Codex and Claude). */
   margin-bottom: 10px;
   padding-block: 0;
-  padding-inline: calc(16px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
+  padding-inline: calc(17px - var(--acpmux-row-inset)) calc(var(--acpmux-row-edge) - var(--acpmux-row-inset));
   gap: 0;
   justify-content: flex-end;
   background: none;
@@ -1075,20 +1076,26 @@
   margin-inline-end: auto;
 }
 .acpmux-composer-foot .acpmux-chips > .acpmux-mode:not(:first-child) { padding-inline-start: 0; }
-.acpmux-composer-foot .acpmux-access.acpmux-unrestricted .acpmux-access-trigger > .acpmux-icon:first-child {
-  display: inline-flex;
-}
+/* As Claude desktop's footer: the mode's name, the model and the effort as text alone (the plain
+   look already drops the shield and the chevrons). The mode and the model in the soft tone, the
+   effort a step quieter. */
+.acpmux-composer-foot :is(.acpmux-model, .acpmux-access) .acpmux-picker-button { color: var(--agent-soft); }
+.acpmux-composer-foot .acpmux-effort .acpmux-picker-button { color: var(--agent-muted); }
+.acpmux-composer-foot .acpmux-effort { margin-inline-start: 1px; }
 /* The box with the chips gone, as the Claude desktop composer lays it (Leo 2026-10-20): no row of
    its own under the prompt. + sits left of the prompt and the mic and Send or Stop right of it, all
    on the prompt's last line, so the box is only as tall as the text. The bar and its chrome area
    draw no box (display: contents): + and the actions are the box's own grid items, beside the
-   prompt (and the shell field), under the attachments' band. A 48 px box for one line: the 22 px
-   line between 13 px insets, the 28 px controls 10 px off the bottom edge. Menus over the box are
-   absolute and keep its padding box. */
+   prompt (and the shell field), under the attachments' band. Measured from Claude desktop at 2x
+   (Leo 2026-10-20, "faithfully"): a 44 px box for one line (the 22 px line between 11 px insets,
+   the 28 px controls 8 px off the bottom edge), an 11 px radius, + drawn 16 px in from the left
+   edge, the text 45 px in, the mic 16 px in from the right. Menus over the box are absolute and
+   keep its padding box. */
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: end;
+  --acpmux-composer-radius: 11px;
 }
 .acpmux-composer-inner { display: contents; }
 .acpmux-composer-box > .acpmux-attachments { grid-column: 1 / -1; grid-row: 1; }
@@ -1099,33 +1106,47 @@
 .acpmux-composer-inner > :not(.acpmux-composer-actions) {
   grid-column: 1;
   grid-row: 2;
-  margin: 0 0 10px 4px;
+  margin: 0 0 8px 7px;
 }
 .acpmux-composer-inner > .acpmux-composer-actions {
   grid-column: 3;
   grid-row: 2;
-  margin: 0 10px 10px 0;
+  margin: 0 8px 8px 0;
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-field {
-  padding: calc(13px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))
-    calc(13px * var(--cmux-interface-scale, 1)) calc(4px * var(--cmux-interface-scale, 1));
+  padding: calc(11px * var(--cmux-interface-scale, 1)) calc(8px * var(--cmux-interface-scale, 1))
+    calc(11px * var(--cmux-interface-scale, 1)) calc(10px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-md-placeholder {
-  left: calc(4px * var(--cmux-interface-scale, 1));
-  top: calc(13px * var(--cmux-interface-scale, 1));
+  left: calc(10px * var(--cmux-interface-scale, 1));
+  top: calc(11px * var(--cmux-interface-scale, 1));
   right: calc(8px * var(--cmux-interface-scale, 1));
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-field {
-  min-height: 48px;
-  padding: 13px 8px 13px 20px;
+  min-height: 44px;
+  padding: 11px 8px 11px 26px;
 }
 .acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner) .acpmux-shell-glyph {
-  left: 4px;
-  top: 13px;
+  left: 10px;
+  top: 11px;
+}
+/* Under the attachments' band the prompt starts one gap down, as in the other look
+   (composerAttachments.css), at this look's specificity. */
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
+  > .acpmux-attachments
+  ~ .acpmux-composer-field-menu
+  :is(.acpmux-md-field, .acpmux-shell-field) {
+  padding-top: var(--acpmux-attach-gap);
+}
+.acpmux-composer-box:has(> .acpmux-chrome-area > .acpmux-composer-inner)
+  > .acpmux-attachments
+  ~ .acpmux-composer-field-menu
+  :is(.acpmux-md-placeholder, .acpmux-shell-glyph) {
+  top: var(--acpmux-attach-gap);
 }
 /* The context ring ends the quiet row, as Claude Code's does: the row's soft pill on hover and
    while its details are open, the row's outline under keyboard focus. */
-.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 4px; }
+.acpmux-composer-foot .acpmux-context-ring { width: 24px; height: 24px; margin-inline-start: 8px; }
 .acpmux-composer-foot .acpmux-context-ring:not(:disabled):hover,
 .acpmux-composer-foot .acpmux-context-ring[aria-expanded="true"] { background: var(--acpmux-pill-hover); }
 .acpmux-composer-foot .acpmux-context-ring:focus-visible { outline-offset: 0; }

@@ -821,9 +821,6 @@ pre.cv-math-source {
      each streamed token compete with that correction and produces the one-pixel shake at rest. */
   overflow-anchor: none;
 }
-.acpmux-main:has(.acpmux-asks-stack) .acpmux-scroll {
-  margin-bottom: 0;
-}
 /* The spacer is the scroller's extent, which a followed view's offset is set against in the same
    frame: under Reduce Motion's 0.01ms transitions (shared/desktop.css) it kept its old height for
    that frame, and the offset clamped short of the end and stayed there. */

@@ -64,7 +64,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
   const CONTROLS: Record<string, string> = {
     box: ".acpmux-composer-box",
     prompt: ".acpmux-composer-prompt",
-    bar: ".acpmux-composer-bar",
+    // The box's own row draws no box of its own (display: contents): + and the mic stand for it.
     footer: ".acpmux-composer-context",
     plus: ".acpmux-composer-plus .acpmux-picker-button",
     model: ".acpmux-model .acpmux-picker-button",
@@ -167,7 +167,7 @@ await requireBrowserLane("composer-turn-cycle.test.ts", async () => {
       const after = await boxes(page);
       await page.close();
       // A narrow row makes room for Steer from its left cluster (labels give way by priority).
-      const fixed = width >= 720 ? Object.keys(CONTROLS) : ["prompt", "bar", "footer", "mic", "send or stop"];
+      const fixed = width >= 720 ? Object.keys(CONTROLS) : ["prompt", "footer", "mic", "send or stop"];
       const pick = (all: typeof before) => Object.fromEntries(fixed.map((name) => [name, all[name]!]));
       expect(moved(pick(before), pick(after))).toEqual([]);
     });
