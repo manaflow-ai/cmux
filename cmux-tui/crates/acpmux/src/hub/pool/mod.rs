@@ -595,12 +595,15 @@ impl Hub {
             return Err(e);
         }
         let tap = self.session_tap(session);
-        self.append(
-            session,
-            "mux",
-            "host_started",
-            json!({"incarnation": p.record.incarnation, "hostPid": p.record.host_pid, "hostBuild": p.record.host_build}),
-        );
+        let mut started = json!({
+            "incarnation": p.record.incarnation.clone(),
+            "hostPid": p.record.host_pid,
+            "hostBuild": p.record.host_build.clone()
+        });
+        if session.meta().remote_origin {
+            started["remoteEnvPolicy"] = crate::agent::REMOTE_ENV_POLICY_ID.into();
+        }
+        self.append(session, "mux", "host_started", started);
         {
             let mut slot = p.tap.lock().unwrap_or_else(|e| e.into_inner());
             if let TapSlot::Held(held) = &mut *slot {

@@ -175,6 +175,9 @@ pub fn models() -> &'static [(String, String)] {
 
 #[cfg(test)]
 mod background_output_tests;
+mod early_calls;
+#[cfg(test)]
+mod early_calls_tests;
 #[cfg(test)]
 mod edit_diff_tests;
 mod inbound;
@@ -365,6 +368,9 @@ pub struct Translator {
     /// Running file edits: tool_use id -> their ACP diff content, which their
     /// completion carries again so the diff outlives the tool's text result.
     edits: Mutex<HashMap<String, Value>>,
+    /// Tool calls named as their block started (`early_calls.rs`), before
+    /// their input streamed: tool_use id -> the session they run in.
+    announced: Mutex<HashMap<String, (String, Option<String>)>>,
     /// Running shells by tool_use id (cx-ncc.84): each Bash call until its
     /// result (or, once a `local_bash` task names it, its `task_notification`),
     /// and those in the background (`run_in_background`, or moved there) until
@@ -443,6 +449,7 @@ impl Translator {
             loop_model: Mutex::new(String::new()),
             message_ids: Mutex::new(HashMap::new()),
             edits: Mutex::new(HashMap::new()),
+            announced: Mutex::new(HashMap::new()),
         })
     }
 
