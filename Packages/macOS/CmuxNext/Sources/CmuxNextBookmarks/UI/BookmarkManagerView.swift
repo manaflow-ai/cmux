@@ -44,9 +44,13 @@ struct BookmarkManagerView: View {
                 Button(BookmarkStrings.importHTML) { model.source?.importHTML() }
                 Button(BookmarkStrings.exportHTML) { model.source?.exportHTML() }
             } label: {
-                Icon(.actionMore, size: 14)
+                // The app's one more glyph (⋮, OverflowButton), at its size and hit target.
+                Icon(OverflowButton.glyph, size: OverflowButton.glyphSize)
+                    .frame(width: Metrics.iconSize + Metrics.space2, height: Metrics.iconSize + Metrics.space2)
+                    .contentShape(Rectangle())
             }
             .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
             .fixedSize()
             .accessibilityIdentifier("cmux.bookmarks.manager.menu")
             .accessibilityLabel(BookmarkStrings.more)

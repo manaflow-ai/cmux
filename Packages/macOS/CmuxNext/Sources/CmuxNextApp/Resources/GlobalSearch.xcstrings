@@ -263,526 +263,919 @@
         }
       }
     },
-    "globalSearch.noMatches": {
+    "globalSearch.matchCount": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No matches in any terminal"
+            "value": "%lld matches"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد مطابقات في أي طرفية"
+            "value": "%lld مطابقات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema podudaranja ni u jednom terminalu"
+            "value": "%lld podudaranja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen match i nogen terminal"
+            "value": "%lld match"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Treffer in einem Terminal"
+            "value": "%lld Treffer"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay coincidencias en ningún terminal"
+            "value": "%lld coincidencias"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucune correspondance dans les terminaux"
+            "value": "%lld résultats"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessuna corrispondenza nei terminali"
+            "state": "translated",
+            "value": "%lld corrispondenze"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "どのターミナルにも一致がありません"
+            "value": "%lld件一致"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានលទ្ធផលត្រូវគ្នាក្នុងទែមីណាល់ណាមួយទេ"
+            "value": "%lld លទ្ធផល"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일치하는 터미널이 없습니다"
+            "value": "%lld개 일치"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen treff i noen terminal"
+            "value": "%lld treff"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak dopasowań w żadnym terminalu"
+            "state": "translated",
+            "value": "Dopasowania: %lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhuma correspondência em nenhum terminal"
+            "state": "translated",
+            "value": "%lld correspondências"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Совпадений ни в одном терминале нет"
+            "state": "translated",
+            "value": "Совпадений: %lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่พบผลที่ตรงกันในเทอร์มินัลใด"
+            "value": "%lld รายการที่ตรงกัน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Hiçbir terminalde eşleşme yok"
+            "state": "translated",
+            "value": "%lld eşleşme"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає збігів у жодному терміналі"
+            "value": "Збігів: %lld"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có kết quả khớp trong terminal nào"
+            "value": "%lld kết quả"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "所有终端中均无匹配项"
+            "value": "%lld 个匹配"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "所有終端機中皆無相符項目"
+            "value": "%lld 個符合"
           }
         }
       }
     },
-    "globalSearch.noTerminals": {
+    "globalSearch.noMatchesAnywhere": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "No terminals to search"
+            "value": "No matches"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "لا توجد طرفيات للبحث فيها"
+            "value": "لا توجد مطابقات"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nema terminala za pretragu"
+            "value": "Nema podudaranja"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen terminaler at søge i"
+            "value": "Ingen match"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Keine Terminals zum Durchsuchen"
+            "value": "Keine Treffer"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "No hay terminales en los que buscar"
+            "value": "Sin coincidencias"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Aucun terminal à rechercher"
+            "value": "Aucun résultat"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nessun terminale in cui cercare"
+            "state": "translated",
+            "value": "Nessuna corrispondenza"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "検索できるターミナルがありません"
+            "value": "一致する項目はありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "គ្មានទែមីណាល់សម្រាប់ស្វែងរកទេ"
+            "value": "គ្មានលទ្ធផលត្រូវគ្នា"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "검색할 터미널이 없습니다"
+            "value": "일치 항목 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ingen terminaler å søke i"
+            "value": "Ingen treff"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Brak terminali do przeszukania"
+            "state": "translated",
+            "value": "Brak dopasowań"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nenhum terminal para pesquisar"
+            "state": "translated",
+            "value": "Nenhuma correspondência"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Нет терминалов для поиска"
+            "state": "translated",
+            "value": "Совпадений нет"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ไม่มีเทอร์มินัลให้ค้นหา"
+            "value": "ไม่พบรายการที่ตรงกัน"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Aranacak terminal yok"
+            "state": "translated",
+            "value": "Eşleşme yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Немає терміналів для пошуку"
+            "value": "Збігів немає"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Không có terminal nào để tìm kiếm"
+            "value": "Không có kết quả khớp"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "没有可搜索的终端"
+            "value": "没有匹配项"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "沒有可搜尋的終端機"
+            "value": "沒有符合項目"
           }
         }
       }
     },
-    "globalSearch.placeholder": {
+    "globalSearch.noTabs": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filter matches"
+            "value": "No tabs to search"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "تصفية المطابقات"
+            "value": "لا توجد علامات تبويب للبحث فيها"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtriraj podudaranja"
+            "value": "Nema kartica za pretragu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtrer match"
+            "value": "Ingen faner at søge i"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Treffer filtern"
+            "value": "Keine Tabs zum Durchsuchen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filtrar coincidencias"
+            "value": "No hay pestañas para buscar"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Filtrer les correspondances"
+            "value": "Aucun onglet à rechercher"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Filtra corrispondenze"
+            "state": "translated",
+            "value": "Nessuna scheda da cercare"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "一致を絞り込む"
+            "value": "検索するタブがありません"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ត្រងលទ្ធផលដែលត្រូវគ្នា"
+            "value": "គ្មានផ្ទាំងសម្រាប់ស្វែងរក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "일치 항목 필터"
+            "value": "검색할 탭 없음"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Filtrer treff"
+            "value": "Ingen faner å søke i"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Filtruj dopasowania"
+            "state": "translated",
+            "value": "Brak kart do przeszukania"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Filtrar correspondências"
+            "state": "translated",
+            "value": "Nenhuma aba para buscar"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Фильтр совпадений"
+            "state": "translated",
+            "value": "Нет вкладок для поиска"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "กรองผลที่ตรงกัน"
+            "value": "ไม่มีแท็บให้ค้นหา"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Eşleşmeleri filtrele"
+            "state": "translated",
+            "value": "Aranacak sekme yok"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Фільтр збігів"
+            "value": "Немає вкладок для пошуку"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Lọc kết quả khớp"
+            "value": "Không có tab để tìm"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "筛选匹配项"
+            "value": "没有可搜索的标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "篩選相符項目"
+            "value": "沒有可搜尋的分頁"
           }
         }
       }
     },
-    "globalSearch.showInTerminal": {
+    "globalSearch.prompt": {
       "extractionState": "manual",
       "localizations": {
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show in Terminal"
+            "value": "Type to search every terminal, agent session and tab"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار في الطرفية"
+            "value": "اكتب للبحث في كل طرفية وجلسة وكيل وعلامة تبويب"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Prikaži u terminalu"
+            "value": "Kucajte da pretražite svaki terminal, sesiju agenta i karticu"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis i terminal"
+            "value": "Skriv for at søge i alle terminaler, agentsessioner og faner"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Im Terminal anzeigen"
+            "value": "Tippen, um alle Terminals, Agent-Sitzungen und Tabs zu durchsuchen"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar en el terminal"
+            "value": "Escribe para buscar en cada terminal, sesión de agente y pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher dans le terminal"
+            "value": "Tapez pour rechercher dans chaque terminal, session d’agent et onglet"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostra nel terminale"
+            "state": "translated",
+            "value": "Digita per cercare in ogni terminale, sessione degli agenti e scheda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナルで表示"
+            "value": "入力すると、すべてのターミナル、エージェントセッション、タブを検索します"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "បង្ហាញក្នុងទែមីណាល់"
+            "value": "វាយដើម្បីស្វែងរកក្នុងទែមីណាល់ វគ្គភ្នាក់ងារ និងផ្ទាំងទាំងអស់"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널에서 보기"
+            "value": "입력하여 모든 터미널, 에이전트 세션, 탭 검색"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vis i terminal"
+            "value": "Skriv for å søke i alle terminaler, agentøkter og faner"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Pokaż w terminalu"
+            "state": "translated",
+            "value": "Pisz, aby przeszukać każdy terminal, sesję agenta i kartę"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Mostrar no terminal"
+            "state": "translated",
+            "value": "Digite para buscar em todos os terminais, sessões de agentes e abas"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Показать в терминале"
+            "state": "translated",
+            "value": "Начните вводить, чтобы искать по всем терминалам, сеансам агентов и вкладкам"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "แสดงในเทอร์มินัล"
+            "value": "พิมพ์เพื่อค้นหาในทุกเทอร์มินัล เซสชันเอเจนต์ และแท็บ"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Terminalde göster"
+            "state": "translated",
+            "value": "Tüm terminallerde, ajan oturumlarında ve sekmelerde aramak için yazın"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Показати в терміналі"
+            "value": "Почніть вводити, щоб шукати в усіх терміналах, сеансах агентів і вкладках"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Hiển thị trong terminal"
+            "value": "Nhập để tìm trong mọi terminal, phiên agent và tab"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在终端中显示"
+            "value": "输入以搜索所有终端、代理会话和标签页"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在終端機中顯示"
+            "value": "輸入以搜尋所有終端機、代理工作階段和分頁"
+          }
+        }
+      }
+    },
+    "globalSearch.searchPlaceholder": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search terminals, agent sessions and tabs"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ابحث في الطرفيات وجلسات الوكلاء وعلامات التبويب"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži terminale, sesije agenata i kartice"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i terminaler, agentsessioner og faner"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminals, Agent-Sitzungen und Tabs durchsuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar en terminales, sesiones de agentes y pestañas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans les terminaux, sessions d’agents et onglets"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca in terminali, sessioni degli agenti e schede"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ターミナル、エージェントセッション、タブを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកក្នុងទែមីណាល់ វគ្គភ្នាក់ងារ និងផ្ទាំង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "터미널, 에이전트 세션, 탭 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i terminaler, agentøkter og faner"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj w terminalach, sesjach agentów i kartach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar em terminais, sessões de agentes e abas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск по терминалам, сеансам агентов и вкладкам"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาในเทอร์มินัล เซสชันเอเจนต์ และแท็บ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Terminallerde, ajan oturumlarında ve sekmelerde ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук у терміналах, сеансах агентів і вкладках"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm trong terminal, phiên agent và tab"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索终端、代理会话和标签页"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋終端機、代理工作階段和分頁"
+          }
+        }
+      }
+    },
+    "globalSearch.show": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Prikaži"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anzeigen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បង្ហាញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Vis"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показать"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "แสดง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Показати"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hiện"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示"
+          }
+        }
+      }
+    },
+    "globalSearch.title": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Search All Windows"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "البحث في كل النوافذ"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pretraži sve prozore"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søg i alle vinduer"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Alle Fenster durchsuchen"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar en todas las ventanas"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Rechercher dans toutes les fenêtres"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cerca in tutte le finestre"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "すべてのウインドウを検索"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ស្វែងរកក្នុងបង្អួចទាំងអស់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "모든 윈도우 검색"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Søk i alle vinduer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Szukaj we wszystkich oknach"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Buscar em todas as janelas"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Поиск во всех окнах"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ค้นหาในทุกหน้าต่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tüm pencerelerde ara"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Пошук у всіх вікнах"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tìm trong tất cả cửa sổ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜索所有窗口"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "搜尋所有視窗"
           }
         }
       }

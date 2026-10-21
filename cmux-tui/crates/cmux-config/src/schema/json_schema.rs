@@ -106,6 +106,15 @@ fn kind_schema(row: &Row) -> Value {
         Kind::ChoiceOrNumber(choices, range) => {
             json!({ "anyOf": [choice(choices), number(range)] })
         }
+        Kind::ChoiceOrUrl(choices, url_key) => {
+            let url = json!({
+                "type": "object",
+                "properties": { url_key.as_str(): { "type": "string", "pattern": "^[Hh][Tt][Tt][Pp][Ss]?://[^/?#@\\s]+/?$" } },
+                "required": [url_key],
+                "additionalProperties": false,
+            });
+            json!({ "anyOf": [choice(choices), url] })
+        }
         Kind::Number(range) => number(range),
         Kind::Color => json!({
             "type": "string",
