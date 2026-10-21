@@ -311,6 +311,15 @@ mod tests {
     }
 
     #[test]
+    fn a_home_at_the_root_trusts_nothing_by_organization() {
+        let d = scratch("roothome");
+        repo(&d.join("r"), &[("origin", "git@github.com:manaflow-ai/x.git")]);
+        let auto = rules_at(Path::new("/"), owners(&["manaflow-ai"]));
+        assert_eq!(auto.home, None);
+        assert_eq!(auto.reason(d.join("r").to_str().unwrap()), None);
+    }
+
+    #[test]
     fn a_dotfiles_repository_at_home_trusts_nothing_in_home() {
         let d = scratch("dotfiles");
         repo(&d, &[("origin", "git@github.com:teamleaderleo/dotfiles.git")]);
