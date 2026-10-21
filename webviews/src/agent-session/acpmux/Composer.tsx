@@ -68,6 +68,7 @@ import { usePromptHistory } from "./composer/promptHistory";
 import {
   appendAttachments,
   AttachmentStrip,
+  backspacedAttachment,
   attachmentErrorText,
   useAttachmentIntake,
 } from "./composer/attachmentIntake";
@@ -931,6 +932,12 @@ export function Composer({
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
     if (isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
+    const backspaced = shell ? undefined : backspacedAttachment(event, field.current?.atStart() ?? false, attachments);
+    if (backspaced) {
+      event.preventDefault();
+      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+      return;
+    }
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
     // it away for this chat (and still does whatever Esc does there).
