@@ -1,5 +1,5 @@
 //! Part of `Hub`; see `hub/mod.rs`. `_acpmux/queue_edit`: change a queued prompt before its
-//! turn (`update` its prompt, `move` it, or `send_now`), or `resume` the prompts a failed turn
+//! turn (`update` its prompt, `move` it, `send_now` or `interrupt`), or `resume` the prompts a failed turn
 //! holds (`queue.rs` `pause_queue`; any of the queue's prompts names it). Every change is a record in the log, so
 //! a new daemon rebuilds the edited queue (`queue.rs` `restore_queues`), and every client sees it.
 
@@ -23,8 +23,8 @@ fn stricter(a: Control, b: Control) -> Control {
 
 impl Hub {
     /// `_acpmux/queue_edit {sessionId, promptId, op, prompt?|text?, index?}`. Answers
-    /// `{sessionId, promptId, op, ok}`, and `send_now` also how it was sent (`sent`: `steer`,
-    /// `interrupt` or `next`). `ok` is false when the prompt no longer waits.
+    /// `{sessionId, promptId, op, ok}`, and `send_now` and `interrupt` also how it was sent
+    /// (`sent`: `steer`, `interrupt` or `next`). `ok` is false when the prompt no longer waits.
     pub async fn queue_edit(
         self: &Arc<Self>,
         session: &Arc<Session>,
@@ -68,9 +68,14 @@ impl Hub {
                 reply["sent"] = json!(sent);
                 json!(sent.is_some())
             }
+            "interrupt" => {
+                let sent = self.interrupt_for_queued(session, prompt_id).await;
+                reply["sent"] = json!(sent);
+                json!(sent.is_some())
+            }
             "resume" => json!(self.resume_queue(session)),
             _ => {
-                let e = "op must be update, move, send_now or resume";
+                let e = "op must be update, move, send_now, interrupt or resume";
                 return Err(RpcError::invalid_params(e));
             }
         };
@@ -190,5 +195,24 @@ impl Hub {
         }
         self.cancel_turn(session, &running).await;
         Ok(Some("interrupt"))
+    }
+
+    /// Stop & send: a waiting prompt goes next and the running turn stops, whether or not its
+    /// agent could take the prompt as a steer (`next` with no turn running). `None` when it no
+    /// longer waits.
+    async fn interrupt_for_queued(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        prompt_id: &str,
+    ) -> Option<&'static str> {
+        let running = session.turn().map(|t| t.turn_id);
+        if !self.put_next(session, prompt_id) {
+            return None;
+        }
+        let Some(running) = running else {
+            return Some("next");
+        };
+        self.cancel_turn(session, &running).await;
+        Some("interrupt")
     }
 }
