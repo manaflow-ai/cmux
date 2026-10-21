@@ -17226,7 +17226,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Open Site Settings for Blocked Downloads",
+      "title" : "Open Site Settings of Blocked Download",
       "title_key" : "action.browser.download.openBlockedSiteSettings",
       "title_table" : "ActionCatalog"
     },
@@ -20509,7 +20509,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Mark Tab Read\/Unread",
+      "title" : "Toggle Tab Unread",
       "title_key" : "action.toggleUnread",
       "title_table" : "ActionCatalog"
     },
@@ -20655,7 +20655,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Copy Notification Text",
+      "title" : "Copy Notification",
       "title_key" : "action.notificationCopy",
       "title_table" : "ActionCatalog"
     },
@@ -31454,8 +31454,7 @@
       "cli_name" : "action sidebar-density-compact",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground",
-        "workspaceRow"
+        "sidebarBackground"
       ],
       "default_aliases" : [
 
@@ -31483,8 +31482,7 @@
       "cli_name" : "action sidebar-density-comfortable",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground",
-        "workspaceRow"
+        "sidebarBackground"
       ],
       "default_aliases" : [
 
@@ -31512,8 +31510,7 @@
       "cli_name" : "action sidebar-density-expanded",
       "context_menu" : "offered",
       "context_menus" : [
-        "sidebarBackground",
-        "workspaceRow"
+        "sidebarBackground"
       ],
       "default_aliases" : [
 
@@ -33681,6 +33678,118 @@
       "title" : "Palette: Close Item's Object",
       "title_key" : "action.paletteKey.closeItem",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import list",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.list",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Import Suggestions",
+      "title_key" : "action.import.list",
+      "title_table" : "ImportActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import card",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.card",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Press an Import Card's Button",
+      "title_key" : "action.import.card",
+      "title_table" : "ImportActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import suggest",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.suggest",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "noObject",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Suggest Importing a Site's Cookies",
+      "title_key" : "action.import.suggest",
+      "title_table" : "ImportActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "import open",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "import.open",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.settings",
+        "order" : 112,
+        "title" : "Settings and Help",
+        "title_key" : "category.settings",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import from Other Apps…",
+      "title_key" : "action.import.open",
+      "title_table" : "ImportActions"
     }
   ],
   "context_menu_rules" : [
@@ -43203,48 +43312,6 @@
                   "id" : "sidebar.workspaceTabs.toggle",
                   "kind" : "action",
                   "order" : 20,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "sidebar.density.compact",
-                  "kind" : "action",
-                  "label" : "Compact Rows",
-                  "order" : 21,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "sidebar.density.comfortable",
-                  "kind" : "action",
-                  "label" : "Comfortable Rows",
-                  "order" : 22,
-                  "visible_when" : {
-                    "debug_only" : false,
-                    "feature" : null,
-                    "requires" : [
-
-                    ]
-                  }
-                },
-                {
-                  "enabled_when" : "can_perform",
-                  "id" : "sidebar.density.expanded",
-                  "kind" : "action",
-                  "label" : "Expanded Rows",
-                  "order" : 23,
                   "visible_when" : {
                     "debug_only" : false,
                     "feature" : null,
