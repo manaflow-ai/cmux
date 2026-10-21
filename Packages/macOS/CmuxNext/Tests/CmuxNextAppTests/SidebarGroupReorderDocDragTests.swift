@@ -101,7 +101,7 @@ import Testing
             return mid + 1 - card.maxY
         }
         Self.drop(list)
-        #expect(drops.targets == [SidebarDocTarget(section: Self.section, after: "g_g2")], "drops: \(drops.targets)")
+        #expect(drops.targets == [SidebarDocTarget(section: Self.section, before: "g_g3")], "drops: \(drops.targets)")
     }
 
     /// Short of that margin the tall group stays where it was.
@@ -115,7 +115,7 @@ import Testing
             return mid - 2 - card.maxY
         }
         Self.drop(list)
-        #expect(drops.targets.allSatisfy { $0 == SidebarDocTarget(section: Self.section, after: "w_top") }, "drops: \(drops.targets)")
+        #expect(drops.targets.allSatisfy { $0 == SidebarDocTarget(section: Self.section, before: "g_g2") }, "drops: \(drops.targets)")
     }
 
     /// A short group moves above a tall one only when its top passes the tall one's middle (minus the margin).
@@ -128,7 +128,7 @@ import Testing
         // First drag g3 up past g2 (short): now between g1 and g2, then on past g1's middle.
         try Self.drag(list, "g3") { card in mid - 1 - card.minY }
         Self.drop(list)
-        #expect(drops.targets == [SidebarDocTarget(section: Self.section, after: "w_top")], "drops: \(drops.targets)")
+        #expect(drops.targets == [SidebarDocTarget(section: Self.section, before: "g_g1")], "drops: \(drops.targets)")
     }
 
     /// Lawrence 2026-10-20: "I can't drag groups to become ordered first." With a section drawn above the machine

@@ -20,6 +20,20 @@ nonisolated struct SidebarGroupReorder: Sendable {
     var blocks: [ClosedRange<CGFloat>]
     /// How far the open gap pushes the blocks below it.
     var shift: CGFloat
+    /// What each block starts with, parallel to `blocks` (empty: every block
+    /// is `.other`), so a gap's probe lands in the section of the block it
+    /// belongs to.
+    var leads: [Lead] = []
+
+    /// What a block starts with.
+    enum Lead: Hashable, Sendable {
+        /// A group, loose workspace or listed item: a gap above it is a drop before it, in its section.
+        case item
+        /// An empty section's drop zone: a gap above it is a drop into that section.
+        case dropZone
+        /// A section or folder header, a band: a gap above it is a drop after the block before it.
+        case other
+    }
 
     /// The share of a neighbour's height an edge must pass its middle by.
     static let hysteresisFraction: CGFloat = 0.2
@@ -59,19 +73,42 @@ nonisolated struct SidebarGroupReorder: Sendable {
         blocks.count { $0.lowerBound < gapY - 0.5 }
     }
 
-    /// A point (base coordinates) where a drop resolves to the gap at `index`:
-    /// just above the end of the block before it (a drop after that block),
-    /// or at the top of the first block for index 0.
+    /// A point (base coordinates) where a drop resolves to the gap at `index`.
+    /// Above a group, loose workspace or item: just inside its top (a drop
+    /// before it, in its own section), so the first slot of a section under
+    /// a band or the Pinned section is reachable. Above an empty section's
+    /// drop zone: its middle (a drop into that section). Else just above the
+    /// end of the block before it (a drop after that block); the top of the
+    /// first block for index 0.
     func probeY(for index: Int) -> CGFloat? {
         guard !blocks.isEmpty else { return nil }
         if index <= 0 { return blocks[0].lowerBound + min(0.5, (blocks[0].upperBound - blocks[0].lowerBound) / 2) }
+        if index < blocks.count, index < leads.count {
+            let next = blocks[index]
+            switch leads[index] {
+            case .item: return next.lowerBound + min(0.5, (next.upperBound - next.lowerBound) / 2)
+            case .dropZone: return (next.lowerBound + next.upperBound) / 2
+            case .other: break
+            }
+        }
         let before = blocks[min(index, blocks.count) - 1]
         return before.upperBound - min(0.5, (before.upperBound - before.lowerBound) / 2)
     }
 
     /// The top-level blocks of `layout`, top to bottom.
     static func blocks(of rows: [SidebarRow]) -> [ClosedRange<CGFloat>] {
+        layout(of: rows).blocks
+    }
+
+    /// The reorder for `rows` (the list drawn without the gap): its blocks and what each starts with.
+    static func of(_ rows: [SidebarRow], shift: CGFloat = 0) -> SidebarGroupReorder {
+        let (blocks, leads) = layout(of: rows)
+        return SidebarGroupReorder(blocks: blocks, shift: shift, leads: leads)
+    }
+
+    private static func layout(of rows: [SidebarRow]) -> (blocks: [ClosedRange<CGFloat>], leads: [Lead]) {
         var blocks: [ClosedRange<CGFloat>] = []
+        var leads: [Lead] = []
         var open: (group: GroupID?, workspace: WorkspaceID?)? = nil
         for row in rows where row.height > 0 {
             let joins: Bool = switch row.key {
@@ -84,12 +121,17 @@ nonisolated struct SidebarGroupReorder: Sendable {
                 continue
             }
             blocks.append(row.y...row.maxY)
+            leads.append(switch row.key {
+            case .group, .workspace, .item: .item
+            case .emptySection: .dropZone
+            case .section, .tab, .folder, .block: .other
+            })
             open = switch row.key {
             case let .group(id): (id, nil)
             case let .workspace(id): (nil, id)
             default: nil
             }
         }
-        return blocks
+        return (blocks, leads)
     }
 }

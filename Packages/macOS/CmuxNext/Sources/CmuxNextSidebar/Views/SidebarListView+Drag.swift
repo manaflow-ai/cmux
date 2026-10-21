@@ -160,7 +160,7 @@ extension SidebarListViewComponents {
             drag.blockBases = blockBases()
             let base = SidebarLayout.make(sections: listSections, metrics: metrics, options: options(includeGap: false))
             drag.docGeometry = doc.geometry(base, width: bounds.width, acceptance: drag.docAcceptance, blocks: drag.blockBases)
-            if drag.groupHeadHeight != nil { drag.groupBlocks = SidebarGroupReorder.blocks(of: base.rows) }
+            if drag.groupHeadHeight != nil { drag.groupReorder = SidebarGroupReorder.of(base.rows) }
         }
         guard let (geometry, rows) = drag.docGeometry else { return }
         // The rest shape's centre under the pointer: it does not move when the card morphs (no hit oscillation at a block edge).
@@ -172,12 +172,12 @@ extension SidebarListViewComponents {
             : SidebarDragGeometry.baseY(displayY: displayY, gapY: displayed.gapY, gapHeight: displayed.gapShift)
         // A dragged group moves by its edges (u2455): its bottom past the middle of the block below moves it down,
         // its top past the middle of the block above moves it up (`SidebarGroupReorder`), for tall and short groups.
-        if drag.groupHeadHeight != nil, drag.blockTarget == nil, let gapY = displayed.gapY, !drag.groupBlocks.isEmpty {
-            var reorder = SidebarGroupReorder(blocks: drag.groupBlocks, shift: displayed.gapShift)
+        if drag.groupHeadHeight != nil, drag.blockTarget == nil, let gapY = displayed.gapY, var reorder = drag.groupReorder, !reorder.blocks.isEmpty {
+            reorder.shift = displayed.gapShift
             let current = reorder.index(ofGapAt: gapY)
             // The blocks below the gap as drawn: the gap plus the spacing between groups (6 pt more than `gapShift`).
             let shown = SidebarGroupReorder.blocks(of: displayed.rows.filter { !drag.hiddenKeys.contains($0.key) })
-            if current < min(shown.count, drag.groupBlocks.count) { reorder.shift = shown[current].lowerBound - drag.groupBlocks[current].lowerBound }
+            if current < min(shown.count, reorder.blocks.count) { reorder.shift = shown[current].lowerBound - reorder.blocks[current].lowerBound }
             let card = drag.lift.frame
             let index = reorder.index(top: card.minY, bottom: card.maxY, current: current)
             if let probe = reorder.probeY(for: index) { y = probe }
