@@ -50,7 +50,7 @@ import { newTabChipSnapshot } from "./newtab/chipDefaults";
 import { HarnessesScreen } from "./harnesses/HarnessesScreen";
 import { openHarnessesPage, registerHarnessesPage, useHarnessesPage } from "./harnesses/harnessesPage";
 import { injectedNewTabContext, useEarlyNewTabContext, useNewTabAdoption, useNewTabPlaces } from "./newtab/adoption";
-import { publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
+import { markMockPage, publishSessions, sharesChatList, useSharedSessions } from "./newtab/chatStore";
 import { heldPick, withDraftFolder } from "./newtab/draftFolder";
 import { rememberRecentFolders } from "./newtab/recentProject";
 import { publishWarmNewTab, shownNewTabSessions, useWarmNewTabSessions } from "./newtab/warmSnapshot";
@@ -498,6 +498,9 @@ const postScrollAnchor = (sessionId: string, anchor: ScrollAnchor | null) =>
   );
 /// A host that does not answer `chat.scrollAnchor.get` (the gallery, an older app) never holds up the chat.
 const SCROLL_ANCHOR_READ_MS = 250;
+/// The longest a chat the handshake named keeps the host's loading state up for acpmux's attach: the
+/// scroll anchor's read, then the client's open hold (direct.ts OPEN_HOLD_MS), with a frame to spare.
+const CHAT_DRAW_HOLD_MS = SCROLL_ANCHOR_READ_MS + 1_500 + 50;
 /// Where chat `sessionId` rested when it was last shown; undefined when nothing is kept.
 const fetchScrollAnchor = async (sessionId: string): Promise<(ScrollAnchor & { sessionId: string }) | undefined> => {
   const anchor = await Promise.race([
@@ -2852,6 +2855,9 @@ function AcpmuxPane() {
   // The host answered the handshake: the page shows what it is (a new chat's hero, a session).
   const [handshaken, setHandshaken] = useState(false);
   const handshakenRef = useRef(false);
+  /// The handshake named a chat acpmux still has to attach: the page draws it once the client's
+  /// first frame (its rows, title and modes) is in, or the open's hold has passed.
+  const [awaitsChat, setAwaitsChat] = useState(false);
   /// New Tab submits made before acpmux answered, run in order once it has (never dropped).
   const pendingSubmits = useRef<Array<() => void>>([]);
   const whenHandshaken = (run: () => void) => {
@@ -4168,8 +4174,17 @@ function AcpmuxPane() {
   // the same way).
   const paintReported = useRef(false);
   // A New Tab page is what it is from its first render: its frame draws before the handshake
-  // (cx-0rpl.10), and the host shows no loading mark over it.
-  const showsWhatItIs = handshaken || hostError !== undefined || newTab !== undefined;
+  // (cx-0rpl.10), and the host shows no loading mark over it. A chat the handshake named is what it
+  // is once acpmux attached it: before, the page drew an empty transcript with stand-in chips, and
+  // the host faded that in, then the rows, title and modes popped in (Leo 2026-10-20).
+  const chatDrawn = !awaitsChat || clientSnapshot.connection !== "connecting";
+  const showsWhatItIs = (handshaken && chatDrawn) || hostError !== undefined || newTab !== undefined;
+  useEffect(() => {
+    if (!handshaken || chatDrawn) return;
+    // A slow attach: the client draws what it has after the open's hold (direct.ts OPEN_HOLD_MS).
+    const timer = window.setTimeout(() => setAwaitsChat(false), CHAT_DRAW_HOLD_MS);
+    return () => window.clearTimeout(timer);
+  }, [handshaken, chatDrawn]);
   useEffect(() => {
     if (!showsWhatItIs || paintReported.current) return;
     paintReported.current = true;
@@ -4536,6 +4551,13 @@ function AcpmuxPane() {
         );
         setPastTurns(host.sessionId ? undefined : readPastTurns(host.pastTurns));
         setPastWaitsForTrust(host.adopt !== undefined && host.adopt !== null);
+        if (!reconnect)
+          setAwaitsChat(
+            Boolean(host.sessionId) &&
+              (host.transport === "mock" ||
+                host.transport === "acpmux-bridge" ||
+                (host.transport === "acpmux-websocket" && Boolean(host.endpoint && host.token))),
+          );
         setHandshaken(true);
         handshakenRef.current = true;
         // Submits made on the New Tab page before acpmux answered go now, in order.
@@ -4604,6 +4626,7 @@ function AcpmuxPane() {
         const mock = host.transport === "mock";
         // Links copy in this build's scheme; only the hostless mock page falls back to Release's.
         setLinkScheme(host.linkScheme, mock ? FALLBACK_LINK_SCHEME : undefined);
+        if (mock) markMockPage();
         if (mock)
           setCheckpointVariant(
             new URLSearchParams(window.location.search).get("checkpointVariant") === "expanded"
@@ -6095,6 +6118,7 @@ function AcpmuxPane() {
       <ImageViewerContext.Provider value={openImage}>
         <Composer
           snapshot={composerSnapshot}
+          headerCwd={snapshot.summary?.cwd ?? ""}
           sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
           switching={Boolean(switchView.intent)}
           chips={ComposerChips}

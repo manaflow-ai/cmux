@@ -86,6 +86,69 @@ await requireBrowserLane("agent-pane-wheel-pass-through.test.ts", async () => {
         expect(await wheelOver(page, ".acpmux-composer-box", 150)).toBeGreaterThan(50);
         await page.close();
       });
+
+      // Leo 2026-10-20: "me scrolling within the composer, when I reach the top or the bottom, I
+      // don't want that to shift." A long draft scrolls in its own box; the wheel that takes it to
+      // either end, and the wheel after that, moves neither the transcript nor the box.
+      test("the wheel over a long draft stops at its ends and moves nothing else", async () => {
+        current = browsers.get(name);
+        const page = await pane!.open();
+        const prompt = page.locator(".acpmux-md-field").first();
+        await prompt.click();
+        await page.keyboard.insertText(Array.from({ length: 40 }, (_, i) => `draft line ${i + 1}`).join("\n"));
+        await page.waitForTimeout(200);
+        const field = () =>
+          page.evaluate(() => {
+            const box = document.querySelector<HTMLElement>(".acpmux-md-field")!;
+            const rect = document.querySelector(".acpmux-composer-box")!.getBoundingClientRect();
+            return { top: box.scrollTop, end: box.scrollHeight - box.clientHeight, y: rect.y, height: rect.height };
+          });
+        const typed = await field();
+        expect(typed.end).toBeGreaterThan(100);
+        // The caret's whole line stays in view while typing.
+        const caret = await page.evaluate(() => {
+          const box = document.querySelector(".acpmux-md-field")!.getBoundingClientRect();
+          const line =
+            getSelection()!.getRangeAt(0).getClientRects()[0] ??
+            getSelection()!.focusNode!.parentElement!.getBoundingClientRect();
+          return { above: box.top - line.top, below: line.bottom - box.bottom };
+        });
+        expect(caret.above).toBeLessThanOrEqual(0);
+        expect(caret.below).toBeLessThanOrEqual(0);
+
+        expect(await wheelOver(page, ".acpmux-md-field", -2000)).toBe(0);
+        expect((await field()).top).toBe(0);
+        expect(await wheelOver(page, ".acpmux-md-field", -400)).toBe(0);
+        expect(await wheelOver(page, ".acpmux-md-field", 2000)).toBe(0);
+        const end = await field();
+        expect(end.end - end.top).toBeLessThan(2);
+        expect(await wheelOver(page, ".acpmux-md-field", 400)).toBe(0);
+        let after = await field();
+        expect(after.y).toBe(typed.y);
+        expect(after.height).toBe(typed.height);
+
+        // ↑ and ↓ past the draft's first and last lines move only the caret and the draft.
+        const transcript = await scrollTop(page);
+        for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowUp");
+        await page.waitForTimeout(200);
+        // The first line's text shows in full (the browser's own caret reveal may tuck the line
+        // box's leading under the edge on Linux, the glyphs stay in view).
+        const firstLine = await page.evaluate(() => {
+          const box = document.querySelector(".acpmux-md-field")!;
+          const text = document.createRange();
+          text.selectNodeContents(box.querySelector("p")!.firstChild!);
+          return text.getClientRects()[0]!.top - box.getBoundingClientRect().top;
+        });
+        expect(firstLine).toBeGreaterThanOrEqual(0);
+        for (let step = 0; step < 45; step++) await page.keyboard.press("ArrowDown");
+        await page.waitForTimeout(200);
+        after = await field();
+        expect(after.end - after.top).toBeLessThan(10);
+        expect(await scrollTop(page)).toBe(transcript);
+        expect(after.y).toBe(typed.y);
+        expect(after.height).toBe(typed.height);
+        await page.close();
+      });
     });
   }
 });
