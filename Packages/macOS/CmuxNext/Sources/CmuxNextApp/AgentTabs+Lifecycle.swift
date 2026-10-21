@@ -123,8 +123,8 @@ extension AgentTabStore {
     /// Mac's host never opens in a pane of another machine (`daemonIsLocal` false) either.
     static func hostRefusal(_ host: String?, localHost: String?, chiefHost: String?, daemonIsLocal: Bool) -> String? {
         guard let host, host != chiefHost else { return nil }
-        if host == localHost, daemonIsLocal { return nil }
-        return RefusalStrings.agentTabMachineMismatch
+        if host == localHost { return daemonIsLocal ? nil : RefusalStrings.agentTabMachineMismatch }
+        return RefusalStrings.agentTabRunsOnHost(host)
     }
 
     /// ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` in `pane`: the tab

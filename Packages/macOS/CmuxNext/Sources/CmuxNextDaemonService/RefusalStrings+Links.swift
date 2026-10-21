@@ -49,6 +49,12 @@ nonisolated extension RefusalStrings {
         text("handlers.refusal.agentTabMachineMismatch", "this chat runs on another machine: it cannot open in this tab")
     }
 
+    /// `app_agent_open` with another machine's host: the same session opens without the host (through
+    /// the peer) or from that machine's workspace (coord-deputy 2026-10-20).
+    public static func agentTabRunsOnHost(_ host: String) -> String {
+        format("handlers.refusal.agentTabRunsOnHost", "this session runs on %@: open it without a host, or from that machine's workspace", host)
+    }
+
     /// The store refused or failed a new agent chat tab; the tab shown at once goes away.
     public static var agentTabCreateFailed: String {
         text("handlers.refusal.agentTabCreateFailed", "the agent chat tab could not be created: see the app log")
