@@ -974,6 +974,8 @@ mod browser_engine_tests;
 #[cfg(test)]
 mod closed_content_tests;
 #[cfg(test)]
+mod frontend_browser_effect_tests;
+#[cfg(test)]
 mod partial_create_tests;
 #[cfg(test)]
 mod split_focus_tests;

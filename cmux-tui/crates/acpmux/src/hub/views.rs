@@ -299,12 +299,8 @@ impl Hub {
             steering: session.steering.load(Ordering::SeqCst),
             // A restricted chat (`hub/restricted.rs`): the pane says what it runs without.
             restricted: m.restricted.then_some(true),
-            // Ctrl-B moves its work (`processes.rs`); no while the configuration is
-            // being written, until the next summary.
-            backgrounds_work: self
-                .config
-                .try_read()
-                .is_ok_and(|cfg| super::processes::backgrounds_work(&cfg, &m.harness)),
+            // Ctrl-B moves its work: by the kind its harness started as (`processes.rs`).
+            backgrounds_work: session.backgrounds_work.load(Ordering::SeqCst),
             turn: turn.map(|t| TurnSummary {
                 started_at: t.started_at,
                 client: t.client,
