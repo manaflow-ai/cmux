@@ -11,3 +11,8 @@ for (const background of [null, "#1230", "#123e", "#12345600", "#12345680", "#12
     expect(editorStickyBackground(background, "#abcdefeb")).toBe("#abcdefeb");
   });
 }
+
+test("a sticky color the theme sets itself wins over an opaque editor background", () => {
+  expect(editorStickyBackground("#123456", "#abcdef", true)).toBe("#abcdef");
+  expect(editorStickyBackground(null, "#abcdef", true)).toBe("#abcdef");
+});

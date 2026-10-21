@@ -49,11 +49,11 @@ struct ChatColumnPlacementTests {
         ])))
         let generation = focus.beginIntent()
         var events: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], focus: focus, generation: generation, isDockCurrent: { true },
+        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { true }, seed: {},
                                                      prepare: {
             focus.expect(.tab("terminal"), generation: generation)
             events.append("focus-respawn")
-        }) { page, index in
+        }, isChosen: { _ in false }) { page, index in
             #expect(focus.state.pane == "strip")
             events.append("\(page):\(index)")
             return true
@@ -67,7 +67,7 @@ struct ChatColumnPlacementTests {
         let generation = focus.beginIntent()
         var current = true
         var moved: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], focus: focus, generation: generation, isDockCurrent: { current }, prepare: {}) { page, _ in
+        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { current }, seed: {}, prepare: {}, isChosen: { _ in false }) { page, _ in
             moved.append(page)
             current = false
             return true
@@ -80,8 +80,8 @@ struct ChatColumnPlacementTests {
         focus.closeFocus = { .previousNeighbor }
         let generation = focus.beginIntent()
         var events: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1"], focus: focus, generation: generation, isDockCurrent: { false },
-                                                     prepare: { events.append("focus") }) { page, _ in
+        await ChatColumnPlacement.followNewTabPages(["new-1"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { false }, seed: { events.append("seed") },
+                                                     prepare: { events.append("focus") }, isChosen: { _ in false }) { page, _ in
             events.append(page)
             return true
         }
@@ -93,15 +93,17 @@ struct ChatColumnPlacementTests {
         focus.closeFocus = { .previousNeighbor }
         let generation = focus.beginIntent()
         var moves: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2", "new-3"], focus: focus, generation: generation, isDockCurrent: { true }, prepare: {}) { page, index in
+        await ChatColumnPlacement.followNewTabPages(["new-1", "new-2", "new-3"], isCurrentIntent: { focus.currentState().generation == generation }, isDockCurrent: { true }, seed: {}, prepare: {}, isChosen: { _ in false }) { page, index in
             moves.append("\(page):\(index)")
             return page != "new-1"
         }
         #expect(moves == ["new-1:1", "new-2:1", "new-3:2"])
     }
 
+    /// A newer click or key keeps the focus the person chose, but the new dock still selects its
+    /// chat. A page the person selected meanwhile stays where they are working; another page moves.
     @MainActor @Test(arguments: [false, true])
-    func newerSelectionOrFocusPreventsDeferredPreparation(selectTab: Bool) async {
+    func newerSelectionOrFocusKeepsFocusAndAChosenPage(selectTab: Bool) async {
         let focus = FocusCoordinator()
         focus.closeFocus = { .previousNeighbor }
         focus.send(.topology(FocusTopology(workspace: "workspace", panes: [
@@ -114,15 +116,42 @@ struct ChatColumnPlacementTests {
         } else {
             focus.send(.focusPane("other", source: .keyboard))
         }
-        var prepared = false
-        var moves = 0
-        await ChatColumnPlacement.followNewTabPages(["page"], focus: focus, generation: generation,
-                                                     isDockCurrent: { true }, prepare: { prepared = true }) { _, _ in
-            moves += 1
+        var seeded = false, prepared = false
+        var moved: [String] = []
+        await ChatColumnPlacement.followNewTabPages(["page"], isCurrentIntent: { focus.currentState().generation == generation },
+                                                     isDockCurrent: { true }, seed: { seeded = true }, prepare: { prepared = true },
+                                                     isChosen: { focus.currentState().topology.pane("source")?.selected == $0 }) { page, _ in
+            moved.append(page)
             return true
         }
+        #expect(seeded)
         #expect(!prepared)
-        #expect(moves == 1)
+        #expect(moved == (selectTab ? [] : ["page"]))
+    }
+
+    /// Without a newer intent nothing counts as chosen: every page follows the chat, in order.
+    @MainActor @Test func pagesFollowInOrderWhenNothingNewerHappened() async {
+        let focus = FocusCoordinator()
+        focus.closeFocus = { .previousNeighbor }
+        let generation = focus.beginIntent()
+        var moved: [String] = []
+        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], isCurrentIntent: { focus.currentState().generation == generation },
+                                                     isDockCurrent: { true }, seed: {}, prepare: {}, isChosen: { _ in true }) { page, _ in
+            moved.append(page)
+            return true
+        }
+        #expect(moved == ["page-1", "page-2"])
+    }
+
+    @Test func newTabPagesFollowTheChatInTheirOriginalOrder() {
+        let tabs: [(id: String, kind: Tab)] = [("new-1", .newTab), ("chat", .chat), ("term", .terminal), ("new-2", .newTab)]
+        #expect(ChatColumnPlacement.newTabPages(in: tabs) { $0.kind == .newTab }.map(\.id) == ["new-1", "new-2"])
+    }
+
+    @Test func theDockTakesTheChatNotANewTabPageBeforeIt() {
+        let tabs: [(id: String, kind: Tab)] = [("new", .newTab), ("chat", .chat)]
+        let chat = ChatColumnPlacement.loneChat(in: tabs, isChat: { $0.kind == .chat }, isNewTabPage: { $0.kind == .newTab })
+        #expect(chat?.id == "chat")
     }
 
     @MainActor @Test func aSelectionDuringPageMovesIsNotRestoredAtTheEnd() async {
@@ -134,11 +163,11 @@ struct ChatColumnPlacementTests {
         ])))
         let generation = focus.beginIntent()
         var preparations = 0
-        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], focus: focus, generation: generation,
-                                                     isDockCurrent: { true }, prepare: {
+        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], isCurrentIntent: { focus.currentState().generation == generation },
+                                                     isDockCurrent: { true }, seed: {}, prepare: {
             preparations += 1
             focus.expect(.tab("terminal"), generation: generation)
-        }) { _, _ in
+        }, isChosen: { _ in false }) { _, _ in
             focus.send(.selectTab(pane: "dock", tab: "page", source: .mouse))
             return true
         }
@@ -160,8 +189,9 @@ struct ChatColumnPlacementTests {
         focus.closeFocus = { .previousNeighbor }
         let generation = focus.beginIntent()
         var moved: [String] = []
-        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], focus: focus, generation: generation,
-                                                     isDockCurrent: { ChatDockRules.isChatDock(dock, in: store) }, prepare: {}) { page, _ in
+        await ChatColumnPlacement.followNewTabPages(["page-1", "page-2"], isCurrentIntent: { focus.currentState().generation == generation },
+                                                     isDockCurrent: { ChatDockRules.isChatDock(dock, in: store) }, seed: {}, prepare: {},
+                                                     isChosen: { _ in false }) { page, _ in
             moved.append(page)
             store.apply(snapshot: DaemonTree(workspaces: []))
             return true

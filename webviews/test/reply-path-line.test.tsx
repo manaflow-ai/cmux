@@ -201,7 +201,9 @@ test("one click on a formatted path link label opens only its href", async () =>
 
 for (const value of ["console.log", "user.name", "JSON.parse", "os.path", "1.5", "package.json"]) {
   test(`dotted code stays code: ${value}`, () => {
-    expect(codeReplyPath(value)).toBeUndefined();
+    // At most a bare candidate, which the host must find before it is a chip.
+    const candidate = codeReplyPath(value);
+    expect(candidate === undefined || candidate.bare === true).toBe(true);
     const html = renderToStaticMarkup(<>{renderInline(`\`${value}\``)}</>);
     expect(html).toContain('<code class="cv-code">');
     expect(html).not.toContain("cv-chip");
@@ -239,4 +241,87 @@ for (const value of ["4.5:1", "example.com:8080", "localhost.local:3000", "examp
 test("a host-like extension inside a folder is still a file location", () => {
   expect(codeReplyPath("src/example.com:42")).toMatchObject({ path: "src/example.com", location: { line: 42 } });
   expect(textLinks("src/example.com:42")).toHaveLength(1);
+});
+
+test("a bare file name in code is a chip only when the host finds the file", async () => {
+  const { JSDOM } = await import("jsdom");
+  const { act } = await import("react");
+  const { createRoot } = await import("react-dom/client");
+  const { setChipHost } = await import("../src/agent-session/acpmux/chips/host");
+  const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const dom = new JSDOM("<!doctype html><div id=root></div>");
+  const scope = globalThis as Record<string, unknown>;
+  const globals = { window: dom.window, document: dom.window.document, IS_REACT_ACT_ENVIRONMENT: true };
+  const saved = Object.keys(globals).map((key) => [key, key in scope, scope[key]] as const);
+  Object.assign(scope, globals);
+  const container = dom.window.document.getElementById("root")!;
+  const root = createRoot(container);
+  const asked: string[] = [];
+  const opens: Record<string, unknown>[] = [];
+  resetLinkStore();
+  setChipHost(async (method, params) => {
+    if (method === "link.openPath") opens.push(params);
+    if (method !== "link.inspect") return undefined;
+    const paths = (params as { paths: string[] }).paths;
+    asked.push(...paths);
+    const places: Record<string, unknown> = {};
+    for (const path of paths) places[path] = { place: path === "next-sync.py" ? "root" : "missing", folder: false };
+    return { paths: places, sites: {}, policy: { outsideRoots: "confirm", remoteImages: "click" } };
+  });
+  try {
+    await act(async () => root.render(<>{renderInline("`next-sync.py` calls `console.log` at `1.5` speed")}</>));
+    await act(async () => {});
+    await act(async () => {});
+    expect(asked.sort()).toEqual(["console.log", "next-sync.py"]);
+    const chips = container.querySelectorAll<HTMLButtonElement>("button.cv-chip.is-path");
+    expect(chips).toHaveLength(1);
+    expect(chips[0]!.dataset.path).toBe("next-sync.py");
+    const code = Array.from(container.querySelectorAll("code.cv-code")).map((node) => node.textContent);
+    expect(code).toEqual(["console.log", "1.5"]);
+    expect(container.querySelector(".cv-chip-plain")).toBeNull();
+    await act(async () => chips[0]!.click());
+    expect(opens).toEqual([{ path: "next-sync.py" }]);
+  } finally {
+    await act(async () => root.unmount());
+    setChipHost(undefined);
+    resetLinkStore();
+    for (const [key, had, value] of saved) {
+      if (had) scope[key] = value;
+      else delete scope[key];
+    }
+    dom.window.close();
+  }
+});
+
+test("a code span path the host reports missing keeps its code styling", () => {
+  // No host answer yet for a bare name: code, never an unstyled span.
+  const html = renderToStaticMarkup(<>{renderInline("`test.py`")}</>);
+  expect(html).toContain('<code class="cv-code">test.py</code>');
+  expect(html).not.toContain("cv-chip");
+});
+
+for (const link of [
+  "/repo/Makefile:10",
+  "/repo/Makefile#L10",
+  "./Makefile:3",
+  "src/Makefile:3",
+  "docs/README:5",
+  ".github/workflows/ci.yml:5",
+  "~/notes.md:3",
+  "src/Makefile#L42",
+  "/x.ts:42",
+  "~/x.ts:42",
+]) {
+  test(`explicit link targets keep their line: ${link}`, () => {
+    const target = linkReplyPath(link);
+    expect(target?.location?.line).toBeGreaterThan(0);
+    expect(link.startsWith(target!.path)).toBe(true);
+  });
+}
+
+test("dot folders are paths in code and prose; secret dot folders stay denied", () => {
+  expect(codeReplyPath(".github/workflows/ci.yml")?.path).toBe(".github/workflows/ci.yml");
+  expect(textLinks("see .github/workflows/ci.yml:5 now")[0]?.path).toBe(".github/workflows/ci.yml");
+  expect(isDeniedPath(".ssh/id_rsa")).toBe(true);
+  expect(isDeniedPath(".aws/credentials")).toBe(true);
 });
