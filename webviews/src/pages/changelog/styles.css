@@ -277,7 +277,8 @@ html[data-cmux-page="changelog"] body {
 @container (min-width: 720px) {
   /* Text and picture stay together on the left, not split to the pane's two edges. */
   .cll .cl-group li.cl-has-media {
-    grid-template-columns: minmax(0, 68ch) minmax(280px, 520px);
+    /* The text keeps a readable measure first; the picture takes what is left, up to 480 px. */
+    grid-template-columns: minmax(36ch, 64ch) minmax(240px, 480px);
     justify-content: start;
     align-items: start;
   }
