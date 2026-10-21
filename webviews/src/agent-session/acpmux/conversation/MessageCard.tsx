@@ -1,11 +1,12 @@
 // A message to another agent (tell-coordinator, cmux send, a mailbox write, SendMessage) as a
-// card: sender to recipient and how it went, the message's first line, and the whole message
-// once opened.
+// card: sender to recipient, the message's first lines (the whole message once opened when it is
+// long), and one status line with its glyph: Sending…, Sent, or Delivered to <recipient> from the
+// send's receipt ("delivered to leoli-24 (id 9defc4d0ed87)"), whose id is never shown (#20456).
 import { useId, useLayoutEffect, useRef, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
 import type { AgentMessage } from "./agentMessages";
-import { ArrowRight, ChevronDown, ChevronRight, Envelope, Spinner } from "./icons";
+import { ArrowRight, Check, ChevronDown, ChevronRight, DoubleCheck, Envelope, Spinner } from "./icons";
 import { isFailed, isRunning } from "./toolGroups";
 
 export function MessageCard({ item, message }: { item: AcpmuxActivity; message: AgentMessage }) {
@@ -31,10 +32,25 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
     return () => observer.disconnect();
   }, [open, message.text]);
   const failed = isFailed(tool);
-  // What the send printed (a delivery receipt, or why it failed), under the opened message.
+  const running = isRunning(tool);
   const output = tool.output?.replace(/\n$/, "");
+  const receipt = output && /^delivered to (\S+?)(?: \(id [^)]*\))?\s*$/im.exec(output);
+  // What else the send printed: its output without the receipt line, which the status line says.
+  const rest =
+    receipt && !failed
+      ? (output.slice(0, receipt.index) + output.slice(receipt.index + receipt[0].length)).trim()
+      : output;
+  const delivery = failed ? "failed" : running ? "sending" : receipt ? "delivered" : "sent";
+  const status =
+    delivery === "failed"
+      ? t("tools.failed")
+      : delivery === "sending"
+        ? t("message.sending")
+        : delivery === "delivered"
+          ? t("message.delivered", { to: receipt![1]! })
+          : t("message.sent");
   return (
-    <div className={`cv-message${failed ? " is-failed" : ""}`}>
+    <div className={`cv-message${failed ? " is-failed" : ""}`} data-delivery={delivery}>
       <button
         type="button"
         className="cv-message__head"
@@ -46,12 +62,13 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
         onClick={() => setOpen((value) => !value)}
       >
         <span className="cv-message__route">
-          <span className="cv-tool__icon">{isRunning(tool) ? <Spinner size={16} /> : <Envelope />}</span>
+          <span className="cv-tool__icon">
+            <Envelope />
+          </span>
           <span className="cv-message__party">{from}</span>
           <ArrowRight size={12} className="cv-message__arrow" />
           <span className="cv-message__party is-to">{to}</span>
           <span className="cv-message__via">{t(`message.channel.${message.channel}`)}</span>
-          {failed && <span className="cv-tool__failed">{t("tools.failed")}</span>}
           <ChevronRight
             size={14}
             strokeWidth={1.2}
@@ -74,7 +91,18 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
           <ChevronDown size={12} className={`cv-rotor${open ? " is-flipped" : ""}`} />
         </button>
       )}
-      {open && output && <pre className="cv-tool-output">{output}</pre>}
+      <div className="cv-message__receipt">
+        {delivery === "sending" ? (
+          <Spinner size={12} />
+        ) : delivery === "delivered" ? (
+          <DoubleCheck size={12} />
+        ) : delivery === "sent" ? (
+          <Check size={12} />
+        ) : null}
+        <span className="cv-message__status">{status}</span>
+      </div>
+      {/* What else the send printed (a tool's own reply), and all of it when the send failed. */}
+      {open && rest && <pre className="cv-tool-output">{rest}</pre>}
     </div>
   );
 }

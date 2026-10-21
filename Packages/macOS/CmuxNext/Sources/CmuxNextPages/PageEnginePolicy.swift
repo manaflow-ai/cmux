@@ -52,7 +52,6 @@ nonisolated extension PageDescriptor {
     /// Why this page cannot run in Chromium yet, nil when it can (``PageEnginePolicy``).
     public var chromiumBlocker: PageWebKitReason? {
         if id == Self.agentPageID { return .agentChat }
-        if !dynamicPrefixes.isEmpty { return .runtimeResources }
         return nil
     }
 
