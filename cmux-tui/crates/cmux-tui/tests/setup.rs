@@ -117,7 +117,7 @@ fn shell_words(command: &str) -> Vec<String> {
 }
 
 #[test]
-fn an_agent_trusts_a_folder_reruns_it_and_undoes_it() {
+fn cmux_setup_trust_an_agent_runs_the_fix_reruns_it_and_undoes_it() {
     let world = World::new("trust");
     let folder = world.folder();
     let claude_json = world.home.join(".claude.json");
@@ -169,7 +169,7 @@ fn an_agent_trusts_a_folder_reruns_it_and_undoes_it() {
 }
 
 #[test]
-fn trust_goes_through_a_running_acpmux_daemon() {
+fn cmux_setup_trust_goes_through_a_running_acpmux_daemon() {
     let world = World::new("daemon");
     let folder = world.folder();
     let requests = Arc::new(Mutex::new(Vec::new()));
@@ -209,7 +209,7 @@ fn trust_goes_through_a_running_acpmux_daemon() {
 }
 
 #[test]
-fn list_names_every_task_and_bad_arguments_exit_2() {
+fn cmux_setup_list_names_every_task_and_bad_arguments_exit_2() {
     let world = World::new("list");
     let list = world.json(&["setup", "list"]);
     let tasks = list["tasks"].as_array().unwrap();
