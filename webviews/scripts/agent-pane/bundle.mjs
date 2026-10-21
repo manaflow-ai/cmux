@@ -59,6 +59,9 @@ const result = await build({
   minify: !cssInputsOnly,
   write: !cssInputsOnly,
   legalComments: "none",
+  // An imported PNG becomes a data URL: a page ships as one index.html and its CSP allows
+  // `img-src data:` only (the Settings page's Chief Pet mascots).
+  loader: { ".png": "dataurl" },
   alias: shikiAlias === "-" ? {} : { shiki: path.resolve(shikiAlias) },
   logLevel: "warning",
   ...(split
