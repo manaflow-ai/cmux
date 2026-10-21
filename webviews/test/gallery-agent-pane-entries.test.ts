@@ -53,7 +53,8 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
       // An update that needs sudo is neither a line nor the model chip's offer (Settings owns it).
       shows: async (page) => (await composerWithoutNotice(page)) && (await count(page, "[data-harness-offer]")) === 0,
     },
-    // Restart Chat and Try Again appear beside Not Now without moving it (layout shift 0).
+    // Restart Chat and the busy spinner come and go without moving Not Now or the words (layout
+    // shift 0); the failed update's Try Again keeps that order too.
     { entry: "harness-health-notice", variant: "restart-after-turn", play: "steps" },
     { entry: "harness-health-notice", variant: "update-failed", play: "steps" },
     { entry: "file-search", variant: "escape", play: "steps", shows: has(".acpmux-composer") },
