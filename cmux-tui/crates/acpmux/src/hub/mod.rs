@@ -500,7 +500,7 @@ impl Hub {
 
     /// Points adopt at other harness stores (tests use fixture stores).
     pub fn set_harness_homes(&self, homes: crate::adopt::HarnessHomes) {
-        *self.harness_homes.lock().unwrap() = homes;
+        *self.harness_homes.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = homes;
     }
 
     pub fn subscribe(&self) -> broadcast::Receiver<HubEvent> {
@@ -520,7 +520,7 @@ impl Hub {
             }
         };
         let mut sessions = self.sessions.lock().unwrap();
-        *self.waiting_at_load.lock().unwrap() = metas
+        *self.waiting_at_load.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = metas
             .iter()
             .filter(|m| m.status == SessionStatus::Waiting)
             .map(|m| m.id.clone())
@@ -587,7 +587,7 @@ impl Hub {
     /// ahead of it. Counts the tail past `lastSeq` once, so no sequence is
     /// handed out twice; only that tail is read.
     pub(super) fn catch_up(&self, session: &Session) {
-        let _order = session.append_lock.lock().unwrap();
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
     }
 
@@ -765,7 +765,7 @@ impl Hub {
         host_seq: Option<u64>,
         at: Option<u64>,
     ) -> (EventRecord, bool) {
-        let _order = session.append_lock.lock().unwrap();
+        let _order = session.append_lock.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
         self.catch_up_locked(session);
         let seq = session.seq.fetch_add(1, Ordering::SeqCst) + 1;
         let at = at.unwrap_or_else(now_ms);
