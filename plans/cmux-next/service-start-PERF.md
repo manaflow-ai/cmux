@@ -71,7 +71,7 @@ Other timings:
 | 5a | Guard: `cmux-tui/tests/terminal_host_recovery.rs` `restart_with_many_live_terminals_answers_within_budget` (60 live terminals, 250 ms to the first answer). | Measurement run |
 | 2 | Next: the launcher's ready deadline should follow the daemon's own progress, not a fixed 20 s. | Not started |
 | 3 | Next: say "ready" before the queue restore, and let agents spawn while launcher checks run. Each one waits only for its own launcher. | Not started |
-| 5b | Next: answer clients while terminal hosts adopt (each tab shows "adopting" until its host is back), and adopt hosts in parallel. | Not started |
+| 5b | Answer clients while terminal hosts adopt (each tab shows "adopting" until its host is back); hosts adopt on their own threads, at most 8 replaying at once. Guards: `answers_before_adoption.rs`, and the 60-terminal guard at 250 ms. | In review |
 
 The 100 ms target needs fixes 3 and 5b: the daemon must answer before it has restored every chat and every terminal. Fixes 1a and 1b remove the bulk of the work; they do not make the restore lazy.
 
