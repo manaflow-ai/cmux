@@ -57,7 +57,8 @@ struct SidebarPriorityRowActionsTests {
         let registry = ActionRegistry.standard()
         let requests: AsyncStream<String>
 
-        init(bind: Bool = true) {
+        /// `refuseArchive`: acpmux answers every archive with an error, as for a peer's chat it does not own.
+        init(bind: Bool = true, refuseArchive: Bool = false) {
             store.socketPath = SidebarPriorityRowActionsTests.socket
             store.live = true
             let since = SidebarPriorityRowActionsTests.since
@@ -67,7 +68,10 @@ struct SidebarPriorityRowActionsTests {
             }
             let (requests, sink) = AsyncStream.makeStream(of: String.self)
             self.requests = requests
-            chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store]) { socket, id in sink.yield("\(socket) \(id)") }
+            chats = AgentPriorityChats(marks: AgentPriorityMarks(defaults: nil), stores: [store]) { socket, id in
+                sink.yield("\(socket) \(id)")
+                if refuseArchive { throw ArchiveRefused() }
+            }
             guard bind else { return }
             let actions = SidebarPriorityRowActions(chats: chats)
             actions.bind(into: registry)
@@ -128,6 +132,8 @@ struct SidebarPriorityRowActionsTests {
         let rows = Self.leafItems(menu).compactMap { item in ActionRegistry.menuRun(of: item).map { (item, $0) } }
         #expect(rows.map(\.1.id) == Row.allCases.map(\.actionID))
         #expect(rows.allSatisfy { $0.1.target == ActionTargetRef(kind: .agentChat, id: "done") })
+        // The row names its chat, so its menu asks nothing: no row ends in "…" as the palette's do.
+        #expect(rows.allSatisfy { !$0.0.title.hasSuffix("…") }, "\(rows.map(\.0.title))")
         let pin = try #require(rows.first { $0.1.id == Row.togglePin.actionID }?.0)
         #expect(pin.title == fixture.chats.entry("done")?.pinTitle)
 
@@ -160,6 +166,40 @@ struct SidebarPriorityRowActionsTests {
         #expect(fixture.marks.pinned == ["done"])
     }
 
+    /// With the Priority view off its rows' actions do not run, Archive Chat on a row's chat
+    /// included, and each says why; Archive Chat on the focused chat (no row target) still runs.
+    @Test func withThePriorityViewOffNoRowActionRunsButTheFocusedChatStillArchives() throws {
+        let fixture = Fixture(bind: false)
+        let reason = "The Priority view is off."
+        let focused = Counter()
+        let actions = SidebarPriorityRowActions(chats: fixture.chats, unavailable: { reason })
+        actions.bind(into: fixture.registry)
+        actions.bindArchive(into: fixture.registry) { _ in focused.count += 1 }
+        for row in Row.allCases {
+            let invocation = ActionInvocation(target: SidebarPriorityRowActions.target("done"))
+            #expect(ActionTargetReasons.reason(for: row.actionID, invocation: invocation, in: fixture.registry) == reason, "\(row)")
+            fixture.registry.perform(row.actionID, invocation: invocation)
+        }
+        #expect(fixture.marks == AgentPriorityMarks.State(), "a row action ran with the view off")
+        fixture.registry.perform(Row.archive.actionID, invocation: ActionInvocation())
+        #expect(focused.count == 1, "the focused chat's Archive waits on the Priority view")
+    }
+
+    /// acpmux refusing an archive (a peer's chat it does not own, a dropped socket) shows the row
+    /// again: the chat hides at once, then comes back when the refusal arrives.
+    @Test func aRefusedArchiveShowsTheRowAgain() async throws {
+        let fixture = Fixture(refuseArchive: true)
+        #expect(fixture.chats.entry("done") != nil)
+        #expect(fixture.registry.perform(Row.archive.actionID, invocation: ActionInvocation(target: SidebarPriorityRowActions.target("done"))))
+        #expect(fixture.chats.entry("done") == nil, "the archived row stayed until acpmux answered")
+        var requests = fixture.requests.makeAsyncIterator()
+        #expect(await requests.next() == "\(Self.socket) done")
+        let deadline = ContinuousClock.now + .seconds(2)
+        while fixture.marks.archived.contains("done"), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(!fixture.marks.archived.contains("done"), "a refused archive kept the chat hidden here only")
+        #expect(fixture.chats.entry("done") != nil, "the refused chat's row did not come back")
+    }
+
     @Test func aChatNoAcpmuxListsChangesNothing() {
         let fixture = Fixture()
         for row in Row.allCases {
@@ -180,6 +220,12 @@ struct SidebarPriorityRowActionsTests {
     private static func leafItems(_ menu: NSMenu) -> [NSMenuItem] {
         menu.items.flatMap { item in item.submenu.map(leafItems) ?? (item.isSeparatorItem ? [] : [item]) }
     }
+}
+
+private struct ArchiveRefused: Error {}
+
+@MainActor private final class Counter {
+    var count = 0
 }
 
 @MainActor private final class NoTargets: PaletteTargetSource {
