@@ -1,5 +1,7 @@
 """Fix-forward merging requires actual builds and same-base test evidence."""
+import contextlib
 import copy
+import io
 from datetime import datetime, timedelta, timezone
 import json
 import importlib.util
@@ -73,6 +75,7 @@ jobs:
   cmux-scheme-compile:
     name: ${{ inputs.dev_daily == true && 'cmux NEXT DEV Release compile' || 'cmux app scheme compile (Debug)' }}
 """
+RATE_LIMITED = "<rate limited>"
 CI_WORKFLOW = """name: CI
 jobs:
   changes:
@@ -154,6 +157,20 @@ class MainFixEvidenceTests(unittest.TestCase):
 
     def validate(self):
         return module.validate("manaflow-ai/cmux", 42, self.gh)
+
+    def test_a_rate_limited_main_fix_exits_3(self):
+        class Limited:
+            def json(self, route, *, paginate=False):
+                raise module.RateLimited("GitHub rate-limited `gh api`; core 0 of 5000 left")
+        original = module.GitHub
+        module.GitHub = Limited
+        try:
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                status = module.main(["manaflow-ai/cmux#42", "--check-only"])
+        finally:
+            module.GitHub = original
+        self.assertEqual(status, 3)
+        self.assertIn("rate-limited:", err.getvalue())
 
     def test_green_requires_three_actual_builds(self):
         evidence = self.validate()
@@ -362,7 +379,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -398,9 +415,14 @@ class InstalledHelperRegression(unittest.TestCase):
         if base_workflow is None:
             base_workflow = cmux_next_workflow
         base_workflow_route = "printf '%s' " + shlex.quote(base_workflow) + "; exit 0" if base_workflow else "exit 1"
+        if base_workflow == RATE_LIMITED:
+            base_workflow_route = "echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; exit 1"
         protected_route = "printf '%s' " + shlex.quote(protected_paths) + "; exit 0" if protected_paths is not None else "exit 1"
+        rate_limit_route = ("if [ \"$1 $2\" = 'api rate_limit' ]; then printf '%s\\n' "
+                            + shlex.quote(json.dumps({"resources": rate_limit})) + "; exit 0; fi\n") if rate_limit else ""
         gh.write_text(
             "#!/bin/sh\n"
+            + rate_limit_route +
             "if [ \"$1 $2\" = 'pr view' ] && printf '%s' \"$*\" | grep -q statusCheckRollup; then "
             "printf '%s\\n' " + rollup_payload + "; exit 0; fi\n"
             "if [ \"$1 $2\" = 'pr view' ] && [ -e \"$MERGE_MARKER\" ]; then "
@@ -426,7 +448,9 @@ class InstalledHelperRegression(unittest.TestCase):
             "printf '%s' " + shlex.quote(CI_WORKFLOW) + "; exit 0; fi\n"
             "if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'contents/.github/workflows/ci-web.yml?ref=" + HEAD + "'; then "
             "printf '%s' " + shlex.quote(CI_WEB_WORKFLOW) + "; exit 0; fi\n"
-            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then exit 1; fi\n"
+            + ("if [ \"$1\" = api ] && printf '%s' \"$*\" | grep -q 'pulls/42/files.*filename'; then "
+               + ("echo 'gh: API rate limit exceeded for user ID 1. (HTTP 403)' >&2; " if files_rest_fails == "quota" else "")
+               + "exit 1; fi\n"
                "if [ \"$1 $2\" = 'api graphql' ] && printf '%s' \"$*\" | grep -q 'files(first'; then printf '%s\\n' "
                + shlex.quote(json.dumps({"data": {"repository": {"pullRequest": {"files": {"nodes": [{"path": f} for f in changed_files], "pageInfo": {"hasNextPage": False}}}}}}))
                + "; exit 0; fi\n" if files_rest_fails else "") +
@@ -672,6 +696,73 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertIn("stopped by SIGTERM (check the PR)", summary[0])
             self.assertIn("still waiting for the gate's lanes when stopped", summary[0])
             self.assertNotIn("nothing reported", summary[0])
+
+    def test_a_wait_that_runs_out_names_the_queued_lane_in_the_summary(self):
+        """2026-10-20: #22200's --wait ran out with the fast tier still QUEUED, and the summary
+        read `fast gate: nothing reported; waited 0m00s, 898s in all`."""
+        queued = tuple(("cmux-next fast tier", "queued", "") if name == "cmux-next fast tier" else (name, status, c)
+                       for name, status, c in self.FAST_GREEN)
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=queued,
+                                     extra_args=("--wait", "0"))
+            self.assertNotEqual(result.returncode, 0, result.stderr)
+            self.assertFalse(marker.exists())
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("--wait ran out with cmux-next fast tier (queued) not done", summary[0])
+            self.assertNotIn("nothing reported", summary[0])
+
+    RATE_SPENT = {"core": {"limit": 5000, "remaining": 0, "reset": 4102444800},
+                  "graphql": {"limit": 5000, "remaining": 4800, "reset": 4102444800}}
+
+    def test_a_spent_rest_quota_refuses_at_once_with_the_reset_time(self):
+        """2026-10-20: GraphQL was rate-limited, the REST fallback was too, and gh-merge-green
+        refused only about 30 minutes later, with no reset time."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     rate_limit=self.RATE_SPENT)
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited:", result.stderr)
+            self.assertIn("core 0 of 5000 left, resets 00:00:00Z", result.stderr)
+            summary = [line for line in result.stderr.splitlines() if line.startswith("gh-merge-green:")]
+            self.assertEqual(len(summary), 1, result.stderr)
+            self.assertIn("refused (GitHub rate limit)", summary[0])
+
+    def test_a_rate_limited_paths_filter_read_refuses_before_the_wait(self):
+        """Review on #22443: a rate-limited read of the base's paths filter counted as covered,
+        and the fast gate then waited out --wait for routing that never came."""
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=("docs/README.md",), rollup=(),
+                                     base_workflow=RATE_LIMITED, extra_args=("--wait", "600"))
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited: GitHub rate-limited gh api", result.stderr)
+
+    def test_a_red_after_a_recovered_rate_limited_read_is_still_a_red(self):
+        """Review on #22443: the REST file list was rate-limited and its GraphQL fallback answered;
+        a genuine red after it is an ordinary refusal (exit 1), not a rate limit."""
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     files_rest_fails="quota", excuse=(1, "not excused: the head's own red"))
+            self.assertEqual(result.returncode, 1, result.stderr)
+            self.assertIn("used GraphQL fallback", result.stderr)
+            self.assertNotIn("rate-limited:", result.stderr)
+
+    def test_a_rate_limited_base_comparison_refuses_as_rate_limited(self):
+        rollup = [c for c in self.FAST_GREEN if c[0] != "cmux-next fast tier"] + [("cmux-next fast tier", "completed", "failure")]
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=rollup,
+                                     excuse=(3, "rate-limited: core 0 of 5000 left"))
+            self.assertEqual(result.returncode, 75, result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("rate-limited:", result.stderr)
 
     def test_the_fast_gate_refuses_a_red_fast_lane_or_a_red_gating_check(self):
         for red in (("cmux-next fast tier", "completed", "failure"),
@@ -2234,6 +2325,7 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         merge_quota=True,
         fork=False,
         rest_merge_error=False,
+        rest_quota=False,
     ):
         helper = ROOT / "scripts" / "gh-merge-green"
         head_repo = "fork/repo" if fork else "example/repo"
@@ -2275,6 +2367,10 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
                       done
                       case "$path" in
                         repos/example/repo/pulls/123)
+                          if [ "{int(rest_quota)}" = 1 ]; then
+                            echo "gh: API rate limit exceeded for user ID 1. (HTTP 403)" >&2
+                            exit 1
+                          fi
                           cat <<'JSON'
                     {{"number":123,"state":"open","head":{{"sha":"{HEAD}","repo":{{"full_name":"{head_repo}"}}}},"base":{{"ref":"main","repo":{{"full_name":"example/repo"}}}},"labels":[]}}
                     JSON
@@ -2358,6 +2454,12 @@ class GhMergeGreenRestFallbackTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("rest merge failed", result.stderr.lower())
         self.assertTrue(any("pulls/123/merge" in call for call in calls))
+
+    def test_quota_error_on_graphql_and_rest_refuses_as_rate_limited(self):
+        result, calls = self.run_rest_fixture(merge_args=("--squash",), rest_quota=True)
+        self.assertEqual(result.returncode, 75, result.stderr)
+        self.assertIn("rate-limited:", result.stderr)
+        self.assertFalse(any("pulls/123/merge" in call for call in calls))
 
     def test_rest_fork_metadata_accepts_explicit_exact_head_trust(self):
         result, calls = self.run_rest_fixture(

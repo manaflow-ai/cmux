@@ -77,7 +77,7 @@ class InstallGitHooksTests(unittest.TestCase):
         installed = self.common_dir() / "cmux-git-hooks"
         self.assertEqual(Path(self.local_hooks_path()).resolve(), installed.resolve())
         self.assertNotEqual(installed.resolve(), (self.repo / "scripts/git-hooks").resolve())
-        for name in ("pre-commit", "post-merge", "check-git-remotes.sh"):
+        for name in ("pre-commit", "post-merge", "prepare-commit-msg", "check-git-remotes.sh"):
             self.assertTrue((installed / name).is_file(), name)
             self.assertTrue(os.access(installed / name, os.X_OK), name)
         for name in (
@@ -380,6 +380,40 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn("cmux-git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
         self.assertNotIn("core.hooksPath scripts/git-hooks", result.stderr)
         self.assert_merge_driver_installed()
+
+    def commit_message_with_global_hook(self, global_hook):
+        global_hooks = self.root / "global-hooks"
+        global_hooks.mkdir(exist_ok=True)
+        hook = global_hooks / "prepare-commit-msg"
+        hook.write_text(global_hook)
+        hook.chmod(0o755)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.git("config", "--global", "core.hooksPath", str(global_hooks))
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        (self.repo / "file").write_text("x")
+        self.git("add", "file")
+        commit = self.git("commit", "-q", "-m", "change", check=False)
+        self.assertEqual(commit.returncode, 0, commit.stderr)
+        return self.git("log", "-1", "--format=%B").stdout
+
+    def test_trusted_hooks_run_the_global_prepare_commit_msg(self):
+        message = self.commit_message_with_global_hook(
+            '#!/bin/sh\necho "Agent-Session: test" >> "$1"\n')
+        self.assertEqual(Path(self.local_hooks_path()).resolve(), (self.common_dir() / "cmux-git-hooks").resolve())
+        self.assertIn("Agent-Session: test", message)
+
+    def test_a_failing_global_prepare_commit_msg_never_blocks_a_commit(self):
+        message = self.commit_message_with_global_hook("#!/bin/sh\nexit 1\n")
+        self.assertEqual(message.strip(), "change")
+
+    def test_a_global_hook_that_runs_the_clones_hooks_does_not_loop(self):
+        message = self.commit_message_with_global_hook(
+            '#!/bin/sh\necho "Global: once" >> "$1"\n'
+            'h="$(git rev-parse --git-common-dir)/cmux-git-hooks/prepare-commit-msg"\n'
+            '"$h" "$@"\n')
+        self.assertEqual(message.count("Global: once"), 1)
 
     def default_hooks_dir(self):
         hooks = Path(self.git("rev-parse", "--git-path", "hooks").stdout.strip())

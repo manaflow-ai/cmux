@@ -1,5 +1,5 @@
 import { getStackServerApp } from "../../app/lib/stack";
-import { isRunCloudOperationPending, parseRunCloudResponse, RunCloudOperationPending } from "./cloudClientContract";
+import { isRunCloudOperationPending, parseRunCloudResponse, RunCloudOperationPending, RunCloudHttpError } from "./cloudClientContract";
 
 export { isRunCloudOperationPending, RunCloudOperationPending } from "./cloudClientContract";
 
@@ -63,7 +63,7 @@ export async function runCloudClient(userId: string, ownerTeamId: string): Promi
     const response = await fetch(new URL(path, origin), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: "error", signal: AbortSignal.timeout(950_000) });
     const payload = parseRunCloudResponse({ method, ok: response.ok, status: response.status, text: await response.text() });
     if (!response.ok && isRunCloudOperationPending(payload)) throw new RunCloudOperationPending();
-    if (!response.ok && !(method === "DELETE" && response.status === 404)) throw new Error(`Cloud ${method} operation failed (${response.status})`);
+    if (!response.ok && !(method === "DELETE" && response.status === 404)) throw new RunCloudHttpError(method, response.status, payload);
     if (method === "DELETE" && response.status === 404) return {};
     return payload;
   };
