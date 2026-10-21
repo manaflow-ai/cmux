@@ -3318,6 +3318,19 @@ button.cv-received__name:focus-visible {
   outline-offset: 1px;
 }
 
+/* ---------- A policy the chat's harness cannot keep (CompactionNote.tsx) ---------- */
+/* Its sentence wraps: the reason is the point of the note. */
+.cv-policy-unenforced {
+  align-items: flex-start;
+  padding-top: 3px;
+}
+.cv-policy-unenforced .cv-tool__icon {
+  margin-top: 2px;
+}
+.cv-policy-unenforced__text {
+  white-space: normal;
+}
+
 /* ---------- A paused agent pair (AgentPairNote.tsx) ---------- */
 /* Its sentence wraps; the held count and Resume sit under it, indented to the text. */
 .cv-agent-pair[data-state="paused"] {
