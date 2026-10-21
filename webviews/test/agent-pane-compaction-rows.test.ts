@@ -432,3 +432,25 @@ test("a compaction an older page leaves running long before the newer page's sto
     [302, "running"],
   ]);
 });
+
+// Review of #22791: a compaction a forced Stop noted as failed on the older page ended on the newer one.
+test("a compaction an older page noted as failed after a forced Stop is the newer page's row of it", async () => {
+  const steps: Step[] = [
+    ["mux", "user_message", { text: "go on" }],
+    ["mux", "turn_started", {}],
+    ["in", "compaction", update({ sessionUpdate: "compaction", state: "running" })],
+    ["mux", "turn_result", { status: "cancelled", cancelForced: true }],
+    ["mux", "user_message", { text: "next" }],
+    ["mux", "turn_started", {}],
+    [
+      "in",
+      "compaction",
+      update({ sessionUpdate: "compaction", state: "completed", preTokens: 58163, postTokens: 20129 }),
+    ],
+  ];
+  const compactions = (rows: AcpmuxRow[]) =>
+    rows.filter((row) => row.kind === "compaction").map((row) => row.compaction?.state);
+  const { client, rows } = await connect(fakeDaemon(record(steps), 3));
+  await client.loadOlder();
+  expect(compactions(rows())).toEqual(["completed"]);
+});
