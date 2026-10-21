@@ -90,9 +90,86 @@ enum SessionSnapshotImportTrust {
         _ snapshot: AppSessionSnapshot,
         source: ControlSessionImportSource
     ) -> (snapshot: AppSessionSnapshot, report: SessionSnapshotImportTrustReport) {
-        source.isTrusted
-            ? (snapshot, SessionSnapshotImportTrustReport())
-            : sanitizingUntrustedImport(snapshot)
+        var report = SessionSnapshotImportTrustReport()
+        let bounded = boundedSnapshotStructure(snapshot, report: &report)
+        guard !source.isTrusted else {
+            return (bounded, report)
+        }
+        let (sanitized, importReport) = sanitizingUntrustedImport(bounded)
+        report.droppedWindowCount += importReport.droppedWindowCount
+        report.droppedWorkspaceCount += importReport.droppedWorkspaceCount
+        report.droppedPanelCount += importReport.droppedPanelCount
+        report.heldBackResumeCount += importReport.heldBackResumeCount
+        report.droppedRemoteWorkspaceCount += importReport.droppedRemoteWorkspaceCount
+        report.sanitizedBrowserPanelCount += importReport.sanitizedBrowserPanelCount
+        report.sanitizedScrollbackCount += importReport.sanitizedScrollbackCount
+        report.truncatedScrollbackCount += importReport.truncatedScrollbackCount
+        report.droppedDraftAttachmentCount += importReport.droppedDraftAttachmentCount
+        return (sanitized, report)
+    }
+
+    /// Bounds the object graph for every restore source, including the
+    /// trusted channel used by the app's own snapshot. Trust controls which
+    /// commands may run; it must never disable resource limits.
+    private static func boundedSnapshotStructure(
+        _ snapshot: AppSessionSnapshot,
+        report: inout SessionSnapshotImportTrustReport
+    ) -> AppSessionSnapshot {
+        var bounded = snapshot
+        var remainingPanelBudget = SessionPersistencePolicy.maxPanelsPerSnapshot
+        let keptWindowCount = min(bounded.windows.count, SessionPersistencePolicy.maxWindowsPerSnapshot)
+        report.droppedWindowCount += bounded.windows.count - keptWindowCount
+        bounded.windows = Array(bounded.windows.prefix(keptWindowCount))
+        for windowIndex in bounded.windows.indices {
+            var window = bounded.windows[windowIndex]
+            let originalWorkspaceCount = window.tabManager.workspaces.count
+            window.tabManager.workspaces = Array(
+                window.tabManager.workspaces.prefix(SessionPersistencePolicy.maxWorkspacesPerWindow)
+            )
+            report.droppedWorkspaceCount += originalWorkspaceCount - window.tabManager.workspaces.count
+            for workspaceIndex in window.tabManager.workspaces.indices {
+                var workspace = window.tabManager.workspaces[workspaceIndex]
+                workspace.panels = boundedPanels(
+                    workspace.panels,
+                    remainingBudget: &remainingPanelBudget,
+                    report: &report
+                )
+                if var dock = workspace.dock {
+                    dock.panels = boundedPanels(
+                        dock.panels,
+                        remainingBudget: &remainingPanelBudget,
+                        report: &report
+                    )
+                    workspace.dock = dock
+                }
+                window.tabManager.workspaces[workspaceIndex] = workspace
+            }
+            if var dock = window.dock {
+                dock.panels = boundedPanels(
+                    dock.panels,
+                    remainingBudget: &remainingPanelBudget,
+                    report: &report
+                )
+                window.dock = dock
+            }
+            bounded.windows[windowIndex] = window
+        }
+        return bounded
+    }
+
+    private static func boundedPanels(
+        _ panels: [SessionPanelSnapshot],
+        remainingBudget: inout Int,
+        report: inout SessionSnapshotImportTrustReport
+    ) -> [SessionPanelSnapshot] {
+        // Preserve the existing report contract: per-workspace caps are a
+        // local safety limit, while `droppedPanelCount` reports the global
+        // fan-out budget that discarded already-eligible panels.
+        let locallyEligible = Array(panels.prefix(SessionPersistencePolicy.maxPanelsPerWorkspace))
+        let keptCount = min(locallyEligible.count, remainingBudget)
+        report.droppedPanelCount += locallyEligible.count - keptCount
+        remainingBudget -= keptCount
+        return Array(locallyEligible.prefix(keptCount))
     }
 
     static func sanitizingUntrustedImport(
