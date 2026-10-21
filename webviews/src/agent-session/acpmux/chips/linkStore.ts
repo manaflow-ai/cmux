@@ -81,6 +81,8 @@ function ask(path?: string, url?: string) {
     paths.clear();
     asking.clear();
     sites.clear();
+    // Hooks that read a forgotten key re-render and ask for it again.
+    changed();
   }
   if (path !== undefined && !paths.has(path)) {
     paths.set(path, null);
