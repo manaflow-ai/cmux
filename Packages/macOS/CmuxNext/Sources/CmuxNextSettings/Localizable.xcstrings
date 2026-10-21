@@ -925,6 +925,268 @@
         }
       }
     },
+    "settings.sessions.allowFullAccess": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Allow Full-Access Modes"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "السماح بأوضاع الوصول الكامل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dozvoli načine punog pristupa"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillad tilstande med fuld adgang"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vollzugriffsmodi erlauben"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acceso total"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Autoriser les modes d’accès complet"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consenti le modalità con accesso completo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "フルアクセスモードを許可"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "អនុញ្ញាតរបៀបចូលប្រើពេញលេញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "전체 접근 모드 허용"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tillat moduser med full tilgang"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zezwalaj na tryby pełnego dostępu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Permitir modos de acesso total"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Разрешить режимы полного доступа"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "อนุญาตโหมดสิทธิ์เต็ม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tam erişim modlarına izin ver"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дозволити режими повного доступу"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cho phép chế độ toàn quyền"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允许完全访问模式"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "允許完整存取模式"
+          }
+        }
+      }
+    },
+    "settings.sessions.allowFullAccess.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Off, cmux won't switch an agent into a mode that skips approvals."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عند الإيقاف، لن يحوّل cmux أي وكيل إلى وضع يتخطى الموافقات."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kada je isključeno, cmux neće prebaciti agenta u način koji preskače odobrenja."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er slået fra, skifter cmux ikke en agent til en tilstand, der springer godkendelser over."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ausgeschaltet versetzt cmux keinen Agenten in einen Modus, der Freigaben überspringt."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Si está desactivado, cmux no cambiará un agente a un modo que omite las aprobaciones."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Désactivé, cmux ne fait passer aucun agent dans un mode qui ignore les approbations."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Se disattivato, cmux non passa un agente a una modalità che salta le approvazioni."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "オフにすると、cmux は承認をスキップするモードにエージェントを切り替えません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ពេលបិទ cmux នឹងមិនប្ដូរភ្នាក់ងារទៅរបៀបដែលរំលងការអនុម័តទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "끄면 cmux는 승인을 건너뛰는 모드로 에이전트를 전환하지 않습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Når den er av, bytter ikke cmux en agent til en modus som hopper over godkjenninger."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Po wyłączeniu cmux nie przełączy agenta w tryb pomijający zatwierdzenia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Desativado, o cmux não muda um agente para um modo que pula aprovações."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Если выключено, cmux не переключит агента в режим без подтверждений."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เมื่อปิด cmux จะไม่สลับเอเจนต์ไปยังโหมดที่ข้ามการอนุมัติ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kapalıyken cmux bir ajanı onayları atlayan bir moda geçirmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Якщо вимкнено, cmux не перемкне агента в режим без підтверджень."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Khi tắt, cmux sẽ không chuyển tác tử sang chế độ bỏ qua phê duyệt."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "关闭后，cmux 不会将智能体切换到跳过审批的模式。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "關閉後，cmux 不會將代理切換到略過核准的模式。"
+          }
+        }
+      }
+    },
     "settings.sidebar.nowPlaying.enabled": {
       "extractionState": "manual",
       "localizations": {
@@ -131176,127 +131438,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Where a link or file you open from a terminal, an agent chat, Home or a page appears. Split Right uses the pane on the right, or makes one."
+            "value": "Where a link or file you Command-click in a terminal or a browser page appears. Split Right uses the pane on the right, or makes one. What you open from an agent chat, Home or another page opens as a tab in its own pane."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "المكان الذي يظهر فيه رابط أو ملف تفتحه من طرفية أو محادثة وكيل أو الصفحة الرئيسية أو صفحة. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة."
+            "value": "المكان الذي يظهر فيه رابط أو ملف تنقر عليه مع Command في طرفية أو صفحة متصفح. يستخدم «تقسيم إلى اليمين» اللوحة الموجودة على اليمين، أو ينشئ واحدة. ما تفتحه من محادثة وكيل أو الصفحة الرئيسية أو صفحة أخرى يُفتح كعلامة تبويب في لوحته."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdje se pojavljuje link ili fajl koji otvorite iz terminala, chata s agentom, Početne ili stranice. Podijeli desno koristi okno s desne strane ili ga pravi."
+            "value": "Gdje se pojavljuje link ili fajl na koji kliknete uz Command u terminalu ili na stranici preglednika. Podijeli desno koristi okno s desne strane ili ga pravi. Ono što otvorite iz chata s agentom, Početne ili druge stranice otvara se kao kartica u istom oknu."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor et link eller en fil, du åbner fra en terminal, en agentchat, Hjem eller en side, vises. Opdel til højre bruger ruden til højre eller opretter en."
+            "value": "Hvor et link eller en fil, du Kommando-klikker på i en terminal eller en browserside, vises. Opdel til højre bruger ruden til højre eller opretter en. Det, du åbner fra en agentchat, Hjem eller en anden side, åbner som en fane i samme rude."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Wo ein Link oder eine Datei erscheint, die du aus einem Terminal, einem Agent-Chat, Home oder einer Seite öffnest. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an."
+            "value": "Wo ein Link oder eine Datei erscheint, die du in einem Terminal oder auf einer Browserseite mit gedrückter Befehlstaste anklickst. „Rechts teilen“ nutzt den Bereich rechts oder legt einen an. Was du aus einem Agent-Chat, Home oder einer anderen Seite öffnest, öffnet sich als Tab im selben Bereich."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dónde aparece un enlace o archivo que abres desde una terminal, un chat de agente, Inicio o una página. Dividir a la derecha usa el panel de la derecha o crea uno."
+            "value": "Dónde aparece un enlace o archivo en el que haces clic con Comando en una terminal o una página del navegador. Dividir a la derecha usa el panel de la derecha o crea uno. Lo que abres desde un chat de agente, Inicio u otra página se abre como pestaña en su propio panel."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Où s’affiche un lien ou un fichier que vous ouvrez depuis un terminal, une discussion d’agent, l’Accueil ou une page. Diviser à droite utilise le panneau de droite ou en crée un."
+            "value": "Où s’affiche un lien ou un fichier sur lequel vous cliquez avec Commande dans un terminal ou une page du navigateur. Diviser à droite utilise le panneau de droite ou en crée un. Ce que vous ouvrez depuis une discussion d’agent, l’Accueil ou une autre page s’ouvre dans un onglet de son propre panneau."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Dove appare un link o un file che apri da un terminale, una chat con un agente, Home o una pagina. Dividi a destra usa il riquadro a destra o ne crea uno."
+            "value": "Dove appare un link o un file su cui fai clic con Comando in un terminale o in una pagina del browser. Dividi a destra usa il riquadro a destra o ne crea uno. Ciò che apri da una chat con un agente, Home o un’altra pagina si apre come scheda nel suo riquadro."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "ターミナル、エージェントチャット、ホーム、ページから開いたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。"
+            "value": "ターミナルやブラウザのページで Command キーを押しながらクリックしたリンクやファイルを表示する場所です。「右に分割」は右側のペインを使い、なければ作成します。エージェントチャット、ホーム、その他のページから開いたものは、そのペインのタブとして開きます。"
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកបើកពីស្ថានីយ ការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម ឬទំព័រមួយ បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។"
+            "value": "កន្លែងដែលតំណ ឬឯកសារដែលអ្នកចុចជាមួយ Command នៅក្នុងស្ថានីយ ឬទំព័រកម្មវិធីរុករក បង្ហាញ។ «បំបែកទៅស្តាំ» ប្រើផ្ទាំងនៅខាងស្តាំ ឬបង្កើតផ្ទាំងថ្មី។ អ្វីដែលអ្នកបើកពីការជជែកជាមួយភ្នាក់ងារ ទំព័រដើម ឬទំព័រផ្សេងទៀត បើកជាថេបនៅក្នុងផ្ទាំងរបស់វាផ្ទាល់។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "터미널, 에이전트 채팅, 홈 또는 페이지에서 연 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다."
+            "value": "터미널이나 브라우저 페이지에서 Command 클릭한 링크나 파일이 나타나는 위치입니다. 오른쪽으로 분할은 오른쪽 패널을 사용하거나 새로 만듭니다. 에이전트 채팅, 홈 또는 다른 페이지에서 연 항목은 해당 패널의 탭으로 열립니다."
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvor en lenke eller fil du åpner fra en terminal, en agentchat, Hjem eller en side, vises. Del til høyre bruker ruten til høyre, eller lager en."
+            "value": "Hvor en lenke eller fil du Kommando-klikker på i en terminal eller en nettleserside, vises. Del til høyre bruker ruten til høyre, eller lager en. Det du åpner fra en agentchat, Hjem eller en annen side, åpnes som en fane i samme rute."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Gdzie pojawia się link lub plik otwarty z terminala, czatu z agentem, strony głównej lub strony. Podziel w prawo używa panelu po prawej albo go tworzy."
+            "value": "Gdzie pojawia się link lub plik kliknięty z klawiszem Command w terminalu lub na stronie przeglądarki. Podziel w prawo używa panelu po prawej albo go tworzy. To, co otworzysz z czatu z agentem, strony głównej lub innej strony, otwiera się jako karta w tym samym panelu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Onde aparece um link ou arquivo que você abre em um terminal, um chat de agente, a Início ou uma página. Dividir à Direita usa o painel à direita ou cria um."
+            "value": "Onde aparece um link ou arquivo em que você clica com Command em um terminal ou em uma página do navegador. Dividir à Direita usa o painel à direita ou cria um. O que você abre em um chat de agente, no Início ou em outra página abre como aba no próprio painel."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Где появляется ссылка или файл, открытые из терминала, чата с агентом, «Главной» или страницы. «Разделить вправо» использует панель справа или создаёт её."
+            "value": "Где появляется ссылка или файл, по которым вы щёлкнули с Command в терминале или на странице браузера. «Разделить вправо» использует панель справа или создаёт её. То, что вы открываете из чата с агентом, «Главной» или другой страницы, открывается вкладкой в той же панели."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณเปิดจากเทอร์มินัล แชทเอเจนต์ หน้าหลัก หรือหน้าเพจจะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่"
+            "value": "ตำแหน่งที่ลิงก์หรือไฟล์ที่คุณกด Command ค้างแล้วคลิกในเทอร์มินัลหรือหน้าเบราว์เซอร์จะแสดง แยกไปทางขวาจะใช้แผงทางขวา หรือสร้างขึ้นใหม่ สิ่งที่คุณเปิดจากแชทเอเจนต์ หน้าหลัก หรือหน้าอื่นจะเปิดเป็นแท็บในแผงเดียวกัน"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Bir terminalden, ajan sohbetinden, Ana Sayfa'dan veya bir sayfadan açtığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur."
+            "value": "Bir terminalde veya tarayıcı sayfasında Command ile tıkladığınız bağlantı ya da dosyanın göründüğü yer. Sağa Böl, sağdaki bölmeyi kullanır veya bir tane oluşturur. Ajan sohbetinden, Ana Sayfa'dan veya başka bir sayfadan açtığınız şey kendi bölmesinde bir sekme olarak açılır."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Де з’являється посилання або файл, відкриті з термінала, чату з агентом, «Головної» чи сторінки. «Розділити праворуч» використовує панель праворуч або створює її."
+            "value": "Де з’являється посилання або файл, на які ви клацнули з Command у терміналі чи на сторінці браузера. «Розділити праворуч» використовує панель праворуч або створює її. Те, що ви відкриваєте з чату з агентом, «Головної» чи іншої сторінки, відкривається вкладкою в тій самій панелі."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nơi liên kết hoặc tệp bạn mở từ terminal, cuộc trò chuyện với tác tử, Trang chủ hoặc một trang xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới."
+            "value": "Nơi liên kết hoặc tệp bạn Command-click trong terminal hoặc trang trình duyệt xuất hiện. Chia sang phải dùng ngăn bên phải, hoặc tạo một ngăn mới. Những gì bạn mở từ cuộc trò chuyện với tác tử, Trang chủ hoặc trang khác sẽ mở thành thẻ trong chính ngăn đó."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "从终端、智能体聊天、主页或页面打开的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。"
+            "value": "在终端或浏览器页面中按住 Command 点按的链接或文件显示的位置。“向右拆分”使用右侧的窗格，没有则新建一个。从智能体聊天、主页或其他页面打开的内容，会在其所在窗格中以标签页打开。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "從終端機、代理程式聊天、首頁或頁面打開的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。"
+            "value": "在終端機或瀏覽器頁面中按住 Command 點按的連結或檔案顯示的位置。「向右分割」使用右側的窗格，沒有則新建一個。從代理程式聊天、首頁或其他頁面打開的內容，會在其所在窗格中以分頁打開。"
           }
         }
       }
@@ -145501,6 +145763,661 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "並排的窗格放不下時會橫向捲動而不是縮小，停靠欄中也一樣。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.priorityView.enabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaz prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritetsvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritätsansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Priority View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista de prioridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vue Priorité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビュー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិដ្ឋភាពអាទិភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritetsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widok priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualização de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вид «Приоритет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มุมมองลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вигляд «Пріоритет»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ xem ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先檢視"
+          }
+        }
+      }
+    },
+    "settings.sidebar.priorityView.enabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "جرس أعلى الشريط الجانبي يعرض كل محادثة وكيل على كل جهاز: التي تنتظرك أولًا، ثم المنتهية والفاشلة والعاملة والخاملة."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zvono na vrhu bočne trake prikazuje svaki razgovor s agentom na svakom računaru: prvo one koji čekaju tebe, zatim završene, neuspjele, aktivne i neaktivne."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En klokke øverst i sidepanelet viser alle agentchats på alle maskiner: først dem, der venter på dig, derefter færdige, mislykkede, aktive og inaktive."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Eine Glocke oben in der Seitenleiste zeigt jeden Agent-Chat auf jedem Gerät: zuerst die, die auf dich warten, dann fertige, fehlgeschlagene, arbeitende und inaktive."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A bell at the top of the sidebar shows every agent chat on every machine, the ones waiting on you first, then finished, failed, working and idle."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una campana en la parte superior de la barra lateral muestra todos los chats de agentes en cada máquina: primero los que te esperan, luego los terminados, fallidos, en curso e inactivos."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une cloche en haut de la barre latérale affiche toutes les conversations d’agents sur chaque machine : d’abord celles qui vous attendent, puis terminées, en échec, en cours et inactives."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una campanella in cima alla barra laterale mostra tutte le chat degli agenti su ogni macchina: prima quelle che ti aspettano, poi completate, non riuscite, in corso e inattive."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サイドバー上部のベルで、すべてのマシンのエージェントチャットを表示します。対応待ちを先頭に、完了、失敗、作業中、待機中の順に並びます。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "កណ្ដឹងនៅខាងលើរបារចំហៀងបង្ហាញការជជែកភ្នាក់ងារទាំងអស់នៅលើម៉ាស៊ីននីមួយៗ៖ ដែលរង់ចាំអ្នកមុនគេ បន្ទាប់មករួចរាល់ បរាជ័យ កំពុងដំណើរការ និងទំនេរ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "사이드바 상단의 종 아이콘이 모든 기기의 에이전트 채팅을 보여 줍니다. 확인이 필요한 채팅이 먼저, 그다음 완료, 실패, 작업 중, 유휴 순입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En bjelle øverst i sidepanelet viser alle agentchatter på alle maskiner: først de som venter på deg, deretter ferdige, mislykkede, aktive og inaktive."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dzwonek u góry paska bocznego pokazuje wszystkie czaty agentów na każdym komputerze: najpierw te, które czekają na ciebie, potem zakończone, nieudane, pracujące i bezczynne."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Um sino no topo da barra lateral mostra todos os chats de agentes em cada máquina: primeiro os que esperam por você, depois os concluídos, com falha, em andamento e ociosos."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Колокольчик вверху боковой панели показывает все чаты агентов на всех компьютерах: сначала ждущие вас, затем завершённые, с ошибкой, работающие и простаивающие."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "กระดิ่งที่ด้านบนของแถบด้านข้างจะแสดงแชตเอเจนต์ทุกรายการในทุกเครื่อง โดยแสดงรายการที่รอคุณก่อน แล้วตามด้วยที่เสร็จแล้ว ล้มเหลว กำลังทำงาน และว่าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kenar çubuğunun üstündeki zil her makinedeki tüm ajan sohbetlerini gösterir: önce seni bekleyenler, sonra bitenler, başarısız olanlar, çalışanlar ve boştakiler."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Дзвоник угорі бічної панелі показує всі чати агентів на кожному комп’ютері: спершу ті, що чекають на вас, потім завершені, з помилкою, активні та в простої."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chuông ở đầu thanh bên hiển thị mọi cuộc trò chuyện tác tử trên mọi máy: những cuộc đang chờ bạn trước, sau đó là đã xong, thất bại, đang làm và rảnh."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "侧边栏顶部的铃铛会显示每台机器上的所有代理聊天：先列出等你处理的，再列出已完成、失败、处理中和空闲的。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "側邊欄頂端的鈴鐺會顯示每台機器上的所有代理聊天：先列出等你處理的，再列出已完成、失敗、處理中和閒置的。"
+          }
+        }
+      }
+    },
+    "settings.sidebar.priorityView.enabled.summary": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "محادثات الوكلاء التي تحتاجك، أعلى الشريط الجانبي"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Razgovori s agentima koji te trebaju, na vrhu bočne trake"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchats, der venter på dig, øverst i sidepanelet"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent-Chats, die dich brauchen, oben in der Seitenleiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent chats that need you, at the top of the sidebar"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Los chats de agentes que te necesitan, arriba en la barra lateral"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les conversations d’agents qui vous attendent, en haut de la barre latérale"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le chat degli agenti che ti aspettano, in cima alla barra laterale"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "対応が必要なエージェントチャットをサイドバー上部に表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ការជជែកភ្នាក់ងារដែលត្រូវការអ្នក នៅខាងលើរបារចំហៀង"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "확인이 필요한 에이전트 채팅을 사이드바 상단에 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agentchatter som venter på deg, øverst i sidepanelet"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Czaty agentów, które na ciebie czekają, u góry paska bocznego"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chats de agentes que precisam de você, no topo da barra lateral"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чаты агентов, которые ждут вас, вверху боковой панели"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แชตเอเจนต์ที่รอคุณ ที่ด้านบนของแถบด้านข้าง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Seni bekleyen ajan sohbetleri, kenar çubuğunun üstünde"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Чати агентів, що чекають на вас, угорі бічної панелі"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Các cuộc trò chuyện tác tử cần bạn, ở đầu thanh bên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你处理的代理聊天，显示在侧边栏顶部"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "需要你處理的代理聊天，顯示在側邊欄頂端"
+          }
+        }
+      }
+    },
+    "settings.sidebar.priorityView.shown": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "إظهار عرض الأولوية"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaži prikaz prioriteta"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis prioritetsvisning"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prioritätsansicht anzeigen"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Show Priority View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar vista de prioridad"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Afficher la vue Priorité"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostra vista Priorità"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューを表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "បង្ហាញទិដ្ឋភាពអាទិភាព"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 보기 표시"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vis prioritetsvisning"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pokaż widok priorytetów"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mostrar visualização de prioridade"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показывать вид «Приоритет»"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แสดงมุมมองลำดับความสำคัญ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik görünümünü göster"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Показувати вигляд «Пріоритет»"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hiện chế độ xem ưu tiên"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "显示优先视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "顯示優先檢視"
+          }
+        }
+      }
+    },
+    "settings.sidebar.priorityView.shown.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حالة جرس الشريط الجانبي أثناء تشغيل عرض الأولوية. عند الإيقاف، يبقى الشريط الجانبي كما هو."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stanje zvona u bočnoj traci dok je prikaz prioriteta uključen. Isključeno, bočna traka ostaje nepromijenjena."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Klokkens tilstand i sidepanelet, mens prioritetsvisningen er slået til. Slået fra er sidepanelet uændret."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Der Zustand der Glocke in der Seitenleiste, solange die Prioritätsansicht an ist. Aus bleibt die Seitenleiste unverändert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "The sidebar bell's state while the Priority view is on. Off, the sidebar is unchanged."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "El estado de la campana de la barra lateral mientras la vista de prioridad está activada. Desactivado, la barra lateral no cambia."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "L’état de la cloche de la barre latérale quand la vue Priorité est activée. Désactivé, la barre latérale reste inchangée."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lo stato della campanella della barra laterale quando la vista Priorità è attiva. Disattivata, la barra laterale non cambia."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先ビューがオンのときのサイドバーのベルの状態です。オフにするとサイドバーは変わりません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ស្ថានភាពកណ្ដឹងរបារចំហៀង ពេលទិដ្ឋភាពអាទិភាពបើក។ ពេលបិទ របារចំហៀងនៅដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "우선순위 보기가 켜져 있을 때 사이드바 종 아이콘의 상태입니다. 끄면 사이드바는 그대로입니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bjellens tilstand i sidepanelet mens prioritetsvisningen er på. Av er sidepanelet uendret."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stan dzwonka na pasku bocznym, gdy widok priorytetów jest włączony. Po wyłączeniu pasek boczny się nie zmienia."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "O estado do sino da barra lateral enquanto a visualização de prioridade está ativada. Desativado, a barra lateral não muda."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Состояние колокольчика боковой панели, пока вид «Приоритет» включён. Если выключено, боковая панель не меняется."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "สถานะของกระดิ่งในแถบด้านข้างขณะที่มุมมองลำดับความสำคัญเปิดอยู่ เมื่อปิด แถบด้านข้างจะไม่เปลี่ยนแปลง"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Öncelik görünümü açıkken kenar çubuğundaki zilin durumu. Kapalıyken kenar çubuğu değişmez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стан дзвоника бічної панелі, поки вигляд «Пріоритет» увімкнено. Якщо вимкнено, бічна панель не змінюється."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Trạng thái chuông của thanh bên khi chế độ xem ưu tiên đang bật. Khi tắt, thanh bên giữ nguyên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "优先视图打开时侧边栏铃铛的状态。关闭时侧边栏保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "優先檢視開啟時側邊欄鈴鐺的狀態。關閉時側邊欄維持不變。"
           }
         }
       }
