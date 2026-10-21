@@ -29,6 +29,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The command typed after `!` so far, whole each time, while the
     /// terminal that replaces the page is being made (`tab.typeAhead`).
     case typeAhead(String)
+    /// Opens a redeemed durable Run attempt's terminal on its enrolled worker (`run.attach`).
+    case runAttach(AgentPaneRunAttach)
+    /// `run.attach` whose params break its contract or whose endpoint expired; nothing opens.
+    case invalidRunAttach
     /// Shell mode (`!` first in the composer or the new tab field): run
     /// `command` in `cwd` (``AgentPaneShell``); answers `{id}`. Only with a
     /// real gesture in the pane.
@@ -87,6 +91,10 @@ public nonisolated enum AgentPaneRequest: Equatable, Sendable {
     /// The summary panel's Attach files or folders (`chat.attach.choose`): the native open panel,
     /// after a real gesture, for a chat on this Mac.
     case chooseAttachments
+    /// `chat.attach.dropped {kind, names}`: where on this Mac the files of the person's last native
+    /// drop or paste are, for a chat on this Mac (``AgentPaneDroppedPaths``). The names are the
+    /// person's files: never logged.
+    case attachDropped(AgentPaneDroppedPaths.Kind, names: [String])
     /// Returns bounded recent project paths for the new-tab picker.
     case listProjects(String?)
     /// `project.icon {cwd}`: the project's own favicon for its picker badge, as a small data URL.
