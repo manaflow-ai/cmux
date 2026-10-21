@@ -132,7 +132,9 @@ final class HomeService {
                                     logFolder: Bundle.main.object(forInfoDictionaryKey: "CFBundleName") as? String ?? "cmux")
         // The Chief composer's + menu lists recent copies while `home.clipboardHistory` is on (read at activation).
         HomeNativeTranscriptView.useClipboardHistory { [weak services] in
-            services?.settings?.snapshot.homeClipboardHistory ?? false // not loaded yet: read nothing
+            // Read nothing until the settings file has loaded (the empty snapshot holds the default, on).
+            guard let settings = services?.settings, settings.loadCount > 0 else { return false }
+            return settings.snapshot.homeClipboardHistory
         }
         wireHostedChief()
     }

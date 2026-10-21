@@ -109,7 +109,11 @@ struct HomeClipboardHistoryTests {
     @Test func readsOnlyWhenTheClipboardChangedAndWhileOn() {
         let source = Source()
         let history = HomeClipboardHistory(pasteboard: source)
+        // Off until the app wires the setting.
         source.copy(Board(text: "first"))
+        #expect(history.recent(6).isEmpty)
+        #expect(source.reads == 0)
+        history.isEnabled = { true }
         #expect(history.recent(6).map(\.content) == [.text("first")])
         #expect(history.recent(6).count == 1)
         #expect(source.reads == 1, "the same change count is read once")
@@ -134,11 +138,26 @@ struct HomeClipboardHistoryTests {
         let source = Source()
         source.readsWithoutAsking = false
         let history = HomeClipboardHistory(pasteboard: source)
+        history.isEnabled = { true }
         source.copy(Board(text: "secret"))
         history.recordIfAllowed(backgroundRead: true)
         #expect(source.reads == 0)
         // Opening the + menu is the person's own click: it reads.
         #expect(history.recent(6).map(\.content) == [.text("secret")])
+    }
+
+    /// Only "Always Allow" (or no pasteboard privacy) reads at activation; macOS's default asks
+    /// once enforced, so it reads only with the Debug Settings opt-in.
+    @Test func activationReadsOnlyWhereMacOSDoesNotAsk() {
+        for access in [HomeClipboardAccess.noPrivacy, .alwaysAllow] {
+            #expect(access.readsWithoutAsking(defaultReads: false) && access.readsWithoutAsking(defaultReads: true))
+        }
+        for access in [HomeClipboardAccess.ask, .alwaysDeny] {
+            #expect(!access.readsWithoutAsking(defaultReads: false) && !access.readsWithoutAsking(defaultReads: true))
+        }
+        #expect(!HomeClipboardAccess.default.readsWithoutAsking(defaultReads: false))
+        #expect(HomeClipboardAccess.default.readsWithoutAsking(defaultReads: true))
+        #expect(HomeTunables.clipboardReadAtDefaultAccess.defaultValue == false)
     }
 
     // MARK: The menu
@@ -161,7 +180,7 @@ struct HomeClipboardHistoryTests {
 }
 
 /// A seeded generator, so a failing sequence repeats.
-private struct SplitMix: RandomNumberGenerator {
+private nonisolated struct SplitMix: RandomNumberGenerator {
     var state: UInt64
     init(seed: UInt64) { state = seed }
     mutating func next() -> UInt64 {

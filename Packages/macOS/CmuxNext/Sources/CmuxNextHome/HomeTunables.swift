@@ -40,7 +40,16 @@ public nonisolated struct HomeTunables {
         help: "How many of your recent copies the Chief composer's + menu lists, newest first. 0 hides the Clipboard section.",
         default: 6, range: 0...20, step: 1, unit: .count, code: "HomeTunables.plusMenuClipboardRows")
 
+    /// Whether the clipboard history also reads at activation while macOS's pasteboard privacy for
+    /// cmux is at its default (which asks on programmatic reads once Apple enforces it). Off: only
+    /// "Always Allow" (or a macOS before 15.4) reads at activation; the + menu's own open still reads.
+    public static let clipboardReadAtDefaultAccess = Tunable<Bool>.toggle(
+        "home.clipboardHistory.readAtDefaultAccess", section, "Clipboard history reads at activation by default",
+        help: "Reads the clipboard for the + menu each time cmux becomes active even while macOS's pasteboard privacy for cmux is at its default. Where macOS enforces that privacy, this can show its prompt on switching to cmux.",
+        default: false, code: "HomeTunables.clipboardReadAtDefaultAccess")
+
     public static var all: [TunableDescriptor] {
-        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, plusMenuClipboardRows.descriptor]
+        [flightRecorder.descriptor, flightRecorderCaptures.descriptor, firstRunHero.descriptor, plusMenuClipboardRows.descriptor,
+         clipboardReadAtDefaultAccess.descriptor]
     }
 }

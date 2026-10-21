@@ -1,5 +1,4 @@
 import AppKit
-import CmuxHomeCore
 
 /// One thing copied: a text, or a picture with its type (the bytes the + menu attaches, as a paste would).
 nonisolated enum HomeClipboardContent: Hashable, Sendable {

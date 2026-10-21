@@ -19,7 +19,8 @@ final class HomeClipboardHistory {
     static let shared = HomeClipboardHistory()
 
     /// Whether the person allows the history (`home.clipboardHistory`); read at every event point.
-    var isEnabled: () -> Bool = { true }
+    /// Off until the app wires the setting (fail closed).
+    var isEnabled: () -> Bool = { false }
     private(set) var log = HomeClipboardLog()
     private let pasteboard: any HomeClipboardSource
     private var thumbnails: [Int: NSImage] = [:]
@@ -49,9 +50,9 @@ final class HomeClipboardHistory {
     func thumbnail(for entry: HomeClipboardEntry) -> NSImage? { thumbnails[entry.id] }
 
     /// Reads the pasteboard when the setting allows it and it changed since the last read.
-    /// `backgroundRead` (an activation, not a click): skipped where the system would ask the
-    /// person first (pasteboard privacy set to Ask or Deny for cmux), so no prompt ever comes
-    /// from switching to cmux.
+    /// `backgroundRead` (an activation, not a click): skipped unless the system reads without
+    /// asking (``HomeClipboardSource/readsWithoutAsking``), so no pasteboard-privacy prompt ever
+    /// comes from switching to cmux.
     func recordIfAllowed(backgroundRead: Bool) {
         guard isEnabled() else {
             if !log.entries.isEmpty || log.lastChangeCount != nil { log.clear(); thumbnails.removeAll() }
@@ -107,16 +108,37 @@ protocol HomeClipboardSource: AnyObject {
     var readsWithoutAsking: Bool { get }
 }
 
+/// When an activation may read the pasteboard. Before macOS 15.4 there is no pasteboard privacy:
+/// always. From 15.4 on, `.default` means "ask on programmatic access" (NSPasteboard.h) once
+/// Apple enforces it, so only `.alwaysAllow` (the person allowed cmux) reads without asking,
+/// unless the Debug Settings tunable `home.clipboardHistory.readAtDefaultAccess` also lets
+/// `.default` read (dogfood on systems that do not enforce it yet).
+nonisolated enum HomeClipboardAccess: Sendable, Equatable {
+    case noPrivacy, alwaysAllow, `default`, ask, alwaysDeny
+
+    func readsWithoutAsking(defaultReads: Bool) -> Bool {
+        switch self {
+        case .noPrivacy, .alwaysAllow: true
+        case .default: defaultReads
+        case .ask, .alwaysDeny: false
+        }
+    }
+}
+
 extension NSPasteboard: HomeClipboardSource {
     var contents: any HomePasteboardContents { self }
 
     var readsWithoutAsking: Bool {
-        if #available(macOS 15.4, *) {
-            switch accessBehavior {
-            case .ask, .alwaysDeny: return false
-            default: return true
-            }
+        access.readsWithoutAsking(defaultReads: HomeTunables.clipboardReadAtDefaultAccess.value)
+    }
+
+    private var access: HomeClipboardAccess {
+        guard #available(macOS 15.4, *) else { return .noPrivacy }
+        switch accessBehavior {
+        case .alwaysAllow: return .alwaysAllow
+        case .ask: return .ask
+        case .alwaysDeny: return .alwaysDeny
+        default: return .default
         }
-        return true
     }
 }
