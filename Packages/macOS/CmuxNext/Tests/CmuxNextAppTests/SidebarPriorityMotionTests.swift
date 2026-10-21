@@ -39,7 +39,16 @@ struct SidebarPriorityMotionTests {
         try #require(rows(in: view).first { $0.entry.id == id }, "no row for \(id)")
     }
 
-    private static func moving(_ row: NSView) -> Bool { !(row.layer?.animationKeys() ?? []).isEmpty }
+    private static func near(_ x: CGFloat, _ y: CGFloat) -> Bool { abs(x - y) < 0.5 }
+    private static func near(_ r: NSRect, _ s: NSRect) -> Bool {
+        near(r.minX, s.minX) && near(r.minY, s.minY) && near(r.width, s.width) && near(r.height, s.height)
+    }
+
+    /// Lets the display run frames until `done` holds (the spring settled), at most two seconds.
+    private static func runFrames(until done: () -> Bool) async throws {
+        let deadline = ContinuousClock.now + .seconds(2)
+        while !done(), ContinuousClock.now < deadline { try await Task.sleep(for: .milliseconds(16)) }
+    }
 
     /// Runs `body` with Reduce Motion pinned off and `ui.animations.newWorkspace` off (the reorder
     /// must not wait on it), then puts both back. Synchronous: both are process-wide.
@@ -59,44 +68,49 @@ struct SidebarPriorityMotionTests {
     }
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
-    func aReorderSlidesTheRowsToTheirNewPlaces() throws {
+    func aReorderSlidesTheRowsToTheirNewPlaces() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }
         let (a, c) = (try Self.row("a", in: view), try Self.row("c", in: view))
         let rowHeight = a.frame.height
         Self.withSidebarMotion { view.show(Self.panel(["c", "a", "b"])) }
-        #expect(c.frame.minY == 0, "c did not take the top slot")
-        #expect(a.frame.minY == rowHeight)
-        #expect(Self.moving(c), "c jumped to the top instead of sliding there")
-        #expect(Self.moving(a), "a jumped down instead of sliding")
+        // The change's own frame: the rows are still on their way, not at their new slots.
+        #expect(c.frame.minY > 0, "c jumped to the top instead of sliding there")
+        #expect(a.frame.minY < rowHeight, "a jumped down instead of sliding")
+        try await Self.runFrames { Self.near(c.frame.minY, 0) && Self.near(a.frame.minY, rowHeight) }
+        #expect(Self.near(c.frame.minY, 0), "c did not reach the top slot: \(c.frame)")
+        #expect(Self.near(a.frame.minY, rowHeight))
     }
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
-    func aLeavingRowClosesItsSlotAndTheRowsBelowSlideUp() throws {
+    func aLeavingRowClosesItsSlotAndTheRowsBelowSlideUp() async throws {
         let (view, window) = try Self.shown(["a", "b", "c"])
         defer { window.orderOut(nil) }
         let (b, c) = (try Self.row("b", in: view), try Self.row("c", in: view))
         let slot = b.frame
         Self.withSidebarMotion { view.show(Self.panel(["a", "c"])) }
         #expect(b.superview != nil, "b vanished over a gap instead of closing its slot")
-        #expect(b.frame.minY == slot.minY && b.frame.height == 0, "b does not close at its slot: \(b.frame)")
-        #expect(Self.moving(b))
-        #expect(c.frame.minY == slot.minY, "c does not take b's slot")
-        #expect(Self.moving(c), "c jumped up instead of sliding")
+        #expect(c.frame.minY > slot.minY, "c jumped up instead of sliding")
+        try await Self.runFrames { b.superview == nil && Self.near(c.frame.minY, slot.minY) && c.alphaValue == 1 }
+        #expect(b.superview == nil, "the closed row stayed after its move")
+        #expect(Self.near(c.frame.minY, slot.minY), "c did not take b's slot: \(c.frame)")
+        #expect(c.alphaValue == 1)
     }
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() })
-    func aNewRowOpensItsSlot() throws {
+    func aNewRowOpensItsSlot() async throws {
         let (view, window) = try Self.shown(["a", "c"])
         defer { window.orderOut(nil) }
         let c = try Self.row("c", in: view)
         let slot = c.frame
         Self.withSidebarMotion { view.show(Self.panel(["a", "b", "c"])) }
         let b = try Self.row("b", in: view)
-        #expect(b.frame == slot, "b does not open at c's old slot: \(b.frame)")
-        #expect(Self.moving(b), "b showed whole instead of opening its slot")
-        #expect(c.frame.minY == slot.maxY)
-        #expect(Self.moving(c), "c jumped down instead of sliding")
+        #expect(b.frame.height < slot.height, "b showed whole instead of opening its slot: \(b.frame)")
+        #expect(c.frame.minY < slot.maxY, "c jumped down instead of sliding")
+        try await Self.runFrames { Self.near(b.frame, slot) && Self.near(c.frame.minY, slot.maxY) && b.alphaValue == 1 }
+        #expect(Self.near(b.frame, slot), "b did not open to c's old slot: \(b.frame)")
+        #expect(Self.near(c.frame.minY, slot.maxY))
+        #expect(b.alphaValue == 1)
     }
 
     @Test(.enabled("a window with no screen applies its changes at once") { await Self.hasDisplay() },
@@ -112,16 +126,13 @@ struct SidebarPriorityMotionTests {
         #expect(b.superview == nil, "the leaving row stayed with motion off")
         #expect(c.frame == NSRect(x: 0, y: 0, width: c.frame.width, height: rowHeight))
         #expect(a.frame.minY == rowHeight)
-        for row in [a, c] {
-            #expect(!Self.moving(row), "\(row.entry.id) animates with motion off")
-            #expect(row.alphaValue == 1)
-        }
+        #expect(a.alphaValue == 1 && c.alphaValue == 1)
         // A row that comes back shows whole at once.
         Self.withSidebarMotion(reduceMotion: reduceMotion, animationsEnabled: animationsEnabled) {
             view.show(Self.panel(["c", "a", "b"]))
         }
         let back = try Self.row("b", in: view)
         #expect(back.frame.minY == rowHeight * 2 && back.frame.height == rowHeight)
-        #expect(back.alphaValue == 1 && !Self.moving(back))
+        #expect(back.alphaValue == 1)
     }
 }
