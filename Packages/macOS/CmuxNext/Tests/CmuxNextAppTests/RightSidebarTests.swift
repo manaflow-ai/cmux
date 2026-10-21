@@ -9,7 +9,7 @@ import Testing
 /// and Cloud switches run on the active window through the registry (palette, View menu,
 /// keyboard, `cmux action run`, MCP). The sidebar sits on the edge opposite the sidebar and the
 /// main pane gives it room; the shown section and visibility are remembered for the next window.
-/// Files shows the file explorer; Find stays greyed out until its section registers.
+/// Files shows the file explorer and Find its project-wide search.
 @MainActor @Suite(.serialized)
 struct RightSidebarTests {
     static let owned: [ActionID] = ["toggleRightSidebar", "focusRightSidebar", "switchRightSidebarToSessions",
@@ -39,14 +39,13 @@ struct RightSidebarTests {
         return Harness(services: services, controller: controller, defaults: defaults, suite: suite)
     }
 
-    @Test func theRightSidebarActionsAreAvailableAndFindWaitsForItsSection() {
+    @Test func theRightSidebarActionsAreAvailable() {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
         AppActions.bind(services)
-        for id in Self.owned + ["switchRightSidebarToFiles"] {
+        for id in Self.owned + ["switchRightSidebarToFiles", "switchRightSidebarToFind"] {
             #expect(services.registry.unavailableReason(for: id) == nil, "\(id) is still greyed out")
         }
-        #expect(services.registry.unavailableReason(for: "switchRightSidebarToFind") != nil, "Find has no section yet")
     }
 
     @Test func showFilesShowsTheFileExplorerOfTheFocusedFolder() throws {
