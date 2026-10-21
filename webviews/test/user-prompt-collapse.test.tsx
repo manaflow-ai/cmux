@@ -255,10 +255,10 @@ try {
     const text = `${typed}\n${paste}\n${tail}`;
     const start = typed.length + 1;
     const row = prompt("user-9", text, { pasted: [{ start, end: start + paste.length }] });
-    const computed = globalThis.getComputedStyle;
+    const computed = dom.window.getComputedStyle;
     const scroll = Object.getOwnPropertyDescriptor(dom.window.HTMLElement.prototype, "scrollHeight");
     Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", { configurable: true, get: () => 1000 });
-    Object.assign(globalThis, { getComputedStyle: () => ({ lineHeight: "20px" }) });
+    Object.assign(dom.window, { getComputedStyle: () => ({ lineHeight: "20px" }) });
     try {
       act(() => root.unmount());
       root = createRoot(host);
@@ -266,7 +266,7 @@ try {
       expect(toggle()?.getAttribute("aria-expanded")).toBe("true");
       expect(body().classList.contains("is-clamped")).toBe(false);
     } finally {
-      Object.assign(globalThis, { getComputedStyle: computed });
+      Object.assign(dom.window, { getComputedStyle: computed });
       if (scroll) Object.defineProperty(dom.window.HTMLElement.prototype, "scrollHeight", scroll);
       else delete (dom.window.HTMLElement.prototype as unknown as Record<string, unknown>).scrollHeight;
     }

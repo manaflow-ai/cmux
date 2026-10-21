@@ -46,7 +46,9 @@ export function PromptText({
     const node = body.current;
     if (!node) return;
     const measure = () => {
-      const lineHeight = parseFloat(getComputedStyle(node).lineHeight);
+      // The node's own window: a test DOM may install none as a global.
+      const style = node.ownerDocument.defaultView?.getComputedStyle?.(node);
+      const lineHeight = parseFloat(style?.lineHeight ?? "");
       // No layout (a test DOM) keeps the guess.
       if (!node.scrollHeight || !Number.isFinite(lineHeight)) return;
       const next = node.scrollHeight > COLLAPSED_PROMPT_LINES * lineHeight + 1;
