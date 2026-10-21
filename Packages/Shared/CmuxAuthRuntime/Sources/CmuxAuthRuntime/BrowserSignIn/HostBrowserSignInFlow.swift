@@ -175,6 +175,22 @@ public final class HostBrowserSignInFlow {
         let state = authCallbackState(from: url)
         if let attemptID = activeAttemptID, activeSessionContinuation != nil {
             guard HostBrowserIssuedCallbackStates.constantTimeEquals(state, activeCallbackState) else {
+                // A replaced attempt's browser tab can finish while the retry
+                // is still open; its kept state signs in and ends the retry.
+                if let state,
+                   callbackRouter.callbackPayload(from: url) != nil,
+                   issuedCallbackStates.consume(state) {
+                    log.log("auth.callback.external.routeToIssuedState attempt=\(attemptID)")
+                    let signedIn = await completeCallback(url: url, attemptID: nil, acceptedExternalState: state)
+                    if signedIn {
+                        resumeActiveSessionContinuation(
+                            returning: .cancelled(reason: "external_callback"),
+                            reason: "issuedStateCallback",
+                            expectedAttemptID: attemptID
+                        )
+                    }
+                    return signedIn
+                }
                 log.log("auth.callback.external.reject reason=stateMismatch attempt=\(attemptID)")
                 lastFailure = .invalidCallback
                 return false
@@ -669,11 +685,9 @@ public final class HostBrowserSignInFlow {
             )
             return false
         }
-        if let state = authCallbackState(from: url) {
-            // Single use: the popup's state may also have been issued for the
-            // default-browser fallback.
-            issuedCallbackStates.remove(state)
-        }
+        // Single use, and retire every other kept state too: an older tab
+        // finished after this sign-in must not switch accounts unasked.
+        issuedCallbackStates.removeAll()
         lastFailure = nil
         return true
     }
