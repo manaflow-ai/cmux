@@ -59,7 +59,7 @@ import Testing
                 "the line starts \(cut) pt below the header bar (edge \(barEdge)), want the \(SidebarStyle.groupLineCut) pt cut")
         line.layoutSubtreeIfNeeded()
         // Chrome's trim (SidebarGroupSolidHeaderTests): left corners square, right corners cut.
-        let shape = (line.layer?.mask as? CAShapeLayer)?.path
+        let shape = Optional(line.outline)
         #expect(shape?.contains(CGPoint(x: 0.15, y: 0.15)) == true && shape?.contains(CGPoint(x: drawn.width - 0.15, y: 0.15)) == false,
                 "the line's top end is not trimmed as Chrome's")
     }

@@ -107,7 +107,7 @@ extension SidebarListViewComponents {
             if opens { appearing.append((view, target)) } else { targets.append((view, target)) }
         }
         let (lines, start) = foldLines(old: old, new: layout, group: id)
-        joinHeaders(layout)
+        joinHeaders(layout, animated: animate)
         let lineMotion = groupLineViews.update(lines, from: animate ? start : [], in: self, below: decorations, animated: animate)
         RowMotion(targets: targets, appearing: appearing, leaving: leavingRows, lines: lineMotion).run(in: self, from: old, to: layout, animated: animate)
         inlineRename.follow()

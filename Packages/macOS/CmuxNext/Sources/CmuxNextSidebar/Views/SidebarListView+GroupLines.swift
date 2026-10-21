@@ -33,7 +33,7 @@ extension SidebarListViewComponents {
 
     /// The list's lines for `layout`, from `start` (`SidebarGroupLineViews.update`), and the joined headers' lines.
     func updateGroupLines(_ layout: SidebarLayout, from start: [SidebarGroupLine], animated: Bool) -> (changes: () -> Void, leaving: [NSView]) {
-        joinHeaders(layout)
+        joinHeaders(layout, animated: animated)
         return groupLineViews.update(groupLines(layout), from: start, in: self, below: decorations, animated: animated)
     }
 
@@ -58,12 +58,16 @@ extension SidebarListViewComponents {
 
     /// Joined, how far each open group's header draws its line below its bar, kept for headers
     /// configured later (`configure`) and handed to the headers on screen now; else none.
-    func joinHeaders(_ layout: SidebarLayout) {
+    /// `animated` (the rows' spring runs): a header springs its line to the new length with them.
+    func joinHeaders(_ layout: SidebarLayout, animated: Bool = false) {
         let lines = joinsHeaders
             ? SidebarGroupLine.lines(layout.rows.filter { !suppressed.contains($0.key) }, colors: groups, joined: true, frame: frame(for:)) : []
         joinedLineLengths = Dictionary(lines.map { ($0.group, $0.frame.height) }, uniquingKeysWith: { first, _ in first })
         for case (.group(let id), let header as GroupHeaderRowView) in rowViews.map({ ($0.key, $0.value) }) {
-            header.joinedLineLength = joinedLineLengths[id] ?? 0
+            let length = joinedLineLengths[id] ?? 0
+            guard header.joinedLineLength != length else { continue }
+            header.springsNextJoin = animated
+            header.joinedLineLength = length
         }
     }
 }

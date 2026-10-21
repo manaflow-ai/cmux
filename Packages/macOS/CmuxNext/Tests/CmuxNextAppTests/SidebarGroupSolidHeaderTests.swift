@@ -104,7 +104,7 @@ import Testing
         #expect(abs(drawn.maxY - lastRow.maxY) < 0.01, "the line ends at \(drawn.maxY), the last member row at \(lastRow.maxY)")
         #expect(layer.mask == nil && layer.maskedCorners.roundedCount == 4, "the default bar rounds every corner")
         // Chrome's trim, in the line's own coordinates.
-        let shape = (line.layer?.mask as? CAShapeLayer)?.path, w = drawn.width, h = drawn.height, e: CGFloat = 0.15
+        let shape: CGPath? = line.outline, w = drawn.width, h = drawn.height, e: CGFloat = 0.15
         #expect(Self.covers(shape, e, e) && Self.covers(shape, e, h - e), "the line's left corners are not square")
         #expect(!Self.covers(shape, w - e, e) && !Self.covers(shape, w - e, h - e), "the line's right corners are not trimmed")
         #expect(Self.covers(shape, w / 2, h / 2) && Self.covers(shape, w - e, h / 2), "the line's body is not solid")

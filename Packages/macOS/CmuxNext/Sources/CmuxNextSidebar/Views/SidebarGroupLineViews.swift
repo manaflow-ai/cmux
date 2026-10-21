@@ -134,24 +134,56 @@ final class GroupLineView: NSView {
         needsDisplay = true
     }
 
-    /// Chrome's trimmed ends (`SidebarGroupLineShape.line`), redrawn at every size.
-    private let shape = CAShapeLayer()
+    override func viewDidChangeBackingProperties() {
+        super.viewDidChangeBackingProperties()
+        needsDisplay = true
+    }
+
+    /// The line's outline at its size now: Chrome's trimmed ends (`SidebarGroupLineShape.line`).
+    var outline: CGPath { SidebarGroupLineShape.line(width: bounds.width, height: bounds.height) }
 
     override func layout() {
         super.layout()
-        // The trim follows the view's frame in the same frame: the frame moves in the rows' Motion block.
-        CATransaction.begin()
-        CATransaction.setDisableActions(true)
-        shape.frame = bounds
-        shape.path = SidebarGroupLineShape.line(width: bounds.width, height: bounds.height)
-        if layer?.mask !== shape { layer?.mask = shape }
-        CATransaction.commit()
+        if bounds.width != drawnWidth { needsDisplay = true }
     }
 
     override func updateLayer() {
         let look = observedLook()
         // Under the solid band, the band's exact color (Leo 2026-10-19); else the dot's color.
-        performWithTheme { layer?.backgroundColor = (look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)).cgColor }
+        performWithTheme {
+            let fill = (look.style == .band ? color.lineFill(themed: look.themed) : color.lineColor(themed: look.themed)).cgColor
+            drawEnds(fill)
+        }
+    }
+
+    private var drawnWidth: CGFloat = 0
+    /// The color the line draws in.
+    private(set) var fill: CGColor?
+
+    /// The line draws as its own layer's stretched contents, not a mask: the frame springs in the
+    /// rows' Motion block, and only the layer's own contents follow its size in every frame of it.
+    /// A mask stays at the size of its last layout, so a shrinking line was cut to its end size at
+    /// once and a growing one showed a square end until it stopped. The image is the two trimmed
+    /// ends with one point between them, which stretches.
+    private func drawEnds(_ fill: CGColor) {
+        guard let layer else { return }
+        let w = max(bounds.width, 1), h = 2 * w + 1
+        let scale = window?.backingScaleFactor ?? NSScreen.main?.backingScaleFactor ?? 2
+        drawnWidth = bounds.width
+        self.fill = fill
+        let pixels = (width: Int((w * scale).rounded(.up)), height: Int((h * scale).rounded(.up)))
+        guard let context = CGContext(data: nil, width: pixels.width, height: pixels.height, bitsPerComponent: 8, bytesPerRow: 0,
+                                      space: CGColorSpace(name: CGColorSpace.sRGB) ?? CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return }
+        context.scaleBy(x: scale, y: scale)
+        context.addPath(SidebarGroupLineShape.line(width: w, height: h)) // the same both ways up
+        context.setFillColor(fill)
+        context.fillPath()
+        layer.backgroundColor = nil
+        layer.contentsScale = scale
+        layer.contentsGravity = .resize
+        layer.contentsCenter = CGRect(x: 0, y: w / h, width: 1, height: 1 / h)
+        layer.contents = context.makeImage()
     }
 
     /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes;

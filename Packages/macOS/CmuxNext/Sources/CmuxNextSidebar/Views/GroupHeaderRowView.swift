@@ -50,6 +50,15 @@ final class GroupHeaderRowView: SidebarRowView {
     var joinedLineLength: CGFloat = 0 {
         didSet { if joinedLineLength != oldValue { needsLayout = true } }
     }
+    /// Set by the list with a `joinedLineLength` that comes with an animated reload or fold: the
+    /// next layout springs the joined line to it on the rows' own `.move` spring, so its end stays
+    /// at the group's last row in every frame.
+    var springsNextJoin = false
+    /// The joined line's length the outline was last given; a line closing into its bar keeps the
+    /// joined outline (`unjoining`) until its spring ends.
+    private var drawnJoin: CGFloat = 0
+    private var unjoining = false
+    private var joinSprings = 0
     /// The bar, in the header's coordinates (the bar layer runs down the line when joined).
     private(set) var barFrame: NSRect = .zero
     /// The bar's layer: the bar, or the bar and its joined line.
@@ -407,17 +416,17 @@ final class GroupHeaderRowView: SidebarRowView {
         let radius = min(SidebarStyle.groupHeaderCornerRadius, b.height / 2)
         // Joined to its members' line (`sidebar.groupLineJoinsHeader`, the solid band only), bar and
         // line are one outline on this one layer: no seam, cap or step where they meet (Leo 2026-10-19).
-        let joined = joinedLineLength > 0 && !collapsed && look.style == .band
-        pill.frame = joined ? NSRect(x: 0, y: barFrame.minY, width: b.width, height: b.height + joinedLineLength) : barFrame
-        pill.cornerRadius = joined ? 0 : radius // one radius with the pinned and workspace rows
-        if joined {
-            let outline = pill.mask as? CAShapeLayer ?? CAShapeLayer()
-            outline.frame = pill.bounds
-            outline.path = SidebarGroupLineShape.joined(width: b.width, barHeight: b.height, radius: radius,
-                                                        lineWidth: SidebarStyle.groupBarWidth, length: joinedLineLength)
-            pill.mask = outline
+        let length = joinedLineLength > 0 && !collapsed && look.style == .band ? joinedLineLength : 0
+        let springs = springsNextJoin && length != drawnJoin
+        springsNextJoin = false
+        if length > 0 || unjoining || (springs && drawnJoin > 0) {
+            layOutJoined(length: length, radius: radius, springs: springs)
         } else {
+            removeJoinSprings()
+            pill.frame = barFrame
+            pill.cornerRadius = radius // one radius with the pinned and workspace rows
             pill.mask = nil
+            drawnJoin = 0
         }
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
@@ -427,6 +436,58 @@ final class GroupHeaderRowView: SidebarRowView {
         // The members' line starts below this bar (or joins it): one view per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
+    }
+
+    /// The bar and its joined line `length` below it as one outline. Springing, the pill and its
+    /// outline move from what is on screen on the rows' spring; a line closing to 0 keeps the
+    /// joined outline until it is back in the bar, then the plain rounded bar takes over.
+    private func layOutJoined(length: CGFloat, radius: CGFloat, springs: Bool) {
+        let bar = barFrame
+        let frame = NSRect(x: bar.minX, y: bar.minY, width: bar.width, height: bar.height + length)
+        let path = SidebarGroupLineShape.joined(width: bar.width, barHeight: bar.height, radius: radius,
+                                                lineWidth: SidebarStyle.groupBarWidth, length: length)
+        let fresh = !(pill.mask is CAShapeLayer)
+        let outline = pill.mask as? CAShapeLayer ?? CAShapeLayer()
+        outline.anchorPoint = .zero
+        outline.position = .zero
+        pill.cornerRadius = 0
+        pill.mask = outline
+        guard springs else {
+            if length != drawnJoin { removeJoinSprings() }
+            pill.frame = frame
+            outline.bounds = CGRect(origin: .zero, size: frame.size)
+            outline.path = path
+            drawnJoin = length
+            return
+        }
+        // A line that starts joining grows from the bar alone.
+        let start = fresh ? SidebarGroupLineShape.joined(width: bar.width, barHeight: bar.height, radius: radius,
+                                                         lineWidth: SidebarStyle.groupBarWidth, length: 0) : nil
+        let startBounds = fresh ? NSValue(rect: CGRect(origin: .zero, size: bar.size)) : nil
+        drawnJoin = length
+        unjoining = length == 0
+        joinSprings += 1
+        let spring = joinSprings
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
+                guard let self, self.joinSprings == spring, self.unjoining else { return }
+                self.unjoining = false
+                self.needsLayout = true
+            }
+        }
+        Motion.sidebar.set(pill, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)), spring: .move, from: startBounds)
+        Motion.sidebar.set(pill, "position", to: NSValue(point: CGPoint(x: frame.midX, y: frame.midY)), spring: .move,
+                           from: fresh ? NSValue(point: CGPoint(x: bar.midX, y: bar.midY)) : nil)
+        Motion.sidebar.set(outline, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)), spring: .move, from: startBounds)
+        Motion.sidebar.set(outline, "path", to: path, spring: .move, from: start)
+        CATransaction.commit()
+    }
+
+    private func removeJoinSprings() {
+        ["bounds", "position"].forEach(pill.removeAnimation(forKey:))
+        ["bounds", "path"].forEach { pill.mask?.removeAnimation(forKey: $0) }
+        unjoining = false
     }
 
     override func hoverChanged() {
