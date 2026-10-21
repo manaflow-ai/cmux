@@ -392,6 +392,8 @@ struct RapidWorkspaceCreateTests {
             let shown = label(frame).enumerated().map { index, name in name.hasPrefix("new") ? "\(name)[\(source[frame[index]] ?? "")]" : name }
             if strip.last != shown { strip.append(shown) }
         }
+        print("cmd-n-top settings: app newPlacement \(String(describing: services.settings?.snapshot.newWorkspacePlacement)), "
+              + "placesNewRowsFirst \(SidebarDocWiring.docSections.placesNewRowsFirst())")
         print("cmd-n-top frames: \(frames.count) drawn, \(strip.count) distinct: \(strip.map { $0.joined(separator: ",") }.joined(separator: " | "))")
         #expect(keys.count == 5, "\(keys.count) of 5 presses added a row")
         #expect(!frames.isEmpty, "the list drew no frame")
