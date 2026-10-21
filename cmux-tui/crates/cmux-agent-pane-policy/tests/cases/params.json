@@ -443,7 +443,25 @@
     "promptId": 1,
     "op": 1,
     "text": 1,
+    "images": 1,
     "index": 1
+   }
+  },
+  "mode_fields": null,
+  "breaks": false
+ },
+ {
+  "name": "_acpmux/queue_edit text with the image ids it keeps",
+  "frame": {
+   "jsonrpc": "2.0",
+   "id": 1,
+   "method": "_acpmux/queue_edit",
+   "params": {
+    "sessionId": "s",
+    "promptId": "p",
+    "op": "update",
+    "text": "why does this overlap?",
+    "images": ["aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]
    }
   },
   "mode_fields": null,

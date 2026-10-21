@@ -237,6 +237,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subsession/answer",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/subsession/get",
       "params": true,
       "result": true

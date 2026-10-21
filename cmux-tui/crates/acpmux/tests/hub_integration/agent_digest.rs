@@ -277,6 +277,43 @@ async fn a_failed_turn_of_agent_messages_puts_the_joined_ones_back() {
     assert!(queue_order(&mut c, &id).await.is_empty());
 }
 
+/// A message a failed turn of agent messages put back is queued again with its pasted ranges
+/// (`_meta.cmux.pasted`), as when it was first queued.
+#[tokio::test]
+async fn a_message_a_failed_turn_put_back_keeps_its_pasted_ranges() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let mut agents = connect(&hub).await;
+    let id = busy(&mut c).await;
+    let a = queue(&mut agents, from_agent(&id, "p-a", "lane-a", "from a")).await;
+    queue(&mut agents, from_agent(&id, "p-b", "lane-b", "[fail-digest-once] from b")).await;
+    let mut pasted = from_agent(&id, "p-c", "lane-c", "🦀 from c");
+    pasted["prompt"]
+        .as_array_mut()
+        .unwrap()
+        .push(json!({"type": "text", "text": "a log", "_meta": {"cmux": {"pasted": true}}}));
+    queue(&mut agents, pasted).await;
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    assert!(agents.response(a).await.0.is_err());
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let requeued = loop {
+        let page = c
+            .request(method::MUX_EVENTS, json!({"sessionId": id, "afterSeq": 0, "limit": 5000}))
+            .await
+            .unwrap();
+        let found = page["events"].as_array().unwrap().iter().find(|e| {
+            e["kind"] == "queued" && e["msg"]["promptId"] == "p-c" && e["msg"]["requeued"] == true
+        });
+        if let Some(e) = found {
+            break e["msg"].clone();
+        }
+        assert!(tokio::time::Instant::now() < deadline, "p-c not put back: {page}");
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(requeued["text"], "🦀 from c\na log", "{requeued}");
+    // 🦀 is two UTF-16 units: "🦀 from c" is 9, and the paste starts after its "\n".
+    assert_eq!(requeued["pasted"], json!([{"start": 10, "end": 15}]), "{requeued}");
+}
+
 /// Another agent's message after a failed turn of agent messages put some back waits behind
 /// them and goes in with them, in the order sent: it never overtakes them.
 #[tokio::test]

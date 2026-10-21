@@ -32,6 +32,7 @@ export interface AcpmuxRequests {
   "_acpmux/rename": { params: unknown; result: unknown };
   "_acpmux/offer_session": { params: unknown; result: unknown };
   "_acpmux/offer_respond": { params: unknown; result: unknown };
+  "_acpmux/subsession/answer": { params: unknown; result: unknown };
   "_acpmux/subsession/get": { params: unknown; result: unknown };
   "_acpmux/subsession/limits": { params: unknown; result: unknown };
   "_acpmux/subsession/list": { params: unknown; result: unknown };
@@ -230,6 +231,7 @@ export const ACPMUX_METHODS: ReadonlyArray<{ name: string; kind: AcpmuxMethodKin
   { name: "_acpmux/rename", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_session", kind: "request", acp: false, typed: false },
   { name: "_acpmux/offer_respond", kind: "request", acp: false, typed: false },
+  { name: "_acpmux/subsession/answer", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/get", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/limits", kind: "request", acp: false, typed: false },
   { name: "_acpmux/subsession/list", kind: "request", acp: false, typed: false },
