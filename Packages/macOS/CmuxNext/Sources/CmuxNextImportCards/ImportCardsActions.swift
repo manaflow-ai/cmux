@@ -22,8 +22,10 @@ extension ImportSuggestionsCenter {
             let name = invocation.arguments["action"]?.stringValue ?? ""
             guard let action = ImportCardAction(rawValue: name) else { return registry.refuse(ImportSuggestionStrings.unknownButton(name)) }
             // Reading another app's data is the person's call: an agent, a script or another
-            // client may raise, dismiss or open a card but never start one.
-            if action.startsWork, !Self.personCanStart(invocation.origin) {
+            // client may raise, dismiss or open a card but never start one, nor open the
+            // person-only Import from Browser window. A page's press asks the person natively
+            // before anything starts (`ImportSuggestionsCenter.perform`).
+            if action.startsWork || action == .more, !Self.mayPress(invocation.origin) {
                 return registry.refuse(ImportSuggestionStrings.personOnly)
             }
             do {
@@ -39,14 +41,16 @@ extension ImportSuggestionsCenter {
             let text = invocation.arguments["site"]?.stringValue ?? ""
             guard let browser = Self.browser(name) else { return registry.refuse(ImportSuggestionStrings.unknownBrowser(name)) }
             guard let site = ImportRequest.site(text) else { return registry.refuse(ImportSuggestionStrings.invalidSite(text)) }
-            raise(browser: browser, site: site, reason: invocation.arguments["reason"]?.stringValue ?? "")
+            raise(browser: browser, site: site, reason: invocation.arguments["reason"]?.stringValue ?? "", caller: invocation)
         })
         registry.bind("import.open", invoke: { [weak self] _ in self?.openSettings() })
     }
 
-    /// A person's click in this app, or a control a first-party page drew (Settings › Import,
-    /// New Tab); never the CLI, MCP, a script or another client.
-    nonisolated static func personCanStart(_ origin: ActionOrigin) -> Bool {
+    /// Who may press a card's Import, Resume, Try Again or More Options: the person's click in
+    /// this app, which starts at once, or a control a first-party page drew (Settings › Import),
+    /// which is never the person's own gesture and so starts nothing before the person confirms
+    /// a native dialog. Never the CLI, MCP, a script or another client.
+    nonisolated static func mayPress(_ origin: ActionOrigin) -> Bool {
         origin == .user || origin == .page
     }
 

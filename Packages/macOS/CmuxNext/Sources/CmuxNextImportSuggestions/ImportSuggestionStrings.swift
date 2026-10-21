@@ -78,7 +78,7 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
                defaultValue: "You stay signed in to \(site) in cmux's browser. Only that site's cookies come over.",
                table: "ImportSuggestions", bundle: .module)
     }
-    static func requestTitle(browser: String, site: String) -> String {
+    public static func requestTitle(browser: String, site: String) -> String {
         String(localized: "importSuggestions.request.title", defaultValue: "Import \(browser) cookies for \(site)",
                table: "ImportSuggestions", bundle: .module)
     }
@@ -155,6 +155,18 @@ public nonisolated struct ImportSuggestionStrings: Sendable {
     public static var personOnly: String {
         String(localized: "importSuggestions.refusal.personOnly", defaultValue: "Only you can start an import: press its button in cmux.",
                table: "ImportSuggestions", bundle: .module)
+    }
+    /// The native question a page's Import, Resume or Try Again asks first ("Import from Chrome?").
+    public static func confirmTitle(_ name: String) -> String {
+        String(localized: "importSuggestions.confirm.title", defaultValue: "Import from \(name)?", table: "ImportSuggestions", bundle: .module)
+    }
+    /// That question's button: the card's own word for the press.
+    public static func confirmButton(_ action: ImportCardAction) -> String {
+        switch action {
+        case .resume: resume
+        case .retry: retry
+        case .start, .dismiss, .restore, .more, .open, .hide: importButton
+        }
     }
     public static var cardsOff: String { String(localized: "importSuggestions.refusal.off", defaultValue: "Import suggestions are turned off in Debug Settings.", table: "ImportSuggestions", bundle: .module) }
 

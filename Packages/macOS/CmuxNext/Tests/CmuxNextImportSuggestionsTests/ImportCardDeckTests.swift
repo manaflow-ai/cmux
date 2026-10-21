@@ -75,6 +75,37 @@ struct ImportCardDeckTests {
         #expect(ImportRequest.site(text) == nil)
     }
 
+    /// The import keeps every cookie of the site and its subdomains, so a public suffix would bring
+    /// every site under it: `co.uk` is every UK company's sign-in, `github.io` every Pages site's.
+    @Test(arguments: ["co.uk", "CO.UK", ".com.au", "https://ne.jp/login", "gov.br", "github.io", "vercel.app", "10.0.0.1", "192.168.1.20"])
+    func aRequestNeverNamesAPublicSuffix(_ text: String) {
+        #expect(ImportRequest.site(text) == nil)
+    }
+
+    @Test(arguments: [("bbc.co.uk", "bbc.co.uk"), ("https://Someone.GitHub.io/x", "someone.github.io"), ("go.dev", "go.dev"),
+                      ("accounts.google.com", "accounts.google.com"), ("linear.app", "linear.app")])
+    func aSiteUnderAPublicSuffixIsOneSite(_ text: String, _ site: String) {
+        #expect(ImportRequest.site(text) == site)
+    }
+
+    /// A page's Import asks natively first only where the start reads another app's data.
+    @Test func onlyAStartThatReadsAnotherAppAsksFirst() {
+        #expect(Set(ImportSourceKind.allCases.filter(\.startReadsAnotherApp)) == [.browser, .iterm2])
+        #expect(ImportSuggestionStrings.confirmTitle("Chrome").contains("Chrome"))
+        #expect(ImportSuggestionStrings.confirmButton(.resume) == ImportSuggestionStrings.resume)
+    }
+
+    /// The raiser rides with the request (the consent panel names it); a request saved before that reads as nil.
+    @Test func aRequestKeepsWhoRaisedIt() throws {
+        let raised = ImportRequest(browser: .chrome, site: "github.com", reason: "", requestedAt: Self.now, raisedBy: "mcp",
+                                   agentSession: "session-1", terminal: nil)
+        let decoded = try JSONDecoder.importJobs.decode(ImportRequest.self, from: JSONEncoder.importJobs.encode(raised))
+        #expect(decoded == raised)
+        let older = try JSONEncoder.importJobs.encode(ImportRequest(browser: .chrome, site: "github.com", reason: "", requestedAt: Self.now))
+        let legacy = try JSONDecoder.importJobs.decode(ImportRequest.self, from: older)
+        #expect(legacy.raisedBy == nil && legacy.agentSession == nil && legacy.terminal == nil)
+    }
+
     @Test func surfacesCapTheirCards() {
         let many = (0..<8).map { ImportFinding(id: "agents.\($0)", kind: .codex, name: "Codex", count: 1) }
         #expect(Self.deck(many).cards(for: .newTab, now: Self.now).count == 3)

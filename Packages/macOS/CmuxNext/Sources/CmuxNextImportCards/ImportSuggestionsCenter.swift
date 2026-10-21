@@ -3,6 +3,7 @@ public import CmuxNextActions
 import CmuxNextAgentPane
 public import CmuxNextBrowserImport
 import CmuxNextCompat
+import CmuxNextDesign
 public import CmuxNextImportSuggestions
 import CmuxNextOnboarding
 public import CmuxNextSettings
@@ -38,6 +39,8 @@ public final class ImportSuggestionsCenter {
     @ObservationIgnored private var running: [String: Task<Void, Never>] = [:]
     @ObservationIgnored private var activation: (any NSObjectProtocol)?
     @ObservationIgnored private var started = false
+    /// A page's start is waiting on the person's answer (one question at a time).
+    @ObservationIgnored private var asking = false
     @ObservationIgnored private let now: () -> Date
 
     init(defaults: UserDefaults = .standard, ledgerURL: URL = ImportSuggestionsCenter.defaultLedgerURL, now: @escaping () -> Date = Date.init) {
@@ -71,7 +74,8 @@ public final class ImportSuggestionsCenter {
         state.expire(now: now())
         AgentPaneImportCards.shared.onAction = { [weak self] id, action in
             guard let action = ImportCardAction(rawValue: action) else { return }
-            // A New Tab page's button: a first-party control, so a cookie request still asks.
+            // A New Tab page's button: a first-party control, never the person's own gesture, so a
+            // start asks natively first and a cookie request still gets its consent panel.
             try? self?.perform(id, action, caller: ActionInvocation(arguments: [:], origin: .page))
         }
         follow()
@@ -162,9 +166,14 @@ public final class ImportSuggestionsCenter {
     // MARK: Buttons
 
     /// Runs a card's button (the Home strip, a page, `import.card`). `caller` is the run that
-    /// pressed it, the person's own click when nil; a cookie request it starts asks first unless
-    /// that is the person (`browser.importCookies`' consent).
+    /// pressed it, the person's own click when nil. Only that click starts an import at once: any
+    /// other caller's Import, Resume or Try Again asks the person in a native dialog first (page
+    /// script cannot answer it), and an agent's cookie request always gets
+    /// `browser.importCookies`' consent panel. Whatever the card opens runs as `caller`.
     public func perform(_ id: String, _ action: ImportCardAction, caller: ActionInvocation? = nil) throws {
+        if action.startsWork, let caller, caller.origin != .user, let question = try question(id, action) {
+            return ask(question, id: id, action: action, caller: caller)
+        }
         switch action {
         case .start: try start(id, caller: caller)
         case .resume, .retry:
@@ -189,8 +198,8 @@ public final class ImportSuggestionsCenter {
             state.restore(id)
             state.save(to: defaults)
         case .more:
-            _ = registry?.perform("importFromBrowser")
-        case .open: open(id)
+            _ = registry?.perform("importFromBrowser", invocation: Self.forwarded(caller))
+        case .open: open(id, caller: caller)
         case .hide:
             // Done, or Not Now on a paused or failed job: the card goes, and like a dismissed
             // card it comes back only when the scan finds something new for that source.
@@ -205,21 +214,83 @@ public final class ImportSuggestionsCenter {
     }
 
     /// The Chief's (or another agent's) request: a card offering `site`'s cookies from `browser`.
-    public func raise(browser: ImportBrowser, site: String, reason: String) {
-        state.raise(ImportRequest(browser: browser, site: site, reason: reason, requestedAt: now()))
+    /// `caller` is the run that raised it (`import.suggest`); the import later runs as that caller.
+    public func raise(browser: ImportBrowser, site: String, reason: String, caller: ActionInvocation? = nil) {
+        state.raise(ImportRequest(browser: browser, site: site, reason: reason, requestedAt: now(), raisedBy: caller?.origin.rawValue,
+                                  agentSession: caller?.callerAgentSession, terminal: caller?.callerTerminal))
         state.save(to: defaults)
+    }
+
+    // MARK: Asking
+
+    /// What a start that is not the person's own click asks first, nil when it needs no question
+    /// (a cookie request: its consent panel asks; a card that only opens something of cmux's).
+    /// Throws when there is no such card, so `import.card` still reports it.
+    private func question(_ id: String, _ action: ImportCardAction) throws -> CmuxDialogSpec? {
+        if action == .start {
+            if state.requests.contains(where: { $0.id == id }) { return nil }
+            guard findings.contains(where: { $0.id == id }) else { throw ImportCardsFailure.noSuchCard(id) }
+            // Already importing: the press does nothing, so there is nothing to ask.
+            if ledger.job(id)?.isActive == true { return nil }
+        } else {
+            guard let job = ledger.job(id), job.phase != .running else { throw ImportCardsFailure.noSuchCard(id) }
+        }
+        guard let card = deck.cards(for: .settings, now: now()).first(where: { $0.id == id }), card.kind.startReadsAnotherApp else { return nil }
+        let confirm = CmuxDialogButton(id: "confirm", title: ImportSuggestionStrings.confirmButton(action), role: .default)
+        return CmuxDialogSpec(title: ImportSuggestionStrings.confirmTitle(card.title), lines: [card.facts, card.benefit].filter { !$0.isEmpty },
+                              buttons: [.cancel(), confirm], identifier: "cmux.dialog.importCard")
+    }
+
+    /// Shows `question` above the app, then runs the press as the person's own when they confirm.
+    /// One question at a time: a press while one is up does nothing, so a page cannot stack them.
+    private func ask(_ question: CmuxDialogSpec, id: String, action: ImportCardAction, caller: ActionInvocation) {
+        guard !asking else { return }
+        asking = true
+        let window = NSApp.keyWindow ?? NSApp.mainWindow
+        CmuxDialogCenter.shared.present(question, in: window.map { .window($0) } ?? .app) { [weak self] answer in
+            guard let self else { return }
+            asking = false
+            guard answer.button == "confirm" else { return }
+            // The person approved it on a native dialog: from here the press is theirs.
+            var confirmed = Self.forwarded(caller)
+            confirmed.origin = .user
+            try? perform(id, action, caller: confirmed)
+        }
+    }
+
+    /// A run a card's button starts for `caller`, as `caller`: its origin and its own caller claims,
+    /// so an agent's or a page's press never becomes the person's own. The person's click when nil.
+    nonisolated static func forwarded(_ caller: ActionInvocation?) -> ActionInvocation {
+        guard let caller else { return ActionInvocation() }
+        var invocation = ActionInvocation(origin: caller.origin, focusRequested: caller.focusRequested)
+        invocation.callerApp = caller.callerApp
+        invocation.callerAgentSession = caller.callerAgentSession
+        invocation.callerTerminal = caller.callerTerminal
+        return invocation
+    }
+
+    /// The run that imports a request's cookies. An agent's request is the agent's ask whoever
+    /// presses Import, so it runs as the agent that raised it (the consent panel names that chat
+    /// and the site); a request the person raised runs as whoever pressed it. A request kept
+    /// before its raiser was recorded counts as a script's.
+    nonisolated static func cookieRun(_ request: ImportRequest, caller: ActionInvocation?) -> ActionInvocation {
+        let raised = request.raisedBy.map { ActionOrigin(rawValue: $0) ?? .script } ?? .script
+        let origin = raised != .user ? raised : caller?.origin ?? .user
+        // The consent panel shows the agent's reason; an agent that gave none still gets a line naming the import.
+        let reason = request.reason.isEmpty
+            ? ImportSuggestionStrings.requestTitle(browser: request.browser.displayName, site: request.site) : request.reason
+        var invocation = ActionInvocation(arguments: [
+            "from": .string(request.browser.rawValue), "domain": .string(request.site), "reason": .string(reason),
+        ], origin: origin)
+        invocation.callerAgentSession = raised != .user ? request.agentSession : caller?.callerAgentSession
+        invocation.callerTerminal = raised != .user ? request.terminal : caller?.callerTerminal
+        return invocation
     }
 
     private func start(_ id: String, caller: ActionInvocation?) throws {
         if let request = state.requests.first(where: { $0.id == id }) {
-            // Import Cookies from Browser for that site only, as whoever pressed it: the person's
-            // own click runs it, a page's control or anything else gets the consent panel first.
-            let arguments: [String: ActionValue] = [
-                "from": .string(request.browser.rawValue), "domain": .string(request.site), "reason": .string(request.reason),
-            ]
-            var invocation = ActionInvocation(arguments: arguments, origin: caller?.origin ?? .user)
-            invocation.callerAgentSession = caller?.callerAgentSession
-            _ = registry?.perform("browser.importCookies", invocation: invocation)
+            // Import Cookies from Browser for that site only, as the agent that asked for it.
+            _ = registry?.perform("browser.importCookies", invocation: Self.cookieRun(request, caller: caller))
             state.drop(request: id)
             state.save(to: defaults)
             return
@@ -232,23 +303,23 @@ public final class ImportSuggestionsCenter {
             run(id)
         case .claudeCode, .codex:
             // Already indexed device-wide: the card opens them.
-            _ = registry?.perform("search.chats")
+            _ = registry?.perform("search.chats", invocation: Self.forwarded(caller))
             finish(ImportJob(finding: finding, now: now()))
         case .cmuxClassic:
             // Its own preview and confirmation; the next scan drops the card once they are here.
-            _ = registry?.perform("workspace.importClassic")
+            _ = registry?.perform("workspace.importClassic", invocation: Self.forwarded(caller))
         case .iterm2:
             run(id, writingTheme: ImportJob(finding: finding, now: now()))
         case .ghostty:
-            open(id)
+            open(id, caller: caller)
         }
     }
 
-    private func open(_ id: String) {
+    private func open(_ id: String, caller: ActionInvocation?) {
         let kind = findings.first { $0.id == id }?.kind ?? ledger.job(id)?.kind
         switch kind {
-        case .ghostty: _ = registry?.perform("palette.openGhosttySettings")
-        case .claudeCode, .codex: _ = registry?.perform("search.chats")
+        case .ghostty: _ = registry?.perform("palette.openGhosttySettings", invocation: Self.forwarded(caller))
+        case .claudeCode, .codex: _ = registry?.perform("search.chats", invocation: Self.forwarded(caller))
         case .iterm2: host?.openSettings("#/settings/theme")
         case .browser:
             // Safari behind Full Disk Access: the Privacy pane where cmux is turned on.

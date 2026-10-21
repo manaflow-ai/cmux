@@ -25,6 +25,14 @@ extension ImportCardAction {
     public var startsWork: Bool { self == .start || self == .resume || self == .retry }
 }
 
+extension ImportSourceKind {
+    /// Starting it reads another app's data into cmux (a browser's history, bookmarks and cookies;
+    /// iTerm2's colors written as a theme), so a start that is not the person's own click in this
+    /// app (a page's button) asks the person natively first. The others only open something of
+    /// cmux's, or ask on their own (Classic's preview).
+    nonisolated public var startReadsAnotherApp: Bool { self == .browser || self == .iterm2 }
+}
+
 /// One card as every surface draws it (Home, New Tab, Settings › Import):
 /// every text is already in the person's language.
 public nonisolated struct ImportCard: Codable, Sendable, Equatable, Identifiable {
