@@ -42,7 +42,8 @@ import Foundation
         }
     }
 
-    private static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
+    /// The daemon's pane under the split's public pane id, once its records hold it.
+    static func daemonPane(_ provisional: ProvisionalPane, in store: DaemonStore) -> PaneModel? {
         store.index.panesByResource[ResourceID(rawValue: provisional.paneID)].flatMap { $0.handle != provisional.handle ? $0 : nil }
     }
 

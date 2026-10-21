@@ -737,7 +737,8 @@
       ],
       "reads": [
         "Resources/cmux-themes/",
-        "Resources/ghostty/themes/"
+        "Resources/ghostty/themes/",
+        "schemas/theme/orange-accent-allowlist.json"
       ]
     },
     "CmuxNextDictation": {

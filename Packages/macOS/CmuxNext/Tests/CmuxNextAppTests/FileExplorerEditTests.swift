@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextCompat
 import CmuxNextFiles
 import Foundation
 import Testing
@@ -90,6 +91,58 @@ struct FileExplorerEditTests {
         #expect(await files.trashed.urls == [b])
         #expect(!Self.names(model).contains("b.txt"))
         #expect(model.selection == nil)
+    }
+
+    /// Move to Trash into a temp "Trash" folder; Put Back moves each item back.
+    struct FolderTrash: FileOperating {
+        let real = FileOperator()
+        let bin: URL
+        func rename(_ url: URL, to name: String) async throws -> URL { try await real.rename(url, to: name) }
+        func newFolder(in folder: URL, named name: String) async throws -> URL { try await real.newFolder(in: folder, named: name) }
+        func duplicate(_ urls: [URL]) async throws -> [URL] { try await real.duplicate(urls) }
+        func trash(_ urls: [URL]) async throws -> [TrashedItem] {
+            try urls.map { url in
+                let target = bin.appendingPathComponent(UUID().uuidString + "-" + url.lastPathComponent)
+                try FileManager.default.moveItem(at: url, to: target)
+                return TrashedItem(original: url, trashed: target)
+            }
+        }
+        func putBack(_ items: [TrashedItem]) async throws -> [URL] {
+            try items.map { item in
+                try FileManager.default.moveItem(at: item.trashed, to: item.original)
+                return item.original
+            }
+        }
+        func move(_ pairs: [(from: URL, to: URL)]) async throws { try await real.move(pairs) }
+        func transfer(_ sources: [URL], to folder: URL, mode: TransferMode,
+                      resolve: @escaping @Sendable (FileConflict) async -> ConflictAnswer) -> AsyncThrowingStream<TransferEvent, any Error> {
+            real.transfer(sources, to: folder, mode: mode, resolve: resolve)
+        }
+        func makeLinks(_ urls: [URL], kind: LinkKind) async throws -> [URL] { try await real.makeLinks(urls, kind: kind) }
+        func deleteImmediately(_ urls: [URL]) async throws { try await real.deleteImmediately(urls) }
+        func compress(_ urls: [URL], archiveName: String) async throws -> URL { try await real.compress(urls, archiveName: archiveName) }
+        func expand(_ archive: URL) async throws -> URL { try await real.expand(archive) }
+    }
+
+    /// Cmd-Z (Edit > Undo on the window's undo stack) after Move to Trash puts the file back.
+    @Test(.timeLimit(.minutes(1))) func undoPutsATrashedFileBack() async throws {
+        let root = try FileExplorerTests.folder()
+        let bin = FileManager.default.temporaryDirectory.appendingPathComponent("bin-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: bin, withIntermediateDirectories: true)
+        let model = FileExplorerModel(git: FakeGit(top: "/nowhere", porcelain: ""))
+        await model.setRoot(root)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless], backing: .buffered, defer: true)
+        let undo = try #require(window.undoManager)
+        let commands = FileExplorerCommands(model: model, effects: FileExplorerTests.Recorder(), files: FolderTrash(bin: bin), undoManager: undo)
+        let b = try #require(model.rows.first { $0.name == "b.txt" }).url
+        model.selection = b
+        try await commands.moveToTrash()
+        #expect(!FileManager.default.fileExists(atPath: b.path))
+        #expect(undo.canUndo)
+        #expect(undo.undoActionName == FileExplorerStrings.undoMoveToTrash)
+        undo.undo()
+        for await names in ObservationStream({ model.rows.map(\.name) }) where names.contains("b.txt") { break }
+        #expect(FileManager.default.fileExists(atPath: b.path))
     }
 
     @Test func eachRowShowsItsGitStateAndAFolderShowsChangesInside() async throws {

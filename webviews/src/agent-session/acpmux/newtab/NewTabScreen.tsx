@@ -176,6 +176,11 @@ function homeOrAbove(cwd: string | undefined): boolean {
   return !cwd || /^\/(?:(?:Users|home)(?:\/[^/]+)?)?\/?$/.test(cwd);
 }
 
+/// Whether the engine sizes `field` to its draft itself (screen.css `field-sizing: content`).
+function sizesItself(field: HTMLTextAreaElement): boolean {
+  return field.ownerDocument.defaultView?.CSS?.supports?.("field-sizing", "content") ?? false;
+}
+
 /// How long the folder chip holds its place for a daemon that has not listed the chats yet.
 const RESERVE_MS = 2_000;
 const NO_DEVICE_CHATS: ReturnType<typeof useDeviceChats> = [];
@@ -453,17 +458,26 @@ export function NewTabScreen(props: Props) {
     else if (at.bottom > inner.bottom) box.scrollTop += at.bottom - inner.bottom;
   }, []);
 
-  // The field is as tall as its draft, up to its cap (screen.css max-height), then it scrolls. It
-  // fits again when the draft changes and when the pane's width changes (the lines rewrap). Its
-  // scroll offset is kept, except that a caret at the draft's end (typing, a paste, dictation) is
-  // scrolled into view: the engine revealed it before this fit changed the field's height.
+  // The field is as tall as its draft, up to its cap (screen.css max-height), then it scrolls. The
+  // CSS sizes it (`field-sizing: content`), in the same layout as the pane's: a resize rewraps and
+  // refits it with no script, no forced layout and no frame late (Leo 2026-10-20, "the new tab area
+  // resizing calculation is slow and wack"; new-tab-live-resize). Only an engine without
+  // field-sizing fits it here, when the draft changes and when the pane's width changes. Its scroll
+  // offset is kept, except that a caret at the draft's end (typing, a paste, dictation) is scrolled
+  // into view: the engine revealed it before this fit changed the field's height. WebKit sizes the
+  // field itself but leaves a draft past the cap scrolled where it was, so a draft that changes with
+  // the caret at its end scrolls to it there too (on the draft only, never on a resize).
   const fitField = useCallback(() => {
     const node = field.current;
     if (!node) return;
+    const typingAtEnd = node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
+    if (sizesItself(node)) {
+      if (typingAtEnd && node.scrollHeight > node.clientHeight) node.scrollTop = node.scrollHeight;
+      return;
+    }
     const top = node.scrollTop;
     node.style.height = "0px";
     node.style.height = `${node.scrollHeight}px`;
-    const typingAtEnd = node.ownerDocument.activeElement === node && node.selectionEnd === node.value.length;
     node.scrollTop = typingAtEnd ? node.scrollHeight : top;
   }, []);
   useLayoutEffect(fitField, [fitField, text, shell, template]);
@@ -477,7 +491,7 @@ export function NewTabScreen(props: Props) {
   useEffect(() => {
     const node = field.current;
     const view = node?.ownerDocument.defaultView;
-    if (!node || !view?.ResizeObserver) return undefined;
+    if (!node || !view?.ResizeObserver || sizesItself(node)) return undefined;
     let width = node.clientWidth;
     const observer = new view.ResizeObserver(() => {
       if (node.clientWidth === width) return;
