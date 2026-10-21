@@ -194,7 +194,8 @@ import {
   type TurnView,
   turnViewFrom,
 } from "./conversation/turns";
-import { ArrowDown, Copy } from "./conversation/icons";
+import { ArrowDown, ChevronRight, Copy } from "./conversation/icons";
+import { CopyButton } from "./conversation/CopyButton";
 import { PreviewCard } from "./conversation/PreviewCard";
 import { installWheelPassThrough } from "./wheelPassThrough";
 import { turnPreviewUrl } from "./conversation/previewUrl";
@@ -656,10 +657,24 @@ const MessageRow = memo(
       return (
         <div className="cv-user">
           {envelope && (
-            <details className="cv-user__context">
-              <summary>{t("transcript.chiefContext", { count: envelope.lines })}</summary>
-              <pre className="cv-user__context-text selectable">{envelope.context}</pre>
-            </details>
+            // The view's Copy sits outside the disclosure, over the space the summary keeps free at
+            // its trailing end, so it never covers the label; a long label ends in an ellipsis.
+            <div className="cv-user__context">
+              <details>
+                <summary>
+                  <ChevronRight size={10} className="cv-user__context-chevron" />
+                  <span className="cv-user__context-label">
+                    {t("transcript.chiefContext", { count: envelope.lines })}
+                  </span>
+                </summary>
+                <pre className="cv-user__context-text selectable">{envelope.context}</pre>
+              </details>
+              <CopyButton
+                text={envelope.context}
+                label={t("turn.copy")}
+                className="cv-iconbtn cv-iconbtn--compact cv-user__context-copy"
+              />
+            </div>
           )}
           {envelope || row.from === "chief" ? (
             <ChiefPromptBubble text={envelope ? envelope.task : (row.text ?? "")} />
@@ -3853,14 +3868,14 @@ function AcpmuxPane() {
     )?.models ?? []
   )
     .filter((model) => !model.unavailable && !isDefaultChoice(model))
-    .map((model) => `${model.id}\t${model.name || model.id}`)
+    .map((model) => `${model.id}\t${model.name || model.id}\t${model.release ?? ""}`)
     .join("\n");
   const retryModels = useMemo(
     () =>
       retryModelsKey
         ? retryModelsKey.split("\n").map((line) => {
-            const [id = "", name = ""] = line.split("\t");
-            return { id, name: name || id };
+            const [id = "", name = "", release = ""] = line.split("\t");
+            return { id, name: name || id, ...(release ? { release } : {}) };
           })
         : [],
     [retryModelsKey],

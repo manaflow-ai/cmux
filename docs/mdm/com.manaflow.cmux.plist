@@ -867,6 +867,60 @@
 			<key>pfm_default</key>
 			<false/>
 			<key>pfm_description</key>
+			<string>Agents start in folders under your project roots, and in repositories owned by your organizations, without asking. Other folders ask first.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.autoTrust</string>
+			<key>pfm_title</key>
+			<string>Trust My Own Folders Without Asking</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>Everything inside these folders is trusted. Use full paths or ~/ paths.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.projectRoots</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Trusted Project Roots</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<array/>
+			<key>pfm_description</key>
+			<string>A repository is trusted when all of its GitHub remotes belong to these users or organizations.</string>
+			<key>pfm_name</key>
+			<string>agents.trust.ownOrgs</string>
+			<key>pfm_subkeys</key>
+			<array>
+				<dict>
+					<key>pfm_name</key>
+					<string>Item</string>
+					<key>pfm_type</key>
+					<string>string</string>
+				</dict>
+			</array>
+			<key>pfm_title</key>
+			<string>Trusted GitHub Owners</string>
+			<key>pfm_type</key>
+			<string>array</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
 			<string>Lets the cmux app on your iPhone open this Mac's workspaces, terminals and agent chats while you are signed in with the same account.</string>
 			<key>pfm_name</key>
 			<string>mobile.allowIPhoneConnections</string>
@@ -4105,6 +4159,18 @@
 			<string>sidebar.showChats</string>
 			<key>pfm_title</key>
 			<string>Show All Chats</string>
+			<key>pfm_type</key>
+			<string>boolean</string>
+		</dict>
+		<dict>
+			<key>pfm_default</key>
+			<false/>
+			<key>pfm_description</key>
+			<string>Lists a workspace that another workspace's agent started under it, and shows each row's pull requests and the first rows' Command-number keys.</string>
+			<key>pfm_name</key>
+			<string>sidebar.sessionTree</string>
+			<key>pfm_title</key>
+			<string>Session Tree</string>
 			<key>pfm_type</key>
 			<string>boolean</string>
 		</dict>
