@@ -50,9 +50,17 @@ extension SidebarItemRowView {
         }
     }
 
-    /// Delete or Forward Delete on a focused item in edit mode takes it out, as its ✕ does.
+    /// Delete or Forward Delete on a focused item in edit mode takes it out, as its ✕ does; Escape ends edit mode.
     func editingKeyDown(_ event: NSEvent) -> Bool {
-        guard isEditing, let onRemove, ["\u{7f}", "\u{f728}"].contains(event.charactersIgnoringModifiers ?? "") else { return false }
+        guard isEditing else { return false }
+        let key = event.charactersIgnoringModifiers ?? ""
+        if key == "\u{1b}" {
+            var view = superview
+            while let next = view, !(next is SidebarView) { view = next.superview }
+            (view as? SidebarView)?.setEditingItems(false)
+            return true
+        }
+        guard let onRemove, ["\u{7f}", "\u{f728}"].contains(key) else { return false }
         onRemove()
         return true
     }

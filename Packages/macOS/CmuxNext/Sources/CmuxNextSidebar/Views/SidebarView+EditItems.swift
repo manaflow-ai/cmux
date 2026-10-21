@@ -4,7 +4,7 @@ import CmuxNextDesign
 /// The sidebar's edit mode (Leo 2026-10-20, as an iPhone's home screen): right-click the sidebar >
 /// Edit Sidebar (or the palette's), and its items wiggle. A drag moves one (the bands' own drag), its
 /// ✕ or Delete takes it out (the menu's Remove, one undo step), Add Items opens App Store Features on
-/// Sidebar (`SidebarIntent.addItems`), and Done or Escape ends it.
+/// Sidebar (`SidebarIntent.addItems`), and Done (or Escape on a focused item) ends it.
 extension SidebarView {
     public var isEditingItems: Bool { editBar != nil }
 
@@ -20,7 +20,8 @@ extension SidebarView {
             editBar?.removeFromSuperview()
             editBar = nil
         }
-        for region in bandRegions + list.blockRegions { region.isEditing = on }
+        // The footer (Settings, the profile control) stays as it is: it is not the person's to take out.
+        for region in bandRegions + list.blockRegions { region.isEditing = on && region !== footerRegion }
         needsLayout = true
     }
 
@@ -33,7 +34,7 @@ extension SidebarView {
     }
 }
 
-/// Edit mode's bar: Add Items, then Done (Escape presses it).
+/// Edit mode's bar: Add Items, then Done. No Escape keycap: a pane keeps the key while it has focus.
 final class SidebarEditBar: NSView {
     var onAdd: (() -> Void)?
     var onDone: (() -> Void)?
@@ -47,7 +48,6 @@ final class SidebarEditBar: NSView {
         layer?.cornerRadius = SidebarStyle.rowCornerRadius + Metrics.space1
         add.title = Strings.editAddItems
         done.title = Strings.editDone
-        done.keyHint = .escape
         for (button, action) in [(add, #selector(addPressed)), (done, #selector(donePressed))] {
             button.target = self
             button.action = action

@@ -112,12 +112,28 @@ import Testing
         let bar = try #require(sidebar.editBar)
         #expect(bar.superview === sidebar && bar.frame.width > 0)
         let regions = sidebar.bandRegions + sidebar.list.blockRegions
-        #expect(regions.allSatisfy { $0.isEditing })
+        #expect(regions.allSatisfy { $0.isEditing == ($0 !== sidebar.footerRegion) }, "the footer is edited, or an item band is not")
         bar.add.performClick(nil)
         #expect(intents == [.addItems])
         bar.done.performClick(nil)
         #expect(!sidebar.isEditingItems && sidebar.editBar == nil)
         #expect(!regions.contains { $0.isEditing })
+    }
+
+    /// Escape on a focused item ends edit mode (Done has no keycap: a focused pane keeps Escape).
+    @Test func escapeOnAnEditedItemEndsEditMode() throws {
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        sidebar.frame = NSRect(x: 0, y: 0, width: 260, height: 600)
+        sidebar.renderNow()
+        sidebar.setEditingItems(true)
+        sidebar.layoutSubtreeIfNeeded()
+        let item = try #require((sidebar.aboveRegion.itemViews.values.first ?? sidebar.belowRegion.itemViews.values.first),
+                                "the default sidebar draws no item in its bands")
+        #expect(item.isEditing)
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0, windowNumber: 0, context: nil,
+                                                   characters: "\u{1b}", charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        item.keyDown(with: escape)
+        #expect(!sidebar.isEditingItems && !item.isEditing)
     }
 
     @Test func editSidebarIsOnTheSidebarsMenusAndThePalette() throws {
