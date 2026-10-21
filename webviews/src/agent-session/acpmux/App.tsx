@@ -6964,6 +6964,7 @@ function AcpmuxPane() {
               notice={<DictationNotice dictation={dictation} />}
               template={screenTemplate(shownTemplate(newTab))}
               {...(newTab.widgets ? { widgets: true } : {})}
+              {...(newTab.allChats === false ? { allChats: false } : {})}
               snapshot={newTabSnapshot}
               omnibar={newTab.omnibar}
               location={newTab.location}

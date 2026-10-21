@@ -71617,127 +71617,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إظهار كل المحادثات"
+            "value": "إظهار كل المحادثات في علامة التبويب الجديدة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (bs)"
+            "state": "translated",
+            "value": "Prikaži sve razgovore na novoj kartici"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (da)"
+            "state": "translated",
+            "value": "Vis alle chats på Ny fane"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Alle Chats anzeigen"
+            "value": "Alle Chats im neuen Tab anzeigen"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Show All Chats"
+            "value": "Show All Chats on New Tab"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mostrar todos los chats"
+            "value": "Mostrar todos los chats en Nueva pestaña"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Afficher tous les chats"
+            "value": "Afficher tous les chats dans Nouvel onglet"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (it)"
+            "state": "translated",
+            "value": "Mostra tutte le chat in Nuova scheda"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "すべてのチャットを表示"
+            "value": "新規タブにすべてのチャットを表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (km)"
+            "state": "translated",
+            "value": "បង្ហាញការជជែកទាំងអស់នៅលើផ្ទាំងថ្មី"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "모든 채팅 표시"
+            "value": "새 탭에 모든 채팅 표시"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (nb)"
+            "state": "translated",
+            "value": "Vis alle chatter på Ny fane"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (pl)"
+            "state": "translated",
+            "value": "Pokaż wszystkie czaty na nowej karcie"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (pt-BR)"
+            "state": "translated",
+            "value": "Mostrar todos os chats na Nova aba"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (ru)"
+            "state": "translated",
+            "value": "Показывать все чаты на новой вкладке"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (th)"
+            "state": "translated",
+            "value": "แสดงแชททั้งหมดในแท็บใหม่"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (tr)"
+            "state": "translated",
+            "value": "Yeni Sekmede tüm sohbetleri göster"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (uk)"
+            "state": "translated",
+            "value": "Показувати всі чати на новій вкладці"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Show All Chats (vi)"
+            "state": "translated",
+            "value": "Hiện mọi cuộc trò chuyện trên Thẻ mới"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "显示所有聊天"
+            "value": "在新标签页显示所有聊天"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "顯示所有聊天"
+            "value": "在新分頁顯示所有聊天"
           }
         }
       }
@@ -71748,127 +71748,127 @@
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "يعرض كل محادثات وكلاء البرمجة على هذا الكمبيوتر، الأحدث أولًا، أسفل الشريط الجانبي."
+            "value": "في صفحة علامة التبويب الجديدة، يعرض نمطا Threads وConsole كل محادثات وكلاء البرمجة على هذا الكمبيوتر، الأحدث أولًا. عند إيقافه، يعرضان المحادثات الأخيرة فقط."
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (bs)"
+            "state": "translated",
+            "value": "Na stranici nove kartice stilovi Threads i Console prikazuju svaki razgovor s agentom za kodiranje na ovom računaru, najnovije prvo. Kad je isključeno, prikazuju samo nedavne razgovore."
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (da)"
+            "state": "translated",
+            "value": "På siden Ny fane viser stilene Threads og Console alle chats med kodeagenter på denne computer, nyeste først. Når den er slået fra, vises kun de seneste chats."
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zeigt jeden Chat von Coding-Agenten auf diesem Computer, die neuesten zuerst, unten in der Seitenleiste."
+            "value": "Auf der Seite „Neuer Tab“ listen die Stile Threads und Console jeden Chat von Coding-Agenten auf diesem Computer auf, die neuesten zuerst. Aus zeigen sie nur die letzten Chats."
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar."
+            "value": "On the New Tab page, the Threads and Console styles list every coding agent chat on this computer, newest first. Off, they show the recent chats only."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Muestra todos los chats de agentes de código de este ordenador, primero los más recientes, al final de la barra lateral."
+            "value": "En la página Nueva pestaña, los estilos Threads y Console muestran todos los chats de agentes de código de este ordenador, primero los más recientes. Desactivado, muestran solo los chats recientes."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Affiche tous les chats d’agents de code de cet ordinateur, du plus récent au plus ancien, en bas de la barre latérale."
+            "value": "Sur la page Nouvel onglet, les styles Threads et Console listent tous les chats d’agents de code de cet ordinateur, du plus récent au plus ancien. Désactivé, ils n’affichent que les chats récents."
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (it)"
+            "state": "translated",
+            "value": "Nella pagina Nuova scheda, gli stili Threads e Console elencano tutte le chat degli agenti di programmazione su questo computer, dalla più recente. Se disattivato, mostrano solo le chat recenti."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "このコンピュータのすべてのコーディングエージェントのチャットを、新しい順にサイドバーの下部に表示します。"
+            "value": "新規タブページの Threads と Console スタイルで、このコンピュータのすべてのコーディングエージェントのチャットを新しい順に一覧表示します。オフにすると最近のチャットだけを表示します。"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (km)"
+            "state": "translated",
+            "value": "នៅលើទំព័រផ្ទាំងថ្មី រចនាប័ទ្ម Threads និង Console បង្ហាញការជជែកភ្នាក់ងារសរសេរកូដទាំងអស់នៅលើកុំព្យូទ័រនេះ ថ្មីបំផុតមុន។ ពេលបិទ វាបង្ហាញតែការជជែកថ្មីៗប៉ុណ្ណោះ។"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "이 컴퓨터의 모든 코딩 에이전트 채팅을 최신순으로 사이드바 하단에 표시합니다."
+            "value": "새 탭 페이지에서 Threads 및 Console 스타일은 이 컴퓨터의 모든 코딩 에이전트 채팅을 최신순으로 나열합니다. 끄면 최근 채팅만 표시합니다."
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (nb)"
+            "state": "translated",
+            "value": "På siden Ny fane viser stilene Threads og Console alle chatter med kodeagenter på denne datamaskinen, nyeste først. Når den er av, vises bare de siste chattene."
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (pl)"
+            "state": "translated",
+            "value": "Na stronie nowej karty style Threads i Console wyświetlają wszystkie czaty agentów programistycznych na tym komputerze, od najnowszych. Po wyłączeniu pokazują tylko ostatnie czaty."
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (pt-BR)"
+            "state": "translated",
+            "value": "Na página Nova aba, os estilos Threads e Console listam todos os chats de agentes de código deste computador, do mais recente ao mais antigo. Desativado, mostram apenas os chats recentes."
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (ru)"
+            "state": "translated",
+            "value": "На странице новой вкладки стили Threads и Console показывают все чаты агентов программирования на этом компьютере, сначала новые. Если выключено, показываются только недавние чаты."
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (th)"
+            "state": "translated",
+            "value": "ในหน้าแท็บใหม่ รูปแบบ Threads และ Console จะแสดงแชทของเอเจนต์เขียนโค้ดทั้งหมดในคอมพิวเตอร์เครื่องนี้ โดยเรียงจากใหม่สุด เมื่อปิด จะแสดงเฉพาะแชทล่าสุด"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (tr)"
+            "state": "translated",
+            "value": "Yeni Sekme sayfasında Threads ve Console stilleri bu bilgisayardaki tüm kodlama ajanı sohbetlerini en yeniden başlayarak listeler. Kapalıyken yalnızca son sohbetleri gösterir."
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (uk)"
+            "state": "translated",
+            "value": "На сторінці нової вкладки стилі Threads і Console показують усі чати агентів програмування на цьому комп’ютері, спочатку нові. Якщо вимкнено, показуються лише нещодавні чати."
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Shows every coding agent chat on this computer, newest first, at the bottom of the sidebar. (vi)"
+            "state": "translated",
+            "value": "Trên trang Thẻ mới, kiểu Threads và Console liệt kê mọi cuộc trò chuyện với tác nhân lập trình trên máy tính này, mới nhất trước. Khi tắt, chỉ hiện các cuộc trò chuyện gần đây."
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "在边栏底部显示这台电脑上所有编程代理的聊天，最新的在前。"
+            "value": "在新标签页上，Threads 和 Console 样式会列出这台电脑上所有编程代理的聊天，最新的在前。关闭后只显示最近的聊天。"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "在側邊欄底部顯示這台電腦上所有程式設計代理的聊天，最新的在前。"
+            "value": "在新分頁上，Threads 和 Console 樣式會列出這台電腦上所有程式設計代理的聊天，最新的在前。關閉後只顯示最近的聊天。"
           }
         }
       }
