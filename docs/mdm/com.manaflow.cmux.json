@@ -47,6 +47,16 @@
       "title" : "Chat Full Width",
       "type" : "boolean"
     },
+    "agentPane.display.inspector.placement" : {
+      "default" : "overlay",
+      "description" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat.",
+      "enum" : [
+        "push",
+        "overlay"
+      ],
+      "title" : "Inspector",
+      "type" : "string"
+    },
     "agentPane.display.width" : {
       "default" : 800,
       "description" : "The widest the chat's column gets. On a wider pane the chat stays centered.",
@@ -2805,6 +2815,17 @@
       },
       "title" : "Quiet Hours",
       "type" : "object"
+    },
+    "notifications.showPreviews" : {
+      "default" : "whenUnlocked",
+      "description" : "Whether a banner shows what the agent said, or only where and what state.",
+      "enum" : [
+        "always",
+        "whenUnlocked",
+        "never"
+      ],
+      "title" : "Show Message in Banners",
+      "type" : "string"
     },
     "notifications.sound" : {
       "default" : "default",

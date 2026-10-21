@@ -734,6 +734,7 @@
               "agentPane.display.font.lineHeight",
               "agentPane.display.code.family",
               "agentPane.display.code.scale",
+              "agentPane.display.inspector.placement",
               "agentPane.links.outsideRoots",
               "agentPane.images.remote",
               "agentPane.editedFiles.show",
@@ -748,16 +749,6 @@
             "title" : {
               "key" : "settings.group.agentChat",
               "text" : "Agent Chat"
-            }
-          },
-          {
-            "key" : "settings.group.chiefChat",
-            "rows" : [
-              "home.chiefBubbleStyle"
-            ],
-            "title" : {
-              "key" : "settings.group.chiefChat",
-              "text" : "Chief Chat"
             }
           },
           {
@@ -831,7 +822,6 @@
         "trail" : [
           "harnesses",
           "agentHarnesses",
-          "chiefs",
           "computerUse"
         ]
       },
@@ -844,6 +834,16 @@
         ],
         "groups" : [
           {
+            "key" : "settings.group.chiefChat",
+            "rows" : [
+              "home.chiefBubbleStyle"
+            ],
+            "title" : {
+              "key" : "settings.group.chiefChat",
+              "text" : "Chief Chat"
+            }
+          },
+          {
             "key" : "settings.group.chiefPet",
             "rows" : [
               "home.chiefPetEnabled",
@@ -855,14 +855,15 @@
             }
           }
         ],
-        "id" : "chief-pet",
+        "id" : "chief",
         "lead" : [
+          "chiefs",
           "chiefPet"
         ],
-        "symbol" : "pawprint",
+        "symbol" : "crown",
         "title" : {
-          "key" : "settings.category.chiefPet",
-          "text" : "Chief Pet"
+          "key" : "settings.category.chief",
+          "text" : "Chief"
         },
         "trail" : [
 
@@ -886,7 +887,8 @@
               "status.runNotifyMinimumSeconds",
               "status.runNotifyWhenVisible",
               "notifications.dockBadge",
-              "notifications.dockBounce"
+              "notifications.dockBounce",
+              "notifications.showPreviews"
             ],
             "title" : {
               "key" : "settings.group.banners",
@@ -17773,6 +17775,79 @@
     },
     {
       "accepts" : [
+        "push",
+        "overlay"
+      ],
+      "agent_refusal" : null,
+      "agent_settable" : true,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorPush",
+            "text" : "Push"
+          },
+          "value" : "push"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.agentChatInspectorOverlay",
+            "text" : "Overlay"
+          },
+          "value" : "overlay"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "overlay",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.agentChat",
+        "text" : "Agent Chat"
+      },
+      "help" : {
+        "key" : "settings.agentPane.display.inspector.help",
+        "text" : "Where the Inspector opens at the right of the chat. Push narrows the chat beside it; Overlay lies over the chat."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "agentPane.display.inspector.placement",
+      "keywords" : [
+        "agent",
+        "chat",
+        "acp",
+        "display",
+        "reading",
+        "inspector",
+        "panel",
+        "side",
+        "right",
+        "overlay",
+        "push",
+        "details"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "agentPane",
+        "display",
+        "inspector",
+        "placement"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "appearance",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.agentPane.display.inspector",
+        "text" : "Inspector"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
 
       ],
       "agent_refusal" : null,
@@ -32068,6 +32143,78 @@
       "title" : {
         "key" : "settings.notifications.dockBounce",
         "text" : "Bounce Dock Icon"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        "always",
+        "whenUnlocked",
+        "never"
+      ],
+      "agent_refusal" : "userOnly",
+      "agent_settable" : false,
+      "choices" : [
+        {
+          "title" : {
+            "key" : "settings.choice.previewsAlways",
+            "text" : "Always"
+          },
+          "value" : "always"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsWhenUnlocked",
+            "text" : "When Unlocked"
+          },
+          "value" : "whenUnlocked"
+        },
+        {
+          "title" : {
+            "key" : "settings.choice.previewsNever",
+            "text" : "Never"
+          },
+          "value" : "never"
+        }
+      ],
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : "whenUnlocked",
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.banners",
+        "text" : "Banners and Sound"
+      },
+      "help" : {
+        "key" : "settings.notifications.showPreviews.help",
+        "text" : "Whether a banner shows what the agent said, or only where and what state."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "notifications.showPreviews",
+      "keywords" : [
+        "preview",
+        "privacy",
+        "message",
+        "lock screen",
+        "banner"
+      ],
+      "kind" : "choice",
+      "page_hidden" : false,
+      "path" : [
+        "notifications",
+        "showPreviews"
+      ],
+      "refuses" : [
+        "__not_a_choice__",
+        1,
+        true
+      ],
+      "section" : "notifications",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.notifications.showPreviews",
+        "text" : "Show Message in Banners"
       },
       "validation" : "portable"
     },
