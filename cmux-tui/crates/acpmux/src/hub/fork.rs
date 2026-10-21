@@ -191,6 +191,7 @@ impl Hub {
             event_count: 0,
             turn_count,
             usage: None,
+            available_commands: parent_meta.available_commands.clone(),
             permission_rules: None,
             tags: Default::default(),
             unread: false,
