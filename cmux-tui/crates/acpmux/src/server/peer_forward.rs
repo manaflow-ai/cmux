@@ -108,6 +108,7 @@ async fn forward_inner(
             obj.insert("sessionId".into(), Value::String(id.clone()));
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
+        bound_page(m, params, &mut p);
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
         }
@@ -207,6 +208,17 @@ pub const PEER_HOPS_FIELD: &str = "peerHops";
 pub const MAX_PEER_HOPS: u64 = 4;
 
 /// Count one more forward of an answer, or refuse one past the limit.
+/// A history read (`attach`, `events`) goes to the peer with the byte limit this daemon would
+/// page to: a peer on an older build has no limit of its own and answers in one reply however
+/// large, and one of 32.8 MB reset the link with its 29 chats (2026-10-21).
+fn bound_page(m: &str, params: &Value, forwarded: &mut Value) {
+    if matches!(m, method::MUX_ATTACH | method::MUX_EVENTS)
+        && let Some(object) = forwarded.as_object_mut()
+    {
+        object.insert("maxBytes".into(), json!(crate::hub::page_bytes(params)));
+    }
+}
+
 fn count_hop(forwarded: &mut Value) -> Result<(), RpcError> {
     let hops = forwarded
         .pointer(&format!("/_meta/acpmux/{PEER_HOPS_FIELD}"))
