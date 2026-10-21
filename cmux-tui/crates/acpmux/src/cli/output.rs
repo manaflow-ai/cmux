@@ -64,6 +64,9 @@ impl PromptId {
         if let Some(name) = &self.from_agent {
             mux["fromAgent"] = json!(name);
         }
+        if let Some(key) = &self.supersede {
+            mux["supersede"] = json!(key);
+        }
         json!({"sessionId": session, "prompt": [{"type": "text", "text": text}], "_meta": {"acpmux": mux}})
     }
 
@@ -133,9 +136,15 @@ pub(crate) async fn queue_prompt(
 }
 
 /// What `acpmux send --no-wait` prints for its acceptance.
-pub(crate) fn sent_lines(accepted: &Value, _supersede: bool) -> Vec<String> {
+/// With `--supersede`, a second line says how many of the sender's queued prompts it replaced.
+pub(crate) fn sent_lines(accepted: &Value, supersede: bool) -> Vec<String> {
     let steered = accepted.get("steer") == Some(&json!(true));
-    vec![if steered { "steered" } else { "queued" }.to_owned()]
+    let mut lines = vec![if steered { "steered" } else { "queued" }.to_owned()];
+    if supersede {
+        let replaced = accepted.get("replaced").and_then(Value::as_u64).unwrap_or(0);
+        lines.push(format!("replaced {replaced} queued"));
+    }
+    lines
 }
 
 pub(crate) fn print_json(v: &Value) {
