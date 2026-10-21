@@ -22793,10 +22793,11 @@
               "kind": "enum",
               "values": [
                 "close",
-                "keep"
+                "keep",
+                "shell"
               ]
             },
-            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
           },
           "cols": {
             "required": false,
@@ -32673,10 +32674,11 @@
               "kind": "enum",
               "values": [
                 "close",
-                "keep"
+                "keep",
+                "shell"
               ]
             },
-            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
           },
           "cols": {
             "required": false,
