@@ -31,4 +31,29 @@ struct AgentPaneConnectActionTests {
         #expect(await model.respond(to: .runAction("newCloudMachine"))["ok"] as? Bool == true)
         #expect(arguments == [[:]])
     }
+
+    /// A started chat's picker: Move to Cloud on a chat of this Mac, Bring Back Local on a Cloud
+    /// chat, the same actions as the tab's right-click menu, on the person's gesture.
+    @Test func moveAndBringBackRunOnAGesture() async {
+        let model = AgentPaneModel(host: NoHost())
+        var ran: [String] = []
+        model.onRunAction = { id, args in ran.append(id); #expect(args.isEmpty); return true }
+        #expect(await model.respond(to: .runAction("cloudMove"))["ok"] as? Bool != true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("cloudMove"))["ok"] as? Bool == true)
+        model.transport.gestures.record()
+        #expect(await model.respond(to: .runAction("cloudBringBack"))["ok"] as? Bool == true)
+        #expect(ran == ["cloudMove", "cloudBringBack"])
+    }
+
+    /// An action the app did not run (turned off, or not available for this chat) is a failure, so
+    /// the page can say so instead of nothing happening.
+    @Test func anActionTheAppDidNotRunIsAFailure() async {
+        let model = AgentPaneModel(host: NoHost())
+        model.onRunAction = { _, _ in false }
+        model.transport.gestures.record()
+        let reply = await model.respond(to: .runAction("cloudBringBack"))
+        #expect(reply["ok"] as? Bool != true)
+        #expect((reply["error"] as? [String: Any])?["code"] as? String == "unavailable")
+    }
 }
