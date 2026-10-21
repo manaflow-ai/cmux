@@ -60,6 +60,8 @@ final class AppServices {
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
+    /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
+    let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
@@ -129,6 +131,8 @@ final class AppServices {
     private(set) lazy var vaultPages: VaultPageService = VaultPageService(vault: vault, registry: registry)
     /// Where each window's right sidebar remembers its state (tests set a suite of their own).
     var rightSidebarDefaults: UserDefaults = .standard
+    /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
+    private(set) lazy var fileExplorers = FileExplorerService(services: self)
     /// The right sidebar's sections by mode (the file explorer adds Files and Find).
     private(set) lazy var rightSidebarSections: RightSidebarSections = {
         let sections = RightSidebarSections()
