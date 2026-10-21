@@ -28,9 +28,9 @@ function ChatFindBarGallery() {
   );
 }
 
-const field = { selector: ".acpmux-find__field" };
+const field = { selector: ".acpmux-find .find-pill__field" };
 const countIs = (ctx: { document: Document }, text: string) =>
-  ctx.document.querySelector(".acpmux-find__count")?.textContent === text;
+  ctx.document.querySelector(".acpmux-find .find-pill__count")?.textContent === text;
 // The count's width follows its text and the bar is anchored at its right edge, so the bar grows
 // to the left when the count first shows (shipped behavior of ChatFindBar).
 const countShift = {
@@ -79,8 +79,8 @@ export default componentEntry<Record<string, never>>({
         await ctx.type("zzzz", field);
         await ctx.waitFor(
           () =>
-            !!ctx.document.querySelector(".acpmux-find__count")?.textContent &&
-            ctx.document.querySelector<HTMLButtonElement>(".acpmux-find__step")?.disabled === true,
+            !!ctx.document.querySelector(".acpmux-find .find-pill__count")?.textContent &&
+            ctx.document.querySelector<HTMLButtonElement>(".acpmux-find .find-pill__button")?.disabled === true,
         );
       },
     },

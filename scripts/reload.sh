@@ -1389,6 +1389,25 @@ if [[ -z "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" && -x "$PWD/scripts/cmux-next/build-
 fi
 [[ -n "${CMUX_NEXT_OPTCHAT_CHIEF_BIN:-}" ]] && echo "==> cmux-next: bundling optchat-chief from $CMUX_NEXT_OPTCHAT_CHIEF_BIN"
 
+# The cmux mobile iPhone host (cmux-next-ios/rust/crates/cmux-mobile-host), which Settings >
+# Mobile runs. Same rule as optchat-chief: fleet and CI builds
+# compile it on a miss and require it; a local reload bundles a cached build
+# when one exists and otherwise builds an app whose iPhone section says it is
+# unavailable (never Cargo on the developer Mac).
+if [[ "$BUILD_CONFIGURATION" == "Release" ]]; then
+  export CMUX_NEXT_MOBILE_HOST_ARCHS="${CMUX_NEXT_MOBILE_HOST_ARCHS:-arm64 x86_64}"
+fi
+if [[ -z "${CMUX_NEXT_MOBILE_HOST_BIN:-}" && -x "$PWD/scripts/cmux-next/build-mobile-host.sh" ]]; then
+  if cmux_mobile_host_cached="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path 2>/dev/null)"; then
+    export CMUX_NEXT_MOBILE_HOST_BIN="$cmux_mobile_host_cached"
+  elif "$PWD/scripts/cmux-next/build-mobile-host.sh" --check-build-allowed; then
+    "$PWD/scripts/cmux-next/build-mobile-host.sh" || exit 1
+    export CMUX_NEXT_MOBILE_HOST_BIN="$("$PWD/scripts/cmux-next/build-mobile-host.sh" --cached-only --print-path)"
+    export CMUX_NEXT_REQUIRE_MOBILE_HOST=1
+  fi
+fi
+[[ -n "${CMUX_NEXT_MOBILE_HOST_BIN:-}" ]] && echo "==> cmux-next: bundling cmux-mobile-host from $CMUX_NEXT_MOBILE_HOST_BIN"
+
 # The web bundles (agent pane, pages, Agent Activity, palette ranker, webviews
 # app) are build output, not committed: they are built from the sources before
 # the compile, so the app never ships a stale or missing copy (cx-vn5). A warm

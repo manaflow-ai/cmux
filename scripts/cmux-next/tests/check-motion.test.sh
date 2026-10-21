@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# check-motion.sh: a constraint animator outside Motion.animator(_:in:) and a
+# check-motion.sh: an animation that names no motion category (Motion.<category>,
+# 2026-10-20: ui.animations.enabled and ui.animations.<category>), a SwiftUI or
+# AppKit animation outside a gate, a constraint animator outside Motion.animator(_:in:) and a
 # Motion.animate / animateTimed / animateExit call without `in:` fail the
 # gate (an animation in a window with no screen never advances, so Motion
 # must know the animated view; 2026-10-05). A reviewed `// motion-allow:`
@@ -20,13 +22,41 @@ check() {
 pass() { check "$2" || { echo "FAIL: must pass: $1" >&2; exit 1; }; }
 fail() { if check "$2"; then echo "FAIL: must fail: $1" >&2; exit 1; fi; }
 
-fail "a raw constraint animator" '        Motion.animateTimed(.appear, in: self, { width.animator().constant = 0 })'
-fail "a Motion.animate call without in:" '        Motion.animate(.fadeIn) { view.animator().alphaValue = 1 }'
-fail "a Motion.animateTimed call without in:" '        Motion.animateTimed(hidden ? .disappear : .appear, { apply() })'
-fail "a Motion.animateExit call without in:" '        Motion.animateExit(.disappear, apply)'
-pass "a call with in: and the constraint helper" '        Motion.animateTimed(.appear, in: self, { Motion.animator(width, in: self).constant = 0 })'
-pass "a call with in: for a view" '        Motion.animate(appearing ? .fadeIn : .fadeOut, in: view, { view.animator().alphaValue = 1 }, completion: nil)'
+fail "a raw constraint animator" '        Motion.sidebar.animateTimed(.appear, in: self, { width.animator().constant = 0 })'
+fail "a Motion.animate call without in:" '        Motion.overlays.animate(.fadeIn) { view.animator().alphaValue = 1 }'
+fail "a Motion.animateTimed call without in:" '        Motion.panes.animateTimed(hidden ? .disappear : .appear, { apply() })'
+fail "a Motion.animateExit call without in:" '        Motion.sidebar.animateExit(.disappear, apply)'
+pass "a call with in: and the constraint helper" '        Motion.sidebar.animateTimed(.appear, in: self, { Motion.animator(width, in: self).constant = 0 })'
+pass "a call with in: for a view" '        Motion.overlays.animate(appearing ? .fadeIn : .fadeOut, in: view, { view.animator().alphaValue = 1 }, completion: nil)'
 pass "a reviewed exception on the line above" '        // motion-allow: the overlay has no view to ask
-        Motion.animate(.fadeIn) { overlay.animator().alphaValue = 1 }'
+        Motion.overlays.animate(.fadeIn) { overlay.animator().alphaValue = 1 }'
 pass "a comment that mentions the call" '        // Motion.animate(.fadeIn) { x.animator().constant = 1 }'
+
+# Every animation names its motion category (ui.animations.<category>, motion-DESIGN.md).
+fail "an animation with no category" '        Motion.animate(.move, in: self) { view.animator().frame = target }'
+fail "a layer animation with no category" '        Motion.set(layer, "opacity", to: 1, fade: .fadeIn)'
+fail "a timing read with no category" '        let seconds = Motion.duration(.fadeIn)'
+fail "a spinner with no category" '        layer.add(Motion.spinAnimation()!, forKey: "spin")'
+pass "a categorized layer animation" '        Motion.tabs.set(layer, "opacity", to: 1, fade: .fadeIn)'
+pass "a categorized timing read" '        let seconds = Motion.home.duration(.fadeIn)'
+pass "category-free helpers" '        Motion.withoutAnimation { view.frame = target }; _ = Motion.canAnimate(in: view)'
+fail "a raw SwiftUI animation" '        .animation(.easeOut, value: isHovered)'
+fail "a raw SwiftUI default animation" '        .animation(.default, value: model)'
+pass "a SwiftUI animation from a gate" '        .animation(reduceMotion ? nil : Motion.feedback.animation(.hover), value: isHovered)'
+pass "reading a layer animation" '        let running = layer.animation(forKey: "opacity") != nil'
+fail "a SwiftUI transition" '        .transition(.opacity)'
+fail "a symbol effect" '        content.symbolEffect(.pulse, isActive: true)'
+fail "a continuous TimelineView" '        TimelineView(.animation) { context in sky(context.date) }'
+fail "a window that animates by itself" '        animationBehavior = .utilityWindow'
+pass "a window whose animation a gate decides" '        animationBehavior = Motion.overlays.animatesMovement ? .utilityWindow : .none'
+pass "a window that never animates" '        animationBehavior = .none'
+fail "a popover that animates by itself" '        popover.animates = true'
+pass "a popover whose animation a gate decides" '        popover.animates = Motion.overlays.animatesMovement'
+fail "an animator change outside any gate group" '        view.animator().alphaValue = 1'
+pass "an animator change inside a gate group" '        Motion.home.animate(.fadeIn, in: view) {
+            view.animator().alphaValue = 1
+        }'
+pass "the new escape with a reason" '        // motion: allow runs only inside the caller'"'"'s Motion.sidebar.animate group
+        view.animator().alphaValue = 1'
+fail "the new escape without a reason" '        view.animator().alphaValue = 1 // motion: allow'
 echo "check-motion.test: ok"

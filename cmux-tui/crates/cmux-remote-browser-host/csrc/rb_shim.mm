@@ -508,6 +508,14 @@ class App : public CefApp, public CefBrowserProcessHandler {
     if (g_external_begin_frames) {
       command_line->AppendSwitch("cmux-remote-begin-frames");
     }
+    // No login Keychain. Without this the network service waits for the
+    // "Chromium Safe Storage" key before it reads cookies, so every http(s)
+    // request hangs before its transaction starts and the tab never paints
+    // (data: and about:blank still render). The key's ACL names whichever
+    // app made it, so this background host, which can show no prompt, never
+    // gets it. Its profile is fresh per launch and removed on exit, so there
+    // is nothing at rest worth the Keychain.
+    command_line->AppendSwitch("use-mock-keychain");
     command_line->AppendSwitch("no-first-run");
     command_line->AppendSwitch("disable-field-trial-config");
   }

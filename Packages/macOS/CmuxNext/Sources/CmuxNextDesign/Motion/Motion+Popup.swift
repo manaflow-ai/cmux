@@ -1,12 +1,21 @@
 public import AppKit
 
 /// Open and close of a popup window that a control opened (cx-f6i7): the
-/// group editors under a tab group chip or a sidebar group header. It fades
-/// in while its content grows from `Motion.panelOpenScale` about the middle
-/// of its edge that faces the control, so it reads as coming out of that
-/// control; it closes faster, fading and shrinking toward the same point.
-/// A reopen during the close continues from what is on screen. Reduce
-/// Motion keeps the fades only, at the popup's size.
+/// Chief pill's settings card, the group editors under a tab group chip or a
+/// sidebar group header, page info, the toolbar menus. The card fades in
+/// while it grows from `Motion.popupOpenScale` on the `popover` spring about
+/// the middle of its edge that faces the control, so it reads as coming out
+/// of that control; it closes faster (`popoverClose`), fading and shrinking
+/// toward the same point. A reopen during the close continues from what is
+/// on screen. Reduce Motion keeps a short crossfade at the popup's size;
+/// `ui.animationSpeed` "off" applies both at once.
+///
+/// Both run on the content view's layer, never the window's alpha
+/// (Lawrence's recording 2026-10-20): faded through `alphaValue`, the glass
+/// card showed no fade at all, so it appeared at full size in one frame and
+/// left after a ~75 ms hold. The window is opaque while the popup is up;
+/// owners still order a fresh popup front at alpha 0, which `openPopup`
+/// lifts once the card's layer starts at opacity 0, so nothing flashes.
 @MainActor
 public extension NSWindow {
     /// The point the popup grows from, in its content view: the middle of
@@ -20,35 +29,84 @@ public extension NSWindow {
         return CGPoint(x: x, y: y)
     }
 
-    /// Fades the popup in (its alpha must start at 0 on a fresh open) and
-    /// grows its content about `pivot`.
+    /// Fades the popup's card in and grows it about `pivot`. A fresh open
+    /// (the owner left the window at alpha 0) starts from nothing; a reopen
+    /// during the close continues from what is on screen.
     func openPopup(pivot: CGPoint) {
-        guard let content = contentView else { return }
+        guard let content = contentView else {
+            alphaValue = 1
+            return
+        }
         content.wantsLayer = true
-        if let layer = content.layer {
-            let closing = layer.animation(forKey: "sublayerTransform") != nil
-            Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .appear,
-                       from: closing ? nil : NSValue(caTransform3D: Motion.scale(Motion.panelOpenScale, about: pivot, in: layer)))
+        guard let layer = content.layer else {
+            alphaValue = 1
+            return
         }
-        Motion.animateTimed(.fadeIn, in: content) { self.animator().alphaValue = 1 }
+        let reopening = layer.animation(forKey: "opacity") != nil || layer.animation(forKey: "sublayerTransform") != nil
+        let fresh = !reopening && alphaValue < 1
+        guard Motion.canAnimate(in: content) else {
+            layer.removeAnimation(forKey: "opacity")
+            layer.removeAnimation(forKey: "sublayerTransform")
+            setPopupLayer(layer, opacity: 1, transform: CATransform3DIdentity)
+            alphaValue = 1
+            return
+        }
+        Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(1)), fade: .fadeIn,
+                   from: fresh ? NSNumber(value: Float(0)) : nil)
+        if Motion.overlays.animatesMovement {
+            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: CATransform3DIdentity), spring: .popover,
+                       from: fresh ? NSValue(caTransform3D: Motion.scale(Motion.popupOpenScale, about: pivot, in: layer)) : nil)
+        } else {
+            // Reduce Motion: at the popup's size, whatever a close left on screen.
+            layer.removeAnimation(forKey: "sublayerTransform")
+            setPopupLayer(layer, opacity: nil, transform: CATransform3DIdentity)
+        }
+        // The card's first frame (opacity 0) reaches the screen before the window turns opaque.
+        CATransaction.flush()
+        alphaValue = 1
     }
 
-    /// Fades the popup out while its content shrinks toward `pivot`, then
-    /// runs `completion` (which orders it out).
+    /// Fades the popup's card out while it shrinks toward `pivot`, then
+    /// runs `completion` (which orders it out and calls ``resetPopupScale()``).
     func closePopup(pivot: CGPoint, completion: @escaping @MainActor () -> Void) {
-        guard let content = contentView else { return completion() }
-        if let layer = content.layer {
-            Motion.set(layer, "sublayerTransform", to: NSValue(caTransform3D: Motion.scale(Motion.panelCloseScale, about: pivot, in: layer)),
-                       movementFade: .fadeOut)
+        guard let content = contentView, let layer = content.layer, Motion.canAnimate(in: content) else {
+            alphaValue = 0
+            return completion()
         }
-        Motion.animateTimed(.fadeOut, in: content, { self.animator().alphaValue = 0 }, completion: completion)
+        let duration = Motion.overlays.animatesMovement ? Motion.overlays.duration(.popoverClose) : Motion.overlays.duration(.fadeOut)
+        guard duration > 0 else {
+            layer.removeAnimation(forKey: "opacity")
+            layer.removeAnimation(forKey: "sublayerTransform")
+            setPopupLayer(layer, opacity: 0, transform: nil)
+            return completion()
+        }
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { MainActor.assumeIsolated { completion() } } // main-proof: CATransaction.h: the completion block is called on the main thread
+        Motion.overlays.set(layer, "opacity", to: NSNumber(value: Float(0)), duration: duration)
+        if Motion.overlays.animatesMovement {
+            Motion.overlays.set(layer, "sublayerTransform", to: NSValue(caTransform3D: Motion.scale(Motion.popupCloseScale, about: pivot, in: layer)),
+                       duration: duration)
+        } else {
+            layer.removeAnimation(forKey: "sublayerTransform")
+        }
+        CATransaction.commit()
     }
 
-    /// Clears a finished close's scale so the next open starts clean.
+    /// Clears a finished close (the card's fade and scale) so the next open starts clean.
     func resetPopupScale() {
         guard let layer = contentView?.layer else { return }
         layer.removeAnimation(forKey: "sublayerTransform")
-        layer.sublayerTransform = CATransform3DIdentity
+        layer.removeAnimation(forKey: "opacity")
+        setPopupLayer(layer, opacity: 1, transform: CATransform3DIdentity)
+    }
+
+    /// Writes the card layer's model values without an implicit animation.
+    private func setPopupLayer(_ layer: CALayer, opacity: Float?, transform: CATransform3D?) {
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        if let opacity { layer.opacity = opacity }
+        if let transform { layer.sublayerTransform = transform }
+        CATransaction.commit()
     }
 }
 

@@ -29,4 +29,16 @@ public struct AgentCursorGeometry {
         let y = content.minY + page.y * scale
         return CGPoint(x: min(max(x, clip.minX), clip.maxX), y: min(max(y, clip.minY), clip.maxY))
     }
+
+    /// Where a drag ends: its `to` point mapped as ``overlayPoint(of:content:clip:zoom:magnification:)``
+    /// maps the grab; nil for any other input (a scroll's `to` is its offset, not a point).
+    public static func dropPoint(
+        of event: AutomationInputEvent, content: CGRect, clip: CGRect, zoom: Double, magnification: Double
+    ) -> CGPoint? {
+        guard event.kind == .drag, let to = event.to else { return nil }
+        let scale = (event.zoom ?? zoom) * magnification
+        let x = content.minX + to.x * scale
+        let y = content.minY + to.y * scale
+        return CGPoint(x: min(max(x, clip.minX), clip.maxX), y: min(max(y, clip.minY), clip.maxY))
+    }
 }

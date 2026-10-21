@@ -151,7 +151,10 @@ enum NotificationHandlers {
         }
         guard !remote.isEmpty else { return }
         let pending = remote
-        context.daemon.send("ack-tab-notifications") { connection in
+        // Read now on this daemon's tabs; the tree's echo settles it, a failed ack rolls it back.
+        let tabs = remote.compactMap { store.tab(surface: $0) }
+        tabs.forEach { $0.expectNotificationRead() }
+        context.daemon.send("ack-tab-notifications", onFailure: { _ in tabs.forEach { $0.dropExpectedNotificationRead() } }) { connection in
             for surface in pending { _ = try await connection.acknowledgeNotifications(of: surface) }
         }
     }
