@@ -71,6 +71,7 @@ import {
   useAttachmentIntake,
 } from "./composer/attachmentIntake";
 import { type KeptAttachments, useKeptAttachments } from "./composer/keptAttachments";
+import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
@@ -437,6 +438,8 @@ export function Composer({
   });
   const attachmentsRef = useRef(attachments);
   attachmentsRef.current = attachments;
+  // A huge paste is a chip; Paste as Plain Text keeps it raw (composer/pastedChips.ts).
+  const pastedChips = usePastedChips(attachmentsRef, setAttachments, field);
   // + then Attach files clicks this input: the system file chooser (an open panel in the app).
   const chooser = useRef<HTMLInputElement>(null);
   useLayoutEffect(() => {
@@ -923,6 +926,7 @@ export function Composer({
     // Every key belongs to the input method while it composes, not only Enter.
     if (event.isComposing || event.keyCode === 229) return;
     if (interrupt(event)) return;
+    if (isPasteAsPlainTextKey(event)) pastedChips.plainPaste();
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
     // Tab takes the suggested prompt into the field; the next Tab moves focus on as usual. Esc puts
     // it away for this chat (and still does whatever Esc does there).
@@ -1224,6 +1228,7 @@ export function Composer({
   const runEdit = (command: ComposerEditCommand) => {
     if (shell) shellField.current?.focus();
     else field.current?.focus();
+    if (command === "pasteAsPlainText") pastedChips.plainPaste();
     onEdit?.(command);
   };
   // A press on the card around the text (the field's padding, the gap around the button row, the
@@ -1453,6 +1458,7 @@ export function Composer({
             setAttachments((current) => current.filter((item) => item.id !== id));
             field.current?.focus();
           }}
+          onExpand={pastedChips.expand}
         />
         {/* The prompt's own right-click menu (POLISH.md right-click contract); WebKit's never shows. */}
         <ContextMenu className="acpmux-composer-field-menu" items={fieldMenu} selection="menu" onOpen={noteSelection}>
@@ -1481,6 +1487,10 @@ export function Composer({
                     : undefined,
             }}
             onBeforeInput={(data, state) => {
+              // A huge paste is a chip, the prompt as it was (pastedText.ts); a chip's own text going
+              // back in is the person's to edit, never shell mode.
+              if (state.paste && !state.composing && pastedChips.take(data)) return true;
+              if (pastedChips.expanding.current) return false;
               // `!` first: shell mode, in place. A pasted `!cmd` keeps what follows the `!`.
               if (!onShell || state.composing || !state.empty || !data.startsWith("!")) return false;
               enterShell(data.slice(1));
