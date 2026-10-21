@@ -133,6 +133,20 @@ describe("Hexclave webhook inbox", () => {
     expect(harness.hexclave.calls.filter((call) => call.startsWith("getUser:"))).toHaveLength(20);
   });
 
+  test("a new event for an entity waits for that entity's active claim", async () => {
+    const inbox = new MemoryInbox();
+    const now = new Date(1_800_000_000_000);
+    const leaseUntil = new Date(now.getTime() + 120_000);
+    const target = { kind: "user" as const, id: userId(9), revokeCandidateTeamIds: [] };
+    await inbox.enqueue({ svixId: "msg_remove", eventType: "user.updated", target });
+    expect((await inbox.claimDue(now, 10, leaseUntil)).map((entry) => entry.svixId)).toEqual(["msg_remove"]);
+
+    await inbox.enqueue({ svixId: "msg_readd", eventType: "team_membership.created", target });
+    expect(await inbox.claimDue(now, 10, leaseUntil)).toEqual([]);
+    expect((await inbox.claimDue(new Date(leaseUntil.getTime() + 1), 10, new Date(leaseUntil.getTime() + 120_000)))
+      .map((entry) => entry.svixId).sort()).toEqual(["msg_readd", "msg_remove"]);
+  });
+
   test("a drain that crashed holding claims leaves them to be reclaimed and applied once", async () => {
     const harness = inboxHarness();
     harness.hexclave.users.set(userId(1), serverUser({ id: userId(1) }));
