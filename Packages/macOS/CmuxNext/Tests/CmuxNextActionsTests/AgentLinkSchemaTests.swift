@@ -147,10 +147,11 @@ struct AgentLinkSchemaTests {
         "cmux://agent/claude/s1?message=" + String(repeating: "m", count: 201),
         "cmux://agent/claude/s1?message=m-1&message=m-2",
     ]) func anUnusableMessageIsDroppedNotTheLink(_ text: String) throws {
-        let parsed = try #require(DeepLink.read(try #require(URL(string: text)), scheme: "cmux"))
+        let url = try #require(URL(string: text))
+        let parsed = try #require(DeepLink.read(url, scheme: "cmux"))
         #expect(parsed.link.target == .agent(harness: "claude", session: "s1"))
         #expect(parsed.link.message == nil)
-        #expect(parsed.ignoredParameters == ["message"], text)
+        #expect(parsed.ignoredParameters == ["message"], "\(text)")
     }
 
     /// A parameter no agent link reads, and a `machine` it cannot read: named, and the session
@@ -167,9 +168,10 @@ struct AgentLinkSchemaTests {
         ("cmux://agent/claude/s1?host=a&host=b", ["host"]),
         ("cmux://agent/claude/s1?account=someone%40example.com", ["account"]),
     ]) func aStrayParameterNeverCostsTheChat(_ text: String, _ ignored: [String]) throws {
-        let parsed = try #require(DeepLink.read(try #require(URL(string: text)), scheme: "cmux"))
+        let url = try #require(URL(string: text))
+        let parsed = try #require(DeepLink.read(url, scheme: "cmux"))
         #expect(parsed.link.target == .agent(harness: "claude", session: "s1"))
-        #expect(parsed.ignoredParameters == ignored, text)
+        #expect(parsed.ignoredParameters == ignored, "\(text)")
     }
 
     /// A link with every parameter right ignores nothing.
@@ -183,13 +185,16 @@ struct AgentLinkSchemaTests {
     /// and a `machine` they cannot read is still a refusal, not a hint to drop.
     @Test func theOtherKindsAreUnchanged() throws {
         let tab = "tab_0123456789abcdef0123456789abcdef"
-        let parsed = try #require(DeepLink.read(try #require(URL(string: "cmux://tab/\(tab)?cwd=x")), scheme: "cmux"))
+        let stray = try #require(URL(string: "cmux://tab/\(tab)?cwd=x"))
+        let parsed = try #require(DeepLink.read(stray, scheme: "cmux"))
         #expect(parsed.link == DeepLink(.tab(tab)))
         #expect(parsed.ignoredParameters == ["cwd"])
-        #expect(DeepLink.read(try #require(URL(string: "cmux://session/ses-01?machine=nope")), scheme: "cmux") == nil)
+        let badMachine = try #require(URL(string: "cmux://session/ses-01?machine=nope"))
+        #expect(DeepLink.read(badMachine, scheme: "cmux") == nil)
         // `?machine` with no value names no machine, as it always did: it is not a machine cmux
         // cannot read, so the link still opens.
-        let valueless = try #require(DeepLink.read(try #require(URL(string: "cmux://tab/\(tab)?machine")), scheme: "cmux"))
+        let noMachine = try #require(URL(string: "cmux://tab/\(tab)?machine"))
+        let valueless = try #require(DeepLink.read(noMachine, scheme: "cmux"))
         #expect(valueless.link == DeepLink(.tab(tab)))
         // Two machines on another kind read as the first one did before.
         let machine = "machine_0123456789abcdef0123456789abcdef"
@@ -204,7 +209,8 @@ struct AgentLinkSchemaTests {
     @Test func aMessageNeverRidesOnAnotherLink() throws {
         let tab = "tab_0123456789abcdef0123456789abcdef"
         #expect(DeepLink(.tab(tab), message: "msg_1").url(scheme: "cmux") == nil)
-        let link = try #require(DeepLink.parse(try #require(URL(string: "cmux://tab/\(tab)?message=msg_1")), scheme: "cmux"))
+        let url = try #require(URL(string: "cmux://tab/\(tab)?message=msg_1"))
+        let link = try #require(DeepLink.parse(url, scheme: "cmux"))
         #expect(link.message == nil)
         #expect(link.url(scheme: "cmux")?.absoluteString == "cmux://tab/\(tab)")
     }
