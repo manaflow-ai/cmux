@@ -67,6 +67,13 @@ await requireBrowserLane("gallery-agent-pane-entries.test.ts", async () => {
         (await count(page, ".acpmux-composer")) > 0 &&
         (await count(page, ".acpmux-home-area > *")) === 0,
     },
+    // Nothing is seeded: the image waits on the host's link.inspect answer, as in the app.
+    {
+      entry: "reply-image",
+      variant: "local",
+      shows: (page) =>
+        page.evaluate(() => [...document.images].some((image) => image.complete && image.naturalWidth > 0)),
+    },
   ];
 
   setDefaultTimeout(240_000);
