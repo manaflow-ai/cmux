@@ -21,6 +21,16 @@ extension ChatColumnPlacement {
         }
     }
 
+    /// Whether a person's Cmd-T or the strip's + in `controller`'s pane adds its tab to that pane: always
+    /// when the pane's strip takes new tabs, right after the selected tab and selected, with no other tab
+    /// moving (Leo 2026-10-21: "THIS ADDING TABS: IT SWITCHES AROUND AND DOESN'T REALLY GET ADDED"). The
+    /// chat dock's Cmd-T went to the strip column on its right, and a lone chat's moved into a new dock,
+    /// so the tab never showed in the pane it was added from. A pane that takes no tabs (Home's pinned
+    /// dock) routes as ``route(from:respawn:services:)`` says.
+    @MainActor static func newTabStays(in controller: PaneController) -> Bool {
+        controller.stripModel.showsNewTabButton
+    }
+
     /// Whether `tab` is an agent chat. The New Tab page is an agent tab too, but not a chat.
     /// Reads `tab` itself: finding it again by id walks every workspace's tabs, once per
     /// tab of a pane whose tab bar is drawn (cx-6so.21).

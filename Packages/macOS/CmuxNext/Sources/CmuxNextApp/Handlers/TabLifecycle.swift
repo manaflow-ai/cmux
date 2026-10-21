@@ -50,10 +50,11 @@ enum TabLifecycle {
         let tabCwd = cwd ?? NewTerminalStart.uninherited(.tab, services: ctx.services, daemon: ctx.services.daemon(for: pane),
                                                           besides: ctx.services.paneController(for: pane)?.selectedTab)
         if let controller = ctx.services.paneController(for: pane) {
-            // From the docked agent chat, a tab in the strip (ChatColumnPlacement). Its
+            // From the docked agent chat, a tab in the strip (ChatColumnPlacement), except Cmd-T's
+            // (`asTab`), which stays in a pane that takes tabs (`ChatColumnPlacement.newTabStays`). Its
             // cwd is the explicit one or nil, for the daemon's resolver (NEW-TERMINAL-INHERITS-CWD).
             var target: PaneController? = controller
-            if invocation.origin == .user {
+            if invocation.origin == .user, !(asTab && ChatColumnPlacement.newTabStays(in: controller)) {
                 let spawn = SpawnOptions(cwd: tabCwd, workspace: ctx.services.workspaceKey(of: pane), keep: keep)
                 target = ChatColumnPlacement.route(from: controller, respawn: .terminal(spawn), services: ctx.services)
             }
@@ -149,8 +150,9 @@ enum TabLifecycle {
             if let engine { invocation.arguments["engine"] = .string(engine) }
             newBrowser(ctx, invocation, slot: slot)
         case .agent, .page:
-            // The docked agent chat gets no tabs: a New Tab page in the strip (ChatColumnPlacement).
-            if user, let controller {
+            // Cmd-T and the strip's + add to the pane they were pressed in; only a pane that takes no
+            // tabs (Home's pinned dock) opens the page beside it (ChatColumnPlacement.newTabStays).
+            if user, let controller, !ChatColumnPlacement.newTabStays(in: controller) {
                 // Nil: Home's pinned dock alone opened the page in a new column beside it.
                 guard let strip = ChatColumnPlacement.route(from: controller, respawn: nil, services: ctx.services) else { return }
                 if strip !== controller { return strip.newTabPage() }
