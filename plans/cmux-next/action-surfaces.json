@@ -19820,9 +19820,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar open-in",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19848,9 +19848,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar reveal-in-finder",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19876,9 +19876,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar copy-path",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19904,9 +19904,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar copy-relative-path",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19932,9 +19932,9 @@
     {
       "cli" : "liveInput",
       "cli_name" : "sidebar open-with",
-      "context_menu" : "noTargetSurface",
+      "context_menu" : "offered",
       "context_menus" : [
-
+        "fileExplorerRow"
       ],
       "default_aliases" : [
 
@@ -19955,6 +19955,118 @@
       "palette_suggested" : null,
       "title" : "Open With…",
       "title_key" : "action.fileExplorerOpenWith",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar new-file",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerNewFile",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New File",
+      "title_key" : "action.fileExplorerNewFile",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar new-folder",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerNewFolder",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "New Folder",
+      "title_key" : "action.fileExplorerNewFolder",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar rename-item",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerRename",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Rename",
+      "title_key" : "action.fileExplorerRename",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "liveInput",
+      "cli_name" : "sidebar move-to-trash",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "fileExplorerRow"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "fileExplorerMoveToTrash",
+      "main_menu" : null,
+      "mcp" : "liveInput",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.sidebar",
+        "order" : 107,
+        "title" : "Sidebar",
+        "title_key" : "category.sidebar",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Move to Trash",
+      "title_key" : "action.fileExplorerMoveToTrash",
       "title_table" : "ActionCatalog"
     },
     {
@@ -36270,6 +36382,146 @@
       ],
       "implied" : [
 
+      ]
+    },
+    "fileExplorerRow" : {
+      "entries" : [
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerOpenInCmux",
+          "kind" : "action",
+          "order" : 0,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerOpenWith",
+          "kind" : "action",
+          "order" : 1,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerReveal",
+          "kind" : "action",
+          "order" : 2,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 3
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerNewFile",
+          "kind" : "action",
+          "order" : 4,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerNewFolder",
+          "kind" : "action",
+          "order" : 5,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 6
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerRename",
+          "kind" : "action",
+          "order" : 7,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 8
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerCopyPath",
+          "kind" : "action",
+          "order" : 9,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerCopyRelativePath",
+          "kind" : "action",
+          "order" : 10,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        },
+        {
+          "kind" : "separator",
+          "order" : 11
+        },
+        {
+          "enabled_when" : "can_perform",
+          "id" : "fileExplorerMoveToTrash",
+          "kind" : "action",
+          "order" : 12,
+          "visible_when" : {
+            "debug_only" : false,
+            "feature" : null,
+            "requires" : [
+              "fileExplorerFocused"
+            ]
+          }
+        }
+      ],
+      "implied" : [
+        "fileExplorerFocused"
       ]
     },
     "machineSection" : {
