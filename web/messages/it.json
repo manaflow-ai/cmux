@@ -3451,6 +3451,7 @@
     "unsupportedParams": "Questo collegamento include parametri non supportati che cmux rifiuterà: {params}",
     "conflictingParams": "Questo collegamento include parametri che non possono essere utilizzati insieme: {params}",
     "invalidParams": "Questo collegamento include valori di parametri non validi: {params}",
+    "ignoredParams": "cmux ignora i parametri che non utilizza: {params}. La sessione si apre comunque.",
     "fixParams": "Correggi i parametri URL, quindi ricarica questa pagina.",
     "examplePrefix": "Vedi un",
     "exampleLink": "collegamento di esempio",

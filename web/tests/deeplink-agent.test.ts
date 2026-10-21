@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import {
   AGENT_ALLOWED_PARAMS,
   AGENT_PARAM_PATTERNS,
@@ -33,15 +32,11 @@ type Schema = {
 
 // The one schema the page and the app's parser share; the app runs the same
 // vectors, so an emitter and a parser cannot drift.
-const SCHEMA_PATH = join(
-  import.meta.dir,
-  "..",
-  "..",
-  "schemas",
-  "deeplinks",
-  "agent-link.json",
+const SCHEMA_URL = new URL(
+  "../../schemas/deeplinks/agent-link.json",
+  import.meta.url,
 );
-const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8")) as Schema;
+const schema = JSON.parse(readFileSync(SCHEMA_URL, "utf8")) as Schema;
 
 /** The search params Next hands a page for `query`: a repeated name is an array. */
 function searchParams(query: string): SearchParams {
