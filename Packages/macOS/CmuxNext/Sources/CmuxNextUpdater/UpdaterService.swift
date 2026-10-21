@@ -130,6 +130,11 @@ public final class UpdaterService {
     /// The cancel returns whether an installer was held and is now cancelled.
     @ObservationIgnored var cancelStaged: () -> Bool = { false }
     @ObservationIgnored var acceptAvailable: () -> Void = {}
+    /// Checks the feed again after a staged update was cancelled for a newer one: a check the
+    /// person sees (they clicked install) or a background one (replaced by tests).
+    @ObservationIgnored var recheck: (_ userAsked: Bool) -> Void = { _ in }
+    /// The install click's decision while it reads the feed first (``installNewestStaged()``).
+    @ObservationIgnored var installDecision: Task<Void, Never>?
     @ObservationIgnored var phaseObservation: Task<Void, Never>?
     @ObservationIgnored var pathMonitor: NWPathMonitor?
     @ObservationIgnored var network: (constrained: Bool, expensive: Bool) = (false, false)
@@ -168,6 +173,7 @@ public final class UpdaterService {
     ///   release identity (tests, demos).
     /// - Parameter recordsUpdates: false neither writes nor reads the update
     ///   record What's New shows after an update (tests, demos).
+    /// - Parameter lastUpdateStore: where that record lives (nil: the app's own file).
     public init(identity: UpdateBuildIdentity = .main(),
                 policy: ManagedUpdatePolicy = .live(),
                 prober: UpdateProber = UpdateProber(),
@@ -175,6 +181,7 @@ public final class UpdaterService {
                 switcher: AppChannelSwitcher = AppChannelSwitcher(),
                 enableSparkle: Bool = true,
                 recordsUpdates: Bool = true,
+                lastUpdateStore: WhatsNewLastUpdateStore? = nil,
                 now: @escaping () -> Date = Date.init,
                 clock: any Clock<Duration> = ContinuousClock()) {
         self.now = now
@@ -185,7 +192,7 @@ public final class UpdaterService {
         self.prober = prober
         self.defaults = defaults
         self.switcher = switcher
-        let lastUpdates = recordsUpdates ? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
+        let lastUpdates = recordsUpdates ? lastUpdateStore ?? WhatsNewLastUpdateStore.app(bundleIdentifier: identity.bundleIdentifier) : nil
         self.lastUpdates = lastUpdates
         whatsNew = WhatsNewCenter(currentVersion: identity.shortVersion, currentBuild: identity.build, defaults: defaults,
                                   sources: Self.whatsNewSources(identity: identity), lastUpdates: lastUpdates)

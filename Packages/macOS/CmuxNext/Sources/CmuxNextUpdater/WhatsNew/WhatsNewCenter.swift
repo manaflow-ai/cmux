@@ -38,6 +38,9 @@ public final class WhatsNewCenter {
     /// ``dismissUpdated()`` clears it; nil on a first install and after an
     /// update the old app did not record.
     public private(set) var lastUpdate: WhatsNewLastUpdate?
+    /// The update the previous launch of this same build started installing, which did not
+    /// replace the app: the update card says so and why. Nil when there was none.
+    public private(set) var failedInstall: WhatsNewLastUpdate?
 
     public let current: WhatsNewVersion?
     @ObservationIgnored let seen: WhatsNewSeenStore

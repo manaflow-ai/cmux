@@ -20,9 +20,16 @@ nonisolated public struct WhatsNewLastUpdate: Codable, Equatable, Sendable {
     /// The staged update's highlights as the popover showed them
     /// (cx-ncc.45.5); nil in records older builds wrote.
     public var highlights: UpdateHighlights?
+    /// When the install was handed to Sparkle (the click, or a quit that installs); nil while
+    /// the update only waits. A launch of `fromBuild` after it means the install did not take.
+    public var installStartedAt: Date?
+    /// Why the install did not take, when the old app saw it fail (Sparkle's error, the
+    /// install watchdog's); nil when the app quit for the installer.
+    public var installFailure: String?
 
     public init(fromVersion: String, fromBuild: String, toVersion: String, toBuild: String, stagedAt: Date,
-                changelog: UpdateChangelog, highlights: UpdateHighlights? = nil) {
+                changelog: UpdateChangelog, highlights: UpdateHighlights? = nil, installStartedAt: Date? = nil,
+                installFailure: String? = nil) {
         self.fromVersion = fromVersion
         self.fromBuild = fromBuild
         self.toVersion = toVersion
@@ -30,6 +37,8 @@ nonisolated public struct WhatsNewLastUpdate: Codable, Equatable, Sendable {
         self.stagedAt = stagedAt
         self.changelog = changelog
         self.highlights = highlights
+        self.installStartedAt = installStartedAt
+        self.installFailure = installFailure
     }
 }
 
