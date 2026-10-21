@@ -291,10 +291,10 @@ test("the chat folder's PR from the header's gh read is suggested when no sessio
   }
 });
 
-// The + shows only a glyph; its tooltip says what its menu adds (screenshots only where the
-// composer can capture them, which this one cannot).
+// The + shows only a glyph; its tooltip is Codex's short "Add files and more" (Leo, 2026-10-21),
+// the same whether or not the composer can capture screenshots (this one cannot).
 test("the + button names what its menu adds in a tooltip", async () => {
   await render(fresh([]));
   const plus = host.querySelector<HTMLButtonElement>(".acpmux-composer-plus button")!;
-  expect([plus.getAttribute("aria-label"), plus.title]).toEqual(["Add", "Add files, mentions and more"]);
+  expect([plus.getAttribute("aria-label"), plus.title]).toEqual(["Add", "Add files and more"]);
 });

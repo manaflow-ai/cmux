@@ -29,7 +29,7 @@ SPEC.loader.exec_module(LINT)
 
 
 def lines(source: str) -> list:
-    findings = LINT.scan_source(textwrap.dedent(source), "ios/cmuxUITests/Fixture.swift")
+    findings = LINT.scan_source(textwrap.dedent(source), "ios/CmuxiOS/Tests/CmuxHomeUITests/Fixture.swift")
     return [(finding.line, finding.macro) for finding in findings]
 
 
@@ -249,14 +249,19 @@ class CommandLine(unittest.TestCase):
         status, stdout, _ = self.run_lint(
             {
                 "Packages/macOS/Pkg/Sources/Pkg/Probe.swift": "#expect(errno == EAGAIN)\n",
-                "ios/cmuxUITests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
+                "ios/CmuxiOS/Sources/CmuxHome/Probe.swift": "#expect(errno == EAGAIN)\n",
+                "ios/CmuxiOS/Tests/CmuxHomeUITests/ProbeTests.swift": "let e = errno\n#expect(e == EAGAIN)\n",
             }
         )
         self.assertEqual(status, 0)
         self.assertIn("1 Swift test files", stdout)
 
-    def test_scans_the_ui_test_sources(self) -> None:
-        for path in ("ios/cmuxUITests/ProbeTests.swift",):
+    def test_scans_the_ios_test_sources(self) -> None:
+        for path in (
+            "ios/CmuxiOS/Tests/CmuxHomeUITests/ProbeTests.swift",
+            "ios/CmuxiOS/Tests/CmuxiOSTerminalTests/ProbeTests.swift",
+            "ios/cmuxUITests/ProbeTests.swift",
+        ):
             with self.subTest(path=path):
                 status, _, stderr = self.run_lint(
                     {path: "#expect(read(fd, &byte, 1) == -1)\n#expect(errno == EAGAIN)\n"}

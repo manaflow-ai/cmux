@@ -270,6 +270,17 @@ final class FocusEffectApplier: FocusEffectApplying {
         let services = controller.services
         guard owned !== controller.window, services.windows.owner(of: owned) === controller else { return }
         services.windows.didActivate(controller)
+        // A Chromium page window or a panel takes key but never main, and
+        // AppKit does not hand main to a child's parent: a click into the page
+        // of a cmux window that is not main would leave another cmux window
+        // main, looking active while this one looks inactive. Main follows
+        // the keyboard even when this window sits behind another one (the
+        // palette over an explicit window).
+        if let window = controller.window,
+           Self.ownerTakesMain(ownedCanBecomeMain: owned.canBecomeMain, ownerIsMain: window.isMainWindow,
+                               ownerCanBecomeMain: window.canBecomeMain) {
+            window.makeMain()
+        }
         publish(controller.focus.state.context)
         // The overlay host panel restores focus itself (`WindowOverlayHost.endModal`).
         guard owned is NSPanel, !(owned is OverlayHostPanel), owned.sheetParent == nil, !services.palette.owns(owned),
@@ -280,6 +291,12 @@ final class FocusEffectApplier: FocusEffectApplying {
                                                                       queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.overlayPanelDidResignKey() } // main-proof: observer on queue: .main
         }
+    }
+
+    /// Whether the cmux window becomes main when a window it owns becomes
+    /// key. An owned window that may be main (a sheet) settles main itself.
+    nonisolated static func ownerTakesMain(ownedCanBecomeMain: Bool, ownerIsMain: Bool, ownerCanBecomeMain: Bool) -> Bool {
+        !ownedCanBecomeMain && !ownerIsMain && ownerCanBecomeMain
     }
 
     /// The bubble dismisses when it loses the keys.

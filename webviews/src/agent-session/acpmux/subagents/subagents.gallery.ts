@@ -5,7 +5,8 @@
 // right (summary/SummaryCard.tsx), which shows itself for a chat with subagents and lists them with
 // their live state from the same groups. It is not a popover: a click elsewhere leaves it open. A
 // list line opens that subagent's own view (the child view): a "Subagent of" pill naming its
-// parent, then its rows, nested groups included.
+// parent, then its rows, nested groups included. A pane the app opened on a subagent shows it read
+// only: a line naming the chat where the composer would be (SubagentPaneFooter.tsx).
 import { agentPaneEntry } from "../../../gallery/format";
 import { activity, assistant, chat, row, summary, thought, tool, user } from "../../../gallery/fixtures/acpmux";
 import { minutesAgo } from "../../../gallery/clock";
@@ -209,6 +210,7 @@ export default agentPaneEntry({
   covers: [
     "agent-session/acpmux/subagents/SubagentGroup.tsx",
     "agent-session/acpmux/subagents/AgentsPill.tsx#AgentsPill",
+    "agent-session/acpmux/subagents/SubagentPaneFooter.tsx#SubagentPaneFooter",
     "agent-session/acpmux/summary/SummaryButton.tsx#SummaryButton",
     "agent-session/acpmux/summary/SummaryCard.tsx#SummaryCard",
     "agent-session/acpmux/summary/SummaryBody.tsx#SummaryBody",
@@ -377,6 +379,19 @@ export default agentPaneEntry({
         await ctx.waitFor(
           () => !ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent"),
         );
+      },
+    },
+    "own-pane": {
+      note: "A pane the app opened on a subagent (a subagent: reveal): its view, read only, with a line naming the chat in place of the composer.",
+      height: 640,
+      snapshot: NESTED_MIXED,
+      play: async (ctx) => {
+        const page = ctx.document.defaultView as unknown as { cmuxAcpmuxBridge?: { revealTurn?(id: string): void } };
+        page.cmuxAcpmuxBridge?.revealTurn?.(`subagent:${COVERAGE}`);
+        await ctx.waitFor(
+          () => ctx.document.querySelector(".cv-subagent-of") && ctx.document.querySelector(".cv-subagent-pane-footer"),
+        );
+        if (ctx.document.querySelector(".acpmux-composer")) throw new Error("a subagent's own pane drew the composer");
       },
     },
     summary: {

@@ -627,6 +627,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_workflow_run_sources.py
 
+      - name: Validate every build-fleet client call checks the client is installed
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_cmux_ci_client_guarded.py
+
       - name: Validate published cmux-tui manifests carry acpmux
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_cmux_tui_latest_acpmux.py

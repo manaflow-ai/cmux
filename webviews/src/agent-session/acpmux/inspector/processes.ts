@@ -4,13 +4,21 @@
 // background shells, Codex's background terminals), so the Inspector's Servers and Background
 // tasks read the same thing for every harness. A dev server is told apart by its command alone
 // (`serverOf`): cmux-next never scans processes or ports.
+//
+// The transcript knows commands too: Claude's background Bash calls, those Ctrl-B moved there
+// included (conversation/runInBackground.ts), and their `background_task_update` ends
+// (summary/sessionSummary.ts). `backgroundCommands` merges the two into the one list the
+// Inspector's Background tasks, the summary card, the running turn's line and the transcript's
+// "Running in background" row read. The registry wins: a transcript task whose call started a
+// listed process is that process.
 import { useEffect, useState } from "react";
+import type { SummaryBackgroundTask } from "../summary/sessionSummary";
 
 export type InspectorProcess = {
   /// acpmux's id, `<sessionId>/<task id>`: what `_acpmux/process/kill` takes.
   id: string;
   /// The Bash or exec call that started it: the transcript's background task of the same id is
-  /// this process (summary/backgroundWork.ts), and its terminal opens by it (processTerminal.ts).
+  /// this process (`backgroundCommands`), and its terminal opens by it (processTerminal.ts).
   toolCallId?: string;
   command: string;
   /// Unix ms.
@@ -130,6 +138,77 @@ export function useInspectorProcesses(
   live: boolean,
 ): readonly InspectorProcess[] {
   return useProcessRegistry(source, sessionId, live).processes;
+}
+
+/// One background command, from the registry or only the transcript.
+export type BackgroundCommand = {
+  /// The registry's process id, else the transcript's tool call id.
+  id: string;
+  command: string;
+  /// A registry process acpmux lost track of (its daemon restarted) is `lost`; the transcript
+  /// never says so.
+  state: SummaryBackgroundTask["state"] | "lost";
+  /// The call that started it: its terminal opens by it (processTerminal.ts).
+  toolCallId?: string;
+  /// The registry's id, which Stop (`_acpmux/process/kill`) takes; none for a transcript-only one.
+  processId?: string;
+  /// Epoch ms, for its elapsed time.
+  startedAt?: number;
+  endedAt?: number;
+};
+
+/// A registry state as a command's: `exited` finished, `killed` stopped.
+const PROCESS_STATE: Record<string, BackgroundCommand["state"]> = {
+  running: "running",
+  exited: "completed",
+  failed: "failed",
+  killed: "stopped",
+  lost: "lost",
+};
+
+/// The chat's background commands: the registry's processes, then the transcript's tasks no process
+/// stands for. Once the registry has listed the chat (`listed`), it knows every command still
+/// running, so a transcript task it does not know that still says running (a record from before the
+/// registry, or one that ended unseen) is left out rather than shown running forever.
+export function backgroundCommands(
+  processes: readonly InspectorProcess[],
+  transcript: readonly SummaryBackgroundTask[],
+  listed: boolean,
+): BackgroundCommand[] {
+  const fromRegistry = processes.map((process): BackgroundCommand => ({
+    id: process.id,
+    command: process.command,
+    state: PROCESS_STATE[process.state] ?? "stopped",
+    processId: process.id,
+    startedAt: process.startedAt,
+    ...(process.toolCallId ? { toolCallId: process.toolCallId } : {}),
+    ...(process.endedAt !== undefined ? { endedAt: process.endedAt } : {}),
+  }));
+  const known = new Set(processes.flatMap((process) => (process.toolCallId ? [process.toolCallId] : [])));
+  const fromTranscript = transcript
+    .filter((task) => !known.has(task.id) && !(listed && task.state === "running"))
+    .map((task): BackgroundCommand => ({
+      id: task.id,
+      command: task.command,
+      state: task.state,
+      toolCallId: task.id,
+      ...(task.startedAt !== undefined ? { startedAt: task.startedAt } : {}),
+    }));
+  return [...fromRegistry, ...fromTranscript];
+}
+
+const newestFirst = (a: BackgroundCommand, b: BackgroundCommand) =>
+  (b.startedAt ?? -Infinity) - (a.startedAt ?? -Infinity);
+
+/// The running commands newest first, and the finished ones newest first.
+export function splitCommands(commands: readonly BackgroundCommand[]): {
+  running: BackgroundCommand[];
+  finished: BackgroundCommand[];
+} {
+  return {
+    running: commands.filter((command) => command.state === "running").sort(newestFirst),
+    finished: commands.filter((command) => command.state !== "running").sort(newestFirst),
+  };
 }
 
 /// A command that serves something: a framework's dev server, a static file server or a backend.
