@@ -390,6 +390,13 @@ const REPLAY_AGE: Duration = Duration::from_secs(20);
 /// At most this many datagrams are kept for that (about 100 ms of a
 /// 15 Mbit/s stream; a whole outage of retransmissions and keepalives).
 const REPLAY_MAX: usize = 128;
+/// A replay sends only the newest of those that fit this many bytes: a
+/// burst past what a buffer on the path holds drops part of it (a TURN
+/// server's relay socket, which this side does not size, drops what
+/// arrives last; the TURN carrier's input class holds as much). About
+/// 50 full-size datagrams, half a second of a busy terminal.
+const REPLAY_BYTES: usize = 64 * 1024;
+const _: () = assert!(REPLAY_BYTES <= crate::class_queue::INPUT_BYTES);
 /// A route that flips between two addresses of the same peer (a LAN and a
 /// hairpinned public address while candidates are sprayed) replays at most
 /// this often; a roam of this side always replays.
@@ -818,11 +825,11 @@ impl HybridUnderlay {
         self.recent.push_back((now, Bytes::copy_from_slice(datagram), class));
     }
 
-    /// Send what went out lately again, on the current route, newest first:
-    /// what went into a dead route is the newest, and a burst that
-    /// overflows a buffer on the path (a TURN server's relay socket, which
-    /// this side does not size) drops what arrives last. Replays for a
-    /// route change (not `forced`) happen at most every [`REPLAY_GAP`].
+    /// Send what went out lately again, on the current route: the newest
+    /// that fit [`REPLAY_BYTES`] (what went into a dead route is the
+    /// newest), oldest first (in order, TCP inside the tunnel sees no
+    /// duplicate ACKs). Replays for a route change (not `forced`) happen at
+    /// most every [`REPLAY_GAP`].
     fn replay_recent(&mut self, forced: bool) {
         if self.direct.is_none() {
             self.replay_pending = true;
@@ -836,13 +843,20 @@ impl HybridUnderlay {
             }
             self.last_replay = Some(now);
         }
-        let recent: Vec<(Bytes, SendClass)> = self
+        let mut budget = REPLAY_BYTES;
+        let mut recent: Vec<(Bytes, SendClass)> = self
             .recent
             .iter()
             .rev()
             .filter(|(at, _, _)| now.duration_since(*at) <= REPLAY_AGE)
+            .take_while(|(_, datagram, _)| {
+                let fits = datagram.len() <= budget;
+                budget = budget.saturating_sub(datagram.len());
+                fits
+            })
             .map(|(_, datagram, class)| (datagram.clone(), *class))
             .collect();
+        recent.reverse();
         if !recent.is_empty() {
             tracing::debug!(count = recent.len(), "WireGuard resends recent datagrams on the new route");
         }
@@ -1802,8 +1816,6 @@ mod tests {
                 order.push(buffer[4]);
             }
         }
-        // What a replay may send at once (`REPLAY_BYTES` with the fix).
-        const REPLAY_BYTES: usize = 64 * 1024;
         // The first replay on the new route (the route change's).
         let Some(&first) = order.first() else { panic!("nothing reached the new route") };
         let replay: Vec<u8> =
