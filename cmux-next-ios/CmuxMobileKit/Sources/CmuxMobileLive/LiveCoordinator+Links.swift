@@ -200,14 +200,20 @@ extension LiveCoordinator {
             terminalSession.reconnect()
         }
         // Streamed browser tabs that dropped open again on the focused Mac's link.
-        if session === focused { StreamedBrowserDirectory.shared.linkChanged() }
+        StreamedBrowserDirectory.shared.linkChanged(macID: session.macID)
         do {
             let channel = try await link.openChannel(service: "acpmux", args: [:])
+            // The link closed while the channel opened: nothing more on it.
+            guard session.currentLink === link else {
+                await channel.close(code: "eof", reason: "link replaced")
+                return
+            }
             await session.acpmux.bind(channel)
             if session.acpmux.isReady { feedStore.syncState = .live }
         } catch {
             log.error("acpmux channel: \(String(describing: error), privacy: .public)")
         }
+        guard session.currentLink === link else { return }
         // A failed chat channel is shown, not only logged.
         session.chatsError = session.acpmux.isReady ? nil : (session.acpmux.lastError ?? "chats are unavailable")
         phaseChanged(session)
@@ -230,6 +236,13 @@ extension LiveCoordinator {
     /// The focused Mac's link, for streamed browser tabs (`browser` service).
     public func browserLink() async -> (any BrowserStreamOpening)? {
         focused.servedLink as? any BrowserStreamOpening
+    }
+
+    /// A Mac's own link, for its streamed browser tabs (never another Mac's).
+    public func browserLink(macID: String) async -> (any BrowserStreamOpening)? {
+        guard let session = sessions[macID] else { return nil }
+        if session.link.target == nil { touch(macID) }
+        return session.servedLink as? any BrowserStreamOpening
     }
 
     /// Opens the `daemon` channel and loads the workspaces; a failure or a
@@ -282,7 +295,8 @@ extension LiveCoordinator {
     /// workspaces on a live link, redials a waiting one, or opens its link.
     public func retry(macID: String) {
         guard let session = sessions[macID], session.link.target != nil else {
-            select(macID: macID)
+            // Its link opens; the focus (banner, Chief) stays where it is.
+            touch(macID)
             return
         }
         if session.link.phase.isConnected, let current = session.currentLink, session.servedLink == nil,
@@ -439,6 +453,23 @@ extension LiveCoordinator {
         return terminal
     }
 
+    /// Whether the phone holds (or is opening) a link to the Mac.
+    public func isLinked(macID: String) -> Bool {
+        sessions[macID]?.link.target != nil
+    }
+
+    /// The Macs with a link now.
+    public var linkedMacIDs: [String] {
+        sessions.values.filter { $0.link.target != nil }.map(\.macID)
+    }
+
+    /// Pull to refresh on the Workspaces list: every linked Mac lists again.
+    public func refreshWorkspaces() async {
+        for session in sessions.values where session.workspaces.daemon != nil {
+            await session.workspaces.refresh()
+        }
+    }
+
     /// The Mac was used now: its link opens if it was closed, and stays while recent.
     public func touch(_ macID: String) {
         lastShown[macID] = ContinuousClock.now
@@ -514,6 +545,7 @@ extension LiveCoordinator {
 
     func chiefOffline() {
         chiefMacID = nil
+        chiefLink = nil
         guard chiefLive else { return }
         // Live mode never falls back to the mock Chief.
         ChiefSession.shared.use(ChiefOfflineBackend())
@@ -525,6 +557,9 @@ extension LiveCoordinator {
     /// channel (cmux-mobile-host). Every failure leaves Chief offline with the
     /// reason; there is no stand-in Chief.
     private func startChief(_ link: any MacLink) async {
+        // One Chief per link: focus and serving can both ask for it.
+        guard chiefLink != ObjectIdentifier(link as AnyObject) else { return }
+        chiefLink = ObjectIdentifier(link as AnyObject)
         let session = ChiefSession.shared
         let owner = focused
         chiefMacID = owner.macID
@@ -543,6 +578,8 @@ extension LiveCoordinator {
         func current() -> Bool { focused === owner && (owner.currentLink as AnyObject?) === (link as AnyObject) }
         func offline(_ reason: String) {
             guard current() else { return }
+            // Try Again may open it on this link again.
+            chiefLink = nil
             chiefStatus = reason
             session.status = reason
             if chiefLive || !(session.backend is ChiefOfflineBackend) {
@@ -574,6 +611,7 @@ extension LiveCoordinator {
             }
             guard current() else {
                 await channel.close(code: "eof", reason: "link replaced")
+                if chiefLink == ObjectIdentifier(link as AnyObject) { chiefLink = nil }
                 return
             }
             session.status = nil
@@ -599,6 +637,8 @@ extension LiveCoordinator {
             ChiefSession.shared.status = String(localized: "Your Mac isn't connected. Chief comes back when it is.")
             return
         }
+        // Try Again opens it again, on the same link too.
+        chiefLink = nil
         Task { [weak self] in await self?.startChief(link) }
     }
 
@@ -626,9 +666,12 @@ extension LiveCoordinator {
         // A chat opened before its tab had a session (a new chat the Mac
         // started later, or a tab shown from the list before the tree came)
         // was built unbound and cached; rebuild it on the bound session.
-        for (tabID, used) in sourcedSessions where used.macID == macID && tree.agentTabs[tabID]?.session != used.session {
-            sourcedSessions[tabID] = nil
-            AgentSessionDirectory.shared.invalidate(id: tabID)
+        for (key, used) in sourcedSessions where (used.macID == macID || used.macID.isEmpty)
+            && tree.agentTabs[used.tabID]?.session != used.session {
+            // A store built without its Mac (macID empty) is rebuilt when any Mac's tab changes.
+            if used.macID.isEmpty, tree.agentTabs[used.tabID] == nil { continue }
+            sourcedSessions[key] = nil
+            AgentSessionDirectory.shared.invalidate(id: used.tabID, macID: used.macID)
         }
         store.replaceWorkspaces(macID: macID, with: tree.workspaces)
         store.handleMacData(.received(count: tree.workspaces.count), macID: macID)
@@ -678,7 +721,8 @@ extension LiveCoordinator {
             // screen is last-known data, quietly (no "Can't connect").
             guard session.fedData || store.macConnection[macID] != nil else { return }
             session.fedData = false
-            store.handleMacData(.disconnected(at: Date()), macID: macID)
+            // An offline Mac stays "offline", not plain last-known data.
+            if store.macData[macID]?.link != .offline { store.handleMacData(.disconnected(at: Date()), macID: macID) }
             store.macConnection[macID] = nil
         case .macOffline:
             store.handleMacData(.offline, macID: macID)
@@ -805,15 +849,24 @@ final class MultiMacFeedActions: FeedActions {
         return [coordinator.focused.feed] + coordinator.sessions.values.filter { $0 !== coordinator.focused }.map(\.feed)
     }
 
-    /// The feed that put `item` in the Feed (its ask), else the focused Mac's.
+    /// The feed that put `item` in the Feed (its ask). Never another Mac's:
+    /// an ask no linked Mac owns (restored from the archive, or of a closed
+    /// link) is "not connected" until its Mac's link reads it again.
     private func owner(_ item: FeedItem) -> LiveFeed? {
-        feeds.first { $0.owns(item.id) } ?? coordinator?.focused.feed
+        feeds.first { $0.owns(item.id) }
     }
 
+    /// Reads every linked Mac's Feed. Fails only when no Mac could be read.
     func refresh() async throws {
+        let ready = feeds.filter { $0.hub?.isReady == true }
+        guard !ready.isEmpty else {
+            // Nothing linked: the focused Mac's feed says why (and reads terminal events).
+            try await coordinator?.focused.feed.refresh()
+            return
+        }
         var firstError: (any Error)?
         var refreshed = false
-        for feed in feeds where feed.hub?.isReady == true {
+        for feed in ready {
             do {
                 try await feed.refresh()
                 refreshed = true
@@ -821,12 +874,7 @@ final class MultiMacFeedActions: FeedActions {
                 firstError = firstError ?? error
             }
         }
-        if !refreshed {
-            // Nothing linked: the focused Mac's feed says why (and reads terminal events).
-            try await coordinator?.focused.feed.refresh()
-        } else if let firstError, feeds.allSatisfy({ $0.hub?.isReady != true }) {
-            throw firstError
-        }
+        if !refreshed, let firstError { throw firstError }
     }
 
     func answer(_ item: FeedItem, question: AgentQuestion, with answer: AgentQuestionAnswer) async throws {

@@ -176,15 +176,17 @@ final class ShellModel {
             let backend = MultiMacWorkspaceBackend(coordinator: live)
             creator.backend = backend
             FeedRouting.shared.clearAllNotifications = { [weak live, weak backend] in
-                guard let live, let backend, let macID = live.focusedMacID, backend.canClearNotifications(on: macID) else {
-                    throw WorkspaceCreationError("Not connected to a Mac")
-                }
-                try await backend.clearAllNotifications(on: macID)
+                // The Feed holds every linked Mac's terminal events: each clears its own.
+                let macs = (live?.linkedMacIDs ?? []).filter { backend?.canClearNotifications(on: $0) == true }
+                guard let backend, !macs.isEmpty else { throw WorkspaceCreationError("Not connected to a Mac") }
+                for macID in macs { try await backend.clearAllNotifications(on: macID) }
             }
             StreamedBrowserDirectory.shared.opener = { [weak live] in await live?.browserLink() }
+            StreamedBrowserDirectory.shared.macOpener = { [weak live] macID in await live?.browserLink(macID: macID) }
             creator.onTabResolved = { from, to in StreamedBrowserDirectory.shared.rename(tab: from, to: to) }
         } else {
             StreamedBrowserDirectory.shared.opener = nil
+            StreamedBrowserDirectory.shared.macOpener = nil
             FeedRouting.shared.clearAllNotifications = nil
             terminalTabs.sessionProvider = nil
             terminalTabs.hasLiveSession = nil

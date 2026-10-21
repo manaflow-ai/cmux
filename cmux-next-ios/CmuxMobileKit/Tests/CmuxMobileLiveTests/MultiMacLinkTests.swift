@@ -1,3 +1,5 @@
+import CmuxMobileAgentChat
+import CmuxMobileBrowserStream
 import CmuxMobileFeed
 import CmuxMobileModel
 import CmuxMobileTransport
@@ -114,7 +116,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let snapshots = LiveSnapshotStore(directory: directory)
         let saved = Date(timeIntervalSince1970: 1_000)
         snapshots.save(LiveSnapshot(
-            teamID: "t1", teamName: "One",
+            teamID: "t-multimac", teamName: "One",
             macs: [MacDevice(id: "m1", name: "Aziz's MacBook Pro", isOnline: true), MacDevice(id: "m2", name: "MacBook Pro", isOnline: true)],
             linkedMacID: "m1",
             workspaces: ["m1": .init(workspaces: [], savedAt: saved), "m2": .init(workspaces: [], savedAt: saved)]
@@ -145,7 +147,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     /// opened last stays connected. Opening the second Mac's workspace must not
     /// close the first Mac's link.
     @Test func choosingTheSecondMacKeepsTheFirstLinked() async {
-        let key = "cmuxMobile.live.mac.t1"
+        let key = "cmuxMobile.live.mac.t-multimac"
         UserDefaults.standard.removeObject(forKey: key)
         defer { UserDefaults.standard.removeObject(forKey: key) }
         let store = emptyStore()
@@ -179,12 +181,13 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     /// repeat across Macs (both Macs number their surfaces from 1) and the other
     /// Mac is focused.
     @Test func aTerminalReadsItsOwnMac() async {
-        let key = "cmuxMobile.live.mac.t1"
+        let key = "cmuxMobile.live.mac.t-multimac"
         UserDefaults.standard.removeObject(forKey: key)
         defer { UserDefaults.standard.removeObject(forKey: key) }
         let store = emptyStore()
         let live = coordinator(store: store, dialer: PerMacDialer(screens: ["m1": "first Mac", "m2": "second Mac"]))
         defer { live.stop() }
+        live.showing(macIDs: nil)
         await settle { store.macDataPhase("m1") == .live && store.macDataPhase("m2") == .live }
         live.select(macID: "m2")
         await drain()
@@ -198,7 +201,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
     /// window, quietly (its list is last-known, not "Can't connect"), and opens
     /// it again when it is shown.
     @Test func aMacLeftAloneClosesItsLinkAndReopensWhenShown() async {
-        let key = "cmuxMobile.live.mac.t1"
+        let key = "cmuxMobile.live.mac.t-multimac"
         UserDefaults.standard.removeObject(forKey: key)
         defer { UserDefaults.standard.removeObject(forKey: key) }
         let store = emptyStore()
@@ -206,6 +209,7 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
         let live = coordinator(store: store, dialer: dialer)
         defer { live.stop() }
         live.linkPolicy = MacLinkPolicy(idleAfter: .milliseconds(200))
+        live.showing(macIDs: nil)
         await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
         // Only the first Mac's workspace is on screen now.
         live.showing(macIDs: ["m1"])
@@ -223,19 +227,71 @@ final class PerMacDialer: MacLinkDialer, @unchecked Sendable {
 
     /// Transport settings reach every Mac's link.
     @Test func aTransportChangeRedialsEveryLink() async {
-        let key = "cmuxMobile.live.mac.t1"
+        let key = "cmuxMobile.live.mac.t-multimac"
         UserDefaults.standard.removeObject(forKey: key)
         defer { UserDefaults.standard.removeObject(forKey: key) }
         let store = emptyStore()
         let dialer = PerMacDialer()
         let live = coordinator(store: store, dialer: dialer)
         defer { live.stop() }
+        live.showing(macIDs: nil)
         await settle { store.macConnection["m1"] == .connected && store.macConnection["m2"] == .connected }
         live.setTransport(.webRTC)
         await settle { dialer.dialCount("m1") == 2 && dialer.dialCount("m2") == 2 }
         #expect(dialer.dialCount("m1") == 2)
         #expect(dialer.dialCount("m2") == 2)
         #expect(live.sessions.values.allSatisfy { $0.link.transport == .webRTC })
+    }
+    /// Lazy from launch: before the screens say what they show, only the
+    /// focused Mac dials.
+    @Test func onlyTheFocusedMacDialsAtLaunch() async {
+        let key = "cmuxMobile.live.mac.t-multimac"
+        UserDefaults.standard.removeObject(forKey: key)
+        defer { UserDefaults.standard.removeObject(forKey: key) }
+        let store = emptyStore()
+        let dialer = PerMacDialer()
+        let live = coordinator(store: store, dialer: dialer)
+        defer { live.stop() }
+        await settle { store.macConnection["m1"] == .connected }
+        await drain()
+        #expect(dialer.dialCount("m1") == 1)
+        #expect(dialer.dialCount("m2") == 0)
+        // Retry on the second Mac opens its link without moving the focus.
+        live.retry(macID: "m2")
+        await settle { store.macConnection["m2"] == .connected }
+        #expect(store.macConnection["m2"] == .connected)
+        #expect(live.focusedMacID == "m1")
+    }
+
+    /// Review blocker: a chat tab id repeats across Macs; each Mac's chat is its own.
+    @Test func chatsOfTwoMacsWithTheSameTabIDAreSeparate() {
+        let sessions = AgentSessionDirectory()
+        func summary(_ mac: String) -> AgentSessionSummary {
+            AgentSessionSummary(id: "s3", name: "chat", harness: "claude", agentName: "Claude", cwd: "~", workspaceTitle: "w",
+                                macName: mac, macID: mac)
+        }
+        let first = sessions.store(for: summary("m1"))
+        let second = sessions.store(for: summary("m2"))
+        #expect(first !== second)
+        #expect(sessions.existingStore(id: "s3", macID: "m1") === first)
+        sessions.invalidate(id: "s3", macID: "m2")
+        #expect(sessions.existingStore(id: "s3", macID: "m1") === first)
+        #expect(sessions.existingStore(id: "s3", macID: "m2") == nil)
+    }
+
+    /// Review major: a streamed browser tab opens on its own Mac's link, never
+    /// the focused one, and same-id tabs of two Macs are two pages.
+    @Test func browserTabsStreamFromTheirOwnMac() {
+        let directory = StreamedBrowserDirectory()
+        directory.opener = { nil }
+        directory.macOpener = { _ in nil }
+        let first = directory.model(tab: "s9", url: nil, macID: "m1")
+        let second = directory.model(tab: "s9", url: nil, macID: "m2")
+        #expect(first != nil && second != nil && first !== second)
+        #expect(directory.model(tab: "s9", url: nil, macID: "m1") === first)
+        directory.drop(tab: "s9", macID: "m2")
+        #expect(directory.model(tab: "s9", url: nil, macID: "m1") === first)
+        directory.reset()
     }
 }
 #endif

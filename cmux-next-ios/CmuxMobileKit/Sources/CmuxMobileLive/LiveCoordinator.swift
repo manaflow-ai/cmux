@@ -60,8 +60,9 @@ public final class LiveCoordinator {
     @ObservationIgnored let idleSession: MacSession
     /// Which Macs keep a link (lazy, idle teardown, at most `maxLinks`).
     @ObservationIgnored public var linkPolicy = MacLinkPolicy()
-    /// The Macs whose data is on screen (nil: not told yet, every Mac counts).
-    @ObservationIgnored var showingMacs: Set<String>?
+    /// The Macs whose data is on screen (nil: every Mac). Until the shell
+    /// says, none: only the focused Mac dials at launch (lazy links).
+    @ObservationIgnored var showingMacs: Set<String>? = []
     /// When each Mac was last on screen (or focused).
     @ObservationIgnored var lastShown: [String: ContinuousClock.Instant] = [:]
     @ObservationIgnored var expiryTask: Task<Void, Never>?
@@ -106,7 +107,7 @@ public final class LiveCoordinator {
     @ObservationIgnored var bannerTask: Task<Void, Never>?
     @ObservationIgnored var everConnected = false
     /// The acpmux session (and Mac) each cached chat store was built for (nil: unbound).
-    @ObservationIgnored var sourcedSessions: [String: (macID: String, session: String?)] = [:]
+    @ObservationIgnored var sourcedSessions: [String: (tabID: String, macID: String, session: String?)] = [:]
     /// The account was deleted: sign-out keeps nothing of it.
     @ObservationIgnored public internal(set) var accountDeleted = false
     /// Signed out: nothing more is saved for the account.
@@ -118,6 +119,8 @@ public final class LiveCoordinator {
     @ObservationIgnored var chiefLive = false
     /// The Mac whose link Chief runs on.
     @ObservationIgnored var chiefMacID: String?
+    /// The link Chief runs (or is starting) on.
+    @ObservationIgnored var chiefLink: ObjectIdentifier?
     /// A `startChief` is opening the channel (Try Again does not start a second one).
     @ObservationIgnored var chiefStarting = false
     @ObservationIgnored private var discoveryTask: Task<Void, Never>?
@@ -212,11 +215,13 @@ public final class LiveCoordinator {
         store.teamDataState = .loading
         AgentSessionDirectory.shared.makeSource = { [weak self] summary in
             guard let self else { return UnboundAgentSource(summary: summary, macName: nil) }
-            // The focused Mac first: tab ids repeat across Macs.
-            let owner = ([self.focused] + self.sessions.values.filter { $0 !== self.focused })
-                .first { $0.tree?.agentTabs[summary.id] != nil }
+            // The tab's own Mac (tab ids repeat across Macs); a chat of a Mac
+            // whose link is closed opens it, and is rebuilt once its tree lists the tab.
+            let owner = self.session(tabID: summary.id, macID: summary.macID.isEmpty ? nil : summary.macID)
+            if !summary.macID.isEmpty, owner?.link.target == nil { self.touch(summary.macID) }
             let session = owner?.tree?.agentTabs[summary.id]?.session
-            self.sourcedSessions[summary.id] = (owner?.macID ?? "", session)
+            self.sourcedSessions[AgentSessionDirectory.key(id: summary.id, macID: summary.macID)] =
+                (tabID: summary.id, macID: summary.macID, session: session)
             guard let owner, let session else {
                 return UnboundAgentSource(summary: summary, macName: owner?.name ?? self.link.target?.name)
             }
@@ -502,8 +507,9 @@ public final class LiveCoordinator {
         let linked = sessions[id]?.link.target != nil
         // Its link closes first, and its phase change must not write data for it back.
         closeSession(id)
+        // Its banner, pairing prompt and Chief go with it (retarget may focus another Mac).
+        if focusedMacID == id { setFocus(nil) }
         lastShown[id] = nil
-        if focusedMacID == id { focusedMacID = nil }
         let known = store.forgetMac(id)
         othersMacs.remove(id)
         discoveredMacIDs?.remove(id)
@@ -557,7 +563,15 @@ public final class LiveCoordinator {
         let now = ContinuousClock.now
         let showing = showingMacs ?? Set(macs.map(\.id))
         for id in showing { lastShown[id] = now }
-        let decision = linkPolicy.decide(macs: macs, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now)
+        // A live link that presence briefly calls offline (a signaling reset) ranks as online:
+        // the cap never closes it for that.
+        let ranked = macs.map { mac -> MacDevice in
+            guard !mac.isOnline, sessions[mac.id]?.link.phase.isConnected == true else { return mac }
+            var live = mac
+            live.isOnline = true
+            return live
+        }
+        let decision = linkPolicy.decide(macs: ranked, focused: focusedMacID, showing: showing, lastShown: lastShown, now: now)
         for mac in macs where decision.linked.contains(mac.id) {
             let session = session(for: mac)
             session.name = mac.name
