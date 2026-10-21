@@ -55,6 +55,8 @@ public nonisolated final class TunableStore: Observable, Sendable {
 
     /// Whether overrides apply (DEV and NIGHTLY after launch).
     public var isActive: Bool { active.load(ordering: .relaxed) }
+    /// Active and done reading its override file: a value read now is the one this launch keeps.
+    public var hasLoaded: Bool { isActive && state.withLock { !$0.loading } }
 
     /// Declares the tunables the window lists and the store accepts.
     public func register(_ descriptors: [TunableDescriptor]) {

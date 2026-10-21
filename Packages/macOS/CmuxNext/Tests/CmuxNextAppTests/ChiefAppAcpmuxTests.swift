@@ -62,4 +62,27 @@ struct ChiefAppAcpmuxTests {
         #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: nil, ownAcpmux: false))
         #expect(!ChiefHome.usesAppAcpmux(isolated: false, buildID: "com.cmuxterm.app.nightly.cmux-next", ownAcpmux: false))
     }
+
+    // An update relaunch does not stop the Chief host: one this app did not launch on the app's
+    // acpmux (the previous build's, on the Chief's own daemon) or whose executable is gone is
+    // restarted, and the Chief's own daemon ends unless a named Chief still runs on it.
+    @Test func aHostFromBeforeTheMoveIsRestartedAndItsDaemonEnds() {
+        let app = "/Users/me/.acpmux"
+        let move = { (pid: pid_t?, replaced: Bool, marked: pid_t?, home: String?, present: Bool, named: Bool) in
+            ChiefAppAcpmuxMove.plan(hostPID: pid, hostReplaced: replaced, markedPID: marked, markedHome: home, appHome: app,
+                                    ownDaemonPresent: present, namedChiefsRun: named)
+        }
+        // The previous build's host: no launch mark.
+        #expect(move(41, false, nil, nil, true, false) == .init(restartHost: true, endOwnDaemon: true))
+        // A mark of an earlier host, or of another acpmux home (the Debug toggle was on).
+        #expect(move(41, false, 40, app, false, false).restartHost)
+        #expect(move(41, false, 41, "/Users/me/.cmux/chief/default/acpmux", false, false).restartHost)
+        // This app's host on the app's acpmux, but its bundle was replaced by an update.
+        #expect(move(41, true, 41, app, false, false).restartHost)
+        // This app's host on the app's acpmux stays; a leftover Chief daemon still ends.
+        #expect(move(41, false, 41, app, false, false) == .init())
+        #expect(move(41, false, 41, app, true, false) == .init(restartHost: false, endOwnDaemon: true))
+        // A named Chief of the home still runs on that daemon: it keeps running.
+        #expect(move(nil, false, nil, nil, true, true) == .init())
+    }
 }

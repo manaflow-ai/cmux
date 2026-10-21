@@ -187,8 +187,15 @@ public nonisolated struct HomeBrainHost: Sendable {
         // The app's own acpmux is the app's to start and hand off (its version handoff), never
         // the Chief's: it runs the person's chats too. A daemon started without this Chief home
         // (`ACPMUX_CHIEF_MUX_HOME`, e.g. by the CLI) is kept: it gets it at its next start.
-        if usesAppAcpmux {
+        // A host still on the Chief's own daemon (the previous build's after an update) moves
+        // over, and that daemon ends (ChiefAppAcpmuxMove).
+        if usesAppAcpmux, let acpmux {
             await ensureAppAcpmux?()
+            let move = ChiefAppAcpmuxMove(home: chiefHome, app: acpmux)
+            guard await move.run() else {
+                // It hands off when its turn ends; its exit brings the next start (ChiefBrainWatch).
+                return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: chiefHome))
+            }
         } else if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path)
             .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) != nil }),
            let pid = await ChiefHostStop.stop(home: chiefHome) {
@@ -199,7 +206,9 @@ public nonisolated struct HomeBrainHost: Sendable {
             return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: ChiefHome(root: muxHome, isolated: false)))
         }
         let token = try await mintToken()
-        return .launched(pid: await launch(agentToken: token))
+        let pid = await launch(agentToken: token)
+        if usesAppAcpmux, let acpmux, let pid { ChiefAppAcpmuxMove(home: chiefHome, app: acpmux).mark(pid: pid) }
+        return .launched(pid: pid)
     }
 
     /// Whether a host holds this home's lock (`state/host.lock`) and the

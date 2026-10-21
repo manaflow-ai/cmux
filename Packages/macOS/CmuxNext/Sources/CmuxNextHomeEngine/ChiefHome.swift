@@ -1,5 +1,7 @@
 public import Foundation
+import CmuxNextDesign
 import CmuxNextHome
+import os
 
 /// The home of one build's Chief (plans/cmux-next/home-state-ownership.md):
 /// the OptChat memory and host state (`optchat/`, `state/host.lock`), the
@@ -89,8 +91,22 @@ public nonisolated struct ChiefHome: Sendable, Equatable {
     /// daemon; the Chief host only waits for it (`OPTCHAT_ACPMUX_SUPERVISED=1`) and never starts or
     /// stops it, and the Chief's sessions stay apart by their tags (`cmux.chief`, `mux.parent`).
     public var usesAppAcpmux: Bool {
-        Self.usesAppAcpmux(isolated: isolated, buildID: buildID, ownAcpmux: HomeTunables.chiefOwnAcpmux.value)
+        Self.usesAppAcpmux(isolated: isolated, buildID: buildID, ownAcpmux: Self.ownAcpmuxAtLaunch)
     }
+
+    /// `home.chief.ownAcpmux` as this launch first read it once the Debug Settings file was
+    /// loaded, so every consumer agrees and a change applies at the next launch. Before the load
+    /// (or in Release, where the store never activates) the live value, the default.
+    private static var ownAcpmuxAtLaunch: Bool {
+        ownAcpmuxRead.withLock { kept in
+            if let kept { return kept }
+            let value = HomeTunables.chiefOwnAcpmux.value
+            if TunableStore.shared.hasLoaded { kept = value }
+            return value
+        }
+    }
+
+    private static let ownAcpmuxRead = OSAllocatedUnfairLock<Bool?>(initialState: nil)
 
     static func usesAppAcpmux(isolated: Bool, buildID: String?, ownAcpmux: Bool) -> Bool {
         !isolated && buildID == nightlyBundleID && !ownAcpmux

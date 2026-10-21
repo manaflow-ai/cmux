@@ -67,9 +67,15 @@ public nonisolated enum ChiefHostStop {
 
     /// Whether `pid` runs an `optchat-chief` executable.
     public static func isChiefHost(_ pid: pid_t) -> Bool {
-        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
-        let path = proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
+        let path = executablePath(pid)
         return isChiefHost(path: path, processName: path == nil ? processName(pid) : nil)
+    }
+
+    /// The executable path of `pid` (`proc_pidpath`), nil when it fails: no such process, or
+    /// its executable's file is gone.
+    static func executablePath(_ pid: pid_t) -> String? {
+        var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
+        return proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 ? String(cString: buffer) : nil
     }
 
     /// Whether a process with executable `path` (nil: `proc_pidpath` failed) and kernel process
