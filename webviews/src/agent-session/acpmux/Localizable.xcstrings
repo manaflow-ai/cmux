@@ -108112,6 +108112,270 @@
         }
       }
     },
+    "edited.undoSkip.unknown.one": {
+      "comment": "Agent pane: the edited-files card's Undo confirmation, for a file the turn changed that Undo leaves as it is (the pane never had its earlier contents; the card may list it with or without +/- counts). \"Undo\" is the card's Undo button. {file} is the file's name.",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع «تراجع» استعادة {file}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Poništi“ ne može vratiti {file}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortryd kan ikke gendanne {file}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Rückgängig“ kann {file} nicht wiederherstellen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo can't restore {file}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deshacer no puede restaurar {file}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuler ne peut pas restaurer {file}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annulla non può ripristinare {file}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "元に戻すでは {file} を復元できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនធ្វើវិញ មិនអាចស្ដារ {file} បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 취소로 {file}을(를) 복원할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angre kan ikke gjenopprette {file}."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cofnij nie przywróci pliku {file}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desfazer não pode restaurar {file}."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Отменить» не восстановит файл {file}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลิกทำไม่สามารถกู้คืน {file} ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geri al, {file} dosyasını geri yükleyemez."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Скасувати» не відновить файл {file}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoàn tác không thể khôi phục {file}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "撤销无法恢复 {file}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "還原無法復原 {file}。"
+          }
+        }
+      }
+    },
+    "edited.undoSkip.unknown.other": {
+      "comment": "Agent pane: the edited-files card's Undo confirmation, for two or more files the turn changed that Undo leaves as they are (the pane never had their earlier contents; the card may list them with or without +/- counts). \"Undo\" is the card's Undo button. {files} is their names as a list (\"a.txt, b.txt and c.txt\").",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا يستطيع «تراجع» استعادة {files}."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Poništi“ ne može vratiti {files}."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Fortryd kan ikke gendanne {files}."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "„Rückgängig“ kann {files} nicht wiederherstellen."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Undo can't restore {files}."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Deshacer no puede restaurar {files}."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annuler ne peut pas restaurer {files}."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Annulla non può ripristinare {files}."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "元に戻すでは {files} を復元できません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនធ្វើវិញ មិនអាចស្ដារ {files} បានទេ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "실행 취소로 {files}을(를) 복원할 수 없습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Angre kan ikke gjenopprette {files}."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Cofnij nie przywróci plików {files}."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Desfazer não pode restaurar {files}."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Отменить» не восстановит файлы {files}."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เลิกทำไม่สามารถกู้คืน {files} ได้"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Geri al şu dosyaları geri yükleyemez: {files}."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "«Скасувати» не відновить файли {files}."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Hoàn tác không thể khôi phục {files}."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "撤销无法恢复 {files}。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "還原無法復原 {files}。"
+          }
+        }
+      }
+    },
     "edited.cancel": {
       "comment": "Agent pane",
       "extractionState": "manual",
@@ -198949,6 +199213,138 @@
           "stringUnit": {
             "state": "needs_review",
             "value": "等待你回答：請回答下面的問題"
+          }
+        }
+      }
+    },
+    "turn.waiting.model": {
+      "comment": "Agent pane: the running turn's line while its model has sent nothing since the prompt, past acpmux's silentTurnMs (a stalled model)",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "لا رد من النموذج بعد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Još nema odgovora od modela"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Intet svar fra modellen endnu"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Noch keine Antwort vom Modell"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No response from the model yet"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Aún no hay respuesta del modelo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Pas encore de réponse du modèle"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ancora nessuna risposta dal modello"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "モデルからまだ応答がありません"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "មិនទាន់មានការឆ្លើយតបពីម៉ូដែលនៅឡើយទេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "아직 모델의 응답이 없습니다"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ingen svar fra modellen ennå"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Brak jeszcze odpowiedzi od modelu"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ainda sem resposta do modelo"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель пока не ответила"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ยังไม่มีการตอบกลับจากโมเดล"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Modelden henüz yanıt yok"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Модель ще не відповіла"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Chưa có phản hồi từ mô hình"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型尚未响应"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "模型尚未回應"
           }
         }
       }

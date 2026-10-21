@@ -156,6 +156,7 @@ public nonisolated enum ActionCatalog {
         MarkdownPageActionCatalog.self,
         ListActionCatalog.self,
         PaletteKeyActionCatalog.self,
+        ImportActionCatalog.self,
     ]
 
     private static func makeAll() -> [ActionDescriptor] {
