@@ -54,24 +54,6 @@ impl AgentSource {
     }
 }
 
-/// The agent-record state a committed hook journal event implies, or `None`
-/// for events that carry no lifecycle transition (child agents, unclassified
-/// state changes) so they never churn the record.
-pub(super) fn agent_state_for_hook_kind(kind: &str) -> Option<AgentState> {
-    Some(match kind {
-        // A freshly started session sits at its prompt; a completed turn
-        // returns to it.
-        "agent.session.started" | "agent.turn.completed" => AgentState::Idle,
-        "agent.turn.started" => AgentState::Working,
-        "agent.approval.requested"
-        | "agent.question.requested"
-        | "agent.plan_review.requested"
-        | "agent.error.reported" => AgentState::Blocked,
-        "agent.session.ended" => AgentState::Done,
-        _ => return None,
-    })
-}
-
 /// Title, body, and level for the notification an agent hook event earns,
 /// or `None` for transitions that need no attention (session start, turn
 /// start, child lifecycle, session end).
@@ -79,6 +61,12 @@ pub(super) fn agent_hook_notification(
     ingress: &crate::JournalIngress,
 ) -> Option<(String, String, NotificationLevel)> {
     const BODY_MAX_CHARS: usize = 512;
+    // A failed tool call is part of the turn; an older hook helper still sends it as an error.
+    if ingress.payload.get("native_event").and_then(Value::as_str).is_some_and(|event| {
+        crate::agent_hooks::is_post_tool_event(&crate::agent_hooks::semantic_key(event))
+    }) {
+        return None;
+    }
     let (verb, level) = match ingress.kind.as_str() {
         "agent.turn.completed" => ("finished", NotificationLevel::Info),
         "agent.approval.requested" => ("needs approval", NotificationLevel::Warning),

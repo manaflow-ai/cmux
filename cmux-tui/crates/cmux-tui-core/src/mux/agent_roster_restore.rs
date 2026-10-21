@@ -94,6 +94,7 @@ pub(super) fn restore_agent_roster(
             }
         }
     }
+    host.roster.forget_hook_waits();
     if !skipped.is_empty() {
         neutralize_live_claims(registry, &mut host, &skipped);
         problems.push(skipped_ranges_problem(&skipped));
