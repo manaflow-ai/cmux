@@ -57,7 +57,7 @@ enum AgentSessionWorkspace {
         let machine = services.machines.machineName(daemon.machineID) ?? daemon.machineID
         let repair = services.machines.emptyWorkspaceRepair(daemon.machineID, local: services.emptyWorkspaces)
         // `group`: that machine's group of the name (made when missing), once the row is listed.
-        let join: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = group.map { name in { id, sidebar in join(id, group: name, sidebar: sidebar) } }
+        let join: (@MainActor @Sendable (String, SidebarBridge) -> Void)? = group.map { name in { id, sidebar in joinGroup(id, named: name, sidebar: sidebar) } }
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: nil, then: join, windows: services.windows)
         return Task { @MainActor in
             do {
@@ -81,7 +81,7 @@ enum AgentSessionWorkspace {
     }
 
     /// Moves workspace `id` into its machine's group named `name`, or a new group of that name.
-    private static func join(_ id: String, group name: String, sidebar: SidebarBridge) {
+    private static func joinGroup(_ id: String, named name: String, sidebar: SidebarBridge) {
         let ids = [SidebarWorkspaceID(id)]
         if let target = SidebarEdits.group(named: name, accepting: ids, in: sidebar.model.sections) {
             sidebar.handle(.move(ids, toGroup: target))
