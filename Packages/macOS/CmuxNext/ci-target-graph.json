@@ -101,6 +101,7 @@
         "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDesign",
+        "CmuxNextHome",
         "CmuxNextHomeEngine",
         "CmuxNextSidebar",
         "CmuxNextWakeups"
@@ -182,6 +183,7 @@
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextAgentUpdates",
       "targets": [
         "CmuxNextActions",
+        "CmuxNextCompat",
         "CmuxNextDaemon",
         "CmuxNextDaemonService",
         "CmuxNextPages",
@@ -370,6 +372,7 @@
         "CmuxNextDaemon",
         "CmuxNextDesign",
         "CmuxNextIcons",
+        "CmuxNextSettings",
         "CmuxNextWakeups"
       ],
       "packages": []

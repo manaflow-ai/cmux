@@ -441,6 +441,7 @@ impl Brain {
         // and every local effect it asks for is refused at once
         // (`turn_permission`), with no question to anyone.
         self.turn_ask = items.iter().any(Queued::requires_approval);
+        self.last_turn_ask = self.turn_ask;
         self.turn_denied.clear();
         self.repeat_denials = 0;
         self.interrupt.set_gate(self.turn_ask);
