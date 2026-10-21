@@ -15,8 +15,10 @@
 //! Nothing else is inherited: a decision for a plain folder covers that folder alone, and a
 //! repository at or above home (or with home unknown) is never answered as a whole.
 //!
-//! A folder the app made for a new chat (agent-home, `made_by_cmux`) is
-//! trusted by construction when acpmux has no record for it: nobody is asked.
+//! A folder the app made for a new chat (agent-home, `made_by_cmux`), and a worktree cmux made
+//! (`~/.cmux/worktrees/<project>/<name>`, `cmux_worktree`), is trusted by construction when
+//! acpmux has no record for it: nobody is asked. An agent's own untrusted level still holds a
+//! cmux worktree.
 //! A folder under the person's project roots, or in a repository whose remotes are all the
 //! person's own organizations, is trusted the same way (`trust_auto.rs`, switchable in Settings);
 //! an explicit "Don't trust" or an agent's own untrusted level still wins.
@@ -102,7 +104,7 @@ pub fn agent_home_root() -> Option<PathBuf> {
 /// `~/.cmux/worktrees` (`cmux_git::worktree_root`), where cmux makes the worktrees for its chats
 /// and lanes, on every host.
 pub fn cmux_worktrees_root() -> Option<PathBuf> {
-    dirs::home_dir().map(|home| home.join(".cmux").join("worktrees"))
+    dirs::home_dir().map(|home| cmux_git::worktree_root::worktree_root_path(&home))
 }
 
 /// The file the app writes in each agent-home folder it makes (`AgentHome.ensure`).
@@ -277,16 +279,21 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
     let decided = found.as_ref().map(|(_, level)| *level);
     // The folder the decision was made for, when it is not this one: Undo forgets it there.
     let via = found.map(|(folder, _)| folder).filter(|folder| *folder != cwd);
+    // A worktree cmux made, unless an agent already holds it as untrusted.
+    let worktree = claude.stricter(codex) != Level::Untrusted
+        && paths.cmux_worktrees.as_deref().is_some_and(|root| cmux_worktree(root, repo.as_ref()));
     // The repository the pane offers to trust as a whole.
     let repo = repo.filter(|repo| answerable_whole(&repo.root, home));
-    let agent_home = paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
+    let agent_home =
+        worktree || paths.agent_home.as_deref().is_some_and(|root| made_by_cmux(root, &cwd));
     // The person's own folders (project roots, own organizations) need no question, unless an
     // agent already holds the folder as untrusted: the rule widens an unknown, never a refusal.
     let auto = (decided.is_none() && !agent_home && claude.stricter(codex) != Level::Untrusted)
         .then(|| crate::trust_auto::AutoTrust::current().reason(&cwd))
         .flatten();
-    // acpmux's own decision answers first; then a folder cmux made for a chat or one of the
-    // person's own (trusted by construction); then the stricter of the agents' levels.
+    // acpmux's own decision answers first; then a folder cmux made (for a chat, or a worktree)
+    // or one of the person's own (trusted by construction); then the stricter of the agents'
+    // levels.
     let level = decided.unwrap_or_else(|| {
         if agent_home || auto.is_some() { Level::Trusted } else { claude.stricter(codex) }
     });
@@ -294,8 +301,8 @@ fn get_at(paths: &Paths, cwd: &str, home: Option<&Path>) -> Result<Value, Failur
         "cwd": cwd,
         "level": level.as_str(),
         "harnesses": {"claude": claude.as_str(), "codex": codex.as_str()},
-        // acpmux answered (its record, its agent-home rule, or an auto-trust rule): `level`
-        // holds for every agent.
+        // acpmux answered (its record, its rule for folders cmux made, or an auto-trust rule):
+        // `level` holds for every agent.
         "decided": decided.is_some() || agent_home || auto.is_some(),
         // Why no question was asked (`root` or `org`); absent otherwise.
         "auto": auto.as_ref().map(crate::trust_auto::Reason::label),
@@ -332,6 +339,17 @@ fn made_by_cmux(root: &Path, cwd: &str) -> bool {
     let marker = std::fs::symlink_metadata(path.join(AGENT_HOME_MARKER))
         .is_ok_and(|meta| meta.file_type().is_file());
     canonical && folder && marker
+}
+
+/// Whether `repo` is a linked worktree cmux made: one git wrote (`repository`) directly at
+/// `<root>/<project>/<name>`, the canonical `root` being cmux's worktree folder. A plain folder
+/// there is not one, nor is a folder inside a repository's main working tree.
+fn cmux_worktree(root: &Path, repo: Option<&Repository>) -> bool {
+    let Ok(root) = std::fs::canonicalize(root) else { return false };
+    repo.and_then(|repo| repo.worktree.as_deref())
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+        .is_some_and(|parent| parent == root)
 }
 
 /// A folder's trust for a session of one agent, read once: with the auto-trust rules
