@@ -361,7 +361,8 @@ describe("Codex sign-in precedence", () => {
   test("a model_provider inside a table is not the top-level provider", async () => {
     const m = machine();
     mkdirSync(path.join(m.home, ".codex"), { recursive: true });
-    writeFileSync(path.join(m.home, ".codex/config.toml"), '[profiles.team]\nmodel_provider = "cmux"\n');
+    // [history] marks the file as managed, so agent-config.sh leaves it as is.
+    writeFileSync(path.join(m.home, ".codex/config.toml"), '[history]\npersistence = "save-all"\n\n[profiles.team]\nmodel_provider = "cmux"\n');
     choose(m, "own", "codex");
     expect((await launch(m, "codex")).args).toBe("--resume x");
   });
