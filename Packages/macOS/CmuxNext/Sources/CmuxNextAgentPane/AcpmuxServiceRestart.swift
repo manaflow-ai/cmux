@@ -92,5 +92,6 @@ extension AcpmuxHost {
     public func restartDaemon() async throws {
         guard startsDaemons else { throw AgentPaneHostError.chiefStopped }
         _ = try await endpoint(startsDaemon: true, restart: true)
+        if let restartFailure { throw restartFailure }
     }
 }

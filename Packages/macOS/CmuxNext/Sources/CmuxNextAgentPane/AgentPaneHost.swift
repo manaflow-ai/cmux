@@ -92,6 +92,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     var environment: AcpmuxEnvironment?
     /// The lookup in flight, by whether it may start a daemon.
     private var inFlight: [Bool: Task<AcpmuxWebEndpoint, any Error>] = [:]
+    /// Why the last restart's stop failed (``restartDaemon()``); its waiters still get an endpoint.
+    var restartFailure: (any Error)?
     /// False for a daemon this app does not own (the Chief home's, which the
     /// Chief host starts): every handshake then only looks, as a reconnect
     /// does. It never stops, hands off or starts that daemon, so a subagent
@@ -191,8 +193,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
+        if restart { restartFailure = nil }
         let task = Task {
-            if restart { _ = try await AcpmuxServiceRestart(environment: environment).stop() }
+            // A stop that fails leaves the old daemon serving: the handshakes waiting on this task
+            // still get an endpoint, and only the restart reports the failure.
+            if restart {
+                do { _ = try await AcpmuxServiceRestart(environment: environment).stop() } catch { restartFailure = error }
+            }
             return try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal)
         }
         inFlight[startsDaemon] = task

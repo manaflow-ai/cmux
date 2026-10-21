@@ -83,11 +83,25 @@ final class BackgroundServicesPresenter {
         guard let services else { return result }
         let due = Set(report.services.filter(\.restarts).map(\.role))
         if due.contains(.agents), let host = services.agentTabs.host as? AcpmuxHost {
-            do {
-                try await host.restartDaemon()
-                result.restarted.append(.agents)
-            } catch {
-                result.failed.append(.init(role: .agents, reason: .other(String(describing: error))))
+            let chiefHome = services.home.chief.home
+            // A Chief on this daemon (NIGHTLY) never has its turn cut: its host hands off when its
+            // turn ends and exits, and the restart runs then; the brain keeper starts the next host.
+            if chiefHome.usesAppAcpmux, let chiefHost = ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) {
+                // task-owner: one restart per confirm; it ends when the Chief host exited and the daemon restarted
+                Task { @MainActor [weak services] in
+                    _ = await AgentPaneProcessExit(pid: chiefHost).event(within: nil)
+                    try? await host.restartDaemon()
+                    _ = services?.home.brain.ensure(asked: false)
+                }
+                result.afterTurn.append(.agents)
+            } else {
+                do {
+                    try await host.restartDaemon()
+                    result.restarted.append(.agents)
+                } catch {
+                    result.failed.append(.init(role: .agents, reason: .other(String(describing: error))))
+                }
+                if chiefHome.usesAppAcpmux { _ = services.home.brain.ensure(asked: false) }
             }
         }
         if due.contains(.chiefAgents), !services.home.chief.home.usesAppAcpmux,
