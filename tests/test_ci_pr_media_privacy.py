@@ -167,6 +167,15 @@ class TermSourceTests(unittest.TestCase):
         self.assertEqual(privacy.load_agent_authors({**env, "PR_MEDIA_AGENT_AUTHORS": "bot-b, bot-c"}),
                          frozenset({"bot-b", "bot-c"}))
 
+    def test_the_workspace_list_is_read_in_its_own_format(self) -> None:
+        # leo-workspace's file is {"_doc": ..., "authors": [...]}, as tools/agent_authors.py reads it.
+        env = {"HOME": str(self.home)}
+        self.write("Projects/leo-workspace/machines/agent-authors.json", {"_doc": "who", "authors": ["Bot-A"]})
+        self.assertEqual(privacy.load_agent_authors(env), frozenset({"bot-a"}))
+        self.write("Projects/leo-workspace/machines/agent-authors.json", {"authors": "bot-a"})
+        with self.assertRaises(privacy.BadInput):
+            privacy.load_agent_authors(env)
+
     def test_the_ocr_tool_can_be_named_or_turned_off_and_is_absent_off_macos(self) -> None:
         self.assertIsNone(privacy.ocr_binary({"PR_MEDIA_PRIVACY_OCR": "none"}))
         self.assertEqual(privacy.ocr_binary({"PR_MEDIA_PRIVACY_OCR": "/opt/ocr"}), "/opt/ocr")
