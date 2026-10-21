@@ -543,7 +543,14 @@ class CmuxNextWiring(unittest.TestCase):
                         names.index(mark["name"]))
         self.assertIn("steps.place.outputs.watch != 'false'", mark["if"])
         upload = next(step for step in steps if step.get("uses", "").startswith("actions/upload-artifact"))
-        self.assertEqual(upload["with"]["name"], "owned-pool-watch")
+        # With no free overflow slot a bot re-run rejoins the same side label (retry_runner is
+        # empty), so the sweeper on main watches it for refusals only and leaves a long queue
+        # alone (run 39615562861 was cancelled and re-queued twice, 2026-10-21).
+        name = upload["with"]["name"]
+        for free, marker in (("blacksmith-6vcpu-macos-26", "owned-pool-watch"), ("", "owned-pool-watch-refusals"),
+                             (None, "owned-pool-watch-refusals")):
+            outputs = {} if free is None else {"free_retry_runner": free}
+            self.assertEqual(evaluate(name, {"steps": {"place": {"outputs": outputs}}}), marker, free)
         checks = self.workflow()["jobs"]["checks"]["steps"]
         self.assertFalse(any(step.get("with", {}).get("name") == "owned-pool-watch" for step in checks))
 

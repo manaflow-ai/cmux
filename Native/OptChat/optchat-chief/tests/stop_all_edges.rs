@@ -1,19 +1,22 @@
 //! chief.stop {all} and {restart} at their edges (#22978's follow-ups): a
 //! cancel acpmux refuses stops nothing, so it is reported as an error and
 //! the subagent stays as it was; a subagent still starting when "Stop all
-//! agents" comes is named and stopped as soon as its task is sent.
+//! agents" comes is named and stopped as soon as its task is sent, and
+//! again when its task turn really starts (a cancel that reached acpmux
+//! before the prompt was lost); a cancel refused then is told to the Chief.
 
 mod common;
 
 use std::sync::Arc;
 use std::sync::mpsc::channel;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use common::*;
 use optchat_chief::brain::Input;
 use optchat_chief::state::{SubRecord, SubStatus};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
 use optchat_chief::tools::{ControlCall, Orchestrator};
+use optchat_chief::trace::Trace;
 use serde_json::{Value, json};
 
 fn spawner(h: &Harness) -> Arc<Spawner> {
@@ -113,6 +116,68 @@ fn a1_before_its_task(h: &mut Harness) -> std::thread::JoinHandle<Result<String,
     }
     assert!(sub(h, "a1").awaiting_task, "its task is not sent yet");
     worker
+}
+
+/// A turn that records nothing until the test says it starts
+/// (`task_turn_starts`), as a prompt waiting in acpmux's queue does.
+fn quiet_script() -> Script {
+    Box::new(|_, _| Vec::new())
+}
+
+/// a1's task turn starts at acpmux: the echo of its task prompt
+/// (`user_message` with its prompt id), then `turn_started`.
+fn task_turn_starts(h: &Harness, session: &str) {
+    let prompt = {
+        let inner = h.agents.inner.lock().unwrap();
+        inner
+            .prompt_sessions
+            .iter()
+            .zip(&inner.prompt_ids)
+            .find(|(s, _)| *s == session)
+            .map(|(_, p)| p.clone())
+            .expect("a1's task prompt was sent")
+    };
+    h.agents.push_events(
+        session,
+        vec![
+            json!({"dir": "mux", "kind": "user_message", "msg": {"promptId": prompt}}),
+            json!({"dir": "mux", "kind": "turn_started", "msg": {}}),
+        ],
+    );
+}
+
+/// Steps the brain until `done`, at most 10 s.
+fn step_until(h: &mut Harness, what: &str, done: impl Fn(&Harness) -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while !done(h) {
+        assert!(Instant::now() < deadline, "timed out: {what}");
+        if let Ok(input) = h.rx.recv_timeout(Duration::from_millis(10)) {
+            h.brain.step(input);
+        }
+    }
+}
+
+fn cancels(h: &Harness) -> Vec<String> {
+    h.agents.inner.lock().unwrap().cancels.clone()
+}
+
+fn traces(h: &Harness) -> Vec<Value> {
+    let dir = h.dir.path().join("traces");
+    let mut out = Vec::new();
+    for entry in std::fs::read_dir(&dir).into_iter().flatten().flatten() {
+        let text = std::fs::read_to_string(entry.path()).unwrap();
+        out.extend(text.lines().filter_map(|l| serde_json::from_str(l).ok()));
+    }
+    out
+}
+
+/// The memory's lines about a1 (`[a1] ...`): what the Chief was told.
+fn told_about_a1(h: &Harness) -> Vec<String> {
+    h.log()
+        .into_iter()
+        .map(|(_, t)| t)
+        .filter(|t| t.starts_with("[a1]"))
+        .collect()
 }
 
 /// acpmux refused a1's cancel: its turn goes on, so "Stop all agents"
@@ -311,4 +376,121 @@ fn restart_of_a_subagent_stopped_before_its_task_sends_no_cancel() {
         cancels,
         "no cancel after the stop's own"
     );
+}
+
+/// a1 is stopped while starting, and the cancel sent with its prompt
+/// reaches acpmux before the prompt does, so acpmux drops it. When a1's
+/// task turn really starts, a1 is cancelled again: its task never runs on
+/// after "Stop all agents" said it stopped.
+#[test]
+fn a_cancel_lost_before_the_prompt_is_sent_again_as_the_task_turn_starts() {
+    let mut h = Harness::new(quiet_script());
+    let worker = a1_starting(&mut h);
+    let answer = stop_all(&mut h);
+    assert_eq!(answer["subagents"], json!(["a1"]), "{answer}");
+    // The cancel sent as its prompt goes out beats the prompt: lost.
+    h.agents.inner.lock().unwrap().ignore_cancels = 1;
+    assert!(pump(&mut h, worker).unwrap().contains("Started a1"));
+    let session = sub(&h, "a1").session_id.expect("a1's session");
+    assert_eq!(cancels(&h), vec![session.clone()], "the early cancel");
+
+    task_turn_starts(&h, &session);
+    step_until(&mut h, "a1's task turn is cancelled as it starts", |h| {
+        cancels(h).len() == 2
+    });
+    assert_eq!(cancels(&h), vec![session.clone(), session.clone()]);
+    assert!(sub(&h, "a1").cancelled, "a1 stays stopped");
+    let killed = h.agents.inner.lock().unwrap().killed_processes.clone();
+    assert!(killed.contains(&session), "with its background processes");
+}
+
+/// Restart on the toast after a1's early cancel was lost and before its
+/// task turn starts: a1 goes on, so the stale stop never cuts the turn
+/// that then starts.
+#[test]
+fn a_restart_before_the_task_turn_starts_sends_no_cancel_as_it_starts() {
+    let mut h = Harness::new(quiet_script());
+    h.brain
+        .set_trace(Trace::open(&h.dir.path().join("traces"), false).unwrap());
+    let worker = a1_starting(&mut h);
+    let stopped = stop_all(&mut h);
+    assert_eq!(stopped["subagents"], json!(["a1"]), "{stopped}");
+    // The cancel sent with its prompt and Restart's own reach nothing.
+    h.agents.inner.lock().unwrap().ignore_cancels = 2;
+    assert!(pump(&mut h, worker).unwrap().contains("Started a1"));
+    let restarted = restart(&mut h, &["a1"]);
+    assert_eq!(restarted["restarted"], json!(["a1"]), "{restarted}");
+    assert!(!sub(&h, "a1").cancelled);
+    let before = cancels(&h).len();
+
+    let session = sub(&h, "a1").session_id.expect("a1's session");
+    task_turn_starts(&h, &session);
+    step_until(&mut h, "the brain sees a1's task turn start", |h| {
+        traces(h)
+            .iter()
+            .any(|t| t["ev"] == "subagent.turn_started" && t["id"] == "a1")
+    });
+    assert_eq!(cancels(&h).len(), before, "no cancel cuts its task turn");
+    assert!(!sub(&h, "a1").cancelled);
+}
+
+/// acpmux refuses the cancel sent as a1's task turn starts: a1 goes on
+/// with its task, and the Chief is told (the stop-all toast already said
+/// it stopped), as a refused cancel is reported in the stop-all answer.
+#[test]
+fn a_refused_cancel_as_the_task_turn_starts_is_told_to_the_chief() {
+    let mut h = Harness::new(quiet_script());
+    h.connect();
+    let worker = a1_starting(&mut h);
+    let answer = stop_all(&mut h);
+    assert_eq!(answer["subagents"], json!(["a1"]), "{answer}");
+    h.agents.inner.lock().unwrap().ignore_cancels = 1;
+    assert!(pump(&mut h, worker).unwrap().contains("Started a1"));
+    assert!(told_about_a1(&h).is_empty(), "{:?}", h.log());
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .cancel_errors_once
+        .push_back("acpmux: the turn is busy".into());
+
+    let session = sub(&h, "a1").session_id.expect("a1's session");
+    task_turn_starts(&h, &session);
+    step_until(&mut h, "the Chief is told a1 did not stop", |h| {
+        !told_about_a1(h).is_empty()
+    });
+    let told = told_about_a1(&h).join("\n");
+    assert!(told.contains("did not stop"), "{told}");
+    assert!(told.contains("acpmux: the turn is busy"), "{told}");
+    let a1 = sub(&h, "a1");
+    assert!(!a1.cancelled, "a1 goes on");
+    assert_eq!(a1.status, SubStatus::Running);
+}
+
+/// acpmux refuses the cancel sent as soon as a1's task is sent: a1 goes on
+/// with its task, and the Chief is told.
+#[test]
+fn a_refused_cancel_as_the_task_is_sent_is_told_to_the_chief() {
+    let mut h = Harness::new(default_script());
+    h.connect();
+    let worker = a1_starting(&mut h);
+    let answer = stop_all(&mut h);
+    assert_eq!(answer["subagents"], json!(["a1"]), "{answer}");
+    h.agents
+        .inner
+        .lock()
+        .unwrap()
+        .cancel_errors_once
+        .push_back("acpmux: the turn is busy".into());
+
+    assert!(pump(&mut h, worker).unwrap().contains("Started a1"));
+    step_until(&mut h, "the Chief is told a1 did not stop", |h| {
+        !told_about_a1(h).is_empty()
+    });
+    let told = told_about_a1(&h).join("\n");
+    assert!(told.contains("did not stop"), "{told}");
+    assert!(told.contains("acpmux: the turn is busy"), "{told}");
+    let a1 = sub(&h, "a1");
+    assert!(!a1.cancelled, "a1 goes on");
+    assert_eq!(a1.status, SubStatus::Running);
 }

@@ -292,7 +292,7 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
             Some("trust".into()),
             None,
             None,
-            Answerer { person: true, ..Answerer::default() },
+            Answerer::of(true, &json!({})),
             Control::Web,
         )
         .await
@@ -306,7 +306,7 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         Some("trust".into()),
         None,
         None,
-        Answerer { person: true, ..Answerer::default() },
+        Answerer::of(true, &json!({})),
         Control::Local,
     )
     .await
@@ -386,7 +386,7 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         Some("trust".into()),
         None,
         None,
-        Answerer { person: true, ..Answerer::default() },
+        Answerer::of(true, &json!({})),
         Control::Local,
     )
     .await
@@ -443,7 +443,7 @@ async fn a_folder_nobody_answered_for_waits_on_a_card_and_resumes_by_itself() {
         Some("trust".into()),
         None,
         None,
-        Answerer { person: true, ..Answerer::default() },
+        Answerer::of(true, &json!({})),
         Control::Local,
     )
     .await

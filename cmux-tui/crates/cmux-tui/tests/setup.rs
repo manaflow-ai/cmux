@@ -132,6 +132,17 @@ exit 0
             .env_remove("CODEX_HOME")
             .env_remove("CMUX_SOCKET_PATH")
             .stdin(Stdio::null());
+        // No Claude sign-in from the runner's own env.
+        for key in [
+            "ANTHROPIC_API_KEY",
+            "ANTHROPIC_AUTH_TOKEN",
+            "CLAUDE_CODE_OAUTH_TOKEN",
+            "CLAUDE_CODE_USE_BEDROCK",
+            "CLAUDE_CODE_USE_VERTEX",
+            "CLAUDE_CODE_USE_FOUNDRY",
+        ] {
+            command.env_remove(key);
+        }
         if self.fake_ssh {
             // The fake ssh and scp are first on PATH; nothing reaches a real machine.
             command.env("FAKE_SSH_LOG", self.ssh_log());
@@ -168,10 +179,8 @@ exit 0
     /// A fake ACP harness CLI at `path`: `--version` prints `version`; on
     /// stdin it answers `initialize`, and `session/new` with ACP's
     /// "authentication required" until `signed_in(path)` exists. Every line
-    /// it reads goes to `path.log`. A short-lived `sh` writes it so no sibling
-    /// test's fork inherits a write descriptor (ETXTBSY).
+    /// it reads goes to `path.log`.
     fn harness(&self, path: &Path, version: &str) {
-        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let script = format!(
             r#"#!/bin/sh
 [ "$1" = --version ] && {{ echo "{version}"; exit 0; }}
@@ -191,14 +200,39 @@ while IFS= read -r line; do
 done
 "#
         );
+        World::executable(path, &script);
+    }
+
+    /// Writes the script `body` at `path`, executable. A short-lived `sh`
+    /// writes it so no sibling test's fork inherits a write descriptor
+    /// (ETXTBSY).
+    fn executable(path: &Path, body: &str) {
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let mut child = Command::new("/bin/sh")
             .args(["-c", "cat >\"$1\" && chmod 755 \"$1\"", "sh"])
             .arg(path)
             .stdin(Stdio::piped())
             .spawn()
             .unwrap();
-        child.stdin.take().unwrap().write_all(script.as_bytes()).unwrap();
+        child.stdin.take().unwrap().write_all(body.as_bytes()).unwrap();
         assert!(child.wait().unwrap().success());
+    }
+
+    /// acpmux's config.json with `harnesses` (id to profile), owner-only as
+    /// acpmux wants it.
+    fn configure(&self, harnesses: Value) {
+        use std::os::unix::fs::PermissionsExt;
+        let path = self.acpmux.join("config.json");
+        std::fs::write(&path, json!({"harnesses": harnesses}).to_string()).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    }
+
+    /// A Codex home at `name` under HOME with `config` as its config.toml.
+    fn codex_home(&self, name: &str, config: &str) -> PathBuf {
+        let home = self.home.join(name);
+        std::fs::create_dir_all(&home).unwrap();
+        std::fs::write(home.join("config.toml"), config).unwrap();
+        home
     }
 
     /// What the fake harness at `path` read.
@@ -655,7 +689,7 @@ fn cmux_setup_machine_never_moves_a_peer_by_its_default_name() {
         assert_eq!(result["undo"], Value::Null);
         assert!(world.take_ssh_calls().is_empty(), "a taken name reached the machine");
     }
-    assert_eq!(daemon.peers(), [ws.clone()]);
+    assert_eq!(daemon.peers(), std::slice::from_ref(&ws));
 
     // A new name adds the machine beside it.
     let added = world.json(&["setup", "machine", "box.example", "--name", "box2"]);
@@ -805,4 +839,86 @@ fn cmux_setup_harness_with_none_installed_asks_for_one() {
     assert_eq!(none["harnesses"], json!([]));
     assert_eq!(none["user_action"]["kind"], "install", "{none}");
     assert!(none["user_action"]["url"].is_string(), "{none}");
+}
+
+/// A harness whose start would read the login keychain (its profile env
+/// names a Keychain item, Codex keeps its login in the keychain, or it is
+/// Claude Code, whose login may be its keychain item) is not
+/// asked its sign-in, by `setup status` or by name: setup never reads the
+/// keychain, as acpmux's own check does not (cx-hh0vu). Its sign-in stays
+/// unknown, with the reason.
+#[test]
+fn cmux_setup_harness_never_starts_a_harness_whose_sign_in_is_in_the_keychain() {
+    let world = World::new("hkeychain");
+    // Off macOS the secret store is `secret-tool` on PATH: this one answers
+    // and leaves a mark, so a lookup would show.
+    World::executable(&world.bin.join("secret-tool"), "#!/bin/sh\n: >\"$0.asked\"\necho secret\n");
+    let vault = world.bin.join("vault-acp");
+    world.harness(&vault, "1.0.0");
+    let codex = world.bin.join("keyring-codex-acp");
+    world.harness(&codex, "0.9.0");
+    let codex_home =
+        world.codex_home("keyring-codex", "cli_auth_credentials_store = \"keyring\"\n");
+    // A Claude Code ACP adapter with no sign-in in its env or files.
+    let claude = world.bin.join("claude-agent-acp");
+    world.harness(&claude, "0.5.0");
+    world.configure(json!({
+        "vault": {
+            "argv": [vault],
+            "env": {"VAULT_API_KEY": "${keychain:cmux-harness/vault/VAULT_API_KEY}"},
+        },
+        "keyring-codex": {"argv": [codex], "env": {"CODEX_HOME": codex_home}},
+        "my-claude": {"argv": [claude]},
+    }));
+
+    let status = world.json(&["setup", "status"]);
+    let check = &status["checks"][2];
+    assert_eq!(check["task"], "harness", "{status}");
+    let named = world.json(&["setup", "harness", "vault", "keyring-codex", "my-claude"]);
+    let mut reports = check["harnesses"].as_array().unwrap().clone();
+    reports.extend(named["harnesses"].as_array().unwrap().iter().cloned());
+    let ids = reports.iter().map(|r| r["id"].as_str().unwrap()).collect::<Vec<_>>();
+    let each = ["keyring-codex", "my-claude", "vault"];
+    assert_eq!(ids, [each, each].concat(), "{status} {named}");
+    for report in &reports {
+        assert_eq!(report["installed"], true, "{report}");
+        assert_eq!(report["signed_in"], Value::Null, "{report}");
+        assert_eq!(report["state"], "ok", "{report}");
+        let detail = report["auth_detail"].as_str().unwrap_or_default();
+        assert!(detail.contains("keychain"), "{report}");
+    }
+    for fake in [&vault, &codex, &claude] {
+        assert_eq!(World::harness_log(fake), "", "{} was started", fake.display());
+    }
+    assert!(!world.bin.join("secret-tool.asked").exists(), "the secret store was asked");
+}
+
+/// An unknown sign-in the check explains (Codex's provider reads a key that
+/// is not set) stays as the check said: the harness is not asked, since its
+/// answer to `session/new` says nothing about that key.
+#[test]
+fn cmux_setup_harness_keeps_the_reason_the_check_gave_for_an_unknown_sign_in() {
+    let world = World::new("hreason");
+    let codex = world.bin.join("router-codex-acp");
+    world.harness(&codex, "0.9.0");
+    // Asked, it would answer `session/new`.
+    World::sign_in(&codex);
+    let config = r#"model_provider = "router"
+[model_providers.router]
+base_url = "https://r.example/v1"
+env_key = "CXS_UNSET_ROUTER_KEY"
+"#;
+    let codex_home = world.codex_home("router-codex", config);
+    world.configure(json!({"router-codex": {"argv": [codex], "env": {"CODEX_HOME": codex_home}}}));
+
+    let status = world.json(&["setup", "status"]);
+    let named = world.json(&["setup", "harness", "router-codex"]);
+    for report in [&status["checks"][2]["harnesses"][0], &named["harnesses"][0]] {
+        assert_eq!(report["id"], "router-codex", "{report}");
+        assert_eq!(report["installed"], true, "{report}");
+        assert_eq!(report["signed_in"], Value::Null, "{report}");
+        let detail = report["auth_detail"].as_str().unwrap_or_default();
+        assert!(detail.contains("CXS_UNSET_ROUTER_KEY"), "{report}");
+    }
+    assert_eq!(World::harness_log(&codex), "", "the harness was asked");
 }

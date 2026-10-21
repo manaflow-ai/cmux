@@ -175,4 +175,15 @@ describe("answerFromOutcome", () => {
     expect(decidedQuestion(acp, { outcome: "selected", optionId: "gone" }).state).toEqual({ kind: "cancelled" });
     expect(decidedQuestion(codex, undefined).state).toEqual({ kind: "cancelled" });
   });
+
+  test("a session above this one that answered is named; a person's answer names no one", () => {
+    const outcome = { outcome: "selected", optionId: "no" };
+    const bySession = decidedQuestion(acp, outcome, { session: "s-parent", name: "coordinator" });
+    expect(bySession.state).toMatchObject({
+      kind: "answered",
+      answer: { respondent: { displayName: "coordinator", isRemote: false, isSession: true } },
+    });
+    const byDevice = decidedQuestion(acp, outcome, { device: "phone", feedItem: "f1" });
+    expect(byDevice.state.kind === "answered" && byDevice.state.answer.respondent).toBe(undefined);
+  });
 });
