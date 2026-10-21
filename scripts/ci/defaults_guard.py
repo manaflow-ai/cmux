@@ -549,8 +549,10 @@ def stamp_entries(stamp: str) -> dict[str, str]:
     return entries
 
 
-def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
-    """(problems, notes) for the settings export stamp of `tree`."""
+def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], list[str]]:
+    """(problems, notes) for the settings export stamp of `tree`. With `base`, a stale source whose
+    bytes and stamp entry are both the base's is the base's: a warning note, not a problem (the base
+    autofix regenerates the exports after each merge, so the base is often stale for minutes)."""
     stamp = tree.read(SETTINGS_STAMP)
     if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
         # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
@@ -567,13 +569,29 @@ def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
                 f"  {SETTINGS_STAMP} is a single digest from before the per-source stamp"], []
     moved = sorted((path for path in stored.keys() | current.keys() if stored.get(path) != current.get(path)),
                    key=lambda path: path.encode("utf-8"))
-    lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
-             for path in moved[:20]]
-    if len(moved) > 20:
-        lines.append(f"  and {len(moved) - 20} more")
     if not moved:
-        lines = [f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"]
-    return [f"DEFAULTS exports: {STALE_EXPORTS}", *lines], []
+        return [f"DEFAULTS exports: {STALE_EXPORTS}",
+                f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"], []
+
+    def listed(paths: list[str]) -> list[str]:
+        lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
+                 for path in paths[:20]]
+        return lines + ([f"  and {len(paths) - 20} more"] if len(paths) > 20 else [])
+
+    notes: list[str] = []
+    if base is not None:
+        base_stored = stamp_entries(base.read(SETTINGS_STAMP) or "")
+        base_current = stamp_entries(settings_source_stamp(base))
+        inherited = [path for path in moved
+                     if current.get(path) == base_current.get(path) and stored.get(path) == base_stored.get(path)]
+        if inherited:
+            moved = [path for path in moved if path not in inherited]
+            notes = [f"::warning title=Settings exports stale on the base::settings exports stale on the base "
+                     f"{(base.ref or str(base.root))[:12]} too, for sources not changed here; the base autofix "
+                     "regenerates them:", *listed(inherited)]
+    if not moved:
+        return [], notes
+    return [f"DEFAULTS exports: {STALE_EXPORTS}", *listed(moved)], notes
 
 
 def command_check_fresh(args: argparse.Namespace) -> int:
@@ -590,22 +608,9 @@ def command_check_fresh(args: argparse.Namespace) -> int:
 
 def command_check_stamp(args: argparse.Namespace) -> int:
     """Only the settings export stamp: exit 1 when the exports need the Swift export. With --base,
-    only the sources the head changed since the base fail: the base autofix regenerates the
-    exports after each merge, so the base is often stale for minutes, and every head on it too."""
-    tree = Tree.named(args.ref) if args.ref else Tree(None)
-    problems, notes = stamp_freshness(tree)
-    if problems and args.base:
-        head, base = stamp_entries(settings_source_stamp(tree)), stamp_entries(settings_source_stamp(Tree.named(args.base)))
-        inherited = [line for line in problems[1:]
-                     if line.endswith((": changed", ": gone", ": not stamped"))
-                     and head.get(path := line.strip().rsplit(": ", 1)[0]) == base.get(path)]
-        if inherited:
-            problems = [problems[0], *(line for line in problems[1:] if line not in inherited)]
-            if len(problems) == 1:
-                problems = []
-            notes += [f"::warning title=Settings exports stale on the base::settings exports stale on the base "
-                      f"{args.base[:12]} too, for sources not changed here; the base autofix regenerates them:",
-                      *inherited]
+    only the sources the head changed since the base fail."""
+    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None),
+                                      Tree.named(args.base) if args.base else None)
     for line in problems + notes:
         print(line)
     return 1 if problems else 0
