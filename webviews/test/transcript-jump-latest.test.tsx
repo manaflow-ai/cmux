@@ -105,12 +105,15 @@ test("scrolled up, a button above the composer jumps to the latest message, with
     await act(async () => void scroller.dispatchEvent(new dom.window.Event("scroll")));
     expect(button()?.dataset.shown).toBe("");
     expect(button()?.getAttribute("aria-label")).toBe("Jump to latest");
+    // The arrow alone does not say what it does: hovering it names it.
+    expect(button()?.title).toBe("Jump to latest");
     expect(button()?.dataset.working).toBeUndefined();
 
     // A reply streams below the viewport: the button says so with its dots.
     await act(async () => render(true));
     expect(button()?.dataset.working).toBe("");
     expect(button()?.getAttribute("aria-label")).toBe("Jump to latest, still replying");
+    expect(button()?.title).toBe("Jump to latest, still replying");
 
     // A click goes to the latest message, and the button hides there.
     jumps.length = 0;

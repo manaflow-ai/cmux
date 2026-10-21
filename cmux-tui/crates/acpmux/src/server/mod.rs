@@ -71,6 +71,9 @@ pub struct Conn {
     /// The peers this connection leased (`hub/peer_lease.rs`); None once it
     /// closed, so a lease that settles after the close ends at once.
     peer_leases: StdMutex<Option<Vec<crate::hub::PeerLease>>>,
+    /// The ephemeral sessions it created, purged when it closes (`ephemeral.rs`);
+    /// None once it closed.
+    ephemeral: StdMutex<Option<Vec<String>>>,
 }
 
 impl Conn {
@@ -756,6 +759,7 @@ async fn serve_connection_from(
         caller: std::sync::OnceLock::new(),
         unproven_caller: std::sync::OnceLock::new(),
         peer_leases: StdMutex::new(Some(Vec::new())),
+        ephemeral: StdMutex::new(Some(Vec::new())),
     });
     tracing::debug!(conn = %conn.id, "client connected");
 
@@ -802,6 +806,7 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
+    ephemeral::release_all(&hub, &conn).await;
     conn.end_peer_leases(&hub);
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
@@ -983,6 +988,7 @@ mod agent_messages;
 mod change_kind;
 mod chats;
 pub mod conn_auth;
+mod ephemeral;
 mod fanout;
 pub use conn_auth::ConnAuth;
 mod fork_through;
