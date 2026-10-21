@@ -147,3 +147,64 @@ test("a refused send stays as its failed row, naming the hop, for Retry, Edit or
     client.close?.();
   }
 });
+
+test("a prompt the connection dropped before acpmux took it goes back to its sender, not to a row", async () => {
+  const { AcpmuxDirectClient } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  class SilentHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) =>
+        method === "session/prompt" ? new Promise(() => undefined) : answer(method, params);
+    }
+  }
+  let rows: Row[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows as Row[]),
+    undefined,
+    () => new SilentHost() as unknown as WebSocket,
+  );
+  const sent = client.send("before the drop").catch((refusal: unknown) => refusal);
+  await settle(() => rows.some((row) => row.text === "before the drop"));
+  client.close?.();
+  const error = await sent;
+  expect((error as { failedRow?: string }).failedRow).toBeUndefined();
+  expect(rows.some((row) => row.text === "before the drop" && row.failed)).toBe(false);
+});
+
+test("a sender that still holds its prompt gets no second copy as a failed row", async () => {
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const timing = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 10, failMs: 30 });
+  class SilentHost extends MockAcpmuxSocket {
+    constructor() {
+      super(() => Promise.resolve());
+      const hooks = this as unknown as Hooks;
+      const answer = hooks.answer.bind(this);
+      hooks.answer = (method, params) =>
+        method === "session/prompt" ? new Promise(() => undefined) : answer(method, params);
+    }
+  }
+  let rows: Row[] = [];
+  const client = await AcpmuxDirectClient.connect(
+    mockHost,
+    (snapshot) => (rows = snapshot.rows as Row[]),
+    undefined,
+    () => new SilentHost() as unknown as WebSocket,
+  );
+  try {
+    void client.send("held here", [], undefined, () => undefined).catch(() => undefined);
+    const mine = () => rows.find((row) => row.text === "held here");
+    await settle(() => mine()?.delivery?.slow === true);
+    await new Promise((resolve) => setTimeout(resolve, 60));
+    expect(mine()?.failed).toBeFalsy();
+    expect(mine()?.delivery?.state).toBe("sending");
+  } finally {
+    Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});

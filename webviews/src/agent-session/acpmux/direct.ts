@@ -2613,7 +2613,8 @@ export class AcpmuxDirectClient {
     // while a new chat starts, the prompt waits for it (ensureSession).
     const shown = this.creating ? undefined : this.selectedSessionId;
     const sessionId = shown ?? (await this.ensureSession());
-    if (!sessionId) return undefined;
+    // No chat took it: the sender gets the prompt back (a started chat's composer let go of it).
+    if (!sessionId) throw new Error(translate("error.notOpen"));
     const text = promptText(input, attachments);
     const rowId = `local-${promptId}`;
     const at = Date.now();
@@ -2637,7 +2638,17 @@ export class AcpmuxDirectClient {
     this.deliveries.set(promptId, { delivery, rowId, timers: [] });
     if (waits)
       this.queue = [...this.queue.filter((entry) => entry.id !== promptId), queuedEntry(promptId, text, false, true)];
-    else this.rows.set(rowId, { id: rowId, version: 1, at, kind: "user", text, pending: true, delivery });
+    // A Retry draws over its failed row: a newer version, so the memoized row redraws.
+    else
+      this.rows.set(rowId, {
+        id: rowId,
+        version: (this.rows.get(rowId)?.version ?? 0) + 1,
+        at,
+        kind: "user",
+        text,
+        pending: true,
+        delivery,
+      });
     let taken = false;
     let released = false;
     // The chat's first prompt carries its workspace context, once: a prompt acpmux took used it,
@@ -2673,6 +2684,9 @@ export class AcpmuxDirectClient {
       }, deliveryTiming.slowMs),
       setTimeout(() => {
         if (this.deliveries.get(promptId)?.delivery.state !== "sending") return;
+        // A sender that still holds the prompt (a new chat's composer) keeps it there: no second
+        // copy as a failed row.
+        if (accepted !== undefined && !released) return;
         this.queue = this.queue.filter((entry) => entry.id !== promptId);
         const shownRow = this.rows.get(rowId) ?? { id: rowId, version: 1, at, kind: "user", text };
         this.rows.set(rowId, {
@@ -2772,6 +2786,19 @@ export class AcpmuxDirectClient {
         else this.emit();
         throw error;
       }
+      // The connection went before acpmux took it (`rejectPending`, a closed client): this client's
+      // rows go with it, so the sender gets the prompt back instead of a row nobody will see.
+      if (!taken && (this.closed || code === "native.timed_out")) {
+        this.rows.delete(rowId);
+        this.failedPrompts.delete(rowId);
+        this.optimisticPromptRows.delete(promptId);
+        this.optimisticPromptTexts.delete(promptId);
+        this.optimisticPromptAttachments.delete(promptId);
+        this.deliveries.get(promptId)?.timers.forEach(clearTimeout);
+        this.deliveries.delete(promptId);
+        this.emit(refused ? undefined : "failed");
+        throw error;
+      }
       const row = this.rows.get(rowId);
       if (row) {
         // A new row object: the transcript's rows are memoized on identity and version. The
@@ -2837,10 +2864,10 @@ export class AcpmuxDirectClient {
       entry.timers.forEach(clearTimeout);
       entry.timers = [];
     }
+    const recovered = timedOut && next.state !== "failed";
+    if (recovered) this.failedPrompts.delete(`local-${promptId}`);
     const row = this.rows.get(entry.rowId);
     if (row) {
-      const recovered = timedOut && next.state !== "failed";
-      if (recovered) this.failedPrompts.delete(entry.rowId);
       this.rows.set(entry.rowId, {
         ...row,
         delivery: next,
@@ -2863,18 +2890,22 @@ export class AcpmuxDirectClient {
 
   /// Retry on a prompt that was not sent: its bubble goes and the same prompt goes again, under the
   /// same prompt id with `resend`, so a copy acpmux did take answers as that one and runs no second turn.
-  async retryPrompt(rowId: string): Promise<string | undefined> {
+  /// `ticket`: the gesture a trust refusal kept for this prompt (heldPrompt.ts).
+  async retryPrompt(rowId: string, ticket?: string): Promise<string | undefined> {
     const failed = this.failedPrompts.get(rowId);
     if (!failed) return undefined;
     this.failedPrompts.delete(rowId);
-    this.rows.delete(rowId);
-    this.emit();
+    // A prompt with an id goes again under it, over its own row; an older one gets a new row.
+    if (!failed.promptId) {
+      this.rows.delete(rowId);
+      this.emit();
+    }
     return this.send(
       failed.input,
       failed.attachments,
       failed.promptId,
       undefined,
-      undefined,
+      ticket,
       false,
       failed.promptId !== undefined,
     );
