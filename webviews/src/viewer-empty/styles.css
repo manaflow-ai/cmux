@@ -390,7 +390,10 @@
   color: var(--ve-fg);
 }
 
+/* flex: none: a folder that virtualizes gives the list its full height as a flex basis, and the
+   shrink would come out of the field too (it drew 20px tall). */
 .ve-picker-field {
+  flex: none;
   height: 30px;
   margin: 8px 12px;
   padding: 0 10px;
@@ -448,7 +451,9 @@
   font-weight: 600;
 }
 
-.ve-picker-row[data-location="true"] + .ve-picker-row:not([data-location]) {
+/* Not in a virtualized list: its rows sit at fixed 28px steps, so a margin would push the first
+   folder 4px into the next. */
+.ve-picker-list:not(.ui-virtual) .ve-picker-row[data-location="true"] + .ve-picker-row:not([data-location]) {
   margin-top: 4px;
 }
 
