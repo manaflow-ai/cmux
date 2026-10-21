@@ -81,6 +81,7 @@ first everywhere). Use the token, never a number: `z-index: var(--layer-dropdown
 
 | token              | value      | for                                                                                                          |
 | ------------------ | ---------- | ------------------------------------------------------------------------------------------------------------ |
+| `--layer-backdrop` | -1         | the liquid glass lens's one canvas (`ui/glass/lens.ts`), behind all content and over the page color          |
 | `--layer-base`     | 0          | normal flow                                                                                                  |
 | `--layer-raised`   | 1          | a part lifted above its siblings inside one component (a hover card edge, a selected row's outline)          |
 | `--layer-sticky`   | 10         | sticky headers, docked bars inside a scroller                                                                |
@@ -111,6 +112,28 @@ Rules:
 - The gallery stage checks every play step: an open popup must be the top element at its corners and
   center, and nothing may clip it (`judgePopups` in `gallery/play.ts`). It warns by default; an entry
   gates it with `checks.popupLayer = { value: true, reason }`.
+
+## Liquid glass
+
+A glass surface adds `.ui-glass` (React: `<Glass>` from `ui/glass/Glass.tsx`) and nothing else; its
+tint, blur and rim come from `ui/glass/glass.css`, which `pages/shared/desktop.ts` loads on every page
+and the agent pane. Override a token on the surface itself, never the fill:
+
+| token                | default                  | for                                                     |
+| -------------------- | ------------------------ | ------------------------------------------------------- |
+| `--glass-tint`       | the theme surface at 40% | the fill: never opaque, never the accent                |
+| `--glass-blur`       | 2px                      | the frost inside the glass                              |
+| `--glass-refraction` | 22px                     | how far the rim bends the wallpaper                     |
+| `--glass-rim`        | 1                        | the specular rim's strength (0 to 1)                    |
+| `--glass-dispersion` | 0 (0.35 under Spectrum)  | the per-channel split of the bend                       |
+| `--glass-elevation`  | none                     | the surface's own drop shadow, from the elevation scale |
+
+The host sets `data-glass` (`lens`, `plain`, `spectrum`) on `<html>` and sends a still of the
+wallpaper through `window.cmuxTheme.backdrop(...)`. `ui/glass/lens.ts` then draws it on one WebGL
+canvas behind all content (`--layer-backdrop`), bent at each glass's rounded rim
+(plans/cmux-next/glass-lens-DESIGN.md). Plain glass, Reduce Transparency, no still or no glass on the
+page leave it with no canvas and no listeners but the mode watchers; Reduce Transparency makes the
+surface opaque.
 
 ## Type scale
 

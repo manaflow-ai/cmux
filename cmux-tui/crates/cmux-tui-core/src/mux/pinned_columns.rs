@@ -35,6 +35,13 @@ pub(crate) fn pinned_columns(state: &State) -> Vec<PinnedColumn> {
     pinned_column_views(state).map(|(column, _)| column).collect()
 }
 
+/// The pinned tab (first tab) of every pinned column of `state`. A close
+/// that picks its own tabs (a `layout.bulk` preset, a Workspace-form stash)
+/// leaves these out, as it leaves out pinned tabs.
+pub(crate) fn pinned_dock_tabs(state: &State) -> HashSet<SurfaceId> {
+    pinned_column_views(state).filter_map(|(column, _)| column.tabs.first().copied()).collect()
+}
+
 fn pinned_column_views(state: &State) -> impl Iterator<Item = (PinnedColumn, bool)> + '_ {
     state.workspaces.iter().flat_map(move |workspace| {
         workspace.screens.iter().flat_map(move |screen| {

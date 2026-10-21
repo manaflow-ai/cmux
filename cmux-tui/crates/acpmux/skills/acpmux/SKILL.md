@@ -25,6 +25,10 @@ Inside cmux your `cmux-subsessions` MCP server starts children instead:
 `start_session` (with `worktree: true` for a worktree of its own),
 `list_sessions`, `get_session`, `wait_for_sessions`, `send_message` and
 `stop_session`. Prefer them when you have them; this CLI is the fallback.
+A lane is different: an agent with its own worktree and brief that reports
+back to you and outlives you. Start it with the one launcher command in
+section 3 (`acpmux new --worktree … --prompt-file …`), not a hand-made
+`git worktree add` + `acpmux send` script.
 Start a session only when the user asked for one. If they refuse with "this
 session's caller token is not one this acpmux daemon knows", run
 `acpmux session restart @`: your agent restarts in the same conversation when

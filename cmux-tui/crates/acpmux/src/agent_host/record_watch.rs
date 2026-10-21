@@ -26,7 +26,7 @@
 use std::path::PathBuf;
 
 /// Live while held. `on_change` returns true when it needs no more events.
-pub(super) struct DirWatch {
+pub(crate) struct DirWatch {
     #[cfg(target_os = "macos")]
     kq: std::sync::Arc<std::os::fd::OwnedFd>,
     #[cfg(target_os = "linux")]
@@ -57,7 +57,7 @@ impl DirWatch {
     /// Watches every directory of `dirs` that can be opened (a missing one
     /// is skipped with a warning). None when no directory is watched.
     #[cfg(target_os = "macos")]
-    pub(super) fn start(
+    pub(crate) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
@@ -119,7 +119,7 @@ impl DirWatch {
     }
 
     #[cfg(target_os = "linux")]
-    pub(super) fn start(
+    pub(crate) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
@@ -188,7 +188,7 @@ impl DirWatch {
     }
 
     #[cfg(not(any(target_os = "macos", target_os = "linux")))]
-    pub(super) fn start(
+    pub(crate) fn start(
         dirs: &[PathBuf],
         mut on_change: impl FnMut() -> bool + Send + 'static,
     ) -> Option<Self> {
