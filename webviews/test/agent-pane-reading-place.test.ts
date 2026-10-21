@@ -8,6 +8,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, type Browser, type Page } from "playwright";
+import { installPaintedFrames } from "./support/paintedFrames";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -125,12 +126,13 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
   /// Opens the chat with the host keeping `anchor` as where it last rested.
   async function reopen(anchor: { rowId: string; offset: number } | null): Promise<Page> {
     const tab = await browser!.newPage({ viewport: { width: 900, height: 760 } });
-    // Every frame: the first question drawn while the transcript shows, and whether Jump to latest
+    await installPaintedFrames(tab);
+    // Every painted frame: the first question drawn while the transcript shows, and whether Jump to latest
     // showed while it did not.
     await tab.addInitScript(() => {
       const frames: { shown: string | null; jump: boolean }[] = [];
       (window as any).openFrames = frames;
-      const look = () => {
+      window.cmuxAfterPaint(() => {
         const scroller = document.querySelector<HTMLElement>(".acpmux-scroll");
         const bubble = scroller?.querySelector(".cv-user__bubble");
         if (scroller && bubble) {
@@ -140,9 +142,7 @@ await requireBrowserLane("agent-pane-reading-place.test.ts", async () => {
             jump: hidden && document.querySelector(".acpmux-jump-latest[data-shown]") !== null,
           });
         }
-        requestAnimationFrame(look);
-      };
-      requestAnimationFrame(look);
+      });
     });
     await tab.addInitScript((kept) => {
       const saved: unknown[] = [];
