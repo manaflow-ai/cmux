@@ -272,6 +272,7 @@ button.acpmux-send:disabled:not(.acpmux-cancel):not(.acpmux-send-ready) {
   background: transparent;
   resize: none;
   overflow-y: auto;
+  overscroll-behavior: contain;
   font: 14px/22px ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--agent-text);
   caret-color: var(--acpmux-shell-accent); /* caret-color: the shell mode's accent marks the mode */
