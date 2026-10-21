@@ -75,14 +75,26 @@
      override func viewDidMoveToWindow() {
          super.viewDidMoveToWindow()
          applyScale()
-@@ -424,9 +457,66 @@
+@@ -383,7 +416,10 @@
+         }
+         guard let l = line else { return nil }
+         let o = textContainerOrigin
+-        return CGRect(x: l.minX + o.x, y: l.midY + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
++        // cmux: on a line an inline picture makes taller the text sits at the bottom, so the caret
++        // is on the line's last text line, not its middle (Draft+InlineMarks.swift).
++        let y = l.height > Fixture.lineHeight + 0.5 ? l.maxY - Fixture.lineHeight / 2 : l.midY
++        return CGRect(x: l.minX + o.x, y: y + o.y + Self.caretDY, width: Self.caretWidth, height: 17)
+     }
+     /// Self-test: the caret's rects at INDICES from the layout as `caretRect` keeps it, then after the
+     /// whole text is laid out again from scratch (equal when no layout input went stale).
+@@ -424,8 +460,65 @@
  
      override func paste(_ sender: Any?) {
          let pb = pasteboard
 +        if onPastePasteboard(pb) { return }  // cmux
          if pb.string(forType: .string) == nil, let img = NSImage(pasteboard: pb) { onPasteImage(img); return }
          super.paste(sender)
-     }
++    }
 +
 +    /// cmux: Paste and Match Style (Edit menu, Cmd+Shift+V): the clipboard's
 +    /// plain text only, at the caret (replacing the selection), as its own undo
@@ -138,11 +150,10 @@
 +        dragAnswer = nil
 +        if takes { return onDropPasteboard(sender.draggingPasteboard) }
 +        return super.performDragOperation(sender)
-+    }
+     }
  }
  
- /// The caret's view: drawn only, never hit (clicks at the caret reach the text view).
-@@ -632,10 +722,15 @@
+@@ -632,10 +725,15 @@
      var onAttachmentsChanged: (() -> Void)?
      /// The send's field opacity pulse (begin), for the live glass view.
      var onSendPulse: ((CFTimeInterval) -> Void)?
@@ -159,7 +170,7 @@
      static func fieldWidth(_ windowWidth: CGFloat) -> CGFloat { 526 + windowWidth - Fixture.windowWidth }
      static let font = Fixture.bodyFont
      /// `writingTools`' raw value for reports: -1 on macOS 14 (no Writing Tools).
-@@ -658,7 +753,7 @@
+@@ -658,7 +756,7 @@
      /// its text scrolls past it).
      func lines(_ text: String, windowWidth: CGFloat) -> Int {
          // One-entry memo: every compose update asks again for the same draft (a send asks for "").
@@ -168,7 +179,7 @@
          // The empty field (every send and every commit after it) has its own entry: the one-entry
          // memo held the last typed draft, so each send typeset " " again.
          // Its one line (a space) does not depend on the width: a live resize's every width
-@@ -678,6 +773,11 @@
+@@ -678,6 +776,11 @@
      /// The field's height for the draft in a window WIDTH pt wide (the attachment row on top).
      private func height(for text: String, width: CGFloat) -> CGFloat {
          if emptyAfterSend && text.isEmpty && chips.isEmpty { return ComposeMetrics.emptyAfterSend }
@@ -180,7 +191,15 @@
          return min(ComposeView.height(lines: lines(text, windowWidth: width), chips: false), ComposeView.maxHeight) + strip.height
      }
      private var linesMemo: (String, CGFloat, Int)?
-@@ -767,7 +867,7 @@
+@@ -749,6 +852,7 @@
+         tv.textColor = Fixture.incomingText
+         tv.insertionPointColor = Fixture.caret
+         tv.installCaret()
++        inlineHover.install(on: tv)  // cmux: an inline attachment's remove button on hover
+         tv.textContainer?.lineFragmentPadding = 0
+         // AppKit puts `textContainerInset.height` above and below the text when it sizes the
+         // document; the container origin puts the text at the top inset.
+@@ -767,7 +871,7 @@
          // tracking (which lagged through a live resize).
          tv.textContainer?.widthTracksTextView = false
          tv.textContainer?.heightTracksTextView = false
@@ -189,7 +208,7 @@
          tv.layerContentsPlacement = .topLeft
          tv.layer?.masksToBounds = true
          tv.layer?.contentsGravity = .topLeft
-@@ -790,6 +890,7 @@
+@@ -790,6 +894,7 @@
          tv.isAutomaticDashSubstitutionEnabled = NSSpellChecker.isAutomaticDashSubstitutionEnabled
          if #available(macOS 15, *) { tv.writingToolsBehavior = ComposeView.writingTools }
          tv.setAccessibilityLabel(Strings.placeholder)
@@ -197,7 +216,7 @@
  
          caret.backgroundColor = Fixture.caret.cgColor
          caret.isHidden = true
-@@ -835,6 +936,8 @@
+@@ -835,6 +940,8 @@
          if !nativeChrome { renderGlass(); buttons.setNeedsDisplay() }
          renderPlaceholder()
          renderChips()
@@ -206,7 +225,7 @@
      }
  
      /// The "+" button (opens the file picker).
-@@ -849,7 +952,8 @@
+@@ -849,7 +956,8 @@
      private func textFrame(height h: CGFloat) -> CGRect {
          let f = rect(height: h)
          let chipH: CGFloat = strip.height
@@ -216,7 +235,7 @@
      }
  
      /// What the last `place` laid out (field height, empty text, chip row height, size): a commit
-@@ -867,10 +971,11 @@
+@@ -867,10 +975,11 @@
          placeholderLayer.frame = CGRect(x: f.minX, y: f.minY + chipH, width: 300, height: 30)
          waveLayer.frame = CGRect(x: f.maxX - 30, y: ComposeView.waveY(f), width: 24, height: 30)
          chipsLayer.frame = CGRect(x: f.minX, y: f.minY, width: f.width, height: max(1, strip.height))
@@ -229,7 +248,7 @@
      }
  
      /// The audio glyph's layer top for the field F: centred in the field, as Messages' (its glyph
-@@ -940,11 +1045,11 @@
+@@ -940,11 +1049,11 @@
          fmt.opaque = false
          let ph = placeholder
          placeholderLayer.contents = UIGraphicsImageRenderer(size: CGSize(width: 300, height: 30), format: fmt).image { ctx in
@@ -243,7 +262,7 @@
              // Messages' glyph is ChatKit's AudioMessageEntryViewButton waveform at 20 pt
              // (fitted to the lossless stills): 5 capsules 1.818 pt wide, 3.636 pt apart,
              // 3.613 / 7.25 / 14.522 pt tall; centre 557.5 pt from the left of a 628 pt window.
-@@ -958,9 +1063,54 @@
+@@ -958,9 +1067,56 @@
      }
  
      private func renderChips() {
@@ -256,6 +275,8 @@
 +    private var stripChips: [Attachment] { [] }
 +    /// The field's inline attachments by id (made once each).
 +    private(set) var inlineAttachments: [ID: ComposeInlineAttachment] = [:]
++    /// cmux: the remove button over the inline attachment under the pointer.
++    let inlineHover = ComposeInlineRemoveHover()
 +
 +    /// The remove button of an inline attachment: its mark leaves the text as an edit, so the
 +    /// draft follows through the text view's own change path (`textDidChange`).
@@ -299,7 +320,7 @@
      /// The attachment whose remove control is at p (window coordinates).
      func chip(at p: CGPoint) -> ID? {
          let f = fieldRect
-@@ -984,12 +1134,18 @@
+@@ -984,12 +1140,19 @@
          let d = state.ui.draft
          let hadDraft = !text.isEmpty || !chips.isEmpty
          let tv = textView.view
@@ -316,12 +337,13 @@
 +                tv.textStorage?.setAttributedString(ComposeInlineText.build(d.text, attachments: d.attachments, cache: &inlineAttachments,
 +                                                                            scale: renderScale, onRemove: { [weak self] in self?.removeInline($0) }))
 +                tv.typingAttributes = ComposeInlineText.attributes(inline: !d.attachments.isEmpty)
++                inlineHover.hide()  // cmux: the attachments moved; the pointer shows the button again
 +                tv.setSelectedRange(ComposeView.caretAfterRebuild(old: old, new: tv.string as NSString, selection: sel,
 +                                                                  added: ComposeView.addedMark(d, before: chips)))
                  if !DeferredSpellChecker.useAppKit { tv.spell.textDidChange() }
              }
          }
-@@ -1044,6 +1200,7 @@
+@@ -1044,6 +1207,7 @@
              Animate.sampledUntilMinimum(veil, "opacity", Springs.fieldOpacity, base: 1, begin: begin)
              onSendPulse?(begin)
          }
