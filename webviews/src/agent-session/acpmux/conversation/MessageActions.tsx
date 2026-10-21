@@ -116,7 +116,7 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
     ? agent
       ? t("message.readBy", { agent })
       : t("message.readByAgent")
-    : t(waiting ? "message.delivered" : "message.deliveredNotRead");
+    : t(waiting ? "message.deliveredAtStepEnd" : "message.deliveredNotRead");
   return (
     <span
       className={`cv-user__read${read ? "" : " is-unread"}`}

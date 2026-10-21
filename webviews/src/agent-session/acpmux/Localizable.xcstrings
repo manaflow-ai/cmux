@@ -397,7 +397,7 @@
         }
       }
     },
-    "message.delivered" : {
+    "message.deliveredAtStepEnd" : {
       "comment" : "Agent pane: tooltip of the one check under a steer acpmux holds that the agent reads when the step it is on ends",
       "extractionState" : "manual",
       "localizations" : {
