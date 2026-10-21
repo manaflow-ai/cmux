@@ -32,6 +32,7 @@ export function ShellBlock({
           {folder && (
             <span
               className="cv-shell__folder"
+              data-find-skip
               /* tooltip-allow: the full `cd …` prefix shows nowhere else (the command line drops it) */
               title={command!.slice(0, command!.length - rest!.length).trim()}
             >

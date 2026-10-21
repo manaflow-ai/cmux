@@ -36,7 +36,10 @@ export function MessageCard({ item, message }: { item: AcpmuxActivity; message: 
   const output = tool.output?.replace(/\n$/, "");
   const receipt = output && /^delivered to (\S+?)(?: \(id [^)]*\))?\s*$/im.exec(output);
   // What else the send printed: its output without the receipt line, which the status line says.
-  const rest = receipt && !failed ? output.replace(receipt[0], "").trim() : output;
+  const rest =
+    receipt && !failed
+      ? (output.slice(0, receipt.index) + output.slice(receipt.index + receipt[0].length)).trim()
+      : output;
   const delivery = failed ? "failed" : running ? "sending" : receipt ? "delivered" : "sent";
   const status =
     delivery === "failed"
