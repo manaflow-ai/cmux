@@ -15,11 +15,25 @@ nonisolated public final class UpdateLogBuffer: UpdateLogging {
     }
 
     public func append(_ message: String) {
-        logger.info("\(message, privacy: .public)")
+        // Notice level stays on disk (`log show` after the app is gone); an info
+        // line does not, and the 2026-10-20 slow update left no trace of why
+        // its first install failed. Per-chunk progress stays info.
+        if Self.isProgress(message) {
+            logger.info("\(message, privacy: .public)")
+        } else {
+            logger.notice("\(message, privacy: .public)")
+        }
         lines.withLock { lines in
             lines.append(message)
             if lines.count > capacity { lines.removeFirst(lines.count - capacity) }
         }
+    }
+
+    /// Download and extraction progress: many lines per update (each chunk
+    /// also logs its state change, `state -> downloading(NN%)`).
+    static func isProgress(_ message: String) -> Bool {
+        ["download received data", "show extraction progress", "state -> downloading", "state -> extracting"]
+            .contains { message.hasPrefix($0) }
     }
 
     public func logPath() -> String {
