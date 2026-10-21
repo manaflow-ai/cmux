@@ -9,8 +9,8 @@ import Testing
 
 /// Leo 2026-10-20: "New" inside a group does not keep the new workspace in that group. From a
 /// workspace in a group, New Workspace (Cmd-N, the sidebar's +), New Workspace Below and Duplicate
-/// make the new workspace in the SAME group, right below the one it was made from, in the home
-/// session's personal state and in the window's sidebar. Real daemon, the app's launch window.
+/// make the new workspace in the SAME group, right below the one it was made from, in the
+/// window's sidebar. Real daemon, the app's launch window.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(4)), .enabled(if: SameTreeDaemonBinary.url != nil, "needs the same-tree cmux-tui"))
 struct NewWorkspaceInGroupTests {
     private static func wait(within limit: Duration, until done: () -> Bool) async {
@@ -55,7 +55,7 @@ struct NewWorkspaceInGroupTests {
 
     @Test func newBelowAndDuplicateFromAGroupMakeTheWorkspaceRightBelowInThatGroup() async throws {
         let (services, root) = try await Self.launch()
-        let store = services.daemon.store, personal = services.machines.local.store.personal
+        let store = services.daemon.store
         let window = try #require(services.windows.active?.state.id)
         let bridge = try #require(services.windows.controller(for: window)?.sidebar)
         let sidebar = bridge.model
@@ -70,20 +70,17 @@ struct NewWorkspaceInGroupTests {
 
         // Group the window's workspace, by the path Group Workspace and a drag share.
         bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(first)], name: "keep-group", byUser: false)
-        func header() -> CmuxNextSidebar.GroupID? {
-            guard let group = personal.groups.first(where: { $0.name == "keep-group" }) else { return nil }
-            let shown = sidebar.groupID(personal: group.id.rawValue)
-            return sidebar.group(shown) != nil ? shown : nil
+        // The group the sidebar lists `first` in (personal v1 or the v2 state store, either way).
+        func group(of id: String) -> CmuxNextSidebar.GroupID? {
+            for section in sidebar.sections {
+                for case let .group(group) in section.nodes where group.workspaces.contains(where: { $0.id.rawValue == id }) { return group.id }
+            }
+            return nil
         }
-        func members() -> [String] { header().flatMap { sidebar.group($0)?.workspaces.map(\.id.rawValue) } ?? [] }
-        await Self.wait(within: .seconds(30)) { members() == [first] }
-        try #require(members() == [first], "the group lists \(members()); groups \(personal.groups.map(\.name)); header \(String(describing: header()))")
-        let group = try #require(personal.groups.first { $0.name == "keep-group" }?.id)
-        /// The group the home session's personal state files workspace `id` under.
-        func filed(_ id: String) -> WorkspaceGroupID? {
-            guard let qualified = WindowProfiles.qualified(id, machines: services.machines) else { return nil }
-            return personal.workspace(session: qualified.session, key: qualified.key)?.group
-        }
+        await Self.wait(within: .seconds(30)) { group(of: first) != nil }
+        let header = try #require(group(of: first), "no group lists \(first)")
+        func members() -> [String] { sidebar.group(header)?.workspaces.map(\.id.rawValue) ?? [] }
+        try #require(members() == [first], "the group lists \(members())")
 
         var failures: [String] = []
         /// Runs `action` on `anchor` and expects one new workspace listed right below it in the group.
@@ -93,7 +90,7 @@ struct NewWorkspaceInGroupTests {
             func created() -> String? { store.workspaces.first { !before.contains($0.id) }?.id }
             func placed() -> Bool {
                 guard let made = created(), let at = members().firstIndex(of: anchor) else { return false }
-                return members().firstIndex(of: made) == at + 1 && filed(made) == group
+                return members().firstIndex(of: made) == at + 1
             }
             await Self.wait(within: .seconds(30)) { placed() }
             if !placed() { failures.append("\(action) from \(anchor): made \(created() ?? "nothing"); the group lists \(members())") }
