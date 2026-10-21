@@ -83,8 +83,14 @@ enum NotificationHandlers {
         registry.bind("notificationCopy", requires: ack, daemon: context.daemon, run: { invocation in
             _ = try context.requireConnection()
             if let row = try panel.row(invocation) { return context.copy(row.copyText) }
-            context.daemon.send("copy-notification") { connection in
-                guard let entry = try await connection.notificationLedger(limit: 1).first else { return }
+            // An empty ledger is refused: the CLI awaits the reason, a palette or key run shows it.
+            let awaited = registry.isCapturingWork, none = MiscHandlerStrings.noNotificationToCopy
+            context.daemon.send("copy-notification", onFailure: { [weak registry] failure in
+                if !awaited { registry?.refuse(failure.message) }
+            }) { connection in
+                guard let entry = try await connection.notificationLedger(limit: 1).first else {
+                    throw ActionFailure.invalidTarget(none)
+                }
                 let text = entry.body.isEmpty ? entry.title : "\(entry.title)\n\(entry.body)"
                 await MainActor.run { context.copy(text) }
             }
