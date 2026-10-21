@@ -435,12 +435,16 @@ impl Hub {
         }
         self.save_meta(session);
         let agent_sid = session.meta().agent_session_id.unwrap_or_default();
+        let update = |fields: Value| json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": fields}});
         for (i, turn) in turns.iter().enumerate() {
             let turn_id = format!("adopted-{i}");
             let prompt_id = format!("adopted-prompt-{i}");
             // Each record keeps the transcript's time, so a fork through it cuts Claude's
-            // transcript there (`fork_at.rs`) and the turn shows its real time.
-            let (started, ended) = (turn.prompt_at, turn.answer_at.or(turn.prompt_at));
+            // transcript there (`fork_at.rs`) and the turn shows its real time. The turn ends
+            // with its answer, or its last tool call when that ended later.
+            let started = turn.prompt_at;
+            let answered = turn.answer_at.or(started);
+            let ended = turn.tools.iter().filter_map(|t| t.ended_at).chain(answered).max();
             let turn_seq = self
                 .append_at(
                     session,
@@ -460,14 +464,35 @@ impl Hub {
                 None,
                 started,
             );
+            // The turn's tool calls, before its answer, as a live turn sends them: each starts
+            // running and its update settles it, so the pane folds them under "Worked for".
+            for tool in &turn.tools {
+                let start = tool.started_at.or(tool.ended_at).or(started);
+                let mut call = tool.call.clone();
+                call["sessionUpdate"] = json!("tool_call");
+                call["toolCallId"] = json!(tool.id);
+                call["status"] = json!("in_progress");
+                self.append_at(session, "in", "tool_call", update(call), None, start);
+                let mut done = tool.done.clone();
+                done["sessionUpdate"] = json!("tool_call_update");
+                done["toolCallId"] = json!(tool.id);
+                self.append_at(
+                    session,
+                    "in",
+                    "tool_call_update",
+                    update(done),
+                    None,
+                    tool.ended_at.or(start),
+                );
+            }
             if !turn.answer.is_empty() {
                 self.append_at(
                     session,
                     "in",
                     "agent_message_chunk",
-                    json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": agent_sid, "update": {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}}}}),
+                    update(json!({"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": turn.answer}})),
                     None,
-                    ended,
+                    answered,
                 );
             }
             self.append_at(

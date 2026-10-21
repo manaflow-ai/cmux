@@ -269,13 +269,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clear Space Color"
+            "value" : "Remove Space Color"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "مسح لون المساحة"
+            "state" : "translated",
+            "value" : "إزالة لون المساحة"
           }
         },
         "bs" : {
@@ -286,8 +286,8 @@
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ryd områdets farve"
+            "state" : "translated",
+            "value" : "Fjern områdets farve"
           }
         },
         "de" : {
@@ -304,8 +304,8 @@
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Effacer la couleur de l’espace"
+            "state" : "translated",
+            "value" : "Supprimer la couleur de l’espace"
           }
         },
         "it" : {
@@ -316,20 +316,20 @@
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "スペースの色を消去"
+            "state" : "translated",
+            "value" : "スペースの色を削除"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សម្អាតពណ៌លំហ"
+            "state" : "translated",
+            "value" : "ដកពណ៌លំហចេញ"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "스페이스 색상 지우기"
+            "state" : "translated",
+            "value" : "스페이스 색상 제거"
           }
         },
         "nb" : {
@@ -340,38 +340,38 @@
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wyczyść kolor obszaru"
+            "state" : "translated",
+            "value" : "Usuń kolor obszaru"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Limpar Cor do Espaço"
+            "state" : "translated",
+            "value" : "Remover Cor do Espaço"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сбросить цвет области"
+            "state" : "translated",
+            "value" : "Убрать цвет области"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ล้างสีพื้นที่"
+            "state" : "translated",
+            "value" : "ลบสีพื้นที่"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Alan Rengini Temizle"
+            "state" : "translated",
+            "value" : "Alan Rengini Kaldır"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скинути колір простору"
+            "state" : "translated",
+            "value" : "Прибрати колір простору"
           }
         },
         "vi" : {
@@ -382,14 +382,14 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除空间颜色"
+            "state" : "translated",
+            "value" : "移除空间颜色"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除空間顏色"
+            "state" : "translated",
+            "value" : "移除空間顏色"
           }
         }
       }
@@ -400,13 +400,13 @@
         "en" : {
           "stringUnit" : {
             "state" : "translated",
-            "value" : "Clear Space Icon"
+            "value" : "Remove Space Icon"
           }
         },
         "ar" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "مسح أيقونة المساحة"
+            "state" : "translated",
+            "value" : "إزالة أيقونة المساحة"
           }
         },
         "bs" : {
@@ -417,8 +417,8 @@
         },
         "da" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Ryd områdets ikon"
+            "state" : "translated",
+            "value" : "Fjern områdets ikon"
           }
         },
         "de" : {
@@ -435,8 +435,8 @@
         },
         "fr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Effacer l’icône de l’espace"
+            "state" : "translated",
+            "value" : "Supprimer l’icône de l’espace"
           }
         },
         "it" : {
@@ -447,20 +447,20 @@
         },
         "ja" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "スペースのアイコンを消去"
+            "state" : "translated",
+            "value" : "スペースのアイコンを削除"
           }
         },
         "km" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "សម្អាតរូបតំណាងលំហ"
+            "state" : "translated",
+            "value" : "ដករូបតំណាងលំហចេញ"
           }
         },
         "ko" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "스페이스 아이콘 지우기"
+            "state" : "translated",
+            "value" : "스페이스 아이콘 제거"
           }
         },
         "nb" : {
@@ -471,38 +471,38 @@
         },
         "pl" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Wyczyść ikonę obszaru"
+            "state" : "translated",
+            "value" : "Usuń ikonę obszaru"
           }
         },
         "pt-BR" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Limpar Ícone do Espaço"
+            "state" : "translated",
+            "value" : "Remover Ícone do Espaço"
           }
         },
         "ru" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Сбросить значок области"
+            "state" : "translated",
+            "value" : "Убрать значок области"
           }
         },
         "th" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "ล้างไอคอนพื้นที่"
+            "state" : "translated",
+            "value" : "ลบไอคอนพื้นที่"
           }
         },
         "tr" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Alan Simgesini Temizle"
+            "state" : "translated",
+            "value" : "Alan Simgesini Kaldır"
           }
         },
         "uk" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "Скинути значок простору"
+            "state" : "translated",
+            "value" : "Прибрати значок простору"
           }
         },
         "vi" : {
@@ -513,14 +513,14 @@
         },
         "zh-Hans" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除空间图标"
+            "state" : "translated",
+            "value" : "移除空间图标"
           }
         },
         "zh-Hant" : {
           "stringUnit" : {
-            "state" : "needs_review",
-            "value" : "清除空間圖示"
+            "state" : "translated",
+            "value" : "移除空間圖示"
           }
         }
       }

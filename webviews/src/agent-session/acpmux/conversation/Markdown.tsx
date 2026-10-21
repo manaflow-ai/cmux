@@ -743,11 +743,8 @@ export type FreshTail = { steps: Reveal[]; text: string; now: number };
 /// and a negative animation delay, so a re-render never restarts its fade. Only plain trailing
 /// text fades by step; a suffix with Markdown syntax or a line break draws as usual.
 function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactNode[] {
-  // The live edge: a soft bar after the newest character, out of the text's layout (no reflow
-  // when it leaves); it pulses only while the reveal waits for more (`.cv-md.is-waiting`).
-  const caret = <span key="caret" className="cv-caret" aria-hidden="true" />;
   const fresh = tail.text.trimEnd();
-  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return [...renderInline(text, opts), caret];
+  if (!fresh || !text.endsWith(fresh) || /[*`_~[\]()$\\\n]/.test(fresh)) return renderInline(text, opts);
   const out = renderInline(text.slice(0, text.length - fresh.length), opts);
   let end = fresh.length;
   const spans: ReactNode[] = [];
@@ -762,7 +759,7 @@ function renderFresh(text: string, tail: FreshTail, opts: InlineOptions): ReactN
     end = start;
   }
   if (end > 0) out.push(fresh.slice(0, end));
-  return [...out, ...spans, caret];
+  return [...out, ...spans];
 }
 
 /// A top-level block that renders again only when its parsed block changes: a streaming reply's
@@ -778,8 +775,6 @@ export type MarkdownProps = InlineOptions & {
   /** The newest revealed steps (RevealedMarkdown), which fade in at the end of the last block. */
   fresh?: Reveal[];
   now?: number;
-  /** The reveal has shown everything so far and waits for more: the live edge pulses. */
-  waiting?: boolean;
   /** Fences draw as plain lines, never a highlighted diff card (review comments inside a diff). */
   plainCode?: boolean;
 };
@@ -796,7 +791,6 @@ export function Markdown({
   streaming = false,
   fresh,
   now = 0,
-  waiting = false,
   githubRepository,
   plainCode = false,
 }: MarkdownProps) {
@@ -833,7 +827,7 @@ export function Markdown({
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
-  // Only a revealed reply (RevealedMarkdown passes `fresh`) draws the live edge.
+  // Only a revealed reply (RevealedMarkdown passes `fresh`) fades its newest text in.
   const freshTail: FreshTail | undefined =
     streaming && fresh
       ? { steps: fresh, text: freshChars ? children.slice(children.length - freshChars) : "", now }
@@ -869,7 +863,7 @@ export function Markdown({
     .filter(({ entry }) => entry.block.type === "footnote")
     .sort((a, b) => noteRank(a.entry.block, opts) - noteRank(b.entry.block, opts));
   return (
-    <div className={`cv-md selectable ${className}${streaming && waiting ? " is-waiting" : ""}`}>
+    <div className={`cv-md selectable ${className}`}>
       {blocks.map((entry, index) => (entry.block.type === "footnote" ? null : draw(entry, index)))}
       {notes.length > 0 && (
         <section className="cv-footnotes" role="doc-endnotes">
