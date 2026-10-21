@@ -20705,7 +20705,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zoom In Chat"
+            "value": "Chat Zoom In"
           }
         },
         "ar": {
@@ -20836,7 +20836,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Zoom Out Chat"
+            "value": "Chat Zoom Out"
           }
         },
         "ar": {
@@ -20967,127 +20967,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Reset Chat Zoom"
+            "value": "Chat Actual Size"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "إعادة تعيين تكبير الدردشة"
+            "value": "الحجم الفعلي للدردشة"
           }
         },
         "bs": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Vrati zum chata"
+            "state": "translated",
+            "value": "Stvarna veličina chata"
           }
         },
         "da": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Nulstil chatzoom"
+            "state": "translated",
+            "value": "Chat: Faktisk størrelse"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Chat-Zoom zurücksetzen"
+            "value": "Chat: Originalgröße"
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Restablecer zoom del chat"
+            "value": "Chat a tamaño real"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Réinitialiser le zoom du chat"
+            "value": "Chat en taille réelle"
           }
         },
         "it": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Reimposta zoom della chat"
+            "state": "translated",
+            "value": "Chat: dimensioni reali"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "チャットのズームをリセット"
+            "value": "チャットを実寸表示"
           }
         },
         "km": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "កំណត់ការពង្រីកការជជែកឡើងវិញ"
+            "state": "translated",
+            "value": "ទំហំពិតនៃការជជែក"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "채팅 확대/축소 재설정"
+            "value": "채팅 실제 크기"
           }
         },
         "nb": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Tilbakestill chatzoom"
+            "state": "translated",
+            "value": "Chat: Faktisk størrelse"
           }
         },
         "pl": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Resetuj powiększenie czatu"
+            "state": "translated",
+            "value": "Czat: Rzeczywisty rozmiar"
           }
         },
         "pt-BR": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Redefinir Zoom do Chat"
+            "state": "translated",
+            "value": "Chat em Tamanho Real"
           }
         },
         "ru": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Сбросить масштаб чата"
+            "state": "translated",
+            "value": "Чат: фактический размер"
           }
         },
         "th": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "รีเซ็ตการซูมแชต"
+            "state": "translated",
+            "value": "แชตขนาดจริง"
           }
         },
         "tr": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Sohbet Yakınlaştırmasını Sıfırla"
+            "state": "translated",
+            "value": "Sohbet Gerçek Boyut"
           }
         },
         "uk": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Скинути масштаб чату"
+            "state": "translated",
+            "value": "Чат: реальний розмір"
           }
         },
         "vi": {
           "stringUnit": {
-            "state": "needs_review",
-            "value": "Đặt lại thu phóng trò chuyện"
+            "state": "translated",
+            "value": "Kích thước thực của trò chuyện"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "重置聊天缩放"
+            "value": "聊天实际大小"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "重設聊天縮放"
+            "value": "聊天實際大小"
           }
         }
       }
@@ -25673,6 +25673,137 @@
           "stringUnit": {
             "state": "translated",
             "value": "關閉群組中的全部"
+          }
+        }
+      }
+    },
+    "argument.team": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "チーム"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الفريق"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tim"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipo"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Équipe"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្រុម"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "팀"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Team"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Zespół"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Equipe"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ทีม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ekip"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Команда"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhóm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "团队"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "團隊"
           }
         }
       }

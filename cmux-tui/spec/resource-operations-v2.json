@@ -21772,7 +21772,15 @@
               "kind": "resource_id",
               "resource": "terminal"
             },
-            "description": "Clear only this terminal's notifications. Omit to clear every retained notification in the session."
+            "description": "Clear only this terminal's notifications. Omit terminal_id and workspace_id to clear every retained notification in the session."
+          },
+          "workspace_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Clear only this workspace's notifications: its terminal-less rows (cmux notify --workspace) and those of every terminal and tab it shows. Not with terminal_id."
           },
           "expected_revision": {
             "required": false,
@@ -21876,6 +21884,14 @@
               "kind": "resource_id",
               "resource": "terminal"
             }
+          },
+          "workspace_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The workspace a terminal-less notification belongs to (cmux notify --workspace ws_…), kept as the row's extra.workspace_id. Not with terminal_id: a terminal's notification already belongs to its workspace."
           },
           "expected_revision": {
             "required": false,
