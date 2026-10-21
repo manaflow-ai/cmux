@@ -1131,6 +1131,29 @@
       },
       {
         "actions" : [
+
+        ],
+        "aliases" : [
+
+        ],
+        "groups" : [
+
+        ],
+        "id" : "import",
+        "lead" : [
+          "importSuggestions"
+        ],
+        "symbol" : "square.and.arrow.down",
+        "title" : {
+          "key" : "settings.category.import",
+          "text" : "Import"
+        },
+        "trail" : [
+
+        ]
+      },
+      {
+        "actions" : [
           "keyboard"
         ],
         "aliases" : [
