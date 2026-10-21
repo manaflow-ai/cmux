@@ -113,7 +113,8 @@ final class FocusCoordinator {
     }
 
     /// The state after every pending topology: for a reader that decides on it now, outside
-    /// AppKit's own responder change (a key-down's routing).
+    /// AppKit's own responder change (a key-down's routing; the window judging a page's own focus
+    /// ask before that change begins, `AgentPaneView.refusesSelfFocus`).
     func currentState() -> FocusState {
         reducePendingTopologies()
         return reduced

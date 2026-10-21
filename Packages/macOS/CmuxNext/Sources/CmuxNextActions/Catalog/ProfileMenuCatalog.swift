@@ -25,8 +25,8 @@ nonisolated enum ProfileMenuActionCatalog: ActionCatalogGroup {
 }
 
 /// What the profile menu holds, top to bottom: the current profile (with its
-/// options submenu), the submenus, Settings and Check for Updates,
-/// then New Tab and Incognito Window. A submenu row or action the build
+/// options submenu), the submenus, Settings, Check for Updates, the account
+/// rows (Accounts…, Cloud), then New Tab and Incognito Window. A submenu row or action the build
 /// does not register is left out, and a submenu with no row is left out
 /// (items whose feature does not exist are omitted, not disabled). "New
 /// profile" is hidden until the profiles lane exists.
@@ -53,6 +53,8 @@ public nonisolated struct ProfileMenuSpec: Sendable {
     /// Check for Updates…, under Settings: the app menu has it, and the
     /// profile menu is the sidebar's app menu.
     public var updates: Row
+    /// Under Settings: the signed-in accounts and cmux Cloud (PRIORITIES 1.14).
+    public var account: [Row]
     public var creation: [Row]
 
     public init() {
@@ -74,6 +76,10 @@ public nonisolated struct ProfileMenuSpec: Sendable {
         ]
         settings = Row(action: "openSettings", title: nil, symbol: "gear")
         updates = Row(action: "palette.checkForUpdates", title: nil, symbol: "arrow.down.circle")
+        account = [
+            Row(action: "accounts.show", title: nil, symbol: "person.crop.circle"),
+            Row(action: "palette.openCloudPane", title: Self.text("menu.profile.cloud", "Cloud"), symbol: "cloud"),
+        ]
         creation = [
             Row(action: "newTab.default", title: nil, symbol: "plus"),
             Row(action: "newIncognitoWindow", title: Self.text("menu.profile.incognito", "Incognito Window"), symbol: "eyeglasses"),

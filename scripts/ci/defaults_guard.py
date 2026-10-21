@@ -69,8 +69,10 @@ SETTINGS_EXPORTER_FILES = (
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/ManagedPreferencesManifestTests.swift",
     "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests/SettingsSchemaExportTests.swift",
 )
-STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: run the fleet export "
-                 "(REPAIR.md row 'generated settings export stale after a safe-push merge')")
+STALE_EXPORTS = ("settings exports are stale against CmuxNextSettings sources: the PR autofix "
+                 "(.github/workflows/cmux-next-pr-autofix.yml) commits them to a pull request that changes "
+                 "these sources, and the base autofix after a merge; to regenerate them yourself, run "
+                 "scripts/cmux-next/regenerate-settings-exports.sh on a fleet Mac and commit what it writes")
 # Default bindings that step aside in a context (a code editor, a focused terminal): a change to
 # one changes what a key does there.
 KEY_BINDING_DEFAULTS = "Packages/macOS/CmuxNext/Sources/CmuxNextActions/KeyBindingDefaults.swift"
@@ -547,8 +549,10 @@ def stamp_entries(stamp: str) -> dict[str, str]:
     return entries
 
 
-def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
-    """(problems, notes) for the settings export stamp of `tree`."""
+def stamp_freshness(tree: Tree, base: Tree | None = None) -> tuple[list[str], list[str]]:
+    """(problems, notes) for the settings export stamp of `tree`. With `base`, a stale source whose
+    bytes and stamp entry are both the base's is the base's: a warning note, not a problem (the base
+    autofix regenerates the exports after each merge, so the base is often stale for minutes)."""
     stamp = tree.read(SETTINGS_STAMP)
     if stamp is None and SETTINGS_STAMP.rsplit("/", 1)[1] in (tree.read(SETTINGS_EXPORTER_FILES[1]) or ""):
         # The tree's exporter writes the stamp, so a missing stamp is a deleted or never-run export.
@@ -565,13 +569,29 @@ def stamp_freshness(tree: Tree) -> tuple[list[str], list[str]]:
                 f"  {SETTINGS_STAMP} is a single digest from before the per-source stamp"], []
     moved = sorted((path for path in stored.keys() | current.keys() if stored.get(path) != current.get(path)),
                    key=lambda path: path.encode("utf-8"))
-    lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
-             for path in moved[:20]]
-    if len(moved) > 20:
-        lines.append(f"  and {len(moved) - 20} more")
     if not moved:
-        lines = [f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"]
-    return [f"DEFAULTS exports: {STALE_EXPORTS}", *lines], []
+        return [f"DEFAULTS exports: {STALE_EXPORTS}",
+                f"  {SETTINGS_STAMP} lists the right digests but is not in the exporter's format"], []
+
+    def listed(paths: list[str]) -> list[str]:
+        lines = [f"  {path}: {'not stamped' if path not in stored else 'gone' if path not in current else 'changed'}"
+                 for path in paths[:20]]
+        return lines + ([f"  and {len(paths) - 20} more"] if len(paths) > 20 else [])
+
+    notes: list[str] = []
+    if base is not None:
+        base_stored = stamp_entries(base.read(SETTINGS_STAMP) or "")
+        base_current = stamp_entries(settings_source_stamp(base))
+        inherited = [path for path in moved
+                     if current.get(path) == base_current.get(path) and stored.get(path) == base_stored.get(path)]
+        if inherited:
+            moved = [path for path in moved if path not in inherited]
+            notes = [f"::warning title=Settings exports stale on the base::settings exports stale on the base "
+                     f"{(base.ref or str(base.root))[:12]} too, for sources not changed here; the base autofix "
+                     "regenerates them:", *listed(inherited)]
+    if not moved:
+        return [], notes
+    return [f"DEFAULTS exports: {STALE_EXPORTS}", *listed(moved)], notes
 
 
 def command_check_fresh(args: argparse.Namespace) -> int:
@@ -587,11 +607,20 @@ def command_check_fresh(args: argparse.Namespace) -> int:
 
 
 def command_check_stamp(args: argparse.Namespace) -> int:
-    """Only the settings export stamp: exit 1 when the exports need the Swift export."""
-    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None))
-    for line in notes + problems:
+    """Only the settings export stamp: exit 1 when the exports need the Swift export. With --base,
+    only the sources the head changed since the base fail."""
+    problems, notes = stamp_freshness(Tree.named(args.ref) if args.ref else Tree(None),
+                                      Tree.named(args.base) if args.base else None)
+    for line in problems + notes:
         print(line)
     return 1 if problems else 0
+
+
+def command_source_stamp(args: argparse.Namespace) -> int:
+    """The stamp the settings sources of a commit give (what the export would write there). Base autofix
+    compares it with the stamp its exports carry: equal means the exports' inputs did not move."""
+    sys.stdout.write(settings_source_stamp(Tree.named(args.ref) if args.ref else Tree(None)))
+    return 0
 
 
 def command_check(args: argparse.Namespace) -> int:
@@ -651,7 +680,11 @@ def main(argv: list[str]) -> int:
     fresh.set_defaults(run=command_check_fresh)
     stamp = sub.add_parser("check-stamp", help="only the settings export stamp matches the CmuxNextSettings sources")
     stamp.add_argument("--ref", help="a commit to check instead of the working tree")
+    stamp.add_argument("--base", help="fail only for sources changed since this commit; the rest is the base's")
     stamp.set_defaults(run=command_check_stamp)
+    source = sub.add_parser("source-stamp", help="print the settings export stamp the CmuxNextSettings sources give")
+    source.add_argument("--ref", help="a commit to read instead of the working tree")
+    source.set_defaults(run=command_source_stamp)
     check = sub.add_parser("check", help="list changed defaults between two commits and judge the approval")
     check.add_argument("--base", required=True, help="the merge base: a commit, or a directory checked out at it")
     check.add_argument("--head", required=True, help="the head: a commit, or a directory checked out at it")

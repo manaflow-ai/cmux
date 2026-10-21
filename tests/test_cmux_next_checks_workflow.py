@@ -656,17 +656,17 @@ class PathRoutingStructure(unittest.TestCase):
                       jobs["release-compile"]["if"])
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
-        """Rescue attempt 3 must use the Blacksmith fallback instead of a stale mini label."""
+        """The rescue's attempts (2 on) must use the Blacksmith fallback instead of a stale mini label."""
         text = WORKFLOW.read_text(encoding="utf-8")
         stale = "(github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs."
         self.assertNotIn(stale, text)
-        guard = "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && "
+        guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
         # The session-only jobs read `(session_runner || gui_runner)`, the rest one output.
         self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
-        self.assertIn("bot attempt 3 is the measured Blacksmith overflow", text)
-        self.assertIn("bot attempt 3\n# drops the stale placement output and takes the Blacksmith fallback", text)
+        self.assertIn("The rescue's first re-run (the bot's attempt\n# 2) is the Blacksmith overflow", text)
+        self.assertIn("Bot attempt 2 and later drop the stale placement output\n# and take that Blacksmith overflow", text)
 
     def test_current_feat_push_still_requests_nightly_next(self):
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -1317,6 +1317,33 @@ class FastTierReusesAPassOnTheSameInputs(unittest.TestCase):
                 self.assertEqual(save["with"], {"path": JOB_PASS_DIR, "key": "${{ steps.reuse-key.outputs.key }}"})
                 self.assertIs(save.get("continue-on-error"), True)
 
+    # The toolchain each job's key names, and the step that puts it on the runner first.
+    TOOLCHAIN = {
+        "fast-tier": {'"xcode=$(xcodebuild -version': "Select Xcode", '"macos=$(sw_vers -productVersion)"': None,
+                      '"macos_build=$(sw_vers -buildVersion)"': None, '"arch=$(uname -m)"': None,
+                      '"pool=': None, '"image=': None},
+        "fast-tier-cargo": {'"rustc=$(rustc -Vv': "Set up pinned cmux-tui Rust",
+                            '"cargo=$(cargo -V': "Set up pinned cmux-tui Rust",
+                            '"zig=$(': "Install zig", '"runner=': None,
+                            '"clang=$(clang --version': "Install Linux build dependencies", '"image=': None},
+    }
+
+    def test_the_key_names_the_toolchain_that_runs_the_job(self):
+        for job, values in self.TOOLCHAIN.items():
+            steps = self.steps(job)
+            at = index_of(steps, lambda s: s.get("id") == "reuse-key")
+            for value, setup in values.items():
+                with self.subTest(job=job, value=value):
+                    self.assertIn(f"--extra {value}", steps[at]["run"])
+                    if setup:
+                        self.assertLess(index_of(steps, lambda s: s.get("name") == setup), at,
+                                        f"{setup} runs before the key names its toolchain")
+        # The Mac pool: owned minis, Blacksmith and hosted Macs differ in Reduce Motion/Transparency.
+        pool = next(line for line in self.steps("fast-tier")[index_of(
+            self.steps("fast-tier"), lambda s: s.get("id") == "reuse-key")]["run"].splitlines() if '"pool=' in line)
+        for needle in ("'-glaeda'", "'blacksmith-'", "'github-hosted'"):
+            self.assertIn(needle, pool)
+
 
 class FastTierStartsWarm(unittest.TestCase):
     """The fast tier restores the build a feat-cmux-next push seeded into NEXT's own R2 bucket.
@@ -1630,7 +1657,7 @@ FAST_TIER_FORK_CLAUSE = (
 )
 FAST_LANE_CLAUSE = (
     "vars.CI_FAST_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
-    "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_FAST_LANE_RUNNER || "
+    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_FAST_LANE_RUNNER || "
 )
 # The fast tier's runs-on before CI_FAST_LANE_RUNNER: with the variable unset it must route exactly so.
 FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
@@ -1646,10 +1673,10 @@ FAST_TIER_RUNNER_WITHOUT_FAST_LANE = (
     "(github.run_attempt == 1 || github.run_attempt == 2 && github.triggering_actor == 'github-actions[bot]') "
     "&& contains(needs.macos-placement.outputs.hosted_jobs, ' fast-tier ') "
     "&& needs.macos-placement.outputs.hosted_runner || "
-    "(github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
+    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && needs.macos-placement.outputs.runner || "
     "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
     + "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
-    "&& (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "
+    "&& (github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SIDE_LANE_RUNNER || "
     "needs.macos-placement.outputs.retry_runner || "
     # No free Blacksmith slot: wait behind the fleet, never in a Blacksmith queue.
     "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
@@ -1672,6 +1699,38 @@ class FastTierRunner(unittest.TestCase):
         # No env value mirrors runs-on with the old route.
         for value in (job.get("env") or {}).values():
             self.assertNotIn("CI_SIDE_LANE_RUNNER", str(value))
+
+
+SESSION_LANE_CLAUSE = (
+    "vars.CI_SESSION_LANE_RUNNER != '' && vars.CI_PR_POOL_OWNED == '1' && "
+    "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && vars.CI_SESSION_LANE_RUNNER || "
+)
+# Generated files' runs-on before CI_SESSION_LANE_RUNNER: with the variable unset it must route exactly so.
+GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE = (
+    "${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || " + FAST_TIER_FORK_CLAUSE
+    + "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') "
+    "&& (needs.macos-placement.outputs.session_runner || needs.macos-placement.outputs.gui_runner) || "
+    "github.repository_owner != 'manaflow-ai' && 'macos-26' || (" + FAST_TIER_FORK_CLAUSE
+    + "(needs.macos-placement.outputs.runner != '' && 'blacksmith-6vcpu-macos-26') || "
+    "vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) "
+    "&& (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') "
+    "&& (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') "
+    "|| vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26') }}"
+)
+
+
+class GeneratedFilesRunner(unittest.TestCase):
+    def test_the_session_lane_label_comes_after_the_fork_clause(self):
+        """vars.CI_SESSION_LANE_RUNNER gives generated files the light minis' session runners. A fork
+        pull request must take its hosted label before that variable is read, and with the variable
+        unset the route is the one the job had before it. CMUX_NEXT_RUNNER restates runs-on."""
+        job = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]["generated-files"]
+        runs_on = job["runs-on"]
+        self.assertIn(SESSION_LANE_CLAUSE, runs_on)
+        self.assertEqual(runs_on.index(FAST_TIER_FORK_CLAUSE) + len(FAST_TIER_FORK_CLAUSE),
+                         runs_on.index(SESSION_LANE_CLAUSE))
+        self.assertEqual(runs_on.replace(SESSION_LANE_CLAUSE, "", 1), GENERATED_FILES_RUNNER_WITHOUT_SESSION_LANE)
+        self.assertEqual(job["env"]["CMUX_NEXT_RUNNER"], runs_on)
 
 
 class _UnsetIsEmpty(dict):
@@ -1944,6 +2003,71 @@ class SameRepositoryPullRequestsRunTheirTiers(unittest.TestCase):
         daily = self.context("workflow_dispatch", ref="refs/heads/topic", same_tree_sha="")
         daily["inputs.dev_daily"] = True
         self.assertEqual(group(daily), ("cmux-next-99", False))
+
+
+class AppSizeCapOnPush(unittest.TestCase):
+    """The CmuxNextApp size cap step on a push compares with the commit before the push, so a push
+    that adds no App source lines passes while the App sits over the cap (every feat-cmux-next push
+    was red on it, 2026-10-21), and a push that adds source lines still fails."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name)
+        self.app = self.repo / "Packages/macOS/CmuxNext/Sources/CmuxNextApp"
+        self.app.mkdir(parents=True)
+        scripts = self.repo / "scripts/cmux-next"
+        scripts.mkdir(parents=True)
+        for name in ("check-app-size.sh", "count-swift-code-lines.py"):
+            (scripts / name).write_text((ROOT / "scripts/cmux-next" / name).read_text())
+            (scripts / name).chmod(0o755)
+        (scripts / "app-size-baseline.txt").write_text("2\n")
+        # Over the cap of 2 on the commit before the push.
+        (self.app / "App.swift").write_text("let first = 1\nlet second = 2\nlet third = 3\n")
+        self.git("init", "-q", "-b", "main")
+        self.commit("before")
+        self.before = self.head()
+
+    def git(self, *args: str) -> str:
+        return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@t",
+                               "-c", "commit.gpgsign=false", *args],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(self, message: str) -> None:
+        self.git("add", "-A")
+        self.git("commit", "-qm", message, "--allow-empty")
+
+    def head(self) -> str:
+        return self.git("rev-parse", "HEAD")
+
+    def run_step(self, before: str) -> subprocess.CompletedProcess:
+        step = next(s for s in steps() if s.get("id") == "app-size")
+        env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        env.update(EVENT_NAME="push", FULL_CI="true", BEFORE=before, GITHUB_WORKSPACE=str(self.repo),
+                   GITHUB_SHA=self.head())
+        return subprocess.run(["bash", "-e", "-c", step["run"]], cwd=self.repo, env=env,
+                              capture_output=True, text=True, timeout=120)
+
+    def test_a_push_that_adds_no_app_source_passes_over_the_cap(self):
+        (self.repo / "README.md").write_text("docs\n")
+        (self.app / "App.swift").write_text("let first = 1\nlet second = 2\nlet third = 3\n// note\n")
+        self.commit("docs and a comment")
+        result = self.run_step(self.before)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("no source-line growth", result.stdout)
+
+    def test_a_push_that_adds_app_source_still_fails(self):
+        (self.app / "Feature.swift").write_text("let feature = 4\n")
+        self.commit("a feature in the App")
+        result = self.run_step(self.before)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("real source growth is not allowed", result.stderr)
+
+    def test_a_push_with_no_before_commit_checks_the_plain_cap(self):
+        self.commit("first push of a branch")
+        result = self.run_step("0" * 40)
+        self.assertNotEqual(result.returncode, 0, result.stdout)
+        self.assertIn("CmuxNextApp is capped at 2 lines", result.stderr)
 
 
 if __name__ == "__main__":

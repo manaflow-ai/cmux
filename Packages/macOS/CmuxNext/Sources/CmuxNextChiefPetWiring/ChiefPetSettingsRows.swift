@@ -6,16 +6,14 @@ public import CmuxNextSettings
 
 /// The Chief pet's rows in the Chief Settings popover's Appearance section (Leo 2026-10-19: "pet
 /// needs those settings to be obviously there"): Show Chief Pet (`home.chiefPetEnabled`) and the
-/// pet's character (`home.chiefPetMascot`), each pixel mascot drawn beside its name. They read
-/// and write the same `SettingsController` as Settings > Agents > Chief Pet, so a change in
+/// pet's character (`home.chiefPetMascot`), all nine pixel mascots at once, one click to swap
+/// (Leo 2026-10-21, as ChatGPT swaps its avatars). Picking a character never shows the pet. They read
+/// and write the same `SettingsController` as Settings > Chief > Chief Pet, so a change in
 /// either shows in the other; a managed key's control is disabled, as on the Settings page.
 @MainActor
 public final class ChiefPetSettingsRows: NSObject {
-    /// The menu's mascot pictures: the pixel character at a menu row's height.
-    static let thumbnailSize = NSSize(width: 18, height: 18)
-
     let toggle = NSSwitch()
-    let mascot = ThemedPopUpButton(frame: .zero, pullsDown: false)
+    let mascot = ChiefPetMascotGrid(items: ChiefPetSettingsRows.mascotItems())
     private let settings: @MainActor @Sendable () -> SettingsController?
     private var watch: Task<Void, Never>?
     private(set) weak var host: NSView?
@@ -42,15 +40,7 @@ public final class ChiefPetSettingsRows: NSObject {
         toggle.target = self
         toggle.action = #selector(toggled)
         toggle.setAccessibilityIdentifier("cmux.home.chief.petEnabled")
-        mascot.font = Typography.body
-        mascot.target = self
-        mascot.action = #selector(pickedMascot)
-        mascot.setAccessibilityIdentifier("cmux.home.chief.petMascot")
-        for (id, title) in Self.mascotItems() {
-            mascot.addItem(withTitle: title)
-            mascot.lastItem?.representedObject = id
-            mascot.lastItem?.image = ChiefPetMascot(rawValue: id)?.image.map(Self.thumbnail)
-        }
+        mascot.onPick = { [weak self] id in self?.write(HomeChiefPetSetting.mascotPath, .string(id)) }
     }
 
     /// Adds Show Chief Pet and the pet's character through `addRow` (the Chief Settings
@@ -62,7 +52,6 @@ public final class ChiefPetSettingsRows: NSObject {
         homes.live.add(self)
         let enabledTitle = SettingsSchema.descriptor(for: HomeChiefPetSetting.configPath)?.title ?? ""
         toggle.setAccessibilityLabel(enabledTitle)
-        mascot.setAccessibilityLabel(ChiefPetMascot.pickerTitle)
         addRow(enabledTitle, toggle)
         addRow(ChiefPetMascot.pickerTitle, mascot)
         // task-owner: lives as long as the rows (their Home view; deinit cancels it); event-driven (Observation)
@@ -99,9 +88,7 @@ public final class ChiefPetSettingsRows: NSObject {
     func show(_ shown: Shown) {
         toggle.state = shown.enabled ? .on : .off
         toggle.isEnabled = !shown.enabledManaged
-        let index = mascot.itemArray.firstIndex { $0.representedObject as? String == shown.mascot } ?? 0
-        mascot.selectItem(at: index)
-        mascot.isEnabled = !shown.mascotManaged
+        mascot.select(shown.mascot, enabled: !shown.mascotManaged)
     }
 
     /// The avatar picture of the character `mascot` names (an unknown or nil id: the first, orb):
@@ -118,21 +105,16 @@ public final class ChiefPetSettingsRows: NSObject {
         return choices.map { ($0.value, $0.title) }
     }
 
-    /// The mascot at a menu row's height, its aspect kept (the bundled PNGs are 256 px wide).
-    static func thumbnail(_ image: NSImage) -> NSImage {
+    /// The mascot fit in a `side`-point square, its aspect kept (the bundled PNGs are 256 px wide).
+    static func thumbnail(_ image: NSImage, side: CGFloat) -> NSImage {
         let copy = (image.copy() as? NSImage) ?? image
-        let scale = min(thumbnailSize.width / max(image.size.width, 1), thumbnailSize.height / max(image.size.height, 1))
+        let scale = min(side / max(image.size.width, 1), side / max(image.size.height, 1))
         copy.size = NSSize(width: (image.size.width * scale).rounded(), height: (image.size.height * scale).rounded())
         return copy
     }
 
     @objc func toggled() {
         write(HomeChiefPetSetting.configPath, .bool(toggle.state == .on))
-    }
-
-    @objc func pickedMascot() {
-        guard let id = mascot.selectedItem?.representedObject as? String else { return }
-        write(HomeChiefPetSetting.mascotPath, .string(id))
     }
 
     /// One cmux.json write, as the Settings page's control makes it; the file watcher then

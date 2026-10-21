@@ -55,13 +55,17 @@ enum PaletteSourcesBridge {
     }
 
     /// Target lists for the palette's argument pages, each kind from its
-    /// owner; rename prompts also start from the titles listed here.
+    /// owner; rename prompts also start from the titles listed here. Tab
+    /// groups come first: their source narrows the list for the saved-group
+    /// actions (`targets(of:for:)`).
     static func targetSource(_ services: AppServices) -> any PaletteTargetSource {
         let windows = WindowTargetSource(services: services)
         let profiles = BrowserProfileTargetSource(services: services, next: windows)
         let screens = ScreenTargetSource(services: services, next: profiles)
-        let tabs = TabAndGroupTargetSource(services: services, next: screens)
-        return SidebarSectionTargetSource(services: services, next: tabs)
+        let spaces = SpaceAndPaneTargetSource(services: services, next: screens)
+        let sections = SidebarSectionTargetSource(services: services, next: spaces)
+        let chats = PriorityChatTargetSource(chats: .app, next: sections)
+        return TabAndGroupTargetSource(services: services, next: chats)
     }
 
     /// The active window's focused objects when the palette opens: the
@@ -107,7 +111,11 @@ enum PaletteSourcesBridge {
         }
 
         func selectWorkspace(id: String) {
-            guard let state = services.windows.active?.state else { return }
+            // No active window (all closed, CLI run): show it in its own window, else a new one.
+            guard let state = services.windows.active?.state else {
+                services.windows.reveal(workspaceID: id)
+                return
+            }
             services.windows.show(workspaceID: id, in: state)
         }
 

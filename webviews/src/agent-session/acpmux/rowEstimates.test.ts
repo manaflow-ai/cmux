@@ -2,8 +2,8 @@
 // The virtualizer's first-layout estimates (model.ts layoutConversation) match what the transcript's
 // CSS draws (conversation/conversation.css, styles.css), so a row that mounts moves nothing below it
 // and scrolling up never jumps:
-//   - a reply right over its turn's footer (`.acpmux-row--before-footer`): its text and the 4px meta
-//     gap, with no 34px floor;
+//   - a reply right over its turn's footer (`.acpmux-row--before-footer`), or over the running turn's
+//     line that the footer takes the place of: its text and the 4px meta gap, with no 34px floor;
 //   - a task's result (`.cv-received`): its 26px line and the 8px message gap;
 //   - a turn's footer: its 24px line and the 24px turn gap, or the 8px message gap for the chat's
 //     last one (`.acpmux-row--last-footer`), so no band sits over the composer.
@@ -13,6 +13,8 @@
 import { expect, test } from "bun:test";
 import { layoutConversation } from "./model";
 import { turnView } from "./conversation/turns";
+import { COLLAPSED_PROMPT_LINES, PASTE_CHIP_HEIGHT, PROMPT_MORE_HEIGHT } from "./conversation/promptCollapse";
+import { currentChatMetrics } from "./chatDisplay";
 
 const reply = (id: string, text: string) => ({ id, version: 1, at: 0, kind: "assistant", text });
 // A footer carries its answer's text, for Copy (conversation/turns.ts), so the estimate never reads it.
@@ -40,6 +42,17 @@ test("a reply over its footer is its text and the 4px meta gap, with no 34px flo
   const [short] = heightsOf([reply("b", "Done."), footer("g")]);
   expect(short!).toBeLessThan(34);
   expect(short! - 4).toBeGreaterThan(0);
+});
+
+test("a reply over its running turn's line is estimated as over the footer that takes its place", () => {
+  const long = "A longer answer that wraps. ".repeat(40);
+  // The running turn's line as its last row (conversation/turns.ts `below`): the footer's height.
+  const line = { id: "live", version: 1, at: 0, kind: "thinking", below: true };
+  const [running, lineHeight] = heightsOf([reply("a", long), line]);
+  const [ended, footerHeight] = heightsOf([reply("a", long), footer("f")]);
+  // The turn's end swaps the line for the footer and moves nothing above it.
+  expect(lineHeight).toBe(footerHeight);
+  expect(running).toBe(ended);
 });
 
 test("a reply estimated alone, then with its footer after it, is estimated again", () => {
@@ -120,4 +133,36 @@ test("a steer the agent has not read adds its Send now line under the steer's st
   const [waiting] = heightsOf([steer("waiting")]);
   // `.cv-user__pending`: 4px above a 16px line.
   expect(waiting! - landed!).toBe(20);
+});
+
+// A long prompt opens collapsed (conversation/UserBubble.tsx, promptCollapse.ts): its first ten
+// lines over the 24px Show more line, inside the bubble's 16px of padding, with its 28px hover row
+// under it and the 8px message gap. Estimated any taller, the row shrinks once drawn and the
+// rows below jump up.
+// Before: a prompt was estimated at its whole text, 2,000 lines tall.
+test("a 2,000-line prompt is estimated at its collapsed height, at most ten lines", () => {
+  const { lineHeight } = currentChatMetrics();
+  const text = Array.from({ length: 2000 }, (_, index) => `line ${index + 1}`).join("\n");
+  const [long] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
+  expect(long).toBeCloseTo(16 + COLLAPSED_PROMPT_LINES * lineHeight + PROMPT_MORE_HEIGHT + 4 + 24 + 8, 5);
+  expect(long!).toBeLessThan(16 + 10.5 * lineHeight + 24 + 28 + 8);
+});
+
+test("a prompt of ten lines or fewer is estimated whole, with no Show more line", () => {
+  const { lineHeight } = currentChatMetrics();
+  const text = Array.from({ length: 3 }, (_, index) => `line ${index + 1}`).join("\n\n");
+  const [short] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text }]);
+  expect(short!).toBeLessThan(16 + COLLAPSED_PROMPT_LINES * lineHeight + 28 + 8);
+});
+
+// A pasted block (`pasted` ranges, the chip in UserBubble.tsx) is one chip line, however long the
+// paste, and the prompt's own words around it.
+test("a prompt with a 2,300-line paste is its typed line and one chip", () => {
+  const { lineHeight } = currentChatMetrics();
+  const typed = "Why does this fail?";
+  const paste = Array.from({ length: 2300 }, (_, index) => `frame ${index}`).join("\n");
+  const text = `${typed}\n${paste}`;
+  const pasted = [{ start: typed.length + 1, end: text.length }];
+  const [height] = heightsOf([{ id: "u", version: 1, at: 0, kind: "user", text, pasted }]);
+  expect(height).toBeCloseTo(16 + lineHeight + PASTE_CHIP_HEIGHT + 28 + 8, 5);
 });

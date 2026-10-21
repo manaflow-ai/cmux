@@ -20,6 +20,16 @@ impl Wire {
     /// Two viewport columns, the first docked left as the agent chat and
     /// pinned. Returns the wire and the panes in column order.
     fn home() -> (Self, Vec<PaneId>) {
+        Self::home_with(false)
+    }
+
+    /// [`Self::home`] with a web page as the pinned tab (Home's page), so a
+    /// stash can name it.
+    fn home_page() -> (Self, Vec<PaneId>) {
+        Self::home_with(true)
+    }
+
+    fn home_with(page: bool) -> (Self, Vec<PaneId>) {
         let mux = Mux::new_for_test("pinned-columns", crate::SurfaceOptions::default());
         let outbound = Arc::new(BoundedOutbound::default());
         let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
@@ -28,6 +38,18 @@ impl Wire {
         let left = wire.mux.with_state(|state| state.pane_of(first.id).unwrap());
         let surface = wire.mux.new_pane_right(left, 0.5, Some((38, 22))).unwrap();
         let right = wire.mux.with_state(|state| state.pane_of(surface.id).unwrap());
+        if page {
+            let record = crate::workspace_registry::FrontendBrowserRecord {
+                engine: "cef".into(),
+                url: "https://example.com/home".into(),
+                title: None,
+                favicon_url: None,
+                profile_id: None,
+                owner: None,
+            };
+            wire.mux.new_frontend_browser_tab(Some(left), record, None).unwrap();
+            wire.ok(json!({"cmd": "close-surface", "surface": first.id}));
+        }
         let data = wire.ok(json!({
             "cmd": "set-column-dock", "pane": left, "dock": true, "edge": "left",
             "role": "agent_chat", "pinned": true,
@@ -424,4 +446,76 @@ fn a_browser_tab_made_in_a_lone_pinned_dock_opens_in_a_new_column_beside_it() {
     );
     assert!(refused_tab.is_err(), "the dock with a neighbour refuses the tab");
     assert_eq!(wire.tabs(panes[0]), vec![home]);
+}
+
+fn workspace_count(wire: &Wire) -> usize {
+    wire.mux.with_state(|state| state.workspaces.len())
+}
+
+/// A bulk close keeps the single close's pinned rule (`pinned-dock-v1`): a
+/// `close-tabs` set that names the pinned tab is refused with
+/// `dock-column-pinned` and closes nothing, as `tab.close` and `close-surface`
+/// refuse it. With Home's dock alone (`pinned-dock-alone-v1`) a set that
+/// would empty and close the workspace is refused too.
+#[test]
+fn close_tabs_refuses_a_set_with_the_pinned_tab_and_closes_nothing() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let right = wire.tabs(panes[1])[0];
+    let workspaces = workspace_count(&wire);
+    refused(&wire.send(json!({"cmd": "close-tabs", "surfaces": [right, home]})));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the pinned tab stays");
+    assert_eq!(wire.tabs(panes[1]), vec![right], "a refused set closes nothing");
+
+    wire.ok(json!({"cmd": "close-tabs", "surfaces": [right]}));
+    refused(&wire.send(json!({"cmd": "close-tabs", "surfaces": [home], "end_terminals": true})));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the lone dock keeps its tab");
+    assert_eq!(workspace_count(&wire), workspaces, "the workspace did not close");
+}
+
+/// `close-tab-group` with `end_terminals` (a batch close) refuses a group
+/// that holds the pinned tab, as the plain group close does.
+#[test]
+fn close_tab_group_refuses_a_group_with_the_pinned_tab() {
+    let (mut wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let created = wire.ok(json!({"cmd": "create-tab-group", "surfaces": [home], "name": "Home"}));
+    let group = created["group"]["id"].as_str().unwrap().to_string();
+    refused(&wire.send(json!({"cmd": "close-tab-group", "group": group, "end_terminals": true})));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the batch group close kept Home");
+    refused(&wire.send(json!({"cmd": "close-tab-group", "group": group})));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the plain group close kept Home");
+}
+
+/// `layout.bulk` close (the CLI and MCP bulk presets) refuses a selection
+/// that holds the pinned tab or its pane, as `tab.close` and `pane.close` do.
+#[test]
+fn layout_bulk_close_refuses_the_pinned_tab_and_its_pane() {
+    let (wire, panes) = Wire::home();
+    let home = wire.tabs(panes[0])[0];
+    let right = wire.tabs(panes[1])[0];
+    let tabs = json!({
+        "machine": "current", "session": "current", "verb": "close", "level": "tab",
+        "selector": "selection", "ids": [wire.tab_id(right), wire.tab_id(home)],
+    });
+    refused(&resource(&wire.mux, "layout.bulk", tabs, Some("bulk-home-tabs")));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the pinned tab stays");
+    assert_eq!(wire.tabs(panes[1]), vec![right], "a refused bulk close closes nothing");
+    let pane = json!({
+        "machine": "current", "session": "current", "verb": "close", "level": "pane",
+        "selector": "selection", "ids": [wire.pane_id(panes[0])],
+    });
+    refused(&resource(&wire.mux, "layout.bulk", pane, Some("bulk-home-pane")));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the pinned pane stays");
+}
+
+/// `stash.create` closes the tabs it stashes: it refuses Home's pinned page
+/// as `tab.close` does.
+#[test]
+fn stash_refuses_the_pinned_page() {
+    let (wire, panes) = Wire::home_page();
+    let home = wire.tabs(panes[0])[0];
+    let stash = json!({"machine": "current", "session": "current", "tabs": [wire.tab_id(home)]});
+    refused(&resource(&wire.mux, "stash.create", stash, Some("stash-home")));
+    assert_eq!(wire.tabs(panes[0]), vec![home], "the pinned page stays");
 }

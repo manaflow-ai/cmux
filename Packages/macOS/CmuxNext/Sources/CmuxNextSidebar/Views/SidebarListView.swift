@@ -18,6 +18,8 @@ typealias SidebarListViewComponents = SidebarListView
 final class SidebarListView: NSView {
     let model: SidebarModel
     var displayed = SidebarLayout.empty
+    /// Each layout `apply` draws, in order (a test records every frame the list shows, a one-hop glitch too).
+    var onApply: ((SidebarLayout) -> Void)?
     var rowViews: [SidebarRowKey: SidebarRowView] = [:]
     var workspaces: [WorkspaceID: SidebarWorkspace] = [:]
     var tabs: [TabID: SidebarTab] = [:]
@@ -61,6 +63,8 @@ final class SidebarListView: NSView {
     let decorations = SidebarDecorationView()
     /// Open groups' members' lines, under the rows, moving with them.
     let groupLineViews = SidebarGroupLineViews()
+    /// The session tree's chat history (Pinned and Earlier), in the gaps the layout leaves for them.
+    let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
     var hoveredKey: SidebarRowKey?
