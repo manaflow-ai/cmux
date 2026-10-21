@@ -64,9 +64,10 @@ describe("image-only paragraphs", () => {
 
 describe("image paths in a sentence", () => {
   test("an absolute path and an https image are found once each, in order", () => {
-    expect(
-      proseImages(`Saved /tmp/a.png and ${PR_MEDIA}, then /tmp/a.png again.`).map((item) => item.src),
-    ).toEqual(["/tmp/a.png", PR_MEDIA]);
+    expect(proseImages(`Saved /tmp/a.png and ${PR_MEDIA}, then /tmp/a.png again.`).map((item) => item.src)).toEqual([
+      "/tmp/a.png",
+      PR_MEDIA,
+    ]);
   });
   test("code spans, link targets and Markdown images are not prose", () => {
     expect(proseImages("Run `open /tmp/a.png`, see [it](/tmp/b.png) and ![c](/tmp/c.png).")).toEqual([]);
@@ -87,7 +88,12 @@ describe("image paths in a sentence", () => {
 describe("file:line references", () => {
   test("a relative path with a line is a path chip that keeps its line", () => {
     const [link] = textLinks("fails at webviews/src/app.ts:42:7, see there");
-    expect(link).toMatchObject({ kind: "path", path: "webviews/src/app.ts", line: 42, value: "webviews/src/app.ts:42:7" });
+    expect(link).toMatchObject({
+      kind: "path",
+      path: "webviews/src/app.ts",
+      line: 42,
+      value: "webviews/src/app.ts:42:7",
+    });
   });
   test("an absolute path keeps its line too", () => {
     expect(textLinks("at /Users/you/x/retry.ts:12.")[0]).toMatchObject({ path: "/Users/you/x/retry.ts", line: 12 });
@@ -145,7 +151,15 @@ describe("repository aliases and commits", () => {
 describe("rendered replies", () => {
   const dom = new JSDOM("<!doctype html><div id=root></div>", { url: "http://localhost/", pretendToBeVisual: true });
   const scope = globalThis as Record<string, unknown>;
-  const keys = ["window", "document", "navigator", "HTMLElement", "Element", "Node", "IS_REACT_ACT_ENVIRONMENT"] as const;
+  const keys = [
+    "window",
+    "document",
+    "navigator",
+    "HTMLElement",
+    "Element",
+    "Node",
+    "IS_REACT_ACT_ENVIRONMENT",
+  ] as const;
   const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
   beforeAll(() => {
     Object.assign(scope, {
