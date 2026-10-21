@@ -38,11 +38,13 @@ import Testing
                       exists: @escaping @MainActor () -> Bool = { true }) -> WorkspaceCloseFlow {
         WorkspaceCloseFlow(
             hide: { log.steps.append("hide"); return closing.begin(id, among: [id, "other"]) },
-            confirm: {
+            question: {
                 log.steps.append("ask process-info")
-                guard await pending.question() != nil else { return true }
-                log.steps.append("question")
-                return closes
+                guard await pending.question() != nil else { return nil }
+                return {
+                    log.steps.append("question")
+                    return closes
+                }
             },
             exists: exists,
             send: { _ in

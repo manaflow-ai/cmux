@@ -162,12 +162,14 @@ extension AppActions {
                 return hidden
             },
             // The question, when a terminal runs a program: on the window that lists the workspace, above its pages.
-            confirm: {
-                guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return true }
+            question: {
+                guard var prompt = await WorkspaceBulkClose.prompt([(workspace, daemon)], warn: warn) else { return nil }
                 prompt.returnConfirms = false
-                return await withCheckedContinuation { answer in
-                    DestructiveConfirmation.present(prompt, in: controller?.window ?? services.windows.active?.window,
-                                                    settings: services.settings) { answer.resume(returning: $0) }
+                return {
+                    await withCheckedContinuation { answer in
+                        DestructiveConfirmation.present(prompt, in: controller?.window ?? services.windows.active?.window,
+                                                        settings: services.settings) { answer.resume(returning: $0) }
+                    }
                 }
             },
             // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
