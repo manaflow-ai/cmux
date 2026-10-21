@@ -40,7 +40,11 @@ pub const CHIEF_TOOLS: [&str; 9] = [
 /// forever. In a turn another person started, `Brain::internal_allowed`
 /// checks each call's input when the tool runs (`Orchestrator::turn_gate`).
 pub fn turn_allowed_tools() -> Vec<&'static str> {
-    MEMORY_TOOLS.iter().chain(CHIEF_TOOLS.iter()).copied().collect()
+    MEMORY_TOOLS
+        .iter()
+        .chain(CHIEF_TOOLS.iter())
+        .copied()
+        .collect()
 }
 
 /// One permission request the host answers.
