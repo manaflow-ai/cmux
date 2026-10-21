@@ -3,15 +3,15 @@
 // draws them: the message's age ("8 minutes ago", its date and time on hover), a prompt's read
 // receipt, Copy, Retry, Fork from here (its title and what it does), Pin and Read aloud. The rows
 // show on hover or keyboard focus only (conversation.css).
-import { useContext, useState } from "react";
+import { useContext } from "react";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
 import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
-import { copyText } from "./clipboard";
-import { Check, Copy, DoubleCheck, Pin, Retry, Speaker, TurnFork } from "./icons";
+import { Check, DoubleCheck, Pin, Retry, Speaker, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
 import { relativeTime } from "./relativeTime";
+import { CopyButton } from "./CopyButton";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
 
@@ -34,25 +34,11 @@ export function MessageTime({ at, className }: { at: number; className: string }
   );
 }
 
-export function CopyButton({ text }: { text: string }) {
+/// Copy through CopyButton (its name as a tooltip, a check once the clipboard took the text), at the
+/// row's compact size.
+export function MessageCopy({ text }: { text: string }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
-  const label = copied ? t("turn.copied") : t("turn.copy");
-  return (
-    <button
-      type="button"
-      className="cv-iconbtn cv-iconbtn--compact"
-      aria-label={label}
-      onClick={() =>
-        void copyText(text).then(
-          () => setCopied(true),
-          () => setCopied(false),
-        )
-      }
-    >
-      <Copy size={14} />
-    </button>
-  );
+  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={14} />;
 }
 
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is.
@@ -177,7 +163,7 @@ export function PromptActions({ row, text }: { row: AcpmuxRow; text: string }) {
     <div className="cv-user__actions">
       <MessageTime at={row.at} className="cv-user__time" />
       <ReadReceipt row={row} />
-      <CopyButton text={text} />
+      <MessageCopy text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
       <PinButton rowId={row.id} />
     </div>
@@ -190,7 +176,7 @@ export function ReceivedActions({ row, text }: { row: AcpmuxRow; text: string })
   return (
     <span className="cv-received-actions">
       <MessageTime at={row.at} className="cv-user__time" />
-      <CopyButton text={text} />
+      <MessageCopy text={text} />
       <PromptRetry rowId={row.id} prompt={row.resend ?? row.text ?? ""} />
       <PinButton rowId={row.id} />
     </span>

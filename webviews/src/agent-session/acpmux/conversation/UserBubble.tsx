@@ -18,7 +18,7 @@ import { imageLabel } from "../imageLabel";
 import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
-import { CopyButton, ForkButton, MessageTime, PinButton, PromptRetry, ReadReceipt } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, PromptRetry, ReadReceipt } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
@@ -63,6 +63,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("message.previousVersion")}
+                title={t("message.previousVersion")}
                 disabled={branch.index === 0}
                 onClick={() => branches.open(branch.sessions[branch.index - 1]!)}
               >
@@ -78,6 +79,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
                 type="button"
                 className="cv-iconbtn cv-iconbtn--compact"
                 aria-label={t("message.nextVersion")}
+                title={t("message.nextVersion")}
                 disabled={branch.index === branch.sessions.length - 1}
                 onClick={() => branches.open(branch.sessions[branch.index + 1]!)}
               >
@@ -87,12 +89,13 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
           )}
           <MessageTime at={row.at} className="cv-user__time" />
           <ReadReceipt row={row} />
-          <CopyButton text={row.text ?? text} />
+          <MessageCopy text={row.text ?? text} />
           {through !== undefined && (
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={t("message.edit")}
+              title={t("message.edit")}
               onClick={() => setEditing(true)}
             >
               <Pencil size={14} />

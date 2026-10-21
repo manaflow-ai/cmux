@@ -393,6 +393,21 @@ export default agentPaneEntry({
     },
     // Leo 2026-10-19: no composer button draws a pill at rest (test/composer-quiet-chips.test.ts).
     // Fast mode is on, and shows only in the model button's menu (Leo 2026-10-20: no bolt).
+    // The + is a bare glyph: its tooltip says what its menu adds (files, screenshots, mentions...).
+    "plus-tooltip": {
+      note: "Play: hover the +; the tooltip says what its menu adds.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const selector = ".acpmux-composer-plus .acpmux-picker-button";
+        await ctx.waitFor(() => ctx.document.querySelector(selector));
+        await ctx.hover({ selector });
+        await ctx.waitFor(
+          () =>
+            ctx.document.querySelector(".ui-title-tooltip:not([hidden])")?.textContent?.startsWith("Add files") ??
+            false,
+        );
+      },
+    },
     "quiet-chips": {
       note: "Every footer button at rest: +, the one model button (model and effort) and the mode, with Fast mode on and no bolt. None draws a pill until it is hovered, keyboard-focused, pressed or open.",
       snapshot: quietChips(),

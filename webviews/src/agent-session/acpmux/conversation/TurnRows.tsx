@@ -17,7 +17,7 @@ import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
 import { ChevronRight, Retry } from "./icons";
-import { CopyButton, ForkButton, MessageTime, PinButton, ReadAloudButton } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton } from "./MessageActions";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
@@ -159,7 +159,7 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
       <div className={failed ? "cv-turn-actions cv-turn-actions--failed" : "cv-turn-actions"}>
         {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
         <span className="cv-turn-action-group">
-          {text && <CopyButton text={text} />}
+          {text && <MessageCopy text={text} />}
           {failed && retry && prompt && (
             <button
               type="button"
