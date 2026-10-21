@@ -76,12 +76,23 @@ enum HomeMapping {
         let mentions = item.parts.contains { if case let .text(_, m) = $0 { return !m.isEmpty } else { return false } }
         let format: MessageFormat = isAgent(item.author, summary) && !mentions ? .markdown : .plain
         var message = Message(id: messageID, senderId: item.author.rawValue, sentAt: Instant.format(item.createdAt),
-                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: nil,
+                parts: parts, replyTo: replyTo(item, roots: roots), status: status(item, me: me, summary: summary), edits: edits(item),
                 retractedAt: item.isRetracted ? Instant.format(item.editedAt ?? item.createdAt) : nil,
                 reactions: item.reactions.map { reaction($0, partIndex: projectedIndex($0.partIndex, owners)) }, format: format)
         // ThreadMode.tree: the message a nested reply answers (HomeMapping+Tree.swift).
         message.parent = parent(item, roots: roots)
         return message
+    }
+
+    /// An edited message's edit as MessagesLab's `Message.edits`, so it shows "Edited" under it when it loads
+    /// already edited (a snapshot, a rebuild, an older page), as MessagesLab does: before, only a live edit
+    /// (HomeDiff `.edit`) added the label, and the next rebuild lost it. MessagesLab's `Edit.text` is the text
+    /// before the edit; HomeStore keeps no earlier text, so the edit holds the current text (the transcript reads
+    /// only that an edit exists; ComposerHistory reads the parts).
+    static func edits(_ item: TranscriptItem) -> [Message.Edit]? {
+        guard let at = item.editedAt, !item.isRetracted else { return nil }
+        let text = item.parts.compactMap { if case .text(let t, _) = $0 { t } else { nil } }.joined(separator: "\n")
+        return [Message.Edit(text: text, at: Instant.format(at))]
     }
 
     /// The item's parts as MessagesLab shows them, and for each one the
@@ -344,10 +355,13 @@ enum HomeMapping {
         }
     }
 
-    static func participants(_ summary: ConversationSummary?, me: ParticipantID) -> [Participant] {
+    /// `avatars`: a chosen avatar by participant id (the host's Chief avatars); anyone else draws their initials.
+    static func participants(_ summary: ConversationSummary?, me: ParticipantID,
+                             avatars: [String: Participant.Avatar] = [:]) -> [Participant] {
         var out = (summary?.participants ?? []).map {
             // The name a person reads (never an internal id): a group transcript shows it over their bubbles.
-            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me, avatar: .monogram($0.initials))
+            Participant(id: $0.id.rawValue, displayName: $0.visibleName, isMe: $0.id == me,
+                        avatar: avatars[$0.id.rawValue] ?? .monogram($0.initials))
         }
         if !out.contains(where: \.isMe) { out.append(Participant(id: me.rawValue, displayName: "", isMe: true, avatar: nil)) }
         return out

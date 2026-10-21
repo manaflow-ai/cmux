@@ -20,7 +20,7 @@ use super::{
 const GROUP_COLORS: &[&str] =
     &["grey", "blue", "red", "yellow", "green", "pink", "purple", "cyan", "orange"];
 const LOG_LEVELS: &[&str] = &["info", "progress", "success", "warning", "error"];
-const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
+pub(super) const STATUS_AREAS: &[&str] = &["status", "progress", "log"];
 
 /// Parameters plus the name lookups they need.
 #[derive(Default)]
@@ -230,12 +230,33 @@ pub(super) fn workspace_update(
     flags: &mut Flags,
 ) -> Result<CommandPlan, UsageError> {
     let mut params = Map::new();
-    for name in ["title", "color", "icon"] {
+    for name in ["title", "color", "icon", "description"] {
         insert_optional_clearable_string(&mut params, flags, name)?;
+    }
+    // workspace-status-v1: the task lane the person pins; clearing makes it
+    // automatic again.
+    match (flags.take("task-status"), flags.boolean("clear-task-status")) {
+        (Some(_), true) => {
+            return Err(UsageError::new(
+                "--task-status and --clear-task-status are mutually exclusive",
+            ));
+        }
+        (Some(status), false) => {
+            validate_one_of(
+                "--task-status",
+                &status,
+                &["todo", "working", "needs-attention", "review", "done"],
+            )?;
+            params.insert("task_status".into(), Value::String(status));
+        }
+        (None, true) => {
+            params.insert("task_status".into(), Value::Null);
+        }
+        (None, false) => {}
     }
     if params.is_empty() {
         return Err(UsageError::new(
-            "workspace update needs --title, --color or --icon (or a --clear-… flag)",
+            "workspace update needs --title, --color, --icon, --description or --task-status (or a --clear-… flag)",
         ));
     }
     request(Op::WorkspaceUpdate, selectors, flags, params)
@@ -479,10 +500,17 @@ pub(super) fn tab_change(
             Op::TabUpdate
         }
         ("update", []) => {
-            // The icon is the daemon's field on every tab kind. A browser
-            // tab's page zoom is an app action, so one request cannot carry
-            // both: an icon with a zoom flag is a usage error.
+            // The icon and the unread mark (tab-mark-unread-v1) are the
+            // daemon's fields on every tab kind. A browser tab's page zoom is
+            // an app action, so one request cannot carry both: a daemon field
+            // with a zoom flag is a usage error.
             nullable(&mut params, flags, "icon", "icon")?;
+            if let Some(unread) = flags.take("marked-unread") {
+                let unread = parse_bool("--marked-unread", &unread)?;
+                params.insert("marked_unread", Value::Bool(unread));
+            }
+            let daemon_field =
+                params.fields.contains_key("icon") || params.fields.contains_key("marked_unread");
             let step = match (flags.take("zoom"), flags.boolean("clear-zoom")) {
                 (Some(_), true) => {
                     return Err(UsageError::new("--zoom and --clear-zoom are mutually exclusive"));
@@ -498,16 +526,16 @@ pub(super) fn tab_change(
                 (None, false) => None,
             };
             match step {
-                Some(_) if params.fields.contains_key("icon") => {
+                Some(_) if daemon_field => {
                     return Err(UsageError::new(
-                        "tab update sets the icon or the zoom, not both; run two commands",
+                        "tab update sets the icon or unread mark, or the zoom, not both; run two commands",
                     ));
                 }
                 Some(step) => params.resolve.push(Resolve::TabZoom { step }),
-                None if params.fields.contains_key("icon") => {}
+                None if daemon_field => {}
                 None => {
                     return Err(UsageError::new(
-                        "tab update needs --zoom, --clear-zoom, --icon or --clear-icon",
+                        "tab update needs --zoom, --clear-zoom, --icon, --clear-icon or --marked-unread",
                     ));
                 }
             }
@@ -760,8 +788,10 @@ pub(super) fn parse_screen_group(
 // closed
 
 /// `closed list [--window W] [--limit N]`, `closed reopen [--window W]`
-/// (the newest group of that window: Cmd-Shift-T),
-/// `closed <id> reopen [--members 0,2]`, `closed <id> delete [--members]`
+/// (the newest group of that window: Cmd-Shift-T), `closed reopen --tab T
+/// [--fallback-pane P]` (the closed tab T under its own id: a `cmux://tab/`
+/// link), `closed <id> reopen [--members 0,2] [--fallback-pane P]`,
+/// `closed <id> delete [--members]`
 /// and `closed clear [--since-ms T] [--before-ms T] [--keep-newest N]`: the
 /// closed groups of the session.
 pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandPlan, UsageError> {
@@ -777,6 +807,11 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
         }
         ["reopen"] => {
             insert_optional_string(&mut params.fields, flags, "window", "window");
+            if let Some(tab) = flags.take("tab") {
+                validate_prefixed_id("tab", "tab", &tab)?;
+                params.insert("tab", Value::String(tab));
+            }
+            fallback_pane(&mut params, flags)?;
             Op::ClosedReopen
         }
         ["clear"] => {
@@ -824,11 +859,22 @@ pub(super) fn parse_closed(words: &[&str], flags: &mut Flags) -> Result<CommandP
             if let Some(members) = flags.take("members") {
                 params.insert("members", closed_members(&members)?);
             }
+            fallback_pane(&mut params, flags)?;
             Op::ClosedReopen
         }
         _ => return usage("closed action"),
     };
     params.send(operation, &selectors, flags)
+}
+
+/// `--fallback-pane P`: where a reopened tab goes when its own pane and
+/// workspace are gone.
+fn fallback_pane(params: &mut Params, flags: &mut Flags) -> Result<(), UsageError> {
+    if let Some(pane) = flags.take("fallback-pane") {
+        validate_prefixed_id("pane", "pane", &pane)?;
+        params.insert("fallback_pane", Value::String(pane));
+    }
+    Ok(())
 }
 
 /// `--members 0,2`: member indexes of a closed group.

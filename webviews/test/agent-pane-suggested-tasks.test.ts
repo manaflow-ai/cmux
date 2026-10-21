@@ -182,6 +182,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           const reply = answer(ws, message.method, message.params ?? {});
           if (message.id !== undefined) ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, ...reply }));
+          for (const wake of waiting) wake();
         },
       },
     });
@@ -231,16 +232,46 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     await page.getByText("Fix the product grid layout shift").first().waitFor({ timeout: 60_000 });
     return page;
   }
-  async function waitUntil(done: () => boolean) {
-    for (let tries = 0; !done() && tries < 100; tries++) await Bun.sleep(50);
-    expect(done()).toBe(true);
+  /// The waits on the daemon's calls: each message it takes wakes them.
+  const waiting = new Set<() => void>();
+  /// Resolves once `done` holds, checked as the daemon takes each message; fails after 5 s.
+  function waitUntil(done: () => boolean) {
+    return new Promise<void>((resolve, reject) => {
+      const check = () => {
+        if (!done()) return;
+        waiting.delete(check);
+        clearTimeout(timer);
+        resolve();
+      };
+      const timer = setTimeout(() => {
+        waiting.delete(check);
+        reject(new Error(`the daemon's calls never matched ${done.toString()} within 5 s`));
+      }, 5_000);
+      waiting.add(check);
+      check();
+    });
+  }
+  let marks = 0;
+  /// Returns once the page has drawn a reply chunk sent now, so it has handled and drawn everything
+  /// the daemon sent before it.
+  async function drawn(page: Page) {
+    const text = `Drawn mark ${++marks}.`;
+    const update = { sessionUpdate: "agent_message_chunk", content: { type: "text", text } };
+    const chunk = record(
+      "agent_message_chunk",
+      { method: "session/update", params: { sessionId: "agent-1", update } },
+      SESSION,
+      "in",
+    );
+    emit(socket!, chunk);
+    await page.getByText(text).waitFor({ timeout: 5_000 });
   }
   const card = (page: Page) => page.locator(".acpmux-tasks");
 
   describe("suggested tasks", () => {
     test("with neither the Debug toggle nor the experiment, the tasks draw nothing", async () => {
       const page = await openChat({ offered: group, experiment: "off" });
-      await page.waitForTimeout(500);
+      await drawn(page);
       expect(await card(page).count()).toBe(0);
       expect(await page.locator("body").innerText()).not.toContain(group[0]!.title);
       await page.close();
@@ -250,7 +281,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const page = await openChat({ offered: group, experiment: "off" });
       await page.waitForFunction(() => typeof window.cmuxAcpmuxBridge?.applySuggestedTasks === "function");
       await page.evaluate(() => window.cmuxAcpmuxBridge?.applyPreview?.(true));
-      await page.waitForTimeout(500);
+      await drawn(page);
       expect(await card(page).count()).toBe(0);
       await page.evaluate(() => window.cmuxAcpmuxBridge?.applySuggestedTasks?.(true));
       await card(page).getByText(group[0]!.title).waitFor({ timeout: 10_000 });
@@ -314,6 +345,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
     test("Do it here answers the offer here and sends its prompt to this chat", async () => {
       const page = await openChat({ offered: [single] });
       await card(page).getByText(single.title).waitFor({ timeout: 10_000 });
+      // A lone offer's card is headed with the list's own word, no noun (cg-ui-coord, 10-15).
+      expect(await card(page).getByText("Suggested", { exact: true }).count()).toBe(1);
       await card(page).getByRole("button", { name: "Do it here" }).click();
       await waitUntil(() => calls.some((c) => c.method === "session/prompt"));
       const respondAt = calls.findIndex((c) => c.method === "_acpmux/offer_respond");
@@ -470,7 +503,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       emit(socket!, record("turn_result", { status: "completed", stopReason: "end_turn" }));
       emit(socket!, record("dequeued", { promptId }));
       emit(socket!, record("user_message", { text, client: "acpmux", promptId, _meta: { provenance } }));
-      await page.waitForTimeout(500);
+      await drawn(page);
       expect(await line.count()).toBe(1);
       expect(await page.locator("body").innerText()).not.toContain("Result from the suggested task");
       await page.close();
@@ -482,8 +515,6 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
   // envelopes in a prompt (an adopted Claude session's history).
   describe("messages from other agents", () => {
     const incoming = (page: Page) => page.locator(".cv-received");
-    /// A line's text as it reads: the name and › are flex items, which innerText puts on lines of their own.
-    const lineText = (text: string) => text.replace(/\s+/g, " ");
     /// One message as cmux's agent_message_prompt.rs `render` writes it: the prompt's text.
     const renderedMessage = (body: string, { id = "m-1", from = "Grid fix (acp:child-3)", reply = true } = {}) =>
       [
@@ -521,9 +552,13 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      // One quiet line, "Received message from Grid fix ›"; the message waits behind ›.
-      expect(lineText(await card.innerText())).toContain("Received message from Grid fix");
-      expect(await card.innerText()).not.toContain("The grid fix is on cmux/grid-fix; tests pass.");
+      // One line at the left: the sender's chip and the message's first line as a preview; the
+      // card waits behind it.
+      expect(await card.locator(".cv-received__name").innerText()).toBe("Grid fix");
+      expect(await card.locator(".cv-received__preview").innerText()).toBe(
+        "The grid fix is on cmux/grid-fix; tests pass.",
+      );
+      expect(await card.locator(".cv-received__body").count()).toBe(0);
       expect(await page.locator(".cv-user__bubble").filter({ hasText: "The grid fix is on" }).count()).toBe(0);
       // Opened, the line shows the sender's words only; the prompt as the agent got it (cmux's
       // envelope, message id and note) waits behind Details.
@@ -589,7 +624,7 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       });
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
-      expect(lineText(await card.innerText())).toContain("Received message from leoli-fb");
+      expect(await card.locator(".cv-received__name").innerText()).toBe("leoli-fb");
       const body = await page.locator("body").innerText();
       expect(body).not.toContain("<cross-session-message");
       expect(body).not.toContain("This came from another Claude session");
@@ -921,8 +956,8 @@ await requireBrowserLane("agent-pane-suggested-tasks.test.ts", async () => {
       const card = incoming(page);
       await card.waitFor({ timeout: 10_000 });
       expect(await card.locator(".cv-message__images").count()).toBe(1);
-      // "Steered · the agent read it" is for the person's own prompts, not a message to the agent.
-      expect(await page.locator(".cv-incoming .cv-user__steer").count()).toBe(0);
+      // No read receipt or "Steered" line: a message to the agent is the agent's to read.
+      expect(await page.locator(".cv-incoming .cv-user__read, .cv-incoming .cv-user__steer").count()).toBe(0);
       await page.close();
     });
   });

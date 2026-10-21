@@ -49,15 +49,19 @@ extension ChatColumnPlacement {
         case .dockChat:
             guard let respawn, controller.daemon.supports(DaemonCapabilities.shared.tabColumnRespawn),
                   let chat = controller.pane.tabs.first else { return controller }
-            // The new tab left in the pane takes focus, not the docked chat.
+            // The new tab left in the pane takes focus, not the docked chat. The chat stays where it
+            // shows; only the pane with the new tab comes in, from the right (as AgentBesidePlacement).
             let pane = controller.layoutPaneID
-            TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
-                                     respawn: respawn, services: services) { [weak content, weak controller] moved in
-                if moved, let content { PaneHandlers.focus(pane, in: content) }
-                // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
-                if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
-                    services.paneTabBars.set(nil, for: controller.paneKey)
-                    controller.apply(controller.snapshot())
+            content.layoutModel.handOffContent(of: pane) { done in
+                TabMoves.toNewDockColumn(chat, anchor: controller.pane, edge: .left, role: .agentChat,
+                                         respawn: respawn, services: services) { [weak content, weak controller] moved in
+                    done(moved)
+                    if moved, let content { PaneHandlers.focus(pane, in: content) }
+                    // A hidden tab bar was the chat's choice: the tab left in the pane shows its tab bar again.
+                    if moved, let controller, services.paneTabBars.choice(for: controller.paneKey) == false {
+                        services.paneTabBars.set(nil, for: controller.paneKey)
+                        controller.apply(controller.snapshot())
+                    }
                 }
             }
             return nil

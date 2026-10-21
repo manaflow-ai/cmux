@@ -1,24 +1,31 @@
-// Where a Claude Code chat's session started (sessionStart.ts): one quiet line with what it runs
-// on (Claude Code's version, the model, the route to Claude, the folder), then how it compacts,
-// until the person dismisses that note. Drawn as a tool row, like a compaction note
-// (CompactionNote.tsx), which is how each compaction itself shows later in the chat.
-import { useState } from "react";
+// Where a Claude Code chat's session started (sessionStart.ts), in the quiet one-line style of the
+// transcript's other notes (a background task's end, a compaction): "Claude Code · Opus 5.5 · sr2".
+// The whole of it (Claude Code's version, the model id, the route, the folder) shows on hover and
+// opens under the line on a click. Nothing else: how the chat compacts is not an event, so it does
+// not take a transcript row; each compaction shows as its own note when it happens (Leo
+// 2026-10-21: no "cmux manages compaction" explainer in the transcript).
+import { useId } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxSessionStart } from "../model";
-import { Close, TerminalSquare } from "./icons";
-import {
-  compactionModeOf,
-  compactionNoticeDismissed,
-  dismissCompactionNotice,
-  foldHome,
-  routeOf,
-} from "./sessionStart";
+import { modelIdName } from "../defaultChoice";
+import { ChevronRight, TerminalSquare } from "./icons";
+import { useTranscriptDisclosure } from "./transcriptDisclosure";
+import { foldHome, routeOf } from "./sessionStart";
 
 export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {
   const t = useT();
-  const mode = compactionModeOf(start.harness);
-  const [dismissed, setDismissed] = useState(() => compactionNoticeDismissed(mode));
+  const [open, setOpen] = useTranscriptDisclosure("sessionStart:details");
+  const detailsId = useId();
   const route = routeOf(start.harness);
+  const short = [
+    t("sessionStart.agent"),
+    start.model ? modelIdName(start.model, t) : undefined,
+    route === "sr2"
+      ? t("sessionStart.routeShort.sr2")
+      : route === "coderouter"
+        ? t("sessionStart.routeShort.coderouter")
+        : undefined,
+  ].filter((fact): fact is string => !!fact);
   const facts = [
     t("sessionStart.claudeCode", { version: start.version }),
     start.model,
@@ -28,31 +35,33 @@ export function SessionStartNote({ start }: { start: AcpmuxSessionStart }) {
         ? t("sessionStart.route.coderouter")
         : t("sessionStart.route.own"),
     start.cwd ? foldHome(start.cwd) : undefined,
-  ].filter((fact): fact is string => !!fact);
+  ]
+    .filter((fact): fact is string => !!fact)
+    .join(" · ");
   return (
     <div className="cv-tools">
-      <div className="cv-tool cv-session-start" data-compaction={mode}>
+      <button
+        type="button"
+        className="cv-tool cv-session-start is-toggle"
+        /* tooltip-allow: the line shows the short facts; the whole of them (version, model id, folder) is on hover */
+        title={facts}
+        aria-expanded={open}
+        aria-controls={open ? detailsId : undefined}
+        onClick={() => setOpen((value) => !value)}
+      >
         <span className="cv-tool__icon">
           <TerminalSquare />
         </span>
-        <span className="cv-tool__text">{facts.join(" · ")}</span>
-      </div>
-      {!dismissed && (
-        <div className="cv-session-start__compaction" data-compaction={mode}>
-          <span className="cv-session-start__compaction-text">
-            {mode === "managed" ? t("sessionStart.compaction.managed") : t("sessionStart.compaction.stock")}
-          </span>
-          <button
-            type="button"
-            className="cv-session-start__dismiss"
-            aria-label={t("sessionStart.compaction.dismiss")}
-            onClick={() => {
-              dismissCompactionNotice(mode);
-              setDismissed(true);
-            }}
-          >
-            <Close size={12} />
-          </button>
+        <span className="cv-tool__text">{short.join(" · ")}</span>
+        <ChevronRight
+          size={14}
+          strokeWidth={1.2}
+          className={`cv-tool__chevron cv-rotor${open ? " is-open" : " is-hover"}`}
+        />
+      </button>
+      {open && (
+        <div id={detailsId} className="cv-session-start__detail selectable">
+          {facts}
         </div>
       )}
     </div>

@@ -249,7 +249,7 @@ test("before its first message, a row of another provider starts that provider o
 // Leo 2026-10-13 (cosmic-gray): in a running claude-sr chat, picking a ChatGPT model started a
 // Codex session in the tab, and picking Claude again started a bare `claude` one that was signed
 // out; the chat itself left the sidebar. Once a chat has a message its harness is fixed: the picker
-// lists that harness's models only, and crossing to another is Continue in…, never a pick.
+// lists that harness's models only, and crossing to another is Continue In…, never a pick.
 // Leo 2026-10-19: the menu still drew a rail of that one harness and then offered Add harness…; a
 // started chat's menu is search, its harness's models and More models, as in Claude Code.
 test("a started chat's picker lists only its own harness, and no pick or search leaves it", async () => {
@@ -715,4 +715,16 @@ test("a remembered model the harness no longer offers is neither drawn nor asked
   await settle();
   expect(tab.created).toEqual(["claude"]);
   expect(tab.models).toEqual([]);
+});
+
+// A model's ☆ says what a click does (it adds the model to Starred or takes it off) and carries
+// its state as aria-pressed, so the glyph is not the only cue.
+test("a model's star button names its action in a tooltip and its state as pressed", async () => {
+  await mount({ harness: "claude" });
+  await openOn("Codex");
+  const star = () => host.querySelector<HTMLButtonElement>(".acpmux-mp-favorite")!;
+  expect(star().getAttribute("aria-label")).toStartWith("Starred: ");
+  expect([star().title, star().getAttribute("aria-pressed")]).toEqual(["Add to Starred", "false"]);
+  await act(async () => star().click());
+  expect([star().title, star().getAttribute("aria-pressed")]).toEqual(["Remove from Starred", "true"]);
 });

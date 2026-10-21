@@ -29,9 +29,11 @@ import {
   validateInputsLock,
   withFingerprint,
 } from "../scripts/cmux-vm-image/lock";
-import { programChecksCommand } from "../scripts/cmux-vm-image/smoke";
+import { acpmuxListCommand, acpmuxListProblems, programChecksCommand } from "../scripts/cmux-vm-image/smoke";
+import { runChild } from "./helpers/run-child";
 
 const lockText = readFileSync(DEFAULT_LOCK_PATH, "utf8");
+// eslint-disable-next-line @typescript-eslint/no-explicit-any -- tests mutate arbitrary nested lock fields
 const fresh = () => JSON.parse(lockText) as Record<string, any>;
 
 function problemsOf(raw: unknown): string[] {
@@ -51,6 +53,25 @@ describe("images/cmux-vm/inputs.lock.json", () => {
     expect(lock.apt.ubuntu.uri).toContain(lock.apt.ubuntu.snapshot);
     expect(lock.apt.ubuntu.snapshot).toBe("20261001T000000Z");
     expect(profileLinks(lock).map((l) => l.command)).toContain("cr");
+  });
+
+  test("acpmux is cmux-tui under its own name (argv0 dispatch), checked by version and by a session list", async () => {
+    // Automation agent steps run `acpmux run`; cmux-tui runs acpmux when argv0 is `acpmux`.
+    const lock = readInputsLock();
+    const tui = lock.programs.find((p) => p.name === "cmux-tui")!;
+    expect(tui.bin.acpmux).toBe(tui.fileName!);
+    const link = profileLinks(lock).find((l) => l.command === "acpmux");
+    expect(link?.target).toBe(profileLinks(lock).find((l) => l.command === "cmux-tui")!.target);
+    expect(programChecksCommand(lock)).toContain("acpmux --version");
+    const list = acpmuxListCommand();
+    expect(list).toContain("acpmux ls --json");
+    const syntax = await runChild("bash", ["-n"], { input: list, timeout: 20_000 });
+    expect(syntax.stderr).toBe("");
+    expect(syntax.status).toBe(0);
+    expect(acpmuxListProblems(0, '{"sessions": []}\n', "")).toEqual([]);
+    expect(acpmuxListProblems(127, "", "bash: line 1: acpmux: command not found\n")).toEqual(["acpmux ls --json: exit 127: bash: line 1: acpmux: command not found"]);
+    expect(acpmuxListProblems(0, "no sessions", "")[0]).toContain("not JSON");
+    expect(acpmuxListProblems(0, "{}", "")[0]).toContain("no sessions list");
   });
 
   test("refuses a version range or tag on a program", () => {
@@ -148,6 +169,14 @@ describe("base fingerprint and closure checks", () => {
       "lock package acl was not installed",
     ]);
     expect(aptClosureProblems({ ripgrep: "14.1.0-2" }, new Map([["ripgrep", "14.1.0-1"]]))).toEqual(["apt installed ripgrep=14.1.0-1, the lock says 14.1.0-2"]);
+  });
+
+  test("a locked package the base already has at the locked version counts as installed", () => {
+    // The 10-21 Freestyle base started shipping ripgrep 14.1.0-1, so apt had nothing to add for it.
+    const base = parseDpkgList("ripgrep\t14.1.0-1\tamd64\nacl\t2.3.2-1build1\tamd64\n");
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map(), base)).toEqual([]);
+    expect(aptClosureProblems({ acl: "2.3.2-1build1.1" }, new Map(), base)).toEqual(["lock package acl=2.3.2-1build1.1 was not installed (the base has 2.3.2-1build1)"]);
+    expect(aptClosureProblems({ ripgrep: "14.1.0-1" }, new Map())).toEqual(["lock package ripgrep was not installed"]);
   });
 
   test("base packages and npm globals must be in the lock", () => {

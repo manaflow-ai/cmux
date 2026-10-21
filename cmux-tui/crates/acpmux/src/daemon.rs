@@ -273,8 +273,18 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         }
     }
     let mailbox = crate::mailbox::Mailbox::open(home().join("mailbox"))?;
+    let memory_store = config.store.mode == crate::config::StoreMode::Memory;
     // Only the session list before the ready line; the chat logs load right after it.
     let hub = Hub::new_deferred(config, store, mailbox);
+    // Temporary folders of sessions this daemon no longer has, before the
+    // socket serves (`agent/session_tmp.rs`).
+    #[cfg(unix)]
+    hub.sweep_session_tmp();
+    // The forum log (`forum.rs`): on disk unless the store is in memory; a
+    // log that cannot open leaves the posts in memory.
+    if !memory_store && let Err(e) = hub.open_forum(&home().join("forum")) {
+        tracing::warn!("forum log unavailable, keeping posts in memory: {e:#}");
+    }
     if let Some(key) = person_key {
         // A Team-signed daemon takes the key only from the signed app's
         // `_acpmux/person_enroll`: a same-uid process could restart it with
@@ -305,6 +315,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
             codex_config: none.join("config.toml"),
             record: none.join("trust.json"),
             agent_home: None,
+            cmux_worktrees: None,
         }
     })));
     // Agents outlive this daemon unless the user opts out for this release.
@@ -327,6 +338,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
         hub.enable_agent_hosts();
     }
     hub.begin_startup(login_env);
+    // Pairing tickets and paired machines, hashes only (`crate::pairing`).
+    hub.pairing.persist_at(home().join("pairing.json"));
     // The ACP Registry and agent CLI health, off the startup path (`hub/health_view.rs`).
     hub.start_harness_checks();
     crate::config::write_atomic(
@@ -423,6 +436,16 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     {
         let hub = hub.clone();
         tokio::spawn(async move {
+            // Debug builds only: `ACPMUX_TEST_DELAY_LOAD_LOGS_MS` holds the chat-log
+            // load, as a large log store does, so integration tests can ask in that
+            // window. Bounded; release builds have no seam.
+            #[cfg(debug_assertions)]
+            if let Some(ms) = std::env::var("ACPMUX_TEST_DELAY_LOAD_LOGS_MS")
+                .ok()
+                .and_then(|v| v.parse::<u64>().ok())
+            {
+                tokio::time::sleep(Duration::from_millis(ms.min(10_000))).await;
+            }
             // The chat logs (tails, cut-off turns, queues), before adoption as before.
             hub.load_logs_async().await;
             // Agents that outlived the previous daemon come back first.
@@ -873,7 +896,7 @@ mod state_file_tests {
 /// only after the daemon wrote [`KEY_READY`] on it.
 #[cfg(unix)]
 fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::File> {
-    let exe = std::env::current_exe()?;
+    let this = crate::self_command::SelfCommand::current()?;
     crate::config::private_state_dir(&home())?;
     let log = open_daemon_log(&home().join("daemon.log"))?;
     let log_err = log.try_clone()?;
@@ -893,7 +916,7 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
         None => None,
     };
     let key_fd = pair.as_ref().map(|(_, theirs)| std::os::fd::AsRawFd::as_raw_fd(theirs));
-    let mut cmd = std::process::Command::new(exe);
+    let mut cmd = this.command(&["daemon", "run", "--ready-fd"]);
     crate::config::scrub_nested_claude_env(&mut cmd);
     // The daemon serves every session: its starter's turn values are not its own.
     for k in crate::config::inherited_caller_scoped_keys() {
@@ -902,8 +925,6 @@ fn spawn_detached(key: Option<zeroize::Zeroizing<String>>) -> Result<std::fs::Fi
     // The daemon must use this client's state directory, including a host
     // override that its own environment would not reproduce.
     cmd.env("ACPMUX_HOME", home())
-        .args(DAEMON_PREFIX.get().map(Vec::as_slice).unwrap_or_default())
-        .args(["daemon", "run", "--ready-fd"])
         .arg(write_fd.to_string())
         .args(key_fd.map(|fd| ["--person-key-fd".to_owned(), fd.to_string()]).into_iter().flatten())
         .stdin(std::process::Stdio::null())

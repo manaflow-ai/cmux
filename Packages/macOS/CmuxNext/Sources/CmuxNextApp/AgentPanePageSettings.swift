@@ -34,6 +34,8 @@ final class AgentPanePageSettings {
     func follow(_ settings: SettingsController, push: @escaping () -> Void) {
         for task in [previewObservation, editedFilesObservation, zoomObservation, composerObservation, reasoningSliderObservation, sidebarPreviewVariantObservation, diffColorsObservation, displayObservation] { task?.cancel() }  // a new controller replaces, never adds
         self.settings = settings
+        // `sessions.promptSuggestions`: the pages, and the next acpmux daemon this app starts.
+        AgentPaneSuggestedTasks.shared.setting = { [weak settings] in settings?.snapshot.sessions.promptSuggestions ?? false }
         previewObservation = observe({ settings.snapshot.previewFeatures }, push: push) { $0.previewFeatures = $1 }
         editedFilesObservation = observe({ settings.snapshot.agentPaneEditedFiles }, push: push) { $0.editedFiles = $1 }
         zoomObservation = observe({ settings.snapshot.agentPaneZoom }, push: push) { $0.zoom = $1 }
@@ -49,8 +51,7 @@ final class AgentPanePageSettings {
         reasoningSliderObservation = Task { [weak self] in
             for await on in ObservationStream({ (AgentPaneTunables.reasoningSlider.value, AgentPaneTunables.reasoningSliderStyle.value) }) {
                 guard let self else { return }
-                composer.reasoningSlider = on.0
-                composer.reasoningSliderStyle = on.1.rawValue
+                (composer.reasoningSlider, composer.reasoningSliderStyle) = (on.0, on.1.rawValue)
                 push()
             }
         }

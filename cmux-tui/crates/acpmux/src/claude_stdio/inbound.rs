@@ -5,17 +5,14 @@ use super::*;
 impl Translator {
     /// Translate one line from claude's stdout into ACP messages for the hub.
     pub async fn inbound(&self, line: &Value) -> Vec<Message> {
+        // A Ctrl-B the hub stopped waiting for leaves no mark (`end_background_asks`).
+        let now = std::time::Instant::now();
+        self.end_background_asks(false, |_, deadline| deadline.is_some_and(|d| d <= now)).await;
         let kind = line.get("type").and_then(Value::as_str).unwrap_or("");
         let sub = line.get("subtype").and_then(Value::as_str).unwrap_or("");
-        // A subagent's lines carry its Agent tool call's id and stream under
-        // its own session (ACP draft #1992).
+        // A subagent's lines stream under its own session, ended or not (`subagent_route`).
         let parent = line.get("parent_tool_use_id").and_then(Value::as_str);
-        let mut sid = self.acp_session_id.clone();
-        if let Some(p) = parent
-            && let Some(child) = self.subagents.lock().await.get(p)
-        {
-            sid = child.clone();
-        }
+        let sid = self.line_session(parent);
         let upd = |u: Value| {
             Message::notification(method::SESSION_UPDATE, json!({"sessionId": sid, "update": u}))
         };
@@ -328,7 +325,9 @@ impl Translator {
                         // ACP content replaces the call's content: a finished edit
                         // keeps its diff, and a failed one says why.
                         let content = match self.edits.lock().await.remove(tool) {
-                            Some(diffs) if !is_err => diffs,
+                            Some(diffs) if !is_err => {
+                                settle_write(diffs, &text, line.get("tool_use_result"))
+                            }
                             _ => {
                                 json!([{"type": "content", "content": {"type": "text", "text": text}}])
                             }
@@ -491,22 +490,12 @@ impl Translator {
                     // A background_tasks answer (`BACKGROUND_TASKS`, Ctrl-B). Claude Code's
                     // SDK reads a missing `backgrounded` as true.
                     let id: Id = serde_json::from_str(acp).unwrap_or(Value::String(acp.to_owned()));
-                    let asked = match self.pending.lock().await.remove(&id.to_string()) {
-                        Some(Pending::Background(asked)) => asked,
-                        _ => Vec::new(),
-                    };
                     let moved =
                         ok && inner.get("backgrounded").and_then(Value::as_bool).unwrap_or(true);
-                    if !moved {
-                        // Nothing moved: a shell Claude Code moves later on its own is not
-                        // the person's.
-                        let mut shells = self.background_shells.lock().await;
-                        for tool in &asked {
-                            if let Some(shell) = shells.get_mut(tool) {
-                                shell.asked = false;
-                            }
-                        }
-                    }
+                    // Nothing moved: a shell Claude Code moves later on its own is not the
+                    // person's, unless another Ctrl-B moved it or still waits.
+                    let key = id.to_string();
+                    self.end_background_asks(moved, |k, _| k == key).await;
                     out.push(if ok {
                         Message::ok(id, json!({"backgrounded": moved}))
                     } else {
@@ -584,6 +573,8 @@ impl Translator {
                 out.extend(self.fail_steers().await);
                 *self.prompt_echo.lock().await = None;
                 self.in_turn.store(false, Ordering::SeqCst);
+                // A Ctrl-B still unanswered leaves no mark past its turn.
+                self.end_background_asks(false, |_, _| true).await;
                 let waiting: Vec<String> = self
                     .pending
                     .lock()
@@ -859,7 +850,7 @@ impl Translator {
     /// names an agent; a workflow, which always runs in the background, is
     /// named by its saved name until its launch names the run.
     async fn spawn_subagent(&self, tool_use_id: &str, tool: &str, input: &Value) -> Value {
-        let child = format!("{}/{tool_use_id}", self.acp_session_id);
+        let child = self.line_session(Some(tool_use_id));
         self.subagents.lock().await.insert(tool_use_id.to_owned(), child.clone());
         let workflow = tool == "Workflow";
         if workflow {

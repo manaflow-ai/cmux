@@ -204,6 +204,8 @@ extension SettingsSchema {
         "notifications.attention.blinkCount",
         "notifications.attention.duration",
         "notifications.attention.persist",
+        "notifications.attention.flash",
+        "notifications.attention.flashOnTyping",
         "notifications.attention.showOnTab",
         "notifications.attention.showOnSidebar",
         "notifications.attention.moveToTop",
@@ -273,6 +275,8 @@ extension SettingsSchema {
         "browser.urlsToAlwaysOpenExternally": .privacy,
         // Whether attached photos and videos send their location.
         "home.attachments.keepLocation": .privacy,
+        // Where the person's direct messages and group chats go: an agent must not move them to another server.
+        "home.server": .privacy,
         // A reply's file link outside the project, and a reply's web image (D4, D5).
         "agentPane.links.outsideRoots": .privacy,
         "agentPane.images.remote": .network,
@@ -291,6 +295,9 @@ extension SettingsSchema {
         "updates.meteredNetwork": .network,
         // Which builds this Mac installs (a faster ring runs less-tested code): the person's call.
         "updates.channel": .userOnly,
+        // How long a nightly waits before it restarts into an update: the person's call.
+        "updates.idleInstallMaxWaitSeconds": .userOnly,
+        "updates.idleInstallQuietSeconds": .userOnly,
         "announcements.fetch": .network,
         // On, cmux starts a helper that sees and controls other apps; only the person turns it on.
         // What a new chat may do without asking: an agent must not widen its own approvals.
@@ -299,15 +306,21 @@ extension SettingsSchema {
         "computerUse.driver": .userOnly,
         // How hard cmux pulls the person back from another app: theirs to pick, not an agent's.
         "notifications.dockBounce": .userOnly,
+        // Privacy: whether banners show what agents said is the person's call.
+        "notifications.showPreviews": .userOnly,
         // Battery and sleep are the person's call: an agent must not keep the Mac up for itself.
         "sessions.keepAwake": .userOnly,
         // Whether agents start again by themselves after a restart is the person's call.
         "sessions.resumeAgents": .userOnly,
         // An agent must not let itself, or another agent, skip the person's approvals.
         "sessions.allowFullAccess": .destructive,
+        // On, every agent gets tools that start child chats: the person turns that on.
+        "sessions.promptSuggestions": .userOnly,
         // How many agent sessions an agent may start, and how deep, is the person's call: an agent
         // must not raise its own limits.
         "agents.subsessions.enabled": .userOnly,
+        // Who answers a sub-session's questions is the person's call too.
+        "agents.subsessions.answerQuestions": .userOnly,
         "agents.subsessions.maxChildren": .userOnly,
         "agents.subsessions.maxDepth": .userOnly,
         // Which folders an agent may open without asking is the person's call: an agent must not
