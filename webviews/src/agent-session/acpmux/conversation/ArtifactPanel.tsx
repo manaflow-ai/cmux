@@ -95,7 +95,6 @@ export function ArtifactPanel({
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={t("artifact.previousVersion")}
-              title={t("artifact.previousVersion")}
               disabled={index === 0}
               onClick={() => step(index - 1)}
             >
@@ -106,7 +105,6 @@ export function ArtifactPanel({
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
               aria-label={t("artifact.nextVersion")}
-              title={t("artifact.nextVersion")}
               disabled={index === list.length - 1}
               onClick={() => step(index + 1)}
             >
@@ -141,7 +139,6 @@ export function ArtifactPanel({
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"
             aria-label={copied ? t("turn.copied") : t("turn.copy")}
-            title={copied ? t("turn.copied") : t("turn.copy")}
             onClick={() => void copyText(artifact.code).then(() => setCopied(true))}
           >
             <Copy size={14} />
@@ -169,7 +166,6 @@ export function ArtifactPanel({
             type="button"
             className="cv-iconbtn cv-iconbtn--compact"
             aria-label={t("artifact.close")}
-            title={t("artifact.close")}
             onClick={onClose}
           >
             <Close size={14} />
