@@ -1,14 +1,15 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { spawnSync } from "node:child_process";
 import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { runChild } from "./helpers/run-child";
 
 // Runs the real guest helper against a scratch root. Its absolute guest paths
 // are rewritten into the scratch directory and the disk tools are stubs whose
 // free-space answers each test sets, so the full-disk branches run anywhere.
 const helperSource = readFileSync(
-  path.join(import.meta.dir, "../services/vms/images/devbox/cmux-tui-state-mount"),
+  fileURLToPath(new URL("../services/vms/images/devbox/cmux-tui-state-mount", import.meta.url)),
   "utf8",
 );
 
@@ -34,7 +35,7 @@ function stub(bin: string, name: string, body: string): void {
   chmodSync(file, 0o755);
 }
 
-function runEnsure(disk: Disk): { status: number | null; stderr: string; grew: boolean; truncatedTo: string | null } {
+async function runEnsure(disk: Disk): Promise<{ status: number | null; stderr: string; grew: boolean; truncatedTo: string | null }> {
   const root = mkdtempSync(path.join(tmpdir(), "cmux-tui-state-mount-"));
   scratchDirs.push(root);
   const bin = path.join(root, "bin");
@@ -73,8 +74,7 @@ function runEnsure(disk: Disk): { status: number | null; stderr: string; grew: b
   );
   chmodSync(helper, 0o755);
 
-  const result = spawnSync("/bin/sh", [helper, "ensure", home, "cmux"], {
-    encoding: "utf8",
+  const result = await runChild("/bin/sh", [helper, "ensure", home, "cmux"], {
     env: { PATH: `${bin}:/usr/bin:/bin` },
   });
   const truncated = path.join(root, "truncated");
@@ -87,42 +87,42 @@ function runEnsure(disk: Disk): { status: number | null; stderr: string; grew: b
 }
 
 describe("cmux-tui state mount on a full disk", () => {
-  test("a full root disk does not defer the daemon while the state filesystem still has room", () => {
+  test("a full root disk does not defer the daemon while the state filesystem still has room", async () => {
     // State is below the 128 MiB growth threshold and root has no headroom to
     // grow it. Deferring here is what left machines answering "connection refused".
-    const result = runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 100 * 1024 });
+    const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 100 * 1024 });
     expect(result.stderr).toContain("insufficient root headroom");
     expect(result.stderr).toContain("continuing with 65536KiB free");
     expect(result.status).toBe(0);
     expect(result.grew).toBe(false);
   });
 
-  test("the size cap does not defer the daemon either", () => {
-    const result = runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 64 * 1024 * 1024, imageBytes: 8 * 1024 ** 3 });
+  test("the size cap does not defer the daemon either", async () => {
+    const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 64 * 1024 * 1024, imageBytes: 8 * 1024 ** 3 });
     expect(result.stderr).toContain("reached its");
     expect(result.status).toBe(0);
   });
 
-  test("a state filesystem with no working room still defers startup", () => {
-    const result = runEnsure({ stateFreeKb: 4 * 1024, rootFreeKb: 100 * 1024 });
+  test("a state filesystem with no working room still defers startup", async () => {
+    const result = await runEnsure({ stateFreeKb: 4 * 1024, rootFreeKb: 100 * 1024 });
     expect(result.status).not.toBe(0);
   });
 
-  test("grows the state image when the root disk has headroom", () => {
-    const result = runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024 });
+  test("grows the state image when the root disk has headroom", async () => {
+    const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024 });
     expect(result.status).toBe(0);
     expect(result.grew).toBe(true);
   });
 
-  test("a failed growth allocation is undone and the daemon still starts", () => {
-    const result = runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024, fallocateFails: true });
+  test("a failed growth allocation is undone and the daemon still starts", async () => {
+    const result = await runEnsure({ stateFreeKb: 64 * 1024, rootFreeKb: 8 * 1024 * 1024, fallocateFails: true });
     expect(result.status).toBe(0);
     expect(result.truncatedTo).toContain(`-s ${1024 * 1024 * 1024}`);
     expect(result.stderr).toContain("continuing with 65536KiB free");
   });
 
-  test("leaves a roomy state filesystem alone", () => {
-    const result = runEnsure({ stateFreeKb: 512 * 1024, rootFreeKb: 100 * 1024 });
+  test("leaves a roomy state filesystem alone", async () => {
+    const result = await runEnsure({ stateFreeKb: 512 * 1024, rootFreeKb: 100 * 1024 });
     expect(result.status).toBe(0);
     expect(result.grew).toBe(false);
     expect(result.stderr).toBe("");
