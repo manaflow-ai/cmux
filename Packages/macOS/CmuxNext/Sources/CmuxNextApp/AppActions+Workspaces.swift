@@ -152,7 +152,7 @@ extension AppActions {
         // not connected (a paused Cloud VM): its row leaves as any other, and the close waits for the machine outside the
         // window's lane (later creates and closes never wait for it) until it connects or leaves the app (the row then lists
         // again); a row that cannot hide says why. CLI and socket closes still fail at once.
-        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = daemon.connection == nil && invocation.origin == .user
+        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
         let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
