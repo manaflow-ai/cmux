@@ -335,6 +335,13 @@ pub(crate) struct HookFence {
     /// resume and resets when another session takes the terminal.
     #[serde(default)]
     pub(crate) ended_at_ms: Option<u64>,
+    /// Whose approval, question or plan review the terminal waits on: the hook's
+    /// `native_agent_id` (a subagent of the session), `""` for the session's own agent.
+    /// Only a tool hook of that agent ends the wait (#22995); a parallel subagent's
+    /// tools do not. One wait at a time: a second agent's wait replaces the first. `None` while nothing waits, and in a fence written before it,
+    /// whose wait any tool hook of the session ends.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(crate) waiting_agent: Option<String>,
 }
 
 pub(crate) enum JournalHookTransition {
@@ -445,7 +452,19 @@ impl HookFence {
             .filter(|fence| fence.session_id == session_id)
             .and_then(|fence| fence.ended_at_ms);
         let ended_at_ms = if ended { observed_at_ms.or(carried) } else { carried };
-        Self { session_id, sequence, ended, ended_at_ms }
+        Self { session_id, sequence, ended, ended_at_ms, waiting_agent: None }
+    }
+
+    /// This fence after a hook event that set `state`, reported by `agent`
+    /// (`normalized.native_agent_id`): a `blocked` state waits on that agent.
+    pub(crate) fn noting_wait(mut self, state: AgentState, agent: Option<&str>) -> Self {
+        self.waiting_agent = (state == AgentState::Blocked).then(|| agent.unwrap_or("").to_owned());
+        self
+    }
+
+    /// A tool hook of `agent` (`normalized.native_agent_id`) ends the wait this fence holds.
+    pub(crate) fn wait_answered_by(&self, agent: Option<&str>) -> bool {
+        self.waiting_agent.as_deref().is_none_or(|waiting| waiting == agent.unwrap_or(""))
     }
 
     /// Decide one direct hook-source report. Internal hook markers are not
@@ -555,6 +574,17 @@ pub(crate) struct AgentRoster {
 }
 
 impl AgentRoster {
+    /// Whose wait the roster's fence of `terminal_id` holds for `session_id`
+    /// (`HookFence::waiting_agent`). The hook projector restores its fences from the durable
+    /// projection, which keeps no wait; it takes the wait from here at startup, so both
+    /// views end a wait on the same tool hook after a restart.
+    pub(crate) fn waiting_agent(&self, terminal_id: &str, session_id: &str) -> Option<&str> {
+        self.hook_fences
+            .get(terminal_id)
+            .filter(|fence| fence.session_id == session_id)
+            .and_then(|fence| fence.waiting_agent.as_deref())
+    }
+
     /// Fold one committed record. Deterministic: identical event sequences
     /// produce identical rosters, so a snapshot plus the journal tail always
     /// reproduces the live state.
@@ -690,7 +720,24 @@ impl AgentRoster {
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Detected, None, None, None, agent, event.committed_at_ms)
         } else {
-            let Some(state) = state_for_hook_kind(event.kind) else { return Vec::new() };
+            // A tool hook of a waiting hook agent: the wait was answered.
+            let waiting = || {
+                self.entries.get(terminal_id).is_some_and(|entry| {
+                    entry.agent_source() == AgentSource::Hook && entry.state == "blocked"
+                })
+            };
+            let native_agent = event.normalized("native_agent_id");
+            let resumes =
+                crate::agent_hooks::resumes_blocked_turn(event.kind, event.native_event())
+                    && self
+                        .hook_fences
+                        .get(terminal_id)
+                        .is_none_or(|fence| fence.wait_answered_by(native_agent));
+            let state = match state_for_hook_kind(event.kind) {
+                Some(state) => state,
+                None if resumes && waiting() => AgentState::Working,
+                None => return Vec::new(),
+            };
             // The session fence shared with the hook projector decides
             // whether this event belongs to the terminal's current
             // session. It advances even when timestamp arbitration below
@@ -715,7 +762,8 @@ impl AgentRoster {
                 event.sequence,
                 state == AgentState::Done,
                 observed_at_ms,
-            );
+            )
+            .noting_wait(state, native_agent);
             self.hook_fences.insert(terminal_id.to_string(), next);
             let agent = event.adapter_id().map(str::to_string);
             (state, AgentSource::Hook, None, None, None, agent, event.committed_at_ms)
@@ -1059,7 +1107,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 2, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 2,
+                ended: false,
+                ended_at_ms: None,
+                waiting_agent: None
+            }
         );
 
         roster.apply(&hook_event(5, "agent.turn.started", &subjects, &new));
@@ -1092,7 +1146,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "working");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "new".into(), sequence: 1, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "new".into(),
+                sequence: 1,
+                ended: false,
+                ended_at_ms: None,
+                waiting_agent: None
+            }
         );
         let completed = session_payload("old");
         assert!(
@@ -1118,7 +1178,13 @@ mod tests {
         assert_eq!(roster.entries["term_a"].state, "idle");
         assert_eq!(
             roster.hook_fences["term_a"],
-            HookFence { session_id: "a".into(), sequence: 4, ended: false, ended_at_ms: None }
+            HookFence {
+                session_id: "a".into(),
+                sequence: 4,
+                ended: false,
+                ended_at_ms: None,
+                waiting_agent: None
+            }
         );
     }
 
