@@ -47,7 +47,7 @@
      Inspector) reads --font-mono; defined here rather than left to Tailwind's theme layer. */
   --font-mono: var(--cv-mono);
   /* The transcript's vertical rhythm, as Claude Code desktop sets it (Leo 2026-10-20: no empty
-     bands). A message's meta row (a prompt's age, ticks, actions and steer; a reply's footer) is one
+     bands). A message's meta row (a prompt's age, ticks and actions; a reply's footer) is one
      compact line right under it; messages in a turn sit one message gap apart, turns one turn gap.
      model.ts (fallbackRowHeight, chromeHeight) estimates rows with the same numbers. */
   --cv-meta-gap: 4px; /* a message to its meta row */
