@@ -61,6 +61,7 @@ extension WorkspaceRowView {
         performWithTheme {
             title.textColor = Palette.textPrimary
             subtitle.setColor(Palette.textSecondary); [timeLabel, metaLabel, elapsedLabel].forEach { $0.setColor(Palette.textTertiary) }
+            if let chip { timeLabel.setColor(SidebarPriorityRowView.chipColor(chip)) }
             tabCount.setColor(Palette.textTertiary)
             mutedMark.setTint(Palette.textTertiary)
             prBadge.setColor(Palette.textSecondary)
