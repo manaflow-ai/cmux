@@ -98,7 +98,7 @@ def run_app(args, build: dict, out_dir: str) -> list[str]:
         try:
             fn = {"S0": s0, "S1": s1, "S2": s2, "S3": s3, "S4": s4}[scenario]
             fn(args, run, rng)
-        except Exception as error:  # noqa: BLE001 - the run records the failure, the next scenario runs
+        except (Exception, SystemExit) as error:  # noqa: BLE001 - recorded; the next scenario runs
             run.data["error"] = repr(error)
         finally:
             for app in run.apps:

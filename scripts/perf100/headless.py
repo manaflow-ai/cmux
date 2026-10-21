@@ -241,7 +241,7 @@ def run_tui(args, build: dict, out_dir: str) -> list[str]:
             else:
                 run.note(f"{scenario}: no headless-tui part")
             conn.close()
-        except Exception as error:  # noqa: BLE001 - the run records the failure and goes on
+        except (Exception, SystemExit) as error:  # noqa: BLE001 - the run records the failure and goes on
             run.data["error"] = repr(error)
             run.data["daemon_log_tail"] = _tail(os.path.join(root, "daemon.log"))
         finally:

@@ -109,6 +109,7 @@ class App:
         self.socket = None
         self.rpc = None
         self.hosts_seen: set[int] = set()  # terminal hosts outlive a daemon; a relaunch adopts them
+        self.owned: set[int] = set()  # every process discover() attributed to this instance
         self.launched_at = None
         binary_dir = os.path.join(self.bundle, "Contents/MacOS")
         self.binary = os.path.join(binary_dir, sorted(os.listdir(binary_dir))[0])
@@ -132,10 +133,12 @@ class App:
 
     def launch(self, timeout: float = 120) -> float:
         """Launches; returns ms from `open` to the control socket answering `identify`."""
-        # Every process of this bundle must be this run's: the sweep outside nx-remote ends them all.
-        running = sorted(bm.bundle_pids(self.bundle))
+        # Every process of this bundle must be this run's (the sweep outside nx-remote ends them all);
+        # a relaunch finds the daemons and hosts its own quit kept.
+        self.discover()
+        running = sorted(bm.bundle_pids(self.bundle) - self.owned)
         if running:
-            raise SystemExit(f"perf100: processes of {self.bundle} already run ({running}); stop them first")
+            raise RuntimeError(f"perf100: processes of {self.bundle} already run ({running[:20]}); stop them first")
         argv = ["open", "-n", "-g"] + [x for k, v in self.env().items() for x in ("--env", f"{k}={v}")]
         self.launched_at = time.monotonic()
         subprocess.run(argv + ["-a", self.bundle], check=True, timeout=60)
@@ -313,6 +316,7 @@ class App:
                 out[pid] = "terminal-host"
                 hosts.add(pid)
         self.hosts_seen |= hosts
+        self.owned |= set(out)
         for pid in procstat.descendants(hosts, table) - hosts:
             if pid not in out:
                 cmd = commands.get(pid, "")
