@@ -246,19 +246,19 @@ impl Hub {
             )));
         }
         if if_live == IfLive::Refuse {
-            let (file, cwd, sid) = (watching.file.clone(), session.meta().cwd.clone(), id.clone());
-            let live = tokio::task::spawn_blocking(move || {
-                let procs = crate::adopt_live::processes();
-                crate::adopt_live::live_use(
-                    &sid,
-                    &file,
-                    Some(&cwd),
-                    &procs,
-                    std::time::SystemTime::now(),
-                )
-            })
-            .await
-            .map_err(|e| RpcError::internal(e.to_string()))?;
+            // The holder the harness records in the store that holds the chat, as an adopt
+            // checks it (`hub/adoption.rs`); one that has exited does not count.
+            let meta = session.meta();
+            let homes = self.harness_homes().with_env(&[&meta.session_env]);
+            let root = meta.chat_store.clone().unwrap_or_else(|| match family.as_str() {
+                "codex" => homes.codex.clone(),
+                _ => homes.claude.clone(),
+            });
+            let (fam, sid) = (family.clone(), id.clone());
+            let live =
+                tokio::task::spawn_blocking(move || crate::adopt_live::holder(&fam, &sid, &root))
+                    .await
+                    .map_err(|e| RpcError::internal(e.to_string()))?;
             if let Some(live) = live {
                 return Err(RpcError::invalid_params(live.refusal(&family, &id))
                     .with_data(json!({"reason": "adopt.live", "details": live.details(&family)})));
