@@ -141,7 +141,7 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
     page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
 
   /// Wheels `deltaY` with the pointer at (`x`, `y`), and the scroll of the transcript it made: waits
-  /// for the transcript to move, or a second when it does not.
+  /// for the transcript to move (or a second when it does not), then to hold still.
   async function wheelAt(page: Page, x: number, y: number, deltaY: number): Promise<number> {
     await page.mouse.move(x, y);
     const before = await scrollTop(page);
@@ -153,8 +153,18 @@ await requireBrowserLane("agent-pane-dock-gutters.test.ts", async () => {
         { timeout: 1000 },
       )
       .catch(() => undefined);
-    // A glide settles.
-    await page.waitForTimeout(150);
+    // A smooth scroll settles: the transcript holds still for 200 ms, so the next wheel measures
+    // only its own scroll.
+    await page.waitForFunction(
+      () =>
+        new Promise<boolean>((resolve) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const start = scroller.scrollTop;
+          setTimeout(() => resolve(scroller.scrollTop === start), 200);
+        }),
+      undefined,
+      { timeout: 5000, polling: 50 },
+    );
     return (await scrollTop(page)) - before;
   }
 
