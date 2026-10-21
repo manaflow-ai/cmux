@@ -244,7 +244,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(500);
+    await untilStill(page);
     await page.locator(".acpmux-md").click();
     const scroller = () =>
       page.evaluate(() => {
@@ -312,7 +312,7 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + view.height / 2);
     await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(500);
+    await untilStill(page);
     await page.locator(".acpmux-md").click();
     // Well up from the end, so the view is a reader's, not a follower's.
     expect((await measure(page)).fromEnd).toBeGreaterThan(100);
@@ -506,19 +506,40 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
       return frames;
     });
 
+  /// Resolves once the offset and the card's height have held for 200ms of painted frames, so a
+  /// read never lands mid-glide or before the last line's growth is painted.
+  const untilStill = (page: Page) =>
+    page.evaluate(
+      () =>
+        new Promise<void>((resolve) => {
+          const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+          const card = document.querySelector(".acpmux-composer-box")!;
+          const read = () => `${scroller.scrollTop}:${card.getBoundingClientRect().height}`;
+          let last = read();
+          let since = performance.now();
+          const tick = (now: number) => {
+            const seen = read();
+            if (seen !== last) [last, since] = [seen, now];
+            if (now - since >= 200) resolve();
+            else requestAnimationFrame(tick);
+          };
+          requestAnimationFrame(tick);
+        }),
+    );
+
   /// Scrolls well up from the end, then grows the composer by five lines while there.
   async function growWhileScrolledUp(page: Page) {
     const view = (await page.locator(".acpmux-scroll").boundingBox())!;
     await page.mouse.move(view.x + view.width / 2, view.y + 120);
     await page.mouse.wheel(0, -900);
-    await page.waitForTimeout(500);
+    await untilStill(page);
     await page.locator(".acpmux-md").click();
     expect((await measure(page)).fromEnd).toBeGreaterThan(400);
     for (let line = 1; line <= 5; line++) {
       await page.keyboard.type(`Line ${line} of a longer prompt`);
       await page.keyboard.press("Shift+Enter");
     }
-    await page.waitForTimeout(300);
+    await untilStill(page);
     return view;
   }
 
@@ -533,9 +554,9 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await startFrames(page);
     for (let step = 0; step < 12; step++) {
       await page.mouse.wheel(0, 150);
-      await page.waitForTimeout(40);
+      await page.evaluate(() => new Promise((resolve) => requestAnimationFrame(resolve)));
     }
-    await page.waitForTimeout(600);
+    await untilStill(page);
     const frames = await stopFrames(page);
     const end = await measure(page);
     expect({ fromEnd: end.fromEnd, lastIsLatest: end.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
@@ -560,7 +581,11 @@ await requireBrowserLane("agent-pane-scrollbar-full-height.test.ts", async () =>
     await page.locator(".acpmux-jump-latest[data-shown]").waitFor();
     await startFrames(page);
     await page.locator(".acpmux-jump-latest").click();
-    await page.waitForTimeout(1200);
+    await page.waitForFunction(() => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      return scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight <= 1;
+    });
+    await untilStill(page);
     const frames = await stopFrames(page);
     const end = await measure(page);
     expect({ fromEnd: end.fromEnd, lastIsLatest: end.lastIsLatest }).toEqual({ fromEnd: 0, lastIsLatest: true });
