@@ -10,7 +10,7 @@ struct CloudTreeCreateActionLabel: View {
     var body: some View {
         CloudTreeLeafRow(
             style: style,
-            icon: "plus",
+            icon: action.symbol,
             tint: .secondary,
             title: action.title,
             titleWeight: .regular,
