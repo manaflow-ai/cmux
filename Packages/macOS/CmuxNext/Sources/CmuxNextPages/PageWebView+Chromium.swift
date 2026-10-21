@@ -258,6 +258,28 @@ extension PageWebView {
         return await PageSchemeHandler.dynamicResponse(to: request, source: dynamicResources)
     }
 
+    /// Runs `body` as an async function of `arguments` in the page's main world, in whichever engine
+    /// shows it, and returns its JSON-compatible result (nil for an exception or no page): WebKit's
+    /// `callAsyncJavaScript`, or a Chromium `Runtime.evaluate` of the same function.
+    ///
+    /// - Parameters:
+    ///   - body: A function body; `return` gives the result, and each argument is a variable.
+    ///   - arguments: Named JSON-compatible values (`NSNull` for null).
+    /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
+    public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
+        guard let page = chromiumSession?.page else {
+            return try? await webView.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
+        }
+        let names = arguments.keys.sorted()
+        guard let values = try? JSONSerialization.data(withJSONObject: names.map { arguments[$0] ?? NSNull() }, options: [.fragmentsAllowed]),
+              let list = String(data: values, encoding: .utf8) else { return nil }
+        let expression = "(async function(\(names.joined(separator: ", "))) {\n\(body)\n}).apply(null, \(list))"
+        guard let json = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "awaitPromise": true, "returnByValue": true]),
+              let object = ChromiumPageHostWire.object(json), object["exceptionDetails"] == nil,
+              let result = object["result"] as? [String: Any] else { return nil }
+        return result["value"]
+    }
+
     /// Types `text` into the focused editable element of a Chromium page (``PageInputReadiness``).
     private static func insert(_ text: String, in page: any PageChromiumPage) async -> Bool {
         let expression = "(function (text) {\n\(PageInputReadiness.insertScript)\n})(\(JSONValue.string(text).compactText))"
