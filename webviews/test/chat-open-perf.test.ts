@@ -354,6 +354,19 @@ await requireBrowserLane("chat-open-perf.test.ts", async () => {
           ? `, first bad frame ${JSON.stringify(opened.find((entry) => entry.first)!.first)}`
           : ""),
     );
+    // What a passing run leaves behind. A file that passes has its log thrown away
+    // (scripts/ci/run-webviews-tests.sh keeps only workflow annotations of one), so until this the
+    // margins of the one gate on chat-open speed were readable on a red run only: nobody could see
+    // a budget it was about to miss, on CI or on a fleet mini. A notice survives both.
+    console.log(
+      `::notice title=chat-open-perf (${name})::worst draw ` +
+        `${Number.isFinite(worst) ? worst.toFixed(0) : "never"} ms of ` +
+        `${name === "cached" ? CACHED_PAINT_MS + DEV_RENDER_MS : COLD_PAINT_MS + DEV_RENDER_MS} ms allowed, ` +
+        `frames to the draw ${opened.map((entry) => entry.cadence.length).join("/")}, ` +
+        `shifted frames ${opened.reduce((all, entry) => all + entry.shifted, 0)}, ` +
+        `blank frames ${opened.reduce((all, entry) => all + entry.blank, 0)}, ` +
+        `${CHAT_COUNT} chats, ${CALL_MS} ms a call and ${ATTACH_MS} ms an attach`,
+    );
     return worst;
   };
 
