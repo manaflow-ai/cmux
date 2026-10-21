@@ -41,7 +41,7 @@ JOBS = ("cmux-scheme-compile", "release-compile", "swift-test", "daemon-test", "
 # The fast tier reads the placement runner too, but runs only on feat-cmux-next PRs and pushes
 # and has its own fast-lane route, so the side-lane runs-on cases below cover JOBS only.
 PLACED_JOBS = (*JOBS, "fast-tier")
-# The jobs whose bot overflow (attempt 3+) reads the placement's free retry label. With no free
+# The jobs whose bot overflow (attempt 2+) reads the placement's free retry label. With no free
 # Blacksmith slot (an empty label) they take the owned side label: waiting behind the fleet is
 # acceptable, a Blacksmith queue is not (2026-10-20: 5+ hour waits on 12 vCPU). The GUI jobs keep
 # the Blacksmith fallback; the fleet's gui label is what they overflow from.
@@ -49,7 +49,7 @@ RETRY_JOBS = ("cmux-scheme-compile", "release-compile", "swift-canary")
 
 
 def overflow(name: str, placed: bool = True) -> str:
-    """The label a bot attempt 3+ takes with no free Blacksmith slot.
+    """The label a bot attempt 2+ takes with no free Blacksmith slot.
 
     A GUI job whose placement ran keeps the 6 vCPU escape from its gui label (it also covers a gui
     label with no online runner); with no placement result it waits on the fleet's gui label, never
@@ -386,7 +386,9 @@ class CmuxNextWiring(unittest.TestCase):
                 # Skipped or unreadable placement keeps today's configured route.
                 self.assertEqual(evaluate(runs_on, self.context(fallback_jobs=None)), on(name, SIDE))
                 self.assertEqual(evaluate(runs_on, self.context("2")), on(name, SIDE))
-                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")), on(name, SIDE))
+                # The rescue's first re-run overflows (test_the_rescues_first_rerun_overflows_to_blacksmith).
+                self.assertEqual(evaluate(runs_on, self.context("2", triggering_actor="github-actions[bot]")),
+                                 overflow(name, placed=False))
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="teamleaderleo")), on(name, SIDE))
                 # The rescue's third attempt: a free Blacksmith slot, else the owned side label.
                 self.assertEqual(evaluate(runs_on, self.context("3", triggering_actor="github-actions[bot]")),

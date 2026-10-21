@@ -1254,7 +1254,7 @@ class SideLanes(unittest.TestCase):
     def test_cmux_next_overflows_a_queued_side_job_with_a_running_sibling(self):
         # cmux-next's explicit rescue window is the overflow boundary. A queued
         # side job moves with the bot rerun even when another side job is still
-        # running; attempt 2 remains minis-first and attempt 3 is Blacksmith.
+        # running; the bot's attempt 2 is the Blacksmith overflow.
         def cmux_next(done_at):
             def jobs(seconds):
                 test = job("cmux-next swift test", labels=[SIDE], status="in_progress", runner="mini-5-glaeda-3")
@@ -1273,7 +1273,7 @@ class SideLanes(unittest.TestCase):
         self.assertIn("cancel", api.calls)
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("overflowing the queued side jobs", summary)
-        self.assertIn("attempt 2 stays on the side lane's owned label", summary)
+        self.assertIn("attempt 2 takes the side lane's Blacksmith overflow", summary)
 
         # A non-cmux-next side lane keeps the historical sibling protection.
         clock = Clock()
@@ -1302,7 +1302,7 @@ class SideLanes(unittest.TestCase):
         target = rescue.target_from_event(side_event(), "manaflow-ai/cmux")
         self.assertIn("Blacksmith default", rescue.next_attempt(target))
         target = rescue.target_from_event(side_event(path=rescue.CMUX_NEXT_WORKFLOW_PATH), "manaflow-ai/cmux")
-        self.assertIn("stays on the side lane's owned label", rescue.next_attempt(target))
+        self.assertIn("attempt 2 takes the side lane's Blacksmith overflow", rescue.next_attempt(target))
         self.assertIn("Blacksmith overflow", rescue.next_attempt(dataclasses.replace(target, attempt=2)))
 
     def test_a_cmux_next_job_queued_past_the_ci_budget_is_not_cancelled(self):
@@ -1400,8 +1400,8 @@ class SideLanes(unittest.TestCase):
         code, summary = run_main(api, clock, payload=side_event())
         self.assertIn("rerun-failed", api.calls)
         self.assertIn("refused", summary)
-        # Other side lanes still overflow on attempt 2.
-        self.assertNotIn("attempt 2 stays on the side lane's owned label", summary)
+        # Other side lanes take their Blacksmith default on attempt 2.
+        self.assertIn("attempt 2 takes the side lane's Blacksmith default", summary)
 
     def test_a_late_refusal_after_an_accepted_job_is_rerun(self):
         """A gated sibling may be refused after the first side job was accepted."""
