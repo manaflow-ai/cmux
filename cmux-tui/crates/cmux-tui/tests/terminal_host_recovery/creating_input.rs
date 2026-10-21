@@ -155,7 +155,10 @@ fn input_for_a_creating_terminal_is_queued_then_written_in_order() {
     let created = split.recv_timeout(test_timeout(Duration::from_secs(20))).unwrap();
     assert_eq!(created["ok"], true, "{created}");
     let surface = created["data"]["surface"].as_u64().unwrap();
-    // After the creation, input to the id is written at once, after the queue.
+    // The queue is written to the live terminal after the commit, on its own
+    // thread: until it is, input to the id still joins the queue (in order).
+    // Once it is written, input to the id is written at once.
+    wait_for_screen(&harness.socket, surface, "ABCDEF");
     let live = first.call(serde_json::json!({
         "id": 23, "cmd": "send", "terminal_id": terminal_id, "text": "GH",
     }));
