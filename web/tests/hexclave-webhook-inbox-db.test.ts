@@ -101,10 +101,11 @@ describe("Hexclave webhook inbox store", () => {
       .toEqual(["m-locked"]);
   });
 
-  dbTest("claim renewal contends on the same entity-establishment lock", async () => {
+  dbTest("claim renewal waits for the entity-establishment lock, then rechecks its token", async () => {
     const store = createDrizzleHexclaveInboxStore();
     await store.enqueue({ svixId: "m-renew-locked", eventType: "user.updated", target: user("u-renew-locked") });
     const now = new Date();
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-renew-locked'`;
     const claimedUntil = new Date(now.getTime() + 60_000);
     expect(await store.claimDue(now, 1, claimedUntil)).toHaveLength(1);
 
@@ -119,13 +120,15 @@ describe("Hexclave webhook inbox store", () => {
     });
     await ready;
     const renewedUntil = new Date(claimedUntil.getTime() + 60_000);
+    const renewal = store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil);
     try {
-      expect(await store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil)).toBe(false);
-    } finally {
       unlock();
       await holder;
+    } finally {
+      unlock();
+      await holder.catch(() => {});
     }
-    expect(await store.renewClaims(["m-renew-locked"], claimedUntil, renewedUntil)).toBe(true);
+    expect(await renewal).toBe(true);
   });
 
   dbTest("a new event for an entity waits for that entity's active claim", async () => {
@@ -133,6 +136,7 @@ describe("Hexclave webhook inbox store", () => {
     const now = new Date();
     const leaseUntil = new Date(now.getTime() + 60_000);
     await store.enqueue({ svixId: "m-remove", eventType: "user.updated", target: user("u-one") });
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(now.getTime() - 1_000)} where svix_id = 'm-remove'`;
     expect((await store.claimDue(now, 5, leaseUntil)).map((entry) => entry.svixId)).toEqual(["m-remove"]);
 
     await store.enqueue({ svixId: "m-readd", eventType: "team_membership.created", target: user("u-one") });
@@ -148,6 +152,7 @@ describe("Hexclave webhook inbox store", () => {
       await store.enqueue({ svixId, eventType: "user.updated", target: user("u-fenced") });
     }
     const firstAt = new Date();
+    await sql!`update hexclave_webhook_inbox set next_attempt_at = ${new Date(firstAt.getTime() - 1_000)} where entity_id = 'u-fenced'`;
     const firstUntil = new Date(firstAt.getTime() + 60_000);
     const first = await store.claimDue(firstAt, 1, firstUntil);
     expect(first).toHaveLength(3);
