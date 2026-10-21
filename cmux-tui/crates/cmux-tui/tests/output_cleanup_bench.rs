@@ -64,23 +64,23 @@ impl Owner {
             .stderr(File::create(&log).unwrap())
             .spawn()
             .unwrap();
-        // Samples the start of this owner (CMUX_OUTPUT_CLEANUP_BENCH_PERF=<label>).
-        let perf = (std::env::var("CMUX_OUTPUT_CLEANUP_BENCH_PERF").ok().as_deref() == Some(label))
-            .then(|| {
-                Command::new("perf")
-                    .args(["record", "-F", "199", "-g", "-o"])
-                    .arg(dir.join(format!("{label}.perf")))
-                    .args(["-p", &child.id().to_string()])
-                    .stdout(Stdio::null())
-                    .stderr(Stdio::null())
-                    .spawn()
-                    .ok()
-            })
-            .flatten();
+        // Samples the start of this owner (CMUX_OUTPUT_CLEANUP_BENCH_PROFILE=<label>):
+        // per-thread CPU and the bytes the process read, every 10 s.
+        let profile =
+            std::env::var("CMUX_OUTPUT_CLEANUP_BENCH_PROFILE").ok().as_deref() == Some(label);
+        let mut next_sample = Instant::now();
         let mut owner =
             Self { child, dir: dir.to_path_buf(), log, started, answered: Duration::ZERO };
         let deadline = Instant::now() + Duration::from_secs(1800);
         while !owner.answers() {
+            if profile && Instant::now() >= next_sample {
+                next_sample = Instant::now() + Duration::from_secs(10);
+                eprintln!(
+                    "bench: PROFILE {:.0} s {}",
+                    owner.started.elapsed().as_secs_f64(),
+                    sample(owner.child.id())
+                );
+            }
             assert!(
                 owner.child.try_wait().unwrap().is_none(),
                 "owner exited: {}",
@@ -90,20 +90,7 @@ impl Owner {
             std::thread::sleep(Duration::from_millis(100));
         }
         owner.answered = owner.started.elapsed();
-        if let Some(mut perf) = perf {
-            // SIGINT lets perf write its file.
-            unsafe { libc::kill(perf.id() as i32, libc::SIGINT) };
-            let _ = perf.wait();
-            let report = Command::new("perf")
-                .args(["report", "--stdio", "--no-children", "--percent-limit", "2", "-i"])
-                .arg(dir.join(format!("{label}.perf")))
-                .output();
-            if let Ok(report) = report {
-                for line in String::from_utf8_lossy(&report.stdout).lines().take(150) {
-                    eprintln!("bench: PERF {line}");
-                }
-            }
-        }
+        eprintln!("bench: owner {label} answered in {:.2} s", owner.answered.as_secs_f64());
         owner
     }
 
@@ -154,6 +141,28 @@ impl Owner {
             std::thread::sleep(Duration::from_millis(100));
         }
     }
+}
+
+/// Read bytes and the busiest threads (name, CPU ticks) of a process.
+fn sample(pid: u32) -> String {
+    let io = fs::read_to_string(format!("/proc/{pid}/io")).unwrap_or_default();
+    let read =
+        io.lines().find_map(|line| line.strip_prefix("read_bytes: ")).unwrap_or("?").to_string();
+    let rchar = io.lines().find_map(|line| line.strip_prefix("rchar: ")).unwrap_or("?").to_string();
+    let mut threads = Vec::new();
+    for task in fs::read_dir(format!("/proc/{pid}/task")).into_iter().flatten().flatten() {
+        let stat = fs::read_to_string(task.path().join("stat")).unwrap_or_default();
+        let Some(close) = stat.rfind(')') else { continue };
+        let name = stat[stat.find('(').unwrap_or(0) + 1..close].to_string();
+        let fields: Vec<&str> = stat[close + 2..].split(' ').collect();
+        let ticks: u64 = fields.get(11).and_then(|v| v.parse().ok()).unwrap_or(0)
+            + fields.get(12).and_then(|v| v.parse().ok()).unwrap_or(0);
+        let wchan = fs::read_to_string(task.path().join("wchan")).unwrap_or_default();
+        threads.push((ticks, name, wchan));
+    }
+    threads.sort_by_key(|thread| std::cmp::Reverse(thread.0));
+    threads.truncate(4);
+    format!("read_bytes {read} rchar {rchar} threads {threads:?}")
 }
 
 fn resource_request(
