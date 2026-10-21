@@ -1,0 +1,157 @@
+name: Swift packages (Linux)
+
+# Builds and tests the SwiftPM packages under Packages/ on Linux runners.
+# Each package runs in the swift.org toolchain container; the Mac jobs keep
+# what needs Apple frameworks.
+#
+# Cache: .build per package, keyed on toolchain + manifest + Package.resolved.
+# The key carries the ISO week, so no cache entry outlives a week; pushes to
+# feat-cmux-next save, pull requests only restore.
+
+on:
+  pull_request:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
+      - .github/workflows/swift-packages-linux.yml
+  push:
+    branches: [feat-cmux-next]
+    paths:
+      - Packages/**
+      - vendor/stack-auth-swift-sdk-prerelease/**
+      - .github/workflows/swift-packages-linux.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: swift-packages-linux-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  SWIFT_IMAGE: swift:6.2-noble
+
+jobs:
+  package:
+    name: swift test ${{ matrix.package }} (Linux)
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 30
+    container: swift:6.2-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - Packages/Shared/CMUXAuthCore
+          - Packages/Shared/CMUXMobileCore
+          - Packages/Shared/CmuxAPIClient
+          - Packages/Shared/CmuxAgentBrands
+          - Packages/Shared/CmuxAgentCursor
+          - Packages/Shared/CmuxAgentQuestion
+          - Packages/Shared/CmuxAppAttest
+          - Packages/Shared/CmuxAuthRuntime
+          - Packages/Shared/CmuxChiefVoiceCore
+          - Packages/Shared/CmuxFeedPushCore
+          - Packages/Shared/CmuxGhosttyKit
+          - Packages/Shared/CmuxHomeCore
+          - Packages/Shared/CmuxHomeRender
+          - Packages/Shared/CmuxInstallAuthCore
+          - Packages/Shared/CmuxIrohTransport
+          - Packages/Shared/CmuxIrxTransport
+          - Packages/Shared/CmuxMessagesLab
+          - Packages/Shared/CmuxSentryTelemetry
+          - Packages/Shared/CmuxSyncStore
+          - Packages/Shared/CmuxTextConfirmCore
+          - Packages/Shared/CmuxTheme
+          - Packages/iOS/CmuxConversation
+          - Packages/iOS/CmuxMobilePairedMac
+          - Packages/iOS/CmuxMobileRPC
+          - Packages/iOS/CmuxMobileSSH
+          - Packages/iOS/CmuxMobileShellModel
+          - Packages/iOS/CmuxMobileSupport
+          - Packages/iOS/CmuxMobileTunnel
+          - Packages/iOS/CmuxTabsKit
+          - Packages/macOS/CmuxComputerUseHelper
+          - Packages/macOS/CmuxPhonePush
+          - Packages/macOS/CmuxUpdater
+          - vendor/stack-auth-swift-sdk-prerelease
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Cache key
+        id: key
+        env:
+          PACKAGE: ${{ matrix.package }}
+        run: |
+          {
+            echo "week=$(date -u +%G-W%V)"
+            echo "toolchain=$(swift --version 2>/dev/null | head -1 | tr -cs 'A-Za-z0-9.' '-')"
+            echo "slug=$(printf '%s' "$PACKAGE" | tr '/' '-')"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore .build
+        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ${{ matrix.package }}/.build
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ steps.key.outputs.slug }}-${{ hashFiles(format('{0}/Package.swift', matrix.package), format('{0}/Package.resolved', matrix.package)) }}-${{ github.sha }}
+          restore-keys: |
+            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ steps.key.outputs.slug }}-${{ hashFiles(format('{0}/Package.swift', matrix.package), format('{0}/Package.resolved', matrix.package)) }}-
+            swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ steps.key.outputs.slug }}-
+
+      - name: swift build --build-tests
+        run: swift build --package-path "${{ matrix.package }}" --build-tests
+
+      - name: swift test
+        run: swift test --package-path "${{ matrix.package }}" --skip-build --parallel
+
+      - name: Save .build
+        if: always() && github.event_name == 'push'
+        uses: actions/cache/save@27d5ce7f107fe9357f9df03efb73ab90386fccae
+        with:
+          path: ${{ matrix.package }}/.build
+          key: swiftpm-linux-${{ steps.key.outputs.week }}-${{ steps.key.outputs.toolchain }}-${{ steps.key.outputs.slug }}-${{ hashFiles(format('{0}/Package.swift', matrix.package), format('{0}/Package.resolved', matrix.package)) }}-${{ github.sha }}
+
+  # Probe (temporary): which CmuxNext targets compile on Linux.
+  cmuxnext-probe:
+    name: CmuxNext target probe ${{ matrix.shard }} (Linux)
+    if: github.repository_owner == 'manaflow-ai'
+    runs-on: blacksmith-16vcpu-ubuntu-2404
+    timeout-minutes: 90
+    container: swift:6.2-noble
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Resolve
+        working-directory: Packages/macOS/CmuxNext
+        run: swift package resolve 2>&1 | tail -40
+      - name: Build each target
+        working-directory: Packages/macOS/CmuxNext
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          targets=$(grep -oE '\.(target|testTarget|executableTarget)\(\s*name: "[^"]+"' Package.swift | sed -E 's/.*"([^"]+)"/\1/' | awk -v s="$SHARD" 'NR % 4 == s')
+          mkdir -p "$RUNNER_TEMP/probe"
+          for t in $targets; do
+            if swift build --target "$t" > "$RUNNER_TEMP/probe/$t.log" 2>&1; then
+              echo "PASS $t" | tee -a "$RUNNER_TEMP/probe/summary.txt"
+            else
+              echo "FAIL $t" | tee -a "$RUNNER_TEMP/probe/summary.txt"
+              grep -m 8 -E "error:" "$RUNNER_TEMP/probe/$t.log" | sed "s|^|  $t: |" | tee -a "$RUNNER_TEMP/probe/errors.txt"
+            fi
+          done
+          { echo '```'; cat "$RUNNER_TEMP/probe/summary.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: cmuxnext-probe-${{ matrix.shard }}
+          path: ${{ runner.temp }}/probe
+          retention-days: 7
