@@ -1,8 +1,9 @@
 // The buttons of a message's action row, shared by a prompt's (UserBubble.tsx, PromptActions for
 // the Chief's), another agent's message's (ReceivedActions) and an answer's (TurnRows.tsx TurnFooter), as Claude Code desktop
-// draws them: the message's age ("8 minutes ago", its date and time on hover), a prompt's read
-// receipt, Copy, Retry, Fork from here (its title and what it does), Pin and Read aloud. The rows
-// show on hover or keyboard focus only (conversation.css).
+// draws them: the message's age ("8 minutes ago"; "Oct 20, 2026, 10:16 PM" above it on hover), a
+// prompt's read receipt, Copy, Retry, Fork from here (its title and what it does), Pin and Read
+// aloud, each glyph ROW_ICON px in a 24 px button. The rows show on hover or keyboard focus only,
+// with Claude's fade (conversation.css).
 import { useContext } from "react";
 import { useMinuteClock } from "../clock";
 import { usePaneLanguage, useT } from "../i18n";
@@ -10,24 +11,27 @@ import type { AcpmuxRow } from "../model";
 import { useRowMark } from "../threadMinimap/promptMarks";
 import { Check, DoubleCheck, Pin, Retry, Speaker, TurnFork } from "./icons";
 import { canReadAloud, readAloud, useReadingAloud } from "./readAloud";
-import { relativeTime } from "./relativeTime";
+import { exactTime, relativeTime } from "./relativeTime";
 import { CopyButton } from "./CopyButton";
 import { RetryModelMenu } from "./RetryModelMenu";
 import { TurnActionsContext } from "./turnActions";
 
-/// The message's age, relative and live; the exact date and time on hover.
+/// A hover row's glyph size: Claude's 16 px icons, each in a 24 px (--cv-meta-row) button.
+export const ROW_ICON = 16;
+
+/// The message's age, relative and live; the exact date and time above it on hover, as Claude's.
 export function MessageTime({ at, className }: { at: number; className: string }) {
   const now = useMinuteClock();
   const language = usePaneLanguage();
-  const exact = new Intl.DateTimeFormat(language, {
-    dateStyle: "medium",
-    timeStyle: "short",
-  }).format(at);
   return (
     <time
       className={className}
       dateTime={new Date(at).toISOString()}
-      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exact}
+      /* tooltip-allow: the row shows the age; the tooltip gives the exact date and time, as Claude's */ title={exactTime(
+        at,
+        language,
+      )}
+      data-tooltip-side="top"
     >
       {relativeTime(at, now, language)}
     </time>
@@ -38,7 +42,7 @@ export function MessageTime({ at, className }: { at: number; className: string }
 /// row's compact size.
 export function MessageCopy({ text }: { text: string }) {
   const t = useT();
-  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={14} />;
+  return <CopyButton text={text} label={t("turn.copy")} className="cv-iconbtn cv-iconbtn--compact" size={ROW_ICON} />;
 }
 
 /// Fork from here, with Claude's tooltip: the title, then that this chat stays as it is.
@@ -53,7 +57,7 @@ export function ForkButton({ onFork }: { onFork(): void }) {
       data-tooltip-detail={t("turn.forkDetail")}
       onClick={onFork}
     >
-      <TurnFork size={14} />
+      <TurnFork size={ROW_ICON} />
     </button>
   );
 }
@@ -74,7 +78,7 @@ export function PinButton({ rowId }: { rowId: string }) {
       title={label}
       onClick={mark.toggle}
     >
-      <Pin size={14} filled={mark.marked} />
+      <Pin size={ROW_ICON} filled={mark.marked} />
     </button>
   );
 }
@@ -95,7 +99,7 @@ export function ReadAloudButton({ id, text }: { id: string; text: string }) {
       title={label}
       onClick={() => readAloud(id, text, language)}
     >
-      <Speaker size={14} />
+      <Speaker size={ROW_ICON} />
     </button>
   );
 }
@@ -126,7 +130,7 @@ export function ReadReceipt({ row }: { row: AcpmuxRow }) {
       title={label}
       data-read={read ? "true" : "false"}
     >
-      {read ? <DoubleCheck size={14} /> : <Check size={14} />}
+      {read ? <DoubleCheck size={ROW_ICON} /> : <Check size={ROW_ICON} />}
     </span>
   );
 }
@@ -147,7 +151,7 @@ export function PromptRetry({ rowId, prompt }: { rowId: string; prompt: string }
         title={t("turn.retryLabel")}
         onClick={() => retry(rowId, prompt)}
       >
-        <Retry size={14} />
+        <Retry size={ROW_ICON} />
       </button>
       {retryWith && retryWith.models.length > 1 && (
         <RetryModelMenu retryWith={retryWith} onPick={(model) => retryWith.retry(rowId, prompt, model)} />

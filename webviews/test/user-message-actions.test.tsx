@@ -88,12 +88,12 @@ test("a read prompt's row reads its age, Read by the agent, Copy, Edit and Fork,
 
 test("a prompt still being sent has no receipt, and one that cannot fork offers no Fork", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", pending: true, text: "Next" }, {});
-  expect(labels()).toEqual(["now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
 });
 
 test("a steer the agent has not read yet shows one check: delivered when the step ends", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "waiting", text: "Also this" }, {});
-  expect(labels()).toEqual(["now", "Delivered when the current step ends", "Copy"]);
+  expect(labels()).toEqual(["just now", "Delivered when the current step ends", "Copy"]);
   expect(host.querySelector(".cv-user__read")?.getAttribute("data-read")).toBe("false");
   // No "Steering" / "Steered" line under the bubble any more.
   expect(host.textContent).not.toContain("Steer");
@@ -101,7 +101,7 @@ test("a steer the agent has not read yet shows one check: delivered when the ste
 
 test("a read steer reads Read by the agent when the chat names no agent", async () => {
   await draw({ id: "user-9", version: 1, at: Date.now(), kind: "user", steer: "landed", text: "Also this" }, {});
-  expect(labels()).toEqual(["now", "Read by the agent", "Copy"]);
+  expect(labels()).toEqual(["just now", "Read by the agent", "Copy"]);
 });
 
 test("Retry under a prompt sends it again (shown on the last ended turn's prompt)", async () => {
@@ -119,30 +119,72 @@ test("a steer this pane sent reads delivered while it waits for the agent, thoug
   const delivery = { state: "read", promptId: "p-1", sessionId: "s-1", sentAt: Date.now() } as const;
   const steer: AcpmuxRow = { id: "user-7", version: 1, at: Date.now(), kind: "user", seq: 7, text: "Rebase first" };
   await draw({ ...steer, steer: "waiting", delivery }, {});
-  expect(labels()).toEqual(["now", "Delivered when the current step ends", "Copy"]);
+  expect(labels()).toEqual(["just now", "Delivered when the current step ends", "Copy"]);
   await draw({ ...steer, steer: "landed", delivery }, {});
-  expect(labels()).toEqual(["now", "Read by the agent", "Copy"]);
+  expect(labels()).toEqual(["just now", "Read by the agent", "Copy"]);
 });
 
 test("a prompt this pane sent shows no receipt on its way, one check once delivered, two once read", async () => {
   const sent = { promptId: "p-2", sessionId: "s-1", sentAt: Date.now() };
   const prompt: AcpmuxRow = { id: "user-8", version: 1, at: Date.now(), kind: "user", seq: 8, text: "Ship it" };
   await draw({ ...prompt, delivery: { ...sent, state: "sending" } }, {});
-  expect(labels()).toEqual(["now", "Copy"]);
+  expect(labels()).toEqual(["just now", "Copy"]);
   await draw({ ...prompt, delivery: { ...sent, state: "delivered" } }, {});
-  expect(labels()).toEqual(["now", "Delivered", "Copy"]);
+  expect(labels()).toEqual(["just now", "Delivered", "Copy"]);
   await draw({ ...prompt, delivery: { ...sent, state: "read" } }, { route: { name: "Codex" } });
-  expect(labels()).toEqual(["now", "Read by Codex", "Copy"]);
+  expect(labels()).toEqual(["just now", "Read by Codex", "Copy"]);
 });
 
-test("the relative time words a prompt's age in the pane's language", async () => {
+test("the relative time words a message's age as Claude's hover row does, in the pane's language", async () => {
   const { relativeTime } = await import("../src/agent-session/acpmux/conversation/relativeTime");
-  const now = Date.UTC(2026, 9, 20, 12);
-  expect(relativeTime(now - 20_000, now, "en")).toBe("now");
-  expect(relativeTime(now - 5 * 60_000, now, "en")).toBe("5 minutes ago");
-  expect(relativeTime(now - HOUR, now, "en")).toBe("1 hour ago");
-  expect(relativeTime(now - 26 * HOUR, now, "en")).toBe("yesterday");
+  const now = Date.UTC(2026, 9, 21, 13, 16);
+  const MINUTE = 60_000;
+  const DAY = 24 * HOUR;
+  expect(relativeTime(now, now, "en-US")).toBe("just now");
+  expect(relativeTime(now - 59_000, now, "en-US")).toBe("just now");
+  expect(relativeTime(now - MINUTE, now, "en-US")).toBe("1 minute ago");
+  expect(relativeTime(now - 5 * MINUTE, now, "en-US")).toBe("5 minutes ago");
+  // Each unit starts at its full length and rounds within it, as Claude's (Math.round of the
+  // negative count rounds a half toward now).
+  expect(relativeTime(now - 59 * MINUTE, now, "en-US")).toBe("59 minutes ago");
+  expect(relativeTime(now - HOUR, now, "en-US")).toBe("1 hour ago");
+  expect(relativeTime(now - 90 * MINUTE, now, "en-US")).toBe("1 hour ago");
+  expect(relativeTime(now - 15 * HOUR, now, "en-US")).toBe("15 hours ago");
+  expect(relativeTime(now - 23.6 * HOUR, now, "en-US")).toBe("24 hours ago");
+  expect(relativeTime(now - DAY, now, "en-US")).toBe("yesterday");
+  expect(relativeTime(now - 36 * HOUR, now, "en-US")).toBe("yesterday");
+  expect(relativeTime(now - 3 * DAY, now, "en-US")).toBe("3 days ago");
+  // Past a week it keeps counting; it never switches to a date.
+  expect(relativeTime(now - 7 * DAY, now, "en-US")).toBe("last week");
+  expect(relativeTime(now - 15 * DAY, now, "en-US")).toBe("2 weeks ago");
+  expect(relativeTime(now - 30 * DAY, now, "en-US")).toBe("last month");
+  expect(relativeTime(now - 100 * DAY, now, "en-US")).toBe("3 months ago");
+  expect(relativeTime(now - 400 * DAY, now, "en-US")).toBe("last year");
+  // Ahead of the minute clock: still just now, never "in 1 minute".
+  expect(relativeTime(now + 30_000, now, "en-US")).toBe("just now");
+  expect(relativeTime(now + 5 * MINUTE, now, "en-US")).toBe("just now");
+  // Other languages: Intl's words, and their own word for now.
   expect(relativeTime(now - 3 * HOUR, now, "de")).toBe("vor 3 Stunden");
-  // Ahead of the minute clock: still "now", never "in 1 minute".
-  expect(relativeTime(now + 30_000, now, "en")).toBe("now");
+  expect(relativeTime(now - DAY, now, "de")).toBe("gestern");
+  expect(relativeTime(now - 10_000, now, "de")).toBe("jetzt");
+});
+
+test("the hover tooltip writes the exact time as Claude's: Oct 20, 2026, 10:16 PM", async () => {
+  const { exactTime } = await import("../src/agent-session/acpmux/conversation/relativeTime");
+  // Built in local time, so the fields read back the same in any time zone.
+  const evening = new Date(2026, 9, 20, 22, 16).getTime();
+  expect(exactTime(evening, "en-US")).toBe("Oct 20, 2026, 10:16\u202fPM");
+  expect(exactTime(new Date(2026, 0, 5, 9, 3).getTime(), "en-US")).toBe("Jan 5, 2026, 9:03\u202fAM");
+  // The same fields in the pane's language.
+  expect(exactTime(evening, "de")).toBe("20. Okt. 2026, 22:16");
+  // A tag Intl refuses falls back to the system's language, never a throw.
+  expect(() => exactTime(evening, "not a language")).not.toThrow();
+});
+
+test("the time under a prompt names its exact time, shown above it", async () => {
+  const at = new Date(2026, 9, 20, 22, 16).getTime();
+  await draw({ id: "user-3", version: 1, at, kind: "user", seq: 3, text: "Ship it" }, {});
+  const time = host.querySelector("time.cv-user__time")!;
+  expect(time.getAttribute("title")).toBe("Oct 20, 2026, 10:16\u202fPM");
+  expect(time.getAttribute("data-tooltip-side")).toBe("top");
 });

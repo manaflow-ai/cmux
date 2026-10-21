@@ -21,7 +21,7 @@ import { DeliveryMark } from "./PromptDelivery";
 import { ChevronLeft, ChevronRight, ImageIcon, Pencil } from "./icons";
 import { ImageViewerContext } from "./imageViewerContext";
 import { PromptText } from "./PromptText";
-import { ForkButton, MessageCopy, MessageTime, PinButton, PromptRetry, ReadReceipt } from "./MessageActions";
+import { ForkButton, MessageCopy, MessageTime, PinButton, PromptRetry, ReadReceipt, ROW_ICON } from "./MessageActions";
 import { TurnActionsContext } from "./turnActions";
 
 export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
@@ -107,7 +107,7 @@ export function UserBubble({ row, text }: { row: AcpmuxRow; text: string }) {
               title={t("message.edit")}
               onClick={() => setEditing(true)}
             >
-              <Pencil size={14} />
+              <Pencil size={ROW_ICON} />
             </button>
           )}
           <PromptRetry rowId={row.id} prompt={resend} />
