@@ -95419,13 +95419,13 @@
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nastavi: Continue in…"
+            "value": "Nastavi u…"
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fortsæt: Continue in…"
+            "value": "Fortsæt i…"
           }
         },
         "de": {
@@ -95437,7 +95437,7 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continue in…"
+            "value": "Continue In…"
           }
         },
         "es": {
@@ -95455,7 +95455,7 @@
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continua: Continue in…"
+            "value": "Continua in…"
           }
         },
         "ja": {
@@ -95467,7 +95467,7 @@
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "បន្ត៖ Continue in…"
+            "value": "បន្តក្នុង…"
           }
         },
         "ko": {
@@ -95479,49 +95479,49 @@
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fortsett: Continue in…"
+            "value": "Fortsett i…"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Kontynuuj: Continue in…"
+            "value": "Kontynuuj w…"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "Continuar: Continue in…"
+            "value": "Continuar em…"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Продолжить: Continue in…"
+            "value": "Продолжить в…"
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "ดำเนินการต่อ: Continue in…"
+            "value": "ดำเนินการต่อใน…"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Devam: Continue in…"
+            "value": "Şurada devam et…"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Продовжити: Continue in…"
+            "value": "Продовжити в…"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tiếp tục: Continue in…"
+            "value": "Tiếp tục trong…"
           }
         },
         "zh-Hans": {
