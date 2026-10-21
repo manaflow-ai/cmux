@@ -1,6 +1,7 @@
 import AppKit
 import CmuxCloud
 import CmuxCloudMachines
+import CmuxProductAnalytics
 import Foundation
 
 // MARK: - Cloud creation actions
@@ -16,6 +17,7 @@ extension AppDelegate {
     ) -> Bool {
         if introduceCloudIfNeeded(
             over: preferredWindow ?? preferredTabManager.flatMap { mainWindowContext(for: $0) }.flatMap { resolvedWindow(for: $0) },
+            trigger: .newCloudWorkspace,
             resume: { [weak self, weak preferredTabManager, weak preferredWindow] in
                 _ = self?.performNewCloudWorkspaceOnResolvedMachineAction(
                     tabManager: preferredTabManager,
@@ -78,9 +80,16 @@ extension AppDelegate {
             }
             var accessBecameUnavailable = false
             do {
+                let startedAt = Date()
                 let workspaceID = try await coordinator.createOnResolvedMachine(
                     selection: selection, windowID: windowID, scopeID: scopeID, selectionRevision: revision
                 )
+                if workspaceID != nil {
+                    ProductAnalytics.app.track(.cloudWorkspaceCreated(
+                        machineChoice: .resolved,
+                        duration: DurationBucket(seconds: Date().timeIntervalSince(startedAt))
+                    ))
+                }
                 if workspaceID == nil {
                     accessBecameUnavailable = !coordinator.isAvailable
                         || coordinator.scopeIdentifier != scopeID
@@ -149,8 +158,13 @@ extension AppDelegate {
                     }
                 }
             }
-            guard let workspaceID = try await coordinator.createOnMachine(request),
-                  !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
+            let startedAt = Date()
+            guard let workspaceID = try await coordinator.createOnMachine(request) else { return }
+            ProductAnalytics.app.track(.cloudWorkspaceCreated(
+                machineChoice: .explicit,
+                duration: DurationBucket(seconds: Date().timeIntervalSince(startedAt))
+            ))
+            guard !Task.isCancelled, coordinator.isAvailable, coordinator.scopeIdentifier == scopeID else { return }
             resolvedDestination?.apply(workspaceID: workspaceID)
             selectedWorkspace = self?.focusCreatedCloudWorkspace(
                 workspaceID, manager: tabManager, revision: revision, windowID: request.windowID
@@ -208,6 +222,7 @@ extension AppDelegate {
             ?? event?.window
         if introduceCloudIfNeeded(
             over: introductionWindow,
+            trigger: .newCloudMachine,
             resume: { [weak self, weak preferredTabManager, weak introductionWindow] in
                 _ = self?.performNewCloudMachineAction(
                     tabManager: preferredTabManager,
@@ -236,7 +251,7 @@ extension AppDelegate {
         }
     }
 
-    private func cloudCreationGate() -> CloudCreationGate {
+    func cloudCreationGate() -> CloudCreationGate {
         CloudCreationGate.resolve(
             isAvailable: CloudMachinesFeature.isAvailable,
             isEnabled: CloudMachinesFeature.isEnabled,
@@ -245,16 +260,37 @@ extension AppDelegate {
         )
     }
 
+    /// The sidebar footer Cloud button: reveals Cloud Machines in the right
+    /// sidebar on every press (never toggles it closed), and while Cloud is off
+    /// or signed out also reopens the welcome card, whose next step routes to
+    /// sign-in, Upgrade or Enable from the account's plan.
+    func performSidebarCloudButtonAction(preferredWindow: NSWindow?) {
+        let window = preferredWindow ?? NSApp.keyWindow ?? NSApp.mainWindow
+        SidebarCloudButtonAction(
+            isAvailable: { CloudMachinesFeature.isAvailable },
+            isEnabled: { [weak self] in self?.cloudCreationGate() != .introduceCloud },
+            revealMachines: { [weak self] in
+                _ = self?.focusRightSidebarInActiveMainWindow(mode: .machines, preferredWindow: window)
+            },
+            presentIntroduction: { [weak self] in
+                self?.cloudWelcomeWindowController.presentIntroduction(over: window)
+            },
+            analytics: .app
+        ).perform()
+    }
+
     /// Cloud creation shortcuts and menu rows introduce Cloud while it is off
-    /// or signed out, instead of doing nothing. The welcome card's own next
-    /// step decides between Enable and Upgrade; Enable then resumes `resume`.
+    /// or signed out. Returning users skip the card and take its next step;
+    /// Enable then resumes `resume`.
     private func introduceCloudIfNeeded(
         over window: NSWindow?,
+        trigger: CloudWelcomeTrigger,
         resume: @escaping @MainActor () -> Void
     ) -> Bool {
         guard cloudCreationGate() == .introduceCloud else { return false }
         cloudWelcomeWindowController.present(
             over: window ?? NSApp.keyWindow ?? NSApp.mainWindow,
+            trigger: trigger,
             onEnabled: resume
         )
         return true

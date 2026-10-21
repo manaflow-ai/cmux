@@ -29,7 +29,7 @@ struct GhosttyHostActionHandler {
             return app.performNewWorkspaceAction(
                 tabManager: context.manager,
                 debugSource: "ghostty.new_tab",
-                skipConfiguredAction: true
+                localOnly: true
             )
         case .selectWorkspace(let index):
             guard let manager = context.manager else { break }

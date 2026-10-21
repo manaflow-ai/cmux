@@ -1,0 +1,6 @@
+{
+  "oracle": {},
+  "cmux": {
+    "roles": "- listbox \"L\"\n- button \"Own\"\n- group \"G\"\n- button \"Slotted\""
+  }
+}

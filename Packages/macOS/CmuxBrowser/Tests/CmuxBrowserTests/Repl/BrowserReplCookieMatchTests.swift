@@ -40,4 +40,5 @@ struct BrowserReplCookieMatchTests {
         #expect(!secure.browserReplMatches(try #require(URL(string: "http://example.com/"))))
         #expect(try cookie(path: "/", domain: "localhost", secure: true).browserReplMatches(try #require(URL(string: "http://localhost:3000/"))))
     }
+
 }

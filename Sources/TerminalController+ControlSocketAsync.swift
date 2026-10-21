@@ -166,6 +166,16 @@ extension TerminalController {
                 // the REPL thread and main-actor driver without holding a
                 // socket worker thread.
                 if Self.isBrowserReplMethod(authorizedRequest.method) {
+                    // In every socket access mode, also allowAll.
+                    guard SocketClientAuthorization().admitsMethod(
+                        authorizedRequest.method,
+                        peerHasSameUID: SocketCommandTaskPolicy.peerHasSameUID
+                    ) else {
+                        return self.v2Result(
+                            id: authorizedRequest.id?.foundationObject,
+                            .err(code: "access_denied", message: Self.browserReplOtherUserMessage, data: nil)
+                        )
+                    }
                     return await self.v2BrowserReplResponse(request: authorizedRequest)
                 }
                 // Agent hook completions arrive in bursts. Process identity
@@ -299,6 +309,15 @@ extension TerminalController {
         }
         if request.method == "agent.wake" {
             return try await agentWakeResponse(request)
+        }
+        if request.method == "surface.wait_text_change" {
+            // Parks on the terminal's output stream, never on a worker thread.
+            return await surfaceWaitTextChangeResponse(request)
+        }
+        if request.method.hasPrefix("chief.") {
+            // Remote relay requests never reach here (`RemoteRelayCommandPolicy`
+            // denies `chief.*`); the handler refuses relay provenance again.
+            return await chiefResponse(request)
         }
         if request.method.hasPrefix("agent.message.") {
             if request.params[WorkspaceRemoteRelayCommandRewriter.remoteWorkspaceIDKey] != nil,

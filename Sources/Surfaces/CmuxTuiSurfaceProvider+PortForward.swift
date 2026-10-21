@@ -45,12 +45,7 @@ extension CmuxTuiSurfaceProvider {
         guard isRegisteredInCatalog() else { throw CancellationError() }
         let pane = try existingPane
             ?? CloudDisplayPaneReservation.current?.pane(for: resource)
-            ?? SurfacePaneFactory.makeBrowserPane(
-                url: nil,
-                at: destination,
-                focus: focus,
-                creationPolicy: .restoration
-            )
+            ?? SurfacePaneFactory.makeCloudResourceBrowserPane(at: destination, focus: focus)
         guard let browser = SurfacePaneFactory.browserPanel(panelID: pane.panelID, in: pane.workspaceID) else {
             throw ProviderError.localForwardURLUnavailable
         }
@@ -83,6 +78,23 @@ extension CmuxTuiSurfaceProvider {
     @discardableResult
     func configureBrowser(_ browser: BrowserPanel, url: URL, resourceID: SurfaceResourceID? = nil,
                           preserveCurrentNavigation: Bool = false, request: URLRequest? = nil) -> Bool {
+        if url == SurfacePaneFactory.blankURL, let resourceID,
+           resourceID.machine == machine, machine.cloudMachineID != nil,
+           let resource = catalog.resources[resourceID], resource.kind == .browser,
+           !resourceID.isForwardedPort, resource.remoteViews?.isEmpty == false {
+            guard isRegisteredInCatalog(), !hasLostAccess,
+                  browser.cloudAccess.resourceID?.machine == nil || browser.cloudAccess.resourceID?.machine == machine,
+                  (try? catalog.validateOwnership(of: [resourceID], at: .workspace(id: browser.workspaceId, placement: .tab))) != nil else { return false }
+            browser.cloudAccess.leave()
+            browser.cloudAccess.retainResource(resourceID)
+            browser.retainTransferredSurfaceMachine(machine)
+            browser.prepareCloudBrowserStore(machineID: machineID)
+            browser.webView.stopLoading()
+            browser.shouldRenderWebView = false
+            browser.showCloudAddress(url)
+            materializedPanels.insert(browser.id)
+            return true
+        }
         let requestedPort = url.port ?? (url.scheme?.lowercased() == "https" ? 443 : 80)
         let fallbackID: SurfaceResourceID = if info.hasDesktop, (CmuxTuiSnapshotParser.desktopPort...6916).contains(requestedPort) {
             SurfaceResourceID(machine: machine, kind: .display, key: "display:\(requestedPort - 6900)")
@@ -199,6 +211,7 @@ extension CmuxTuiSurfaceProvider {
             browser.configureCloudBrowser(model: model, url: logicalURL, resourceID: resourceID, request: request)
         }
         materializedPanels.insert(browser.id)
+        catalog.cloudBrowserDocumentDidChange(browser)
         return true
     }
 
@@ -501,8 +514,10 @@ extension CmuxTuiSurfaceProvider {
     func cloudBrowserOriginURL(for resource: SurfaceResource, restoring browser: BrowserPanel? = nil) -> URL? {
         guard machine.cloudMachineID != nil, resource.kind == .browser,
               !resource.id.key.hasPrefix("port:"), resource.remoteViews?.isEmpty == false else { return nil }
+        let resource = catalog.resourceWithCloudBrowserDocument(resource)
         let catalogURL = resource.url.flatMap { URL(string: $0) } ?? SurfacePaneFactory.blankURL
         let url = browser?.cloudRestoreURL(on: catalogURL) ?? catalogURL
+        if url == SurfacePaneFactory.blankURL { return url }
         guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
               url.host?.isEmpty == false else { return nil }
         return url

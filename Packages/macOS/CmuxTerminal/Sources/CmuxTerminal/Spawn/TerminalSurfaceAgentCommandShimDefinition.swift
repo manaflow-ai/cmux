@@ -5,6 +5,7 @@ public enum TerminalSurfaceAgentCommand: String, CaseIterable, Hashable, Sendabl
     case pi
     case amp
     case hermes
+    case agy
 }
 
 /// Describes one agent command intercepted by the shared per-surface shim path.
@@ -41,6 +42,11 @@ struct TerminalSurfaceAgentCommandShimDefinition: Sendable {
             command: .hermes,
             wrapperName: "cmux-hermes-agent-wrapper",
             environmentVariablePrefix: "CMUX_HERMES_AGENT"
+        ),
+        Self(
+            command: .agy,
+            wrapperName: "agy",
+            environmentVariablePrefix: "CMUX_AGY"
         ),
     ]
 }

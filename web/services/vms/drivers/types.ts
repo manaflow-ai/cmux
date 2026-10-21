@@ -33,6 +33,8 @@ export type VmPauseState = "paused" | "in_progress" | "not_paused" | "stopped" |
 /// reading: they report `asleep` with only their provisioned memory.
 export type VMStats = {
   readonly state: "awake" | "asleep" | "unknown";
+  /** Health of the guest reporter, independent of provider power state. */
+  readonly health?: "healthy" | "unknown" | "unresponsive";
   readonly sampledAt: number;
   /** Timestamp of the latest guest reporter sample, even when it is stale. */
   readonly resourceSampledAt?: number;
@@ -388,6 +390,12 @@ export type VMFileStat = {
 
 export type ExecOptions = {
   readonly timeoutMs?: number;
+  /**
+   * Run as root instead of the work user. Every exec ran as root before
+   * public `vm exec` moved to the work user (#16769); cmux's own guest
+   * maintenance that writes root-owned paths still needs it.
+   */
+  readonly asRoot?: boolean;
   /** Server-side metadata persisted with the VM row, used for durable-home routing. */
   readonly providerMetadata?: Record<string, unknown>;
 };
@@ -418,6 +426,8 @@ export interface VmCapabilities {
   readonly exec: boolean;
   /** Live CPU/memory/disk readings (`GET /api/vm/:id/stats`). */
   readonly stats: boolean;
+  /** Provider-level recovery for a frozen machine (`POST /api/vm/:id/restart`). */
+  readonly restart: boolean;
   /** Token-gated HTTPS preview URLs for arbitrary VM ports (`POST /api/vm/:id/open-port`). */
   readonly ports: boolean;
   /** A desktop (VNC) image exists for this provider. */
@@ -575,6 +585,11 @@ export interface VMProvider {
 
   /** Optional provider volume inventory used by the report-only VM reaper. */
   listVolumes?(options?: VMVolumeListOptions): Promise<VMVolumeInventory>;
+  /**
+   * Optional account-wide, read-only inventory for the staff health sweep. It
+   * covers every VM and TLS rule on the provider account, not only cmux rows.
+   */
+  readonly healthInventory?: VmHealthInventory;
 
   getStatus?(vmId: string, options?: ProviderReadOptions): Promise<VMStatus>;
   /**
@@ -589,6 +604,8 @@ export interface VMProvider {
   getStats?(vmId: string, options?: ProviderReadOptions): Promise<VMStats>;
   /** Optional direct guest probe; must not install tooling, mutate, or wake. */
   getResourceStats?(vmId: string): Promise<VMResourceStatsResult | null>;
+  /** Force a provider-level reboot without using the guest exec channel. */
+  restart?(vmId: string): Promise<void>;
   /** Grow one or more VM resources. Freestyle currently uses storage only. */
   resize?(vmId: string, options: VMResizeOptions): Promise<void>;
   /** Converge a live machine's outbound rules on `plan`. Must not restart or wake it. */
@@ -718,6 +735,58 @@ export class ProviderMachineRecreateRequiredError extends ProviderError {
 }
 
 /**
+ * The machine is in a state the operation cannot run in (still starting,
+ * pausing, or not running). Routes answer 409 vm_state_conflict with a
+ * wait-and-retry action, never a generic outage.
+ */
+export class ProviderStateConflictError extends ProviderError {
+  constructor(provider: ProviderId, message: string, cause?: unknown) {
+    super(provider, message, cause);
+    this.name = "ProviderStateConflictError";
+  }
+}
+
+/** How a provider's 409 answer reads: no room for the machine, a machine-state conflict, or an unresponsive guest. */
+export type ProviderConflictKind = "capacity" | "state" | "unresponsive";
+
+/**
+ * Classifies a provider failure that is a 409 refusal. The first error in the
+ * cause chain that carries an HTTP status decides; it must be 409. Freestyle
+ * answers capacity as `CONFLICT` "no manager has enough capacity" or
+ * `PLACEMENT_REJECTED`, an unresponsive guest as `VM_NON_RESPONSIVE`, and a
+ * machine in the wrong state (still starting, not running) as `CONFLICT`.
+ * Every other status, any other 409, and a 409 that never reached the
+ * provider is null.
+ */
+/** Freestyle's placement refusal: "no manager has enough capacity for vm". */
+const PROVIDER_CAPACITY_MESSAGE = /\bno manager has enough capacity\b/i;
+
+/** Freestyle 409 messages about the machine's lifecycle state. */
+const PROVIDER_STATE_CONFLICT_MESSAGE = /\b(?:is )?still (?:starting|stopping|pausing|resuming|suspending|booting)\b|\bis not running\b|\bis (?:paused|pausing|suspended|suspending|stopped|stopping|starting|resuming)\b|\bresuming state\b/i;
+
+export function providerConflictKind(err: unknown): ProviderConflictKind | null {
+  let current = err;
+  for (let depth = 0; depth < 8 && current; depth += 1) {
+    if (current instanceof ProviderStateConflictError) return "state";
+    if (typeof current !== "object") return null;
+    const record = current as { status?: unknown; code?: unknown; message?: unknown; body?: { code?: unknown; message?: unknown }; cause?: unknown };
+    if (typeof record.status === "number") {
+      if (record.status !== 409) return null;
+      const code = typeof record.code === "string" ? record.code : typeof record.body?.code === "string" ? record.body.code : "";
+      const message = typeof record.message === "string" ? record.message : typeof record.body?.message === "string" ? record.body.message : "";
+      if (code === "PLACEMENT_REJECTED" || PROVIDER_CAPACITY_MESSAGE.test(message)) return "capacity";
+      if (code === "VM_NON_RESPONSIVE") return "unresponsive";
+      // Only a message that names the machine's state is a state conflict.
+      // Every other 409 (network policy, slug, tunnel, port, snapshot in use,
+      // quota) is a real resource conflict and keeps the generic answer.
+      return PROVIDER_STATE_CONFLICT_MESSAGE.test(message) ? "state" : null;
+    }
+    current = record.cause;
+  }
+  return null;
+}
+
+/**
  * A guest command the server needed never ran or never exited: the provider's
  * exec channel failed, or the command outlived its timeout. Nothing about the
  * service the command would have checked is known, so routes name the machine
@@ -804,3 +873,14 @@ export class ProviderArtifactUnavailableError extends ProviderError {
     this.name = "ProviderArtifactUnavailableError";
   }
 }
+
+/**
+ * Read-only account inventory for the staff Cloud VM health sweep. No member
+ * may start, pause, update, or delete anything.
+ */
+export type VmHealthInventory = {
+  listAccountVms(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderVmInventory>;
+  listAccountTlsRules(options: { readonly deadlineAtMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").ProviderTlsRuleInventory>;
+  /** One bounded control-path request against a running VM; never wakes a paused one on purpose. */
+  probeControl(vmId: string, options: { readonly timeoutMs: number; readonly signal?: AbortSignal }): Promise<import("../health/types").VmControlProbe>;
+};
