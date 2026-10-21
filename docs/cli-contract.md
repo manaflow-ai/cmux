@@ -1254,7 +1254,7 @@ the expected text without connecting to a cmux socket.
 - `cmux list-workspaces --json --help` -> `List workspaces`
 - `cmux --id-format uuids list-workspaces --help` -> `List workspaces`
 - `cmux canvas --help` -> `Usage: cmux canvas <subcommand> [args] [--workspace <id|ref>]`
-- `cmux canvas --help` -> `new-pane [--type terminal|browser|simulator]`
+- `cmux canvas --help` -> `new-pane [--type terminal|browser|simulator|chief]`
 <!-- cli-contract-help-probes:end -->
 
 For `cmux restore`, `--surface [id|ref]` uses the caller when omitted.
