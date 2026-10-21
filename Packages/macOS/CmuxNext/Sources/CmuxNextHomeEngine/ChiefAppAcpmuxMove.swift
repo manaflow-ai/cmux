@@ -54,7 +54,42 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
         return plan
     }
 
-    var markFile: URL { home.root.appendingPathComponent("state/host.acpmux") }
+    var markFile: URL { Self.markFile(home) }
+
+    static func markFile(_ home: ChiefHome) -> URL { home.root.appendingPathComponent("state/host.acpmux") }
+
+    /// The launch mark's pid and acpmux home.
+    static func readMark(_ home: ChiefHome) -> (pid: pid_t?, home: String?) {
+        // concurrency-allow: a small local file read, off the main actor in `HomeBrainHost.start`
+        let lines = ((try? String(contentsOf: markFile(home), encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        return (lines.first.flatMap { pid_t($0) }, lines.dropFirst().first)
+    }
+
+    /// Whether running host `hostPID` is the one this app launched (`markedPID`) on an acpmux
+    /// other than the Chief home's own (`markedHome`, `ownHome`).
+    static func onAppAcpmux(hostPID: pid_t?, markedPID: pid_t?, markedHome: String?, ownHome: String) -> Bool {
+        guard let hostPID, markedPID == hostPID, let markedHome else { return false }
+        return markedHome != ownHome
+    }
+
+    /// With the kill switch (`CMUX_CHIEF_OWN_ACPMUX=1`), a running host this app launched on the
+    /// app's acpmux restarts on the Chief home's own daemon, where the Chief's tabs then attach:
+    /// asked to hand off when idle when it takes that, else stopped. Returns false when it was
+    /// asked to hand off: it keeps its turn, and its exit brings the next start.
+    @concurrent static func leaveAppAcpmux(home: ChiefHome) async -> Bool {
+        let mark = readMark(home)
+        guard onAppAcpmux(hostPID: ChiefHostStop.runningHostPID(home: home), markedPID: mark.pid, markedHome: mark.home,
+                          ownHome: home.acpmuxHome.path) else { return true }
+        if let asked = ChiefHostStop.askToHandOffWhenIdle(home: home) {
+            logger.info("Chief host \(asked) is on the app's acpmux, the kill switch is on; it hands off when its turn ends")
+            return false
+        }
+        if let pid = await ChiefHostStop.stop(home: home) {
+            logger.info("Chief host \(pid) is on the app's acpmux, the kill switch is on; stopped it")
+            _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        }
+        return true
+    }
 
     /// Records that this app launched host `pid` on the app's acpmux.
     func mark(pid: pid_t) {
@@ -65,12 +100,11 @@ nonisolated struct ChiefAppAcpmuxMove: Sendable {
     /// Runs the plan. Returns false when the running host was asked to hand off when idle: it
     /// keeps running until its turn ends, and its exit brings the next start here.
     @concurrent func run() async -> Bool {
-        // concurrency-allow: a small local file read, off the main actor in `HomeBrainHost.start`
-        let lines = ((try? String(contentsOf: markFile, encoding: .utf8)) ?? "").split(separator: "\n").map(String.init)
+        let mark = Self.readMark(home)
         let hostPID = ChiefHostStop.runningHostPID(home: home)
         let ownSocket = own.map(\.socketPath).flatMap { $0 == app.socketPath ? nil : $0 }
         let plan = Self.plan(hostPID: hostPID, hostReplaced: hostPID.map(Self.executableGone) ?? false,
-                             markedPID: lines.first.flatMap { pid_t($0) }, markedHome: lines.dropFirst().first,
+                             markedPID: mark.pid, markedHome: mark.home,
                              appHome: app.home.path,
                              ownDaemonPresent: ownSocket.map { FileManager.default.fileExists(atPath: $0) } ?? false,
                              namedChiefsRun: namedChiefsRun())

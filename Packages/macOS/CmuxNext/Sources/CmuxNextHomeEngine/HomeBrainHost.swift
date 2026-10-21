@@ -200,10 +200,17 @@ public nonisolated struct HomeBrainHost: Sendable {
                 // It hands off when its turn ends; its exit brings the next start (ChiefBrainWatch).
                 return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: chiefHome))
             }
-        } else if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path)
-            .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) != nil }),
-           let pid = await ChiefHostStop.stop(home: chiefHome) {
-            _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        } else {
+            // The kill switch (`CMUX_CHIEF_OWN_ACPMUX=1`) is on: a host this app launched on the
+            // app's acpmux moves back to the Chief's own daemon.
+            guard await ChiefAppAcpmuxMove.leaveAppAcpmux(home: chiefHome) else {
+                return .reusedRunningHost(pid: ChiefHostStop.runningHostPID(home: chiefHome))
+            }
+            if let acpmux, await AcpmuxChiefHandoff(environment: acpmux, chiefMuxHome: muxHome.path)
+                .handOffIfStale(waitFor: { ChiefHostStop.askToHandOffWhenIdle(home: chiefHome) != nil }),
+               let pid = await ChiefHostStop.stop(home: chiefHome) {
+                _ = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+            }
         }
         // A live host reads the token file at each connect: keep its binding.
         if runningHostHasToken {

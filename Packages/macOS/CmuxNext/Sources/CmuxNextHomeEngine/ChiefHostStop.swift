@@ -1,4 +1,4 @@
-import CmuxNextAgentPane
+public import CmuxNextAgentPane
 import Darwin
 public import Foundation
 
@@ -54,9 +54,17 @@ public nonisolated enum ChiefHostStop {
     /// What End Sessions keeps running in the Chief home's acpmux.
     static let endSessionsKeep: AcpmuxQuit.Keep = .nothing
 
+    /// What End Sessions keeps running in the app's acpmux: nothing when the Chief runs there
+    /// (``ChiefHome/usesAppAcpmux``), so its turn, compactor and subagents end with the person's
+    /// agents; else the Home Chief's sessions, which its own daemon's end covers.
+    public nonisolated static func appAcpmuxEndKeep(chiefUsesAppAcpmux: Bool) -> AcpmuxQuit.Keep {
+        chiefUsesAppAcpmux ? .nothing : .chief
+    }
+
     @concurrent public static func endChiefSessions(home: ChiefHome, bundledBin: URL?) async {
         _ = await stop(home: home)
-        // On the app's own acpmux the Chief's sessions end with the app's (QuitAgents): ending
+        // On the app's own acpmux the Chief's sessions end with the app's (QuitAgents, keeping
+        // nothing: ``appAcpmuxEndKeep(chiefUsesAppAcpmux:)``): ending
         // that daemon here would end the person's chats too.
         guard !home.usesAppAcpmux else { return }
         let environment = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: bundledBin,
