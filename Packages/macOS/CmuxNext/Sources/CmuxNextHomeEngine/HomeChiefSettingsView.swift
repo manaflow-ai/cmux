@@ -87,6 +87,8 @@ public final class HomeChiefSettingsView: NSView {
     public var onAvatar: () -> Void = {}
     /// Show Memory: runs "Chief: Open Memory Inspector".
     public var onShowMemory: () -> Void = {}
+    /// All Chief Settings…: the app opens Settings > Chief (this card is the quick version).
+    public var onAllSettings: () -> Void = {}
     /// "Switch to …" under where the Chief runs: the app moves the Chief tab to the other host.
     public var onSwitchHost: () -> Void = {}
     /// The brain took a pick (harness, model or effort): the Home list reads the Chiefs' engines again.
@@ -170,6 +172,12 @@ public final class HomeChiefSettingsView: NSView {
         stack.setCustomSpacing(Metrics.space4, after: appearanceRows)
         appearanceHeader.isHidden = true
         appearanceRows.isHidden = true
+        // The rest of the Chief's settings (the pet, the chat's look, every Chief) live in Settings.
+        let allSettings = HomeChiefLinkButton(title: HomeEngineStrings.allChiefSettings, target: self, action: #selector(openAllSettings))
+        allSettings.setAccessibilityIdentifier("cmux.home.chief.allSettings")
+        allSettings.setAccessibilityLabel(HomeEngineStrings.allChiefSettings)
+        stack.addArrangedSubview(allSettings)
+        stack.setCustomSpacing(Metrics.space4, after: allSettings)
         addFullWidth(diagnosticsRow())
         buildDiagnostics()
         addFullWidth(diagnostics)
@@ -330,6 +338,10 @@ public final class HomeChiefSettingsView: NSView {
 
     @objc func showMemory() {
         onShowMemory()
+    }
+
+    @objc func openAllSettings() {
+        onAllSettings()
     }
 
     @objc func openTraces() {
