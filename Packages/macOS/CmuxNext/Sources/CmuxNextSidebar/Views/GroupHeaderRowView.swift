@@ -7,7 +7,8 @@ import QuartzCore
 /// Group header (Lawrence 2026-10-11, cx-qno.22: the solid color bar is
 /// back, over cx-25az's dot-only header and cx-fo2t's no-hover header): the
 /// cx-rcby colored pill chip, one full-width rounded bar in the group's
-/// color (Lawrence 2026-10-08), with the members' line starting under it;
+/// color (Lawrence 2026-10-08), with the members' line in the same color just
+/// below it, a small cut apart or joined (`sidebar.groupLineJoinsHeader`);
 /// the name starts on the ungrouped rows' leading column (an icon there, the name
 /// where their text starts), one left edge for headers and ungrouped rows
 /// (cg-design-judge 2026-10-14). Every glyph on the bar (name, count, icon, pin,
@@ -41,9 +42,27 @@ final class GroupHeaderRowView: SidebarRowView {
     private let pin = DecorativeImageView()
     /// The group's icon inside its chip, before the name (`workspace-group-icon-v1`).
     let glyph = SidebarIconView()
-    /// The row's fill: the band (`SidebarGroupHeaderStyle.band` and `.wash`); internal so tests can
-    /// read its frame and radius.
+    /// The row's fill: the band (`SidebarGroupHeaderStyle.band` and `.wash`), and joined, the band's
+    /// members' line; internal so tests can read its frame and radius.
     let pill = CALayer()
+    /// `sidebar.groupLineJoinsHeader`: how far below the bar this header draws its members' line
+    /// as part of the bar, one outline (`SidebarGroupLineShape.joined`); 0 draws the bar alone.
+    var joinedLineLength: CGFloat = 0 {
+        didSet { if joinedLineLength != oldValue { needsLayout = true } }
+    }
+    /// Set by the list with a `joinedLineLength` that comes with an animated reload or fold: the
+    /// next layout springs the joined line to it on the rows' own `.move` spring, so its end stays
+    /// at the group's last row in every frame.
+    var springsNextJoin = false
+    /// The joined line's length the outline was last given; a line closing into its bar keeps the
+    /// joined outline (`unjoining`) until its spring ends.
+    private var drawnJoin: CGFloat = 0
+    private var unjoining = false
+    private var joinSprings = 0
+    /// The bar, in the header's coordinates (the bar layer runs down the line when joined).
+    private(set) var barFrame: NSRect = .zero
+    /// The bar's layer: the bar, or the bar and its joined line.
+    var barLayer: CALayer { pill }
     /// The group's color as a dot on its line (cx-25az, Leo 2026-10-10: no full
     /// pastel fill): the line starts under it and runs to the last member.
     let dot = CALayer()
@@ -156,7 +175,7 @@ final class GroupHeaderRowView: SidebarRowView {
         badge.configure(details.unreadCount && collapsed && unread > 0 ? .count(unread) : .none)
         setAccessibilityElement(true)
         setAccessibilityRole(.disclosureTriangle)
-        setAccessibilityLabel("\(group.name), \(Strings.groupCount(row.childCount))")
+        setAccessibilityLabel("\(group.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Strings.unnamedGroup : group.name), \(Strings.groupCount(row.childCount))")
         setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue)")
         moreButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).more")
         addButton.setAccessibilityIdentifier("cmux.sidebar.group.\(group.id.rawValue).add")
@@ -184,7 +203,7 @@ final class GroupHeaderRowView: SidebarRowView {
     /// The one ink every glyph on the header takes.
     var ink: NSColor? { name.textColor }
     /// The group chip (`GroupLabelBandTests`): a click here opens the editor.
-    var labelFrame: NSRect { pill.frame }
+    var labelFrame: NSRect { barFrame }
     /// The width the name needs to draw whole (`GroupLabelBandTests`).
     var titleIntrinsicWidth: CGFloat { Self.drawnWidth(name) }
     /// The width a header label needs to draw its text whole: its text in the font it draws in,
@@ -393,16 +412,82 @@ final class GroupHeaderRowView: SidebarRowView {
         // The name and the color line only: no bar (cx-7yywz).
         pill.isHidden = renaming || look.style == .line || look.style == .tinted
         // The cx-rcby chip: one full-width rounded bar, the row's full height like a workspace row's fill.
-        pill.frame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
-        pill.cornerRadius = SidebarStyle.rowCornerRadius // one radius with the pinned and workspace rows
+        barFrame = NSRect(x: 0, y: 0, width: b.width, height: b.height)
+        let radius = min(SidebarStyle.groupHeaderCornerRadius, b.height / 2)
+        // Joined to its members' line (`sidebar.groupLineJoinsHeader`, the solid band only), bar and
+        // line are one outline on this one layer: no seam, cap or step where they meet (Leo 2026-10-19).
+        let length = joinedLineLength > 0 && !collapsed && look.style == .band ? joinedLineLength : 0
+        let springs = springsNextJoin && length != drawnJoin
+        springsNextJoin = false
+        if length > 0 || unjoining || (springs && drawnJoin > 0) {
+            layOutJoined(length: length, radius: radius, springs: springs)
+        } else {
+            removeJoinSprings()
+            pill.frame = barFrame
+            pill.cornerRadius = radius // one radius with the pinned and workspace rows
+            pill.mask = nil
+            drawnJoin = 0
+        }
         // The dot is centred on the group line's x, where the line starts (SidebarListView+GroupLines).
         let dotSide = SidebarStyle.groupDotSize
         dot.frame = CGRect(x: SidebarStyle.groupBarX + SidebarStyle.groupBarWidth / 2 - dotSide / 2, y: (b.height - dotSide) / 2,
                            width: dotSide, height: dotSide)
         dot.cornerRadius = dotSide / 2
-        // The members' line starts under this bar: one layer per group
+        // The members' line starts below this bar (or joins it): one view per group
         // under the rows (SidebarListView+GroupLines, cx-qno.17).
         needsDisplay = true
+    }
+
+    /// The bar and its joined line `length` below it as one outline. Springing, the pill and its
+    /// outline move from what is on screen on the rows' spring; a line closing to 0 keeps the
+    /// joined outline until it is back in the bar, then the plain rounded bar takes over.
+    private func layOutJoined(length: CGFloat, radius: CGFloat, springs: Bool) {
+        let bar = barFrame
+        let frame = NSRect(x: bar.minX, y: bar.minY, width: bar.width, height: bar.height + length)
+        let path = SidebarGroupLineShape.joined(width: bar.width, barHeight: bar.height, radius: radius,
+                                                lineWidth: SidebarStyle.groupBarWidth, length: length)
+        let fresh = !(pill.mask is CAShapeLayer)
+        let outline = pill.mask as? CAShapeLayer ?? CAShapeLayer()
+        outline.anchorPoint = .zero
+        outline.position = .zero
+        pill.cornerRadius = 0
+        pill.mask = outline
+        guard springs else {
+            if length != drawnJoin { removeJoinSprings() }
+            pill.frame = frame
+            outline.bounds = CGRect(origin: .zero, size: frame.size)
+            outline.path = path
+            drawnJoin = length
+            return
+        }
+        // A line that starts joining grows from the bar alone.
+        let start = fresh ? SidebarGroupLineShape.joined(width: bar.width, barHeight: bar.height, radius: radius,
+                                                         lineWidth: SidebarStyle.groupBarWidth, length: 0) : nil
+        let startBounds = fresh ? NSValue(rect: CGRect(origin: .zero, size: bar.size)) : nil
+        drawnJoin = length
+        unjoining = length == 0
+        joinSprings += 1
+        let spring = joinSprings
+        CATransaction.begin()
+        CATransaction.setCompletionBlock { [weak self] in
+            MainActor.assumeIsolated { // main-proof: CATransaction.h: the completion block is called on the main thread
+                guard let self, self.joinSprings == spring, self.unjoining else { return }
+                self.unjoining = false
+                self.needsLayout = true
+            }
+        }
+        Motion.sidebar.set(pill, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)), spring: .move, from: startBounds)
+        Motion.sidebar.set(pill, "position", to: NSValue(point: CGPoint(x: frame.midX, y: frame.midY)), spring: .move,
+                           from: fresh ? NSValue(point: CGPoint(x: bar.midX, y: bar.midY)) : nil)
+        Motion.sidebar.set(outline, "bounds", to: NSValue(rect: CGRect(origin: .zero, size: frame.size)), spring: .move, from: startBounds)
+        Motion.sidebar.set(outline, "path", to: path, spring: .move, from: start)
+        CATransaction.commit()
+    }
+
+    private func removeJoinSprings() {
+        ["bounds", "position"].forEach(pill.removeAnimation(forKey:))
+        ["bounds", "path"].forEach { pill.mask?.removeAnimation(forKey: $0) }
+        unjoining = false
     }
 
     override func hoverChanged() {
