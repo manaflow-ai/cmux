@@ -56,6 +56,14 @@ public protocol BrowserUserClosing: AnyObject {
     func beginUserClose() -> Bool
 }
 
+extension BrowserTab {
+    /// ``BrowserUserClosing/beginUserClose()`` for a page that can refuse a
+    /// person's close; false (close now) for every other page.
+    public func pageDecidesUserClose() -> Bool {
+        (self as? any BrowserUserClosing)?.beginUserClose() ?? false
+    }
+}
+
 /// Tabs whose engine reports a hung page and lets the user choose ("Page
 /// unresponsive": Wait or Exit page).
 public protocol BrowserHangAnswering: AnyObject {

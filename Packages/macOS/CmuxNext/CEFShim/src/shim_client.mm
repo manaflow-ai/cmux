@@ -281,6 +281,8 @@ class Client : public CefClient,
                                  const CefString& error_string) override {
     int id = browser->GetIdentifier();
     TakeUnresponsiveCallback(id);
+    // A crash cancels dialogs without OnResetDialogState: the question goes too.
+    if (DropBeforeUnload(id)) Emit(CMUX_SHIM_BEFORE_UNLOAD_DISMISSED, id);
     Emit(CMUX_SHIM_RENDER_TERMINATED, id, 0, status, error_code, error_string.ToString());
   }
 
