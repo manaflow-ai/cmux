@@ -132,6 +132,67 @@ class NewestReviewSaysWait(unittest.TestCase):
         self.assertIn("SHIP", receipt.decide(pr([hold, comment(SHIP)]), HEAD)[0])
 
 
+class BareWaitLine(unittest.TestCase):
+    """Re-review of cmux#23067 at 9d98aee: a first line that is only a verdict ("BLOCK at <sha>", "**BLOCK at
+    <sha>**", "Do not merge") names no review, so review_state() skipped it and the older SHIP merged."""
+    LATER = "2026-10-21T06:00:00Z"
+
+    def decide(self, *later, reviews=()):
+        return receipt.decide(pr([comment(SHIP), *later], reviews), HEAD)
+
+    def test_bare_wait_lines_after_a_ship_refuse(self):
+        for line in (f"BLOCK at {HEAD[:12]}", f"**BLOCK at {HEAD[:12]}**", "Do not merge", "do not merge until #1 lands",
+                     f"NOT SHIP at {HEAD[:12]}", "BLOCK: the lock is dropped", "HOLD"):
+            with self.subTest(line=line):
+                who, why = self.decide(comment(line + "\ndetails", at=self.LATER))
+                self.assertEqual(who, "", why)
+                self.assertIn("says wait", why)
+
+    def test_a_bare_wait_line_in_a_review_body_refuses(self):
+        who, why = self.decide(reviews=[review("COMMENTED", body=f"**BLOCK at {HEAD[:12]}**", oid=OTHER, at=self.LATER)])
+        self.assertEqual(who, "", why)
+
+    def test_an_older_bare_block_does_not_refuse_a_newer_ship(self):
+        block = comment(f"BLOCK at {HEAD[:12]}", at="2026-10-21T04:00:00Z")
+        self.assertIn("SHIP", receipt.decide(pr([block, comment(SHIP)]), HEAD)[0])
+
+    def test_words_that_only_start_with_a_verdict_do_not_count(self):
+        for line in ("Blocked on CI, rerunning", "Blockers: none", "Not shipping docs yet? fine either way"):
+            with self.subTest(line=line):
+                self.assertIn("SHIP", self.decide(comment(line, at=self.LATER))[0])
+
+
+class FullWindow(unittest.TestCase):
+    """The read sees the newest 30 reviews and 40 comments. When a list comes back full and its oldest entry is not
+    older than the SHIP, items newer than the SHIP may have been cut off, so the gate cannot confirm nothing newer
+    says wait."""
+
+    @staticmethod
+    def at(minute):
+        return f"2026-10-21T{5 + minute // 60:02d}:{minute % 60:02d}:00Z"
+
+    def test_a_full_comment_window_whose_oldest_entry_is_the_ship_refuses(self):
+        chatter = [comment(f"status {i}", at=self.at(i + 1)) for i in range(39)]
+        who, why = receipt.decide(pr([comment(SHIP, at=self.at(0)), *chatter]), HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("window full", why)
+
+    def test_a_full_review_window_newer_than_the_ship_refuses(self):
+        reviews = [review("COMMENTED", body=f"note {i}", oid=OTHER, at=self.at(i + 1)) for i in range(30)]
+        who, why = receipt.decide(pr([comment(SHIP, at=self.at(0))], reviews), HEAD)
+        self.assertEqual(who, "", why)
+        self.assertIn("window full", why)
+
+    def test_a_full_window_that_reaches_past_the_ship_passes(self):
+        older = [comment(f"status {i}", at=self.at(i)) for i in range(20)]
+        newer = [comment(f"status {i}", at=self.at(i + 30)) for i in range(19)]
+        self.assertIn("SHIP", receipt.decide(pr([*older, comment(SHIP, at=self.at(25)), *newer]), HEAD)[0])
+
+    def test_a_window_below_its_cap_passes(self):
+        chatter = [comment(f"status {i}", at=self.at(i + 1)) for i in range(38)]
+        self.assertIn("SHIP", receipt.decide(pr([comment(SHIP, at=self.at(0)), *chatter]), HEAD)[0])
+
+
 class Command(unittest.TestCase):
     def run_main(self, payload, sha=HEAD):
         with tempfile.NamedTemporaryFile("w", suffix=".json") as handle:
