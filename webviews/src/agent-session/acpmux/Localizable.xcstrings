@@ -193338,133 +193338,265 @@
       }
     },
     "tools.backgroundTimedOut": {
-      "comment": "Agent pane: a short notice above the composer after Ctrl-B when the agent did not answer the request to move work to the background in time; the command keeps running in the foreground",
+      "comment": "Agent pane: a short notice above the composer after Ctrl-B when the agent did not answer the request to move work to the background in time; the command or subagent keeps running in the foreground",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "لم يستجب الوكيل؛ لا يزال الأمر قيد التشغيل"
+            "value": "لم يستجب الوكيل؛ لا يزال عملك قيد التشغيل"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agent nije odgovorio; naredba se i dalje izvršava"
+            "value": "Agent nije odgovorio; vaš rad se i dalje izvršava"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenten svarede ikke; kommandoen kører stadig"
+            "value": "Agenten svarede ikke; dit arbejde kører stadig"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Der Agent hat nicht geantwortet; der Befehl läuft weiter"
+            "value": "Der Agent hat nicht geantwortet; deine Arbeit läuft weiter"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "The agent didn't answer; the command is still running"
+            "value": "The agent didn't answer; your work is still running"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "El agente no respondió; el comando sigue en ejecución"
+            "value": "El agente no respondió; tu trabajo sigue en ejecución"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’agent n’a pas répondu ; la commande s’exécute toujours"
+            "value": "L’agent n’a pas répondu ; votre travail s’exécute toujours"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "L’agente non ha risposto; il comando è ancora in esecuzione"
+            "value": "L’agente non ha risposto; il tuo lavoro è ancora in esecuzione"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "エージェントが応答しませんでした。コマンドはまだ実行中です"
+            "value": "エージェントが応答しませんでした。処理はまだ実行中です"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបទេ។ ពាក្យបញ្ជានៅតែកំពុងដំណើរការ"
+            "value": "ភ្នាក់ងារមិនបានឆ្លើយតបទេ។ ការងាររបស់អ្នកនៅតែកំពុងដំណើរការ"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "에이전트가 응답하지 않았습니다. 명령은 아직 실행 중입니다"
+            "value": "에이전트가 응답하지 않았습니다. 작업은 아직 실행 중입니다"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agenten svarte ikke; kommandoen kjører fortsatt"
+            "value": "Agenten svarte ikke; arbeidet ditt kjører fortsatt"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Agent nie odpowiedział; polecenie nadal działa"
+            "value": "Agent nie odpowiedział; Twoja praca nadal trwa"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "O agente não respondeu; o comando ainda está em execução"
+            "value": "O agente não respondeu; seu trabalho ainda está em execução"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Агент не ответил; команда всё ещё выполняется"
+            "value": "Агент не ответил; ваша работа всё ещё выполняется"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เอเจนต์ไม่ตอบกลับ คำสั่งยังทำงานอยู่"
+            "value": "เอเจนต์ไม่ตอบกลับ งานของคุณยังทำงานอยู่"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ajan yanıt vermedi; komut hâlâ çalışıyor"
+            "value": "Ajan yanıt vermedi; işiniz hâlâ çalışıyor"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Агент не відповів; команда досі виконується"
+            "value": "Агент не відповів; ваша робота досі виконується"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Tác nhân không phản hồi; lệnh vẫn đang chạy"
+            "value": "Tác nhân không phản hồi; công việc của bạn vẫn đang chạy"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理没有响应；命令仍在运行"
+            "value": "代理没有响应；你的任务仍在运行"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "代理程式沒有回應；命令仍在執行"
+            "value": "代理程式沒有回應；你的工作仍在執行"
+          }
+        }
+      }
+    },
+    "tools.backgroundDisconnected": {
+      "comment": "Agent pane: a short notice above the composer after Ctrl-B when the connection to the agent was down or closed before it answered the request to move work to the background",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "انقطع الاتصال بالوكيل؛ حاول مجددًا عند عودته"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Veza s agentom je prekinuta; pokušajte ponovo kada se vrati"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Forbindelsen til agenten blev afbrudt; prøv igen, når den er tilbage"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Die Verbindung zum Agenten ist unterbrochen; versuche es erneut, wenn sie wieder steht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lost the connection to the agent; try again when it's back"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Se perdió la conexión con el agente; vuelve a intentarlo cuando se restablezca"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connexion à l’agent perdue ; réessayez quand elle sera rétablie"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Connessione con l’agente persa; riprova quando sarà ripristinata"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "エージェントとの接続が切れました。再接続したらもう一度お試しください"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "បាត់ការតភ្ជាប់ទៅភ្នាក់ងារ។ សូមព្យាយាមម្តងទៀតនៅពេលវាត្រឡប់មកវិញ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "에이전트와의 연결이 끊겼습니다. 다시 연결되면 다시 시도하세요"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mistet forbindelsen til agenten; prøv igjen når den er tilbake"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Utracono połączenie z agentem; spróbuj ponownie, gdy wróci"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "A conexão com o agente caiu; tente novamente quando ela voltar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Соединение с агентом потеряно; повторите попытку, когда оно восстановится"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "การเชื่อมต่อกับเอเจนต์ขาดหาย ลองอีกครั้งเมื่อเชื่อมต่อได้แล้ว"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Ajanla bağlantı koptu; geri geldiğinde yeniden deneyin"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "З’єднання з агентом втрачено; спробуйте ще раз, коли його буде відновлено"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mất kết nối với tác nhân; hãy thử lại khi kết nối được khôi phục"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "与代理的连接已断开；恢复后请重试"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "與代理程式的連線已中斷；恢復後請再試一次"
           }
         }
       }
