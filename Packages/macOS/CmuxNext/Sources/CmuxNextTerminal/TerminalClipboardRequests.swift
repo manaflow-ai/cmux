@@ -16,9 +16,6 @@ final class TerminalClipboardRequests {
     /// True only during a synchronous Ghostty key/binding call initiated by
     /// the user. A copy callback inside that call is not program output.
     private var userClipboardWriteInProgress = false
-    /// True while Ghostty synchronously commits a write the user approved in
-    /// ``confirm(contents:kind:state:)``.
-    private var approvedClipboardWriteInProgress = false
     /// At most one program-write dialog per surface; later writes are denied
     /// instead of growing the global dialog queue.
     private var writePromptPending = false
@@ -119,15 +116,16 @@ final class TerminalClipboardRequests {
         }
     }
 
-    /// Every callback that is not synchronous user copy or an already
-    /// approved Ghostty request is program output and requires consent.
-    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation) {
-        if userClipboardWriteInProgress || approvedClipboardWriteInProgress {
-            guard userClipboardWriteInProgress || bounded(items) else { return }
-            TerminalPasteboard.write(items, to: location)
-        } else {
+    /// Ghostty asks for confirmation (`confirm`) only when
+    /// `clipboard-write = ask`; its default `allow` writes silently, as in
+    /// Ghostty.app. A program's write stays bounded; a user copy does not.
+    func write(items: [TerminalClipboardItem], location: TerminalPasteboardLocation, confirm: Bool) {
+        if confirm, !userClipboardWriteInProgress {
             confirmWrite(items: items, location: location)
+            return
         }
+        guard userClipboardWriteInProgress || bounded(items) else { return }
+        TerminalPasteboard.write(items, to: location)
     }
 
     private func confirmProgramWrite(contents: String, contentBytes: Int, state: UncheckedPointer) {
@@ -142,8 +140,6 @@ final class TerminalClipboardRequests {
                 deny(state: state)
                 return
             }
-            approvedClipboardWriteInProgress = true
-            defer { approvedClipboardWriteInProgress = false }
             complete(state: state, with: contents)
         }
     }

@@ -7,9 +7,13 @@ import Testing
 @MainActor
 @Suite("Ghostty security defaults", .serialized)
 struct GhosttySecurityDefaultsTests {
-    @Test(arguments: ["", "clipboard-write = allow\n", "clipboard-write = ask\n"])
-    func programClipboardWritesRequireConsent(_ text: String) throws {
-        #expect(try resolvedString("clipboard-write", configText: text) == "ask")
+    @Test(arguments: ["", "clipboard-write = allow\n"])
+    func programClipboardWritesFollowGhosttyAllowDefault(_ text: String) throws {
+        #expect(try resolvedString("clipboard-write", configText: text) == "allow")
+    }
+
+    @Test func explicitClipboardWriteAskStaysAsk() throws {
+        #expect(try resolvedString("clipboard-write", configText: "clipboard-write = ask\n") == "ask")
     }
 
     @Test func explicitClipboardWriteDenyStaysDenied() throws {
