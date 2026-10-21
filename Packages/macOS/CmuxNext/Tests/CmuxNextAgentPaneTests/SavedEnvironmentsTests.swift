@@ -155,6 +155,23 @@ struct SavedEnvironmentsTests {
         #expect(Set(names ?? []) == ["Laptop", "Box", "Sandbox"])
     }
 
+    @Test func aFileThatCannotBeReadIsNeverReplaced() async throws {
+        let directory = try Self.directory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "environments.json")
+        // The user's environments, in a file this process may not read right now.
+        let kept = Data(#"{"environments":[{"id":"\#(UUID().uuidString)","name":"Laptop","kind":"local"}]}"#.utf8)
+        FileManager.default.createFile(atPath: url.path, contents: kept, attributes: [.posixPermissions: 0o000])
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path) }
+        let store = SavedEnvironments(url: url)
+        #expect(await store.list().isEmpty)
+        await #expect(throws: SavedEnvironments.Failure.unreadable) {
+            _ = try await store.save(AgentPaneEnvironment(name: "Box", kind: .ssh, host: "devbox"))
+        }
+        try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: url.path)
+        #expect(try Data(contentsOf: url) == kept)
+    }
+
     @Test func theFileIsTheOwnersAlone() async throws {
         let directory = try Self.directory()
         defer { try? FileManager.default.removeItem(at: directory) }
