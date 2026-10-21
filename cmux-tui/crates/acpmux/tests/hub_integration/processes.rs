@@ -1,7 +1,9 @@
 //! The background-process registry (docs/background-processes.md):
 //! `_acpmux/process/list` shows the background shells Claude Code runs and
 //! how each ended, `_acpmux/process/kill` stops one with Claude Code's
-//! `stop_task`, and `_acpmux/process_update` tells attached clients.
+//! `stop_task`, `_acpmux/process/background` (Ctrl-B) moves running work
+//! there with Claude Code's `background_tasks`, and `_acpmux/process_update`
+//! tells attached clients.
 
 use super::*;
 use acpmux::server::{Origin, serve_connection_with};
@@ -10,6 +12,7 @@ const LIST: &str = "_acpmux/process/list";
 const KILL: &str = "_acpmux/process/kill";
 const TAIL: &str = "_acpmux/process/tail";
 const UPDATE: &str = "_acpmux/process_update";
+const BACKGROUND: &str = "_acpmux/process/background";
 
 /// A Claude hub (fake_claude.py) under a fresh folder, with `env`.
 async fn claude_hub(env: &[(&str, &str)]) -> (Arc<Hub>, TestClient, std::path::PathBuf) {
@@ -54,11 +57,16 @@ fn chat_cwd(hub: &Arc<Hub>, id: &str) -> Value {
 
 /// The `stop_task` control requests acpmux wrote to Claude Code's stdin.
 fn stop_tasks(hub: &Arc<Hub>, id: &str) -> Vec<Value> {
+    control_requests(hub, id, "stop_task")
+}
+
+/// The control requests of `subtype` acpmux wrote to Claude Code's stdin.
+fn control_requests(hub: &Arc<Hub>, id: &str, subtype: &str) -> Vec<Value> {
     hub.events(id, 0, 10_000)
         .unwrap()
         .into_iter()
         .filter(|e| e.kind == "claude.stdin")
-        .filter(|e| e.msg.pointer("/request/subtype") == Some(&json!("stop_task")))
+        .filter(|e| e.msg.pointer("/request/subtype") == Some(&json!(subtype)))
         .map(|e| e.msg)
         .collect()
 }
@@ -92,7 +100,7 @@ async fn initialize_advertises_the_process_methods() {
         .unwrap();
     let acpmux = &init["_meta"]["acpmux"];
     let extensions = acpmux["extensions"].as_array().cloned().unwrap_or_default();
-    for m in [LIST, KILL, TAIL] {
+    for m in [LIST, KILL, TAIL, BACKGROUND] {
         assert!(extensions.iter().any(|e| e == m), "{m} not in {extensions:?}");
     }
     let features = acpmux["features"].as_array().cloned().unwrap_or_default();
@@ -326,12 +334,14 @@ async fn a_web_or_peer_connection_cannot_list_or_kill_processes() {
             (LIST, json!({})),
             (KILL, json!({"processId": pid, "sessionId": id})),
             (TAIL, json!({"processId": pid})),
+            (BACKGROUND, json!({"sessionId": id})),
         ] {
             let refused = remote.request(m, params.clone()).await;
             assert!(refused.is_err(), "{origin:?} {m} {params}: {refused:?}");
         }
     }
     assert_eq!(stop_tasks(&hub, &id), Vec::<Value>::new());
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
     let mut app = connection(&hub, Origin::LocalApp);
     let init = json!({"protocolVersion": 1, "clientInfo": {"name": "app"}});
     app.request(method::INITIALIZE, init).await.unwrap();
@@ -350,6 +360,119 @@ async fn kill_on_a_chat_that_is_not_claude_is_refused() {
     let refused = c.request(KILL, json!({"processId": format!("{id}/t1")})).await.unwrap_err();
     assert!(refused.contains("Claude Code"), "{refused}");
     assert_eq!(c.request(LIST, json!({"sessionId": id})).await.unwrap(), json!({"processes": []}));
+    hub.shutdown_all().await;
+}
+
+/// A new chat running fake_claude.py's "fg-shell" turn, a Bash call in the
+/// foreground until Ctrl-B moves it; returns the chat and the prompt's
+/// request id once the call is on screen.
+async fn fg_shell(c: &mut TestClient) -> (String, i64) {
+    let s = c.request(method::SESSION_NEW, json!({"cwd": cwd(), "mcpServers": []})).await.unwrap();
+    let id = s["sessionId"].as_str().unwrap().to_owned();
+    let prompt = json!({"sessionId": id, "prompt": [{"type": "text", "text": "fg-shell"}]});
+    let turn = c.send(method::SESSION_PROMPT, prompt).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["toolCallId"] == "toolu_fg").await;
+    (id, turn)
+}
+
+/// Ctrl-B with no tool call sends Claude Code's `background_tasks` for
+/// every foreground task; the shell it moved runs on past the turn, listed
+/// as sent to the background by the person.
+#[tokio::test]
+async fn background_moves_the_running_work_and_lists_it_as_the_persons() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": true}));
+    let sent = control_requests(&hub, &id, "background_tasks");
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0]["request"], json!({"subtype": "background_tasks"}));
+    assert!(sent[0]["request_id"].as_str().is_some_and(|r| r.starts_with("bg-")), "{sent:?}");
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    let list = listed(&mut c, &id).await;
+    assert_eq!(list.len(), 1, "{list:?}");
+    assert_eq!(
+        (&list[0]["toolCallId"], &list[0]["taskId"], &list[0]["state"], &list[0]["origin"]),
+        (&json!("toolu_fg"), &json!("f1"), &json!("running"), &json!("user_backgrounded")),
+        "{list:?}"
+    );
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// With a tool call, only its task is asked for (`tool_use_id`); a call
+/// that runs nothing in the foreground answers `backgrounded: false`.
+#[tokio::test]
+async fn background_of_one_tool_call_names_it() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let r = other.request(BACKGROUND, json!({"sessionId": id, "toolCallId": "toolu_other"})).await;
+    assert_eq!(r.unwrap(), json!({"backgrounded": false}));
+    let r = other.request(BACKGROUND, json!({"sessionId": id, "toolCallId": "toolu_fg"})).await;
+    assert_eq!(r.unwrap(), json!({"backgrounded": true}));
+    let sent: Vec<Value> = control_requests(&hub, &id, "background_tasks")
+        .iter()
+        .map(|r| r["request"].clone())
+        .collect();
+    assert_eq!(
+        sent,
+        vec![
+            json!({"subtype": "background_tasks", "tool_use_id": "toolu_other"}),
+            json!({"subtype": "background_tasks", "tool_use_id": "toolu_fg"}),
+        ]
+    );
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "end_turn");
+    assert_eq!(listed(&mut c, &id).await[0]["origin"], "user_backgrounded");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// With no turn running nothing runs in the foreground: the answer is
+/// `backgrounded: false` and Claude Code is not asked.
+#[tokio::test]
+async fn background_with_no_turn_running_moves_nothing() {
+    let (hub, mut c, root) = claude_hub(&[]).await;
+    let id = chat(&mut c, "hi").await;
+    let r = c.request(BACKGROUND, json!({"sessionId": id})).await.unwrap();
+    assert_eq!(r, json!({"backgrounded": false}));
+    assert_eq!(control_requests(&hub, &id, "background_tasks"), Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Claude Code's refusal is the request's error, and the shell stays in the
+/// foreground.
+#[tokio::test]
+async fn background_refused_by_claude_code_is_an_error() {
+    let (hub, mut c, root) = claude_hub(&[("FAKE_CLAUDE_BACKGROUND_ERROR", "no task")]).await;
+    let (id, turn) = fg_shell(&mut c).await;
+    let mut other = connect(&hub).await;
+    let refused = other.request(BACKGROUND, json!({"sessionId": id})).await.unwrap_err();
+    assert!(refused.contains("no task"), "{refused}");
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
+    let (answer, _) = c.response(turn).await;
+    assert_eq!(answer.unwrap()["stopReason"], "cancelled");
+    assert_eq!(listed(&mut c, &id).await, Vec::<Value>::new());
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// Only Claude Code has a Ctrl-B: another agent's chat is refused, and so
+/// are bad params.
+#[tokio::test]
+async fn background_on_a_chat_that_is_not_claude_is_refused() {
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "acp").await;
+    let refused = c.request(BACKGROUND, json!({"sessionId": id})).await.unwrap_err();
+    assert!(refused.contains("Claude Code"), "{refused}");
+    for params in [json!({}), json!({"sessionId": 7}), json!({"sessionId": id, "toolCallId": 7})] {
+        let refused = c.request(BACKGROUND, params.clone()).await;
+        assert!(refused.is_err(), "{params} was not refused: {refused:?}");
+    }
     hub.shutdown_all().await;
 }
 
