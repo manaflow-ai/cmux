@@ -256,6 +256,51 @@ fn a_reopened_tab_whose_pane_closed_splits_its_neighbor_again() {
     assert_eq!(layout_of(&mux, "tab"), before);
 }
 
+/// `name`'s first pane holding one tab `l1`, split right into `r1`, which
+/// is split down into `d1`: `l | (r / d)`, with `l` at 0.3 of the width.
+fn left_of_a_stack(mux: &Arc<Mux>, name: &str) -> (SurfaceId, PaneId, PaneId, PaneId) {
+    mux.new_workspace(Some("keeper".into()), None).unwrap();
+    let first = mux.new_workspace(Some(name.to_string()), None).unwrap().id;
+    assert!(mux.rename_surface(first, "l1".into()));
+    let l = pane_of(mux, first);
+    let r = split_named(mux, l, SplitDir::Right, "r1");
+    let d = split_named(mux, r, SplitDir::Down, "d1");
+    assert!(mux.set_ratio(l, SplitDir::Right, 0.3));
+    (first, l, r, d)
+}
+
+/// A closed pane whose sibling was a split (`l` beside `r / d`) reopens
+/// beside the whole split, full height at its share of the width, not
+/// split off the one pane of it that it touched (`(l | r) / d`).
+#[test]
+fn a_reopened_pane_beside_a_split_splits_off_all_of_it_again() {
+    let mux = Mux::new_for_test("closed-layout-beside-split", SurfaceOptions::default());
+    let (l1, l, _, _) = left_of_a_stack(&mux, "beside");
+    assert!(mux.focus_pane(l));
+    let before = layout_of(&mux, "beside");
+    assert!(mux.close_surface(l1).unwrap());
+    assert_ne!(layout_of(&mux, "beside"), before, "the pane closed with its tab");
+    mutate(&mux, "closed.reopen", json!({}), "reopen");
+    assert_eq!(layout_of(&mux, "beside"), before);
+}
+
+/// Close a pane, then the neighbor it was split off: two reopens put the
+/// neighbor back and then the first pane split off it again, not as a tab
+/// of whichever pane has the focus.
+#[test]
+fn two_closed_panes_reopen_in_their_splits_one_after_the_other() {
+    let mux = Mux::new_for_test("closed-layout-two-panes", SurfaceOptions::default());
+    let (_, _, r, d) = left_of_a_stack(&mux, "two");
+    let (r1, d1) = mux.with_state(|state| (state.panes[&r].tabs[0], state.panes[&d].tabs[0]));
+    assert!(mux.focus_pane(d));
+    let before = layout_of(&mux, "two");
+    assert!(mux.close_surface(d1).unwrap());
+    assert!(mux.close_surface(r1).unwrap());
+    mutate(&mux, "closed.reopen", json!({}), "reopen-r");
+    mutate(&mux, "closed.reopen", json!({}), "reopen-d");
+    assert_eq!(layout_of(&mux, "two"), before);
+}
+
 /// A record made before layouts were kept (no `layout`) still reopens, in
 /// one pane, in order.
 #[test]

@@ -183,3 +183,54 @@ fn a_child_window_that_becomes_key_is_decided_as_the_swift_rule_did() {
         assert_eq!(response["shouldReclaim"], case["shouldReclaim"], "{}", case["facts"]);
     }
 }
+
+/// Cmd-W on the only pane of one of a screen's two columns leaves a plain
+/// split screen, whose one column takes the screen's id. The focus stays in
+/// the column that is left, never on a pane of another screen that was
+/// focused earlier.
+#[test]
+fn closing_one_of_two_columns_keeps_the_focus_on_its_screen() {
+    let topology = |panes: &[&str], screens: Value| -> FocusEvent {
+        let panes: Vec<Value> = panes
+            .iter()
+            .map(|pane| {
+                let tab = format!("{pane}-tab");
+                json!({"id": pane, "selected": tab, "tabs": [{"id": tab, "kind": "terminal"}]})
+            })
+            .collect();
+        serde_json::from_value(json!({"topology": {"_0": {
+            "workspace": "ws", "panes": panes, "screens": screens,
+        }}}))
+        .unwrap()
+    };
+    let mut state = FocusState::default();
+    let mut effects = Vec::new();
+    let FocusEvent::Topology { topology: before } = topology(
+        &["p1", "p2", "q1"],
+        json!([[{"id": "c1", "panes": ["p1"]}, {"id": "c2", "panes": ["p2"]}],
+               [{"id": "s2", "panes": ["q1"]}]]),
+    ) else {
+        unreachable!()
+    };
+    reducer::set_topology(&mut state, before, &mut effects);
+    for pane in ["p1", "q1", "p2"] {
+        let event: FocusEvent = serde_json::from_value(
+            json!({"focusPane": {"_0": pane, "source": "mouse", "workspace": "ws"}}),
+        )
+        .unwrap();
+        reducer::reduce(&mut state, &event, &mut effects);
+    }
+    assert_eq!(state.pane.as_deref(), Some("p2"));
+    let FocusEvent::Topology { topology: after } = topology(
+        &["p1", "q1"],
+        json!([[{"id": "s1", "panes": ["p1"]}], [{"id": "s2", "panes": ["q1"]}]]),
+    ) else {
+        unreachable!()
+    };
+    reducer::set_topology(&mut state, after, &mut effects);
+    assert_eq!(
+        state.pane.as_deref(),
+        Some("p1"),
+        "the focus left the screen for a pane of another screen"
+    );
+}
