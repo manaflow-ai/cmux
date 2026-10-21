@@ -685,9 +685,16 @@ struct MachinesPanelView: View {
                 // A refresh can replace or withdraw the destination while the
                 // session resolves; never launch setup for a stale one.
                 guard currentCoderouterScope == scope else { return }
-                guard case let .ready(current) = coderouterStore.state.addAvailability(for: scope),
-                      current.organizationID == destination.organizationID else {
+                switch coderouterStore.state.addAvailability(for: scope) {
+                case .ready(let current) where current.organizationID == destination.organizationID:
+                    break
+                case .failed(let failure):
+                    viewModel.noteTreeHint(failure.message)
+                    requestCoderouterRefresh()
+                    return
+                case .ready, .loading:
                     viewModel.noteTreeHint(String(localized: "coderouter.loadingTeam", defaultValue: "Account settings are still loading for this team. Try again in a moment."))
+                    requestCoderouterRefresh()
                     return
                 }
                 sessionDirectory = try session.makeSessionDirectory(
