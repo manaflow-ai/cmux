@@ -2,6 +2,9 @@
 // row's title is the descriptor's `summary`, never the long `help` the docs and the MDM manifest
 // keep. The lint below fails any description line the page draws (a row's line, a card's intro, a
 // status line) over 60 characters in any language, and any schema summary over 60 characters.
+// Its sweep renders every Settings page in all 21 locales (a 300 s test limit), past the 120 s
+// file default on a busy worker:
+// cmux-web-test-timeout: 360
 import { afterAll, afterEach, expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 import path from "node:path";
