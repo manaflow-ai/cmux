@@ -462,11 +462,8 @@ impl Hub {
         session: &Arc<Session>,
         profile: &HarnessProfile,
     ) -> Result<Arc<ChildAgent>, RpcError> {
-        // A stopped session reopens on demand. Only a purge is final.
-        if session.status() == SessionStatus::Closed {
-            self.append(session, "mux", "reopened", json!({}));
-            self.set_status(session, SessionStatus::Idle);
-        }
+        // Its worktree back if cleanup reclaimed it, and reopened if stopped.
+        self.ready_to_start(session).await;
         let meta = session.meta();
         let tap = self.session_tap(session);
         let is_claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;

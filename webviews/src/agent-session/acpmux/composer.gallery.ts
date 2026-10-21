@@ -678,13 +678,13 @@ export default agentPaneEntry({
       }),
     },
     "steer-marks": {
-      note: "Under a steer's bubble: Steering while the agent has not read it, with a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on), Steered once it has, and Sent now for a prompt that stopped a turn of an agent that cannot steer.",
+      note: "Under a steer's bubble: while the agent has not read it, no label (it shows as any sent prompt), only a faint clock and Send now (stops the agent's current step so it reads the steer at once; the turn goes on); Steered once it has. A prompt sent now to an agent that cannot steer goes on with the turn and carries no mark.",
       snapshot: chat(
         [
           user("Add retries", 6),
           user("Use the cache dir, not tmp", 5, { steer: "landed" }),
           assistant("Using the cache dir now.", 4),
-          user("Stop and fix the space thing first", 3, { steer: "stopped" }),
+          user("Stop and fix the space thing first", 3, { continues: true }),
           assistant("Fixing the space handling…", 2),
           user("Also keep the old flag working", 1, { steer: "waiting", steerPromptId: "p-steer" }),
           assistant("Reading the flag parser…", 0.5, { streaming: true }),

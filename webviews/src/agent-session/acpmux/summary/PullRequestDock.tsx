@@ -4,14 +4,19 @@
 // column is full, with its dismiss button inside. The chat folder's pull request, which the header
 // chip follows live, shows its live state and title. The newest two show and the rest wait behind
 // Show more; a dismissed bar stays hidden for this chat (the page's storage, so a reload keeps it
-// hidden).
-import { useEffect, useRef, useState } from "react";
+// hidden). Hovering a bar, or focusing it, opens the shared link card (chips/LinkHoverCard.tsx) with
+// the pull request's full title, state, author and checks.
+import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { Close } from "../conversation/icons";
 import { useHeaderState, type HeaderPullRequest } from "../header/headerState";
 import { sessionPullRequests, type SummaryPullRequest } from "./sessionSummary";
+import { GitHubMark } from "../conversation/icons";
+import { LinkHoverCard } from "../chips/LinkHoverCard";
+import { useSiteInfo } from "../chips/linkStore";
+import { useHoverCard } from "../chips/useHoverCard";
 
 const SHOWN = 2;
 const BADGES: Record<string, StringKey> = {
@@ -92,13 +97,13 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
         const badge = BADGES[state];
         return (
           <div key={pr.url} className="acpmux-pr-dock__chip">
-            <a className="acpmux-pr-dock__bar" href={pr.url} data-state={state}>
+            <PullRequestBar pr={pr} state={state} title={title}>
               <Icon name="git.pullrequest" size={13} />
               <span className="acpmux-pr-dock__number">#{pr.number}</span>
               <span className="acpmux-pr-dock__repo">{pr.repo.split("/").pop()}</span>
               {title && <span className="acpmux-pr-dock__title">{title}</span>}
               {labeled && <span className="acpmux-pr-dock__state">{badge ? t(badge) : state}</span>}
-            </a>
+            </PullRequestBar>
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact acpmux-pr-dock__dismiss"
@@ -121,5 +126,47 @@ export function PullRequestDock({ rows, sessionId }: { rows: readonly AcpmuxRow[
         </button>
       )}
     </section>
+  );
+}
+
+/// One bar's link and its hover card, the same card as a pull request link in a reply.
+function PullRequestBar({
+  pr,
+  state,
+  title,
+  children,
+}: {
+  pr: SummaryPullRequest;
+  state: string;
+  title: string;
+  children: ReactNode;
+}) {
+  const hover = useHoverCard();
+  const site = useSiteInfo(pr.url);
+  const [bar, setBar] = useState<HTMLAnchorElement | null>(null);
+  const card = useId();
+  return (
+    <>
+      <a
+        ref={setBar}
+        className="acpmux-pr-dock__bar"
+        href={pr.url}
+        data-state={state}
+        aria-describedby={hover.open ? card : undefined}
+        {...hover.trigger}
+      >
+        {children}
+      </a>
+      <LinkHoverCard
+        id={card}
+        href={pr.url}
+        anchor={bar}
+        hover={hover}
+        mark={<GitHubMark size={13} className="cv-chip__icon cv-chip__icon--gh" />}
+        siteTitle={site?.title}
+        pullRequest={{ repo: pr.repo, number: pr.number, title, state }}
+        side="top"
+      />
+    </>
   );
 }
