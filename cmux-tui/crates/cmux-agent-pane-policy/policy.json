@@ -13,7 +13,7 @@
     "acp.session.fork", "acp.trust.get", "acp.trust.set", "_acpmux/harness_enable",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread",
     "_acpmux/harness/health", "_acpmux/side", "_acpmux/offer_respond", "_acpmux/start_mode",
-    "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over"
+    "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over", "_acpmux/set_tools"
   ],
   "notifications": ["session/cancel"],
   "maximum_frame_bytes": 33554432,
@@ -23,7 +23,7 @@
     "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
     "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/btw", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
     "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side",
-    "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over"
+    "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over", "_acpmux/set_tools"
   ],
   "optionally_session_scoped": ["acp.trust.get", "acp.trust.set"],
   "scoped_session_params": {"_acpmux/side": ["chat"]},
@@ -91,6 +91,7 @@
     "_acpmux/subagent_stop": {"params": ["sessionId", "subagentSessionId"], "acpmux": []},
     "_acpmux/agent_pair_resume": {"params": ["sessionId", "peerSessionId"], "acpmux": []},
     "_acpmux/watch_take_over": {"params": ["sessionId", "ifLive"], "acpmux": []},
+    "_acpmux/set_tools": {"params": ["sessionId", "id", "enabled"], "acpmux": []},
     "acp.session.fork": {"params": ["sessionId", "throughSeq"], "acpmux": []},
     "acp.trust.get": {"params": ["cwd", "sessionId"], "acpmux": []},
     "acp.trust.set": {"params": ["cwd", "level", "sessionId"], "acpmux": []},

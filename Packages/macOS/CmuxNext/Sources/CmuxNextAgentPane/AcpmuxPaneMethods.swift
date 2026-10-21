@@ -85,6 +85,10 @@ nonisolated enum AcpmuxPaneMethods {
         // `peerSessionId` only picks one of that chat's paused pairs; acpmux resumes no pair the
         // chat is not in, and only for a connection that proved the person key (hub/person.rs).
         "_acpmux/agent_pair_resume",
+        // Use tools in the summary's Sources + (direct.ts setTool, cx-thur3): turns one of a chat's
+        // MCP servers off or on again for that chat only; acpmux restarts its Claude Code and
+        // resumes it (now, after the running turn, or at its next start).
+        "_acpmux/set_tools",
     ]
 
     /// Notifications (no `id`).
@@ -180,7 +184,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/watch_take_over", "_acpmux/set_tools",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
@@ -257,6 +261,8 @@ nonisolated enum AcpmuxPaneMethods {
         // _acpmux/permission_chat_revoke revokes: no gesture.
         // _acpmux/offer_respond declines, or links the page's own new chat: no gesture (the work
         // Start begins is its session/prompt, which has one).
+        // _acpmux/set_tools: no gesture. It only turns off, or back on, an MCP server the chat
+        // already had from the person's own config; it adds none.
     ]
 
     /// Whether a granting frame of `method` may use the current gesture: a permission allow needs
