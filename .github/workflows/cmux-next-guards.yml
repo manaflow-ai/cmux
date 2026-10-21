@@ -67,7 +67,7 @@ jobs:
       # only on a step red on this change but not on its base; the base's reds are warnings
       # (scripts/ci/guards_new_reds.py). The base's steps run with this checkout's runner (--root).
       - name: Checkout the base
-        if: (github.event.pull_request.base.sha || github.event.before || '') != '' && github.event.before != '0000000000000000000000000000000000000000'
+        if: (github.event.pull_request.base.sha || github.event.before || '') != '' && (github.event.pull_request.base.sha || github.event.before) != '0000000000000000000000000000000000000000'
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ github.event.pull_request.base.sha || github.event.before }}
