@@ -71,14 +71,6 @@ enum HomeConversationStrings {
         }
     }
 
-    /// The label before New Message's Chiefs strip.
-    static var composeChiefs: String { String(localized: "home.compose.chiefs", defaultValue: "Chiefs", bundle: .module) }
-
-    /// A Chiefs strip button's accessibility label.
-    static func composeAddChief(_ name: String) -> String {
-        String(format: String(localized: "home.compose.addChief", defaultValue: "Add %@", bundle: .module), name)
-    }
-
     // MARK: Chiefs (HomeChiefRoster)
 
     /// The main Chief's tag in the list.

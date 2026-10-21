@@ -80,6 +80,7 @@ import {
   vmRequestLocale,
   vmRequiresProCopy,
   vmMemoryErrorCopy,
+  vmMutationGuardCopy,
   vmGoLimitCopy,
   vmPlanBudgetCopy,
   vmActiveLimitCountedCopy,
@@ -1100,6 +1101,19 @@ export const vmWorkflowErrorResponders = {
       phase: "snapshot",
       retryable: false,
     }),
+  VmSnapshotQuotaExceededError: async (error, context) => {
+    const copy = await vmMutationGuardCopy("snapshotQuota", context.locale);
+    return vmErrorResponse({
+      error: "vm_snapshot_quota_exceeded",
+      status: 409,
+      message: copy.message,
+      action: copy.action,
+      displayTitle: copy.title,
+      phase: "snapshot",
+      retryable: false,
+      details: { limit: error.limit },
+    });
+  },
   VmResizeInProgressError: () =>
     vmErrorResponse({
       error: "vm_resize_in_progress",

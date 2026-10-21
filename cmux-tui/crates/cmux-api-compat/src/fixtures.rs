@@ -63,7 +63,7 @@ pub fn check_fixtures(schema: &Schema, fixtures: &Fixtures) -> Vec<String> {
         Err(error) => return vec![error.to_string()],
     };
     for (index, case) in fixtures.cases.iter().enumerate() {
-        let input = serde_json::to_vec(&case.input).expect("values serialize");
+        let input = case.input.to_string().into_bytes();
         match compat.translate(&case.message, case.from, case.to, &input) {
             Ok(bytes) => match serde_json::from_slice::<Value>(&bytes) {
                 Ok(got) if got == case.output => {}
