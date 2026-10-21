@@ -333,6 +333,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/step_now",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/agent_pair_resume",
       "params": true,
       "result": true
@@ -661,6 +667,30 @@
     {
       "kind": "request",
       "name": "_acpmux/person_holds",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/approvers_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/new_chat_picks_set",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/workspace_roots_set",
       "params": true,
       "result": true
     },
