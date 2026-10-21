@@ -47,6 +47,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .importCard: "importCard"
         case .openChat: "openChat"
         case .openChatInTerminal: "openChatInTerminal"
+        case .watchChat: "watchChat"
         case .chatsPage: "chatsPage"
         case .environment: "environment"
         case .appAction: "appAction"
