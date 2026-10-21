@@ -667,7 +667,7 @@
     "setting.status.runNotifyWhenVisible": false,
     "setting.tabs.barOrder": "aboveToolbar",
     "setting.tabs.barPosition": "top",
-    "setting.tabs.cmdWClosesPinnedTabs": false,
+    "setting.tabs.cmdWClosesPinnedTabs": true,
     "setting.tabs.newTabNowPlaying": true,
     "setting.tabs.newTabPosition": "afterCurrent",
     "setting.tabs.newTabTemplate": "cards",
