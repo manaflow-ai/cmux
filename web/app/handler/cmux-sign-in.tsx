@@ -977,8 +977,9 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
   );
   const [email, setEmail] = useState(prefillEmail ?? "");
   // The code was refused for an unverified account: its password form opens
-  // on the password, the email kept.
+  // on the password, the email kept. Once only: picking a tab by hand clears it.
   const [switchedToPassword, setSwitchedToPassword] = useState(false);
+  /** Opens email and password after the code was refused; absent when that form can't sign in. */
   const openPassword = mode === "sign-in" && credentialEnabled
     ? () => {
       setSwitchedToPassword(true);
@@ -998,7 +999,14 @@ function EmailMethods({ mode, messages, returnTo, magicLinkEnabled, credentialEn
 
   // Both enabled: the hosted screen's segmented control, the code first.
   return (
-    <Tabs.Root value={method} onValueChange={(value) => setMethod(value === "password" ? "password" : "code")} className="grid gap-2">
+    <Tabs.Root
+      value={method}
+      onValueChange={(value) => {
+        setSwitchedToPassword(false);
+        setMethod(value === "password" ? "password" : "code");
+      }}
+      className="grid gap-2"
+    >
       <Tabs.List className="grid grid-cols-2 border border-border p-0.5">
         <Tabs.Tab value="code" className={segmentClass}>{messages.emailCodeTab}</Tabs.Tab>
         <Tabs.Tab value="password" className={segmentClass}>{messages.emailPasswordTab}</Tabs.Tab>
@@ -1079,7 +1087,7 @@ function EmailCode({ messages, email, onEmailChange, onUsePassword }: {
   const [error, setError] = useState<string | null>(null);
   const [unverified, setUnverified] = useState(false);
 
-  // A refusal was for the address as it was; editing it clears the refusal.
+  /** A refusal was for the address as it was; editing it clears the refusal. */
   function changeEmail(value: string) {
     setError(null);
     setUnverified(false);
