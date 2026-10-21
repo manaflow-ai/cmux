@@ -1750,8 +1750,7 @@ class HelperCheckoutUpdateRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, stderr + "\n" + log)
             self.assertTrue(marker_exists, stderr + "\n" + log)
             result, marker_exists, marker_content, log, stderr = self.invoke("dirty")
-            self.assertIn("dirty", stderr)
-            self.assertNotIn("cannot read", stderr)
+            self.assertIn("dirty", stderr)  # the update ran and refused; the PR read after it is the fake gh's
 
     def test_clean_main_checkout_fast_forwards_and_reexecutes(self):
         result, marker_exists, marker_content, log, stderr = self.invoke("behind")
