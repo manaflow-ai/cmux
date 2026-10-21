@@ -435,6 +435,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     };
                     return crate::cli::host_enroll::run(client, plan, fix, json_out).await;
                 }
+                PeerCmd::Candidates { probe } => {
+                    return crate::cli::host_candidates::run(&client, probe, json_out).await;
+                }
             };
             if json_out {
                 print_json(&v);

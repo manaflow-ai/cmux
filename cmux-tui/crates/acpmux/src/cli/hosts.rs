@@ -81,7 +81,7 @@ pub(crate) fn plain_path(path: &str) -> bool {
 
 /// An ssh destination given on the command line or taken from a peer URL,
 /// checked like a peer's (`peer::ssh_target`): never an ssh option.
-fn checked_host(host: &str) -> Result<&str> {
+pub(crate) fn checked_host(host: &str) -> Result<&str> {
     let t = crate::peer::ssh_target(&format!("ssh://{host}"))
         .map_err(|why| anyhow!("refusing that ssh host: {why}"))?;
     if t.destination != host {
@@ -92,7 +92,7 @@ fn checked_host(host: &str) -> Result<&str> {
 
 /// `ssh ... -- HOST SCRIPT`: `--` before the destination; the script is
 /// acpmux's own fixed text.
-fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
+pub(crate) fn ssh_argv(host: &str, script: &str) -> Result<Vec<String>> {
     let host = checked_host(host)?;
     Ok(["-o", "BatchMode=yes", "-o", "ConnectTimeout=15", "--", host, script]
         .iter()

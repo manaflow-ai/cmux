@@ -819,6 +819,12 @@ pub enum PeerCmd {
         #[arg(long, default_value = "~/.local/bin/acpmux")]
         remote_binary: String,
     },
+    /// The tailnet's machines that could be added, marking those already peers.
+    Candidates {
+        /// Also try key-only ssh to each online machine.
+        #[arg(long)]
+        probe: bool,
+    },
 }
 
 #[derive(Args)]
