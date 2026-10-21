@@ -90,5 +90,6 @@ pub mod trust;
 pub mod tui;
 pub mod user_settings;
 pub mod web_modes;
+pub mod worktree_sessions;
 
 pub mod model_catalog;

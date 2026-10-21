@@ -6,6 +6,17 @@ export type EnvironmentKind = "local" | "ssh" | "cloud";
 /// `connected`: what acpmux last said of an SSH or Cloud machine it lists; absent when it said nothing.
 export type Environment = { id: string; label: string; kind: EnvironmentKind; connected?: boolean };
 
+/// The location row's connect choices and the app action each runs (the agent pane allows exactly
+/// these; AgentPaneModel.connectActions): SSH… connects a machine, New Cloud Machine creates one on
+/// the plan's default size, and Open Cloud… opens the Cloud page, whose storefront lists
+/// the plan's sizes (the pane knows no plan).
+export const CONNECT_ACTIONS = {
+  ssh: "remote.connect",
+  cloud: "newCloudMachine",
+  cloudPage: "palette.openCloudPane",
+} as const;
+export type ConnectKind = keyof typeof CONNECT_ACTIONS;
+
 const SECTION_ORDER: readonly EnvironmentKind[] = ["local", "ssh", "cloud"];
 
 /// Each peer's transport from `_acpmux/status`: `ssh` for an `ssh://` peer, `cloud` for a

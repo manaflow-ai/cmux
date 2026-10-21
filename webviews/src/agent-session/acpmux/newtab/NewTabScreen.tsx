@@ -1,5 +1,6 @@
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { flushSync } from "react-dom";
+import type { ConnectKind } from "../environments";
 import { useDictationListening, type DictationField } from "../dictation";
 import { FOCUS_LOCATION_EVENT, type NewTabHost } from "../NewTabPage";
 import type { AcpmuxSnapshot } from "../model";
@@ -99,7 +100,7 @@ export type NewTabScreenActions = {
   /// Preview features on: the location row's computer is the environment picker (ComposerContext).
   environments?: boolean;
   /// The environment picker's New environment: the host's SSH and cmux Cloud connect flows.
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
   /// With `environments`, New Worktree beside the folder: the host makes a worktree of `cwd` and
   /// this resolves to the folder the chat starts in (startFolder.tsx newWorktree); rejects with the
   /// host's reason.

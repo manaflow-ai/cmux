@@ -5,7 +5,7 @@ import { Popover } from "../../ui/Popover";
 import type { AcpmuxSnapshot } from "./model";
 import { ChevronIcon } from "./ComposerPickers";
 import { EnvironmentIcon, EnvironmentPicker, type SavedEnvironmentRows } from "./EnvironmentPicker";
-import type { EnvironmentKind } from "./environments";
+import type { ConnectKind, EnvironmentKind } from "./environments";
 import { FolderPopover } from "./FolderPopover";
 import type { Project } from "./ProjectChooser";
 import { projectSuffixes } from "./projectSuffix";
@@ -92,7 +92,7 @@ export function ComposerContext({
   onBrowseFolder?(): Promise<string | undefined>;
   /// A new chat's Computer menu ends with SSH… and New Cloud Machine, which open the host's
   /// connect flows (Lawrence 2026-10-06: "I cannot click on cmux Cloud SSH").
-  onConnect?(kind: "ssh" | "cloud"): void;
+  onConnect?(kind: ConnectKind): void;
   /// The New Tab page's saved environments, in the environment picker. While one is picked it
   /// alone names where the chat starts: the folder and New Worktree controls step aside.
   saved?: SavedEnvironmentRows;
