@@ -12,7 +12,8 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
 import { chromium, webkit, type Browser, type BrowserType } from "playwright";
-import type { Cadence, StreamReport } from "./browser/streaming-text.harness";
+import type { Cadence } from "../src/agent-session/acpmux/conversation/streamingTextFixture";
+import type { StreamReport } from "./browser/streaming-text.harness";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
