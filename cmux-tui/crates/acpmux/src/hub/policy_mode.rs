@@ -234,6 +234,9 @@ impl Hub {
         if asks() {
             return;
         }
+        // Under the spawn lock, as `follow_policy`: a start in flight either ends first and its
+        // child is seen here, or starts after and reads the policy (`spawn.rs` sets the marker).
+        let spawning = session.spawn_lock.lock().await;
         let child = session.child.lock().await.clone();
         let running = match child {
             Some(child) => child.is_alive().await,
@@ -243,7 +246,12 @@ impl Hub {
         if !running {
             return;
         }
-        let Ok(_turn) = session.turn_lock.try_lock() else {
+        // `child_for` takes the spawn lock.
+        drop(spawning);
+        // A turn runs, or one recovered from an agent host has not taken its lock yet
+        // (`transfer_out.rs`): the agent restarts when it ends.
+        let idle = if session.turn().is_none() { session.turn_lock.try_lock().ok() } else { None };
+        let Some(_turn) = idle else {
             session.route_switch.store(true, Ordering::SeqCst);
             return;
         };
