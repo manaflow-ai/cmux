@@ -165,8 +165,11 @@ async fn queue_ops_move_and_rewrite_queued_prompts_before_their_turn() {
     assert_eq!(gone["ok"], false, "a prompt that ran no longer waits: {gone}");
 }
 
+/// Send now never stops a turn (Stop & send does): to an agent that cannot steer, the prompt goes
+/// next and runs once the turn ends. A send now that stopped the turn cut the running tool call
+/// off as "rejected" (claude-sr2, 2026-10-20).
 #[tokio::test]
-async fn queue_ops_send_now_stops_a_turn_its_agent_cannot_steer() {
+async fn queue_ops_send_now_puts_next_and_never_stops_a_turn_its_agent_cannot_steer() {
     let (_hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
     let id = busy_with_queue(&mut c, &[("p-a", "a"), ("p-b", "b")]).await;
     let attached =
@@ -179,7 +182,13 @@ async fn queue_ops_send_now_stops_a_turn_its_agent_cannot_steer() {
         )
         .await
         .unwrap();
-    assert_eq!(sent["sent"], "interrupt", "{sent}");
+    assert_eq!(sent["sent"], "next", "{sent}");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let attached =
+        c.request(method::MUX_ATTACH, json!({"sessionId": id, "limit": 0})).await.unwrap();
+    assert!(!attached["session"]["turn"].is_null(), "the turn still runs: {attached}");
+    assert_eq!(queue_order(&mut c, &id).await, ["p-b", "p-a"]);
+    c.send(method::SESSION_CANCEL, json!({"sessionId": id})).await;
     assert_eq!(echoes_until(&mut c, "echo: a").await, ["echo: b", "echo: a"]);
 }
 
