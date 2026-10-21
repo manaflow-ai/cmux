@@ -63,9 +63,14 @@ def preflight(canary: Path, env: Mapping[str, str] = os.environ, privacy=None, o
     try:
         privacy.check_upload([(CANARY_PATH, canary)], env={**env, "PR_MEDIA_PRIVACY_OCR": ocr},
                              lookup=lambda numbers: {}, out=io.StringIO())
-    except privacy.Refused:
-        print(f"pr-media gate: {len(terms)} private term(s); OCR {Path(ocr).name} refused the canary", file=out)
-        return ocr
+    except privacy.Refused as refused:
+        kinds = {kind for item in refused.report["files"] for kind in item["kinds"]}
+        # A tool that crashes leaves the canary "unreadable", which also refuses; that is no proof.
+        if kinds - {"unreadable"}:
+            print(f"pr-media gate: {len(terms)} private term(s); OCR {Path(ocr).name} refused the canary", file=out)
+            return ocr
+        raise SystemExit(f"pr-media gate: OCR {Path(ocr).name} could not read the canary; nothing is published") \
+            from None
     raise SystemExit(f"pr-media gate: OCR {Path(ocr).name} did not catch the canary, so it would miss a real "
                      "private name; nothing is published")
 

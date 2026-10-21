@@ -30,6 +30,10 @@ STILLS = frozenset({".png", ".jpg", ".jpeg", ".webp"})
 MOVING = frozenset({".gif", ".mp4", ".mov"})
 MODES = ("3", "11")
 TIMEOUT = 120
+# The tools parse media from a pull request's run, so they get no secret or token
+# from the publishing step; one thread each, since frames already run in parallel.
+TOOL_ENV = {key: value for key, value in os.environ.items() if key in {"PATH", "HOME", "LANG", "TMPDIR"}}
+TOOL_ENV["OMP_THREAD_LIMIT"] = "1"
 
 
 def fail(message: str) -> int:
@@ -44,7 +48,7 @@ def read_picture(path: Path) -> list[str]:
     lines: list[str] = []
     for mode in MODES:
         done = subprocess.run(["tesseract", "stdin", "stdout", "--psm", mode], input=data,
-                              capture_output=True, timeout=TIMEOUT)
+                              capture_output=True, timeout=TIMEOUT, env=TOOL_ENV)
         if done.returncode != 0:
             raise RuntimeError(f"tesseract exited {done.returncode}")
         text = done.stdout.decode("utf-8", errors="replace")
@@ -56,10 +60,10 @@ def frames(media: Path, into: Path) -> list[Path]:
     """One PNG per second plus the last frame, identical frames dropped."""
     run = ["ffmpeg", "-nostdin", "-v", "error", "-y"]
     subprocess.run([*run, "-i", str(media), "-vf", "fps=1", str(into / "%05d.png")],
-                   check=True, capture_output=True, timeout=600)
+                   check=True, capture_output=True, timeout=600, env=TOOL_ENV)
     # The last frame: -update keeps overwriting one file, so it ends as the final frame.
     subprocess.run([*run, "-i", str(media), "-update", "1", str(into / "last.png")],
-                   capture_output=True, timeout=600)
+                   capture_output=True, timeout=600, env=TOOL_ENV)
     seen: set[str] = set()
     distinct = []
     for path in sorted(into.glob("*.png"), key=lambda path: (path.stem == "last", path.name)):

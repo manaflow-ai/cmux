@@ -17,7 +17,9 @@ name: cmux-next media
 # protected branches): a merge tour publishes from its own run, and a pull
 # request run's hand-off job starts a run here on feat-cmux-next with
 # publish_run=<its run id>. So a pull request run, which takes this file from
-# the pull request, never sees the secret or the write token. The publisher
+# the pull request, never sees the secret: its ref cannot enter the environment.
+# It gets no pr-media write token either, though anyone who can push a branch
+# here could edit its jobs to ask for one; forks never reach them. The publisher
 # never checks out or runs pull request code, reads the tour artifact as data
 # (publish.py validates names and paths before upload), and writes only through
 # .github/actions/pr-media-publish: its privacy check refuses a private name
@@ -565,7 +567,7 @@ jobs:
     name: Hand the tour to the publisher
     needs: [route, tour]
     if: ${{ github.event_name == 'pull_request' && !cancelled() && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     # actions: write starts the publisher; nothing here can write pr-media.
     permissions:
@@ -608,8 +610,9 @@ jobs:
     # its hand-off job starts. A batch dispatch has no PR to post on: the queue
     # reads the tour's artifact.
     if: ${{ !cancelled() && (github.event_name == 'push' && needs.route.result == 'success' && needs.route.outputs.wanted == 'true' || github.event_name == 'workflow_dispatch' && inputs.publish_run != '') }}
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 15
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
+    # OCR of every still and of one frame per second of each video comes first.
+    timeout-minutes: 30
     # The private-terms secret lives only in this environment, which admits only
     # the protected branches (main, feat-cmux-next, nightly-next).
     environment: pr-media
@@ -663,7 +666,7 @@ jobs:
             case "$PUBLISH_RUN" in ''|*[!0-9]*) echo "::error::publish_run must be a run id"; exit 1 ;; esac
             # Only this workflow's run for a pull request from this repository.
             found="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$PUBLISH_RUN" --jq \
-              'select(.path == ".github/workflows/cmux-next-media.yml" and .event == "pull_request" and .head_repository.full_name == .repository.full_name) | "\(.pull_requests[0].number // "")\t\(.head_sha)"')"
+              'select(.path == ".github/workflows/cmux-next-media.yml" and .event == "pull_request" and .head_repository.full_name == .repository.full_name) | "\([.pull_requests[] | select(.base.ref == "feat-cmux-next")][0].number // "")\t\(.head_sha)"')"
             if [ -z "$found" ]; then
               echo "::error::run $PUBLISH_RUN is not a cmux-next-media pull request run of this repository"
               exit 1
@@ -705,7 +708,8 @@ jobs:
           python3 - "$RUNNER_TEMP/context/context.json" >> "$GITHUB_OUTPUT" <<'PY'
           import json, pathlib, sys
           path = pathlib.Path(sys.argv[1])
-          data = json.loads(path.read_text()) if path.is_file() else {"tour_result": "failure"}
+          data = json.loads(path.read_text()) if path.is_file() else {
+              "tour_result": "skipped", "route_reason": "the pull request run's context could not be read"}
           for key in ("route_reason", "tour_result", "tour_is_ui", "tree_note"):
               # One line each: a newline in the data must not start another output.
               print(f"{key}={' '.join(str(data.get(key, '')).split())}")

@@ -788,6 +788,15 @@ class GatePreflightTests(unittest.TestCase):
             self.preflight(PR_MEDIA_PRIVATE_TERMS='["glow-box"]', PR_MEDIA_PRIVACY_OCR=self.ocr("nothing here"))
         self.assertIn("did not catch the canary", str(raised.exception))
 
+    def test_an_ocr_that_crashes_stops_the_publish(self) -> None:
+        # The check holds an unreadable file like a hit; the canary must be caught by a pattern.
+        tool = self.root / "crash.sh"
+        tool.write_text("#!/bin/sh\nexit 1\n")
+        tool.chmod(0o755)
+        with self.assertRaises(SystemExit) as raised:
+            self.preflight(PR_MEDIA_PRIVATE_TERMS='["glow-box"]', PR_MEDIA_PRIVACY_OCR=str(tool))
+        self.assertIn("could not read the canary", str(raised.exception))
+
     def test_no_terms_list_stops_the_publish(self) -> None:
         for terms in ("", "   ", "[]", '["io"]'):
             with self.subTest(terms=terms), self.assertRaises(SystemExit):
@@ -943,15 +952,36 @@ class FeatWorkflowTests(unittest.TestCase):
 
     @staticmethod
     def runs_a_writer(run: str, script: str | None = None) -> bool:
-        """The step runs the writer (python3 <script>), not merely names it (`[ -f <script> ]`)."""
+        """The step runs the writer (`python3 <script>`, `./<script>`), not merely names it
+        (`[ -f <script> ]`, a comment)."""
         scripts = [script] if script else list(FeatWorkflowTests.WRITERS)
         for name in scripts:
-            for found in re.finditer(r"\bpython3?\s+(?:-\S+\s+)*\S*" + re.escape(name) + r"[^\n]*", run):
+            for found in re.finditer(re.escape(name), run):
+                before = run[run.rfind("\n", 0, found.start()) + 1:found.start()]
+                if before.lstrip().startswith("#") or re.search(r"-[efsx]\s+[\"']?(?:\./)?$", before):
+                    continue
                 # reel.py without --publish only builds the reel.
                 if name.endswith("media/reel.py") and "--publish" not in run[found.start():found.start() + 400]:
                     continue
                 return True
         return False
+
+    def test_the_writer_shapes_are_recognized(self) -> None:
+        for run in ("python3 scripts/pr-media.py --pr 1 a.png", "./scripts/pr-media.py --pr 1 a.png",
+                    "python3 -u scripts/cmux-next/media/publish.py --repo r",
+                    "python3 scripts/cmux-next/media/reel.py --build 1 --publish"):
+            with self.subTest(run=run):
+                self.assertTrue(self.runs_a_writer(run))
+        for run in ("[ -f scripts/cmux-next/media/publish.py ] && echo yes", "# scripts/pr-media.py uploads",
+                    "python3 scripts/cmux-next/media/reel.py --build 1 --dry-run"):
+            with self.subTest(run=run):
+                self.assertFalse(self.runs_a_writer(run))
+
+    def test_only_the_action_sets_the_publish_gate(self) -> None:
+        for workflow in sorted((ROOT / ".github/workflows").glob("*.y*ml")):
+            with self.subTest(workflow=workflow.name):
+                self.assertNotIn("PR_MEDIA_PUBLISH_GATE", workflow.read_text(encoding="utf-8"))
+        self.assertIn("PR_MEDIA_PUBLISH_GATE", ACTION.read_text(encoding="utf-8"))
 
     @staticmethod
     def covers(sparse: str, path: str) -> bool:
