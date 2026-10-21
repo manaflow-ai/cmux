@@ -8,6 +8,9 @@
 // 6fe9ab414ee: the reply dropped 35px and slid back when the tool call came (the glide moved the
 // whole thread by what grew, also above the reply), and the view dropped 54px when the queue card
 // left the stack, then rose again as its prompt arrived.
+// A turn that ends leaves its reply still: its footer takes the running line's place, and the reply
+// keeps its gap over them (it slid 4px down as its gap went from the message gap to the meta gap; a
+// queued prompt arriving a frame later in WebKit showed it as a 1.5px drop, on #22827's shards).
 // A queued prompt deleted from the queue never comes in as a row: the view goes back to its end at
 // once, with no card-high gap held under the last row (held for a second after #22858).
 // A chat whose history is rich (headings, code blocks, tables, lists, each laid out at its own height
@@ -255,9 +258,24 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
     const endpoint = `ws://127.0.0.1:${daemon!.port}/`;
     await page.goto(`http://127.0.0.1:${port}/#endpoint=${encodeURIComponent(endpoint)}&token=t&session=${SESSION}`);
     await page.getByText("Opening paragraph 19.").waitFor();
-    await page.waitForTimeout(500);
+    await rest(page);
     return page;
   }
+
+  /// Resolves once the view is at rest: the transcript's offset has held, with no glide on the
+  /// thread, for 6 painted frames.
+  const rest = (page: Page) =>
+    page.evaluate(async () => {
+      const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+      const thread = document.querySelector<HTMLElement>(".acpmux-thread");
+      let last = NaN;
+      for (let held = 0, frames = 0; held < 6 && frames < 600; frames += 1) {
+        await window.cmuxPaintFrame();
+        const still = scroller.scrollTop === last && !thread?.getAnimations().length;
+        held = still ? held + 1 : 0;
+        last = scroller.scrollTop;
+      }
+    });
 
   /// One frame: where the row holding `marker` is drawn (transforms included).
   type Frame = { t: number; marker?: number };
@@ -386,6 +404,27 @@ await requireBrowserLane("agent-pane-stream-jitter.test.ts", async () => {
       await page.close();
     },
   );
+
+  test.each(engines.map(([name]) => name))("%s: a turn that ends leaves its reply where it was", async (name) => {
+    const page = await open(name);
+    const turn = events.length;
+    const marker = `End marker ${turn}`;
+    await stream(`p-${turn}`, `End turn ${turn}`, marker, 20);
+    await rest(page);
+    await sample(page, marker);
+    await rest(page);
+    // The footer takes the running line's place at its height, and the reply over them keeps its
+    // gap: the turn's end moves nothing (it slid the reply 4px down, the gap a reply leaves over
+    // a footer being the meta gap and over the running line the message gap).
+    endTurn();
+    await page.locator(".acpmux-row--last-footer").waitFor();
+    await rest(page);
+    const frames = (await stop(page)).flatMap((frame) => (frame.marker === undefined ? [] : [frame.marker]));
+    expect(frames.length).toBeGreaterThanOrEqual(5);
+    expect(Math.max(...frames) - Math.min(...frames)).toBeLessThanOrEqual(0.5);
+    expect(await fromEnd(page)).toBeLessThanOrEqual(4);
+    await page.close();
+  });
 
   test.each(engines.map(([name]) => name))(
     "%s: a queued prompt sent as the next turn moves the view up only",
