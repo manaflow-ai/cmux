@@ -61,14 +61,7 @@ struct ClickedLinkFocusTests {
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
             let source = try #require(model.tabs.first?.id)
-            let panes = Set(content.panes.keys)
-            #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
-            try await PinnedPageTests.until({ content.panes.keys.contains { !panes.contains($0) } })
-            let right = try #require(content.panes.first { !panes.contains($0.key) }?.value)
-            try await PinnedPageTests.until({ !right.pane.tabs.isEmpty })
-            // The split shows a provisional pane at once; the daemon refuses a tab aimed at it
-            // ("unknown pane") until it confirms the split, which swaps in its own handle and tab.
-            try await PinnedPageTests.until({ right.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } })
+            let right = try await Self.splitRight(services, content)
             PaneHandlers.focus(pane.layoutPaneID, in: content)
             try await PinnedPageTests.until({ content.focusedPane === pane })
             services.linkOpener.placement = { .splitRight }
@@ -99,14 +92,7 @@ struct ClickedLinkFocusTests {
             let content = try #require(services.windows.active?.workspaceContent)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
-            let panes = Set(content.panes.keys)
-            #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
-            try await PinnedPageTests.until({ content.panes.keys.contains { !panes.contains($0) } })
-            let right = try #require(content.panes.first { !panes.contains($0.key) }?.value)
-            try await PinnedPageTests.until({ !right.pane.tabs.isEmpty })
-            // The split shows a provisional pane at once; the daemon refuses a tab aimed at it
-            // ("unknown pane") until it confirms the split, which swaps in its own handle and tab.
-            try await PinnedPageTests.until({ right.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } })
+            let right = try await Self.splitRight(services, content)
             // The agent's tab, made in the column right of its chat and not reported to the placement yet.
             let agents = try await connection.newFrontendBrowserTab(url: "https://example.com/agent", engine: .webkit,
                                                                     in: right.pane.handle, activate: false)
@@ -119,12 +105,13 @@ struct ClickedLinkFocusTests {
 
             services.linkOpener.placement = { .splitRight }
             let opened = try await Self.click(services, from: pane, cmdClick: true)
-            try await PinnedPageTests.until({ content.focusedPane === right && right.stripModel.selectedID?.rawValue == opened },
+            let shown = { content.panes[right.layoutPaneID] ?? right }
+            try await PinnedPageTests.until({ content.focusedPane === shown() && shown().stripModel.selectedID?.rawValue == opened },
                                             report: { Self.describe(content, opened) })
             agentPlaced(agents.surface)
-            try await PinnedPageTests.until({ right.pendingSelectSurface == nil })
-            #expect(content.focusedPane === right, "the agent's open took the focus from the clicked link")
-            #expect(right.stripModel.selectedID?.rawValue == opened, "the agent's tab replaced the clicked link's tab: \(Self.describe(content, opened))")
+            try await PinnedPageTests.until({ shown().pendingSelectSurface == nil && right.pendingSelectSurface == nil })
+            #expect(content.focusedPane === shown(), "the agent's open took the focus from the clicked link")
+            #expect(shown().stripModel.selectedID?.rawValue == opened, "the agent's tab replaced the clicked link's tab: \(Self.describe(content, opened))")
         }
     }
 
@@ -141,10 +128,7 @@ struct ClickedLinkFocusTests {
             let window = try #require(services.windows.active?.window)
             let model = try #require(store.workspaces.first?.screens.first?.panes.first)
             let pane = try #require(services.paneController(for: model))
-            let panes = Set(content.panes.keys)
-            #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
-            try await PinnedPageTests.until({ content.panes.keys.contains { !panes.contains($0) } })
-            let right = try #require(content.panes.first { !panes.contains($0.key) }?.value)
+            let right = try await Self.splitRight(services, content)
             try await PinnedPageTests.until({ Self.page(in: pane.view) != nil }, report: { "the source pane shows no agent page" })
             let page = try #require(Self.page(in: pane.view))
             PaneHandlers.focus(pane.layoutPaneID, in: content)
@@ -264,6 +248,20 @@ struct ClickedLinkFocusTests {
         }
         try await PinnedPageTests.until({ opened() != nil }, report: { "the link opened no tab" })
         return try #require(opened())
+    }
+
+    /// Splits the focused pane right and gives the new pane's controller once the daemon confirmed
+    /// the split. The split shows a provisional pane at once; the daemon refuses a tab aimed at it
+    /// ("unknown pane") until it confirms, which swaps in its own handle and tab, and the window may
+    /// show the confirmed pane through a new controller.
+    private static func splitRight(_ services: AppServices, _ content: WorkspaceContentController) async throws -> PaneController {
+        let panes = Set(content.panes.keys)
+        #expect(services.registry.perform("splitRight", invocation: ActionInvocation(origin: .user)))
+        func confirmed() -> PaneController? {
+            content.panes.first { !panes.contains($0.key) && $0.value.pane.tabs.contains { !ProvisionalTab.isProvisional(surface: $0.surface) } }?.value
+        }
+        try await PinnedPageTests.until({ confirmed() != nil }, report: { "the split did not confirm" })
+        return try #require(confirmed())
     }
 
     /// The web view of the agent page `view` shows.
