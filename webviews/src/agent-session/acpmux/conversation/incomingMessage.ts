@@ -3,8 +3,9 @@
 // prompt_provenance.rs: `send_to_session`, `cmux agent message`). Claude Code writes its own into
 // the prompt, which reaches the pane only in an adopted Claude session's history (acpmux records
 // those prompts with `client: "adopt"`, hub/adoption.rs): a `<cross-session-message>` from another
-// session, a `<task-notification>` when a background task ends, and reminders and caveats the
-// person never typed. The transcript draws a message as a card from its sender
+// session or an `<agent-message>` from an agent of its own (each after the line "Another Claude
+// session sent a message:"), a `<task-notification>` when a background task ends, and reminders and
+// caveats the person never typed. The transcript draws a message as a card from its sender
 // (IncomingMessageCard.tsx), a notification as one quiet line, and bookkeeping not at all; a typed
 // prompt behind bookkeeping draws without it. A live prompt's text is the person's as typed.
 // A message within a family of sub-sessions (kind `subsession_message`, hub/subsessions.rs
@@ -138,20 +139,24 @@ export function incomingPrompt(
     };
   }
   if (!provenance && typeof msg?.client === "string" && CLI_CLIENT.test(msg.client)) {
-    const prefixed = NAME_PREFIX.exec(text.trim());
-    const name = prefixed?.[1]!.trim();
-    if (prefixed && name && AGENT_NAME.test(name) && !NOT_A_NAME.test(name))
-      return { kind: "message", message: { name, text: prefixed[2]!.trim(), raw: text } };
+    const named = namedFirst(text.trim());
+    if (named) return { kind: "message", message: { ...named, raw: text } };
   }
   if (msg?.client !== "adopt") return undefined;
-  // Claude Code's envelopes start the prompt; one quoted later in it is the person's text.
+  // Claude Code's envelopes start the prompt, after its line about them; one quoted later in it is
+  // the person's text.
   const rest = withoutBookkeeping(text);
-  const envelope = CROSS_SESSION.exec(rest);
+  const delivered = rest.replace(PREFACE, "");
+  const envelope = CROSS_SESSION.exec(delivered) ?? AGENT_MESSAGE.exec(delivered);
   if (envelope) {
     const attributes = envelope[1]!;
-    const name = attribute(attributes, "from-name") || attribute(attributes, "from");
-    // What follows the envelope is Claude Code's note to the agent about it.
-    if (name) return { kind: "message", message: { name, text: decodeXml(envelope[2]!).trim(), raw: text } };
+    // The sending session's name (Claude Desktop writes `name`), else its address: a socket, or
+    // an agent's id.
+    const name = attribute(attributes, "from-name") || attribute(attributes, "name") || attribute(attributes, "from");
+    const body = decodeXml(envelope[2]!).trim();
+    // What follows the envelope is Claude Code's note to the agent about it. A session's title
+    // names it less well than the agent's own name first in brackets, as at a shell.
+    if (name) return { kind: "message", message: { ...(namedFirst(body) ?? { name, text: body }), raw: text } };
   }
   const notification = NOTIFICATION.exec(rest);
   if (notification && !withoutBookkeeping(rest.slice(notification[0].length))) {
@@ -217,12 +222,28 @@ const CLI_CLIENT = /^acpmux-(?:cli|peer)#/;
 const NAME_PREFIX = /^\[([^\]\n]{1,64})\]\s+(\S[\s\S]*)$/;
 /// An agent's name: a word or a few (`coord-deputy`, `claude-sr2/coordinator`, `Grid fix`).
 const AGENT_NAME = /^[\w.@/:-]+(?: [\w.@/:-]+){0,3}$/;
-/// Brackets that are not a sender: Claude Code's interruption note, cmux's own message header.
-const NOT_A_NAME = /^(?:Request interrupted|cmux agent message)/;
+/// Brackets that are not a sender: Claude Code's interruption note and a subagent's hand-back,
+/// cmux's own message header.
+const NOT_A_NAME = /^(?:Request interrupted|Subagent hand-back|cmux agent message)/;
+
+/// The agent named first in brackets in `text`, and its message after the name.
+function namedFirst(text: string): { name: string; text: string } | undefined {
+  const prefixed = NAME_PREFIX.exec(text);
+  const name = prefixed?.[1]!.trim();
+  return prefixed && name && AGENT_NAME.test(name) && !NOT_A_NAME.test(name)
+    ? { name, text: prefixed[2]!.trim() }
+    : undefined;
+}
+
+/// Claude Code's line before an envelope it delivers, by itself or with the agent busy.
+const PREFACE = /^Another Claude session sent a message(?: while you were working)?:\s*/;
 
 /// `<cross-session-message from="…" from-name="…" from-mode="…">body</cross-session-message>`,
 /// closed by the first closing tag.
 const CROSS_SESSION = /^<cross-session-message((?:\s+[\w-]+="[^"]*")*)\s*>([\s\S]*?)<\/cross-session-message>/;
+/// `<agent-message from="…">body</agent-message>`: an agent this session started (a subagent, a
+/// teammate), named by its id.
+const AGENT_MESSAGE = /^<agent-message((?:\s+[\w-]+="[^"]*")*)\s*>([\s\S]*?)<\/agent-message>/;
 const NOTIFICATION = /^<task-notification>[\s\S]*?<\/task-notification>/;
 /// Bookkeeping Claude Code puts in a prompt (transcript.ts `CLAUDE_HIDDEN_USER_TAGS`), whole.
 const BOOKKEEPING = /^<(system-reminder|local-command-caveat|user-prompt-submit-hook)>[\s\S]*?<\/\1>/;
