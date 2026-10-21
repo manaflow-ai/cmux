@@ -33,6 +33,8 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     /// A workspace with no icon of its own and no favicon (WORKSPACE-ROWS-NO-DEFAULT-ICON): a look
     /// with a title draws no glyph; an icon-only look and a tile draw the title's first letter.
     public var textOnly = false
+    /// A workspace in Pinned drawn as a row: a pin leads it, before its icon and title.
+    public var leadingPin = false
     /// An unread dot instead of a count, in every look (What's New after an update).
     public var unreadDot = false
     /// The current profile's avatar (SIDEBAR-FOOTER-AND-SPACE-MENU
@@ -43,6 +45,9 @@ public nonisolated struct SidebarItemInfo: Hashable, Sendable {
     public var activity: StatusIndicatorState = .idle
     /// The winning report's style hint; nil uses `appearance.statusIndicator.style`.
     public var activityStyle: StatusIndicatorStyle?
+    /// Levels the row's glyph and title step in under the item before it (a Chief subagent under
+    /// the Chief entry); the inline, tile and icon-only looks ignore it.
+    public var indent = 0
 
     public init(title: String, symbol: String, icon: IconName? = nil, color: GroupColor? = nil, badge: Int? = nil, isActive: Bool = false,
                 isMissing: Bool = false, isHidden: Bool = false, caption: String? = nil, shortcut: String? = nil, brand: String? = nil,
@@ -121,6 +126,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: "bubble.left.and.text.bubble.right"
         case .customize: "paintbrush"
         case .searchChats: "magnifyingglass"
+        case .chief: "sparkles"
         }
     }
 
@@ -139,6 +145,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: .agentChatNew
         case .customize: .theme
         case .searchChats: .search
+        case .chief: .agentChief
         }
     }
 
@@ -162,6 +169,7 @@ extension SidebarBuiltIn {
         case .newAgentChat: SectionStrings.newAgentChat
         case .customize: SectionStrings.customize
         case .searchChats: SectionStrings.searchChats
+        case .chief: SectionStrings.chief
         }
     }
 

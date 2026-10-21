@@ -3,8 +3,9 @@ public import Foundation
 
 /// Everything under `notifications` in cmux.json that the app applies.
 public nonisolated struct NotificationPreferences: Hashable, Sendable {
-    /// `focus` (Lawrence, 2026-10-19): classic's rule, a focus, click or key in the pane reads it.
-    public var dismissal: NotificationDismissal = .focus
+    /// `click` (Austin, 2026-10-20): the ring stays until the person clicks into its pane or types
+    /// in it. `focus` (2026-10-19) also read a pane that merely took focus.
+    public var dismissal: NotificationDismissal = .click
     public var timeoutSeconds: Double = 30
     public var desktop: DesktopNotificationMode = .unlessFocused
     public var previews: NotificationPreviews = .whenUnlocked

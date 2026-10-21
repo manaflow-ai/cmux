@@ -49,7 +49,7 @@ async function mount() {
   }
   root = createRoot(host);
   await act(async () => root!.render(<Find />));
-  expect(host.querySelector(".acpmux-find__count")?.textContent).toBe("1 of 3");
+  expect(host.querySelector(".acpmux-find .find-pill__count")?.textContent).toBe("1 of 3");
   return host.querySelector<HTMLInputElement>("input")!;
 }
 
@@ -75,7 +75,7 @@ for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
         input.dispatchEvent(composing);
       });
       expect(composing.defaultPrevented).toBe(false);
-      expect(host.querySelector(".acpmux-find__count")?.textContent).toBe("1 of 3");
+      expect(host.querySelector(".acpmux-find .find-pill__count")?.textContent).toBe("1 of 3");
       expect(dom.window.document.activeElement).toBe(input);
 
       // After composition, the same key still performs its normal Find action.
@@ -84,7 +84,7 @@ for (const composition of [{ isComposing: true }, { keyCode: 229 }]) {
         input.dispatchEvent(regular);
       });
       expect(regular.defaultPrevented).toBe(true);
-      if (count) expect(host.querySelector(".acpmux-find__count")?.textContent).toBe(count);
+      if (count) expect(host.querySelector(".acpmux-find .find-pill__count")?.textContent).toBe(count);
       else expect(host.querySelector(".acpmux-find")).toBeNull();
     });
   }

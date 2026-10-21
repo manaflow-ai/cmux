@@ -159,6 +159,18 @@ pub trait PreviewPort: Send {
         width: u32,
         height: u32,
     ) -> Result<DerivedImage, OpError>;
+
+    /// `bytes` as an attachment record of `conversation` (a picture or video
+    /// the Chief sends): the same upload, with the size only when known.
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError>;
 }
 
 /// The upload steps of [`PreviewPort::upload_image`] on `client`.
@@ -169,8 +181,8 @@ fn upload_with(
     bytes: &[u8],
     mime_type: &str,
     name: &str,
-    width: u32,
-    height: u32,
+    width: Option<u32>,
+    height: Option<u32>,
 ) -> Result<DerivedImage, OpError> {
     use base64::Engine;
     use sha2::Digest;
@@ -222,8 +234,8 @@ fn upload_with(
             byte_count: Optional::Value(image.byte_count),
             mime_type: Optional::Value(mime_type.into()),
             name: Optional::Value(name.into()),
-            width: Optional::Value(width),
-            height: Optional::Value(height),
+            width: width.map_or(Optional::Missing, Optional::Value),
+            height: height.map_or(Optional::Missing, Optional::Value),
             ..step("begin")
         })
         .map_err(sdk_error)?;
@@ -426,6 +438,26 @@ impl PreviewPort for SdkPreviewPort {
             bytes,
             mime_type,
             name,
+            Some(width),
+            Some(height),
+        )
+    }
+
+    fn upload_attachment(
+        &mut self,
+        conversation: &str,
+        bytes: &[u8],
+        mime_type: &str,
+        name: &str,
+        width: Option<u32>,
+        height: Option<u32>,
+    ) -> Result<DerivedImage, OpError> {
+        upload_with(
+            self.client()?,
+            conversation,
+            bytes,
+            mime_type,
+            name,
             width,
             height,
         )
@@ -578,8 +610,8 @@ impl ConversationPort for SdkConversations {
             bytes,
             mime_type,
             name,
-            width,
-            height,
+            Some(width),
+            Some(height),
         )
     }
 

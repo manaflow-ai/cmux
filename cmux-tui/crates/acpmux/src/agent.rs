@@ -15,7 +15,10 @@ use tokio::process::Child;
 use tokio::sync::{Mutex, mpsc, oneshot};
 
 mod command;
-pub(crate) use command::{command_env, harness_command};
+pub(crate) use command::{
+    REMOTE_ENV_POLICY_ID, REMOTE_ENV_POLICY_KEY, command_env, command_env_cleared, harness_command,
+    host_environment,
+};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Direction {
@@ -149,6 +152,9 @@ pub struct ChildAgent {
     /// (`codex_app_server.rs`) and run directly under acpmux.
     codex: Option<CodexLink>,
     hosted: Option<Hosted>,
+    /// Its cmux MCP server lists every tool (`agent_tools::lists_all_tools`,
+    /// decided at its session/new or load), for a fork through it.
+    pub all_tools: std::sync::atomic::AtomicBool,
     /// Windows: the agent's job (its process group on Unix).
     #[cfg(windows)]
     job: Option<crate::job::Job>,
@@ -247,6 +253,7 @@ impl ChildAgent {
             translator: translator.clone(),
             codex,
             hosted: None,
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job,
         });
@@ -905,6 +912,7 @@ impl ChildAgent {
                 exit_seen: std::sync::atomic::AtomicBool::new(false),
                 exit: tokio::sync::Notify::new(),
             }),
+            all_tools: std::sync::atomic::AtomicBool::new(false),
             #[cfg(windows)]
             job: None,
         });

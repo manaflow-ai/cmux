@@ -170,9 +170,11 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
   const open = async (session: string, width = 900) => {
     const page = await browser!.newPage({ viewport: { width, height: 760 } });
     await page.goto(url(session));
-    await page.locator(".cv-worked", { hasText: "Working for" }).waitFor({ timeout: 25_000 });
+    await line(page).waitFor({ timeout: 25_000 });
     return page;
   };
+  // The running line reads the turn's time ("Working for 1m 30s", WorkingFor.tsx): the read in
+  // flight has its own tool row, which names it (#23090).
   const line = (page: Page) => page.locator(".cv-worked", { hasText: "Working for" });
   beforeAll(async () => {
     daemon = Bun.serve({
@@ -219,7 +221,7 @@ await requireBrowserLane("agent-pane-working-counts.test.ts", async () => {
     expect((await line(page).innerText()).replace(/\s+/g, " ")).toMatch(/^Working for [^·]+ · 2 agents · 1 command$/);
     await page.close();
     const plain = await open(QUIET);
-    expect((await line(plain).innerText()).trim()).toMatch(/^Working for [^·]+$/);
+    expect((await line(plain).innerText()).replace(/\s+/g, " ").trim()).toMatch(/^Working for [^·]+$/);
     await plain.close();
   });
 

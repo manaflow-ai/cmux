@@ -177,6 +177,18 @@ nonisolated enum NotificationSettingsSchema {
                 kind: .toggle, default: .bool(attention.persists)
             ),
             SettingDescriptor(
+                ["notifications", "attention", "flash"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.flash", "Flash the Pane When Read"),
+                help: SettingsText.keyed("settings.attention.flash.help",
+                                        "Clicking an unread pane, typing in it or jumping to it flashes its ring as it goes."),
+                kind: .toggle, default: .bool(attention.flashesOnRead), keywords: ["ring", "flash", "blink", "unread"]
+            ),
+            SettingDescriptor(
+                ["notifications", "attention", "flashOnTyping"], section: .notifications, group: ring,
+                title: SettingsText.keyed("settings.attention.flashOnTyping", "Flash When Typing Reads It"),
+                kind: .toggle, default: .bool(attention.flashesOnTyping), keywords: ["ring", "flash", "keystroke", "unread"]
+            ),
+            SettingDescriptor(
                 ["notifications", "attention", "showOnTab"], section: .notifications, group: ring,
                 title: SettingsText.keyed("settings.attention.showOnTab", "Mark the Tab"),
                 kind: .toggle, default: .bool(attention.showsOnTab)

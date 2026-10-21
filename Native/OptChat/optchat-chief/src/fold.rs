@@ -145,6 +145,9 @@ pub struct TurnFold {
     /// Reply text since the last tool call.
     talk: String,
     tools: HashMap<String, Tool>,
+    /// Permission requests of the turn's session that wait for an answer
+    /// (acpmux `permission_request` with no `permission_decision` yet).
+    asking: std::collections::BTreeSet<String>,
     /// The last finished reply: what the turn posts.
     last_talk: Option<String>,
     /// Answers Claude Code finished (`result`) before a steered message
@@ -215,6 +218,12 @@ impl TurnFold {
     /// newer message waits for this to clear.
     pub fn tool_running(&self) -> bool {
         self.ended.is_none() && self.tools.values().any(|t| !t.done)
+    }
+
+    /// The turn waits on a permission request nobody answered yet: its
+    /// running tool is not at work, so the idle watchdog counts this time.
+    pub fn awaits_permission(&self) -> bool {
+        self.ended.is_none() && !self.asking.is_empty()
     }
 
     /// The turn's final assistant text: its last finished reply.
@@ -346,6 +355,16 @@ impl TurnFold {
             (_, "tool_call_update") => {
                 if let Some(update) = update {
                     self.tool_update(update, event.at, &mut out);
+                }
+            }
+            ("mux", "permission_request") => {
+                if let Some(id) = event.msg.get("permissionId").and_then(Value::as_str) {
+                    self.asking.insert(id.to_owned());
+                }
+            }
+            ("mux", "permission_decision" | "permission_auto") => {
+                if let Some(id) = event.msg.get("permissionId").and_then(Value::as_str) {
+                    self.asking.remove(id);
                 }
             }
             ("mux", kind @ ("turn_end" | "turn_error")) => {

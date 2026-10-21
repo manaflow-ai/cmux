@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = 'a453986b67d167174f384a45b851ba6779b4ecfde280ba17c07ea656ab7e84b0'
+IR_SHA256 = '96e61acfae440a8a09afd96f3fcebb5b2aa189cff1cdcb74d026be328dd4ea67'
 
 
 @dataclass(frozen=True)
@@ -1913,6 +1913,18 @@ COMMANDS = {
             'index': CommandFieldMetadata(None, None),
         },
     ),
+    'move-column': CommandMetadata(
+        'move-column',
+        'control',
+        12,
+        'column-move-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'direction': CommandFieldMetadata(None, None),
+            'pane': CommandFieldMetadata(None, None),
+        },
+    ),
     'move-personal-group': CommandMetadata(
         'move-personal-group',
         'control',
@@ -2419,6 +2431,17 @@ COMMANDS = {
         {
             'dir': CommandFieldMetadata(None, None),
             'pane': CommandFieldMetadata(None, None),
+        },
+    ),
+    'park-tabs': CommandMetadata(
+        'park-tabs',
+        'control',
+        12,
+        'tab-park-v1',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'surfaces': CommandFieldMetadata(None, None),
         },
     ),
     'paste-image': CommandMetadata(
@@ -3457,6 +3480,19 @@ COMMANDS = {
         None,
         {
             'surfaces': CommandFieldMetadata(None, None),
+        },
+    ),
+    'terminal-resume-command': CommandMetadata(
+        'terminal-resume-command',
+        'control',
+        12,
+        'resume-command',
+        ('control', 'frontend', 'local-admin', 'provider-authority'),
+        None,
+        {
+            'command': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'terminal_id': CommandFieldMetadata(None, None),
         },
     ),
     'undo-layout': CommandMetadata(

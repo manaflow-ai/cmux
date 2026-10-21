@@ -85,13 +85,17 @@ impl Identity {
         Ok(key)
     }
 
-    pub fn wg_public(&self) -> Result<String> {
+    pub(super) fn wg_private(&self) -> Result<Zeroizing<[u8; 32]>> {
         let bytes: [u8; 32] = STANDARD
             .decode(&self.keys()?.wg)
             .map_err(|_| invalid())?
             .try_into()
             .map_err(|_| invalid())?;
-        let secret = x25519_dalek::StaticSecret::from(bytes);
+        Ok(Zeroizing::new(bytes))
+    }
+
+    pub fn wg_public(&self) -> Result<String> {
+        let secret = x25519_dalek::StaticSecret::from(*self.wg_private()?);
         Ok(STANDARD.encode(x25519_dalek::PublicKey::from(&secret).as_bytes()))
     }
 
