@@ -350,6 +350,19 @@ pub struct WsAuth {
 /// is the local app (`local_app.rs`); after it, it is remote-origin.
 const FIRST_FRAME: std::time::Duration = std::time::Duration::from_secs(10);
 
+/// The largest WebSocket frame or message a connection reads. The app's agent pane sends a frame
+/// of up to 32 MiB (`AcpmuxPaneMethods.maximumFrameBytes`); a prompt with a few screenshots is
+/// past tungstenite's 16 MiB frame default, which ended the read with no log line and reset the
+/// socket mid-send ("The agent connection was interrupted", 2026-10-20).
+pub const WS_MAX_MESSAGE_BYTES: usize = 64 << 20;
+
+/// The listener's and the peer client's WebSocket limits (`WS_MAX_MESSAGE_BYTES`).
+pub fn ws_config() -> tokio_tungstenite::tungstenite::protocol::WebSocketConfig {
+    tokio_tungstenite::tungstenite::protocol::WebSocketConfig::default()
+        .max_message_size(Some(WS_MAX_MESSAGE_BYTES))
+        .max_frame_size(Some(WS_MAX_MESSAGE_BYTES))
+}
+
 /// `serve_ws` with this launch's LocalApp and peer tokens: a connection
 /// that meets every LocalApp condition is served as `Origin::LocalApp`, one
 /// that proves the peer token as `Origin::Peer`, any other as `Origin::Web`.
@@ -450,7 +463,13 @@ pub async fn serve_ws_with(
                     .map(|()| resp)
                     .map_err(refuse)
             };
-            let ws = match tokio_tungstenite::accept_hdr_async(stream, callback).await {
+            let ws = match tokio_tungstenite::accept_hdr_async_with_config(
+                stream,
+                callback,
+                Some(ws_config()),
+            )
+            .await
+            {
                 Ok(ws) => ws,
                 Err(e) => {
                     tracing::warn!("ws handshake from {peer} rejected: {e}");
@@ -503,7 +522,15 @@ pub async fn serve_ws_with(
                 return;
             }
             let reader = tokio::spawn(async move {
-                while let Some(Ok(frame)) = source.next().await {
+                while let Some(frame) = source.next().await {
+                    let frame = match frame {
+                        Ok(frame) => frame,
+                        // A read error ends the connection; say why, or the client sees only a reset.
+                        Err(e) => {
+                            tracing::warn!("closing a {origin:?} connection from {peer}: {e}");
+                            break;
+                        }
+                    };
                     if let tokio_tungstenite::tungstenite::Message::Text(t) = frame
                         && in_tx.send(t.to_string()).await.is_err()
                     {
