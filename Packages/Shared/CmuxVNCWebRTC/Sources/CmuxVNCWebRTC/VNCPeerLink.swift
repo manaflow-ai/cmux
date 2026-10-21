@@ -152,11 +152,12 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         return answer
     }
 
-    /// Host: the screen sender's encoding for `quality`. These are WebRTC's
-    /// own sender parameters; its congestion control keeps running.
-    func applyVideo(_ quality: ScreenQuality, sourceHeight: Int) {
+    /// Host: the screen sender's encoding for `quality` at `frameRate`
+    /// (60 unless both displays agreed on more). These are WebRTC's own
+    /// sender parameters; its congestion control keeps running.
+    func applyVideo(_ quality: ScreenQuality, sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) {
         guard let sender = lock.withLock({ videoSender }) else { return }
-        let settings = quality.settings(sourceHeight: sourceHeight)
+        let settings = quality.settings(sourceHeight: sourceHeight, frameRate: frameRate)
         let parameters = sender.parameters
         parameters.degradationPreference = NSNumber(value: settings.degradation.rawValue)
         for encoding in parameters.encodings {

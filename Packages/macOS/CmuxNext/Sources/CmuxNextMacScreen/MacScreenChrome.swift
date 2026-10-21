@@ -344,8 +344,14 @@ struct MacScreenToolbar: View {
                               encoding: stats.encoding, frameSize: session.frameSize)
     }
 
+    /// The stats line: path, frame rate (measured, then the rate the Mac
+    /// streams at when it says: "118/120 fps"), round trip, codec, size.
     static func statsLine(path: String, fps: Double, targetFps: Int?, latencyMs: Double?, encoding: String, frameSize: CGSize) -> String {
-        var parts = [path, String(format: "%.0f fps", fps)]
+        let measured = fps.isFinite ? Int(fps.rounded()) : 0
+        let rate = targetFps.map { target in
+            L.t("macScreen.stats.fpsOfTarget", "\(measured)/\(target) fps")
+        } ?? String(format: "%.0f fps", fps)
+        var parts = [path, rate]
         if let rtt = latencyMs { parts.append(String(format: "%.0f ms", rtt)) }
         if encoding != "-" { parts.append(encoding) }
         if frameSize.width >= 1 { parts.append("\(Int(frameSize.width))×\(Int(frameSize.height))") }

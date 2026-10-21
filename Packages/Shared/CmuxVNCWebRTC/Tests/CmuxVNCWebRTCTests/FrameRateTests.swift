@@ -76,9 +76,9 @@ struct FrameRateTests {
         #expect(ScreenStreamHost.reportedFrameRate(ScreenInput(t: "display", i: 120)) == nil)
     }
 
-    /// A host that predates the report hands it to its source, which ignores
-    /// an unknown message: nothing reaches the Mac, and it stays at 60.
-    @Test func anOldHostIgnoresTheReport() {
+    /// The report is never input to the Mac: a view-only host's input path
+    /// passes none of it to the source (the session reads it before that path).
+    @Test func aViewOnlyHostPassesNoReportAsInput() {
         let backend = RecordingBackend()
         let host = ScreenStreamHost(name: "Studio", viewOnly: true, backend: { backend }, log: { _ in })
         host.deliver(ScreenStreamViewer.frameRateInput(120), to: backend)

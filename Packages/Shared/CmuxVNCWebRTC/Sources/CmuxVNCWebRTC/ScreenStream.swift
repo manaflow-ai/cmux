@@ -8,8 +8,10 @@ import WebRTC
 
 /// Viewer → host input and control on the `input` data channel. Pointer
 /// coordinates are normalized (0...1) within the display being streamed.
+/// `fps` (with `i`) is the most frames per second the viewer's display
+/// shows; a host that predates it ignores it and streams at 60.
 public struct ScreenInput: Codable, Sendable {
-    /// move, scroll, key, chord, text, display, refresh
+    /// move, scroll, key, chord, text, display, refresh, quality, fps
     public var t: String
     public var x: Double?
     public var y: Double?
@@ -59,17 +61,44 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
         var scaleDown: Double
     }
 
-    /// The frames per second to capture and encode at.
+    /// The rate a stream runs at unless both displays can show more, and the
+    /// least Auto and Smooth Motion ask for.
+    static let baselineFrameRate = 60
+    /// The most a stream asks for (ProMotion).
+    static let maximumFrameRate = 120
+    /// Auto and Smooth Motion's bitrate ceiling at 60 fps: 200 kbit a frame.
+    static let adaptiveBitrateAtBaseline = 12_000_000
+
+    /// The frames per second to capture and encode at. Auto and Smooth
+    /// Motion follow both screens: the lower of the most the host's captured
+    /// display and the viewer's display show, at most 120 and never below
+    /// 60. A rate nobody reported (an older peer, a source that does not
+    /// know it, a display that says 0) counts as 60, so the stream stays
+    /// where it was. The fixed presets keep their own rate.
     func frameRate(hostMaximum: Int?, viewerMaximum: Int?) -> Int {
-        settings(sourceHeight: 0).maxFramerate
+        switch self {
+        case .low, .medium, .high:
+            return settings(sourceHeight: 0).maxFramerate
+        case .auto, .smooth:
+            let known = { (rate: Int?) -> Int in rate.flatMap { $0 > 0 ? $0 : nil } ?? Self.baselineFrameRate }
+            return min(max(min(known(hostMaximum), known(viewerMaximum)), Self.baselineFrameRate), Self.maximumFrameRate)
+        }
     }
 
-    /// The sender's encoding for a display `sourceHeight` pixels tall (0: unknown) at `frameRate`.
-    func settings(sourceHeight: Int, frameRate: Int = 60) -> Settings {
+    /// The sender's encoding for a display `sourceHeight` pixels tall (0:
+    /// unknown) at `frameRate` (from ``frameRate(hostMaximum:viewerMaximum:)``).
+    /// Auto and Smooth Motion's bitrate ceiling grows with the frame rate so
+    /// each frame keeps its 200 kbit (24 Mbps at 120): at a fixed ceiling
+    /// every frame would get half the bits and text would blur in motion.
+    /// It is a ceiling, not a target: WebRTC's congestion control still sets
+    /// the rate from the network, and a still screen sends next to nothing.
+    func settings(sourceHeight: Int, frameRate: Int = ScreenQuality.baselineFrameRate) -> Settings {
         func scale(to height: Int) -> Double { sourceHeight > height ? Double(sourceHeight) / Double(height) : 1 }
+        let fps = min(max(frameRate, Self.baselineFrameRate), Self.maximumFrameRate)
+        let adaptiveBitrate = Self.adaptiveBitrateAtBaseline / Self.baselineFrameRate * fps
         switch self {
-        case .auto: return Settings(degradation: .maintainResolution, maxBitrate: 12_000_000, maxFramerate: 60, scaleDown: 1)
-        case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: 12_000_000, maxFramerate: 60, scaleDown: 1)
+        case .auto: return Settings(degradation: .maintainResolution, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: 1)
+        case .smooth: return Settings(degradation: .maintainFramerate, maxBitrate: adaptiveBitrate, maxFramerate: fps, scaleDown: 1)
         case .low: return Settings(degradation: .disabled, maxBitrate: 1_500_000, minBitrate: 1_500_000, maxFramerate: 30, scaleDown: scale(to: 720))
         case .medium: return Settings(degradation: .disabled, maxBitrate: 4_000_000, minBitrate: 4_000_000, maxFramerate: 30, scaleDown: scale(to: 1080))
         case .high: return Settings(degradation: .disabled, maxBitrate: 10_000_000, minBitrate: 10_000_000, maxFramerate: 60, scaleDown: 1)
@@ -77,7 +106,9 @@ public enum ScreenQuality: String, Codable, Sendable, CaseIterable, Identifiable
     }
 }
 
-/// Host → viewer: the displays and which one is streaming.
+/// Host → viewer: the displays and which one is streaming, and the frame
+/// rate the host streams at (`fps`; an older host sends none, an older
+/// viewer ignores it).
 public struct ScreenHostMessage: Codable, Sendable {
     public struct Display: Codable, Sendable, Equatable {
         public var w: Int
@@ -88,6 +119,7 @@ public struct ScreenHostMessage: Codable, Sendable {
     public var displays: [Display]?
     public var current: Int?
     public var name: String?
+    /// The frames per second the stream is set to (the agreed rate, not the measured one).
     public var fps: Int?
 }
 
@@ -103,10 +135,16 @@ public protocol ScreenBackend: AnyObject, Sendable {
     func select(display index: Int)
     func handle(_ input: ScreenInput)
     func stop()
+    /// The most frames per second the streaming display shows (ProMotion:
+    /// 120); nil when the source does not know. Read again whenever the
+    /// source reports its displays.
     var maximumFrameRate: Int? { get }
+    /// Captures at most `fps` frames per second from now on.
     func setFrameRate(_ fps: Int)
 }
 
+/// Sources that do not know their display's rate (the Screen Sharing
+/// loopback) report none and keep their own pace: the stream stays at 60.
 public extension ScreenBackend {
     var maximumFrameRate: Int? { nil }
     func setFrameRate(_ fps: Int) {}
@@ -134,6 +172,10 @@ public final class ScreenStreamHost: @unchecked Sendable {
         var displays: [CGSize] = []
         var current = 0
         var quality = ScreenQuality.auto
+        /// The most frames per second the viewer's display shows (nil: not reported, an older viewer).
+        var viewerFrameRate: Int?
+        /// The rate the stream is set to (nil until the source reports its displays).
+        var frameRate: Int?
         /// The data channel opened: from here on only WebRTC ends the session.
         var opened = false
         init(link: VNCPeerLink, backend: any ScreenBackend) {
@@ -319,8 +361,9 @@ public final class ScreenStreamHost: @unchecked Sendable {
                         session.displays = sizes
                         session.current = current
                     }
-                    self?.sendDisplays(session)
+                    // Another display may refresh at another rate: the rate first, then the message that carries it.
                     self?.applyQuality(session)
+                    self?.sendDisplays(session)
                 })
             } catch {
                 self?.log("screen source failed: \(error)")
@@ -359,13 +402,20 @@ public final class ScreenStreamHost: @unchecked Sendable {
     }
 
     private func sendDisplays(_ session: Session) {
-        let (sizes, current) = session.lock.withLock { (session.displays, session.current) }
+        let (sizes, current, fps) = session.lock.withLock { (session.displays, session.current, session.frameRate) }
+        // Before the source reports its displays there is nothing to say (the displays callback sends it).
+        guard !sizes.isEmpty else { return }
         let message = ScreenHostMessage(t: "displays", displays: sizes.map { .init(w: Int($0.width), h: Int($0.height)) },
-                                        current: current, name: name)
+                                        current: current, name: name, fps: fps)
         if let data = try? JSONEncoder().encode(message) { _ = session.link.sendText(String(decoding: data, as: UTF8.self)) }
     }
 
-    static func reportedFrameRate(_ input: ScreenInput) -> Int? { nil }
+    /// The viewer's display rate from its `fps` report; nil for any other
+    /// message or a rate no display has.
+    static func reportedFrameRate(_ input: ScreenInput) -> Int? {
+        guard input.t == ScreenStreamViewer.frameRateMessage, let fps = input.i, (1 ... 1000).contains(fps) else { return nil }
+        return fps
+    }
 
     /// Whether a viewer message ends its session (the viewer left: `bye`).
     static func endsSession(_ input: ScreenInput) -> Bool { input.t == "bye" }
@@ -381,7 +431,15 @@ public final class ScreenStreamHost: @unchecked Sendable {
         if input.t == "quality", let quality = input.s.flatMap(ScreenQuality.init(rawValue:)) {
             session.lock.withLock { session.quality = quality }
             log("quality: \(quality.rawValue)")
-            applyQuality(session)
+            if applyQuality(session) { sendDisplays(session) }
+            return
+        }
+        if input.t == ScreenStreamViewer.frameRateMessage {
+            // The viewer's display, not input: view-only sessions too.
+            guard let fps = Self.reportedFrameRate(input) else { return }
+            session.lock.withLock { session.viewerFrameRate = fps }
+            log("viewer display: \(fps) Hz")
+            if applyQuality(session) { sendDisplays(session) }
             return
         }
         deliver(input, to: session.backend)
@@ -401,12 +459,22 @@ public final class ScreenStreamHost: @unchecked Sendable {
     /// What a view-only viewer may still send: a request for a fresh frame (no input reaches the Mac).
     static let viewOnlyMessages: Set<String> = ["refresh"]
 
-    private func applyQuality(_ session: Session) {
-        let (quality, height) = session.lock.withLock { () -> (ScreenQuality, Int) in
+    /// Sets the encoder and the source for the session's quality and the
+    /// rate both displays agree on. True when the rate changed (the viewer
+    /// hears it with the next displays message).
+    @discardableResult
+    private func applyQuality(_ session: Session) -> Bool {
+        let hostRate = session.backend.maximumFrameRate
+        let (quality, height, fps, changed) = session.lock.withLock { () -> (ScreenQuality, Int, Int, Bool) in
             let size = session.displays.indices.contains(session.current) ? session.displays[session.current] : .zero
-            return (session.quality, Int(size.height))
+            let fps = session.quality.frameRate(hostMaximum: hostRate, viewerMaximum: session.viewerFrameRate)
+            defer { session.frameRate = fps }
+            return (session.quality, Int(size.height), fps, session.frameRate != fps)
         }
-        session.link.applyVideo(quality, sourceHeight: height)
+        session.link.applyVideo(quality, sourceHeight: height, frameRate: fps)
+        session.backend.setFrameRate(fps)
+        if changed { log("frame rate: \(fps) fps (this Mac \(hostRate.map(String.init) ?? "?") Hz, viewer \(session.lock.withLock { session.viewerFrameRate }.map(String.init) ?? "?") Hz)") }
+        return changed
     }
 
     private func endSession(ifCurrent expected: Session? = nil) {
@@ -704,7 +772,19 @@ public final class ScreenStreamViewer: @unchecked Sendable {
         }
     }
 
-    static func frameRateInput(_ fps: Int) -> ScreenInput { ScreenInput(t: "fps", i: fps) }
+    /// The input message type that reports the viewer's display rate.
+    static let frameRateMessage = "fps"
+
+    static func frameRateInput(_ fps: Int) -> ScreenInput { ScreenInput(t: frameRateMessage, i: fps) }
+
+    /// Tells the Mac the most frames per second this viewer's display shows
+    /// (sent again by the app after a reconnect and whenever its window
+    /// moves to another display). With Auto or Smooth Motion the Mac then
+    /// streams at up to 120 fps when its own display can too; a viewer that
+    /// never sends it gets 60.
+    public func setDisplayFrameRate(_ fps: Int) {
+        send(Self.frameRateInput(fps))
+    }
 
     /// Asks the Mac for `quality` (sent again by the app after a reconnect).
     public func setQuality(_ quality: ScreenQuality) {
