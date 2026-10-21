@@ -49,6 +49,8 @@ public final class DaemonService {
     @ObservationIgnored private var runTask: Task<Void, Never>?
     /// The running relaunch of kept tabs (`relaunchKeptLayoutIfNeeded`).
     @ObservationIgnored var keptLayoutRelaunch: Task<Void, Never>?
+    /// Parked tabs whose `restart-tab` is in flight (`wakeParkedTabs`).
+    @ObservationIgnored var wakingParkedTabs: Set<SurfaceID> = []
     /// Which kept tabs this launch restarts (`restartsKeptTab`), observed by the tab cells.
     public internal(set) var keptTabRestarts: KeptTabRestarts = .none
     /// The connection Quit's end choice runs on, kept after

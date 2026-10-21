@@ -84,6 +84,8 @@ extension TabStripView {
             if let id { cells[id]?.isAudioHovered = true }
         }
         let tip = id.flatMap { cells[$0]?.item.audio }.map { $0 == .muted ? Strings.unmuteTab : Strings.muteTab }
+        // tooltip-native-allow: the strip's speakers are layers, not views; a themed tracker added while the
+        // pointer is already inside gets no mouseEntered, and one anchors below the whole strip.
         if toolTip != tip { toolTip = tip }
     }
 
@@ -172,13 +174,10 @@ extension TabStripView {
             selectOnPress(id, modifiers: event.modifierFlags)
             return
         }
-        // Between tabs or trailing buttons: the strip's, never the window's.
-        guard titlebarHit(at: point) == .empty else { return }
-        // In the window's top row empty space is the titlebar: the window
-        // already moved it or ran the double-click action
-        // (`TitlebarDragPolicy`). Elsewhere a double-click opens a tab.
-        if actsAsTitlebar { return }
-        if event.clickCount == 2 { model.send(.newTab(after: nil, opensWorkspace: event.modifierFlags.contains(.option))) }
+        // Empty strip space does nothing here: only the + button opens a tab
+        // (Leo 2026-10-12). In the window's top row it is the titlebar, which
+        // the window already moved or ran its double-click action for
+        // (`TitlebarDragPolicy`).
     }
 
     public override func mouseDragged(with event: NSEvent) {

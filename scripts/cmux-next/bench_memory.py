@@ -13,6 +13,12 @@ and every --sample-minutes it lets the app settle at the same workspace
 count and samples again. Growth across those samples at an unchanged
 workspace count is a leak.
 
+--tabs 1,10,20 measures browser tabs instead (the Ardia/Helium/Dia comparison):
+N Chromium tabs in the launch workspace's focused pane, one URL each from --urls
+(`local`: N distinct sites `siteN.localhost` served by this script, the same
+page each, so a run is deterministic; `real`: 20 well-known public sites; or a
+comma list). Each count is sampled after --settle seconds.
+
 Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
@@ -25,6 +31,7 @@ Usage:
       [--workspaces 1,10,30] [--mix terminal+chat,terminal+browser,terminal]
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
+  bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
 
 Prints a table per measurement (top processes by footprint, totals per
 kind) and writes every sample to --out.
@@ -480,6 +487,64 @@ def launch(bundle: str, config: dict, extra_env: dict | None = None):
         raise
 
 
+REAL_SITES = [
+    "https://en.wikipedia.org/wiki/Main_Page", "https://github.com/explore", "https://news.ycombinator.com",
+    "https://www.apple.com", "https://developer.mozilla.org/en-US/", "https://www.reddit.com",
+    "https://www.nytimes.com", "https://www.bbc.com/news", "https://stackoverflow.com/questions",
+    "https://www.youtube.com", "https://www.amazon.com", "https://docs.python.org/3/",
+    "https://www.figma.com", "https://www.notion.so", "https://vercel.com", "https://www.cloudflare.com",
+    "https://www.theverge.com", "https://arxiv.org", "https://www.espn.com", "https://www.imdb.com",
+]
+
+_LOCAL_PAGE = """<!doctype html><html><head><meta charset=utf-8><title>bench %(n)d</title>
+<style>body{font:15px -apple-system,sans-serif;max-width:760px;margin:40px auto;line-height:1.5}
+.card{border:1px solid #ccc;border-radius:8px;padding:12px;margin:12px 0}</style></head><body>
+<h1>Memory bench site %(n)d</h1>%(cards)s
+<script>document.querySelectorAll('.card').forEach((c,i)=>c.dataset.i=i)</script></body></html>"""
+
+
+def local_sites(count: int) -> list[str]:
+    """`count` distinct sites (siteN.localhost, its own renderer under site isolation) served here."""
+    import http.server
+    import threading
+
+    cards = "".join(f"<div class=card><h3>Card {i}</h3><p>{'lorem ipsum dolor sit amet ' * 12}</p></div>" for i in range(40))
+
+    class Handler(http.server.BaseHTTPRequestHandler):
+        def do_GET(self):
+            host = (self.headers.get("Host") or "site0").split(".")[0]
+            number = int(re.sub(r"\D", "", host) or 0)
+            body = (_LOCAL_PAGE % {"n": number, "cards": cards}).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+
+        def log_message(self, *_args):
+            pass
+
+    server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    port = server.server_address[1]
+    return [f"http://site{i}.localhost:{port}/" for i in range(count)]
+
+
+def tab_urls(spec: str, count: int) -> list[str]:
+    if spec == "local":
+        return local_sites(count)
+    urls = REAL_SITES if spec == "real" else [u for u in spec.split(",") if u]
+    return [urls[i % len(urls)] for i in range(count)]
+
+
+def open_browser_tab(app: App, url: str) -> bool:
+    response = app.run("openBrowser.chromium", url=url)
+    if response.get("error") or response.get("code"):
+        print(f"   browser tab {url}: {response.get('message') or response.get('error')}", file=sys.stderr)
+        return False
+    return True
+
+
 def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
@@ -497,6 +562,10 @@ def main():
     parser.add_argument("--churn-minutes", type=float, default=0)
     parser.add_argument("--sample-minutes", type=float, default=5)
     parser.add_argument("--url", default="https://example.com")
+    parser.add_argument("--tabs", help="browser-tab counts to sample, e.g. 1,10,20 (instead of --workspaces)")
+    parser.add_argument("--urls", default="local", help="--tabs: local, real or a comma list of URLs")
+    parser.add_argument("--cef-switches", default="",
+                        help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
     parser.add_argument("--config", default="{}",
                         help='launch: cmux.json settings as JSON, e.g. \'{"browser": {"hibernation": 1}}\'')
@@ -517,13 +586,14 @@ def main():
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
     else:
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config))
+        extra = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": args.cef_switches} if args.cef_switches else {}
+        launched, socket_path, scratch = launch(bundle, json.loads(args.config), extra)
         app_pid = launched
     app = App(bundle, socket_path)
     chats = None
     recipes = args.mix.split(",")
     counts = sorted(int(n) for n in args.workspaces.split(",") if n)
-    report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [],
+    report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None}
     opened = []
 
@@ -538,6 +608,18 @@ def main():
         if args.fake_agent:
             chats = FakeChats(app, bundle, args.fake_agent)
         settle_and_sample("idle-launch")
+        if args.tabs:
+            tab_counts = sorted(int(n) for n in args.tabs.split(",") if n)
+            urls = tab_urls(args.urls, max(tab_counts))
+            report["tabs"] = tab_counts
+            report["urls"] = args.urls
+            made = 0
+            for count in tab_counts:
+                while made < count and open_browser_tab(app, urls[made]):
+                    made += 1
+                result = settle_and_sample(f"tabs-{made}")
+                result["tabs"] = made
+            counts = []
         for count in counts:
             # The launch workspace counts as the first one.
             while len(opened) + 1 < count:

@@ -6,6 +6,8 @@ struct LogLineParser {
     let source: String
     let file: String
 
+    // Constant patterns (ErrorJournalTests); were one ever to fail to compile, its rule finds
+    // nothing rather than crash the journal.
     private static let ansi = try? NSRegularExpression(pattern: #"\x1b\[[0-9;]*[A-Za-z]"#)
     private static let level = try? NSRegularExpression(pattern: #"\b(WARN|WARNING|ERROR|FATAL|CRITICAL)\b"#)
     private static let panic = try? NSRegularExpression(pattern: #"panicked at ([^\s:]+:\d+)(?::\d+)?:?\s*(.*)$"#)

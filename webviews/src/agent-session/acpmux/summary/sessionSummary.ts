@@ -8,7 +8,15 @@ import { isSubagentGroup } from "../subagents/subagentRows";
 type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type PullRequestState = "open" | "merged" | "closed";
-export type SummaryPullRequest = { url: string; repo: string; number: number; title?: string; state: PullRequestState };
+export type SummaryPullRequest = {
+  url: string;
+  repo: string;
+  number: number;
+  title?: string;
+  state: PullRequestState;
+  /// When the chat closed it (epoch ms), if the call says.
+  closedAt?: number;
+};
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
 export type SummarySource = { url?: string; label: string };
@@ -16,6 +24,8 @@ export type SummaryBackgroundTask = {
   id: string;
   command: string;
   state: "running" | "completed" | "failed" | "stopped";
+  /// When its call started (epoch ms), for its elapsed time; absent for one known from its end only.
+  startedAt?: number;
 };
 export type SessionSummary = {
   scheduled: SummaryWakeup[];
@@ -66,7 +76,11 @@ function pullRequests(all: readonly Tool[]): SummaryPullRequest[] {
     const repo = match[1] ?? match[3];
     const number = Number(match[2] ?? match[4]);
     for (const pr of found.values())
-      if (pr.number === number && (!repo || repo === pr.repo)) pr.state = merged ? "merged" : "closed";
+      if (pr.number === number && (!repo || repo === pr.repo)) {
+        pr.state = merged ? "merged" : "closed";
+        const at = tool.endedAt ?? tool.startedAt;
+        if (!merged && at !== undefined) pr.closedAt = at;
+      }
   }
   return [...found.values()];
 }
@@ -137,18 +151,34 @@ function sources(all: readonly Tool[]): SummarySource[] {
 /// The chat's pull requests alone (the composer's PR bars, PullRequestDock.tsx).
 export const sessionPullRequests = (rows: readonly AcpmuxRow[]) => pullRequests(tools(rows));
 
-/// Shells the agent ran in the background (Claude's Bash `run_in_background`, cx-ncc.84): running
-/// until a background task row says how it ended.
+/// How background shells ended: on their call (`background`, direct.ts `markBackgroundCall`), or
+/// in a background task row when the call is not in the transcript.
+const backgroundEnds = (
+  row: AcpmuxRow,
+): { toolCallId: string; command: string; state: SummaryBackgroundTask["state"] }[] =>
+  row.backgroundTask
+    ? [row.backgroundTask]
+    : row.kind === "activity"
+      ? (row.items ?? []).flatMap(({ tool }) =>
+          tool?.background && tool.background.state !== "running"
+            ? [{ toolCallId: tool.id, command: tool.command ?? tool.title, state: tool.background.state }]
+            : [],
+        )
+      : [];
+
+/// Shells the agent ran in the background (Claude's Bash `run_in_background`, or a call it moved
+/// there, cx-ncc.84): running until their call or a background task row says how they ended.
 function backgroundTasks(rows: readonly AcpmuxRow[], all: readonly Tool[]): SummaryBackgroundTask[] {
-  const ends = rows.flatMap((row) => (row.backgroundTask ? [row.backgroundTask] : []));
+  const ends = rows.flatMap(backgroundEnds);
   const ended = new Map(ends.map((end) => [end.toolCallId, end.state] as const));
   const launched = all
     // Shell calls only: a subagent's Agent call can run in the background too.
-    .filter((tool) => tool.kind === "execute" && input(tool).run_in_background === true)
+    .filter((tool) => tool.kind === "execute" && (input(tool).run_in_background === true || !!tool.background))
     .map((tool): SummaryBackgroundTask => ({
       id: tool.id,
       command: field(input(tool).command) ?? tool.title,
       state: ended.get(tool.id) ?? (tool.status === "failed" ? "failed" : "running"),
+      ...(tool.startedAt !== undefined ? { startedAt: tool.startedAt } : {}),
     }));
   // A shell whose Bash row is not loaded (an older page, or one Claude moved to the background
   // itself) is known from its end.

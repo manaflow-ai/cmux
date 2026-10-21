@@ -148,14 +148,16 @@ check_ios_runner_routing() {
   # The runner job (scripts/ci/ios_runner_pool.py) resolves the dispatch
   # override, MACOS_RUNNER_TESTS, then MACOS_RUNNER_IOS, and the owned pool;
   # every macOS job reads its answer, and a re-run attempt its retry answer.
-  # mobile-core-package needs no simulator, so it reads package_runs_on.
+  # mobile-core-package needs no simulator, so it reads package_runs_on. The
+  # dispatch input comes first; the cmux-next lane then asks for owned
+  # (tests/test_ci_pr_runner_pool.py pins the whole expression).
   if [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.runs_on) }}" "$IOS_FILE")" -ne 1 ]] ||
      [[ "$(grep -Fc "runs-on: \${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || fromJSON(github.run_attempt > 1 && needs.runner.outputs.retry_runs_on || needs.runner.outputs.package_runs_on) }}" "$IOS_FILE")" -ne 1 ]]; then
     echo "FAIL: all macOS iOS test jobs must take the runner job's pool, which honors the dispatch runner override"
     exit 1
   fi
   if ! grep -Fq 'RUNNER_VARIABLE: ${{ vars.MACOS_RUNNER_TESTS || vars.MACOS_RUNNER_IOS }}' "$IOS_FILE" ||
-     ! grep -Fq 'REQUESTED_RUNNER: ${{ inputs.runner }}' "$IOS_FILE"; then
+     ! grep -Fq "REQUESTED_RUNNER: \${{ inputs.runner || ((github.event_name == 'push' || (github.base_ref == 'feat-cmux-next' && github.event.pull_request.head.repo.full_name == github.repository)) && 'owned' || '') }}" "$IOS_FILE"; then
     echo "FAIL: test-ios.yml's runner job must read the runner input, MACOS_RUNNER_TESTS and MACOS_RUNNER_IOS"
     exit 1
   fi
@@ -577,6 +579,13 @@ done
 printf 'dcede3b42632886a32753ad9d763f785d46afd5fa4580b5c979aad2d465d1cf5  %s\n' "$last"
 EOF
   chmod +x "$bin_dir/shasum"
+  # The helper pins a digest per platform; the fake shasum above answers the
+  # Darwin one, so report Darwin here too or a Linux guard host sees a mismatch.
+  cat > "$bin_dir/uname" <<'EOF'
+#!/usr/bin/env bash
+case "${1:-}" in -m) echo arm64 ;; *) echo Darwin ;; esac
+EOF
+  chmod +x "$bin_dir/uname"
 
   if ! RUNNER_TEMP="$tmp_dir/runner" PATH="$bin_dir:/usr/bin:/bin" "$helper" >"$stdout" 2>"$stderr"; then
     echo "FAIL: sentry-cli helper behavior test should install pinned CLI"
@@ -1075,6 +1084,10 @@ check_no_github_hosted_runners() {
     # (continue-on-error, so a billing block cannot stop CI).
     "cmux-tui-artifacts.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
     "macos-cross-parity.yml:    runs-on: macos-15-intel # github-hosted-required: x86_64 run-time check; Blacksmith has no Intel Mac image"
+    # The cmux-next fast tier overflows to hosted macos-26 (scripts/ci/next_macos_cascade.py),
+    # and its cache key holds the checkout path, so that pool needs a seed built there. The
+    # seed runs only on feat-cmux-next pushes and gates nothing, so a billing block cannot stop CI.
+    'cmux-next-fast-tier-seed.yml:        [{"pool": "hosted", "runner": "macos-26", "workspace": "/Users/runner/work/cmux/cmux", "timeout": 50},'
   )
   local probe
   for probe in 'runs-on: ubuntu-24.04' 'runs-on: ubuntu-latest # github-hosted-required: x' \
@@ -1258,6 +1271,12 @@ check_no_self_hosted_fleet_runners() {
   # it (vars.CI_SESSION_LABEL), else the gui label, behind the same gates.
   local session_owned_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 2 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local session_autofix_selector="vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
+  # The same labels as the last fallback of swift-test / daemon-test / generated-files with no
+  # placement result through the bot's attempt 3: it waits behind the fleet rather than in a
+  # Blacksmith queue (2026-10-20: 5+ hour waits on blacksmith-12vcpu-macos-26). A refused attempt
+  # 3 (owned_pool_rescue REFUSAL_RESCUE_ATTEMPT) still leaves the fleet on attempt 4.
+  local gui_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && 'glaeda-gui-std-xcode-26.6'"
+  local session_owned_rerun_selector="vars.CI_PR_POOL_OWNED == '1' && contains(fromJSON('[\"pull_request\",\"push\",\"workflow_dispatch\"]'), github.event_name) && (github.run_attempt <= 3 || github.triggering_actor != 'github-actions[bot]') && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6')"
   local gui_fork_pr_branch="github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-6vcpu-macos-26' || "
   local hits="" line content content_without_allowed
   # Inspect runner-selection lines only: runs-on:, matrix `os:`, and scalar list
@@ -1281,7 +1300,9 @@ check_no_self_hosted_fleet_runners() {
     case "${line%%:*}" in
       "$ROOT_DIR/.github/workflows/cmux-next.yml")
         if [[ "${content%%"$session_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_selector"/}"; fi
-        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi ;;
+        if [[ "${content%%"$gui_owned_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_selector"/}"; fi
+        if [[ "${content%%"$session_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_owned_rerun_selector"/}"; fi
+        if [[ "${content%%"$gui_owned_rerun_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_owned_rerun_selector"/}"; fi ;;
       "$ROOT_DIR/.github/workflows/cmux-next-pr-autofix.yml")
         if [[ "${content%%"$session_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$session_autofix_selector"/}"; fi
         if [[ "${content%%"$gui_autofix_selector"*}" == *"$gui_fork_pr_branch"* ]]; then content="${content//"$gui_autofix_selector"/}"; fi ;;
@@ -1542,6 +1563,10 @@ pr_concurrency_cancels_superseded_runs() {
         sub(/^[[:space:]]+cancel-in-progress:[[:space:]]*/, "", value)
         sub(/[[:space:]]+$/, "", value)
         if (value == "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 }}") ok=1
+        # `event == X || more` is true for every X event whatever `more` says:
+        # `||` binds loosest, so extra disjuncts only add cancellation.
+        if (index(value, "${{ github.event_name == \047" ENVIRON["EVENT"] "\047 || ") == 1 &&
+            gsub(/\$\{\{/, "&", value) == 1 && value ~ /\}\}$/) ok=1
         # Recognize only the CI workflow label exception: synchronize still
         # cancels the old head. Extra clauses could suppress that cancellation.
         if (ENVIRON["EVENT"] == "pull_request" &&
@@ -1626,6 +1651,10 @@ on:\n  pull_request:~ci-${{ github.ref }}~${{ github.event_name == 'push' }}~rej
 on:\n  pull_request:~ci-${{ github.ref }}~${{ github.event_name != 'pull_request' }}~reject
 on:\n  pull_request:~ci-${{ github.ref }}~${{ github.event_name == 'pull_request_target' }}~reject
 on:\n  pull_request:\n  pull_request_target:~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' || inputs.x == 'y' }}~accept
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'push' || github.event_name == 'pull_request' && false }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request' || x }} && ${{ false }}~reject
+on: pull_request~ci-${{ github.ref }}~${{ github.event_name == 'pull_request_target' || x }}~reject
 CASES
   rm -f "$probe"
 

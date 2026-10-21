@@ -1,7 +1,8 @@
-// Review of #20592: Ultracode is a switch in the Reasoning menu, but it rides the session's free
-// effort option (effort=ultracode / effort=xhigh). A pick on acpmux's own `ultracode` id is a mode
-// switch the app confirms with a sheet, and a non-person pane is refused it. At the composer's
-// boundary: the real picker and a host that records what the pane sends.
+// Review of #20592: Ultracode rides the session's free effort option (effort=ultracode /
+// effort=xhigh). A pick on acpmux's own `ultracode` id is a mode switch the app confirms with a
+// sheet, and a non-person pane is refused it. Since Leo 2026-10-20 the composer has one model button
+// and Ultracode is the last level of its menu's Effort ›; the button names it while it is on. At the
+// composer's boundary: the real picker and a host that records what the pane sends.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
@@ -66,11 +67,22 @@ function press(element: Element) {
     element.dispatchEvent(new dom.window.MouseEvent(type, { bubbles: true, cancelable: true, button: 0 }));
 }
 
+const menus = () => [...dom.window.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu")];
+const settle = () => act(async () => await new Promise((resolve) => setTimeout(resolve, 20)));
+
+/// Opens the model button's menu, then its Effort ›, and picks the level named `label`.
 async function pick(label: string) {
-  const items = () => [...dom.window.document.querySelectorAll('.acpmux-effort-menu [role="menuitemradio"]')];
-  if (items().length === 0) await act(async () => press(host.querySelector(".acpmux-effort .acpmux-picker-button")!));
-  // The Ultracode section's rows come after the levels: its On is the first "On".
-  const row = items().find((item) => item.textContent?.trim().startsWith(label));
+  if (menus().length === 0)
+    await act(async () => host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!.click());
+  await settle();
+  const effort = [...menus()[0]!.querySelectorAll<HTMLElement>('[role="menuitem"]')].find((item) =>
+    item.textContent?.startsWith("Effort"),
+  );
+  expect(effort, "the Effort row").toBeDefined();
+  await act(async () => effort!.click());
+  await settle();
+  const items = () => [...menus().at(-1)!.querySelectorAll<HTMLElement>('[role="menuitemradio"]')];
+  const row = items().find((item) => item.textContent?.replace("✓", "").trim() === label);
   expect(
     row,
     `row ${label} in ${items()
@@ -78,9 +90,10 @@ async function pick(label: string) {
       .join(" | ")}`,
   ).toBeDefined();
   await act(async () => press(row!));
+  await settle();
 }
 
-test("Ultracode On and Off ride the free effort option, never acpmux's ultracode id", async () => {
+test("Ultracode on and off ride the free effort option, never acpmux's ultracode id", async () => {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
   const { ComposerPickers } = await import("../src/agent-session/acpmux/ComposerPickers");
@@ -136,8 +149,12 @@ test("Ultracode On and Off ride the free effort option, never acpmux's ultracode
   const client = new QueryClient();
   root = createRoot(host);
   await act(async () => render("off"));
-  await pick("On");
+  await pick("Ultracode");
   await act(async () => render("on"));
-  await pick("Off");
+  // The button names Ultracode while it is on, never the word Reasoning.
+  const button = host.querySelector<HTMLButtonElement>('[data-menu="Model"]')!;
+  expect(button.textContent).toContain("Ultracode");
+  expect(button.textContent).not.toContain("Reasoning");
+  await pick("Extra High");
   expect(sent).toEqual(["effort=ultracode", "effort=xhigh"]);
 });

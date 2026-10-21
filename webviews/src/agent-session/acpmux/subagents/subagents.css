@@ -360,6 +360,16 @@ button.cv-subagent > :last-child {
   color: var(--agent-muted);
   cursor: default;
 }
+/* An agent another one spawned sits under it, moved in a step per level (AgentsPill.tsx). */
+.acpmux-agents-list__row[data-depth="1"] {
+  padding-inline-start: 24px;
+}
+.acpmux-agents-list__row[data-depth="2"] {
+  padding-inline-start: 40px;
+}
+.acpmux-agents-list__row[data-depth="3"] {
+  padding-inline-start: 56px;
+}
 .acpmux-agents-list__row:hover {
   background: var(--agent-control-hover);
 }
@@ -400,4 +410,15 @@ button.cv-subagent > :last-child {
   flex: none;
   font-size: var(--text-detail);
   font-variant-numeric: tabular-nums;
+}
+/* A subagent's own pane: where the chat's composer would be, the line naming the chat that takes
+   messages (SubagentPaneFooter.tsx). */
+.cv-subagent-pane-footer {
+  margin: 0;
+  padding: 12px 16px;
+  font-family: var(--cv-font);
+  font-size: var(--text-detail);
+  color: var(--cv-text-muted);
+  text-align: center;
+  user-select: none;
 }

@@ -45,7 +45,7 @@ declare namespace Cmux {
   type ChiefList = { chiefs: Array<Cmux.ChiefRecord> }
   type ChiefRecord = { id: string; display_name: string; role: string; personality: string; instructions: string; avatar: Cmux.ChiefAvatarRef | null; tools: Array<string>; harnesses: Array<string>; engine: Cmux.ChiefEngineChoice; self_edit: Array<string>; locked: boolean; is_default: boolean; rev: number; created_at: string; updated_at: string; brain?: Cmux.ChiefBrainStart }
   type ChiefRevision = { rev: number; at: string; actor: string; operation: string; record: Cmux.ChiefRecord }
-  type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string }
+  type ChiefStopResult = { stopped: boolean; subagents?: Array<string>; note?: string; restarted?: Array<string>; errors?: Array<string> }
   type ClientSnapshot = { id: string /* client_… */; session_id: string /* session_… */; name: string | null; client_kind: string | null; transport: Cmux.ClientTransport; connected_seconds: string; attached_terminal_ids: Array<string /* terminal_… */>; sizes: Array<Cmux.ClientTerminalSize>; self: boolean; extra?: Record<string, Cmux.JsonValue> }
   type ClientTerminalSize = { terminal_id: string /* terminal_… */; cols: number | null; rows: number | null; participating: boolean }
   type ClientToken = string
@@ -380,14 +380,15 @@ declare namespace Cmux {
   type SshPresenceProof = { install: Cmux.InstallId; nonce: string; signature: string; app_attest?: string }
   type SsoConnection = { id: Cmux.SsoConnectionId; kind: "oidc"; state: "draft" | "active" | "disabled"; domains: Array<Cmux.EmailDomain>; oidc: { issuer: string; client_id: string; scopes: Array<string>; authorization_endpoint: string | null; token_endpoint: string | null; jwks_uri: string | null }; secret_set: boolean; secret_generation?: number; jit: { enabled: boolean; default_role: "member" | "admin" }; created_at: number; updated_at: number }
   type SsoConnectionId = string
-  type StashCreateResult = { stash_id: Cmux.StateId; tab_ids: Array<string /* tab_… */>; skipped: Array<string /* tab_… */> }
+  type StashCreateResult = { stash_id: Cmux.StateId; tab_ids: Array<string /* tab_… */>; skipped: Array<string /* tab_… */>; workspace_ids?: Array<string /* workspace_… */> }
   type StashDeleteResult = { stash_id: Cmux.StateId; remaining: number }
   type StashImportGroup = { name?: string; created_ms?: string; tabs: Array<Cmux.StashImportTab> }
   type StashImportResult = { stash_ids: Array<Cmux.StateId>; imported_tabs: number; skipped_tabs: number }
   type StashImportTab = { url: string; title?: string }
   type StashRestoreResult = { stash_id: Cmux.StateId; workspace_id: string /* workspace_… */ | null; workspace_ids: Array<string /* workspace_… */>; screen_ids: Array<string /* screen_… */>; tab_ids: Array<string /* tab_… */>; remaining: number }
   type StashSnapshot = { id: Cmux.StateId; name: string | null; created_at_ms: string; member_count: number; members: Array<Cmux.StashTab> }
-  type StashTab = { id: Cmux.StateId; url: string; title: string | null; browser_profile_id: string | null; workspace_id: string /* workspace_… */ | null }
+  type StashTab = { id: Cmux.StateId; kind: "tab" | "workspace"; url: string | null; title: string | null; browser_profile_id: string | null; workspace_id: string /* workspace_… */ | null; name?: string | null; tab_count?: number; tabs?: Array<Cmux.StashWorkspaceTab> }
+  type StashWorkspaceTab = { kind: "terminal" | "browser" | "conversation" | "remote_terminal"; title: string | null; url: string | null }
   type StateDelete = { kind: "state_delete"; sequence: number; resource: Cmux.StateResourceKind; id: string }
   type StateDeleteResult = { id: Cmux.StateId; deleted: boolean }
   type StateEntitySnapshot = unknown
@@ -654,7 +655,7 @@ interface CmuxGlobal {
       update: CmuxOp<{ machine?: string; session?: string; chief: string; expected_rev?: number; display_name?: string; role?: string; personality?: string; instructions?: string; tools?: Array<string>; harnesses?: Array<string>; self_edit?: Array<string>; harness?: string; model?: string; effort?: string; locked?: boolean }, Cmux.MutationResult<Cmux.ChiefRecord>>
     }
     /** `chief.stop` (mutation, scope `chief:write`) */
-    stop: CmuxOp<{ machine?: string; session?: string; chief?: string; name?: string }, Cmux.MutationResult<Cmux.ChiefStopResult>>
+    stop: CmuxOp<{ machine?: string; session?: string; chief?: string; name?: string; all?: boolean; restart?: Array<string> }, Cmux.MutationResult<Cmux.ChiefStopResult>>
     /** `chief.update` (mutation, scope `chief:write`): Rename a chief, make it the default (clears the old default in the same commit), set its harness, place its brain on a paired server or clear that (brain_place, session only), or restore it within 30 days of archiving (archived: false). */
     update: CmuxOp<{ chief: Cmux.ChiefId; expected_rev: unknown; display_name?: string; is_default?: true; harness?: string | null; archived?: false; brain_place?: Cmux.ChiefBrainPlace | null; expected_revision?: string }, Cmux.MutationResult<Cmux.HomeChief>>
   }
@@ -673,7 +674,7 @@ interface CmuxGlobal {
     }
     browser: {
       /** `cloud.browser.open` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Give the browser host a proxy route to the machine's localhost: an HTTP proxy on 127.0.0.1 that reaches only the machine (other hosts get 403) and the URL to load through it. It opens no browser tab; the browser host owns tabs. */
-      open: CmuxOp<{ machine: string; port: number; host?: string; path?: string }, { machine: string; proxy: { kind: "http" | "socks5"; host: "127.0.0.1"; port: number }; url: string; generation: number }>
+      open: CmuxOp<{ machine: string; port: number; host?: string; path?: string }, { machine: string; proxy: { kind: "http" | "socks5"; host: "127.0.0.1"; port: number; username: string; password: string }; url: string; incarnation: number; generation: number }>
     }
     file: {
       /** `cloud.file.pull` (mutation, scope `cloud:write`, owner `app:cmux/cloud`): Copy a file from a machine to this Mac, like cloud.file.push in the other direction. Never overwrites: an existing local path gets cmux.cloud.local_exists. Only a person may transfer: the local path reaches any file this Mac's user can read or write, so the host stamps origin user only after a native file panel; every other origin gets cmux.cloud.origin_refused. Hidden on the CLI and never on MCP. The op answers at once with a transfer id (state running) while the copy runs off the op loop; its end is the event cloud.file.transfer.changed {transfer, machine, direction, path, localPath, state: done with bytes, failed with a typed error, or cancelled}. At most 4 transfers run at once; more get cmux.cloud.transfer_busy (retryable). cloud.file.transfer.cancel stops it. */
@@ -1462,7 +1463,7 @@ interface CmuxGlobal {
   }
   stash: {
     /** `stash.create` (mutation, scope `stash:write`) */
-    create: CmuxOp<{ machine?: string; session?: string; tabs?: Array<string /* tab_… */>; workspace?: string /* workspace_… */ }, Cmux.MutationResult<Cmux.StashCreateResult>>
+    create: CmuxOp<{ machine?: string; session?: string; tabs?: Array<string /* tab_… */>; workspace?: string /* workspace_… */; workspaces?: Array<string /* workspace_… */>; name?: string }, Cmux.MutationResult<Cmux.StashCreateResult>>
     /** `stash.delete` (mutation, scope `stash:write`) */
     delete: CmuxOp<{ machine?: string; session?: string; stash: Cmux.StateId; members?: Array<Cmux.StateId> }, Cmux.MutationResult<Cmux.StashDeleteResult>>
     /** `stash.import` (mutation, scope `stash:write`) */

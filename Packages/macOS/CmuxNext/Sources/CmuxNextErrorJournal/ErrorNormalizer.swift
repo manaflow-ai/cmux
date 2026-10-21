@@ -27,8 +27,10 @@ public struct ErrorNormalizer {
             (#"\d+(?:\.\d+)?"#, "<n>"),
             (#"\s+"#, " "),
         ]
-        // The patterns are literals the tests cover; one that ever fails to compile is skipped.
-        rules = patterns.compactMap { pattern in (try? NSRegularExpression(pattern: pattern.0)).map { ($0, pattern.1) } }
+        // Constant patterns (ErrorJournalTests); one that failed to compile is skipped, not a crash.
+        rules = patterns.compactMap { pattern, replacement in
+            (try? NSRegularExpression(pattern: pattern)).map { ($0, replacement) }
+        }
         self.maxBytes = maxBytes
     }
 
