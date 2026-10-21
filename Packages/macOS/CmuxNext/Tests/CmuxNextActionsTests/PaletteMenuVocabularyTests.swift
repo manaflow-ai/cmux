@@ -47,6 +47,42 @@ struct PaletteMenuVocabularyTests {
         }
     }
 
+    /// A title ends in "…" exactly when choosing it asks for more first. A phone action with a
+    /// required argument (a URL, text, a point, a button or a locale) makes the palette ask for it
+    /// (`ActionRegistry.argumentCollector`); one without (Boot, Rotate, Take Screenshot) runs at once.
+    @Test func phoneTitlesEndInAnEllipsisExactlyWhenTheyAsk() {
+        let phones = ActionCatalog.all.filter { $0.id.rawValue.hasPrefix("phone.") }
+        #expect(!phones.isEmpty)
+        for descriptor in phones {
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(descriptor.title.hasSuffix("…") == asks,
+                    "\(descriptor.id) \(descriptor.title): \(asks ? "asks for input, so it ends in …" : "acts at once, so no …")")
+        }
+    }
+
+    /// The same rule outside the Phone family, for the rows the palette audit found wrong. Each of
+    /// the first list has a required argument the palette collects before it runs (a time range and
+    /// profile, a history entry, an app, a team, a host address). Cloud Diagnostics shows its result
+    /// in a toast and Edit Group Config opens cmux-next.json, as Open cmux-next.json does: neither
+    /// asks, so neither ends in "…".
+    @Test func auditedTitlesEndInAnEllipsisExactlyWhenTheyAsk() throws {
+        let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
+        let asking: [ActionID] = ["palette.browserClearHistory", "history.open", "app.hide", "app.unhide",
+                                  "openTeamPicker", "remote.openBrowserTab"]
+        for id in asking {
+            let descriptor = try #require(byID[id], "\(id)")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(asks, "\(id) no longer asks for input")
+            #expect(descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): asks for input, so it ends in …")
+        }
+        for id: ActionID in ["cloudDiagnostics", "workspaceGroup.editConfig"] {
+            let descriptor = try #require(byID[id], "\(id)")
+            let asks = descriptor.arguments.contains(where: \.isRequired)
+            #expect(!asks, "\(id) now asks for input")
+            #expect(!descriptor.title.hasSuffix("…"), "\(id) \(descriptor.title): acts at once, so no …")
+        }
+    }
+
     /// A renamed row still answers the word it used to start with.
     @Test func renamedRowsKeepTheirOldWord() throws {
         let byID = Dictionary(ActionCatalog.all.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })

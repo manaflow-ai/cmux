@@ -9,6 +9,7 @@ pub mod cli_agent;
 pub mod command;
 pub mod entry;
 pub mod errors;
+pub mod forum;
 pub mod handoff;
 pub mod harness;
 pub mod harness_folder;

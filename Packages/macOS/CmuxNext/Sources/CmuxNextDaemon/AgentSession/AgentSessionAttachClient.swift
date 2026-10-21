@@ -66,6 +66,8 @@ public actor AgentSessionAttachClient {
     private var servesTrust = false
     /// The connected daemon serves `agent-session-start-keyed-reason-v1`.
     private var servesKeyedReason = false
+    /// The connected daemon serves `agent-session-children-v1`.
+    private var servesChildren = false
 
     /// A start that needs the app's person key in that machine's acpmux (cx-0w0jj): `instance`
     /// is the acpmux run the app holds a key for, nil when it holds none.
@@ -168,6 +170,15 @@ public actor AgentSessionAttachClient {
         _ = try? await call("agent-session-detach", [:])
     }
 
+    /// `agent-session-children` (`agent-session-children-v1`): the chats the attached tab's session
+    /// started on the daemon's machine (`{sessions}`, acpmux summaries); the attachment then
+    /// streams their changes too. A daemon without the verb lists none.
+    public func children() async throws -> Data {
+        _ = try await liveTransport()
+        guard servesChildren else { return Data(#"{"sessions":[]}"#.utf8) }
+        return try await call("agent-session-children", [:])
+    }
+
     /// Ends the attachment and the connection; no push after it.
     public func close() {
         closed = true
@@ -251,6 +262,7 @@ public actor AgentSessionAttachClient {
             servesStart = identity.supports(DaemonCapabilities.shared.agentSessionStart)
             servesTrust = identity.supports(DaemonCapabilities.shared.agentSessionTrust)
             servesKeyedReason = identity.supports(DaemonCapabilities.shared.agentSessionStartKeyedReason)
+            servesChildren = identity.supports(DaemonCapabilities.shared.agentSessionChildren)
             _ = try await DaemonConnection.perform(
                 SetClientInfoRequest(name: mode.clientInfoName, kind: mode.clientInfoKind, capabilities: []),
                 on: transport, timeout: requestTimeout)

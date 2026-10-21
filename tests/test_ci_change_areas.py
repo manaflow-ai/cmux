@@ -2963,11 +2963,12 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:
     block = workflow_job_block("react-doctor", WEB_WORKFLOW)
-    assert "needs: web-subarea-scope" in block
+    assert "needs: [web-subarea-scope, runners]" in block
     assert "react-apps-check-shard" not in block
     assert "bun run react-doctor:ci" in block
     assert "hashFiles('webviews/bun.lock')" in block
-    assert "blacksmith-4vcpu-ubuntu-2404" in block
+    # 16 vCPU from the capability map: on 4 vCPU it hit its 10 min timeout.
+    assert "runs-on: ${{ fromJSON(needs.runners.outputs.map).linux_16 }}" in block
 
 
 def test_every_setup_bun_step_declares_a_version() -> None:
@@ -3076,6 +3077,10 @@ def _job_runs_only_on_linux(job: dict) -> bool:
         called = yaml.safe_load((ROOT / uses.removeprefix("./")).read_text(encoding="utf-8"))
         return all(_job_runs_only_on_linux(inner) for inner in called["jobs"].values())
     runs_on = str(job.get("runs-on", ""))
+    # A job on the runner capability map (.github/runners.json) names its key.
+    capabilities = re.findall(r"outputs\.map\)\.([a-z0-9_]+)", runs_on)
+    if capabilities:
+        return all(key.startswith("linux") for key in capabilities)
     return "macos" not in runs_on.lower() and ("ubuntu" in runs_on or "LINUX_RUNNER" in runs_on)
 
 

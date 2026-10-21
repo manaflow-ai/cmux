@@ -658,7 +658,10 @@ fn tool_kind(name: &str) -> &'static str {
 
 /// A file edit's ACP `diff` content: one diff per Edit or MultiEdit
 /// replacement, and Write as the whole file (no old text). None for any other
-/// tool, or input without a path.
+/// tool, or input without a path. A Write is marked a fragment until its result
+/// says what it did (`settle_write`): a diff with no old text reads as a file the
+/// turn created, which Undo moves to the Trash, and a Write over a file that was
+/// there, or one whose result never arrives, must not read that way.
 fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
     let path = input.get("file_path").and_then(Value::as_str)?;
     let diff = |old: Option<&Value>, new: Option<&Value>| json!({"type": "diff", "path": path, "oldText": old.cloned().unwrap_or(Value::Null), "newText": new.cloned().unwrap_or_else(|| json!(""))});
@@ -670,10 +673,55 @@ fn edit_diffs(name: &str, input: &Value) -> Option<Value> {
             .iter()
             .map(|e| diff(e.get("old_string"), e.get("new_string")))
             .collect(),
-        "Write" => vec![diff(None, input.get("content"))],
+        "Write" => {
+            let mut write = diff(None, input.get("content"));
+            write["_meta"] = json!({"acpmux": {"fragment": true}});
+            vec![write]
+        }
         _ => return None,
     };
     Some(Value::Array(diffs))
+}
+
+/// The most of a Write's old text a settled diff carries: a bigger file stays a
+/// fragment rather than doubling a multi-megabyte update (as adopt's limit).
+const MAX_WRITE_OLD_TEXT: usize = 64_000;
+
+/// A finished Write's diff, sent as a fragment with no old text (`edit_diffs`)
+/// before Claude Code said whether the file was there. `result` is Claude Code's
+/// structured result (`tool_use_result` live, `toolUseResult` in a transcript),
+/// `text` the tool_result's text. A Write that created its file loses the
+/// fragment mark: it reads as new, and Undo may trash it. An overwrite whose
+/// result names this file and holds its old text (`originalFile`, within the
+/// limit) takes that text and loses the mark. Anything else stays a fragment, so
+/// nothing is written back from it.
+pub(crate) fn settle_write(mut diffs: Value, text: &str, result: Option<&Value>) -> Value {
+    let field = |key: &str| result.and_then(|r| r.get(key)).and_then(Value::as_str);
+    let Some(items) = diffs.as_array_mut() else { return diffs };
+    let held = |d: &Value| {
+        d.get("oldText").is_some_and(Value::is_null)
+            && d.pointer("/_meta/acpmux/fragment") == Some(&json!(true))
+    };
+    for diff in items.iter_mut().filter(|d| held(d)) {
+        let ours = field("filePath").is_some()
+            && field("filePath") == diff.get("path").and_then(Value::as_str);
+        let created = if ours && field("type").is_some() {
+            field("type") == Some("create")
+        } else {
+            text.trim_start().starts_with("File created successfully")
+        };
+        let original = field("originalFile").filter(|o| ours && o.len() <= MAX_WRITE_OLD_TEXT);
+        if !created && original.is_none() {
+            continue;
+        }
+        if let Some(original) = original.filter(|_| !created) {
+            diff["oldText"] = json!(original);
+        }
+        if let Some(fields) = diff.as_object_mut() {
+            fields.remove("_meta");
+        }
+    }
+    diffs
 }
 
 /// The file a tool reads or writes, as ACP `locations`.

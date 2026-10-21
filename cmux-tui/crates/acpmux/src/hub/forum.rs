@@ -150,6 +150,17 @@ fn is_command_name(name: &str) -> bool {
     !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || "-_:".contains(c))
 }
 
+/// The slash command a prompt is (`/compact`, `/clear now`): the name after the `/` that opens
+/// its first text, when that is a command name rather than a path. A command's turn is the
+/// command, so neither the forum's rules (`forum_context`) nor other agents' messages
+/// (`digest.rs`) go in with it.
+pub(super) fn slash_command(blocks: &[Value]) -> Option<&str> {
+    let first = blocks.iter().find_map(|b| b.get("text").and_then(Value::as_str))?;
+    let command = first.trim_start().strip_prefix('/')?;
+    let name = command.split_whitespace().next().unwrap_or_default();
+    is_command_name(name).then_some(name)
+}
+
 fn push_text(p: &Post) -> String {
     format!("Urgent cmux rule. {}", rule_text(p))
 }
@@ -371,19 +382,16 @@ impl Hub {
         let first = blocks.iter().find_map(|b| b.get("text").and_then(Value::as_str));
         // A slash command's turn is the command: the rules wait for the next
         // prompt, all of them after one that empties the agent's context.
-        if let Some(command) = first.and_then(|t| t.trim_start().strip_prefix('/')) {
-            let name = command.split_whitespace().next().unwrap_or_default();
-            if is_command_name(name) {
-                if matches!(name, "clear" | "compact" | "new" | "reset") {
-                    session.forum_retell.store(true, Ordering::SeqCst);
-                    session
-                        .forum_retold
-                        .lock()
-                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                        .clear();
-                }
-                return ForumTurn { posts: told, retold: false, waiting: 0 };
+        if let Some(name) = slash_command(blocks) {
+            if matches!(name, "clear" | "compact" | "new" | "reset") {
+                session.forum_retell.store(true, Ordering::SeqCst);
+                session
+                    .forum_retold
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .clear();
             }
+            return ForumTurn { posts: told, retold: false, waiting: 0 };
         }
         // A new agent session that got the restored transcript lost the rules with it.
         let transcript = first.is_some_and(|t| t.starts_with("<restored_transcript"));
@@ -431,7 +439,7 @@ impl Hub {
         blocks.push(json!({
             "type": "text",
             "text": format!(
-                "<{CONTEXT_TAG}>\nCurrent cmux rules (forum announcements). Ack each with the forum ack tool once read.\n\n{}\n</{CONTEXT_TAG}>",
+                "<{CONTEXT_TAG}>\nCurrent cmux rules (forum announcements). Once read, ack each by its postId: the `ack` tool of the `cmux-forum` MCP server, or `acpmux forum ack <postId>`.\n\n{}\n</{CONTEXT_TAG}>",
                 lines.join("\n\n")
             ),
         }));

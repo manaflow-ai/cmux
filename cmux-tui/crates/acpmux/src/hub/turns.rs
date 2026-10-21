@@ -162,6 +162,27 @@ impl Hub {
         steer: bool,
         opts: PromptOptions,
     ) -> Result<Value, RpcError> {
+        // The agent messages that go in with this one (`digest.rs`) answer with its answer, or
+        // wait again when it failed.
+        let joined = super::digest::DigestTurn::default();
+        let result = self.run_prompt_joined(session, blocks, client, steer, opts, &joined).await;
+        // `finish_turn` put them back already when the turn itself failed; this is any other way.
+        if result.is_err() {
+            self.requeue_joined(session, &joined);
+        }
+        joined.answer.send_replace(Some(result.clone()));
+        result
+    }
+
+    async fn run_prompt_joined(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        blocks: Vec<Value>,
+        client: &str,
+        steer: bool,
+        opts: PromptOptions,
+        joined: &super::digest::DigestTurn,
+    ) -> Result<Value, RpcError> {
         let prompt_id = opts.prompt_id.unwrap_or_else(|| uuid::Uuid::now_v7().to_string());
         let control = opts.control;
         let trust_gate = opts.trust_gate;
@@ -205,6 +226,7 @@ impl Hub {
         let after_turn = opts.after_turn.clone();
         super::auto_resume::check_cut(session, after_turn.as_deref(), false)?;
         // Queued behind the running turn (and the queue) it waits for its turn (`queue.rs`).
+        let agent = super::digest::agent_sender(opts.provenance.as_ref(), opts.agent.as_deref());
         let slot = super::queue::Slot {
             text: &text,
             blocks: &blocks,
@@ -214,6 +236,7 @@ impl Hub {
             trust_gate,
             interrupt: opts.interrupt,
             provenance: opts.provenance.as_ref(),
+            agent: agent.as_deref(),
         };
         let (turn_id, waiting, guard, run) = match self.queue_slot(session, slot, &mut accept).await
         {
@@ -252,6 +275,23 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // An agent message's turn takes the agent messages waiting behind it (`digest.rs`), once
+        // the turn has started, so none leaves the queue for a turn that never runs. A forum push
+        // is no agent's message: it never leads one.
+        let parts = self.take_joined(session, &run, &prompt_id, &turn_id, joined);
+        let (blocks, text) = if parts.is_empty() {
+            (blocks, text)
+        } else {
+            let sender = run.agent.clone().unwrap_or_default();
+            let head =
+                super::digest::Part { prompt_id: prompt_id.clone(), sender, run: run.clone() };
+            let parts: Vec<_> = std::iter::once(head).chain(parts).collect();
+            provenance = Some(super::digest::digest_provenance(&parts));
+            let blocks = super::digest::digest_blocks(&parts);
+            let text = prompt_text(&blocks);
+            (blocks, text)
+        };
+        let mut blocks = blocks;
         {
             let mut m = session.meta.lock().unwrap();
             m.last_prompt = Some(short_text(&text, 200));
@@ -423,8 +463,9 @@ impl Hub {
         // model switch (`detach_child`) that ended the turn is no connection error.
         let agent_error = result.as_ref().err().map(|e| e.message.clone());
         let detached = session.turn().is_none_or(|t| t.turn_id != turn_id);
-        let mut result =
-            self.finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq).await;
+        let mut result = self
+            .finish_turn(session, &child, result, &prompt_id, &turn_id, turn_seq, Some(joined))
+            .await;
         // A rule counts as told once the agent answered the prompt that carried it.
         self.forum_turn_end(session, &told, result.is_ok());
         // A connection error cut the turn off: it goes on by itself (`auto_resume.rs`).
@@ -462,6 +503,7 @@ impl Hub {
         prompt_id: &str,
         turn_id: &str,
         turn_seq: u64,
+        joined: Option<&super::digest::DigestTurn>,
     ) -> Result<Value, RpcError> {
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
@@ -512,6 +554,11 @@ impl Hub {
         if let Some(e) = harness_failure {
             result = Err(e);
         }
+        // The agent messages that went in with it go back before anything here waits, so one sent
+        // from now on goes behind them (`digest.rs`).
+        if let (Err(_), Some(joined)) = (&result, joined) {
+            self.requeue_joined(session, joined);
+        }
         // A failure on a bound route names the route and its fallback
         // (route_switch.rs), in the error's data and the turn result.
         let route_info = match &result {
@@ -560,6 +607,10 @@ impl Hub {
                     o.extend(super::turn_usage::turn_usage(session, v));
                 }
                 self.write_turn_result(session, msg, git);
+                // The chat works again: agent messages a failed turn held go in (`digest.rs`).
+                if status == "completed" {
+                    self.release_held_agent_messages(session);
+                }
             }
             Err(e) => {
                 self.append(
