@@ -11,7 +11,8 @@ import os
 /// so nothing else listens on its relay. The tab's own state reports a crash.
 @MainActor
 final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
-    private let tab: CEFTab
+    /// The CEF tab the page shows in; the focus applier gives it the keyboard like a browser tab.
+    let tab: CEFTab
     private let pageID: String
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     private var crashWatch: Task<Void, Never>?
@@ -91,4 +92,9 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
             break
         }
     }
+}
+
+extension InternalPageView {
+    /// The CEF tab a React page shows in when it runs in Chromium (a child window); nil on WebKit.
+    var chromiumTab: (any BrowserTab)? { ((content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab }
 }

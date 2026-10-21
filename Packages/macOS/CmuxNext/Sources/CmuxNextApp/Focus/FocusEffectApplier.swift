@@ -116,6 +116,8 @@ final class FocusEffectApplier: FocusEffectApplying {
             if !responder(of: window, isInside: view) { window.makeFirstResponder(view.webView) }
         case .page(let pane, let tab):
             guard case .page(let view)? = presented(pane: pane, tab: tab) else { return }
+            // A page in Chromium shows in a child window: it takes the keys like a Chromium browser tab.
+            if let page = view.chromiumTab { return focusPage(page, in: window) }
             blurChildWindowPage()
             // A page with a primary input (the docked Home, a Home tab) lands the keyboard there by
             // the same rule as a conversation tab; its page view itself takes no keys.
@@ -233,8 +235,15 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func reclaimKeyAfterActivation() {
         switch controller.focus.state.resolved {
         case .browserPage, .devTools, .overlay: return
+        case .page(let pane, let tab) where showsChromiumPage(pane: pane, tab: tab): return
         default: reclaimKeyFromPageWindow()
         }
+    }
+
+    /// The pane shows `tab`, a page in Chromium: its page window is the target and keeps the keys.
+    private func showsChromiumPage(pane: String, tab: String) -> Bool {
+        guard case .page(let view)? = presented(pane: pane, tab: tab) else { return false }
+        return view.chromiumTab != nil
     }
 
     /// What the key rule needs to know about `other`, a window that is not
@@ -351,11 +360,15 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func paneShowingChildWindowPage(at frame: NSRect) -> (key: String, page: any BrowserTab)? {
         let center = NSPoint(x: frame.midX, y: frame.midY)
         for pane in controller.content?.panes.values.map({ $0 }) ?? [] {
-            guard case .browser(let entry)? = pane.currentContent, entry.tab.presentation == .childWindow,
-                  let window = pane.view.window else { continue }
-            let content = entry.tab.contentView
+            let page: (any BrowserTab)? = switch pane.currentContent {
+            case .browser(let entry)?: entry.tab
+            case .page(let view)?: view.chromiumTab
+            default: nil
+            }
+            guard let page, page.presentation == .childWindow, let window = pane.view.window else { continue }
+            let content = page.contentView
             let screenFrame = window.convertToScreen(content.convert(content.bounds, to: nil))
-            if screenFrame.contains(center) { return (pane.paneKey, entry.tab) }
+            if screenFrame.contains(center) { return (pane.paneKey, page) }
         }
         return nil
     }
