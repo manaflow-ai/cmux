@@ -5,7 +5,7 @@
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ActionCatalog.xcstrings": {
       "identical": 140,
-      "needs_review": 2998
+      "needs_review": 3006
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/AppStoreActions.xcstrings": {
       "identical": 14,
@@ -65,7 +65,7 @@
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/RemoteActions.xcstrings": {
       "identical": 1,
-      "needs_review": 125
+      "needs_review": 139
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/ScreenActions.xcstrings": {
       "needs_review": 528
@@ -81,7 +81,7 @@
       "needs_review": 192
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/SidebarSectionActions.xcstrings": {
-      "identical": 19,
+      "identical": 21,
       "needs_review": 539
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextActions/TasksActions.xcstrings": {
@@ -99,7 +99,8 @@
       "needs_review": 296
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentLanes/Resources/Localizable.xcstrings": {
-      "needs_review": 21
+      "identical": 1,
+      "needs_review": 28
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/Localizable.xcstrings": {
       "identical": 91,
@@ -154,7 +155,7 @@
       "needs_review": 80
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FileExplorer.xcstrings": {
-      "needs_review": 238
+      "needs_review": 245
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/FilePages.xcstrings": {
       "identical": 10,
@@ -214,9 +215,6 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Remote.xcstrings": {
       "identical": 9,
       "needs_review": 553
-    },
-    "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/RightSidebar.xcstrings": {
-      "identical": 1
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Resources/Rooms.xcstrings": {
       "identical": 1,
@@ -302,7 +300,7 @@
       "needs_review": 416
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/Resources/Refusals.xcstrings": {
-      "needs_review": 1402
+      "needs_review": 1409
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Resources/Localizable.xcstrings": {
       "identical": 16,
@@ -388,6 +386,10 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextScreenshots/Resources/Localizable.xcstrings": {
       "needs_review": 120
     },
+    "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/AddMachine.xcstrings": {
+      "identical": 3,
+      "needs_review": 308
+    },
     "Packages/macOS/CmuxNext/Sources/CmuxNextServer/Resources/Localizable.xcstrings": {
       "identical": 14,
       "needs_review": 540
@@ -402,7 +404,7 @@
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextSidebar/Resources/Localizable.xcstrings": {
       "identical": 63,
-      "needs_review": 717
+      "needs_review": 724
     },
     "Packages/macOS/CmuxNext/Sources/CmuxNextTabs/Resources/Localizable.xcstrings": {
       "identical": 6,
