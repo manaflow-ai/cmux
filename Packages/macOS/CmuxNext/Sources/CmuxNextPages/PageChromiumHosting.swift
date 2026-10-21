@@ -81,4 +81,9 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     /// A drag of these files from outside the app entered the page (their paths, which the page
     /// itself never learns). The page still gets the drag.
     case filesDragged([URL])
+    /// A real key or mouse event reached the page (its `systemUptime`): what backs a page call as the
+    /// person's gesture (``PageWebView/lastUserEventUptime``). Page script cannot make one.
+    case userInput(TimeInterval)
+    /// The person right-clicked in the page: the host shows its own menu (``PageChromiumContextMenu``).
+    case contextMenu(PageChromiumContextMenu)
 }

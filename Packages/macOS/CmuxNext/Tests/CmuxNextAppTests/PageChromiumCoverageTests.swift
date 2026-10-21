@@ -23,10 +23,7 @@ import Testing
     /// The pages that still show in WebKit, and why (webviews-chromium-AUDIT.md).
     private static let stillOnWebKit: [String: PageWebKitReason] = [
         PageDescriptor.agent.id: .agentChat,
-        PageDescriptor.markdown.id: .nativeHooks,
-        PageDescriptor.editor.id: .nativeHooks,
         PageDescriptor.iconPicker.id: .transparentOverlay,
-        PageDescriptor.homeChannels.id: .nativeHooks,
     ]
 
     /// A bundle with a resource folder for every shipped page, and the table Chromium gets for it.
