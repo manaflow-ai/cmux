@@ -287,9 +287,9 @@ import Testing
         // WebKit writes the scroll position into the page's history item once scrolling has
         // stopped for a moment; a person's page hibernates minutes later.
         try await Task.sleep(for: .seconds(1))
-        // A pane hides a WebKit page by taking it out of the window; WebKit then saves the page's
-        // fields and scroll into its history item (the state hibernation keeps).
-        rig.window.contentView = NSView()
+        // A pane parks the page it stops showing hidden in the window (`PaneContentView.retire`);
+        // WebKit then saves the page's fields into its history item (the state hibernation keeps).
+        page.contentView.isHidden = true
         let key = try await rig.hide(page)
         try await rig.until("the page hibernated") { rig.isHibernated(key) || rig.exemption(key) != nil }
         try #require(rig.isHibernated(key))
