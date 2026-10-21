@@ -171,9 +171,9 @@ await requireBrowserLane("agent-pane-peer-chat.test.ts", async () => {
           },
         }),
       );
-      // The line names the call in flight ("Run make") with its time beside it (WorkingFor.tsx).
-      // Before the call it read "Thinking" in the same place, so wait for the call's name.
-      const working = page.locator(".cv-worked__label", { hasText: "Run make" });
+      // The turn's live line names the call in flight ("Run make") with its time beside it
+      // (Thinking.tsx). Before the call it read "Thinking" in the same place, so wait for the name.
+      const working = page.locator(".cv-thinking", { hasText: "Run make" });
       await working.waitFor();
       const label = (await working.textContent()) ?? "";
       const time = (await page.locator(".cv-worked__time").textContent()) ?? "";

@@ -16,7 +16,7 @@ import { isSubagentGroup } from "../subagents/subagentRows";
 import { STARTED_SESSIONS } from "../started/startedSessions";
 import { QUESTION_RECORD } from "../question/record";
 import type { Translate } from "../i18n";
-import { editedPaths, shortCommand, toolLabel } from "../toolPaths";
+import { editedPaths, isBareShellName, shortCommand, toolLabel } from "../toolPaths";
 import { GROUP_TAIL } from "./ToolGroupRow";
 import { isRunning, toolGroups } from "./toolGroups";
 
@@ -606,13 +606,15 @@ function liveTurn(
   const status: AcpmuxRow = { id: `${WORKING}-${user.id}`, version: 1, at, kind: WORKING };
   if (answering) Object.assign(status, { version: 2, durationMs: Math.max(0, last.at - user.at) });
   // While a call runs the line names it, as Claude desktop's does (WorkingFor.tsx), unless the
-  // call's own row, right under it, already does: one running call reads once.
+  // call's own row, right under it, already does: one running call reads once. The Codex-style
+  // runs draw no call in flight (codexRuns), so there the line always names it.
   else {
     const doing = inFlightCall(last);
-    if (doing && doing.row !== true) {
+    if (doing && (liveRuns || doing.row !== true)) {
       status.doing = doing.title;
       if (doing.command) status.doingCommand = true;
-      if (doing.row) Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
+      if (doing.row && doing.row !== true && !liveRuns)
+        Object.assign(status, { doingGroup: doing.row.key, doingGroupOpen: doing.row.open });
     }
   }
   // The Codex-style runs hold no streaming thought (codexRuns).
@@ -657,7 +659,10 @@ function codexLiveTurn(
   line.untimed = true;
   const call = runningCall(last);
   if (call) {
-    const shell = call.kind === "execute" && !call.description;
+    // A command reads its short line; one with no line yet reads its title ("Run make"), or
+    // "Running a command" when that is only the shell tool's name ("Bash").
+    const shell =
+      call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
     line.doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
     line.doingAt = (call.startedAt ?? last.at) + clockOffset;
@@ -681,7 +686,18 @@ function codexLiveTurn(
   const work = rows.filter((row) => row !== plan);
   // The answer streams under the list, the line under both.
   if (answering) return [...header, ...work.filter((row) => row !== last), plan, last, line];
-  return [...header, ...work, plan, line];
+  // With a todo list the activity line under it is the live line (cx-ncc.102), as without these
+  // toggles; it reads the call in flight from the turn's rows, which the runs no longer hold.
+  return [
+    ...work,
+    plan,
+    activityLine(
+      user,
+      drawn.filter((row) => row !== plan),
+      plan,
+      clockOffset,
+    ),
+  ];
 }
 
 /// The newest call still running in a live turn's latest row.

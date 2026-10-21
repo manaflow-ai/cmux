@@ -71,11 +71,12 @@ test("text after work does not stop the clock: the agent may still think or writ
   expect(text(drawn(line, prompt))).toBe("Working for 26s");
 });
 
-test("a call in flight is named on the last row, beside the time", () => {
+test("a lone call in flight is named on its own row, so the last row only times the turn", () => {
+  // One running call reads once (#23090): its tool row names it.
   const prompt = row("u", "user");
   const rows = shaped([prompt, row("run", "activity", { items: [call("bun test", "in_progress")] })]);
   expect(kinds(rows)).toEqual(["user", "activity", WORKING]);
-  expect(text(drawn(rows.at(-1)!, prompt))).toBe("bun test 26s");
+  expect(text(drawn(rows.at(-1)!, prompt))).toBe("Working for 26s");
 });
 
 test("a thought coming in labels itself, so the line does not say Thinking twice", () => {

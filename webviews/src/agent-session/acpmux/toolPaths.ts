@@ -77,13 +77,15 @@ export function toolLabel(
 /// A command line as a short label: the setup a script starts with (`export PATH=…;`, `B=~/x;`,
 /// `cd dir &&`) and the environment set in front of a command (`PATH="…" acpmux ls`) dropped, so
 /// "export PATH=\"/Applications/…\"; gh run list" reads "gh run list". The whole line stays in the
-/// call's Shell block. A line that is only setup keeps its last part.
+/// call's Shell block. A line that is only setup keeps its last part; one that runs more after its
+/// first command ends in "…".
 export function shortCommand(command: string): string {
   const parts = commandParts(command.trim());
-  for (const part of parts) {
+  for (const [index, part] of parts.entries()) {
     if (/^cd(?:\s|$)/.test(part)) continue;
     const bare = part.replace(ASSIGNMENTS, "").trim();
-    if (bare) return bare;
+    // Commands after it are marked, so "make && rm -rf build" never reads as just "make".
+    if (bare) return index < parts.length - 1 ? `${bare} …` : bare;
   }
   return (parts.at(-1) ?? command).trim();
 }
