@@ -58,3 +58,4 @@ catalyst/springs.json	Sources/MessagesLabHome/Resources/springs.json
 catalyst/Resources/Localizable.xcstrings	Sources/MessagesLabHome/Resources/Localizable.xcstrings
 appkit-native/Resources/AppKitNative.xcstrings	Sources/MessagesLabHome/Resources/AppKitNative.xcstrings
 appkit-native/Resources/SidebarLocalizable.xcstrings	Sources/MessagesLabSidebar/Resources/SidebarLocalizable.xcstrings
+shared/conversation.json	Tests/MessagesLabHomeTests/Fixtures/conversation.json
