@@ -38,6 +38,12 @@ nonisolated enum SidebarSectionActionCatalog: ActionCatalogGroup {
                              keywords: ["chief", "subagent", "agent", "open", "show", "chat"], category: .agents, symbol: "person.2",
                              surfaces: [.keyboard], targets: [.sidebarItem],
                              surfacePlan: plan(cli: .exempt(.focusMove), exemption: .focusMove, palette: .exempt(.focusMove))),
+            // Pins or unpins a session tree history chat (target: sidebar-item:<chat key>), as its row's
+            // right-click menu does (`SidebarChatHistory`); the row retitles it Pin or Unpin.
+            ActionDescriptor(id: "sidebar.chat.togglePin", title: t("action.sidebar.chat.togglePin", "Pin or Unpin Chat"),
+                             keywords: ["sidebar", "chat", "history", "earlier", "pin", "unpin"], category: .sidebar, symbol: "pin",
+                             surfaces: [.keyboard], targets: [.sidebarItem],
+                             surfacePlan: plan(cli: .exempt(.guiOnly), exemption: .liveInput, palette: .exempt(.liveInput))),
             ActionDescriptor(
                 id: "sidebar.item.add", title: t("action.sidebar.item.add", "Add to Sidebar…"),
                 keywords: ["sidebar", "section", "pin", "settings", "account", "history", "bookmarks", "notifications"],
