@@ -75,6 +75,7 @@ import { isPasteAsPlainTextKey, usePastedChips } from "./composer/pastedChips";
 import type { SendBlock } from "./useFolderTrustAsk";
 import { folder, promptSuggestion, type LivePullRequest, type PromptSuggestion } from "./promptSuggestion";
 import { useHeaderState } from "./header/headerState";
+import { queuePauseReason } from "./queuePause";
 
 /// Composer copy. English defaults until the host passes localized labels, as the rest of the pane does today.
 /// How long after a send the Stop button that replaces Send ignores clicks.
@@ -1359,6 +1360,8 @@ export function Composer({
       {escapeStop.armed ? <span className="acpmux-escape-key">{t(COMPOSER_LABELS.escapeKey)}</span> : <StopIcon />}
     </button>
   ) : null;
+  // Why a failed turn paused the queue: the paused note names it (queuePause.ts).
+  const pauseReason = snapshot.summary?.queuePaused === true ? queuePauseReason(snapshot.rows) : undefined;
   return (
     <form
       ref={form}
@@ -1406,6 +1409,7 @@ export function Composer({
         chat={snapshot.summary?.sessionId || sessionId}
         queue={snapshot.queue}
         paused={snapshot.summary?.queuePaused === true}
+        {...(pauseReason ? { pauseReason } : {})}
         t={t}
         onRemove={onQueueRemove}
         onChange={onQueueChange}

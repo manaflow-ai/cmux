@@ -92,7 +92,7 @@ test("a queue that is not paused sends after this turn and shows no Resume", asy
 
 test("the reason is the error of the chat's last turn", () => {
   const row = (id: string, kind: string, error?: string) =>
-    ({ id, version: 1, kind, ...(error ? { error } : {}) }) as AcpmuxRow;
+    ({ id, version: 1, at: 1, kind, ...(error ? { error } : {}) }) as AcpmuxRow;
   expect(queuePauseReason([row("a", "turnSummary", "old failure"), row("b", "turnSummary", "overloaded")])).toBe(
     "overloaded",
   );
