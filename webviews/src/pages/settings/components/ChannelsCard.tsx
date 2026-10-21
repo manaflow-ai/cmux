@@ -79,7 +79,11 @@ function Track({
                 {labels.following}
               </span>
             )}
-            {track.release_url && <a href={track.release_url} className="channel-link">{labels.release}</a>}
+            {track.release_url && (
+              <a href={track.release_url} className="channel-link">
+                {labels.release}
+              </a>
+            )}
           </div>
         </div>
       </div>
