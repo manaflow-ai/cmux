@@ -313,16 +313,14 @@ body {
   align-items: center;
   /* Base is the primary action and the highest-priority picker: it is content
      sized (no flex-grow, so it does not stretch into a half-empty button) and
-     the secondaries (reason, ahead/behind, then the head side) shed via
-     .base-picker-meta + the toolbar-left container queries before the ref
-     itself ellipsizes. Free toolbar space is left empty to the right rather
-     than padding out this button. Its floor is its label's own min-content
-     (the ref's 6ch and the chevron), never a fixed width: a fixed one (150px,
-     wider than `HEAD -> main v`) pushed the jump-to-file chevron under the
-     toolbar pill beside the files sidebar, and none at all let the label spill
-     out of the chip onto that chevron. */
+     has the LOWEST shrink, so it is the last to give up width. Its min-width
+     floor keeps `<head> -> <base>` legible; the secondaries (reason,
+     ahead/behind) shed via .base-picker-meta + the toolbar-left container
+     queries before the ref itself ellipsizes. Free toolbar space is left empty
+     to the right rather than padding out this button. In a narrow cell the head
+     side hides and the floor drops to fit `<base> v` (the query below). */
   flex: 0 1 auto;
-  min-width: auto;
+  min-width: 150px;
 }
 .base-picker-button {
   display: inline-flex;
@@ -446,6 +444,12 @@ body {
   .base-picker-head,
   .base-picker-head + svg {
     display: none;
+  }
+  /* The floor fits what is left, the ref's 6ch and the chevron in the chip's
+     padding: 150px pushed jump-to-file under the toolbar pill here, and no floor
+     let the label spill out of the chip. */
+  #base-picker {
+    min-width: calc(6ch + 50px);
   }
 }
 @container toolbar-left (max-width: 312px) {

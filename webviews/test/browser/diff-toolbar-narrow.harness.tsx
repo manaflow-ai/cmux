@@ -1,6 +1,7 @@
 // Browser harness for test/diff-toolbar-narrow.test.ts: the real diff viewer as the chat header's ±
 // opens it, beside the chat, on a host that serves the git ops (Commit and Push in the toolbar).
-// `?picker` adds the base picker ("HEAD -> main") the page host shows for a branch diff.
+// `?picker` adds the base picker ("HEAD -> main") the page host shows for a branch diff; `&long` makes
+// its base a long branch name.
 import "../../src/pages/shared/desktop";
 import "../../src/styles.css";
 import { diffViewerLabelsFor } from "../../src/labels";
@@ -34,7 +35,9 @@ config.textContent = JSON.stringify({
           branchPicker: {
             repoRoot: "/home/dev/uploader",
             headRef: "HEAD",
-            currentRef: "main",
+            currentRef: new URLSearchParams(location.search).has("long")
+              ? "origin/feature/some-very-long-branch-name"
+              : "main",
             currentReason: "",
             confidence: "high",
             aheadBehind: null,

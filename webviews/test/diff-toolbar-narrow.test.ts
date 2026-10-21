@@ -122,6 +122,34 @@ await requireBrowserLane("diff-toolbar-narrow.test.ts", async () => {
     });
   }
 
+  // A long base branch ellipsizes inside the picker, so jump-to-file keeps its place in the cell
+  // (beside the files sidebar and without it) instead of the full name pushing it out of sight.
+  for (const width of [560, 600, 900]) {
+    test(`at ${width} px a long base branch ellipsizes and jump-to-file stays in its cell`, async () => {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      const page = await browser!.newPage({ viewport: { width, height: 600 } });
+      await page.goto(`http://127.0.0.1:${port}/test/browser/diff-toolbar-narrow.html?picker&long`);
+      await page.locator("#base-picker-button").waitFor();
+      await page.locator("#jump-to-file-button").waitFor();
+      const boxes = await page.evaluate(() => {
+        const rect = (selector: string) => document.querySelector(selector)!.getBoundingClientRect();
+        const ref = document.querySelector<HTMLElement>("#base-picker-button .base-picker-ref")!;
+        return {
+          cell: rect("#toolbar .toolbar-left").right,
+          jump: rect("#jump-to-file-button"),
+          button: rect("#base-picker-button").right,
+          refShown: ref.clientWidth,
+          refWants: ref.scrollWidth,
+        };
+      });
+      await page.close();
+      expect(boxes.jump.right).toBeLessThanOrEqual(boxes.cell + 0.5);
+      expect(boxes.jump.left).toBeGreaterThanOrEqual(boxes.button - 0.5);
+      if (width < 900) expect(boxes.refShown).toBeLessThan(boxes.refWants);
+      expect(boxes.refShown).toBeGreaterThan(0);
+    });
+  }
+
   // POLISH.md: no capsule pills, small-radius rects; a circle stays a circle.
   test("the toolbar's controls are small-radius rects, not capsules", async () => {
     const { port } = vite!.httpServer!.address() as { port: number };
