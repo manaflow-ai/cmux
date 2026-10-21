@@ -69,8 +69,15 @@ public struct RegistryKeyBindings {
                 defaultWhen = WhenClause.and([defaultWhen, KeyBindingDefaults.notWebContent].compactMap { $0 })
             }
             let specificity = requires.rawValue.nonzeroBitCount
+            // A focused text field's own keys win over these defaults (Cmd-Return steers the chat);
+            // an action scoped to a surface (`requires`: the omnibar, the file explorer) keeps them.
+            let yieldsToTextInput = requires.isEmpty
             func add(_ keys: [Shortcut], argument: String?, source: KeyBinding.Source) {
-                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? defaultWhen : when, source: source)
+                var keyWhen = defaultWhen
+                if yieldsToTextInput, keys.count == 1, KeyBindingDefaults.textInputKeys.contains(keys[0]) {
+                    keyWhen = WhenClause.and([keyWhen, KeyBindingDefaults.notTextInput].compactMap { $0 })
+                }
+                let binding = KeyBinding(keys: keys, command: id, argument: argument, when: source == .default ? keyWhen : when, source: source)
                 layers[source, default: []].append((binding, specificity, order))
             }
             let userChord = registry.chordOverrides[id] != nil

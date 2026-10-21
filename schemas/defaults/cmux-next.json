@@ -258,6 +258,7 @@
     "setting.appearance.background": "none",
     "setting.appearance.backgroundBlur": null,
     "setting.appearance.backgroundOpacity": null,
+    "setting.appearance.backgroundRotation": "daily",
     "setting.appearance.borders": "default",
     "setting.appearance.chromeStyle": "flat-sidebar-line",
     "setting.appearance.colorTransition.bezierX1": 0.42,

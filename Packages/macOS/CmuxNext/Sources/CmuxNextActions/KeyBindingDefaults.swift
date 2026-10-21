@@ -186,6 +186,24 @@ public nonisolated struct KeyBindingDefaults {
         .notEquals(KeyContext.surfaceKind, .string("agent")), .notEquals(KeyContext.surfaceKind, .string("page")),
     ])
 
+    /// The keys a focused text field or composer uses itself (Leo, 2026-10-20): Return sends and
+    /// its Command, Shift and Option forms steer, add a line or send another way; Esc cancels or
+    /// stops a turn; ↑ recalls a prompt or a queued one. A default binding on one of them steps
+    /// aside while text input has the keyboard (`notTextInput`), so the field gets the key, unless
+    /// its action is scoped to a surface (`requires`: the omnibar's Cmd-Return, the file explorer's
+    /// Return).
+    /// The checklist toggle took Cmd-Return from the chat composer and refused "no todo items".
+    public static let textInputKeys: Set<Shortcut> = [
+        Shortcut(Shortcut.returnKey, modifiers: []), Shortcut(Shortcut.returnKey, modifiers: [.command]),
+        Shortcut(Shortcut.returnKey, modifiers: [.shift]), Shortcut(Shortcut.returnKey, modifiers: [.option]),
+        Shortcut(Shortcut.escapeKey, modifiers: []), Shortcut(Shortcut.upArrowKey, modifiers: []),
+    ]
+
+    /// No text field, page editor or terminal TextBox has the keyboard.
+    public static let notTextInput = WhenClause.and([
+        .not(.has(KeyContext.textInputFocus)), .not(.has("textBoxFocused")),
+    ])
+
     /// The command palette's keys (R59 fold, `PaletteKeyActionCatalog`), in
     /// table order: a later applicable entry wins, so a more specific
     /// `when` follows a general one for the same key.
