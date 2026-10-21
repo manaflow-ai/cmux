@@ -1682,11 +1682,37 @@ impl Brain {
         self.save();
         if ask {
             self.child_permission(&summary, permission_id.to_owned(), request.clone());
-        } else {
-            let text = super::control::permission_note(&id, request);
-            self.queue(text, Source::Note);
+            return true;
+        }
+        let shown = self
+            .state
+            .sub(&id)
+            .is_some_and(|(_, s)| Self::approval_shown(s));
+        let text = super::control::permission_note(&id, request, shown);
+        self.queue(text, Source::Note);
+        if !shown {
+            // Nobody can allow it: denied once overdue, unless the Chief
+            // denies or steers it first.
+            self.watch_unanswered(
+                crate::approval::Pending {
+                    session_id: session_id.to_owned(),
+                    permission_id: permission_id.to_owned(),
+                    tool: crate::approval::tool_name(request),
+                    request: request.clone(),
+                    child: Some(id.clone()),
+                },
+                "the app shows no working approval button for this subagent",
+            );
         }
         true
+    }
+
+    /// Whether the person's app shows `sub`'s prompt with an Allow button
+    /// that works: a local subagent with a workspace (its agent tab draws
+    /// the prompt). A cloud subagent's peer refuses an allow from this
+    /// Mac's app, and one with no workspace has no tab.
+    pub(super) fn approval_shown(sub: &crate::state::SubRecord) -> bool {
+        sub.workspace.is_some() && sub.peer.is_none()
     }
 }
 
