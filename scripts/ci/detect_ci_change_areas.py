@@ -527,8 +527,10 @@ _ROUTING_TABLES = frozenset({
 _TEST_PATH_LISTS = _ROUTING_TABLES | frozenset({
     "scripts/ci/cmux_next_route.py",
 })
-# The execution registry runs its entries: ci-macos.yml's run_python_test_lane.py
-# executes every test in the macOS lanes. Only these lanes run no Mac job.
+# The execution registry runs its entries: ci-macos.yml's
+# `run_python_test_lane.py --lane ...` step executes every test in the lanes it
+# names (macos-shell, macos-cli-no-socket and their fish variants). Only these
+# lanes run no Mac job; a new lane is run until it is added here.
 _TEST_REGISTRY_PATH = "tests/test-execution.toml"
 _TEST_REGISTRY_INERT_LANES = frozenset({"linux-guard", "legacy", "manual"})
 _COMMENT_RE = re.compile(r"(?m)(?:^[ \t]*#(?![{!]).*$|[ \t]+#(?![{!]).*$)")
@@ -831,22 +833,18 @@ def _load_macos_job_test_references(root: Path) -> Optional[tuple[frozenset[str]
 def _registry_lane_is_inert(root: Path, test: str) -> bool:
     """Whether the execution registry lists `test` only in lanes no Mac job runs.
 
-    Parsed with run_python_test_lane.py's own registry reader. An unreadable
-    registry, a missing reader (the trusted base router copies only its own
-    files), or a test it names outside an entry counts as run (fails open).
+    Read inline with tomllib, because the trusted base router that a PR's
+    scripts/ci edit selects runs from a copy of only this file and a few
+    workflows (ci.yml's trusted-ci-router step), so it cannot import
+    test_execution_registry.py. An unreadable or invalid registry, a test with
+    no entry, an entry without a lane, or any non-inert lane among duplicate
+    entries counts as run (fails open).
     """
-    directory = str(Path(__file__).resolve().parent)
-    sys.path.insert(0, directory)
     try:
-        from test_execution_registry import parse_registry
-
-        entries = parse_registry((root / _TEST_REGISTRY_PATH).read_text(encoding="utf-8"), _TEST_REGISTRY_PATH)
-    except Exception as error:  # pragma: no cover - defensive
+        entries = _test_registry_entries((root / _TEST_REGISTRY_PATH).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, ImportError, ValueError, TypeError, KeyError) as error:
         print(f"Could not read {_TEST_REGISTRY_PATH}: {error}", file=sys.stderr)
         return False
-    finally:
-        if sys.path and sys.path[0] == directory:
-            sys.path.pop(0)
     lanes = [entry.get("lane") for entry in entries if entry.get("path") == test]
     return bool(lanes) and all(lane in _TEST_REGISTRY_INERT_LANES for lane in lanes)
 
@@ -1491,18 +1489,30 @@ def is_release_build_neutral(path: str) -> bool:
     return is_test_only_source(path) or path in RELEASE_BUILD_NEUTRAL_INPUTS
 
 
+def _test_registry_entries(text: str) -> list[dict]:
+    """tests/test-execution.toml's `[[test]]` entries, read with tomllib.
+
+    Raises ValueError (tomllib.TOMLDecodeError is one) for an unknown schema,
+    no entries or a non-table entry, and ImportError without tomllib.
+    """
+    import tomllib
+
+    registry = tomllib.loads(text)
+    if set(registry) != {"version", "test"} or registry["version"] != 1:
+        raise ValueError("unknown registry schema")
+    entries = registry["test"]
+    if not isinstance(entries, list) or not entries:
+        raise ValueError("missing test entries")
+    if not all(isinstance(entry, dict) for entry in entries):
+        raise ValueError("unknown test entry")
+    return entries
+
+
 def test_registry_change_is_linux_only(base: str, head: str) -> bool:
     """Ignore only Linux registrations; native execution entries must match."""
     try:
-        import tomllib
-
         def native_entries(text: str) -> list[dict]:
-            registry = tomllib.loads(text)
-            if set(registry) != {"version", "test"} or registry["version"] != 1:
-                raise ValueError("unknown registry schema")
-            entries = registry["test"]
-            if not isinstance(entries, list) or not entries:
-                raise ValueError("missing test entries")
+            entries = _test_registry_entries(text)
             seen = set()
             native = []
             for entry in entries:

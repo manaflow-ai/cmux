@@ -2411,6 +2411,73 @@ def test_helper_a_test_only_unrouted_workflows_run_names_reaches_no_lane() -> No
     assert helper_areas(nothing_runs) is None
 
 
+def _trusted_router_copy(directory: Path):
+    """detect_ci_change_areas.py loaded from a copy of only the files ci.yml's
+    trusted-ci-router step copies, so no other scripts/ci module is importable."""
+    workflow = CI_WORKFLOW.read_text(encoding="utf-8")
+    block = re.search(r"for trusted_path in \\\n(.*?)\n\s*do\n", workflow, re.S)
+    assert block, "ci.yml's trusted router copy list moved"
+    trusted = [line.strip().rstrip("\\").strip() for line in block.group(1).splitlines() if line.strip()]
+    assert "scripts/ci/detect_ci_change_areas.py" in trusted, trusted
+    assert "scripts/ci/test_execution_registry.py" not in trusted, trusted
+    for relative in trusted:
+        target = directory / relative
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(ROOT / relative, target)
+    copy_spec = importlib.util.spec_from_file_location(
+        "trusted_detect_ci_change_areas", directory / "scripts/ci/detect_ci_change_areas.py"
+    )
+    assert copy_spec and copy_spec.loader
+    trusted_module = importlib.util.module_from_spec(copy_spec)
+    sys.modules[copy_spec.name] = trusted_module
+    copy_spec.loader.exec_module(trusted_module)
+    return trusted_module
+
+
+def test_trusted_base_router_copy_applies_the_registry_lane_rule() -> None:
+    """A PR that edits scripts/ci routes through the trusted base router, a copy of only a few
+    files. It must read the registry itself, not import test_execution_registry.py, or a
+    linux-guard test would fail open on pull requests and not on pushes."""
+    unrouted_test = {
+        "tests/test_unrouted.py": "# runs scripts/ci/helper.py\nimport helper\n",
+        ".github/workflows/next.yml": "on: pull_request\njobs:\n  checks:\n    runs-on: macos-15\n"
+                                      "    steps:\n      - run: python3 tests/test_unrouted.py\n",
+        "tests/test-execution.toml": 'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n',
+    }
+    with tempfile.TemporaryDirectory() as directory:
+        trusted_module = _trusted_router_copy(Path(directory))
+        saved_path = list(sys.path)
+        sys.path[:] = [entry for entry in sys.path if Path(entry or ".").resolve() != HELPER.parent]
+        saved_registry = sys.modules.pop("test_execution_registry", None)
+        try:
+            def trusted_areas(files: dict[str, str]):
+                head = _helper_repo({**ROUTED_TREE, **files})
+                return trusted_module.ci_helper_areas("scripts/ci/helper.py", head, GUARD_ONLY_REFERENCES)
+
+            assert trusted_areas(unrouted_test) == trusted_module.ChangeAreas(
+                macos=False, web=False, agent_session_web=False, swift_packages=False, release_build=False
+            )
+            # Every fail-open case still answers every area from the copy.
+            for registry in (
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "macos-shell"\n',
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\n',
+                'version = 1\n[[test]]\npath = "tests/other.py"\nlane = "linux-guard"\n'
+                'reason = "like tests/test_unrouted.py"\n',
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n'
+                '[[test]]\npath = "tests/test_unrouted.py"\nlane = "macos-shell"\n',
+                'version = 2\n[[test]]\npath = "tests/test_unrouted.py"\nlane = "linux-guard"\n',
+                # Invalid TOML (an unquoted string) that still names the test.
+                'version = 1\n[[test]]\npath = "tests/test_unrouted.py"\nlane = linux-guard\n',
+            ):
+                assert trusted_areas({**unrouted_test, "tests/test-execution.toml": registry}) is None, registry
+            assert "test_execution_registry" not in sys.modules
+        finally:
+            sys.path[:] = saved_path
+            sys.modules.pop("trusted_detect_ci_change_areas", None)
+            if saved_registry is not None:
+                sys.modules["test_execution_registry"] = saved_registry
+
+
 def test_helper_nothing_names_is_unknown_and_fails_open() -> None:
     tree = {k: v for k, v in ROUTED_TREE.items() if not k.startswith("tests/")}
     why: list[str] = []
