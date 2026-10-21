@@ -163,7 +163,7 @@ import {
 import { TurnActionsContext, chatLoginCommand, type TurnActions } from "./conversation/turnActions";
 import { UserBubble } from "./conversation/UserBubble";
 import { ChiefPromptBubble } from "./conversation/ChiefPromptBubble";
-import { editableKey, editableSeqs, editableTurns } from "./conversation/editPrompt";
+import { editableKey, editableSeqs, editableTurns, promptTurns } from "./conversation/editPrompt";
 import {
   clearFindHighlights,
   FIND_ACTIVE_HIGHLIGHT,
@@ -2509,12 +2509,17 @@ export function VirtualTranscript({
   let lastTurnId: string | undefined;
   for (let index = rows.length - 1; index >= 0 && !lastTurnId; index -= 1)
     if (rows[index]!.kind === "turnSummary") lastTurnId = rows[index]!.id;
+  // The latest prompt shows its action row always, as Claude Code desktop's (UserBubble.tsx).
+  let lastPromptId: string | undefined;
+  for (let index = rows.length - 1; index >= 0 && !lastPromptId; index -= 1)
+    if (rows[index]!.kind === "user" && !rows[index]!.failed && !rows[index]!.queued) lastPromptId = rows[index]!.id;
   const markTurns = useCallback(() => {
     for (const node of thread.current?.querySelectorAll<HTMLElement>(".acpmux-row") ?? []) {
       node.toggleAttribute("data-last-turn", node.dataset.rowId === lastTurnId);
+      node.toggleAttribute("data-last-prompt", node.dataset.rowId === lastPromptId);
       node.toggleAttribute("data-turn-revealed", node.dataset.rowId === pointedTurn.current);
     }
-  }, [lastTurnId]);
+  }, [lastTurnId, lastPromptId]);
   // Mark only when the mounted rows, their range, or the last turn changes. The old no-deps
   // layout effect scanned every commit, including scroll/follow state commits that cannot change
   // these attributes. `pointAt` still calls the callback directly for pointer-driven updates.
@@ -3051,6 +3056,9 @@ function AcpmuxPane() {
   const editSeqs = editableTurns(forkable ? snapshot.rows : [], snapshot.summary?.family);
   const editSeqsKey = editableKey(editSeqs);
   const stableEditSeqs = useMemo(() => editableSeqs(editSeqsKey), [editSeqsKey]);
+  // Each prompt's own turn, for the Fork under its bubble; rebuilt only when the turns change.
+  const promptSeqsKey = editableKey(promptTurns(forkable ? snapshot.rows : []));
+  const stablePromptSeqs = useMemo(() => editableSeqs(promptSeqsKey), [promptSeqsKey]);
   // The chat's agent CLI health (cx-ny85), from this Mac's acpmux on the pane's own connection
   // (cx-jlzsf); a chat on another machine or in the cloud gets none (its CLI is not this Mac's).
   const [readHealth, setHarnessHealth] = useState<HarnessHealth>();
@@ -3690,6 +3698,7 @@ function AcpmuxPane() {
         fork: (throughSeq: number) => void callNative("chat.fork", { throughSeq }).catch(() => undefined),
         forkSeq,
         forkAny,
+        promptTurns: stablePromptSeqs,
       }),
       promptImage: (id: string) => directClient.current?.promptImage(id) ?? Promise.resolve(undefined),
       ...(stableEditSeqs.size > 0 && {
@@ -3742,6 +3751,7 @@ function AcpmuxPane() {
       forkable,
       forkSeq,
       forkAny,
+      stablePromptSeqs,
       stableEditSeqs,
       connected,
       hunkReview,

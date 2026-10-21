@@ -25,6 +25,16 @@
       "message": "Las instantáneas de Cloud VM requieren una clave de idempotencia.",
       "action": "Vuelve a intentarlo con un Idempotency-Key estable de 128 caracteres como máximo."
     },
+    "snapshotInProgress": {
+      "title": "La instantánea sigue en curso",
+      "message": "Una instantánea con esta clave de idempotencia aún se está ejecutando para esta Cloud VM.",
+      "action": "Espera a que termine la primera instantánea y vuelve a intentarlo con la misma clave de idempotencia."
+    },
+    "snapshotIdempotencyConflict": {
+      "title": "La clave de reintento de la instantánea ya se usó",
+      "message": "Esta clave de idempotencia ya se usó para otra solicitud de instantánea en esta Cloud VM.",
+      "action": "Usa una clave de idempotencia nueva para una instantánea con otro nombre."
+    },
     "snapshotQuota": {
       "title": "Se alcanzó el límite de instantáneas",
       "message": "Esta Cloud VM alcanzó su límite de instantáneas.",
