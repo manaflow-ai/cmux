@@ -131,6 +131,8 @@ const GENERATED_SUFFIXES = [
 /** `name.generated.ts`, `name.gen.rs`, `name-generated.json`, `SettingsGenerated.swift`. */
 const GENERATED_DELIMITED = /(?:^|[.\-_])(?:gen|generated)$/i;
 const GENERATED_CAMEL = /[a-z0-9]Generated$/;
+/** A document titled for its subject: `GENERATED.md`, not `api.generated.md`. */
+const GENERATED_TITLE = /^(?:gen|generated)$/i;
 
 /** `name.test.ts`, `name.spec.tsx`, `name_test.go`, `test_name.py`, `name.bench.ts`. */
 const TEST_DELIMITED = /(?:^|[.\-_])(?:test|tests|spec|specs|bench|benchmark|benchmarks)(?:$|[.\-_])/i;
@@ -170,13 +172,20 @@ export function fileKind(path: string, declaredGenerated?: ReadonlySet<string>):
   const { stem, extension } = split(name);
   const has = (folder: ReadonlySet<string>) => folders.some((part) => folder.has(part));
 
+  const prose = PROSE_EXTENSIONS.has(extension);
+
   if (LOCKFILES.has(lower)) return "generated";
   if (GENERATED_SUFFIXES.some((suffix) => lower.endsWith(suffix))) return "generated";
-  if (GENERATED_DELIMITED.test(stem) || GENERATED_CAMEL.test(stem)) return "generated";
+  // A document titled for its subject is still a document: the four hand-written
+  // `Resources/**/GENERATED.md` in this repo explain which script writes that directory, and a
+  // person reads them. `api.generated.md` keeps its delimited suffix and stays generated, as does
+  // any prose in a generated tree.
+  if (!(prose && GENERATED_TITLE.test(stem)) && (GENERATED_DELIMITED.test(stem) || GENERATED_CAMEL.test(stem)))
+    return "generated";
   if (has(GENERATED_FOLDERS)) return "generated";
 
   // Prose is documentation wherever it sits: `plans/mermaid-EVAL.md` is a plan, not an eval.
-  if (PROSE_EXTENSIONS.has(extension)) return "docs";
+  if (prose) return "docs";
 
   // The file's own name is the more specific signal, so it is read before its folders. Among
   // names, "test" wins: `agent-fixtures.test.ts` and `test_browser_eval.py` are tests.

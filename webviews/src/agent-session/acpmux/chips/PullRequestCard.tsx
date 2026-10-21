@@ -73,6 +73,10 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
   const title = read?.title || known.title;
   const state = read?.state || known.state;
   const now = Date.now();
+  // A time the card cannot read is a line it leaves out, never a throw: `relativeTime` hands an
+  // unparsed date to `Intl.DateTimeFormat`, which raises RangeError on NaN, and a raise in here
+  // takes the whole card down over one string the host passed through from GitHub.
+  const updatedAt = read?.updatedAt == null ? Number.NaN : Date.parse(read.updatedAt);
   return (
     <div className="acpmux-pr-card__body">
       <div className="acpmux-pr-card__facts">
@@ -96,9 +100,9 @@ export function PullRequestCardBody({ url, known, open }: { url: string; known: 
         <div className="acpmux-pr-card__who">
           <Monogram login={read.author} />
           <span className="acpmux-pr-card__author">{read.author}</span>
-          {read.updatedAt && (
+          {Number.isFinite(updatedAt) && (
             <span className="acpmux-pr-card__when">
-              {t("prCard.updated", { ago: relativeTime(Date.parse(read.updatedAt), now, language) })}
+              {t("prCard.updated", { ago: relativeTime(updatedAt, now, language) })}
             </span>
           )}
         </div>
@@ -231,7 +235,7 @@ function Freshness({
   language: PaneLanguage;
 }) {
   if (!answer) return null;
-  const at = answer.fetchedAt == null ? undefined : answer.fetchedAt * 1000;
+  const at = Number.isFinite(answer.fetchedAt) ? answer.fetchedAt! * 1000 : undefined;
   // Nothing read and nothing being read: the host has no answer and is not going to have one
   // soon (no gh on the PATH, or a pull request this account cannot see — it waits `retry` before
   // trying again). Saying "reading…" there is a lie that never resolves, so the card shows only

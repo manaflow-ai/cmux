@@ -33,7 +33,8 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var imageFolder = AgentPaneImageCopies.defaultFolder()
     public var browsers: any AgentPaneBrowserApps = AgentPaneWorkspaceBrowsers()
     /// What the host already has about a pull request (`pr.inspect`), with the age of it; it never
-    /// waits on GitHub, so a hover is never a call (``AgentReplyPullRequests``).
+    /// waits on GitHub, and a stale link's refresh runs in the background at most once a minute
+    /// however often it is hovered (``AgentReplyPullRequests``).
     public var pullRequest: @MainActor (URL) -> AgentPanePullRequestAnswer = { _ in .init() }
     /// The pull requests a reply links, so the host has them before a card opens.
     public var registerPullRequests: @MainActor ([URL]) -> Void = { _ in }
@@ -85,7 +86,7 @@ extension AgentPaneModel {
                 if !entry.isEmpty { sites[text] = entry }
             }
             // The reply's pull request links are read now, in the background, so a card has them
-            // before the pointer arrives and a hover is never a call to GitHub.
+            // before the pointer arrives and no hover ever waits on GitHub.
             replyLinks.registerPullRequests(urls.compactMap(AgentPaneReplyRequest.pullRequestURL))
             let setting = replyLinks.settings()
             return AgentPaneReply.success([

@@ -2,10 +2,12 @@ import CmuxNextSettings
 public import Foundation
 
 /// What the host has for one pull request link, with the age of it. A card draws from the cache
-/// and never waits on a read, so hovering a link is never a call to GitHub (Leo 2026-10-20: the
-/// old card called GitHub on every hover and ended up showing "GitHub rate limit · resets 9:11
-/// PM" instead of the pull request). A read that fails leaves the last good answer in place, and
-/// the card says how old it is.
+/// and never waits on a read: a hover of a link the cache has gone stale on (``freshness``, one
+/// minute) starts a background refresh, so GitHub sees at most one read a minute for a link no
+/// matter how often it is hovered, and the hover itself always draws at once from what is there
+/// (Leo 2026-10-20: the old card called GitHub on every hover and ended up showing "GitHub rate
+/// limit · resets 9:11 PM" instead of the pull request). A read that fails leaves the last good
+/// answer in place, and the card says how old it is.
 public nonisolated struct AgentPanePullRequestAnswer: Equatable, Sendable {
     /// The last answer gh gave about this link; nil when it has never answered.
     public var pullRequest: AgentPanePullRequest?
@@ -33,7 +35,9 @@ public nonisolated struct AgentPanePullRequest: Equatable, Sendable {
     /// The most labels the card shows; the rest are a "+N".
     static let maximumLabels = 12
     /// The most changed files kept. The card only adds their lines up by kind, so a pull request
-    /// with more than this many files shows the kinds of the first ones and says so.
+    /// with more than this many files shows the kinds of the first ones and says so. The batched
+    /// read asks GitHub for 100 (`files(first: 100)`), so that is what a card drawn from it has;
+    /// this bound is what a `gh pr view`, which answers with every file, is cut down to.
     static let maximumFiles = 600
 
     /// One check: its name, `passed`, `failed` or `pending`, and its run's page when that is https.

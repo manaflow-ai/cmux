@@ -241,8 +241,12 @@ public final class AgentReplyPullRequests {
     public static let shared = AgentReplyPullRequests()
     /// The most links kept; the stalest goes first.
     static let maximumKept = 200
-    /// The most links one reply registers for a refresh, so a transcript full of pull requests
-    /// cannot start a hundred reads at once.
+    /// The most links one ``register(_:)`` prefetches, so a transcript full of pull requests cannot
+    /// start a hundred reads at once. The page batches its `link.inspect` calls (up to
+    /// `AgentPaneReplyRequest.maximumInspect` links, gathered across every reply on the page), so
+    /// this is a bound per host request, not per reply: in a chat with more pull request links than
+    /// this, the ones past the bound are read when a card opens them, one `gh pr view` each.
+    /// Raising it to cover a whole request would cost one more batched read instead (``batchSize``).
     static let maximumRegistered = 16
 
     private let reader: AgentChatPullRequestReader
@@ -288,7 +292,9 @@ public final class AgentReplyPullRequests {
         for url in wanted { inflight[url] = task }
     }
 
-    /// Reads `url`, waiting for a read already running or starting one. The chat header's path.
+    /// Reads `url`, waiting for a read already running or starting one. No card takes this path —
+    /// every one of them draws from ``answer(_:)`` and never waits — so this is what a caller that
+    /// does need the answer in hand (and the tests below) uses.
     public func read(_ url: URL) async -> AgentPanePullRequest? {
         if let task = startRead(url) { await task.value }
         return entries[url]?.pullRequest

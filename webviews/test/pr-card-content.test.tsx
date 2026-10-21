@@ -199,6 +199,20 @@ test("an answer cmux read a while ago says its age instead of looking current", 
   expect(stale.calls).toEqual(["pr.inspect"]);
 });
 
+test("a date the card cannot read costs it that one line, not the whole card", async () => {
+  // Every date on a card comes from GitHub through the host, as a string the page never checked.
+  // `Intl.DateTimeFormat` raises RangeError on an unparsed one, and a raise in a render takes the
+  // card down to a blank, so the line is drawn only when its time is a real time.
+  const { body } = await card({
+    pullRequest: pullRequest({ updatedAt: "last Tuesday" }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(body.querySelector(".acpmux-pr-card__when")).toBeNull();
+  // The rest of the card is still there.
+  expect(body.textContent).toContain("teamleaderleo");
+  expect(body.textContent).toContain("manaflow-ai/cmux#22777");
+});
+
 test("a read that answered nothing and is not running says nothing, instead of reading forever", async () => {
   // No gh on the PATH, or a pull request this account cannot see: the host tried, has no answer,
   // and will not try again for five minutes. "reading…" there is a lie that never resolves, so

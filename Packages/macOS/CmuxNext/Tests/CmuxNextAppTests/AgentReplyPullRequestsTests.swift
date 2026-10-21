@@ -133,17 +133,53 @@ struct AgentReplyPullRequestsTests {
         #expect(read.checks == .init(state: "passing", passed: 1, total: 1))
     }
 
-    /// The batched query asks for every field `gh pr view` would read, so a drift between the two
-    /// is caught here instead of by an empty row on a card: the stub gh above answers its fixture
-    /// whatever the query says, so only this reads the ask itself.
+    /// The fields the fragment asks of the pull request itself: the identifiers at the top level of
+    /// `fragment f on PullRequest { … }`, with every nested selection and argument list skipped.
+    /// Searching the whole query instead would find a field that is no longer asked of the pull
+    /// request — delete the top-level `additions` and `files { nodes { … additions … } }` still
+    /// matches, delete `number` and `pullRequest(number:)` still matches — so the guard below has
+    /// to read the fragment's own level and nothing else.
+    private static func fragmentFields(_ query: String) -> Set<String> {
+        guard let start = query.range(of: "fragment f on PullRequest {")?.upperBound else { return [] }
+        var fields: Set<String> = []
+        var word = ""
+        var depth = 0
+        var parens = 0
+        for character in query[start...] {
+            if character.isLetter || character.isNumber || character == "_", depth == 0, parens == 0 {
+                word.append(character)
+                continue
+            }
+            if !word.isEmpty, depth == 0, parens == 0 { fields.insert(word) }
+            word = ""
+            switch character {
+            case "(": parens += 1
+            case ")": parens -= 1
+            case "{": depth += 1
+            case "}":
+                // The fragment's own closing brace: everything after it belongs to no field.
+                if depth == 0 { return fields }
+                depth -= 1
+            default: break
+            }
+        }
+        return fields
+    }
+
+    /// The batched query asks the pull request for every field `gh pr view` would read, so a drift
+    /// between the two is caught here instead of by an empty row on a card: the stub gh above
+    /// answers its fixture whatever the query says, so only this reads the ask itself.
     @Test func theBatchedQueryAsksForEveryFieldGhReads() throws {
         let target = try #require(AgentChatPullRequestReader.Target(url: Self.url.absoluteString))
-        let query = AgentChatPullRequestReader.query([target])
+        let fields = Self.fragmentFields(AgentChatPullRequestReader.query([target]))
+        // The fragment was found and read, and only its own level: `path` is a field of a file.
+        #expect(fields.contains("url"))
+        #expect(fields.contains("path") == false, "fragmentFields read a nested selection as the pull request's")
         for field in AgentPanePullRequest.fields.split(separator: ",").map(String.init) {
             // The one field that is not a field of a pull request in GraphQL: the rollup hangs off
             // the last commit, and `pullRequests(fromGraphQL:)` reshapes it back.
-            let asked = field == "statusCheckRollup" ? "commits(last: 1)" : field
-            #expect(query.contains(asked), "the batched query no longer asks for \(field)")
+            let asked = field == "statusCheckRollup" ? "commits" : field
+            #expect(fields.contains(asked), "the batched query no longer asks the pull request for \(field)")
         }
     }
 
@@ -164,9 +200,9 @@ struct AgentReplyPullRequestsTests {
         #expect(pullRequests.kept == AgentReplyPullRequests.maximumKept)
     }
 
-    /// One reply cannot start a hundred reads: ``AgentReplyPullRequests/maximumRegistered`` links
-    /// are prefetched, and the rest are read if and when a card opens.
-    @Test func aReplyPrefetchesAtMostItsBound() async throws {
+    /// One `link.inspect` cannot start a hundred reads: ``AgentReplyPullRequests/maximumRegistered``
+    /// links are prefetched per request, and the rest are read if and when a card opens.
+    @Test func oneHostRequestPrefetchesAtMostItsBound() async throws {
         let gh = try Self.rig()
         let pullRequests = AgentReplyPullRequests(reader: AgentChatPullRequestReader(gh: gh))
         let many = (1...40).compactMap { URL(string: "https://github.com/o/r/pull/\($0)") }

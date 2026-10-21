@@ -28,7 +28,7 @@ const FILES = [
   file("webviews/src/fileKinds.ts", 162, 0),
   file("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/AgentPanePullRequest.swift", 97, 14),
   file("webviews/test/file-kinds.test.ts", 131, 0),
-  file("webviews/test/pr-card.test.tsx", 184, 0),
+  file("webviews/test/pr-card-content.test.tsx", 184, 0),
   file("webviews/src/agent-session/acpmux/mockFixture.ts", 12, 3),
   file("docs/ci/risk-tiers.md", 9, 2),
   file("webviews/src/agent-session/acpmux/Localizable.xcstrings", 1848, 0),

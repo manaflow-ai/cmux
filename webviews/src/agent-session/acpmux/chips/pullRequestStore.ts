@@ -1,7 +1,9 @@
 // What the host already has about a pull request a card shows (`pr.inspect`, Leo 2026-10-20).
 //
 // The host keeps the cache and reads gh in the background (AgentReplyPullRequests): a card asks
-// the host, which answers at once from what it has, so hovering a link is never a call to GitHub.
+// the host, which answers at once from what it has, so hovering a link never waits on GitHub —
+// a link the host's minute of freshness has run out on gets a background refresh, which is one
+// read a minute for that link however often it is hovered, never one per hover.
 // Leo's complaint was the opposite: the old card called GitHub per hover and showed "GitHub rate
 // limit · resets 9:11 PM" where the pull request should be. Here the answer carries `fetchedAt`
 // and the card prints its age ("updated 3 min ago"); a read that fails leaves the last good

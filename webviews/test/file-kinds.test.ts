@@ -97,6 +97,18 @@ describe("fileKind", () => {
     expect(fileKind("web/public/vendor/highlight.min.js")).toBe("generated");
   });
 
+  test("prose about generated files is prose: a document's name says what it is about", () => {
+    // The four of these in this repo are hand-written: each says which script writes that
+    // directory's bundle, and a reader opens them. A generated document says so in its suffix,
+    // or sits in a generated tree.
+    expect(fileKind("Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane/Resources/agent-pane/GENERATED.md")).toBe(
+      "docs",
+    );
+    expect(fileKind("docs/generated.md")).toBe("docs");
+    expect(fileKind("docs/api.generated.md")).toBe("generated");
+    expect(fileKind("webviews/src/icon-picker/generated/LICENSES.md")).toBe("generated");
+  });
+
   test("a vendor folder is not generated: this repo keeps hand-written Swift under one", () => {
     expect(fileKind("Packages/Shared/CmuxMessagesLab/Sources/MessagesLabHome/Vendor/appkit-native/Compose.swift")).toBe(
       "code",

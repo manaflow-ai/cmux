@@ -1,6 +1,15 @@
 import { CodeView, WorkerPoolContextProvider, type CodeViewHandle } from "@pierre/diffs/react";
 import type { SelectedLineRange } from "@pierre/diffs";
-import { useCallback, useDeferredValue, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import {
+  useCallback,
+  useDeferredValue,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from "react";
 import { flushSync } from "react-dom";
 import "../../Resources/markdown-viewer/viewer-navigation.js";
 import { copyGitApplyCommand, copyText, resolveDiffNavigationURL } from "./actions";
@@ -463,13 +472,20 @@ export function App({ config, initialStatus }: ConfigProps) {
   // What useKindOrder measures and restores around a reorder of the file column: the file under
   // the viewport, and a scroll that puts it back there. A reader who has not scrolled into the
   // diff has no anchor, and nothing to keep.
-  useEffect(() => {
+  //
+  // In a layout effect, and syncing the list itself, because useKindOrder is called above (it
+  // decides the order `visibleItems` is built in) and measures in a passive effect. Every layout
+  // effect of a commit runs before any passive one, so this is what makes `anchor()` read this
+  // commit's list against the column's current tops rather than the previous render's — the
+  // stream-complete commit is exactly where those two differ.
+  useLayoutEffect(() => {
+    visibleItemsRef.current = visibleItems;
     kindOrderHandlers.current = {
       anchor: () => (codeViewScrollTopRef.current > 0 ? currentVisibleItemId() : ""),
       restore: (itemId) =>
         codeViewRef.current?.scrollTo({ type: "item", id: itemId, align: "start", behavior: "instant" }),
     };
-  }, [currentVisibleItemId]);
+  }, [currentVisibleItemId, visibleItems, visibleItemsRef]);
   const jumpAdjacentFile = useCallback(
     (direction: -1 | 1) => {
       const target = adjacentItemId(currentVisibleItemId(), visibleItemsRef.current, direction);

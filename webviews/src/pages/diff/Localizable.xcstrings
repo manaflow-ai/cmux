@@ -6935,6 +6935,7 @@
       }
     },
     "diffViewer.fileKind.code": {
+      "comment": "Names the group of source files a diff changed; shown on a file's header. The program's own code.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -7066,6 +7067,7 @@
       }
     },
     "diffViewer.fileKind.docs": {
+      "comment": "Names the group of documentation files a diff changed; shown on a file's header.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -7197,6 +7199,7 @@
       }
     },
     "diffViewer.fileKind.evals": {
+      "comment": "Names the group of evaluation files a diff changed; shown on a file's header. Scored runs that measure how well a model or a feature does, not pass/fail tests.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -7328,6 +7331,7 @@
       }
     },
     "diffViewer.fileKind.generated": {
+      "comment": "Names the group of machine-written files a diff changed; shown on a file's header. Lockfiles and tool output, which a person does not edit by hand.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -7459,6 +7463,7 @@
       }
     },
     "diffViewer.fileKind.mocks": {
+      "comment": "Names the group of test fixtures and stand-ins a diff changed; shown on a file's header. Data that stands in for the real thing while a test runs.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -7590,6 +7595,7 @@
       }
     },
     "diffViewer.fileKind.tests": {
+      "comment": "Names the group of test files a diff changed; shown on a file's header.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
@@ -9424,6 +9430,7 @@
       }
     },
     "diffViewer.groupFilesByKind": {
+      "comment": "A view option: sorts the diff's files into code, tests, mocks, docs, evals and generated, in that order.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
