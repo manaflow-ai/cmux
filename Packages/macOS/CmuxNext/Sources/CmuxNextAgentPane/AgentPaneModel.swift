@@ -36,6 +36,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onNewTabInputReady: ((String) -> Void)?
     /// The new tab page chose a terminal or browser (`tab.open`).
     @ObservationIgnored public var onOpenTab: ((AgentPaneOpenTab) -> Void)?
+    /// A redeemed Run attempt asks the App to open its enrolled worker's terminal (`run.attach`).
+    @ObservationIgnored public var onRunAttach: (@MainActor (AgentPaneRunAttach) async throws -> Void)?
     /// What the user typed after `!` so far (`tab.typeAhead`).
     @ObservationIgnored public var onTypeAhead: ((String) -> Void)?
     /// The agent picked on the new tab screen, to remember (`newTab.remember`).
@@ -46,8 +48,8 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onJump: ((AgentPaneJumpTarget, String) -> Void)?
     /// The new tab page asked to change a kind's shortcut.
     @ObservationIgnored public var onEditShortcut: ((AgentPaneTabKind) -> Void)?
-    /// Runs an app action requested by an empty-state or new-tab control.
-    @ObservationIgnored public var onRunAction: ((String) -> Bool)?
+    /// Runs an app action requested by an empty-state or new-tab control, with its string arguments.
+    @ObservationIgnored public var onRunAction: ((String, [String: String]) -> Bool)?
     /// Resolves the explicit Browse… fallback in the project picker.
     @ObservationIgnored public var onBrowseProject: (() async -> String?)?
     /// Returns bounded project paths for the picker, optionally filtered by query.
@@ -144,6 +146,11 @@ public final class AgentPaneModel {
     @ObservationIgnored public var onChooseFiles: (@MainActor () async -> [URL])?
     /// Attach files or folders' open panel: what the user picked, none when they cancelled.
     @ObservationIgnored public var onChooseAttachments: (@MainActor () async -> [URL])?
+    /// Whether this chat's folder is on this Mac and the chat was not moved to Cloud: files the
+    /// person drops or pastes then go as their own paths (``AgentPaneDroppedPaths``). Nil: never.
+    @ObservationIgnored public var onLocalPaths: (@MainActor () -> Bool)?
+    /// The file URLs of the person's last native drop or paste on the page.
+    @ObservationIgnored var droppedPaths = AgentPaneDroppedPaths()
     @ObservationIgnored public internal(set) var composer = AgentPaneComposerSetting.fallback
     /// The native Debug Settings baseline for the sidebar's latest-reply preview. A user's
     /// `layout.sidebarPreviewVariant` can temporarily override it in the page.
@@ -259,6 +266,8 @@ public final class AgentPaneModel {
             markPainted()
             return AgentPaneReply.success()
         case .openTab(let request): return request.open(in: self)
+        case .runAttach(let request): return await request.attach(in: self)
+        case .invalidRunAttach: return AgentPaneRunAttach.invalidReply
         case .typeAhead(let text): return AgentPaneOpenTab.typeAhead(text, in: self)
         case .touched: return AgentPaneReply.success()
         // The shell box runs on this Mac: never for a chat on another machine (cx-k21v).
@@ -288,6 +297,9 @@ public final class AgentPaneModel {
         // The panel picks this Mac's files: never for a chat on another machine (cx-k21v).
         case .chooseAttachments where remoteChat: return Self.unsupported("chat.attach.choose")
         case .chooseAttachments: return await chooseAttachments()
+        // Nor the paths of files dropped or pasted from this Mac.
+        case .attachDropped where remoteChat: return Self.unsupported("chat.attach.dropped")
+        case .attachDropped(let kind, let names): return await attachDropped(kind, names: names)
         case .useFolder(let cwd, let confirm) where remoteChat:
             // A folder of that machine: its store answers as this Mac's does (cx-1bhjj), its acpmux
             // checks the folder and its trust at the start; this Mac's disk is never read (cx-k21v).
@@ -305,12 +317,17 @@ public final class AgentPaneModel {
             // A chat on another machine: its folders are there, and this Mac's disk is never read (cx-k21v).
             return AgentPaneReply.success()
         case .projectIcon(let cwd):
-            // Off the main actor, cached by file and modification date; nil keeps the page's letters.
-            guard let src = await AgentPaneProjectIcons.shared.icon(for: cwd) else { return AgentPaneReply.success() }
-            return AgentPaneReply.success(["src": src])
+            // Off the main actor, cached by file and modification date; neither keeps the page's letters.
+            let answer = await AgentPaneProjectIcons.shared.answer(for: cwd)
+            var value: [String: Any] = [:]
+            if let src = answer.src { value["src"] = src }
+            if let glyph = answer.glyph { value["glyph"] = glyph }
+            return AgentPaneReply.success(value)
         case .listProjects(let query):
             guard let onListProjects else { return Self.unsupported("project.list") }
-            return AgentPaneReply.success(["projects": await onListProjects(query)])
+            // Each folder's repository, so the pickers fold worktrees under their repository.
+            let projects = await onListProjects(query)
+            return AgentPaneReply.success(["projects": projects, "repos": await AgentPaneProjectRepoReader.replies(for: projects)])
         case .openChat(let key): if let onOpenChat { onOpenChat(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.open") }
         case .openChatInTerminal(let key): if let onOpenChatInTerminal { onOpenChatInTerminal(key); return AgentPaneReply.success() } else { return Self.unsupported("chats.openInTerminal") }
         case .chatsPage(let query): return await respondToChatsPage(query)

@@ -60,6 +60,7 @@ pub mod peer_link;
 #[cfg(not(unix))]
 mod platform;
 pub mod probe_cleanup;
+pub mod probe_prompt;
 pub mod prompt_context;
 pub mod prompt_provenance;
 pub mod protected_folders;
@@ -74,6 +75,7 @@ pub mod rpc;
 pub mod schema;
 pub mod secret_mcp;
 pub mod secret_scan;
+pub mod self_command;
 pub mod server;
 pub mod session_env;
 pub mod session_identity;

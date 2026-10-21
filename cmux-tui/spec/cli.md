@@ -422,12 +422,14 @@ cmux workspace create --name build --cwd ~/src/app -- make watch
 cmux workspace create --cwd ~/src/app --shell 'npm install && npm run dev'
 ```
 
-Both run forms accept `--on-exit <close|keep>`. `close` (the default)
+Both run forms accept `--on-exit <close|keep|shell>`. `close` (the default)
 detaches every view when the process exits and leaves only the durable exit
 receipt. `keep` retains the tab and the final screen next to that receipt
 until the terminal is closed; after a daemon restart a kept-exited terminal
-degrades to the normal detach.
-Both policies apply only to a process end, an exit status or signal that
+degrades to the normal detach. `shell` keeps the tab and the final screen,
+then starts a new shell in it under the same terminal id (as Restart does);
+that shell's own exit closes the tab.
+The policies apply only to a process end, an exit status or signal that
 the terminal host reported. When the host dies without one (it is killed,
 or it dies while no daemon runs), every tab stays and shows the terminal
 dead; only a close removes it. A process that dies of a signal while its
@@ -589,10 +591,12 @@ target terminal and submits with Return); `--window`
 and `--id-format` are accepted and ignored. The target defaults to the caller's own terminal
 (`CMUX_TUI_TERMINAL_ID`, which the daemon injects into every PTY); `--surface
 current` says the same, `--surface <term_id>` names another terminal of this
-session, and `--workspace` alone posts a session-level row with no terminal.
-A machine can only address its own session. `--clear` removes the retained
-rows for that target on the machine (`notification.clear`), so every attached
-client drops them. A reply goes only to the notification's target
+session, `--workspace <ws_id>` posts a row with no terminal that belongs to
+that workspace (`workspace_id`; the app's banner names it), and `--workspace
+current` posts a session-level row. A machine can only address its own
+session. `--clear` removes the retained rows for that target on the machine
+(`notification.clear`), so every attached client drops them; `--clear
+--workspace <ws_id>` removes that workspace's rows and those of its terminals. A reply goes only to the notification's target
 terminal, while that notification is still unread, as text the user typed into its banner, over the same link the
 app's terminal input uses. Every row is bounded because each
 one is pushed to every attached client.

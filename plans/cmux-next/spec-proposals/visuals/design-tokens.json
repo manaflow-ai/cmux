@@ -140,11 +140,11 @@
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:153-155,224-234 (ThemeTokens.derive)"
    },
    "textSecondary": {
-    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over worst (see textPrimary)); steps of 0.01",
+    "value": "muted(textPrimary toward bg, up to 0.38, keeping 4.5:1 over inkWorst); steps of 0.01. inkWorst = worst (see textPrimary), or with background-opacity < 1 the lowest-contrast for textPrimary of worst, tint, over(pressedFill,tint) and over(selectionFill,tint), tint = over(alpha(bg, background-opacity), dark ? white : black)",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:156,239-247 (ThemeTokens.derive)"
    },
    "textTertiary": {
-    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over worst (see textPrimary))",
+    "value": "muted(textPrimary toward bg, up to 0.55, keeping 3:1 over inkWorst (see textSecondary))",
     "source": "Packages/Shared/CmuxTheme/Sources/CmuxTheme/ThemeTokens.swift:157 (ThemeTokens.derive)"
    },
    "textPlaceholder": {
@@ -2343,6 +2343,12 @@
     "unit": "s",
     "use": "The dim over an unfocused pane easing in and out when focus moves"
    },
+   "focusFlash": {
+    "value": 0.5,
+    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift (MotionTunables.fadeDefaults)",
+    "unit": "s",
+    "use": "The focus ring flashed on a pane focus moved to without a click, fading out (Debug focus.flashOnMove, off by default)"
+   },
    "fadeIn": {
     "value": 0.12,
     "source": "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/Motion/MotionTunables.swift:33 (MotionTunables.fadeDefaults)",
@@ -2581,8 +2587,8 @@
      "quiet"
     ],
     "default": "fade",
-    "strength": 0.35,
-    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.35) stays a Debug tunable."
+    "strength": 0.6,
+    "cmuxJson": "focus.inactiveTabStyle (Settings > Appearance > Unfocused Pane Tabs); the Debug Settings tunable of the same name overrides it. focus.inactiveTabStrength (0.6) stays a Debug tunable."
    },
    "source": "Packages/macOS/CmuxNext/Sources/CmuxNextSettings/PaneFocusSettings.swift (PaneFocusSettings.inactiveTabStylePath); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/DesignSettings.swift (DesignSettings.inactiveTabStyle, effectiveInactiveTabStyle); Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
   },
@@ -3216,7 +3222,7 @@
     "Packages/macOS/CmuxNext/Sources/CmuxNextDesign/FocusIndicatorTunables.swift:9-16 (FocusIndicatorTunables.inactiveTabStyle)"
    ],
    "metrics": {
-    "strength": 0.35,
+    "strength": 0.6,
     "floors": {
      "primary": 3.5,
      "secondary": 2.5,

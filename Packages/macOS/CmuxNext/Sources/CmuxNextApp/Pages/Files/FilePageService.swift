@@ -58,8 +58,7 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    /// File pages open dropped files themselves (`fileDrop`), a WebKit-only hook so far.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
+    static let engineOptions = PageEngineOptions(fullFrameRate: true)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
@@ -243,6 +242,11 @@ final class FilePageService: InternalPageProvider {
         pane.focusContent()
     }
 
+    /// Tab `key`'s page history moved: its omnibar's Back and Forward follow.
+    fileprivate func historyChanged(canBack: Bool, canForward: Bool, in key: String) {
+        tabs[key]?.bar?.setHistory(canBack: canBack, canForward: canForward)
+    }
+
     /// Tab `key` now shows `url` (an open in the page): retitle it.
     fileprivate func opened(_ url: URL, in key: String) {
         if let previous = tabs[key]?.file, previous != url { left(previous, tab: key) }
@@ -356,11 +360,13 @@ final class FilePageService: InternalPageProvider {
         let actions = MarkdownOmnibarActions(
             open: { [weak self] url, disposition in self?.omnibarOpen(url, disposition: disposition, from: key) },
             returnFocus: { [weak page] in
-                guard let page, let window = page.window else { return }
-                window.makeFirstResponder(page.webKitView)
+                page?.focusPage()
             },
             liveLink: { [weak self] url in try? await self?.liveShare.link(for: url) },
-            openInBrowser: { [weak self] url in self?.openExternal(url, from: key) })
+            openInBrowser: { [weak self] url in self?.openExternal(url, from: key) },
+            back: { [weak page] in page?.send(command: "back") },
+            forward: { [weak page] in page?.send(command: "forward") },
+            reload: { [weak page] in page?.send(command: MarkdownPageCommand.reload) })
         let bar = MarkdownOmnibarBar(suggestionEngine: services.cache.suggestionEngine, actions: actions)
         bar.toolbar.cardClip = page
         bar.show(tab.provider?.file ?? tab.file)
@@ -368,15 +374,19 @@ final class FilePageService: InternalPageProvider {
         return bar
     }
 
-    /// A URL committed in the Markdown omnibar: a Markdown file opens in this tab (the user typed
-    /// it, so it is theirs), another file through the file routing, a web URL in a browser tab
-    /// beside the page. A modified commit (`disposition`) always opens a new tab.
+    /// A URL committed in the Markdown omnibar: a Markdown file opens in this tab as a new history
+    /// entry (the user typed it, so it is theirs), another file through the file routing, a web URL
+    /// or a search in a browser tab beside the page (the link placement rule, as a clicked link).
+    /// A modified commit (`disposition`) always opens a new tab.
     private func omnibarOpen(_ url: URL, disposition: OmnibarDisposition?, from key: String) {
         guard url.isFileURL else { return openExternal(url, from: key) }
         guard disposition == nil, FilePageKind.isMarkdown(url), let provider = tabs[key]?.provider, let page = tabs[key]?.page else {
             return openFile(url, from: key)
         }
-        provider.userChose(url.standardizedFileURL.resolvingSymlinksInPath())
+        let file = url.standardizedFileURL.resolvingSymlinksInPath()
+        provider.userChose(file)
+        // A tab showing a file keeps its history: the page opens the typed one as the next entry.
+        if provider.file != nil, page.send(command: MarkdownPageCommand.open, arguments: ["text": .string(file.path)]) { return }
         // task-owner: one open of the typed file; ends when the tab shows it or refuses it
         Task {
             guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
@@ -475,6 +485,7 @@ final class FilePageTabHost: FilePageHosting {
     }
     func saved(_ url: URL, hash: String) { service?.saved(url, hash: hash) }
     var showsOmnibar: Bool { service?.kind == .markdown }
+    func historyChanged(canBack: Bool, canForward: Bool) { service?.historyChanged(canBack: canBack, canForward: canForward, in: key) }
     func isRecent(_ path: String) -> Bool { service?.isRecent(path) ?? false }
     func confirmOpen(_ url: URL, userGesture: Bool) async -> Bool { await service?.confirmOpen(url, userGesture: userGesture, from: key) ?? false }
 }

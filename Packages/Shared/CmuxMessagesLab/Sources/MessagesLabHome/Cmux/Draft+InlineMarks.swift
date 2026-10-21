@@ -14,8 +14,41 @@ extension Draft {
     /// (NSTextAttachment's own character).
     static let mark: Unicode.Scalar = "\u{FFFC}"
 
-    /// The draft text without its attachment marks (what a send says).
+    /// The draft text without its attachment marks.
     var plainText: String { Draft.stripMarks(text) }
+
+    /// One piece of a draft as it goes out (`pieces`).
+    enum Piece: Equatable {
+        /// A run of text between attachments, trimmed of the white space around it.
+        case text(String)
+        /// The attachment of one mark.
+        case attachment(Attachment)
+    }
+
+    /// The draft in the field's order, as a send says it (Lawrence 2026-10-20: text, a picture
+    /// and more text went out as the picture, then both texts run together): the text between
+    /// the marks, each run trimmed of the white space around it (an empty run is left out), and
+    /// each mark's attachment. Attachments with no mark (text and attachments out of step)
+    /// follow at the end.
+    var pieces: [Piece] {
+        var out: [Piece] = []
+        var run = String.UnicodeScalarView()
+        var next = 0
+        func flush() {
+            let t = String(run).trimmingCharacters(in: .whitespacesAndNewlines)
+            if !t.isEmpty { out.append(.text(t)) }
+            run = String.UnicodeScalarView()
+        }
+        for u in text.unicodeScalars {
+            guard u == Draft.mark else { run.append(u); continue }
+            flush()
+            if let a = attachments[checked: next] { out.append(.attachment(a)) }
+            next += 1
+        }
+        flush()
+        out += attachments.dropFirst(next).map { .attachment($0) }
+        return out
+    }
 
     static func stripMarks(_ s: String) -> String {
         guard s.unicodeScalars.contains(mark) else { return s }

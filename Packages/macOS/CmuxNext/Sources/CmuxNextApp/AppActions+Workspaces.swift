@@ -148,12 +148,14 @@ extension AppActions {
         // A person's close of one of several selected rows closes them all, as the sidebar's Delete does.
         if invocation.origin == .user, !invocation.closesRowOnly, let sidebar = services.windows.registry.value.owner(of: workspace.id).flatMap(services.windows.controller(for:))?.sidebar.model,
            case let ids = sidebar.closeTargets(for: SidebarWorkspaceID(workspace.id)), ids.count > 1 { return sidebar.send(.close(ids)) }
-        // The workspace's own machine, for the question and the close alike.
-        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon
+        // The workspace's own machine, for the question and the close alike. `offline`: a person's close on a machine that is
+        // not connected (a paused Cloud VM): its row leaves as any other, and the close waits for the machine outside the
+        // window's lane (later creates and closes never wait for it) until it connects or leaves the app (the row then lists
+        // again); a row that cannot hide says why. CLI and socket closes still fail at once.
+        let daemon = services.machines.daemon(forWorkspace: workspace.id) ?? services.activeDaemon, offline = !daemon.isLive && invocation.origin == .user
         let terminals = WorkspaceClose.closing(workspace, on: daemon), id = workspace.id, owner = services.windows.registry.value.owner(of: id)
         let controller = owner.flatMap(services.windows.controller(for:)), shownAtPress = controller?.state.workspaceID == id
-        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback
-        let selected = WorkspaceCloseSelection()
+        let warn = services.settings?.snapshot.warnBeforeClosingTab ?? CmuxConfigSnapshot.closeWarningFallback, selected = WorkspaceCloseSelection()
         let flow = WorkspaceCloseFlow(
             // Instant (ClosingWorkspaces): the row starts closing and the selection moves now, in one sidebar pass.
             hide: {
@@ -175,8 +177,8 @@ extension AppActions {
             // Closed another way while the question was up (the CLI, another window): nothing to send or bring back.
             exists: { services.workspace(id: id) != nil },
             send: { hidden in
-                lanes.run(in: window) {
-                    let failure = await daemon.failure("close-workspace") { connection in
+                let close: @MainActor () async -> ActionWorkFailure? = {
+                    let failure = await daemon.failureOnceConnected("close-workspace", waits: offline, while: { services.machines.daemons.contains { $0 === daemon } }) { connection in
                         try await ClosingWorkspaces.shared.refusal()
                         try await WorkspaceClose.close(key, terminals: terminals, on: connection)
                     }
@@ -186,6 +188,7 @@ extension AppActions {
                     ClosingWorkspaces.shared.end(id, refused: failure != nil, in: controller?.window)
                     return failure
                 }
+                return !offline ? lanes.run(in: window, close) : hidden ? Task { await close() } : Task { services.registry.refuse(CloudStrings.closeNotConnected(services.machines.machineName(daemon.machineID) ?? daemon.machineID)); return nil }
             },
             // Cancel: the row is listed again, and the window shows it again unless the person moved on meanwhile
             // (or it closed another way meanwhile).

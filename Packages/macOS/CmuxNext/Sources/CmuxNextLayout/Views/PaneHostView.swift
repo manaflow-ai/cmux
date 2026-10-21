@@ -211,10 +211,12 @@ final class PaneHostView: NSView, RestingPlacement {
 
     func setChrome(showsRing: Bool, dim: CGFloat, dimFill: PaneOverlayView.DimFill = .pane, focusRing: FocusRingSettings,
                    ringAlphaOverride: CGFloat? = nil, tabEmphasis: ChromeEmphasis = .full, border: PaneOverlayView.Border,
-                   attention: AttentionMark?, attentionSettings: AttentionSettings, animated: Bool) {
+                   attention: AttentionMark?, attentionSettings: AttentionSettings, readByEntry: Bool = false,
+                   focused: Bool = false, flashesFocus: Bool = false, animated: Bool) {
         reporter?.setChromeEmphasis(tabEmphasis, animated: animated)
         chrome.update(showsRing: showsRing, dim: dim, dimFill: dimFill, focusRing: focusRing, ringAlphaOverride: ringAlphaOverride, border: border,
-                      attention: attention, attentionSettings: attentionSettings, animated: animated)
+                      attention: attention, attentionSettings: attentionSettings, readByEntry: readByEntry,
+                      focused: focused, flashesFocus: flashesFocus, animated: animated)
     }
 }
 

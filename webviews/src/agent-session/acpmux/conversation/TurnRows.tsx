@@ -16,9 +16,9 @@ import { toolGroups, type ToolGroup } from "./toolGroups";
 import { isFoldedRun } from "./toolRunSummary";
 import { TurnActionsContext } from "./turnActions";
 import { workedLabel } from "./turns";
-import { ChevronDown, ChevronRight, Copy, Retry, TurnFork } from "./icons";
-import { Menu, MenuButton, MenuPopup, MenuRadioGroup, MenuRadioItem } from "../../../ui/Menu";
-import type { TurnActions } from "./turnActions";
+import { ChevronRight, Retry } from "./icons";
+import { ForkButton, MessageCopy, MessageTime, PinButton, ReadAloudButton } from "./MessageActions";
+import { RetryModelMenu } from "./RetryModelMenu";
 import { useT } from "../i18n";
 import { failureCopy, failureKind, type FailureRoute } from "../failureCopy";
 import { TranscriptDisclosureProvider } from "./transcriptDisclosure";
@@ -133,15 +133,13 @@ export function ToolRows({ row, sessionId }: { row: AcpmuxRow; sessionId?: strin
   );
 }
 
-const clock = new Intl.DateTimeFormat(undefined, { hour: "numeric", minute: "2-digit" });
-
-/// The quiet row under an answer: copy, retry (the last turn, while acpmux is reachable), fork
-/// from here (when acpmux serves forks), the time, and why the turn ended when it did not
-/// complete. A turn without a "Worked for" line (history paged in mid-turn) says its time and
-/// count here instead.
+/// The quiet row under an answer, as Claude Code desktop's: Copy, Fork from here (when acpmux
+/// serves forks), Pin, Read aloud, then the answer's age, and why the turn ended when it did not
+/// complete. Retry is the prompt's (UserBubble.tsx), and also here when the turn failed, whose row
+/// always shows. A turn without a "Worked for" line (history paged in mid-turn) says its time and
+/// count here first.
 export function TurnFooter({ row }: { row: AcpmuxRow }) {
   const t = useT();
-  const [copied, setCopied] = useState(false);
   const { fork, forkSeq, forkAny, retry, retryWith, reauthenticate, route, switchModel } =
     useContext(TurnActionsContext);
   const text = row.text;
@@ -152,35 +150,17 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
   // Only the CLI's own login (or an unexplained 401 on a direct route) asks to sign in (cx-w10a).
   const authenticationFailed = kind === "subscription-login" || kind === "auth";
   // A failure reads as the turn's answer does: its own block above the footer row, never squeezed
-  // between Worked for and the time (Codex, Claude desktop). The row is one quiet line at the
-  // column's right edge, where a prompt's Copy and Edit sit under its bubble: Worked for and the
-  // time as muted text, then the actions (Leo 2026-10-13). It shows for the last turn, a failed
-  // one, or while the reader points at its turn (VirtualTranscript marks it).
+  // into it (Codex, Claude desktop). The row is one quiet line under the answer's left edge; it
+  // shows on hover or keyboard focus, and always for a failed turn (VirtualTranscript marks the
+  // turn the reader points at, from its answer to its footer).
   return (
     <>
       {failed && <TurnFailure message={row.error} route={route} switchModel={switchModel} />}
       <div className={failed ? "cv-turn-actions cv-turn-actions--failed" : "cv-turn-actions"}>
         {!row.folded && <span className="cv-turn-summary">{workedLabel(t, row)}</span>}
-        <time className="cv-turn-time" dateTime={new Date(row.at).toISOString()}>
-          {clock.format(row.at)}
-        </time>
         <span className="cv-turn-action-group">
-          {text && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={copied ? t("turn.copied") : t("turn.copy")}
-              onClick={() =>
-                void copyText(text).then(
-                  () => setCopied(true),
-                  () => setCopied(false),
-                )
-              }
-            >
-              <Copy size={14} />
-            </button>
-          )}
-          {retry && prompt && (
+          {text && <MessageCopy text={text} />}
+          {failed && retry && prompt && (
             <button
               type="button"
               className="cv-iconbtn cv-iconbtn--compact"
@@ -191,62 +171,24 @@ export function TurnFooter({ row }: { row: AcpmuxRow }) {
               <Retry size={14} />
             </button>
           )}
-          {retry && prompt && retryWith && retryWith.models.length > 1 && (
+          {failed && retry && prompt && retryWith && retryWith.models.length > 1 && (
             <RetryModelMenu
               retryWith={retryWith}
               onPick={(model) => retryWith.retry(row.retryRowId ?? "", prompt, model)}
             />
           )}
+          {fork && seq !== undefined && (forkAny || seq === forkSeq) && <ForkButton onFork={() => fork(seq)} />}
+          <PinButton rowId={row.id} />
+          {text && <ReadAloudButton id={row.id} text={text} />}
           {authenticationFailed && reauthenticate && (
             <button type="button" className="cv-turn-auth-action" onClick={reauthenticate}>
               {t("turn.signInAgain")}
             </button>
           )}
-          {fork && seq !== undefined && (forkAny || seq === forkSeq) && (
-            <button
-              type="button"
-              className="cv-iconbtn cv-iconbtn--compact"
-              aria-label={t("turn.fork")}
-              title={t("turn.fork")}
-              onClick={() => fork(seq)}
-            >
-              <TurnFork size={14} />
-            </button>
-          )}
         </span>
+        <MessageTime at={row.at} className="cv-turn-time" />
       </div>
     </>
-  );
-}
-
-/// Retry with another model (cx-ncc.62): the chat harness's models, the current one checked.
-function RetryModelMenu({
-  retryWith,
-  onPick,
-}: {
-  retryWith: NonNullable<TurnActions["retryWith"]>;
-  onPick(model: string): void;
-}) {
-  const t = useT();
-  return (
-    <Menu>
-      <MenuButton
-        className="cv-iconbtn cv-iconbtn--compact cv-turn-retry-menu"
-        label={t("turn.retryWith")}
-        title={t("turn.retryWith")}
-      >
-        <ChevronDown size={12} />
-      </MenuButton>
-      <MenuPopup label={t("turn.retryWith")} align="start">
-        <MenuRadioGroup value={retryWith.current ?? ""} onValueChange={onPick}>
-          {retryWith.models.map((model) => (
-            <MenuRadioItem key={model.id} value={model.id} closeOnClick>
-              {model.name}
-            </MenuRadioItem>
-          ))}
-        </MenuRadioGroup>
-      </MenuPopup>
-    </Menu>
   );
 }
 

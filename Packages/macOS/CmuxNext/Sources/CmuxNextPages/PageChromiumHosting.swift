@@ -37,6 +37,10 @@ public protocol PageChromiumPage: AnyObject {
     /// Receives the page's raw DevTools protocol events and its load and crash events. Set it
     /// before the first ``devTools(_:params:)`` call.
     var onEvent: ((PageChromiumEvent) -> Void)? { get set }
+    /// Answers the page's requests for its dynamic paths (``PageDescriptor/dynamicPrefixes``):
+    /// Chromium asks it for every request under one, and a nil answerer is a 404. The host sets it
+    /// before the first ``load(_:)``.
+    var resources: (@MainActor (URL) async -> PageChromiumResponse)? { get set }
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
@@ -74,4 +78,12 @@ public nonisolated enum PageChromiumEvent: Sendable, Equatable {
     case ended
     /// The page asked to open `url` in a new tab or window (`window.open`, a `target=_blank` link).
     case openRequested(URL)
+    /// A drag of these files from outside the app entered the page (their paths, which the page
+    /// itself never learns). The page still gets the drag.
+    case filesDragged([URL])
+    /// A real key or mouse event reached the page (its `systemUptime`): what backs a page call as the
+    /// person's gesture (``PageWebView/lastUserEventUptime``). Page script cannot make one.
+    case userInput(TimeInterval)
+    /// The person right-clicked in the page: the host shows its own menu (``PageChromiumContextMenu``).
+    case contextMenu(PageChromiumContextMenu)
 }

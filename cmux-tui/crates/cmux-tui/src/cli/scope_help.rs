@@ -38,11 +38,12 @@ pub(super) const NOTIFICATION_HELP: &str = "\
 USAGE
   cmux notification list [--limit <1..256>]
   cmux notification create --title <value> --body <value> [--subtitle <value>]
-    [--level info|warning|error] [--terminal <term_id>]
-  cmux notification clear [--terminal <term_id>]
+    [--level info|warning|error] [--terminal <term_id> | --workspace <ws_id>]
+  cmux notification clear [--terminal <term_id> | --workspace <ws_id>]
   cmux notification ack --client <id> <notification_id>...
 
-clear without --terminal clears every notification of the session. `cmux
+clear without --terminal or --workspace clears every notification of the
+session; --workspace clears that workspace's rows and those of its terminals. `cmux
 notify` takes the flags of the macOS `cmux notify` (`cmux notify --help`).
 ";
 
@@ -51,11 +52,13 @@ USAGE
   cmux notify [--title <text>] [--subtitle <text>] [--body <text>]
     [--surface <term_id>|current] [--workspace <ws_id>|current]
     [--reply] [--desktop true|false]
-  cmux notify --clear [--surface <term_id>|current] [--workspace current]
+  cmux notify --clear [--surface <term_id>|current] [--workspace <ws_id>|current]
 
 The flags of the macOS `cmux notify`. The notification belongs to the caller's
-terminal unless --surface names another terminal or --workspace asks for a
-session-level row. --title defaults to \"Notification\". --reply asks for a
+terminal unless --surface names another terminal or --workspace names a
+workspace (--workspace current asks for a session-level row). --clear
+--workspace <ws_id> clears that workspace's notifications and those of its
+terminals; --workspace current clears the whole session. --title defaults to \"Notification\". --reply asks for a
 banner with a Reply field when the notification belongs to a terminal: its
 text is typed into that terminal, then Return. --desktop false posts no
 banner. --window and --id-format are accepted and ignored.
@@ -67,7 +70,7 @@ USAGE
     [--state busy|waiting|success|error|info] [--progress 0.4|40%]
     [--style arc|native|dot|none] [--ttl 30s] [--pid <n>] [--keep | --owner none]
   cmux status clear [KEY] [--target <ws_…>|current] [--all]
-  cmux status list [--target <ws_…>|current]
+  cmux status list [--target <ws_…>|current | --all]
   cmux status run [--label <text>] [--target <ws_…>|current] [--badge-ttl 8s] -- CMD …
   cmux status wait KEY [--target <ws_…>|current] [--until settled|cleared|state=<s>]
     [--timeout <500ms|30s|5m>]
@@ -80,7 +83,8 @@ KEY defaults to cli:<terminal>, so repeated sets from one terminal replace each
 other. An entry set from a terminal belongs to that terminal and goes when it
 closes; --pid ties it to a process instead, --ttl ends it after that long, and
 --keep (or --owner none) keeps it until cleared. clear without KEY clears the
-default key; --all clears every entry of the workspace.
+default key; --all clears every entry of the workspace. list --all lists the
+entries of every workspace.
 
 run marks the entry busy and owned by this process (a killed CLI leaves no
 spinner), runs CMD with the terminal's input and output, then shows success or

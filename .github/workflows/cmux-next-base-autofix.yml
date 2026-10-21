@@ -26,8 +26,11 @@ name: cmux-next base autofix
 # (schemas/settings/settings-schema.json, docs/mdm, and the source stamp
 # schemas/settings-export/settings-schema.sources.sha256) need one too: the
 # same job regenerates them (scripts/cmux-next/regenerate-settings-exports.sh)
-# when CmuxNextSettings or an export changed, and autofix copies them in before
-# it rewrites the defaults snapshot from them.
+# when CmuxNextSettings or an export changed, again on the newest tip while a
+# push moves their inputs (scripts/cmux-next/base-autofix-settings-exports.sh,
+# at most three times), and autofix copies them in before it rewrites the
+# defaults snapshot from them; the push lands them only where nothing moved
+# their inputs after the commit they were made at.
 # A separate job pins scripts/ghosttykit-checksums.txt when the ghostty
 # gitlink moves, from our own published GhosttyKit release (waiting for
 # build-ghosttykit.yml when there is none yet).
@@ -76,6 +79,8 @@ on:
       - backend/packages/protocol/src/automation-caps.ts
       - schemas/settings/**
       - scripts/cmux-next/base-autofix.sh
+      - scripts/cmux-next/base-autofix-push.sh
+      - scripts/cmux-next/base-autofix-settings-exports.sh
       - scripts/cmux-next/autofix-areas.sh
       - scripts/cmux-next/pr-autofix-apply.sh
       - scripts/cmux-next/base-autofix-frozen.txt
@@ -141,11 +146,14 @@ jobs:
     # fleet carries glaeda#1530's session label (vars.CI_SESSION_LABEL is 1) this
     # takes it and runs beside a console GUI job; until then the gui label.
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || vars.CI_PR_POOL_OWNED == '1' && (vars.CI_SESSION_LABEL == '1' && 'glaeda-session-std-xcode-26.6' || 'glaeda-gui-std-xcode-26.6') || vars.MACOS_RUNNER_26 || 'blacksmith-6vcpu-macos-26' }}
-    timeout-minutes: 40
+    # Up to three settings regenerations on a moving tip (base-autofix-settings-exports.sh).
+    timeout-minutes: 60
     permissions:
       contents: read
     outputs:
       exports: ${{ steps.actions.outputs.exports == 'true' || steps.settings.outputs.exports == 'true' }}
+      # The commit the settings exports were made at (the newest tip when their inputs moved).
+      settings_made_at: ${{ steps.settings.outputs.made_at }}
       # The exports on this tree are current: regenerated, or already fresh.
       # Skipped (that area did not change) counts as current.
       verified: ${{ steps.actions.outcome != 'failure' }}
@@ -221,14 +229,26 @@ jobs:
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
 
-      # The settings exports and their source stamp, into the same artifact.
+      # The settings exports and their source stamp, into the same artifact. A push that
+      # moves their inputs meanwhile would hold them at the push (base-autofix-push.sh), and one
+      # nearly always does in a half-hour run, so they are made again on the newest tip (this
+      # checks the tip out; the action exports above are already copied out) up to three
+      # times; then they wait and this fails. Runs last: later steps read no checkout files.
       - name: Regenerate the settings exports
         id: settings
         if: needs.action-areas.outputs.settings == 'true'
         continue-on-error: true
+        # Below the job's 60 so a slow run fails only this step, and the upload of the action
+        # exports (and of any settings export it finished) still runs.
+        timeout-minutes: 40
+        env:
+          CMUX_STRINGS_BEST_EFFORT: "1"
+          CMUX_BASE_AUTOFIX_SETTINGS_PREPARE: scripts/cmux-next/build-web-bundles.sh
         run: |
           set -euo pipefail
-          scripts/cmux-next/regenerate-settings-exports.sh "$RUNNER_TEMP/action-exports" | tee "$RUNNER_TEMP/settings-exports.txt"
+          scripts/cmux-next/base-autofix-settings-exports.sh "$RUNNER_TEMP/action-exports" origin feat-cmux-next \
+            | tee "$RUNNER_TEMP/settings-exports.txt"
+          echo "made_at=$(sed -n 's/^made at: //p' "$RUNNER_TEMP/settings-exports.txt")" >> "$GITHUB_OUTPUT"
           if grep -q '^regenerated: ' "$RUNNER_TEMP/settings-exports.txt"; then
             echo "exports=true" >> "$GITHUB_OUTPUT"
           fi
@@ -305,8 +325,9 @@ jobs:
     # action exports job fails or is skipped.
     needs: [webviews-fmt, action-exports]
     if: ${{ !cancelled() && github.repository == 'manaflow-ai/cmux' }}
-    # A running repair finishes and lands on whatever feat-cmux-next is by then (the push step re-applies
-    # it); a newer push replaces only a pending run. The next run diffs from the last successful one.
+    # A running repair finishes and lands on whatever feat-cmux-next is by then
+    # (scripts/cmux-next/base-autofix-push.sh); a newer push replaces only a pending run.
+    # The next run diffs from the last successful one.
     concurrency:
       group: cmux-next-base-autofix
       cancel-in-progress: false
@@ -451,6 +472,7 @@ jobs:
           TOKEN: ${{ github.token }}
           ENABLED: ${{ vars.CMUX_NEXT_BASE_AUTOFIX == '1' }}
           HEAD_SHA: ${{ github.sha }}
+          SETTINGS_MADE_AT: ${{ needs.action-exports.outputs.settings_made_at }}
         run: |
           set -euo pipefail
           if [[ "$ENABLED" != true ]]; then
@@ -461,155 +483,12 @@ jobs:
           echo "::add-mask::$auth"
           remote="https://github.com/$GITHUB_REPOSITORY.git"
           with_auth=(env GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0="http.https://github.com/.extraheader" GIT_CONFIG_VALUE_0="AUTHORIZATION: basic $auth")
-          # The repair is one commit on HEAD_SHA. When feat-cmux-next has moved, it is re-applied on the
-          # new tip only if nothing in between touched any area this repair covers: then its inputs are
-          # unchanged and the regenerated files are exactly right at the tip. Otherwise (a revert of a new
-          # setting, say) the copy from HEAD_SHA could be wrong there, so the run stops and the newer
-          # push's run regenerates it; that also keeps a late re-run from landing old output. The files of
-          # the other areas still land (see the overlap branch below). A conflict
-          # fails the run too, which keeps it out of the next run's "since".
-          # Each push is a plain push: it fails rather than overwrite a commit pushed meanwhile.
-          repair="$(git rev-parse HEAD)"
-          # The areas whose inputs changed (autofix-areas.sh reads input paths).
-          areas() { scripts/cmux-next/autofix-areas.sh | sed -n 's/=true$//p' | sort; }
-          # The areas that build each file the repair wrote (base-autofix.sh's outputs). A file built from
-          # several areas names them all; one this list doesn't know is "unknown", which never re-applies.
-          output_areas() {
-            local path
-            while IFS= read -r path; do
-              case "$path" in
-                Packages/macOS/CmuxNext/ci-target-graph.json) echo graph ;;
-                */generated/strings.json) echo strings; echo webviews ;;
-                cmux-tui/bindings/*) echo sdk ;;
-                plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json)
-                  echo actions; echo shortcuts; echo apphost ;;
-                schemas/settings/settings-schema.json|schemas/settings-export/*|docs/mdm/*) echo settings ;;
-                schemas/defaults/cmux-next.json) echo settings; echo actions ;;
-                web/data/cmux-shortcuts.generated.json) echo shortcuts; echo actions ;;
-                cmux-tui/crates/cmux-app-host/generated/*) echo apphost; echo actions ;;
-                scripts/lint-namespace-types-ratchet.txt) echo ratchets ;;
-                clients/ts/cloud/*|cmux-tui/crates/cmux-cloud-wire/src/generated/*) echo cloud ;;
-                webviews/*) echo webviews ;;
-                cmux-tui/*|Native/OptChat/*) echo fmt ;;
-                *) echo "unknown:$path" ;;
-              esac
-            done | sort -u
-          }
-          repaired="$(git diff --no-renames --name-only "$HEAD_SHA" "$repair" | output_areas)"
-          base="$HEAD_SHA"
-          # The files left out of a partial re-apply (below), empty when the whole repair is applied.
-          partial=""
-          for attempt in 1 2 3 4 5; do
-            if "${with_auth[@]}" git push --quiet "$remote" HEAD:refs/heads/feat-cmux-next; then
-              echo "Pushed $(git rev-parse --short HEAD) to feat-cmux-next (attempt $attempt)." | tee -a "$GITHUB_STEP_SUMMARY"
-              if [[ -n "$partial" ]]; then
-                # The run still fails: both jobs take "since" from the last successful run, and a
-                # left-out file may not be re-flagged by a diff from HEAD_SHA (an output no input area
-                # claims, or a change reverted again). Failing keeps "since" at the older run.
-                echo "::error::pushed part of the repair; ${partial} left to the next run (feat-cmux-next ${base:0:12} changed their inputs)." | tee -a "$GITHUB_STEP_SUMMARY"
-                exit 1
-              fi
-              exit 0
-            fi
-            "${with_auth[@]}" git fetch --quiet --depth=1 "$remote" refs/heads/feat-cmux-next
-            tip="$(git rev-parse FETCH_HEAD)"
-            if [[ "$tip" == "$base" ]]; then
-              echo "::error::the push was rejected but feat-cmux-next did not move; see the push output above." | tee -a "$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
-            unknown="$(grep '^unknown:' <<<"$repaired" | sed 's/^unknown://' | tr '\n' ' ' || true)"
-            if [[ -n "${unknown// }" ]]; then
-              echo "::error::feat-cmux-next moved to ${tip:0:12}, and no area is known to build ${unknown% }; the newer run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
-            overlap="$(comm -12 <(git diff --name-only "$HEAD_SHA" "$tip" | areas) <(echo "$repaired") | tr '\n' ' ')"
-            if [[ -n "${overlap// }" ]]; then
-              # Packages/ (the graph area) moves on nearly every push, so dropping the whole repair for
-              # one stale area meant almost nothing landed (4 of ~50 runs on 2026-10-19/20). Each file is
-              # judged on its own: one whose areas are all untouched since HEAD_SHA, and which the tip
-              # did not edit itself, is exactly right at the tip and lands now; the rest waits for the
-              # newer run. The patch applies without a 3-way merge, so a changed context fails the run.
-              # The defaults snapshot never lands alone: defaults_guard.py also reads keybind lines and
-              # *Enabled flags anywhere in the CmuxNext sources, which no area here tracks.
-              moved_paths="$(git diff --no-renames --name-only "$HEAD_SHA" "$tip")"
-              kept=()
-              left=()
-              while IFS= read -r path; do
-                [[ -n "$path" ]] || continue
-                if [[ "$path" == schemas/defaults/cmux-next.json ]] || grep -qxF "$path" <<<"$moved_paths" \
-                  || [[ -n "$(comm -12 <(echo "$path" | output_areas) <(tr ' ' '\n' <<<"$overlap" | sed '/^$/d' | sort))" ]]; then
-                  left+=("$path")
-                else
-                  kept+=("$path")
-                fi
-              done < <(git diff --no-renames --name-only "$HEAD_SHA" "$repair")
-              # A file built from another repaired file waits when that one waits: the docs shortcuts,
-              # app-host files and snapshot are built from the action export, and the strings tables and
-              # snapshot from the settings export. export_of names the export a file is; built_from the
-              # exports a file reads.
-              export_of() {
-                case "$1" in
-                  plans/cmux-next/action-surfaces.json|plans/cmux-next/actions.md|plans/cmux-next/links.json) echo actions ;;
-                  schemas/settings/settings-schema.json|schemas/settings-export/*|docs/mdm/*) echo settings ;;
-                esac
-              }
-              built_from() {
-                case "$1" in
-                  web/data/cmux-shortcuts.generated.json|cmux-tui/crates/cmux-app-host/generated/*) echo actions ;;
-                  */generated/strings.json) echo settings ;;
-                  schemas/defaults/cmux-next.json) echo actions; echo settings ;;
-                esac
-              }
-              waiting="$(for path in ${left[@]+"${left[@]}"}; do export_of "$path"; done | sort -u)"
-              if [[ -n "$waiting" ]]; then
-                still=()
-                for path in ${kept[@]+"${kept[@]}"}; do
-                  if [[ -n "$(comm -12 <(built_from "$path" | sort -u) <(echo "$waiting"))" ]]; then
-                    left+=("$path")
-                  else
-                    still+=("$path")
-                  fi
-                done
-                kept=(${still[@]+"${still[@]}"})
-              fi
-              if (( ${#kept[@]} == 0 )); then
-                echo "::error::feat-cmux-next ${tip:0:12} changed this repair's inputs since ${HEAD_SHA:0:12} (${overlap% }); the newer run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-                exit 1
-              fi
-              echo "feat-cmux-next moved to ${tip:0:12} (attempt $attempt) and changed the inputs of ${overlap% }; re-applying the ${#kept[@]} file(s) outside them."
-              git reset --quiet --hard "$tip"
-              base="$tip"
-              if ! git diff --no-renames --binary "$HEAD_SHA" "$repair" -- "${kept[@]}" | git apply --index; then
-                git reset --quiet --hard "$tip"
-                echo "::error::the repair conflicts with feat-cmux-next ${tip:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-                exit 1
-              fi
-              partial="${left[*]}"
-              if git diff --cached --quiet; then
-                echo "::error::feat-cmux-next already has the repairs outside ${overlap% }; ${partial} left to the next run." | tee -a "$GITHUB_STEP_SUMMARY"
-                exit 1
-              fi
-              git commit --quiet -m "chore(next): base autofix at ${HEAD_SHA:0:12} (partial)" \
-                -m "Re-applied on ${tip:0:12}: ${kept[*]}" \
-                -m "Left to the next run (feat-cmux-next changed ${overlap% }): ${partial}"
-              continue
-            fi
-            partial=""
-            echo "feat-cmux-next moved to ${tip:0:12} (attempt $attempt) without touching this repair's areas; re-applying it."
-            git reset --quiet --hard "$tip"
-            base="$tip"
-            if ! git cherry-pick --allow-empty --keep-redundant-commits "$repair" >/dev/null; then
-              git cherry-pick --abort || true
-              echo "::error::the repair conflicts with feat-cmux-next ${tip:0:12}; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-              exit 1
-            fi
-            if git diff --quiet HEAD~1 HEAD; then
-              echo "feat-cmux-next already has these repairs." | tee -a "$GITHUB_STEP_SUMMARY"
-              exit 0
-            fi
-          done
-          echo "::error::feat-cmux-next kept moving; the next run repairs it." | tee -a "$GITHUB_STEP_SUMMARY"
-          exit 1
+          # Lands the repair on the newest tip file by file: a file whose input areas the tip changed,
+          # or that a newer commit wrote, waits (with its export and what is built from it), and then
+          # the run fails, which keeps it out of the next run's "since". The settings exports are judged
+          # from the commit the Mac job made them at.
+          "${with_auth[@]}" scripts/cmux-next/base-autofix-push.sh "$remote" feat-cmux-next "$HEAD_SHA" "$SETTINGS_MADE_AT" 2>&1 \
+            | tee -a "$GITHUB_STEP_SUMMARY"
 
   # When the ghostty gitlink moves, pins its GhosttyKit checksum
   # (scripts/ghosttykit-checksums.txt) from our own published release only

@@ -280,6 +280,9 @@ pub(super) fn prepare_terminal_resource_attach(
         (None, None) => None,
         _ => unreachable!("catalog validates paired terminal attach size"),
     };
+    // A read-only attach watches: its size never reaches terminal sizing.
+    let read_only = request.fields.get("read_only").and_then(Value::as_bool).unwrap_or(false);
+    let initial_size = if read_only { None } else { initial_size };
     let (common, marked) = prepare_resource_surface_attach(
         mux,
         client,
@@ -289,6 +292,19 @@ pub(super) fn prepare_terminal_resource_attach(
         surface.id,
         initial_size,
     )?;
+    if read_only {
+        let marked_read_only = match marked.lease.as_deref() {
+            Some(lease) => mux
+                .control_clients
+                .mark_view_lease_read_only(client, surface.id, lease)
+                .map_err(|error| error.to_string()),
+            None => Err("resource attach minted no lease".to_owned()),
+        };
+        if let Err(error) = marked_read_only {
+            cleanup_resource_attach(mux, client, &common);
+            return Err(ResourceError::operation_failed(operation, error, json!({})));
+        }
+    }
     let attach = match surface.attach_render_stream() {
         Ok(attach) => attach,
         Err(error) => {

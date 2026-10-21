@@ -12876,6 +12876,28 @@
             "name": "string"
           },
           "description": "What the Chief logged about the stop."
+        },
+        "restarted": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For restart: the subagents that go on again."
+        },
+        "errors": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "For restart: one line per subagent that could not go on."
         }
       },
       "extra": false
@@ -12971,13 +12993,27 @@
           },
           "description": "The member's stable id; stash.restore and stash.delete name members by it."
         },
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "tab",
+              "workspace"
+            ]
+          },
+          "description": "tab: one web page. workspace: a whole workspace (stash-workspaces-v1), restored as its own workspace."
+        },
         "url": {
           "required": true,
           "type": {
-            "kind": "primitive",
-            "name": "string"
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
           },
-          "description": "The page; secret-looking query keys are stripped."
+          "description": "The page; secret-looking query keys are stripped. Null for a workspace."
         },
         "title": {
           "required": true,
@@ -13010,7 +13046,78 @@
               "resource": "workspace"
             }
           },
-          "description": "The workspace the page was stashed from; null for an imported page."
+          "description": "The workspace the page was stashed from; null for an imported page and for a workspace."
+        },
+        "name": {
+          "required": false,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "A workspace's name."
+        },
+        "tab_count": {
+          "required": false,
+          "type": {
+            "kind": "primitive",
+            "name": "uint32"
+          },
+          "description": "How many tabs a workspace holds."
+        },
+        "tabs": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "ref",
+              "name": "StashWorkspaceTab"
+            },
+            "max_items": 50
+          },
+          "description": "A workspace's first 50 tabs, in screen and strip order."
+        }
+      },
+      "extra": false
+    },
+    "StashWorkspaceTab": {
+      "kind": "object",
+      "fields": {
+        "kind": {
+          "required": true,
+          "type": {
+            "kind": "enum",
+            "values": [
+              "terminal",
+              "browser",
+              "conversation",
+              "remote_terminal"
+            ]
+          }
+        },
+        "title": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "The page title, else the tab's own name."
+        },
+        "url": {
+          "required": true,
+          "type": {
+            "kind": "nullable",
+            "value": {
+              "kind": "primitive",
+              "name": "string"
+            }
+          },
+          "description": "A web page's URL (secret-looking query keys stripped); null for any other tab."
         }
       },
       "extra": false
@@ -13034,7 +13141,7 @@
               "name": "string"
             }
           },
-          "description": "The name of the workspace the pages left, or of the imported group."
+          "description": "The name stash.create gave (with workspaces), else of the workspace the pages left, or of the imported group."
         },
         "created_at_ms": {
           "required": true,
@@ -13096,6 +13203,17 @@
             }
           },
           "description": "With workspace: its tabs that stayed open (not web pages, pinned, or incognito)."
+        },
+        "workspace_ids": {
+          "required": false,
+          "type": {
+            "kind": "array",
+            "items": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            }
+          },
+          "description": "With workspaces: the workspaces that closed into the stash, in member order."
         }
       },
       "extra": false
@@ -17341,7 +17459,27 @@
               "name": "string",
               "max_length": 128
             },
-            "description": "One subagent to stop (its id, e.g. a3); absent stops the turn and every subagent at work."
+            "description": "One subagent to stop (its id, e.g. a3); absent (with no all or restart) stops the Chief's running turn only, and its subagents go on."
+          },
+          "all": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "boolean"
+            },
+            "description": "true: Stop all agents, the running turn and every subagent at work or queued; the result's subagents names them (for an undo toast's Restart)."
+          },
+          "restart": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "primitive",
+                "name": "string",
+                "max_length": 128
+              }
+            },
+            "description": "Subagent ids to bring back after a stop (Restart on the stop-all toast): a started one goes on in its own session, one stopped before it started is queued again. Nothing is stopped."
           }
         },
         "extra": false
@@ -21634,7 +21772,15 @@
               "kind": "resource_id",
               "resource": "terminal"
             },
-            "description": "Clear only this terminal's notifications. Omit to clear every retained notification in the session."
+            "description": "Clear only this terminal's notifications. Omit terminal_id and workspace_id to clear every retained notification in the session."
+          },
+          "workspace_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "Clear only this workspace's notifications: its terminal-less rows (cmux notify --workspace) and those of every terminal and tab it shows. Not with terminal_id."
           },
           "expected_revision": {
             "required": false,
@@ -21738,6 +21884,14 @@
               "kind": "resource_id",
               "resource": "terminal"
             }
+          },
+          "workspace_id": {
+            "required": false,
+            "type": {
+              "kind": "resource_id",
+              "resource": "workspace"
+            },
+            "description": "The workspace a terminal-less notification belongs to (cmux notify --workspace ws_…), kept as the row's extra.workspace_id. Not with terminal_id: a terminal's notification already belongs to its workspace."
           },
           "expected_revision": {
             "required": false,
@@ -22751,10 +22905,11 @@
               "kind": "enum",
               "values": [
                 "close",
-                "keep"
+                "keep",
+                "shell"
               ]
             },
-            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
           },
           "cols": {
             "required": false,
@@ -28355,11 +28510,35 @@
               "resource": "workspace"
             },
             "description": "Stash this workspace's unpinned web pages; its other tabs stay open and are reported as skipped."
+          },
+          "workspaces": {
+            "required": false,
+            "type": {
+              "kind": "array",
+              "items": {
+                "kind": "resource_id",
+                "resource": "workspace"
+              },
+              "min_items": 1,
+              "max_items": 256
+            },
+            "description": "Whole workspaces to stash (stash-workspaces-v1): every tab, terminals included, closes; each becomes one kind workspace member. Name exactly one of tabs, workspace or workspaces."
+          },
+          "name": {
+            "required": false,
+            "type": {
+              "kind": "primitive",
+              "name": "string",
+              "min_length": 1,
+              "max_length": 1024
+            },
+            "description": "With workspaces: the stash's name (trimmed, not empty, at most 1024 UTF-8 bytes). Without it, one workspace names the stash and several leave it unnamed."
           }
         },
         "extra": false,
         "constraints": [
           "The tabs close in one commit and form one stash named after the workspace of the first; they are not recorded in the closed history (closed.list).",
+          "With workspaces, those workspaces close whole in one commit (their terminals end) and are not recorded in the closed history; an incognito workspace refuses the request with validation.invalid and the home workspace with home.not_closable, and nothing closes.",
           "With tabs, a tab that is not a web page (a terminal, a conversation or a remote terminal) or is in an incognito workspace refuses the whole request with validation.invalid; nothing closes.",
           "A workspace the stash leaves without a tab closes, as any last-tab close does."
         ]
@@ -32631,10 +32810,11 @@
               "kind": "enum",
               "values": [
                 "close",
-                "keep"
+                "keep",
+                "shell"
               ]
             },
-            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts."
+            "description": "Policy for the terminal's views when its process exits. close (the default) detaches every view and leaves only the durable exit receipt; keep retains the tab and the final screen next to that receipt until the terminal is closed or the daemon restarts; shell keeps the tab and the final screen and starts a new shell in it under the same terminal id, whose own exit then closes the tab."
           },
           "cols": {
             "required": false,

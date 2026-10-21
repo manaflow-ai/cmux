@@ -3,24 +3,32 @@
 // sender's name opens its chat beside this one when it is a chat here; › opens the message under
 // the line, the body only; the prompt as the agent got it (cmux's or Claude Code's envelope) waits
 // behind Details under it. Whether it is open
-// lasts while the page does, so scrolling it out of the virtualized transcript keeps it.
-import { useContext, useId, useLayoutEffect, useState } from "react";
+// lasts while the page does, so scrolling it out of the virtualized transcript keeps it. Reply, at the
+// line's end, answers in place: the answer goes to the sending chat in the message's thread
+// (AcpmuxDirectClient.reply), from an editor under the opened message. An open reply and its draft
+// last while the page does too; closing the message closes the reply and keeps the draft.
+import { useContext, useId, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { useT } from "../i18n";
 import type { PromptImage } from "../model";
 import type { IncomingMessage } from "./incomingMessage";
-import { SentImages } from "./UserBubble";
+import { PromptEditor, SentImages } from "./UserBubble";
 import { FindReveal } from "./chatFind";
 import { PromptMarksSession } from "../threadMinimap/promptMarks";
 import { ChevronRight, TerminalSquare } from "./icons";
 
 /// The messages the person opened, by chat and row (row ids repeat across chats).
 const opened = new Set<string>();
+/// The messages whose reply is open, and the reply drafts, by the same key.
+const replying = new Set<string>();
+const replyDrafts = new Map<string, string>();
 
 export function IncomingMessageLine({
   id,
   message,
   images,
   onOpen,
+  onReply,
+  actions,
 }: {
   /// The row's id, which keeps the line open across remounts.
   id: string;
@@ -28,6 +36,10 @@ export function IncomingMessageLine({
   /// The images the message sent the agent (direct.ts `promptImages`).
   images?: readonly PromptImage[];
   onOpen(sessionId: string): void;
+  /// Sends a reply to the message's sender; rejects when it was not sent.
+  onReply?(message: IncomingMessage, text: string): Promise<void>;
+  /// The message's hover row (MessageActions.tsx ReceivedActions), at the line's end.
+  actions?: ReactNode;
 }) {
   const t = useT();
   const key = `${useContext(PromptMarksSession) ?? ""}\u0000${id}`;
@@ -37,7 +49,7 @@ export function IncomingMessageLine({
     else opened.delete(key);
     setOpen(next);
   };
-  const toggle = () => show(!open);
+  const toggleButton = useRef<HTMLButtonElement>(null);
   const bodyId = useId();
   const rawId = useId();
   // The prompt as the agent got it (cmux's envelope around the message) waits behind Details.
@@ -60,6 +72,40 @@ export function IncomingMessageLine({
   const raw = message.raw.trim() === message.text ? undefined : message.raw;
   const sessionId = message.sessionId;
   const label = t("message.label", { from: message.name, to: t("message.self") });
+  // A reply needs a chat to go to and the message's id to answer: acpmux's `agent_message`.
+  const replies = onReply !== undefined && sessionId !== undefined && message.msgId !== undefined;
+  const [reply, setReplyState] = useState<"closed" | "open" | "sent" | "failed">(() =>
+    replying.has(key) ? "open" : "closed",
+  );
+  const setReply = (next: typeof reply) => {
+    if (next === "open" || next === "failed") replying.add(key);
+    else replying.delete(key);
+    setReplyState(next);
+  };
+  const replyButton = useRef<HTMLButtonElement>(null);
+  // The editor takes the focus when the person opens it, not when the row draws again.
+  const [focusEditor, setFocusEditor] = useState(false);
+  const closeReply = (next: "closed" | "sent") => {
+    setReply(next);
+    // The editor unmounts with the focus in it: the Reply button takes it back.
+    requestAnimationFrame(() => replyButton.current?.focus());
+  };
+  const editing = reply === "open" || reply === "failed";
+  // Reply opens the message too, so the editor sits under what it answers.
+  const startReply = () => {
+    setFocusEditor(true);
+    show(true);
+    setReply("open");
+  };
+  // Closing the message closes its reply too, draft kept; the focus goes to the chevron, so it
+  // is not lost with the editor.
+  const toggle = () => {
+    if (open && editing) {
+      setReply("closed");
+      requestAnimationFrame(() => toggleButton.current?.focus());
+    }
+    show(!open);
+  };
   return (
     <div className="cv-received" data-open={open || undefined}>
       <div className="cv-received__line">
@@ -88,6 +134,7 @@ export function IncomingMessageLine({
           </span>
         )}
         <button
+          ref={toggleButton}
           type="button"
           className="cv-received__toggle"
           aria-expanded={open}
@@ -97,6 +144,12 @@ export function IncomingMessageLine({
         >
           <ChevronRight size={12} strokeWidth={1.4} className={`cv-rotor${open ? " is-open" : ""}`} />
         </button>
+        {replies && !editing && (
+          <button ref={replyButton} type="button" className="cv-received__reply" onClick={startReply}>
+            {t("message.reply")}
+          </button>
+        )}
+        {actions}
       </div>
       {open && (
         <div id={bodyId} className="cv-received__body selectable">
@@ -121,6 +174,43 @@ export function IncomingMessageLine({
             </pre>
           )}
         </div>
+      )}
+      {open && replies && editing && (
+        <div className="cv-message__reply">
+          <PromptEditor
+            initial={replyDrafts.get(key) ?? ""}
+            canSend
+            label={t("message.replyTo", { name: message.name })}
+            // UserBubble's own prop, which takes focus through a ref when the editor mounts, not
+            // the DOM attribute the rule is about: the reader opened this reply editor with a
+            // click and types into it next.
+            // oxlint-disable-next-line jsx-a11y/no-autofocus
+            autoFocus={focusEditor}
+            onChange={(text) => {
+              if (text) replyDrafts.set(key, text);
+              else replyDrafts.delete(key);
+            }}
+            // Cancel drops the draft; closing the message keeps it.
+            onCancel={() => {
+              replyDrafts.delete(key);
+              closeReply("closed");
+            }}
+            onSend={async (text) => {
+              if (!onReply) return;
+              try {
+                await onReply(message, text);
+                replyDrafts.delete(key);
+                closeReply("sent");
+              } catch {
+                setReply("failed");
+              }
+            }}
+          />
+          {reply === "failed" && <output className="cv-message__note is-failed">{t("message.replyFailed")}</output>}
+        </div>
+      )}
+      {open && reply === "sent" && (
+        <output className="cv-message__note cv-received__replied">{t("message.replied")}</output>
       )}
       {images && images.length > 0 && <SentImages images={images} className="cv-message__images" />}
     </div>

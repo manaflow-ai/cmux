@@ -81,8 +81,10 @@ pub use paging::{EventFilter, EventPage};
 pub use spawn::expand_env_value;
 pub mod approvers;
 mod peer_cache;
+mod peer_lease;
+pub use peer_lease::PeerLease;
 mod peers;
-pub(crate) use peers::PEER_PERMISSION_PENDING;
+pub(crate) use peers::{PEER_PERMISSION_PENDING, PEER_SETTLE_BUDGET};
 mod permission_groups;
 mod permissions;
 pub mod person;
@@ -266,6 +268,10 @@ pub struct Hub {
     pub started_at: u64,
     pub(super) peers: StdMutex<HashMap<String, Arc<crate::peer::Peer>>>,
     pub(super) remote_sessions: StdMutex<HashMap<String, RemoteSession>>,
+    /// Leased peers by name, with the generation of the peer each lease
+    /// started (`peer_lease.rs`); never saved. Lock order: this, then
+    /// `peers`; never `peers` first.
+    pub(super) peer_leases: StdMutex<HashMap<String, u64>>,
     pub(super) peer_notices: mpsc::Sender<(String, u64, crate::peer::PeerNotice)>,
     pub(super) peer_notices_rx:
         Mutex<Option<mpsc::Receiver<(String, u64, crate::peer::PeerNotice)>>>,
@@ -346,6 +352,8 @@ pub struct Hub {
     pub person: person::PersonGate,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
+    /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
+    pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
@@ -396,6 +404,7 @@ impl Hub {
             started_at: now_ms(),
             peers: StdMutex::new(HashMap::new()),
             remote_sessions: StdMutex::new(HashMap::new()),
+            peer_leases: StdMutex::new(HashMap::new()),
             peer_notices,
             peer_notices_rx: Mutex::new(Some(peer_notices_rx)),
             known_models: StdMutex::new(HashMap::new()),
@@ -434,6 +443,7 @@ impl Hub {
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
+            background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
             subsessions: Default::default(),
             auto_resumes: Default::default(),
@@ -864,10 +874,21 @@ impl Hub {
 
     /// Turn-by-turn summary from the event log.
     pub fn history(&self, session: &Session, limit: usize) -> Vec<Value> {
-        let events = self.store.events(&session.id, 0, 500_000).unwrap_or_default();
+        // Only the kinds a summary reads are parsed, one record at a time: the whole log
+        // as records grew the daemon by 347 MB for a 70 MB Chief log (perf100, rbx).
+        const KINDS: &[&str] = &[
+            "user_message",
+            "tool_call",
+            "permission_request",
+            "permission_auto",
+            "usage_update",
+            "turn_result",
+            "turn_end",
+            "turn_error",
+        ];
         let mut turns: Vec<Value> = Vec::new();
         let mut cur: Option<serde_json::Map<String, Value>> = None;
-        for e in events {
+        let _ = self.store.scan_kinds(&session.id, KINDS, &mut |e: EventRecord| {
             match e.kind.as_str() {
                 "user_message" if e.msg.get("steer").and_then(Value::as_bool) != Some(true) => {
                     if let Some(t) = cur.take() {
@@ -947,12 +968,25 @@ impl Hub {
                 }
                 _ => {}
             }
-        }
+            true
+        });
         if let Some(t) = cur.take() {
             turns.push(Value::Object(t));
         }
         let n = turns.len();
         turns.into_iter().skip(n.saturating_sub(limit)).collect()
+    }
+
+    /// The seq of the log's last `turn_result`; only those records are parsed.
+    pub(super) fn latest_turn_result(&self, id: &str) -> Result<Option<u64>, RpcError> {
+        let mut latest = None;
+        self.store
+            .scan_kinds(id, &["turn_result"], &mut |e: EventRecord| {
+                latest = latest.max(Some(e.seq));
+                true
+            })
+            .map_err(|e| RpcError::internal(e.to_string()))?;
+        Ok(latest)
     }
 
     /// After a restart: a turn that started but never settled gets a
@@ -1044,6 +1078,16 @@ impl Hub {
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {
         self.store.events(id, after, limit)
+    }
+
+    /// Visits the records past `after` in order, one at a time, until `visit` returns false.
+    pub fn scan_events(
+        &self,
+        id: &str,
+        after: u64,
+        visit: &mut dyn FnMut(EventRecord) -> bool,
+    ) -> Result<()> {
+        self.store.scan(id, after, visit)
     }
 
     pub fn session_dir(&self, id: &str) -> Option<PathBuf> {

@@ -39,6 +39,10 @@ public nonisolated enum HomeEngineStrings {
     static var nextTurn: String { String(localized: "home.engine.nextTurn", defaultValue: "Changes apply from the next turn.", table: "Home", bundle: .module) }
     static var openTraces: String { String(localized: "home.engine.openTraces", defaultValue: "Show Traces", table: "Home", bundle: .module) }
     static var showMemory: String { String(localized: "home.engine.showMemory", defaultValue: "Show Memory", table: "Home", bundle: .module) }
+    /// The popover's link to Settings > Chief, the page with every Chief setting.
+    static var allChiefSettings: String {
+        String(localized: "home.engine.allChiefSettings", defaultValue: "All Chief Settings…", table: "Home", bundle: .module)
+    }
     static var brainFormat: String {
         String(localized: "home.engine.brain", defaultValue: "Runs on this Mac (%@). Tools: zoom, date, spawn, tell and the harness's own.", table: "Home", bundle: .module)
     }
@@ -93,6 +97,28 @@ public nonisolated enum HomeEngineStrings {
     static var harness: String { String(localized: "home.engine.harness", defaultValue: "Harness", table: "Home", bundle: .module) }
     static var model: String { String(localized: "home.engine.model", defaultValue: "Model", table: "Home", bundle: .module) }
     static var effort: String { String(localized: "home.engine.effort", defaultValue: "Effort", table: "Home", bundle: .module) }
+    static var speed: String { String(localized: "home.engine.speed", defaultValue: "Speed", table: "Home", bundle: .module) }
+    /// The Speed row's fast tier (codex's priority processing: faster, more usage).
+    static var speedFast: String { String(localized: "home.engine.speed.fast", defaultValue: "Fast", table: "Home", bundle: .module) }
+    /// The Model menu's sections (``HomeChiefModelMenu``).
+    static var recentSection: String { String(localized: "home.engine.models.recent", defaultValue: "Recent", table: "Home", bundle: .module) }
+    static var planAndExecuteSection: String {
+        String(localized: "home.engine.models.planAndExecute", defaultValue: "Plan and Execute", table: "Home", bundle: .module)
+    }
+    static var otherModelsSection: String {
+        String(localized: "home.engine.models.other", defaultValue: "Other Models", table: "Home", bundle: .module)
+    }
+    static var olderModelsSection: String {
+        String(localized: "home.engine.models.older", defaultValue: "Older Models", table: "Home", bundle: .module)
+    }
+    /// Claude Code's `opusplan`: Opus while planning, Sonnet while carrying the plan out.
+    static var opusPlanTitle: String {
+        String(localized: "home.engine.models.opusPlan", defaultValue: "Opus Plans, Sonnet Executes", table: "Home", bundle: .module)
+    }
+    /// A model's context-window variant: "Opus 5.5 · 1M context" (the model, the window).
+    static var contextVariantFormat: String {
+        String(localized: "home.engine.models.contextVariant", defaultValue: "%1$@ · %2$@ context", table: "Home", bundle: .module)
+    }
 
     /// An effort level's name (the brain's ids: optchat-chief `EFFORTS`); one the app does not
     /// know shows as the brain names it.
