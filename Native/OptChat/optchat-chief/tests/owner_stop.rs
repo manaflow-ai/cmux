@@ -10,6 +10,7 @@ use std::time::Duration;
 
 use cmux_conversation::Op;
 use common::*;
+use optchat_chief::acpmux::AgentEvent;
 use optchat_chief::brain::Input;
 use optchat_chief::state::{HostState, StateFile, SubStatus};
 use optchat_chief::subagents::{Spawner, SubagentSettings};
@@ -305,10 +306,20 @@ fn restart_brings_back_the_subagents_stop_all_stopped() {
     assert!(spawned.contains("a2: queued"), "{spawned}");
     let stopped = stop_all(&mut h);
     let names: Vec<String> = serde_json::from_value(stopped["subagents"].clone()).unwrap();
+    // a1's cancelled turn ends: acpmux reports its session idle.
+    let a1_session = h
+        .brain
+        .state()
+        .sub("a1")
+        .and_then(|(_, s)| s.session_id.clone())
+        .expect("a1's session");
+    h.brain.step(Input::from(AgentEvent::SessionChanged(
+        serde_json::from_value(serde_json::json!({
+            "sessionId": a1_session, "name": "a1", "status": "idle", "harness": "claude",
+        }))
+        .unwrap(),
+    )));
     run(&mut h, || ());
-    // a1's cancelled turn is still held here: the restart's message is
-    // steered into it (else its next prompt once the turn ends).
-    h.agents.inner.lock().unwrap().steering = true;
     let prompts_before = h.agents.inner.lock().unwrap().prompts.len();
 
     let (reply, answer) = channel();
@@ -334,21 +345,21 @@ fn restart_brings_back_the_subagents_stop_all_stopped() {
             sub.status
         );
     }
-    let told = |h: &Harness| {
-        let inner = h.agents.inner.lock().unwrap();
-        let steered = inner.steers.iter().map(|(_, blocks)| blocks);
-        inner.prompts[prompts_before..]
-            .iter()
-            .chain(steered)
-            .any(|blocks| {
-                serde_json::to_string(blocks)
-                    .unwrap()
-                    .contains("Continue from where you stopped")
-            })
-    };
-    let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    while !told(&h) && std::time::Instant::now() < deadline {
-        run(&mut h, || std::thread::sleep(Duration::from_millis(20)));
-    }
-    assert!(told(&h), "a1 is told to continue in its own session");
+    let told = h.agents.inner.lock().unwrap().prompts[prompts_before..]
+        .iter()
+        .any(|blocks| {
+            serde_json::to_string(blocks)
+                .unwrap()
+                .contains("Continue from where you stopped")
+        });
+    assert!(told, "a1 is told to continue in its own session");
+
+    // A second Restart (the toast pressed twice) leaves them as they are.
+    let (reply, answer) = channel();
+    h.brain.step(Input::RestartSubagents {
+        names: vec!["a1".into(), "a2".into()],
+        reply,
+    });
+    let again = answer.try_recv().expect("answers at once");
+    assert_eq!(again["restarted"], serde_json::json!([]), "{again}");
 }

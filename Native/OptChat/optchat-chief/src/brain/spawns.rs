@@ -1804,10 +1804,26 @@ impl Brain {
                 errors.push(format!("no subagent {name}"));
                 continue;
             };
-            let result = if sub.session_id.is_some() {
-                self.control_restart(&sub, None)
-            } else {
-                self.queue_again(&sub)
+            // Only one the user stopped: a second Restart, or one already
+            // back at work, is left as it is.
+            if !sub.cancelled {
+                errors.push(format!("{name} is not stopped"));
+                continue;
+            }
+            let result = match (sub.status, sub.session_id.is_some()) {
+                // Its cancelled turn has not ended yet: the message waits
+                // for that end (after_stop), never steered into a turn
+                // that is ending.
+                (SubStatus::Starting | SubStatus::Running, true) => {
+                    if let Some(s) = self.state.sub_mut(name) {
+                        s.cancelled = false;
+                        s.paused = false;
+                        s.resume_attempts = 0;
+                    }
+                    self.control_interrupt(&sub, Some(super::control::RESTART_PROMPT))
+                }
+                (_, true) => self.control_restart(&sub, None),
+                (_, false) => self.queue_again(&sub),
             };
             match result {
                 Ok(text) if !text.starts_with("outcome: refused") => restarted.push(name.clone()),
@@ -1825,13 +1841,16 @@ impl Brain {
     /// Subagent `sub`, stopped before it started, queued again with its
     /// task.
     fn queue_again(&mut self, sub: &SubRecord) -> Result<String, String> {
-        let launch = crate::state::QueuedLaunch {
-            task: sub.task.clone(),
-            cwd: None,
-            effort: None,
-            floor: sub.policy.clone(),
-            harness: None,
-        };
+        let launch = sub
+            .queued_launch
+            .clone()
+            .unwrap_or_else(|| crate::state::QueuedLaunch {
+                task: sub.task.clone(),
+                cwd: None,
+                effort: None,
+                floor: sub.policy.clone(),
+                harness: None,
+            });
         let s = self
             .state
             .sub_mut(&sub.id)
@@ -1873,6 +1892,18 @@ impl Brain {
             })
             .map(|s| (s.id.clone(), s.status, s.session_id.clone()))
             .collect();
+        // Nothing a picked one was told is sent after the stop, and each
+        // picked queued one is cancelled before any stops: a slot one frees
+        // never starts another picked one.
+        for (id, status, _) in &subs {
+            if let Some(s) = self.state.sub_mut(id) {
+                s.after_stop = None;
+                s.inbox.clear();
+                if *status == SubStatus::Queued {
+                    s.cancelled = true;
+                }
+            }
+        }
         let mut stopped = Vec::new();
         for (id, status, session) in subs {
             match (status, session) {
