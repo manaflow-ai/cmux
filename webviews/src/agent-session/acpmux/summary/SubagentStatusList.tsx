@@ -2,7 +2,7 @@
 // indented under the agent that spawned them, with its live state (running, waiting on the user,
 // done, failed) and its time. A row shows that subagent (`onOpen`): its pane when it has one. Its
 // title opens the card's Subagents tab (`onShowAll`, SubagentsTab.tsx). After them, the chats the
-// agent started (`sessions`, ChildSessionRows.tsx), each opening its chat.
+// agent started (`sessions`, inspector/ChildSessionRows.tsx), each opening its chat.
 import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import { formatDuration } from "../conversation/turns";
 import { useT, type StringKey } from "../i18n";
@@ -11,7 +11,7 @@ import { rowIconSize } from "../icons/iconSize";
 import { elapsed, running, STATE_LABEL, useNow } from "../subagents/SubagentGroup";
 import type { Subagent } from "../subagents/subagentFold";
 import type { StartedSession } from "../started/startedSessions";
-import { ChildSessionRows } from "./ChildSessionRows";
+import { ChildSessionRows } from "../inspector/ChildSessionRows";
 import type { SummarySubagent } from "./sessionSummary";
 import { SubagentStack } from "./SubagentStack";
 

@@ -40,6 +40,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .useFolder: "useFolder"
         case .chooseChatFolder: "chooseChatFolder"
         case .chooseAttachments: "chooseAttachments"
+        case .attachDropped: "attachDropped"
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"
         case .nowPlaying: "nowPlaying"

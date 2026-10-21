@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { runPlay, selectTextWithDriver, syntheticKey } from "../src/gallery/frame/playRunner";
+import { isSubpixelLayoutShift } from "../src/gallery/play";
 
 const scope = globalThis as Record<string, unknown>;
 const keys = [
@@ -142,6 +143,15 @@ describe("gallery shell keyboard emulation", () => {
       if (descriptor) Object.defineProperty(rangePrototype, "getClientRects", descriptor);
       else delete (rangePrototype as { getClientRects?: unknown }).getClientRects;
     }
+  });
+});
+
+describe("gallery layout-shift measurement", () => {
+  test("ignores fractional rounding while retaining a half-pixel movement", () => {
+    const rect = (x: number) => ({ x, y: 10, width: 100, height: 20 });
+    expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.49) }])).toBe(true);
+    expect(isSubpixelLayoutShift([{ previousRect: rect(10), currentRect: rect(10.5) }])).toBe(false);
+    expect(isSubpixelLayoutShift([{ previousRect: rect(10) }])).toBe(false);
   });
 });
 

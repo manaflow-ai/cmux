@@ -114,11 +114,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         get { (webView as? PageWKWebView)?.fileDrop }
         set { (webView as? PageWKWebView)?.fileDrop = newValue }
     }
-    /// Called when files are dropped on the page itself (not a ``fileDrop`` the host opens): a real
-    /// gesture page script can't make.
-    public var onFilesDropped: (@MainActor () -> Void)? {
+    /// Called with their file URLs when files are dropped on the page itself (not a ``fileDrop`` the
+    /// host opens): a real gesture page script can't make.
+    public var onFilesDropped: (@MainActor ([URL]) -> Void)? {
         get { (webView as? PageWKWebView)?.onFilesDropped }
         set { (webView as? PageWKWebView)?.onFilesDropped = newValue }
+    }
+    /// Called when a paste (Cmd-V, Edit > Paste) is about to reach the page, before WebKit pastes.
+    public var onPaste: (@MainActor () -> Void)? {
+        get { (webView as? PageWKWebView)?.onPaste }
+        set { (webView as? PageWKWebView)?.onPaste = newValue }
     }
     /// When a real key or mouse event last reached the page (`systemUptime`; page script cannot set
     /// it), the event behind `PageCallContext.userGesture`. A host that grants one action per

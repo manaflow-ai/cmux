@@ -68,7 +68,7 @@ pub(crate) struct VersionLabels {
 pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
     action_describe_usage: "usage: cmux action describe <action id or CLI name>",
     action_run_usage: "usage: cmux action run <action id or CLI name> [--target ID] [--<argument> VALUE]... [--wait]",
-    agent_open_usage: "usage: cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST]",
+    agent_open_usage: "usage: cmux agent open <session id> [--name NAME] [--key UUID] [--cwd DIR] [--host HOST] [--group GROUP]",
     settings_usage: "usage: cmux settings get [PATH] | set PATH VALUE [--confirm] | reset PATH [--confirm] | unset PATH [--confirm] | list [--section SECTION] [--keys] | schema | validate [FILE]\n(`cmux config` is the same command)",
     settings_confirm_hint: "add --confirm to ask for approval in cmux",
     settings_declined: "declined in cmux",
@@ -125,7 +125,7 @@ pub(super) const ENGLISH: AppControlMessages = AppControlMessages {
 pub(super) const JAPANESE: AppControlMessages = AppControlMessages {
     action_describe_usage: "使い方: cmux action describe <アクション ID または CLI 名>",
     action_run_usage: "使い方: cmux action run <アクション ID または CLI 名> [--target ID] [--<引数> 値]... [--wait]",
-    agent_open_usage: "使い方: cmux agent open <セッション ID> [--name 名前] [--key UUID] [--cwd フォルダ] [--host ホスト]",
+    agent_open_usage: "使い方: cmux agent open <セッション ID> [--name 名前] [--key UUID] [--cwd フォルダ] [--host ホスト] [--group グループ]",
     settings_usage: "使い方: cmux settings get [パス] | set パス 値 [--confirm] | reset パス [--confirm] | unset パス [--confirm] | list [--section セクション] [--keys] | schema | validate [ファイル]\n(`cmux config` も同じコマンドです)",
     settings_confirm_hint: "--confirm を付けると cmux で承認を求めます",
     settings_declined: "cmux で拒否されました",
