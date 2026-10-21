@@ -285,14 +285,19 @@ impl Hub {
                 continue;
             };
             let settles = matches!(notice, PeerNotice::Connected | PeerNotice::Disconnected(_));
-            self.apply_peer_notice(&peer, notice);
+            self.apply_peer_notice(&peer, generation, notice);
             if settles {
                 current.mark_settled();
             }
         }
     }
 
-    pub(super) fn apply_peer_notice(&self, peer: &str, notice: crate::peer::PeerNotice) {
+    pub(super) fn apply_peer_notice(
+        &self,
+        peer: &str,
+        _generation: u64,
+        notice: crate::peer::PeerNotice,
+    ) {
         use crate::peer::PeerNotice;
         let peer = peer.to_owned();
         {

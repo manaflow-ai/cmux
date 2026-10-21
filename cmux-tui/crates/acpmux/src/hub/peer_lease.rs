@@ -201,7 +201,7 @@ mod tests {
         let cfg = crate::config::Config::default();
         let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
-        hub.apply_peer_notice("vm", crate::peer::PeerNotice::Sessions(vec![row]));
+        hub.apply_peer_notice("vm", lease.generation, crate::peer::PeerNotice::Sessions(vec![row]));
         hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
         assert!(!hub.is_leased("vm"));
         assert!(hub.remote_sessions().is_empty(), "{:?}", hub.remote_sessions());
@@ -222,10 +222,84 @@ mod tests {
         let hub = Hub::new(cfg.clone(), store);
         let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
         let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
-        hub.apply_peer_notice("vm", crate::peer::PeerNotice::Sessions(vec![row]));
+        hub.apply_peer_notice("vm", lease.generation, crate::peer::PeerNotice::Sessions(vec![row]));
         assert_eq!(hub.remote_sessions().len(), 1);
         assert!(!dir.path().join("peers/vm.json").exists(), "a lease saved its sessions");
         hub.end_peer_lease(&lease);
         assert!(hub.remote_sessions().is_empty());
+    }
+
+    /// A notice of a peer instance that was replaced or removed after
+    /// `peer_notice_loop` checked it (the loop does not hold the lock its
+    /// rows are guarded by) adds no rows and saves no session cache: not
+    /// after a saved peer took a leased name over, not after the lease
+    /// ended, and not after `peer_remove`.
+    #[tokio::test]
+    async fn a_replaced_instances_late_notice_adds_no_rows_and_saves_no_cache() {
+        use crate::peer::PeerNotice;
+        let dir = cmux_unix_socket::short_test_dir("acpmux-pl");
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub = Hub::new(cfg.clone(), store);
+        let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "updatedAt": 5});
+        let changed =
+            || PeerNotice::SessionChanged { session: row.clone(), kind: "status".into(), seq: 1 };
+        let assert_clean = |path: &str| {
+            assert!(hub.remote_sessions().is_empty(), "{path}: {:?}", hub.remote_sessions());
+            let cache = dir.path().join("peers");
+            let saved: Vec<_> = std::fs::read_dir(&cache)
+                .map(|d| d.flatten().map(|e| e.file_name()).collect())
+                .unwrap_or_default();
+            assert!(saved.is_empty(), "{path}: a stale notice saved {saved:?}");
+        };
+
+        // A saved peer takes the leased name over.
+        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        hub.add_peer("vm", "ws://127.0.0.1:8", None, None, false).await.unwrap();
+        hub.apply_peer_notice("vm", lease.generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice("vm", lease.generation, changed());
+        assert_clean("saved peer took over");
+
+        // The lease ended.
+        let (lease, _) = hub.lease_peer("vm2", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        hub.end_peer_lease(&lease);
+        hub.apply_peer_notice("vm2", lease.generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice("vm2", lease.generation, changed());
+        assert_clean("lease ended");
+
+        // A saved peer was removed.
+        hub.add_peer("box", "ws://127.0.0.1:7", None, None, false).await.unwrap();
+        let generation = hub.peer_by_name("box").unwrap().generation;
+        hub.remove_peer("box").await.unwrap();
+        hub.apply_peer_notice("box", generation, PeerNotice::Sessions(vec![row.clone()]));
+        hub.apply_peer_notice("box", generation, changed());
+        assert_clean("peer removed");
+    }
+
+    /// `peer_remove` of a leased name is refused and leaves config.json
+    /// alone: a lease is never written to config, and the connection that
+    /// holds it ends it.
+    #[tokio::test]
+    async fn removing_a_leased_peer_is_refused_and_never_touches_config() {
+        let dir = cmux_unix_socket::short_test_dir("acpmux-pl");
+        let path = dir.path().join("config.json");
+        // Not the form `Config::save` writes, so any save shows.
+        std::fs::write(&path, "{}").unwrap();
+        let mut cfg = crate::config::Config::default();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        cfg.path = Some(path.clone());
+        let store = crate::store::open(&cfg.store, dir.path()).unwrap();
+        let hub = Hub::new(cfg.clone(), store);
+        let (lease, _) = hub.lease_peer("vm", "ws://127.0.0.1:9", "t".into(), None, &cfg).unwrap();
+        let e = hub.remove_peer("vm").await.unwrap_err();
+        assert!(e.message.contains("leased"), "{}", e.message);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}", "peer_remove saved config");
+        assert!(hub.is_leased("vm"));
+        assert_eq!(hub.peers().len(), 1, "{:?}", hub.peers());
+        // The lease still ends with its connection.
+        hub.end_peer_lease(&lease);
+        assert!(hub.peers().is_empty());
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), "{}");
     }
 }

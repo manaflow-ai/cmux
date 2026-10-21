@@ -245,3 +245,50 @@ async fn a_peer_lease_is_refused_to_web_local_app_and_peer_callers() {
     }
     assert!(a.peers().is_empty(), "{:?}", a.peers());
 }
+
+/// A closing connection ends its leases before it kills its ephemeral
+/// sessions: that kill awaits each agent, and a leased peer must not keep
+/// pointing at a forward port its bridge already closed meanwhile.
+#[tokio::test]
+async fn a_closing_connection_ends_its_peer_lease_before_killing_its_ephemeral_sessions() {
+    let (_b, port, peer_token) = serving_b("order").await;
+    let a = hub(config());
+    let mut ca = C::new(&a, Origin::Local);
+    ca.call(method::INITIALIZE, json!({"protocolVersion": 1})).await.unwrap();
+    ca.call("_acpmux/peer_lease", lease(port, &peer_token)).await.unwrap();
+    assert!(
+        a.all_session_summaries().iter().any(|s| s["name"] == "cloud-vm/vm-one"),
+        "{:?}",
+        a.all_session_summaries()
+    );
+    let new = json!({"cwd": std::env::temp_dir(), "mcpServers": [],
+        "_meta": {"acpmux": {"name": "scratch", "ephemeral": true}}});
+    let r = ca.call(method::SESSION_NEW, new).await.unwrap();
+    let id = r["sessionId"].as_str().expect("sessionId").to_owned();
+
+    let mut events = a.subscribe();
+    ca.close().await;
+    // The leased peer's rows purged, and the ephemeral session purged (the
+    // end of its kill). Only purges: the agent may still be sending events.
+    let (mut lease_ended, mut killed) = (None, None);
+    let mut at = 0;
+    while let Ok(e) = events.try_recv() {
+        match &e.remote {
+            Some(r) if r.peer == "cloud-vm" && e.record.kind == "purged" => {
+                lease_ended.get_or_insert(at);
+            }
+            None if e.session_id == id && e.record.kind == "purged" => {
+                killed.get_or_insert(at);
+            }
+            _ => {}
+        }
+        at += 1;
+    }
+    let (lease_ended, killed) = (
+        lease_ended.expect("the lease's rows were never purged"),
+        killed.expect("the ephemeral session was never killed"),
+    );
+    assert!(lease_ended < killed, "the lease ended after the kill ({lease_ended} >= {killed})");
+    assert!(a.peers().is_empty(), "{:?}", a.peers());
+    assert!(a.resolve(&id).is_err(), "the ephemeral session was not purged");
+}
