@@ -428,3 +428,57 @@ test("dot folders are paths in code and prose; secret dot folders stay denied", 
   expect(isDeniedPath(".ssh/id_rsa")).toBe(true);
   expect(isDeniedPath(".aws/credentials")).toBe(true);
 });
+
+test("a reset drops answers to calls made before it, and new calls still go out", async () => {
+  const { resetLinkStore } = await import("../src/agent-session/acpmux/chips/linkStore");
+  const calls: string[][] = [];
+  const held: Array<(value: unknown) => void> = [];
+  await withChipDom(
+    async (method, params) => {
+      if (method !== "link.inspect") return undefined;
+      const paths = (params as { paths: string[] }).paths;
+      calls.push(paths);
+      const places: Record<string, unknown> = {};
+      for (const path of paths) places[path] = { place: "root", folder: false };
+      const answer = { paths: places, sites: {}, policy: POLICY };
+      // The first call for the name is held past the reset.
+      if (paths.includes("old.py") && held.length === 0)
+        return new Promise((resolve) => held.push(() => resolve(answer)));
+      return answer;
+    },
+    async (root, container, act) => {
+      await act(async () => root.render(<>{renderInline("`old.py`")}</>));
+      await act(async () => {});
+      expect(calls).toContainEqual(["old.py"]);
+      await act(async () => root.render(<></>));
+      resetLinkStore();
+      await act(async () => root.render(<>{renderInline("`old.py` and `src/new.ts`")}</>));
+      await act(async () => {});
+      await act(async () => {});
+      // The name was asked again after the reset, though the first call is still out.
+      expect(calls.filter((call) => call.includes("old.py"))).toHaveLength(2);
+      expect(container.querySelectorAll("button.cv-chip")).toHaveLength(2);
+      // The stale answer arriving now changes nothing.
+      await act(async () => held[0]?.(undefined));
+      await act(async () => {});
+      expect(container.querySelectorAll("button.cv-chip")).toHaveLength(2);
+    },
+  );
+});
+
+test("a name the host places outside the folders follows the outside policy like any path", async () => {
+  await withChipDom(
+    async (method, params) => {
+      if (method !== "link.inspect") return undefined;
+      const places: Record<string, unknown> = {};
+      for (const path of (params as { paths: string[] }).paths) places[path] = { place: "outside", folder: false };
+      return { paths: places, sites: {}, policy: POLICY };
+    },
+    async (root, container, act) => {
+      await act(async () => root.render(<>{renderInline("[notes](notes.md)")}</>));
+      await act(async () => {});
+      await act(async () => {});
+      expect(container.querySelector("button.cv-chip.is-path.is-outside")).not.toBeNull();
+    },
+  );
+});
