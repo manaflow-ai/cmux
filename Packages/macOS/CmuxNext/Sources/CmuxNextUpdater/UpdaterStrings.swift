@@ -114,6 +114,15 @@ nonisolated enum UpdaterStrings {
     static func upToDateDetail(_ version: String) -> String {
         format("updater.notice.upToDateDetail", "Version %@, checked just now", version)
     }
+    // The loading card through a download and install (Lawrence 2026-10-20).
+    static func downloadedOf(_ received: String, _ expected: String, _ percent: String) -> String {
+        format("updater.notice.downloadedOf", "%1$@ of %2$@ · %3$@", received, expected, percent)
+    }
+    static var preparingDetail: String { text("updater.notice.preparingDetail", "Verifying and unpacking the update.") }
+    static var installingUpdate: String { text("updater.notice.installingTitle", "Installing Update") }
+    static var relaunchingDetail: String {
+        text("updater.notice.relaunchingDetail", "cmux relaunches in a moment. Your terminals and agents keep running.")
+    }
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }
     // Short notice titles; the version goes in the detail line.

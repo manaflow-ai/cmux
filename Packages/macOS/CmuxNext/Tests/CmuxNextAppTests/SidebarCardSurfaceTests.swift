@@ -3,9 +3,10 @@ import CmuxNextDesign
 @testable import CmuxNextSidebar
 import Testing
 
-/// Every sidebar card sits on the composer's surface (Leo 2026-10-13, cx-5dvig): the theme's text
-/// at 13% over whatever is behind (the wallpaper on a wallpaper theme), as the agent composer's
-/// `--acpmux-composer-bg`. The Update Ready card drew an opaque elevated fill that hid the
+/// Every sidebar card sits on one shared surface, `CardSurfaceView`: the neutral gray veil of
+/// ``FloatingGlassStyle/card`` for the card's appearance (user 2026-10-20, after Rex), over the
+/// sidebar's own glass. Before 2026-10-20 that surface was the composer's 13% text fill
+/// (Leo 2026-10-13, cx-5dvig). The Update Ready card once drew an opaque elevated fill that hid the
 /// wallpaper, and the notice and tip cards drew Liquid Glass under a veil: three different cards.
 @MainActor @Suite(.serialized) struct SidebarCardSurfaceTests {
     /// The backmost fill that covers the whole card. Each covering layer draws first (it would on
@@ -25,8 +26,8 @@ import Testing
         return walk(card)
     }
 
-    /// Shows `card` in a window in the purple theme and returns its fill and the composer's.
-    static func fills(_ card: NSView) throws -> (card: NSColor?, composer: NSColor) {
+    /// Shows `card` in a window in the purple theme and returns its fill and the shared card veil.
+    static func fills(_ card: NSView) throws -> (card: NSColor?, veil: NSColor) {
         let oldOverride = ReduceTransparency.shared.override
         // Surface assertions cover the translucent branch. Pin the shared source so a
         // Blacksmith accessibility preference cannot change the branch under test.
@@ -41,37 +42,37 @@ import Testing
         scope.root(card)
         window.orderFrontRegardless()
         card.layoutSubtreeIfNeeded()
-        let composer = scope.perform { Palette.textPrimary.withAlphaComponent(0.13) }
-        return (fill(of: card), composer)
+        let veil = CardSurfaceView.style.look(isDark: card.themeTokens.isDark).veil.nsColor
+        return (fill(of: card), veil)
     }
 
-    static func expectComposerSurface(_ card: NSView, _ name: String) throws {
-        let (fill, composer) = try fills(card)
+    static func expectCardSurface(_ card: NSView, _ name: String) throws {
+        let (fill, veil) = try fills(card)
         let drawn = try #require(fill?.usingColorSpace(.sRGB), "the \(name) card draws no fill")
-        let expected = try #require(composer.usingColorSpace(.sRGB))
+        let expected = try #require(veil.usingColorSpace(.sRGB))
         #expect(abs(drawn.alphaComponent - expected.alphaComponent) < 0.01,
-                "the \(name) card's fill is \(drawn.alphaComponent) opaque, not the composer's \(expected.alphaComponent)")
+                "the \(name) card's fill is \(drawn.alphaComponent) opaque, not the card veil's \(expected.alphaComponent)")
         #expect(abs(drawn.redComponent - expected.redComponent) < 0.01 && abs(drawn.greenComponent - expected.greenComponent) < 0.01
                 && abs(drawn.blueComponent - expected.blueComponent) < 0.01,
-                "the \(name) card's fill \(drawn) is not the theme's text \(expected)")
+                "the \(name) card's fill \(drawn) is not the shared card veil \(expected)")
     }
 
-    @Test func theUpdateReadyCardSitsOnTheComposersSurface() throws {
+    @Test func theUpdateReadyCardSitsOnTheSharedCardSurface() throws {
         ReduceTransparency.shared.override = false
         defer { ReduceTransparency.shared.override = nil }
         let card = SidebarUpdateCardView(frame: NSRect(x: 0, y: 0, width: 216, height: 120))
         card.configure(SidebarUpdateCard(title: "Update Ready", detail: "nightly 3845050 · Oct 13", buttonTitle: "Restart to Update",
                                          automaticUpdatesTitle: "Automatic Updates", automaticUpdates: true,
                                          notes: .init(headline: "Update Ready", keepsRunning: "")))
-        try Self.expectComposerSurface(card, "Update Ready")
+        try Self.expectCardSurface(card, "Update Ready")
     }
 
-    @Test func aNoticeOrTipCardSitsOnTheComposersSurface() throws {
+    @Test func aNoticeOrTipCardSitsOnTheSharedCardSurface() throws {
         ReduceTransparency.shared.override = false
         defer { ReduceTransparency.shared.override = nil }
         let card = SidebarNoticeCardView(frame: NSRect(x: 0, y: 0, width: 216, height: 80),
                                          reduceTransparency: ReduceTransparency(system: { false }, changes: NotificationCenter()))
         card.configure(SidebarNoticeCard(id: "tip", eyebrow: "Tip", title: "Drag a tab to split the pane"))
-        try Self.expectComposerSurface(card, "notice")
+        try Self.expectCardSurface(card, "notice")
     }
 }

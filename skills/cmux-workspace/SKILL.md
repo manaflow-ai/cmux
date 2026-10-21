@@ -41,7 +41,7 @@ cmux tab create browser --pane pane_… --url http://127.0.0.1:8765
 cmux pane pane_… run --name tests -- npm test        # another tab in an existing pane
 ```
 
-`pane split`, `tab create` and `pane run` never move the user's focus; `pane split --focus` is the only way a split takes it, and only when the user asked. Give `pane split` the command its new pane should run (`-- <argv…>` or `--shell '<script>'`): a split without one starts a shell, and running the command afterwards with `pane run` leaves that shell behind as an empty tab. `pane <sel> run -- <argv…>` opens a new tab in an existing pane running the exact argv; `run shell '<script>'` runs a shell script instead. Prefer these over creating a tab and then writing input. If a command rejects a valid id, report it and stop rather than working around it by focusing.
+`workspace create`, `pane split`, `tab create` and `pane run` never move the user's focus; `workspace create --focus` and `pane split --focus` are the only ways they take it, and only when the user asked. Give `pane split` the command its new pane should run (`-- <argv…>` or `--shell '<script>'`): a split without one starts a shell, and running the command afterwards with `pane run` leaves that shell behind as an empty tab. `pane <sel> run -- <argv…>` opens a new tab in an existing pane running the exact argv; `run shell '<script>'` runs a shell script instead. Prefer these over creating a tab and then writing input. If a command rejects a valid id, report it and stop rather than working around it by focusing.
 
 ## Right-side helper pane
 
@@ -147,7 +147,7 @@ Lists act on that one session. `--all-sessions` runs a list on every local sessi
 - Work in the caller workspace by default; pass explicit ids for mutating actions so automation is auditable.
 - Never call a focus verb unless the user explicitly asked.
 - Build layout additively with `pane … split`, `tab create …` and `pane … run`. Add tabs to an existing right pane instead of splitting again, and give a split its command so no empty shell is left.
-- `pane split` keeps focus; pass `--focus` (MCP `focus: true`) only when the user asked to look at the new pane.
+- `pane split` and `workspace create` keep focus; pass `--focus` (MCP `focus: true`) only when the user asked to look at the new pane or workspace.
 - If a command rejects a valid id, report it. Do not work around by focusing.
 - Do not close, focus, move, or send input to another workspace unless the user names that target.
 - Old `workspace:N`, `pane:N` and `surface:N` refs are gone. Selectors are a public id, `current`, or an exact name (`name:<value>` forces a name).

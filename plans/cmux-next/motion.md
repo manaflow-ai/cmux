@@ -110,7 +110,7 @@ would do it, spring curves", "proper physics". Design:
 
 ## Rules
 
-1. One module. Every animation asks `Motion` for a token. No module
+1. One module. Every animation asks a `Motion` gate (`Motion.<category>`) for a token. No module
    hard-codes a duration, curve or spring constant.
 2. Springs, described by response and damping fraction as SwiftUI
    `.spring(response:dampingFraction:)`. No long ease-in-out curves. Timed
@@ -149,6 +149,11 @@ would do it, spring curves", "proper physics". Design:
    Use Normal Animations, Turn Off Animations
    (`appearance.animationSpeed.{fast,normal,off}`). "off" wins over Reduce
    Motion.
+   On top of the speed: the master switch `ui.animations.enabled` and one switch
+   per area, `ui.animations.<category>` (sidebar, tabs, panes, overlays,
+   hoverCards, home, cursor, indicators, feedback, web). Every animation asks its
+   category's gate (`Motion.sidebar`, `Motion.tabs`, ...), and a switch that is
+   off acts as "off" for its area ([motion-DESIGN.md](motion-DESIGN.md)).
 9. Pane layout motion is OFF by default (Lawrence 2026-10-14: "get rid of
    big animations by default for the panes"). `ui.paneAnimations` (toggle
    "Animate Panes", default false) gates every pane layout spring:

@@ -111,7 +111,6 @@ extension TabHandlers {
             pane.toggleFullWidthTab(showing: id)
         })
         bindAudio(registry, ctx)
-        registry.bindUnavailable("disconnectRemoteTab", reason: RefusalStrings.needsDaemonCapability("remote-ssh-tabs"))
     }
 
     /// The mute actions (`BrowserTabAudio`): the strip's and the sidebar row's speakers run the toggles.

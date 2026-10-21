@@ -12,7 +12,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 WEBVIEWS = ROOT / 'webviews'
 SWIFT = 'Packages/macOS/CmuxNext/Sources'
-OUTSIDE = ('schemas', 'web')
+OUTSIDE = ('schemas', 'web', 'Packages/Shared')
 UI_RULES = 'test/ui-rules.test.ts'
 COVERAGE = 'test/gallery-coverage.test.ts'
 RAW_KEYS = 'export function RawKeys() {\n  return <div onKeyDown={() => undefined} />;\n}\n'
@@ -35,6 +35,7 @@ class Checkout:
         (web / 'node_modules').symlink_to(WEBVIEWS / 'node_modules')
         # webviews/src imports these; they stay outside the fixture's history.
         for name in OUTSIDE:
+            (self.path / name).parent.mkdir(parents=True, exist_ok=True)
             (self.path / name).symlink_to(ROOT / name)
         for source in (ROOT / SWIFT).rglob('*.swift'):
             if 'PageDescriptor(' in source.read_text(errors='ignore'):

@@ -101,8 +101,7 @@ public struct HomeSidebarModel: Hashable, Sendable {
                  defaultChiefAvatar: HomeChiefAvatar?, chiefHarnesses: [String: String], chiefRoster: HomeChiefRoster,
                  now: Date, calendar: Calendar, locale: Locale) {
         let needle = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        // The main Chief's other hosts are the same Chief: one entry, its card switches hosts.
-        let match = { (row: InboxRow) in !chiefRoster.merged.contains(row.id) && (needle.isEmpty || row.matches(needle, me: me)) }
+        let match = { (row: InboxRow) in needle.isEmpty || row.matches(needle, me: me) }
         var pinnedRows = pinnedRows.filter(match)
         let rest = rest.filter(match)
         // The main Chief leads the pinned grid.

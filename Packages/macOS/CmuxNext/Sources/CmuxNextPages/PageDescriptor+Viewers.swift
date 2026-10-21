@@ -56,7 +56,9 @@ public nonisolated struct MarkdownPageCommand {
     /// Forgets the column widths of the table the user right-clicked (the page's context menu).
     public static let resetContextTableWidths = "resetContextTableWidths"
 
-    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths]
+    /// The file's viewer comments changed: `text` is the new `{v, comments}` JSON (the page redraws its markers).
+    public static let comments = "comments"
+    public static let all: Set<String> = [zoomIn, zoomOut, zoomReset, save, link, resetTableWidths, resetContextTableWidths, comments]
 
     /// The page command each markdown action sends; back and forward are the shared page commands.
     public static let forAction: [String: String] = [

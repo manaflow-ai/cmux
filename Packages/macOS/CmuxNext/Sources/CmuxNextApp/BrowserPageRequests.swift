@@ -196,10 +196,30 @@ final class BrowserPageRequests: BrowserTabDelegate {
             services.verificationAutofill.pageWaiting(page)
         case .designMode(let message):
             services.designMode.receive(message, from: page)
+        case .protectedMediaUnavailable(let media):
+            reopenInWebKit(page, for: media, tab: openerTab, pane: pane)
         case .unhandledEscape, .resizePopup:
             break
         case .takeFocus:
             services.focusAddressBarAfterPage(key)
+        }
+    }
+
+    /// A Chromium tab whose page was refused protected media (Widevine) reopens
+    /// in WebKit at the same address, right after it, once, with a note; the
+    /// Chromium tab closes. A tab whose engine someone asked for stays.
+    private func reopenInWebKit(_ page: any BrowserTab, for media: BrowserProtectedMedia, tab: TabModel, pane: PaneModel) {
+        guard let services else { return }
+        let browserTabs = services.cache.browserTabs
+        guard media.reopensInWebKit(engineIsChromium: page.engineKind == .cef, enginePinned: browserTabs.isEnginePinned(tab),
+                                    alreadyReopened: browserTabs.reopenedForProtectedMedia(tab)),
+              let url = page.state.url, let controller = services.paneController(for: pane) else { return }
+        browserTabs.noteProtectedMediaReopen(tab)
+        let key = tab.id
+        let profile = services.browserProfiles.profileID(ofTab: tab)
+        controller.newBrowserTab(url: url, engine: BrowserEngineTag.webkit.rawValue, profile: profile,
+                                 notice: BrowserProtectedMedia.reopenedNotice, opener: tab.surface) { [weak services] _ in
+            services?.registry.perform("closeTab", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: key), origin: .script)) // replaced: never asks
         }
     }
 
@@ -304,7 +324,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return open(url: url, adopting: child, engine: engine, profile: profile, in: pane, opener: opener, background: true)
         }
         // A refusal closes an adopted child itself (PaneBrowserTabOpener).
-        services.linkOpener.open(from: source) { target, placed in
+        services.linkOpener.open(from: source, cmdClick: true) { target, placed in
             target.newBrowserTab(url: url, inherited: engine, adopting: child, background: placed != nil, profile: profile,
                                  opener: target === source ? opener : nil, then: placed)
         }

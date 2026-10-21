@@ -14,6 +14,9 @@
 // `harnessSwitch` is Debug Settings' "Allow switching harness in a started chat" (Swift
 // AgentPaneTunables.harnessSwitchInStartedChat, off by default; no cmux.json key): off, a chat with
 // a message keeps its harness and its model menu lists that harness's models alone (ComposerPickers).
+// `escapeDoublePress` is Debug Settings' "Esc stops a turn on a double press" (Swift
+// AgentPaneTunables.escapeStopDoublePress, on by default; no cmux.json key): on, Esc on an empty
+// composer stops a running turn only on the second press inside the window (escapeStop.ts).
 import { useSyncExternalStore } from "react";
 
 export type ReasoningSliderStyle = "accent" | "minimal";
@@ -29,6 +32,7 @@ export type ComposerSettings = {
   modelMenu: ModelMenuStyle;
   plainFooter: boolean;
   harnessSwitch: boolean;
+  escapeDoublePress: boolean;
 };
 
 export const DEFAULT_COMPOSER: ComposerSettings = {
@@ -39,9 +43,16 @@ export const DEFAULT_COMPOSER: ComposerSettings = {
   modelMenu: "full",
   plainFooter: true,
   harnessSwitch: false,
+  escapeDoublePress: true,
 };
 const KEYS = Object.keys(DEFAULT_COMPOSER) as (keyof ComposerSettings)[];
-type ComposerFlag = "showContextUsage" | "showDictation" | "reasoningSlider" | "plainFooter" | "harnessSwitch";
+type ComposerFlag =
+  | "showContextUsage"
+  | "showDictation"
+  | "reasoningSlider"
+  | "plainFooter"
+  | "harnessSwitch"
+  | "escapeDoublePress";
 
 /// The host's value; anything it does not know keeps the default.
 export function readComposerSettings(value: unknown): ComposerSettings {
@@ -56,6 +67,7 @@ export function readComposerSettings(value: unknown): ComposerSettings {
     modelMenu: raw.modelMenu === "compact" ? "compact" : "full",
     plainFooter: flag("plainFooter"),
     harnessSwitch: flag("harnessSwitch"),
+    escapeDoublePress: flag("escapeDoublePress"),
   };
 }
 

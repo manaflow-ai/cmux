@@ -72,27 +72,50 @@ class RelayTest(unittest.TestCase):
         self.app.shutdown()
         self.app.server_close()
 
-    def start_relay(self, mac_socket):
+    def start_relay(self, mac_socket, socket_mode=None):
         listen = os.path.join(self.dir, "relay.sock")
         ready = threading.Event()
         r = relay.Relay([self.mac], mac_socket, 5)
-        threading.Thread(target=relay.serve, args=(listen, r, ready), daemon=True).start()
+        args = (listen, r, ready) if socket_mode is None else (listen, r, ready, socket_mode)
+        threading.Thread(target=relay.serve, args=args, daemon=True).start()
         self.assertTrue(ready.wait(5))
         return listen
 
-    def test_requests_reach_the_app_and_answers_come_back(self):
+    def test_diagnostics_reach_the_app_but_actions_do_not(self):
         listen = self.start_relay(self.app_path)
         self.assertEqual(stat.S_IMODE(os.stat(listen).st_mode), 0o600)
         ping, run = ask(listen,
                         {"id": 1, "method": "system.ping", "params": {}},
-                        {"id": 2, "method": "action.run", "params": {"action": "tab.newPage", "after": "sync"}})
+                        {"id": 2, "method": "action.run", "params": {
+                            "action": "tab new page", "cli": True, "origin": "mcp", "after": "sync"}})
         self.assertEqual(ping, {"id": 1, "ok": True, "result": {"app": "cmux-next", "pong": True}})
-        self.assertEqual(run["result"]["echo"]["action"], "tab.newPage")
+        self.assertFalse(run["ok"])
+        self.assertEqual(run["error"]["code"], "app.remote_denied")
+
+    def test_non_allowlisted_methods_and_actions_never_reach_the_mac(self):
+        listen = self.start_relay(self.app_path)
+        requests = [
+            {"id": 10, "method": "settings.set", "params": {"path": "x", "value": True}},
+            {"id": 11, "method": "action.run", "params": {
+                "action": "servers add", "cli": True, "origin": "mcp", "args": {"code": "ABCD-EFGH"}}},
+            {"id": 12, "method": "action.run", "params": {
+                "action": "tab new page", "cli": True, "origin": "cli"}},
+            {"id": 13, "method": "action.run", "params": {
+                "action": "tab new page", "cli": True, "origin": "mcp", "focus": True}},
+        ]
+        for answer in ask(listen, *requests):
+            self.assertFalse(answer["ok"])
+            self.assertEqual(answer["error"]["code"], "app.remote_denied")
+            self.assertFalse(answer["error"]["retryable"])
+
+    def test_relay_socket_can_be_group_shared_without_becoming_world_accessible(self):
+        listen = self.start_relay(self.app_path, 0o660)
+        self.assertEqual(stat.S_IMODE(os.stat(listen).st_mode), 0o660)
 
     def test_an_unreachable_mac_answers_with_the_reason(self):
         open(os.path.join(self.dir, "asleep"), "w").close()
         listen = self.start_relay(self.app_path)
-        (answer,) = ask(listen, {"id": 7, "method": "action.list", "params": {}})
+        (answer,) = ask(listen, {"id": 7, "method": "system.ping", "params": {}})
         self.assertEqual(answer["id"], 7)
         self.assertFalse(answer["ok"])
         self.assertEqual(answer["error"]["code"], "app.unreachable")

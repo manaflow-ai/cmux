@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextDesign
@@ -38,12 +39,14 @@ final class FilePageService: InternalPageProvider {
 
     let kind: FilePageKind
     // crash-allow: AppServices owns this service for the app's whole life (ViewerService's lazy page services), so it outlives it.
-    private unowned let services: AppServices
+    unowned let services: AppServices
     private let clock: any Clock<Duration>
     private let images: any RemoteImageFetching
     private var tabs: [String: Tab] = [:]
     /// Markdown table column widths between opens (the file's extended attribute, then an app-side copy).
     private let tableWidths: (any MarkdownTableWidthStoring)?
+    /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
+    private let comments: (any MarkdownTableWidthStoring)?
     private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings })
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
@@ -55,7 +58,8 @@ final class FilePageService: InternalPageProvider {
     private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
-    static let engineOptions = PageEngineOptions(fullFrameRate: true)
+    /// File pages open dropped files themselves (`fileDrop`), a WebKit-only hook so far.
+    static let engineOptions = PageEngineOptions(fullFrameRate: true, requiresWebKit: .nativeHooks)
     /// How long a closed editor tab's page may take to save its pending edits.
     static let flushTimeout: Duration = .seconds(3)
 
@@ -65,6 +69,11 @@ final class FilePageService: InternalPageProvider {
         self.services = services
         self.tableWidths = kind == .markdown
             ? tableWidths ?? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory())
+            : nil
+        self.comments = kind == .markdown
+            ? MarkdownTableWidthRepository(fallback: MarkdownTableWidthRepository.defaultFallbackDirectory(folder: "MarkdownComments"),
+                                           name: MarkdownTableWidthRepository.commentsAttributeName,
+                                           maxBytes: MarkdownTableWidthRepository.commentsValueLimit)
             : nil
         self.documents = documents
         self.kind = kind
@@ -309,7 +318,8 @@ final class FilePageService: InternalPageProvider {
         let host = FilePageTabHost(service: self, key: key)
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, host: host, clock: clock,
-                                        libraries: libraries, images: images, tableWidths: tableWidths)
+                                        libraries: libraries, images: images, tableWidths: tableWidths,
+                                        comments: comments)
         provider.recoveredText = tab.recoveredText
         let native = AppPageNativeProvider(services: services, page: kind.descriptor)
         let routes = [PageRoute(prefix: kind.namespace + ".", provider: provider), PageRoute(prefix: "cmux.app.", provider: native)]
@@ -318,9 +328,14 @@ final class FilePageService: InternalPageProvider {
             return NSView()
         }
         native.anchor = { [weak page] in page }
-        if kind == .markdown { page.contextMenuEditor = Self.tableMenu(provider: provider, page: page) }
+        provider.onCommentsChanged = { [weak page] value in
+            _ = page?.send(command: MarkdownPageCommand.comments, arguments: ["text": .string(value.compactText)])
+        }
         page.onOpenExternal = { [weak self] url in self?.openExternal(url, from: key) }
         page.fileDrop = fileDrop(provider: provider, page: page, key: key)
+        // One menu: Copy; Comment…, Quote in Chat, Send to Chief and Send to… on a selection; Reset
+        // Column Widths on a table (viewer-comments-DESIGN.md).
+        installSelectionMenu(on: page, key: key, then: kind == .markdown ? Self.tableMenu(provider: provider, page: page) : nil)
         tab.page = page
         tab.provider = provider
         tab.host = host

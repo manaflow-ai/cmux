@@ -515,6 +515,28 @@ async fn the_login_shell_is_cached_without_secrets_and_rerun_on_change() {
     assert_eq!(runs(), 3, "an edited rc file runs the shell again");
 }
 
+#[tokio::test]
+async fn a_linked_login_environment_cache_is_never_trusted() {
+    let dir = scratch("cache-link", "echo run >> \"$HOME/shell-runs\"\nexport NO_PROXY=plain\n");
+    let config = json!({"harnesses": {}, "permissionPolicy": "deny-all"});
+    {
+        let _d = start_config(&dir, config.clone(), &[]).await;
+    }
+    let runs =
+        || std::fs::read_to_string(dir.join("home/shell-runs")).unwrap_or_default().lines().count();
+    assert_eq!(runs(), 1);
+    let cache = dir.join("login-env.json");
+    let planted = dir.join("planted-login-env.json");
+    std::fs::copy(&cache, &planted).unwrap();
+    std::fs::remove_file(&cache).unwrap();
+    std::os::unix::fs::symlink(&planted, &cache).unwrap();
+    {
+        let _d = start_config(&dir, config, &[]).await;
+    }
+    assert_eq!(runs(), 2, "the daemon trusted a linked login cache");
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
 /// Wait up to `limit` for the daemon's login cache to hold `NO_PROXY=want`.
 async fn cached_no_proxy(dir: &Path, want: &str, limit: Duration) -> bool {
     let deadline = Instant::now() + limit;

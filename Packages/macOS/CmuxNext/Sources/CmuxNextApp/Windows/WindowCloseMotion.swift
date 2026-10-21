@@ -23,7 +23,7 @@ import CmuxNextWakeups
     }
 
     /// Whether a close of `window` fades: it shows on screen and motion is on.
-    static func fades(_ window: NSWindow, animates: Bool = Motion.animatesMovement) -> Bool {
+    static func fades(_ window: NSWindow, animates: Bool = Motion.panes.animatesMovement) -> Bool {
         animates && window.isVisible && !window.isMiniaturized && !window.styleMask.contains(.fullScreen)
     }
 
@@ -31,7 +31,7 @@ import CmuxNextWakeups
     ///   - window: The window that closes.
     ///   - parameters: The fade's spring (`exit` at the animation speed).
     ///   - close: Closes the window for real, once, when the fade ends.
-    init(window: NSWindow, parameters: SpringParameters = Motion.spring(.exit), close: @escaping () -> Void) {
+    init(window: NSWindow, parameters: SpringParameters = Motion.panes.spring(.exit), close: @escaping () -> Void) {
         self.window = window
         self.parameters = parameters
         self.close = close

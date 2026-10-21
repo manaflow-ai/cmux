@@ -61,6 +61,9 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// the profile button).
     public var showSpaces = true
     public var showProfileControl = true
+    /// `sidebar.showSearchButton`: the footer's Search button after the profile avatar
+    /// (plans/cmux-next/sidebar-search.md). On by default; off hides the button only.
+    public var showSearchButton = true
     /// Minimal mode (`sidebar.minimal`, cx-w1r5; Lawrence 2026-10-09: "some
     /// people like minimal mode"): workspace rows draw only their icon, name,
     /// unread mark and attention state (no second line, no counts or badges,
@@ -95,6 +98,12 @@ public nonisolated struct SidebarSectionsPreferences: Hashable, Sendable {
     /// BOTTOM-LEFT-CARDS K1). The update card always shows when an update
     /// is staged.
     public var showsTips = true
+    /// The Priority view (`sidebar.priorityView.enabled`): an optional App Store item, off by
+    /// default. On, a bell in the sidebar's titlebar row shows or hides it.
+    public var priorityViewEnabled = false
+    /// `sidebar.priorityView.shown`: the bell's state, whether the installed Priority view shows
+    /// at the top of the sidebar. Off, the sidebar is unchanged.
+    public var priorityViewShown = true
 
     public init(look: String = "quiet", topBandMaxShare: Double = 1.0 / 3.0, bottomBandMaxShare: Double = 0.25,
                 pinnedBandsScroll: Bool = true, showWorkspaceTabs: Bool = false) {

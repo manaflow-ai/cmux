@@ -106,6 +106,7 @@ public nonisolated enum ActionCatalog {
         TabIconActionCatalog.self,
         ResourceActionCatalog.self,
         HomeActionCatalog.self,
+        HomeMessageActionCatalog.self,
         TabGroupActionCatalog.self,
         ScreenActionCatalog.self,
         ScreenGroupActionCatalog.self,

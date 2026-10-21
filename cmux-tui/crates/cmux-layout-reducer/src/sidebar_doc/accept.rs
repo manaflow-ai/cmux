@@ -4,9 +4,8 @@
 //! none is allowed. Mouse moves only look rows up in this table.
 //!
 //! The rules are the reducer's (`place`): an app section takes nothing
-//! (`provider_owned`), a drag drops no group into a group (`nesting`; the
-//! reducer nests groups, the drag waits for the sidebar to draw them), and
-//! a workspace or group of
+//! (`provider_owned`), a group takes a group only while the tree stays within
+//! [`MAX_GROUP_DEPTH`] levels (`nesting`), and a workspace or group of
 //! machine A does not land in machine B's section or in a tree of machine
 //! B's workspaces (`cross_machine`). A row that is dragged, or anything under
 //! a dragged group, refuses with `self`.
@@ -95,12 +94,11 @@ fn can_place(
         return Err(Refusal::CrossMachine);
     }
     if let Some(parent) = parent {
-        // The reducer takes a group into a group within MAX_GROUP_DEPTH
-        // (sidebar.apply, CLI, MCP), but a drag does not drop one into
-        // another until the sidebar draws nested groups
-        // (remote-groups-DESIGN.md slice 2).
         if dragged.group_height > 0 {
-            return Err(Refusal::Nesting);
+            let level = doc.item(parent).map_or(MAX_GROUP_DEPTH, |group| doc.group_level(group));
+            if level + dragged.group_height > MAX_GROUP_DEPTH {
+                return Err(Refusal::Nesting);
+            }
         }
         if dragged.machines.len() > 1 {
             return Err(Refusal::CrossMachine);

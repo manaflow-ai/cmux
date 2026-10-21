@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
@@ -7,10 +8,10 @@ import CmuxNextLayout
 import CmuxNextSettings
 import CmuxNextWakeups
 
-/// Opens what the person opened from a pane where ``LinkOpenPlacement`` says
-/// (`layout.linkPlacement`): every link and path a terminal, an agent chat, Home or a page opens
-/// in cmux comes here (``LinkRouter/openInCmux`` for web links, ``openFile(_:from:)`` for files,
-/// ``openFolder(_:from:)`` for folders), so no surface picks its own pane.
+/// Opens what the person opened from a pane where ``LinkOpenPlacement`` says: every link and path opened in cmux comes
+/// here (``LinkRouter/openInCmux``, ``openFile(_:from:)``, ``openFolder(_:from:)``), so no surface picks its own pane.
+/// What a page opens (a chat and its pull request link, Home, New Tab, a Markdown page) is a tab in its pane, never an
+/// unasked split (Leo 2026-10-20); a terminal's or browser's Cmd-click (`cmdClick`) goes by `layout.linkPlacement`.
 ///
 /// A new tab for the pane on the right opens there, selected and focused. A new split or column is
 /// made by opening the tab unselected in the source pane and moving it there in one daemon move
@@ -58,22 +59,31 @@ final class LinkOpener {
     }
 
     /// Where an item opened from `source` lands now, by ``LinkOpenPlacement``.
-    func target(from source: PaneController) -> LinkOpenPlacement<LayoutPaneID>.Target {
-        let right = source.workspace.flatMap { content in
-            PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { id in
-                content.panes[id]?.stripModel.showsNewTabButton == true ? id : nil
+    /// A source that takes no tabs (Home's pinned dock) finds the pane on its right by the layout's
+    /// column order (``LinkOpenPlacement/paneRight(of:columns:takesTabs:recency:)``), not by drawn
+    /// frames, which miss a strip column that is scrolled or not laid out yet.
+    func target(from source: PaneController, cmdClick: Bool = false) -> LinkOpenPlacement<LayoutPaneID>.Target {
+        let takesTabs = source.stripModel.showsNewTabButton
+        let right = source.workspace.flatMap { content -> LayoutPaneID? in
+            let takes: (LayoutPaneID) -> Bool = { content.panes[$0]?.stripModel.showsNewTabButton == true }
+            if !takesTabs, let screen = content.layoutModel.screen(containing: source.layoutPaneID),
+               let found = LinkOpenPlacement<LayoutPaneID>.paneRight(of: source.layoutPaneID,
+                                                                     columns: screen.layout.visualColumns.map(\.root.panes),
+                                                                     takesTabs: takes, recency: content.recentPanes) {
+                return found
             }
+            return PaneHandlers.neighbor(of: source.layoutPaneID, direction: .right, in: content).flatMap { takes($0) ? $0 : nil }
         }
-        return LinkOpenPlacement(setting: placement())
-            .target(source: source.layoutPaneID, takesTabs: source.stripModel.showsNewTabButton, right: right)
+        return LinkOpenPlacement(setting: cmdClick || AgentPaneTunables.pagesFollowLinkPlacement.value ? placement() : .samePane)
+            .target(source: source.layoutPaneID, takesTabs: takesTabs, right: right)
     }
 
     /// Opens through `make` where the rule puts it. `background`: the opened tab takes no focus.
     /// False with no source pane (no window) or when `make` refused.
     @discardableResult
-    func open(from source: PaneController?, background: Bool = false, _ make: Make) -> Bool {
+    func open(from source: PaneController?, background: Bool = false, cmdClick: Bool = false, _ make: Make) -> Bool {
         guard let source = source ?? services?.windows.active?.focusedPane else { return false }
-        switch target(from: source) {
+        switch target(from: source, cmdClick: cmdClick) {
         case .pane(let id):
             return make(id == source.layoutPaneID ? source : source.workspace?.panes[id] ?? source, nil)
         case .splitRight:
@@ -86,22 +96,23 @@ final class LinkOpener {
                 guard let self, let source else { return }
                 self.move(surface, from: source, to: .besideColumn, focus: !background)
             }
+        case .besideDock:
+            // The daemon makes a tab aimed at a lone pinned dock in a new column right of it.
+            return make(source, nil)
         }
     }
 
     /// A web link in a cmux browser tab (``LinkRouter/openInCmux``).
-    func openWeb(_ url: URL, from source: PaneController?, background: Bool) {
-        open(from: source, background: background) { pane, placed in
-            pane.newBrowserTab(url: url, background: background || placed != nil, then: placed)
-        }
+    func openWeb(_ url: URL, from source: PaneController?, background: Bool, cmdClick: Bool = false) {
+        open(from: source, background: background, cmdClick: cmdClick) { $0.newBrowserTab(url: url, background: background || $1 != nil, then: $1) }
     }
 
     /// A file: the Markdown page, the code editor or the browser tab's preview (``FilePageOpener``).
     /// A tab that already shows the file is selected where it is. False when it did not open (the
     /// refusal shows).
     @discardableResult
-    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false) -> Bool {
-        open(from: source) { pane, placed in
+    func openFile(_ file: URL, from source: PaneController?, markdown: Bool = false, cmdClick: Bool = false) -> Bool {
+        open(from: source, cmdClick: cmdClick) { pane, placed in
             pane.services.viewers.openFile(file, in: pane, markdown: markdown, placed: placed)
         }
     }
@@ -113,6 +124,8 @@ final class LinkOpener {
         switch target(from: source) {
         case .pane(let id):
             (source.workspace?.panes[id] ?? source).newTerminalTab(cwd: path)
+        case .besideDock:
+            source.workspace?.newColumn(after: source.layoutPaneID, options: SpawnOptions(cwd: path, workspace: source.workspace?.workspace.key))
         case .splitRight, .newColumn:
             var invocation = ActionInvocation(target: ActionTargetRef(kind: .pane, id: source.paneKey),
                                               arguments: ["cwd": .string(path)], origin: .user)

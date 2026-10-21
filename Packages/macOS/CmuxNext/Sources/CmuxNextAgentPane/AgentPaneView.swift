@@ -155,6 +155,7 @@ public final class AgentPaneView: NSView {
             inputReadiness = PageInputReadiness(configuration: configuration)
             // Pages share web content processes, 8 per process (WebProcessGroups): a process per
             // page made 55 tabs cost 54 processes and 4 GB (plans/cmux-next/sequoia-lag.md).
+            // webview-allow: agent chat needs WebKit (native context menu, file drops, input hooks)
             webView = Self.processGroups.webView(for: configuration) { AgentPaneWKWebView(frame: .zero, configuration: $0) }
             #if DEBUG
             // Automation launches (capture slots) keep a covered window's page drawing, as
@@ -195,6 +196,7 @@ public final class AgentPaneView: NSView {
         webView.isInspectable = true
         model.onSaveFile = { [weak self] save in try await self?.savePanel.save(save, window: self?.window) ?? false }
         model.onChooseFiles = { [weak self] in await AgentPaneFilePicker.pick(window: self?.window) }
+        model.onChooseAttachments = { [weak self] in await AgentPaneFilePicker.pickAttachments(window: self?.window) }
         model.onFramePacing = { [weak self] _ in self?.framePacingSettings() ?? [:] }
         model.onRenderRate = { [weak self] full in
             guard let self, self.renderRate == .adaptive else { return }
@@ -234,7 +236,7 @@ public final class AgentPaneView: NSView {
 
     private func observeMotion() {
         motionObservation = Task { [weak self] in
-            for await _ in ObservationStream({ (Motion.speed, DesignSettings.shared.statusIndicator.animation) }) {
+            for await _ in ObservationStream({ (Motion.speed, Motion.web.isEnabled, Motion.indicators.isEnabled, DesignSettings.shared.statusIndicator.animation) }) {
                 guard let self else { return }
                 self.applyTheme()
             }

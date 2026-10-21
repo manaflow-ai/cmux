@@ -64,6 +64,12 @@ public nonisolated enum RefusalStrings {
     public static var homeAttachNoHome: String {
         text("handlers.refusal.homeAttachNoHome", "Open a Home conversation to attach files.")
     }
+    public static var homeReplyNoSelection: String {
+        text("handlers.refusal.homeReplyNoSelection", "Select text in one message of a Home conversation to reply to it.")
+    }
+    public static var homeQuoteNoHome: String {
+        text("handlers.refusal.homeQuoteNoHome", "Open a Home conversation to quote in chat.")
+    }
     public static var homeFlightRecorderOff: String {
         text("handlers.refusal.homeFlightRecorderOff", "The flight recorder is off, or no Home conversation is open. Turn it on in Debug Settings > Home.")
     }

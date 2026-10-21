@@ -81,7 +81,7 @@ extension BrowserPageService {
             throw ControlError(code: value["code"]?.stringValue ?? "not_found", message: error, data: .object(data))
         }
         if let input = announce(value) {
-            await engine.announce(input.by(Self.optionalString(call, "agent")), tabID: tab.id)
+            await engine.announce(Self.attributed(input, call), tabID: tab.id)
         }
         var result = Self.base(tab)
         result["value"] = value["value"] ?? .null

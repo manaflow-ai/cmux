@@ -151,6 +151,10 @@ export function installTooltips(
     tip.toggleAttribute("data-instant", !fadeIn);
     tip.toggleAttribute("data-starting-style", fadeIn);
     tip.hidden = false;
+    // Measured from the window's left: a fixed box still at the last tooltip's place gets only the
+    // room right of it, and its text would wrap inside a word ("Chat summar / y").
+    tip.style.left = "0px";
+    tip.style.top = "0px";
     let natural: number | undefined;
     if (truncated) {
       // The full text's width on one line, so a short title gets no wide empty box.
