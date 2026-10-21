@@ -2514,8 +2514,13 @@ impl WorkspaceRegistry {
                 Ok(registry)
             }
             Err(error) if swapped => {
-                // The locks were released with the failed attempt.
-                output_cleanup::roll_back_swap(&db_path, &error);
+                // The failed attempt released the locks: take them again so
+                // no other owner opens either file during the rollback.
+                {
+                    let _session_guard = acquire_session_guard(&root, session_name)?;
+                    let _lease = SessionLease::acquire(&session_lock)?;
+                    output_cleanup::roll_back_swap(&db_path, &error);
+                }
                 Self::open(&root, session_name)
             }
             Err(error) => Err(error),

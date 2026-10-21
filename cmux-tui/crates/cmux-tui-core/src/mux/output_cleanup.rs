@@ -80,6 +80,11 @@ impl Mux {
             );
             return Ok(());
         }
+        // A staged registry from an earlier start: no sealing during the
+        // start delay either (Phase A would have to stage those segments).
+        if output_cleanup::staging_path(&db_path).is_file() {
+            self.output_cleanup.pending.store(true, Ordering::Release);
+        }
         let control = Arc::new(Control { stopped: Mutex::new(false), changed: Condvar::new() });
         let worker_control = control.clone();
         let pending = self.output_cleanup.pending.clone();
@@ -142,7 +147,10 @@ fn run_output_cleanup(db_path: &Path, control: &Control, pending: &AtomicBool) -
         },
     );
     match outcome {
-        Ok(StageOutcome::NotNeeded) => return true,
+        Ok(StageOutcome::NotNeeded) => {
+            pending.store(false, Ordering::Release);
+            return true;
+        }
         Ok(StageOutcome::Complete { segments, kept }) => eprintln!(
             "cmux-tui: output cleanup: phase A complete in {:.2} s: {segments} segments \
              staged, {kept} records kept; the registry is swapped at the next start ({})",

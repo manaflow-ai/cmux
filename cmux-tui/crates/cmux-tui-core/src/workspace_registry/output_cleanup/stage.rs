@@ -327,14 +327,18 @@ fn kept_segment_records(
         i64::try_from(records.len())? == record_count,
         "journal segment {segment_id} record count is invalid"
     );
-    let mut previous = start.saturating_sub(1);
-    for record in &records {
+    // A segment sealed before any cleanup is whole: a gap here is damage,
+    // which must not turn into a pruned range.
+    for (offset, record) in records.iter().enumerate() {
         anyhow::ensure!(
-            record.sequence > previous && record.sequence <= end,
-            "journal segment {segment_id} sequence range is invalid"
+            record.sequence == start + offset as u64 && record.sequence <= end,
+            "journal segment {segment_id} contains a sequence gap"
         );
-        previous = record.sequence;
     }
+    anyhow::ensure!(
+        records.last().is_some_and(|record| record.sequence == end),
+        "journal segment {segment_id} sequence range is invalid"
+    );
     let mut actors: BTreeMap<String, String> = match actors_json {
         Some(json) => serde_json::from_str(&json)
             .with_context(|| format!("journal segment {segment_id} actors are invalid"))?,

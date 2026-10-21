@@ -172,7 +172,10 @@ fn restore_interrupted_swap(db_path: &Path) {
             eprintln!("cmux-tui: output cleanup: restored the registry after an interrupted swap");
         }
         Err(error) => {
-            eprintln!("cmux-tui: output cleanup: could not restore {}: {error}", previous.display());
+            eprintln!(
+                "cmux-tui: output cleanup: could not restore {}: {error}",
+                previous.display()
+            );
         }
     }
 }
@@ -192,8 +195,12 @@ fn build_and_swap(db_path: &Path) -> anyhow::Result<Swap> {
         anyhow::ensure!(busy == 0, "the registry WAL could not be checkpointed");
         required_meta(&source, "registry_id")?
     };
-    let Some(staged) = open_existing_staging(&staging_path(db_path), &registry_id)? else {
-        eprintln!("cmux-tui: output cleanup: discarding a staging file of another registry");
+    // A staging file of another registry, or one a kill left between the
+    // build commit and the rename (its state table is gone): Phase A runs
+    // again at a later start.
+    let Some(staged) = open_existing_staging(&staging_path(db_path), &registry_id).ok().flatten()
+    else {
+        eprintln!("cmux-tui: output cleanup: discarding a stale staging file");
         remove_staging(db_path)?;
         return Ok(Swap::NotReady);
     };
