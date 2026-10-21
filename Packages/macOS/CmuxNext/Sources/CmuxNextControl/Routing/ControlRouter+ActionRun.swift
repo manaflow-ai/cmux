@@ -64,7 +64,7 @@ extension ControlRouter {
             _ = call.progress.begin()
             throw ControlError(code: "idempotency_conflict",
                                message: ControlStrings.format("control.error.idempotencyConflict", "Idempotency key %@ was used for a different request", key),
-                               data: ["idempotency_key": .string(key)])
+                               data: ["idempotency_key": .string(key)]).notRun()
         }
         do {
             return try await execute(action, given, key: key, call: call)
@@ -108,6 +108,8 @@ extension ControlRouter {
         let wait = call.params["wait"]?.boolValue ?? true
         let scope = progress.track(ControlCommandScope(idempotencyKey: key))
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
+        // A later step of a composite call (`file.open`'s next path) follows steps that may have applied.
+        let firstStep = !progress.hasStarted
         let run = try await workQueue.run(connection: call.connection, method: call.method, deadline: call.deadline, countingFrom: call.engineStartMark) {
             // The request may have answered `not_run` already: then never run.
             guard progress.begin(), scope.noting("handler") else { throw expired }
@@ -119,7 +121,7 @@ extension ControlRouter {
             try Self.check(run.outcome, action: action.id)
         } catch var error as ControlError {
             // A refusal that started no work applied nothing; one that did may have applied part.
-            if run.work.isEmpty { error = error.notRun() }
+            if run.work.isEmpty, firstStep { error = error.notRun() }
             // The run started, so `runAction` keeps the key: record the refusal.
             if let key { idempotency.finish(key, with: .failure(error)) }
             throw error
