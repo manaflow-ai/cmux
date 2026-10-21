@@ -172,7 +172,11 @@ extension CEFRuntime {
     }
 
     func register(_ tab: CEFTab, browser: Int32) {
-        windowRequests.linkClicks.onGesture = { [weak self] browser in self?.tabsByBrowser[browser]?.automaticDownloads.userGesture() }
+        windowRequests.linkClicks.onGesture = { [weak self] browser in
+            guard let tab = self?.tabsByBrowser[browser] else { return }
+            tab.automaticDownloads.userGesture()
+            tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
+        }
         windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
         swipeNavigation.start()
         tabsByBrowser[browser] = tab

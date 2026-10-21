@@ -95,6 +95,9 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// A drag of these files from outside the app entered the page (a cmux page hands such a drop
     /// to its host); nil ignores it.
     @ObservationIgnored public var pageFilesDragged: (@MainActor ([URL]) -> Void)?
+    /// A real mouse down or key down reached the page, at this `systemUptime` (a cmux page backs its
+    /// calls with it as the person's gesture); nil ignores it.
+    @ObservationIgnored public var pageUserInput: (@MainActor (TimeInterval) -> Void)?
 
     /// The file URLs of a PAGE_DRAG_ENTER event's JSON array of absolute paths.
     nonisolated static func dragPaths(_ json: String) -> [URL] {
