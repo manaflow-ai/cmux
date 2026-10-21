@@ -99,8 +99,8 @@ extension SidebarDocProjection {
         return listed
     }
 
-    /// A machine section's nodes in document order with its link rows; nodes
-    /// the document does not place yet (adopt in flight) follow last.
+    /// A machine section's nodes in document order with its link rows; a node
+    /// the document does not place yet (adopt in flight) keeps its mapped slot.
     @MainActor private static func machineNodes(_ section: SidebarSection, _ projection: SidebarDocProjection, drag: SidebarDocDrag) -> [SidebarNode] {
         guard let docSection = drag.section(section.id),
               let session = projection.machineSections.first(where: { $0.value == docSection })?.key,
@@ -115,20 +115,41 @@ extension SidebarDocProjection {
             }
             if let item, byItem[item] == nil { byItem[item] = node }
         }
+        // A mapped row the document does not place yet (a new workspace whose item is on the way) keeps
+        // its mapped slot: right before the placed row that follows it there, so its item's arrival
+        // moves nothing (plans/cmux-next/sidebar-ordering-DESIGN.md).
+        var placedIDs = Set<SidebarNode.ID>()
+        for entry in order {
+            switch entry {
+            case .workspace(_, let item): if let node = byItem[item] { placedIDs.insert(node.id) }
+            case .group(let group): if let node = byItem[group.id] { placedIDs.insert(node.id) }
+            case .link: break
+            }
+        }
+        var before: [SidebarNode.ID: [SidebarNode]] = [:]
+        var waiting: [SidebarNode] = []
+        for node in section.nodes {
+            guard placedIDs.contains(node.id) else { waiting.append(node); continue }
+            if !waiting.isEmpty { before[node.id] = waiting }
+            waiting = []
+        }
         var nodes: [SidebarNode] = []
+        func append(_ node: SidebarNode) {
+            nodes += before.removeValue(forKey: node.id) ?? []
+            nodes.append(node)
+        }
         for entry in order {
             switch entry {
             case .workspace(_, let item):
-                if let node = byItem.removeValue(forKey: item) { nodes.append(node) }
+                if let node = byItem.removeValue(forKey: item) { append(node) }
             case .group(let group):
-                if let node = byItem.removeValue(forKey: group.id) { nodes.append(node) }
+                if let node = byItem.removeValue(forKey: group.id) { append(node) }
             case .link(let listed):
                 nodes.append(.item(titled(listed)))
             }
         }
-        // Mapped rows the walk did not reach keep their mapped order after the placed ones.
-        let reached = Set(nodes.map(\.id))
-        return nodes + section.nodes.filter { !reached.contains($0.id) }
+        // Unplaced rows after the last placed one keep their mapped order at the end.
+        return nodes + waiting
     }
 
     /// A kept group with no open member (Pinned keeps it): its header alone.

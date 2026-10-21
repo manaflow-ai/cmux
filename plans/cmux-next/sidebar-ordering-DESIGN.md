@@ -70,6 +70,10 @@ first in the machine section, below Home, above groups). The app broke it in two
    `SidebarDocSections.sections` listed such a row after every placed row. Cmd-N's press-time row
    (`PendingWorkspaceRows`) gave way to the live row at the bottom, and the item's arrival moved it
    to the top: a jump down, then a jump up. 176f443172b only ordered those rows among themselves.
+   The list did it a second time on its own: when the machine section holds link items,
+   `SidebarDocProjection.machineNodes` re-walks the document order and put every node the
+   document does not place after the placed ones (the fleet frame strip showed `new1` drawn on
+   top, then last, then on top again, with no document item and no personal row yet).
 2. **The app wrote the order a second time.** Once the daemon reported the workspace,
    `applyPendingPlacements` resolved `workspaces.newPlacement` again and sent its own
    `sidebar.apply` (adopt + move) to the slot the create had already given it: a second state
@@ -90,7 +94,8 @@ workspace.
 - **A live workspace the document does not place yet lists where the daemon puts it.** Under
   `top` that is first in the machine section, below a leading Home row, above every group, newest
   first; under `bottom`, last. This is the same rule as the daemon's `workspace.list`
-  (`state/sidebar_doc_order.rs`), so the item's arrival changes nothing on screen.
+  (`state/sidebar_doc_order.rs`), so the item's arrival changes nothing on screen. The list's
+  document arrangement keeps such a node at its mapped slot (right before the placed row after it).
 - **One row from the press.** The press-time row, the live row and the placed row are the same
   row at the same index: the frame sequence for a Cmd-N is the old list, then the list with the new
   row at index 0, and nothing after.
