@@ -78,7 +78,11 @@ public final class SettingsAppFeatures: AppFeatureSettings {
     /// default is on is written `false`. Get of a feature that is on by default takes the key
     /// out the same way, so Remove then Get leaves the file as it was.
     nonisolated static func value(_ feature: AppFeature, on: Bool, default defaultValue: JSONValue?) -> JSONValue? {
-        if on { return onValue(feature) == defaultValue ? nil : onValue(feature) }
+        if on {
+            // `JSONValue` takes a nil literal as `.null`, so a ternary here would write null.
+            if onValue(feature) == defaultValue { return Optional<JSONValue>.none }
+            return onValue(feature)
+        }
         switch feature.on {
         case .toggle: return defaultValue == .bool(true) ? .bool(false) : nil
         case .choice, .sidebarItem: return nil
