@@ -71,6 +71,8 @@ pub(crate) mod layout_bulk;
 mod layout_bulk_tests;
 #[cfg(test)]
 mod mixed_order_tests;
+#[cfg(test)]
+mod new_workspace_top_tests;
 pub(crate) mod palette_usage;
 pub(crate) mod palette_usage_ops;
 #[cfg(test)]
