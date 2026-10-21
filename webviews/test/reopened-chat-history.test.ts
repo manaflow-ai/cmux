@@ -21,7 +21,7 @@
 // Real Chromium from Playwright; CI fails the file when it cannot launch (requireBrowserLane).
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import path from "node:path";
-import { chromium, type Browser } from "playwright";
+import { chromium, type Browser, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { warmViteServer } from "./support/warmDevServer";
 
@@ -156,6 +156,25 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     },
   });
 
+  /// How long the stand-in daemon takes to answer. Zero here; a run can set
+  /// CMUX_REOPEN_TEST_LATENCY_MS to stand in for a loaded CI runner.
+  const LATENCY_MS = Number(process.env.CMUX_REOPEN_TEST_LATENCY_MS ?? 0);
+  /// Requests the pane has out, and when the last one was answered: the daemon is what knows
+  /// whether the pane is still reading the chat, where a count of still frames in the page only
+  /// measures the gap between two round trips.
+  let inFlight = 0;
+  let answeredAt = 0;
+  /// Waits until the pane has asked acpmux for nothing for a while. Nothing is measured before
+  /// this: a transcript caught between two older pages is exactly the half-drawn chat Leo saw, and
+  /// a test that read one would report the bug on a tree that does not have it.
+  const doneReading = async () => {
+    for (let pass = 0; pass < 2_000; pass += 1) {
+      if (inFlight === 0 && Date.now() - answeredAt > 250 + LATENCY_MS) return;
+      await Bun.sleep(20);
+    }
+    throw new Error(`the pane never stopped reading the chat: ${inFlight} in flight`);
+  };
+
   let olderReads = 0;
   /// The byte caps the pane asked for, which is the whole of what bounds a page: acpmux caps one
   /// only when the client says to (`max_bytes`, paging.rs). A pane that stopped asking would be
@@ -222,9 +241,17 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
         message(ws, raw) {
           const message = JSON.parse(String(raw)) as { id?: number; method: string; params?: Record<string, any> };
           if (message.id === undefined) return;
-          ws.send(
-            JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
-          );
+          inFlight += 1;
+          // A loaded runner answers no faster than this; CMUX_REOPEN_TEST_LATENCY_MS makes a slow
+          // one on purpose, to show that what is measured below does not depend on the speed of
+          // the answers (a page measured between two reads is the shape of the bug itself).
+          setTimeout(() => {
+            ws.send(
+              JSON.stringify({ jsonrpc: "2.0", id: message.id, result: answer(message.method, message.params ?? {}) }),
+            );
+            inFlight -= 1;
+            answeredAt = Date.now();
+          }, LATENCY_MS);
         },
       },
     });
@@ -302,26 +329,14 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
     };
   };
 
-  /// Scrolls to the top repeatedly, as a reader does with a trackpad, letting older pages land,
-  /// and answers the oldest prompt the transcript holds.
-  const scrollToOldest = async () => {
+  /// Holds the view at the top for a few frames, as a reader does with a trackpad, and answers
+  /// what the transcript holds there. One pass; the reads it starts are waited for outside.
+  const atTop = async () => {
     const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
     const frame = () => new Promise<number>((resolve) => requestAnimationFrame(resolve));
-    let oldest = "";
-    let still = 0;
-    let pass = 0;
-    for (; still < 8; pass += 1) {
-      if (pass > 400) throw new Error(`the top never settled: ${oldest}`);
+    for (let pass = 0; pass < 10; pass += 1) {
       scroller.scrollTop = 0;
       await frame();
-      await frame();
-      const first = scroller.querySelector<HTMLElement>(".acpmux-row");
-      const text = (first?.innerText ?? "").replace(/\s+/g, " ").slice(0, 40);
-      // At the top with the same first row for a few passes in a row: nothing older is left. The
-      // count matches `settled()`, because the same thing is being waited for — the pane asking
-      // for older pages and drawing them (`OLDER_PAGES_PER_ASK` of them per ask).
-      still = text === oldest && pass > 12 && scroller.scrollTop <= 1 ? still + 1 : 0;
-      oldest = text;
     }
     const rows = [...scroller.querySelectorAll<HTMLElement>(".acpmux-row")];
     return {
@@ -331,6 +346,22 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
       // a queue preview) is not the row this asks about.
       reachedFirstTurn: scroller.innerText.includes("Lane report 1:"),
     };
+  };
+
+  /// Scrolls up until the chat has nothing older left: each pass waits for the pane to stop
+  /// reading acpmux, so a top that has not moved *while a page is still in flight* is never taken
+  /// for the end of the history.
+  const scrollToOldest = async (page: Page) => {
+    let reached = (await page.evaluate(`(${atTop.toString()})()`)) as Awaited<ReturnType<typeof atTop>>;
+    for (let pass = 0; pass < 60; pass += 1) {
+      if (reached.reachedFirstTurn) break;
+      await doneReading();
+      const next = (await page.evaluate(`(${atTop.toString()})()`)) as Awaited<ReturnType<typeof atTop>>;
+      const same = next.firstRowText === reached.firstRowText;
+      reached = next;
+      if (same) break;
+    }
+    return reached;
   };
 
   const openChat = async (name: ChatName) => {
@@ -348,10 +379,11 @@ await requireBrowserLane("reopened-chat-history.test.ts", async () => {
   for (const name of ["queuedPaste", "manyPastes", "longText"] as ChatName[]) {
     test(`a reopened ${name} chat shows its history under the composer, with no blank band`, async () => {
       const page = await openChat(name);
+      // The chat is read through: its attach page is in, and so is every older page the open asked
+      // for. Measuring before that is measuring a chat mid-load, which looks like the bug.
+      await doneReading();
       const state = (await page.evaluate(`(${settled.toString()})()`)) as Awaited<ReturnType<typeof settled>>;
-      const reached = (await page.evaluate(`(${scrollToOldest.toString()})()`)) as Awaited<
-        ReturnType<typeof scrollToOldest>
-      >;
+      const reached = await scrollToOldest(page);
       await page.close();
       console.log(`reopened-chat-history ${name}: settled ${JSON.stringify(state)}`);
       console.log(`reopened-chat-history ${name}: top ${JSON.stringify(reached)}, older reads ${olderReads}`);
