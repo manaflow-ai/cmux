@@ -31,6 +31,8 @@ function editorProblem(row: SchemaRow, control: Element): string | null {
       return has("select") && has("option", choices + (row.default === null ? 1 : 0)) ? null : "no menu";
     case "choice_or_number":
       return has('option[value="__custom__"]') ? null : "no Custom… choice";
+    case "choice_or_url":
+      return has('option[value="__address__"]') ? null : "no Self-Hosted Server… choice";
     case "number":
       return has('input[type="range"]') && has("input.number") ? null : "no slider + field";
     case "color":

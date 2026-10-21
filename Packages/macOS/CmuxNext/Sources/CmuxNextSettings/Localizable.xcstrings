@@ -150225,6 +150225,534 @@
           }
         }
       }
+    },
+    "settings.group.messagesServer": {
+      "comment": "Settings group (home.server): which server Home's direct messages and group chats use.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Messages Server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "خادم الرسائل"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server za poruke"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Beskedserver"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Nachrichtenserver"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servidor de mensajes"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveur de messages"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server dei messaggi"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "メッセージサーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមេសារ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "메시지 서버"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Meldingsserver"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serwer wiadomości"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servidor de mensagens"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер сообщений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซิร์ฟเวอร์ข้อความ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mesaj Sunucusu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер повідомлень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ tin nhắn"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "消息服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "訊息伺服器"
+          }
+        }
+      }
+    },
+    "settings.home.server": {
+      "comment": "Settings row title (home.server): the server for direct messages and group chats.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Server"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "الخادم"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servidor"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serveur"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サーバー"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ម៉ាស៊ីនមេ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "서버"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Server"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Serwer"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Servidor"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "เซิร์ฟเวอร์"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Sunucu"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Сервер"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Máy chủ"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "服务器"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "伺服器"
+          }
+        }
+      }
+    },
+    "settings.home.server.help": {
+      "comment": "Settings help (home.server): cmux Cloud by default, or a self-hosted server over Tailscale. Keep the example address unchanged.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Direct messages and group chats use cmux Cloud by default. A self-hosted server is reached over Tailscale by its MagicDNS name, for example http://mini.tail1234.ts.net:7320. No password is sent: the server knows you by your Tailscale login."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "تستخدم الرسائل المباشرة والمحادثات الجماعية cmux Cloud افتراضيًا. يتم الوصول إلى الخادم المستضاف ذاتيًا عبر Tailscale باسم MagicDNS الخاص به، مثل http://mini.tail1234.ts.net:7320. لا تُرسل أي كلمة مرور: يتعرف عليك الخادم من خلال تسجيل دخولك إلى Tailscale."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direktne poruke i grupni razgovori po zadanim postavkama koriste cmux Cloud. Samostalno hostovanom serveru pristupa se preko Tailscalea putem njegovog MagicDNS imena, na primjer http://mini.tail1234.ts.net:7320. Lozinka se ne šalje: server vas prepoznaje po vašoj Tailscale prijavi."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direkte beskeder og gruppechats bruger som standard cmux Cloud. En selvhostet server nås via Tailscale med sit MagicDNS-navn, for eksempel http://mini.tail1234.ts.net:7320. Der sendes ingen adgangskode: serveren kender dig ud fra dit Tailscale-login."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direktnachrichten und Gruppenchats verwenden standardmäßig cmux Cloud. Ein selbst gehosteter Server wird über Tailscale unter seinem MagicDNS-Namen erreicht, zum Beispiel http://mini.tail1234.ts.net:7320. Es wird kein Passwort gesendet: Der Server erkennt dich an deiner Tailscale-Anmeldung."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Los mensajes directos y los chats de grupo usan cmux Cloud de forma predeterminada. A un servidor autoalojado se accede a través de Tailscale por su nombre MagicDNS, por ejemplo http://mini.tail1234.ts.net:7320. No se envía ninguna contraseña: el servidor te reconoce por tu inicio de sesión de Tailscale."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Les messages directs et les discussions de groupe utilisent cmux Cloud par défaut. Un serveur auto-hébergé est joint via Tailscale par son nom MagicDNS, par exemple http://mini.tail1234.ts.net:7320. Aucun mot de passe n’est envoyé : le serveur vous reconnaît grâce à votre connexion Tailscale."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "I messaggi diretti e le chat di gruppo usano cmux Cloud per impostazione predefinita. Un server self-hosted si raggiunge tramite Tailscale con il suo nome MagicDNS, ad esempio http://mini.tail1234.ts.net:7320. Non viene inviata alcuna password: il server ti riconosce dal tuo accesso Tailscale."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ダイレクトメッセージとグループチャットは、デフォルトで cmux Cloud を使います。セルフホストのサーバーには、Tailscale 経由で MagicDNS 名(例: http://mini.tail1234.ts.net:7320)で接続します。パスワードは送信されません。サーバーは Tailscale のログインであなたを識別します。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "សារផ្ទាល់ និងការជជែកជាក្រុមប្រើ cmux Cloud តាមលំនាំដើម។ ម៉ាស៊ីនមេដែលអ្នកបង្ហោះខ្លួនឯងត្រូវបានភ្ជាប់តាម Tailscale ដោយឈ្មោះ MagicDNS របស់វា ឧទាហរណ៍ http://mini.tail1234.ts.net:7320។ មិនមានការផ្ញើពាក្យសម្ងាត់ទេ៖ ម៉ាស៊ីនមេស្គាល់អ្នកតាមរយៈការចូល Tailscale របស់អ្នក។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "다이렉트 메시지와 그룹 채팅은 기본적으로 cmux Cloud를 사용합니다. 자체 호스팅 서버는 Tailscale을 통해 MagicDNS 이름(예: http://mini.tail1234.ts.net:7320)으로 연결합니다. 암호는 전송되지 않으며, 서버는 Tailscale 로그인으로 사용자를 식별합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Direktemeldinger og gruppechatter bruker cmux Cloud som standard. En selvhostet server nås via Tailscale med MagicDNS-navnet sitt, for eksempel http://mini.tail1234.ts.net:7320. Ingen passord sendes: serveren kjenner deg igjen på Tailscale-påloggingen din."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Wiadomości bezpośrednie i czaty grupowe domyślnie korzystają z cmux Cloud. Z serwerem hostowanym samodzielnie łączysz się przez Tailscale za pomocą jego nazwy MagicDNS, na przykład http://mini.tail1234.ts.net:7320. Hasło nie jest wysyłane: serwer rozpoznaje Cię po logowaniu do Tailscale."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Mensagens diretas e chats em grupo usam o cmux Cloud por padrão. Um servidor auto-hospedado é acessado pelo Tailscale pelo seu nome MagicDNS, por exemplo http://mini.tail1234.ts.net:7320. Nenhuma senha é enviada: o servidor reconhece você pelo seu login do Tailscale."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Личные сообщения и групповые чаты по умолчанию используют cmux Cloud. К собственному серверу подключение идёт через Tailscale по его имени MagicDNS, например http://mini.tail1234.ts.net:7320. Пароль не отправляется: сервер узнаёт вас по входу в Tailscale."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "ข้อความส่วนตัวและแชทกลุ่มใช้ cmux Cloud เป็นค่าเริ่มต้น เซิร์ฟเวอร์ที่โฮสต์เองเข้าถึงผ่าน Tailscale ด้วยชื่อ MagicDNS ตัวอย่างเช่น http://mini.tail1234.ts.net:7320 ไม่มีการส่งรหัสผ่าน เซิร์ฟเวอร์จะรู้จักคุณจากการเข้าสู่ระบบ Tailscale ของคุณ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Doğrudan mesajlar ve grup sohbetleri varsayılan olarak cmux Cloud kullanır. Kendi barındırdığınız bir sunucuya Tailscale üzerinden MagicDNS adıyla erişilir, örneğin http://mini.tail1234.ts.net:7320. Parola gönderilmez: sunucu sizi Tailscale oturumunuzdan tanır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Особисті повідомлення та групові чати за замовчуванням використовують cmux Cloud. До власного сервера підключаються через Tailscale за його іменем MagicDNS, наприклад http://mini.tail1234.ts.net:7320. Пароль не надсилається: сервер упізнає вас за входом у Tailscale."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "Tin nhắn trực tiếp và trò chuyện nhóm mặc định dùng cmux Cloud. Máy chủ tự lưu trữ được kết nối qua Tailscale bằng tên MagicDNS của nó, ví dụ http://mini.tail1234.ts.net:7320. Không có mật khẩu nào được gửi: máy chủ nhận ra bạn qua thông tin đăng nhập Tailscale."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "私信和群聊默认使用 cmux Cloud。自托管服务器通过 Tailscale 以其 MagicDNS 名称访问,例如 http://mini.tail1234.ts.net:7320。不会发送密码:服务器通过你的 Tailscale 登录识别你。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "私訊和群組聊天預設使用 cmux Cloud。自行託管的伺服器透過 Tailscale 以其 MagicDNS 名稱連線,例如 http://mini.tail1234.ts.net:7320。不會傳送密碼:伺服器會以你的 Tailscale 登入辨識你。"
+          }
+        }
+      }
+    },
+    "settings.choice.homeServer.hosted": {
+      "comment": "Settings choice (home.server): cmux's hosted service. Keep \"cmux Cloud\" as a product name.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "cmux Cloud"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "needs_review",
+            "value": "cmux Cloud"
+          }
+        }
+      }
     }
   },
   "version": "1.0"
