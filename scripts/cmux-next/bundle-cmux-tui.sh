@@ -302,12 +302,16 @@ place_companion "$agent_screen_detection_src" cmux-agent-screen-detection
 if [[ ! -f "$version_file" ]] || [[ "$(cat "$version_file")" != "${version_text%$'\n'}" ]]; then
   printf '%s' "$version_text" > "$version_file"
 fi
-# bin/daemon-capabilities.json, from the binary just placed. A same-tree build
-# must print its list; an override, pin or cache binary may predate it.
-case "$source_kind" in
-  tree-hosted|tree-local-build) "$repo_root/scripts/cmux-next/write-daemon-capabilities.sh" --require "$dest_dir" ;;
-  *) "$repo_root/scripts/cmux-next/write-daemon-capabilities.sh" "$dest_dir" ;;
-esac
+# bin/daemon-capabilities.json, from the binary just placed. A build of this
+# checkout must print its list; an override, pin or cache binary, or a pull
+# request's fallback tree (CMUX_TUI_TREE_KEY, an older published tree), may
+# predate the command.
+require_capabilities=""
+if [[ "$source_kind" == tree-local-build ]] || { [[ "$source_kind" == tree-hosted ]] &&
+    { [[ -z "${CMUX_TUI_TREE_KEY:-}" ]] || [[ "$CMUX_TUI_TREE_KEY" == "$("$pin_script" key --rev HEAD)" ]]; }; }; then
+  require_capabilities="--require"
+fi
+"$repo_root/scripts/cmux-next/write-daemon-capabilities.sh" ${require_capabilities:+"$require_capabilities"} "$dest_dir"
 
 if [[ "${CONFIGURATION:-Debug}" != Release ]]; then
   "$repo_root/scripts/cmux-next/check-daemon-capabilities.sh" --binary "$dest_dir/cmux-tui"

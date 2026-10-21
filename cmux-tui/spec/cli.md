@@ -26,7 +26,6 @@ cmux apps run <app> <op> [--args JSON] [--idempotency-key KEY]
 cmux script run (FILE | -e CODE | -) [KEY=VALUE ...] [--args JSON] [--timeout MS]
 cmux script repl [--timeout MS]
 cmux script types
-cmux capabilities [--json]
 ```
 
 `relay` copies private protocol bytes between standard I/O and one session
@@ -36,12 +35,14 @@ socket so several `remote connect --wireguard-hub <socket>` clients share one
 key; it prints one `hub-ready` JSON line when listening and removes the socket
 on SIGTERM or SIGINT.
 
-`capabilities` prints, with no daemon running, the capabilities every daemon
+`cmux-tui __daemon-capabilities [--json]` (private, not in help) prints, with
+no daemon running, the capabilities every daemon
 of this build always advertises in `identify` (one per line, or
 `{"capabilities": [...]}` with `--json`). Capabilities a daemon adds for what it
 installs at startup (a cloud transport, a WebSocket listener, the search index)
 are not listed. The cmux NEXT app bundle records the list, with acpmux's, in
-`Contents/Resources/bin/daemon-capabilities.json`.
+`Contents/Resources/bin/daemon-capabilities.json`. `cmux capabilities` is the
+classic verb that asks the running app (`system.capabilities`).
 
 `link dial` bridges standard I/O to a service of a paired install or a Cloud
 host (`host_…`) through this machine's running `cmux link` (the caller never

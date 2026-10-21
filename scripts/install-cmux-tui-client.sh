@@ -232,6 +232,7 @@ if [[ -n "${CMUX_TUI_CLIENT_LOCAL:-}" ]]; then
   done
   verify_probe
   check_acpmux
+  "$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/cmux-next/write-daemon-capabilities.sh" "$DEST_DIR"
   echo "Installed local cmux-tui client at $DEST"
   exit 0
 fi

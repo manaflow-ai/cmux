@@ -115,7 +115,9 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "folder-trust-v1", wire: &[method::ACP_TRUST_GET, method::ACP_TRUST_SET] },
     // Resume agent message pairs the runaway guard paused (`hub/agent_pairs.rs`).
     Capability { id: "agent-pairs-v1", wire: &[method::MUX_AGENT_PAIR_RESUME] },
-    // Stop one of a chat's background subagents.
+    // Stop one of a chat's background subagents. acpmux takes the method for
+    // every harness, but only the Claude stdio adapter acts on it
+    // (`claude_stdio/outbound.rs`); others pass it on to the agent.
     Capability { id: "subagent-stop-v1", wire: &[method::MUX_SUBAGENT_STOP] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },

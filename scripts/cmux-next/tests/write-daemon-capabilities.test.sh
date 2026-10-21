@@ -2,7 +2,7 @@
 # The app bundle's bin/daemon-capabilities.json comes from the bundled binary:
 # bundle-cmux-tui.sh (the Xcode phase) and write-cmux-tui-version.sh (release
 # and nightly, after the universal client) run write-daemon-capabilities.sh,
-# which records `cmux-tui capabilities --json` and `acpmux capabilities --json`
+# which records `cmux-tui __daemon-capabilities --json` and `acpmux capabilities --json`
 # as {"cmuxTui": [...], "acpmux": [...]}. A binary from before `capabilities`
 # leaves no file (a stale one is removed) unless the caller requires it.
 # No network, no daemon: a fake multi-call binary, and CONFIGURATION=Release
@@ -19,7 +19,7 @@ cat > "$TMP/new/cmux-tui" <<SH
 #!/bin/sh
 case "\$(basename "\$0") \$*" in
   "acpmux capabilities --json") echo '{"capabilities":["acpmux-v1","queue-edit-v1"]}' ;;
-  *" capabilities --json") echo '{"capabilities":["fs-v1","ws-conversations-v1"]}' ;;
+  *" __daemon-capabilities --json") echo '{"capabilities":["fs-v1","ws-conversations-v1"]}' ;;
   *" --version") echo "cmux-tui 0.1.0 ($commit)" ;;
   *) exit 64 ;;
 esac
@@ -70,7 +70,7 @@ bundle "$TMP/new/cmux-tui"
 # removes the stale file: the bundle never claims what its daemon may lack.
 bundle "$TMP/old/cmux-tui"
 [[ ! -e "$file" ]] || fail "an old binary kept a stale daemon-capabilities.json"
-grep -q 'warning: daemon-capabilities.json: .cmux-tui capabilities --json. failed' "$TMP/out" \
+grep -q 'warning: daemon-capabilities.json: .cmux-tui __daemon-capabilities --json. failed' "$TMP/out" \
   || { cat "$TMP/out" >&2; fail "no warning for an old binary"; }
 
 # --require (a same-tree binary) makes that an error.
