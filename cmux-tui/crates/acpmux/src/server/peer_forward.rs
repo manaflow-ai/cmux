@@ -92,6 +92,14 @@ async fn forward_inner(
         if super::trust_gate::gated(conn.origin, params) && !peer.supports_trust_gate() {
             return Err(super::trust_gate::peer_unsupported(&peer.name));
         }
+        // A detail that carries pending asks only from a peer that may ask
+        // for this session in its own run (`Hub::peer_ask_counts`), else it
+        // is an unknown session.
+        let detail_read = matches!(m, method::MUX_INFO | method::MUX_ATTACH);
+        let run = peer.person_instance();
+        if detail_read && !run.is_some_and(|run| hub.peer_ask_counts(&peer.name, &id, &run)) {
+            return Err(unknown_session(hub, key));
+        }
         let mut p = if params.is_null() { json!({}) } else { params.clone() };
         if let Some(obj) = p.as_object_mut() {
             obj.remove("session");
@@ -102,6 +110,7 @@ async fn forward_inner(
         if m == method::MUX_PERMISSION_RESPOND {
             count_hop(&mut p)?;
         }
+        let mut subscribed = false;
         if matches!(
             m,
             method::MUX_ATTACH
@@ -114,7 +123,8 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
+                subscribed = conn
+                    .subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
             } else {
                 super::requests::attach(hub, conn, &id);
             }
@@ -131,6 +141,12 @@ async fn forward_inner(
                             e
                         }
                     })?;
+        if detail_read && !asks_count(hub, &peer.name, &id, m, &result) {
+            if subscribed {
+                conn.subs.lock().unwrap().remove(&id);
+            }
+            return Err(unknown_session(hub, key));
+        }
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
@@ -155,6 +171,34 @@ async fn forward_inner(
         return Err(e);
     }
     Ok(None)
+}
+
+/// What this daemon answers for `key` when no one lists it: its own lookup's
+/// not-found, so a peer's session that may not speak reads the same.
+fn unknown_session(hub: &Hub, key: &str) -> RpcError {
+    hub.resolve(key)
+        .err()
+        .unwrap_or_else(|| RpcError::not_found(format!("no session matches {key:?}")))
+}
+
+/// Whether every pending ask in a peer's `_acpmux/info` or `_acpmux/attach`
+/// answer for its session `id` is one the peer may ask (`Hub::peer_ask_counts`),
+/// in the run that ask carries: an ask from a stale run of the peer is not.
+fn asks_count(hub: &Hub, peer: &str, id: &str, m: &str, result: &Value) -> bool {
+    let pending = if m == method::MUX_ATTACH {
+        result.pointer("/session/pending")
+    } else {
+        result.get("pending")
+    };
+    match pending {
+        None | Some(Value::Null) => true,
+        Some(Value::Array(asks)) => asks.iter().all(|ask| {
+            ask.get("personInstance")
+                .and_then(Value::as_str)
+                .is_some_and(|run| hub.peer_ask_counts(peer, id, run))
+        }),
+        Some(_) => false,
+    }
 }
 
 /// `_meta.acpmux` field of a forwarded `permission_respond`: how many

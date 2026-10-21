@@ -1100,8 +1100,14 @@ async fn opening_a_long_peer_chat_stays_within_its_payload_budget_on_the_link() 
 /// A peer daemon that says what it likes (`hub/person.rs` (c)): a WebSocket
 /// server that answers `initialize` with `instance` as its daemon run,
 /// lists `sessions` on `_acpmux/watch`, then sends each of `pending` as
-/// `_acpmux/permission_pending`. Returns its port.
-async fn lying_peer(instance: String, sessions: Vec<Value>, pending: Vec<Value>) -> u16 {
+/// `_acpmux/permission_pending`, and answers `_acpmux/info` and
+/// `_acpmux/attach` with `detail` as any session's. Returns its port.
+async fn lying_peer(
+    instance: String,
+    sessions: Vec<Value>,
+    pending: Vec<Value>,
+    detail: Value,
+) -> u16 {
     use futures_util::{SinkExt, StreamExt};
     use tokio_tungstenite::tungstenite::Message as Ws;
     let l = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -1109,8 +1115,8 @@ async fn lying_peer(instance: String, sessions: Vec<Value>, pending: Vec<Value>)
     tokio::spawn(async move {
         while let Ok((tcp, _)) = l.accept().await {
             let Ok(mut ws) = tokio_tungstenite::accept_async(tcp).await else { continue };
-            let (instance, sessions, pending) =
-                (instance.clone(), sessions.clone(), pending.clone());
+            let (instance, sessions, pending, detail) =
+                (instance.clone(), sessions.clone(), pending.clone(), detail.clone());
             tokio::spawn(async move {
                 while let Some(Ok(Ws::Text(text))) = ws.next().await {
                     let Ok(Message::Request { id, method: m, .. }) = Message::parse(&text) else {
@@ -1121,6 +1127,10 @@ async fn lying_peer(instance: String, sessions: Vec<Value>, pending: Vec<Value>)
                             "version": "0", "build": "lying", "origin": "peer",
                             "personInstance": instance}}}),
                         method::MUX_WATCH => json!({"sessions": sessions}),
+                        method::MUX_INFO => detail.clone(),
+                        method::MUX_ATTACH => {
+                            json!({"session": detail, "events": [], "hasMore": false})
+                        }
                         _ => json!({}),
                     };
                     let reply = Message::ok(id, result).to_line();
@@ -1174,7 +1184,7 @@ async fn pendings_through_a_lying_peer(
         json!({"sessionId": "far-1", "name": "far"}),
         json!({"sessionId": own, "name": "mine"}),
     ];
-    let port = lying_peer("l-run".to_owned(), sessions, pending).await;
+    let port = lying_peer("l-run".to_owned(), sessions, pending, json!({})).await;
     let mut watcher = plain(a.clone()).await;
     watcher.call(method::MUX_WATCH, json!({"enabled": true})).await.unwrap();
     a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
@@ -1229,6 +1239,64 @@ async fn peer_pending_legit_is_relayed() {
     assert_eq!(got[0]["decisionNonce"], "n-1", "{got:?}");
     assert_eq!(got[0]["peer"], "l", "{got:?}");
     assert_eq!(got[0]["via"], "peer", "{got:?}");
+}
+
+/// What A answers through the lying peer `l` for its session `far-1`, whose
+/// `_acpmux/info` and `_acpmux/attach` carry one pending ask: `runs` gets
+/// A's daemon run and names the run the peer claims at its handshake and
+/// the run the ask carries. Returns the info and attach answers, and A's
+/// answer for a session no one lists (with `far-1` as its key).
+async fn detail_through_a_lying_peer(
+    runs: impl FnOnce(&str) -> (String, String),
+) -> (Result<Value, String>, Result<Value, String>, String) {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut ca = client(a.clone()).await;
+    let (peer_run, asks_in) = runs(a.person.instance());
+    let detail = json!({"sessionId": "far-1", "name": "far",
+                        "pending": [peer_prompt("far-1", "asked", &asks_in)]});
+    let sessions = vec![json!({"sessionId": "far-1", "name": "far"})];
+    let port = lying_peer(peer_run, sessions, vec![], detail).await;
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let info = ca.call(method::MUX_INFO, json!({"sessionId": "far-1"})).await;
+    let attach = ca.call(method::MUX_ATTACH, json!({"sessionId": "far-1", "limit": 0})).await;
+    let unknown = ca.call(method::MUX_INFO, json!({"sessionId": "nobody"})).await.unwrap_err();
+    (info, attach, unknown.replace("nobody", "far-1"))
+}
+
+/// A peer's session whose detail carries an ask from another daemon run (a
+/// stale run of the peer) is an unknown session to `_acpmux/info` and
+/// `_acpmux/attach`: the rule the watch applies to the peer's
+/// `_acpmux/permission_pending` (`hub/peers.rs`).
+#[tokio::test]
+async fn peer_detail_with_an_ask_from_another_run_is_an_unknown_session() {
+    let (info, attach, unknown) =
+        detail_through_a_lying_peer(|_| ("l-run".into(), "old-run".into())).await;
+    assert_eq!(info.as_ref().err(), Some(&unknown), "{info:?}");
+    assert_eq!(attach.as_ref().err(), Some(&unknown), "{attach:?}");
+}
+
+/// A peer that names this daemon's run as its own speaks for no session:
+/// its sessions' detail is an unknown session's.
+#[tokio::test]
+async fn peer_detail_from_a_peer_in_this_daemons_run_is_an_unknown_session() {
+    let (info, attach, unknown) =
+        detail_through_a_lying_peer(|mine| (mine.to_owned(), mine.to_owned())).await;
+    assert_eq!(info.as_ref().err(), Some(&unknown), "{info:?}");
+    assert_eq!(attach.as_ref().err(), Some(&unknown), "{attach:?}");
+}
+
+/// A peer's own session in its own run still forwards, its ask included.
+#[tokio::test]
+async fn peer_detail_in_the_peers_own_run_forwards() {
+    let (info, attach, _) = detail_through_a_lying_peer(|_| ("l-run".into(), "l-run".into())).await;
+    let info = info.unwrap();
+    assert_eq!(info["peer"], "l", "{info}");
+    assert_eq!(info["pending"][0]["permissionId"], "asked", "{info}");
+    assert_eq!(info["pending"][0]["personInstance"], "l-run", "{info}");
+    let attach = attach.unwrap();
+    assert_eq!(attach["session"]["pending"][0]["permissionId"], "asked", "{attach}");
 }
 
 /// A fake token, assembled so no file holds one.
