@@ -1,5 +1,6 @@
 //! Reading a chat's log: a page of its events (`_acpmux/events`) and an image one of its prompts
-//! sent (`_acpmux/attachment`, `hub/prompt_images.rs`).
+//! sent (`_acpmux/attachment`, `hub/prompt_images.rs`); and keeping an attachment ahead of the
+//! prompt that names it (`_acpmux/attachment_put`).
 
 use super::*;
 
@@ -9,6 +10,9 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
         let id =
             str_param(params, "id").ok_or_else(|| RpcError::invalid_params("id is required"))?;
         return hub.prompt_image(&s.id, id);
+    }
+    if m == method::MUX_ATTACHMENT_PUT {
+        return hub.put_attachment(&s.id, params);
     }
     let after = params.get("afterSeq").and_then(Value::as_u64).unwrap_or(0);
     let before = params.get("beforeSeq").and_then(Value::as_u64);

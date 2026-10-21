@@ -22,6 +22,10 @@ nonisolated enum AcpmuxPaneMethods {
         "session/new", "session/prompt", "session/set_model", "session/set_mode", "session/set_config_option",
         // acpmux extensions (direct.ts). `_acpmux/attachment` reads a sent prompt's image by content hash.
         "_acpmux/watch", "_acpmux/events", "_acpmux/attachment", "_acpmux/attach", "_acpmux/detach", "_acpmux/view", "_acpmux/warm",
+        // An image or a PDF the pane keeps with acpmux ahead of the prompt that names it (direct.ts
+        // putAttachments), so no prompt frame carries the bytes. It runs nothing; the prompt has the
+        // gesture, and only a chat in the pane's scope takes it (``sessionScoped``).
+        "_acpmux/attachment_put",
         // The session list's later pages (sessionPages.ts, cx-2lv1k): the same summaries watch answers,
         // read by cursor after watch's first page.
         "_acpmux/sessions",
@@ -178,7 +182,7 @@ nonisolated enum AcpmuxPaneMethods {
         "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
-        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume",
+        "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/attachment_put",
     ]
 
     /// Params beside `sessionId` that name a session, which must be in the pane's scope too: New
