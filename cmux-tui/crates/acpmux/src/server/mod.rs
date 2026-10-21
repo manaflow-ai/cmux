@@ -806,8 +806,12 @@ async fn serve_connection_from(
     }
     fan.abort();
     view::release_all(&hub, &conn);
-    ephemeral::release_all(&hub, &conn).await;
+    // Leases first: ending one is cheap and synchronous, while the ephemeral
+    // release awaits each session's kill. A leased peer must not keep
+    // reconnecting to a forward port its bridge already closed, which another
+    // process could bind (`hub/peer_lease.rs`).
     conn.end_peer_leases(&hub);
+    ephemeral::release_all(&hub, &conn).await;
     tracing::debug!(conn = %conn.id, "client disconnected");
 }
 
@@ -990,6 +994,7 @@ mod chats;
 pub mod conn_auth;
 mod ephemeral;
 mod fanout;
+mod forum;
 pub use conn_auth::ConnAuth;
 mod fork_through;
 mod harness_admin;
@@ -1004,8 +1009,9 @@ pub mod peer_text;
 mod pending;
 mod processes;
 mod worktrees;
+use crate::hub::is_permission_ask;
 pub use pending::event_value;
-use pending::{is_permission_ask, peer_permission_pending, permission_pending};
+use pending::{peer_permission_pending, permission_pending};
 mod redact;
 pub(crate) mod remote_guard;
 mod requests;

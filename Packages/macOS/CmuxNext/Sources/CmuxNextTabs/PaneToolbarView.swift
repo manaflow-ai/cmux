@@ -190,10 +190,11 @@ public final class PaneToolbarView: NSView {
         applyTint()
     }
 
-    /// Lit: the accent; else the chrome's secondary text. Runs again on a theme change.
+    /// Lit: the lit glyph (the accent, never fainter than at rest); else the chrome's secondary text.
+    /// Runs again on a theme change.
     private func applyTint() {
-        moreButton.tintOverride = lit ? performWithTheme { Palette.accent } : nil
-        for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.accent : Palette.textSecondary } }
+        moreButton.tintOverride = lit ? performWithTheme { Palette.litGlyph } : nil
+        for (button, item) in zip(buttons, items) { button.contentTintColor = performWithTheme { item.lit ? Palette.litGlyph : Palette.textSecondary } }
     }
 
     // MARK: The tab bar

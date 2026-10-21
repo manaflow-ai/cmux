@@ -114,6 +114,8 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     request.params.kinds.length === 1 &&
     request.params.kinds[0] === "user_message";
   let inflight = 0;
+  /// Replies sent so far: a page that lands while the view looks still restarts the wait.
+  let replies = 0;
   function answer(method: string, params: Record<string, any>): unknown {
     switch (method) {
       case "initialize":
@@ -155,6 +157,7 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
           setTimeout(() => {
             ws.send(JSON.stringify({ jsonrpc: "2.0", id: message.id, result }));
             inflight--;
+            replies++;
           }, 40);
         },
       },
@@ -201,14 +204,31 @@ await requireBrowserLane("agent-pane-history-paging.test.ts", async () => {
     expect(attach.params.maxBytes).toBeLessThanOrEqual(128 * 1024);
     expect(await page.getByText("Question 1", { exact: true }).count()).toBe(0);
 
-    // Each wheel step settles: no page in flight and the offset still for three reads.
+    // Each wheel step settles: no page in flight and the offset still for 120ms, timed in the page by
+    // frame. Polled from here (three reads 40ms apart, after one to start from) it cost four round
+    // trips a step: 65s of the 281 steps on the CI runner, where the wheel lands in one frame, and the
+    // file ran into its 120s limit when the runner was loaded.
     const settle = async () => {
-      let last = -1;
-      for (let still = 0, waited = 0; still < 3 && waited < 5_000; waited += 40) {
-        await page.waitForTimeout(40);
-        const top = await page.evaluate(() => document.querySelector<HTMLElement>(".acpmux-scroll")!.scrollTop);
-        still = inflight === 0 && top === last ? still + 1 : 0;
-        last = top;
+      for (const started = Date.now(); Date.now() - started < 5_000;) {
+        const sent = replies;
+        const held = await page.evaluate(
+          (left) =>
+            new Promise<boolean>((resolve) => {
+              const scroller = document.querySelector<HTMLElement>(".acpmux-scroll")!;
+              let last = scroller.scrollTop;
+              let since = performance.now();
+              const end = since + left;
+              const tick = (now: number) => {
+                if (scroller.scrollTop !== last) [last, since] = [scroller.scrollTop, now];
+                if (now - since >= 120) resolve(true);
+                else if (now >= end) resolve(false);
+                else requestAnimationFrame(tick);
+              };
+              requestAnimationFrame(tick);
+            }),
+          5_000 - (Date.now() - started),
+        );
+        if (held && inflight === 0 && replies === sent) return;
       }
     };
     // The reader scrolls up with the wheel. Each step, a message in the upper part of the view must

@@ -31,8 +31,9 @@ struct WorkspaceNotificationArrivalTests {
     @Test func aWorkspaceNotificationsBannerNamesItsWorkspace() throws {
         let (service, _) = try Self.arrive(muted: false)
         let banner = try #require(service.desktop.posted.last)
-        #expect(banner.title == "Deploy done")
-        #expect(banner.subtitle == "build", "the banner did not name its workspace")
+        // Where in the title, what in the subtitle (NotificationBannerFormatter).
+        #expect(banner.title == "build", "the banner did not name its workspace")
+        #expect(banner.subtitle == "Deploy done")
     }
 
     @Test func aMutedWorkspacePostsNoBanner() throws {

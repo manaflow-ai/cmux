@@ -270,11 +270,11 @@ input[type="submit"] {
   outline: none;
 }
 
-/* Reduce Motion stops every page animation, except the popup surfaces' fades and a live transcript
-   row's, new text's and a code card's: a menu, tooltip, sheet, dialog or reply that appeared in one frame flashed (POLISH;
+/* Reduce Motion stops every page animation, except the popup surfaces' fades, a closing or
+   opening panel's fade (ui/presence.ts, its travel dropped) and a live transcript row's, new text's and a code card's: a menu, tooltip, sheet, dialog or reply that appeared in one frame flashed (POLISH;
    ui/popupSurface.css and conversation.css keep them fade-only). */
 @media (prefers-reduced-motion: reduce) {
-  *:not(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop, .cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff__real),
+  *:not(.ui-popup, .ui-tooltip, .ui-title-tooltip, .ui-sheet, .ui-dialog, .ui-backdrop, .cv-enter, .acpmux-row--enter, .cv-fresh, .cv-code-handoff__real, [data-presence]),
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
@@ -423,6 +423,7 @@ input[type="submit"] {
   --text-content--line-height: var(--cv-line-height, 22.75px);
   --weight-regular: 400; /* everything by default */
   --weight-emphasis: 600; /* titles, headings, selected or unread rows, group labels */
+  --weight-strong: 700; /* monogram initials drawn in an avatar circle */
 }
 /* type-scale:end */
 

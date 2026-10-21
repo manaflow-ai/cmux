@@ -14,12 +14,14 @@ Xcode project or package manifest) file, and its head's `cmux-next Release compi
   (or the head has no checks at all yet);
 - or finished red or cancelled with no passing rerun;
 
-unless that compile is still waiting (queued, running or not created yet) and the build fleet compiled
+unless that compile is still waiting (queued, running, not created yet, or every attempt cancelled, which
+gives no verdict) and the build fleet compiled
 the exact head: `fleet/compile-check` on the head is a success
 status posted by GitHub Actions whose run is a finished, green fleet-compile-check.yml dispatch from
 feat-cmux-next titled with the full head, whose workflow file came from a commit on that branch. A
 token can post any status, and a workflow on another branch or a tag any run, so the guard trusts only
-that run. A Release compile that finished red stays a refusal: the fleet compiles on Linux with the pool
+that run. A Release compile that finished red (any conclusion but success, skipped, neutral or
+cancelled) stays a refusal, even with a rerun queued: the fleet compiles on Linux with the pool
 SDK, not Xcode 26 Release. The pass covers what `cmux-ci compile-check --app`
 compiles (#22845 sat queued over an hour after its fleet pass, with 60 minis offline).
 
@@ -45,6 +47,10 @@ COMPILE = "cmux-next Release compile (Xcode 26)"
 ROUTING = ("cmux-next path routing", "cmux-next push head preflight", "cmux-next macOS placement")
 RUNNING = frozenset(("queued", "in_progress", "pending", "waiting", "requested"))
 NOT_RUN = frozenset(("skipped", "neutral"))
+# A cancelled attempt is no verdict on the head: a newer push, a runner shortage or a person stopped it
+# (#22845's two cancelled attempts hid its fleet pass behind a queued rerun). Every other finished
+# conclusion but success is red.
+NO_VERDICT = NOT_RUN | {"cancelled"}
 TIMEOUT = 15  # seconds per gh call
 BUDGET = 100  # seconds for every call together, under the hook's 120 s: a hook that times out lets the command run
 STARTED = time.monotonic()
@@ -290,14 +296,15 @@ def verdict(pr: dict, files: list[str], checks: list[dict], fleet_passed: bool =
 
 
 def compile_wait(checks: list[dict]) -> bool:
-    """The Release compile has not finished on the head yet: no checks, queued or running, or not created
-    while cmux-next routes and places it."""
+    """The Release compile has no verdict on the head yet: no checks, queued or running, not created while
+    cmux-next routes and places it, or every attempt cancelled."""
     named = [c for c in checks if c.get("name") == COMPILE]
     finished = [c.get("conclusion") for c in named if c.get("status") == "completed"]
-    if any(c not in NOT_RUN and c != "success" for c in finished) and "success" not in finished:
+    if any(c not in NO_VERDICT and c != "success" for c in finished) and "success" not in finished:
         return False  # an attempt finished red: a rerun queued after it is no wait (every attempt is read)
     return (not checks or any(c.get("status") in RUNNING for c in named)
-            or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks)))
+            or (not named and any(c.get("name") in ROUTING and c.get("status") in RUNNING for c in checks))
+            or (len(finished) == len(named) and set(finished) - NOT_RUN == {"cancelled"}))
 
 
 def compile_refusal(pr: dict, swift: list[str], checks: list[dict]) -> str:

@@ -60,6 +60,8 @@ final class AppServices {
     /// Restart CLI Listener: binds the control socket again. Set once the
     /// app's control socket starts; nil while it has none (tests, socket off).
     var restartControlListener: (@MainActor () throws -> Void)?
+    /// Agents' and scripts' Cloud machine creates waiting on the person in every window's sidebar card.
+    let machineAsks = SidebarAsks()
     private(set) lazy var cloud: CloudService = CloudService(machines: machines, isDebugBuild: ControlService.isDebugBuild)  // first read in init (no IUO)
     /// The feed mirror (`FeedDO`), started once the cmux account is signed in.
     private(set) lazy var feed: FeedService = FeedService(auth: cloud.auth, showcase: environment.showcase)  // first read in init (no IUO)
@@ -465,7 +467,7 @@ final class AppServices {
         terminalDelegate.services = self
         _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
-        updater.attach(sheet: updateSheet, services: self)
+        updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
         cache.onBrowserReady = { [weak self] key in
             for controller in self?.windows.controllers ?? [] {
