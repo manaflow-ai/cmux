@@ -76,7 +76,7 @@ nonisolated enum ScreenActionCatalog: ActionCatalogGroup {
                    "face.smiling", cli: "screen set-icon", keywords: ["icon", "emoji", "symbol"], arguments: [CatalogArgument.iconString.optional]),
             screen("screen.clearIcon", String(localized: "action.screen.clearIcon", defaultValue: "Remove Screen Icon", table: "ScreenActions", bundle: .module),
                    "circle.dashed", cli: "screen clear-icon", keywords: ["icon", "emoji", "reset"]),
-            screen("screen.togglePin", String(localized: "action.screen.togglePin", defaultValue: "Pin or Unpin Screen", table: "ScreenActions", bundle: .module),
+            screen("screen.togglePin", String(localized: "action.screen.togglePin", defaultValue: "Pin/Unpin Screen", table: "ScreenActions", bundle: .module),
                    "pin", cli: "screen toggle-pin", keywords: ["pin", "unpin", "keep"]),
         ] + GroupColor9.names.map { color in
             screen(ActionID(rawValue: "screen.color.\(color)"), GroupColor9.screenTitle(color), "circle.fill",
