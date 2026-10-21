@@ -7,6 +7,7 @@ import Testing
     @Test func notificationNamesMatchLegacyLiterals() {
         #expect(CommandPaletteRequestKind.commands.notificationName == "cmux.commandPaletteRequested")
         #expect(CommandPaletteRequestKind.agentInbox.notificationName == "cmux.agentInboxRequested")
+        #expect(CommandPaletteRequestKind.findTmuxWindow.notificationName == "cmux.findTmuxWindowRequested")
         #expect(CommandPaletteRequestKind.switcher.notificationName == "cmux.commandPaletteSwitcherRequested")
         #expect(CommandPaletteRequestKind.renameTab.notificationName == "cmux.commandPaletteRenameTabRequested")
         #expect(CommandPaletteRequestKind.renameWorkspace.notificationName == "cmux.commandPaletteRenameWorkspaceRequested")

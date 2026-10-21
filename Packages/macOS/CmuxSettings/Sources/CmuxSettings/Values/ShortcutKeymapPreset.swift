@@ -67,6 +67,7 @@ public enum ShortcutKeymapPreset: String, CaseIterable, Sendable {
                 .focusNextPane: .chord(prefix, "o"),
                 .toggleSplitZoom: .chord(prefix, "z"),
                 .toggleTerminalCopyMode: .chord(prefix, "["),
+                .findTmuxWindow: .chord(prefix, "f"),
             ]
         }
     }

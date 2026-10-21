@@ -2582,6 +2582,7 @@
               "goToWorkspace",
               "commandPalette",
               "agentInbox",
+              "findTmuxWindow",
               "openChief",
               "commandPaletteNext",
               "commandPalettePrevious",

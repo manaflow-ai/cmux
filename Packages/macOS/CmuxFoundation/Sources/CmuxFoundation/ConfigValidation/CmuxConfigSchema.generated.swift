@@ -2592,6 +2592,7 @@ enum CmuxEmbeddedConfigSchema {
               "goToWorkspace",
               "commandPalette",
               "agentInbox",
+              "findTmuxWindow",
               "openChief",
               "commandPaletteNext",
               "commandPalettePrevious",
