@@ -53,6 +53,9 @@ public nonisolated struct SidebarPriorityEntry: Hashable, Sendable, Identifiable
         case .working, .idle: false
         }
     }
+
+    /// Mark as Read applies: a result or a failure. A question is answered, not read.
+    public var canMarkRead: Bool { needsAttention && state != .needsYou }
 }
 
 /// What the sidebar's Priority view shows while it is installed (`sidebar.priorityView.enabled`):

@@ -74,7 +74,10 @@ pub(super) const GUIDES: &[Guide] = &[
         text: "Open an agent session's chat: the app action agent.openSessionWorkspace (MCP \
         app_agent_open {session, group}, CLI `cmux agent open SESSION [--group G]`) opens that \
         session's chat in a new workspace, in sidebar group G (made when missing) when given; \
-        the workspace the user looks at stays. Open a link: \
+        the workspace the user looks at stays. agent.openSessionTab (MCP app_agent_open_tab \
+        {session, target}, CLI `cmux agent open-tab SESSION [--target T]`) opens it as a tab of the \
+        target pane (a pane or tab id; default the focused pane) and selects it only with focus: \
+        true; a session a tab already shows gets no second tab. Open a link: \
         workspace_open_url {url, workspace} loads it in a browser tab on the workspace's right \
         side and keeps the keyboard focus, but it navigates a browser tab already there, so \
         when the user's page must stay use browser_profile_open {url, profile: \"default\", pane, \

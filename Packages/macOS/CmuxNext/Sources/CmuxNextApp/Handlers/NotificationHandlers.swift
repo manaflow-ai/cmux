@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
 
 /// Notification actions over the daemon's retained unread markers
@@ -48,7 +49,7 @@ enum NotificationHandlers {
             guard !tabs.isEmpty else { throw ActionFailure(message: MiscHandlerStrings.noUnread) }
             try acknowledge(tabs.map(\.tab.surface), context)
         })
-        // Toggle Tab Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
+        // Mark Tab Read/Unread: reads an unread tab, else marks it unread (any tab, no notification needed).
         registry.bind("toggleUnread", run: { invocation in
             guard let (pane, id) = context.scope(invocation).tab, let tab = pane.tab(id) else {
                 throw ActionFailure(message: MiscHandlerStrings.noPane)
@@ -98,6 +99,12 @@ enum NotificationHandlers {
         NotificationSettingsHandlers.bind(into: registry, context: context)
         AgentChatMuteHandlers.bind(into: registry, context: context)
         AgentChatIdentifierHandlers.bind(into: registry, context: context)
+        // View Chat Only (`cmux agent view <chat>`, the palette): the All chats row's View Only opener.
+        registry.bind("agentChat.view", run: { invocation in
+            let key = (invocation["key"]?.stringValue ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            guard ChatOpenSubject.isWatchable(key: key) else { throw ActionFailure(message: RefusalStrings.notAWatchableChat(key)) }
+            context.services.chatsOpener.open(key, watch: true)
+        })
     }
 
     /// Removes a panel row. The daemon clears by terminal, so this removes
