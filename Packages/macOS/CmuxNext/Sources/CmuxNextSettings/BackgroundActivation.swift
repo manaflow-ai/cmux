@@ -1,8 +1,6 @@
-import AppKit
-import CmuxNextActions
+public import AppKit
+public import CmuxNextActions
 import CmuxNextDesign
-import CmuxNextIcons
-import CmuxNextSettings
 
 /// Background mode (Leo 2026-10-13, cx-ghagp): with no cmux window open the
 /// app keeps running, since terminals and agents live in their daemons, as a
@@ -15,29 +13,35 @@ import CmuxNextSettings
 /// bar. Panels (About, Start Agent, sign-in sheets) show without leaving the
 /// mode, like any menu bar app's.
 ///
-/// `app.hideDockIconWithoutWindows` false keeps the old behavior: regular
-/// with no window. Only the process's own services (`AppProcessRoot`) drive
-/// the policy, so services a test builds leave the test process alone.
+/// The App's window manager owns one and supplies `mayEnter`: these are the
+/// process's own services (`AppProcessRoot`), so services a test builds leave
+/// the test process alone; no window is open; cmux is not quitting; and
+/// `app.hideDockIconWithoutWindows` is on (false keeps the old behavior:
+/// regular with no window).
 @MainActor
-final class BackgroundActivation {
-    private weak var manager: WindowManager?
+public final class BackgroundActivation {
+    private let registry: ActionRegistry
+    private let icon: NSImage
+    private let mayEnter: @MainActor () -> Bool
     /// The menu bar item while in background mode.
     private var item: NSStatusItem?
     private var settlePending = false
 
-    init(manager: WindowManager) {
-        self.manager = manager
+    /// `icon` is the menu bar item's image; its accessibility label is the app's name.
+    public init(registry: ActionRegistry, icon: NSImage, mayEnter: @escaping @MainActor () -> Bool) {
+        self.registry = registry
+        self.icon = icon
+        self.mayEnter = mayEnter
+        icon.accessibilityDescription = NSRunningApplication.current.localizedName
     }
 
     /// In background mode: accessory, with the menu bar item.
-    var isBackground: Bool { item != nil }
-
-    private var drivesPolicy: Bool { manager.map { AppProcessRoot.shared.services === $0.services } ?? false }
+    public var isBackground: Bool { item != nil }
 
     /// A window closed: once nothing replaces it this turn (a tear-off, the
     /// launch window handing over), no open window means background mode.
-    func windowsDidChange() {
-        guard drivesPolicy, !settlePending else { return }
+    public func windowsDidChange() {
+        guard !settlePending else { return }
         settlePending = true
         Task { @MainActor [weak self] in self?.settle() }
     }
@@ -45,7 +49,7 @@ final class BackgroundActivation {
     /// A shell window is about to be ordered in: leave background mode first,
     /// so it comes in with the Dock icon and the menu bar. `activates` false
     /// for a window opened behind (automation without view change).
-    func windowWillAppear(activates: Bool) {
+    public func windowWillAppear(activates: Bool) {
         guard isBackground else { return }
         hideItem()
         guard NSApp.activationPolicy() == .accessory else { return }
@@ -62,22 +66,14 @@ final class BackgroundActivation {
 
     private func settle() {
         settlePending = false
-        guard let manager, drivesPolicy, !isBackground else { return }
-        let enabled = manager.services.settings?.snapshot.hideDockIconWithoutWindows ?? CmuxConfigSnapshot.hideDockIconWithoutWindowsFallback
-        guard enabled, !manager.isTerminating, !manager.services.quit.isQuitting, manager.controllers.isEmpty,
-              NSApp.activationPolicy() == .regular else { return }
+        guard !isBackground, mayEnter(), NSApp.activationPolicy() == .regular else { return }
         NSApp.setActivationPolicy(.accessory)
         showItem()
     }
 
     private func showItem() {
-        guard let registry = manager?.services.registry else { return }
         let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let button = statusItem.button {
-            let image = NSImage.icon(.appCmux, size: 16)
-            image.accessibilityDescription = Strings.appName
-            button.image = image
-        }
+        statusItem.button?.image = icon
         let menu = NSMenu()
         for id: ActionID in ["showMainWindow", "newWindow", "openSettings"] {
             if let entry = registry.makeMenuItem(for: id) { menu.addItem(entry) }
