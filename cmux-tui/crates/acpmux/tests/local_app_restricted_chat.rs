@@ -253,11 +253,10 @@ async fn not_now_opens_a_restricted_claude_chat_only_with_the_setting_on() {
     app.trust(&ran, "trusted").await;
     let r = local.new_session(&ran, "fclaude").await;
     let wide = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
-    let args = argv(&local.ask(&wide, "argv").await);
-    assert!(
-        matches!(after(&args, "--permission-mode"), Some("bypassPermissions" | "acceptEdits")),
-        "{args:?}"
-    );
+    local.ask(&wide, "hi").await;
+    // The start mode goes over the control channel, so argv still says `default`.
+    let info = local.call("_acpmux/info", json!({"sessionId": wide})).await;
+    assert_eq!(info["result"]["modes"]["currentModeId"], "bypassPermissions", "{info}");
     app.trust(&ran, "untrusted").await;
     restricted_flags(&argv(&app.ask(&wide, "argv").await));
 
