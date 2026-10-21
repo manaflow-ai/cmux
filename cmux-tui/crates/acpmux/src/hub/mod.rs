@@ -87,6 +87,7 @@ mod remote_floor;
 mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
+mod subsession_answer;
 pub mod subsessions;
 pub use permission_groups::PERMISSION_GROUP_OPERATIONS;
 pub mod rules;
@@ -160,6 +161,9 @@ pub(super) struct PendingPermission {
     /// The nonce a relayed allow's decision proof covers (`person.rs`,
     /// cx-0q7o): new for each prompt, valid only while it is pending.
     pub(super) decision_nonce: String,
+    /// A session above this one may answer it (`questions::ancestor_answerable`),
+    /// decided when it was asked from who asked, never from a later field.
+    pub(super) ancestor_may_answer: bool,
 }
 
 #[derive(Debug, Clone)]
