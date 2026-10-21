@@ -100,6 +100,8 @@ public nonisolated struct SettingsPageLayout: Sendable {
                 group("settings.group.tasks"), group("settings.group.diffViewer"), group("settings.group.markdownViewer"),
                 // The Screenshots pane's folders sit beside the other file-viewer groups.
                 group("settings.group.files"), group("settings.group.screenshots"), group("settings.group.updates"),
+                GroupSpec(keys: ["updates.idleInstallMaxWaitSeconds", "updates.idleInstallQuietSeconds"],
+                          title: SettingsText.keyed("settings.pageGroup.updatesAdvanced", "Updates: Advanced")),
                 group("settings.group.announcements"), group("settings.group.chats"),
             ],
             trail: [.spaces], actions: [.general, .rooms], aliases: [.general, .rooms]),
