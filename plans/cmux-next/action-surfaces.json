@@ -4384,7 +4384,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Close All Workspaces in Group",
+      "title" : "Close Workspaces in Group",
       "title_key" : "action.workspaceGroup.closeWorkspaces",
       "title_table" : "ActionCatalog"
     },
@@ -7319,9 +7319,9 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
+      "cli" : "offered",
       "cli_name" : "pane open-files-as",
-      "context_menu" : "unimplemented",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -7332,7 +7332,7 @@
       "default_shortcut" : null,
       "id" : "palette.openFilesPane",
       "main_menu" : null,
-      "mcp" : "unimplemented",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.pane",
@@ -7347,9 +7347,9 @@
       "title_table" : "ActionCatalog"
     },
     {
-      "cli" : "unimplemented",
+      "cli" : "offered",
       "cli_name" : "pane open-find-as",
-      "context_menu" : "unimplemented",
+      "context_menu" : "noObject",
       "context_menus" : [
 
       ],
@@ -7360,7 +7360,7 @@
       "default_shortcut" : null,
       "id" : "palette.openFindPane",
       "main_menu" : null,
-      "mcp" : "unimplemented",
+      "mcp" : "offered",
       "palette" : "offered",
       "palette_section" : {
         "id" : "category.pane",
@@ -22643,6 +22643,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent view",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentChat.view",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "View Chat Only",
+      "title_key" : "action.agentChat.view",
+      "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent add-harness",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -33650,118 +33678,6 @@
       "title" : "Palette: Close Item's Object",
       "title_key" : "action.paletteKey.closeItem",
       "title_table" : "ActionCatalog"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "import list",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "import.list",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "noObject",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "List Import Suggestions",
-      "title_key" : "action.import.list",
-      "title_table" : "ImportActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "import card",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "import.card",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "noObject",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Press an Import Card's Button",
-      "title_key" : "action.import.card",
-      "title_table" : "ImportActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "import suggest",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "import.suggest",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "noObject",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Suggest Importing a Site's Cookies",
-      "title_key" : "action.import.suggest",
-      "title_table" : "ImportActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "import open",
-      "context_menu" : "noObject",
-      "context_menus" : [
-
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "import.open",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.settings",
-        "order" : 112,
-        "title" : "Settings and Help",
-        "title_key" : "category.settings",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Import from Other Apps…",
-      "title_key" : "action.import.open",
-      "title_table" : "ImportActions"
     }
   ],
   "context_menu_rules" : [
