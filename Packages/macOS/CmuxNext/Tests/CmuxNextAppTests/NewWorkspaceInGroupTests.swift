@@ -57,19 +57,19 @@ struct NewWorkspaceInGroupTests {
         let (services, root) = try await Self.launch()
         let store = services.daemon.store, personal = services.machines.local.store.personal
         let window = try #require(services.windows.active?.state.id)
-        let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
+        let bridge = try #require(services.windows.controller(for: window)?.sidebar)
+        let sidebar = bridge.model
         // A fresh loose workspace to group (the launch workspace may be Home, which no group holds).
         let launched = Set(store.workspaces.map(\.id))
-        _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
+        let ranNew = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
         func fresh() -> String? { store.workspaces.first { !launched.contains($0.id) }?.id }
         await Self.wait(within: .seconds(30)) {
             fresh().map { id in services.windows.states[window]?.workspaceID == id && sidebar.workspace(CmuxNextSidebar.WorkspaceID(id)) != nil } ?? false
         }
-        let first = try #require(fresh())
+        let first = try #require(fresh(), "newTab ran: \(ranNew)")
 
-        // Group Workspace on the window's workspace.
-        _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(
-            target: ActionTargetRef(kind: .workspace, id: first), arguments: ["name": .string("keep-group")]))
+        // Group the window's workspace, by the path Group Workspace and a drag share.
+        bridge.groupFlow.newGroup(of: [SidebarWorkspaceID(first)], name: "keep-group", byUser: false)
         func header() -> CmuxNextSidebar.GroupID? {
             guard let group = personal.groups.first(where: { $0.name == "keep-group" }) else { return nil }
             let shown = sidebar.groupID(personal: group.id.rawValue)
