@@ -429,15 +429,15 @@ fn host_input_runtime_shutdown_joins_reader_before_returning() {
     let (sent_tx, sent_rx) = std::sync::mpsc::sync_channel(1);
     let (finished_tx, finished_rx) = std::sync::mpsc::sync_channel(1);
     let spawned = runtime.spawn_reader("input", move || {
-            let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
-            assert!(input.send(key));
-            sent_tx.send(()).unwrap();
-            while !ingress.is_closed() {
-                std::thread::yield_now();
-            }
-            finished_tx.send(()).unwrap();
-        })
-        .unwrap();
+        let key = Event::Key(KeyEvent::new(KeyCode::Char('x'), KeyModifiers::NONE));
+        assert!(input.send(key));
+        sent_tx.send(()).unwrap();
+        while !ingress.is_closed() {
+            std::thread::yield_now();
+        }
+        finished_tx.send(()).unwrap();
+    });
+    assert!(spawned.is_ok(), "the input reader must start");
     sent_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     runtime.shutdown();
 
@@ -455,13 +455,13 @@ fn host_input_runtime_shutdown_serializes_concurrent_callers() {
     let (closed_tx, closed_rx) = std::sync::mpsc::sync_channel(1);
     let (release_tx, release_rx) = std::sync::mpsc::sync_channel(1);
     let spawned = runtime.spawn_reader("input", move || {
-            while !ingress.is_closed() {
-                std::thread::yield_now();
-            }
-            closed_tx.send(()).unwrap();
-            release_rx.recv().unwrap();
-        })
-        .unwrap();
+        while !ingress.is_closed() {
+            std::thread::yield_now();
+        }
+        closed_tx.send(()).unwrap();
+        release_rx.recv().unwrap();
+    });
+    assert!(spawned.is_ok(), "the input reader must start");
 
     let shutdown = runtime.shutdown_control();
     let first_shutdown = shutdown.clone();
