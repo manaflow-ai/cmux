@@ -38,6 +38,42 @@ export function githubReferences(
   return out;
 }
 
+// `hq#123`: a pull request or issue of the team's HQ repository, as agents write it to each other.
+const HQ_REFERENCE = /(?<![\w./&-])hq#([1-9][0-9]{0,9})(?![\w])/gi;
+const HQ_REPOSITORY = "manaflow-ai/cmuxterm-hq";
+// A commit's name: 7 to 40 lowercase hex characters with a digit and a letter, so neither a number
+// nor a word reads as one. Not in a path, a URL or its query, a color (`#a1b2c3d4`), a hex literal, an
+// address or a UUID.
+const COMMIT = /(?<![\w./@:#=&?%+~-])(?=[0-9a-f]*[0-9])(?=[0-9a-f]*[a-f])[0-9a-f]{7,40}(?![\w/@-])/g;
+
+/**
+ * The references agents write to each other besides `#123`: `hq#123` (HQ's pull request, which
+ * GitHub redirects to the issue) and, when the repository is known, a commit's name, whose `text`
+ * is its first seven characters.
+ */
+export function agentReferences(text: string, repository?: string): GithubReference[] {
+  const out: GithubReference[] = [];
+  for (const match of text.matchAll(HQ_REFERENCE)) {
+    out.push({
+      start: match.index!,
+      end: match.index! + match[0].length,
+      text: match[0],
+      href: `https://github.com/${HQ_REPOSITORY}/pull/${match[1]}`,
+    });
+  }
+  if (repository) {
+    for (const match of text.matchAll(COMMIT)) {
+      out.push({
+        start: match.index!,
+        end: match.index! + match[0].length,
+        text: match[0].slice(0, 7),
+        href: `https://github.com/${repository}/commit/${match[0]}`,
+      });
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
 // A fenced block (to its closing fence, or the end of an unfinished one) and a code span.
 const CODE = /^[ \t]*(`{3,}|~{3,})[\s\S]*?(?:^[ \t]*\1|(?![\s\S]))|(`+)[^`]*?\2/gm;
 // github.com's own pages, whose first segment is not an owner (`gh auth login` prints

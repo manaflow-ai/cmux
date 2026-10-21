@@ -2,7 +2,7 @@
 // `owner/repo#123` are links; GitHub numbers start at 1, and a URL fragment, an HTML entity or a
 // word glued to the `#` is not a reference.
 import { describe, expect, test } from "bun:test";
-import { githubReferences, latestMentionedRepository, mentionedRepository } from "./githubReferences";
+import { agentReferences, githubReferences, latestMentionedRepository, mentionedRepository } from "./githubReferences";
 
 const REPO = "manaflow-ai/cmux";
 
@@ -89,5 +89,40 @@ describe("latestMentionedRepository", () => {
     expect(latestMentionedRepository(["x/y#1", "plain", undefined, "`a/b#1`"])).toBe("x/y");
     expect(latestMentionedRepository(["x/y#1", "then github.com/p/q/issues/2"])).toBe("p/q");
     expect(latestMentionedRepository([])).toBeUndefined();
+  });
+});
+
+describe("agentReferences", () => {
+  const HQ = "https://github.com/manaflow-ai/cmuxterm-hq/pull";
+  const SHA = "3b01de6500b76b70cc8394dd1b9d7d03edd8b572";
+  const cases: Array<[name: string, text: string, refs: Array<[text: string, href: string]>]> = [
+    ["an HQ reference", "filed hq#2505 for it", [["hq#2505", `${HQ}/2505`]]],
+    ["HQ in capitals, in parentheses", "(HQ#7)", [["HQ#7", `${HQ}/7`]]],
+    ["HQ glued to a word or a path", "xhq#1 and a/hq#2", []],
+    ["HQ number zero", "hq#0", []],
+    ["a full commit, shortened", `merged as ${SHA}.`, [["3b01de6", `https://github.com/${REPO}/commit/${SHA}`]]],
+    ["a short commit", "head 19ae020 passed", [["19ae020", `https://github.com/${REPO}/commit/19ae020`]]],
+    ["digits only (a number)", "run 39677569036", []],
+    ["letters only (a word)", "deadbeef cafebabe", []],
+    ["too short", "abc123", []],
+    ["more than 40", `${SHA}abc`, []],
+    ["capitals", "3B01DE6", []],
+    ["a color, a hex literal, a path, a URL", "#a1b2c3d4 0x3b01de6 src/3b01de6 https://x.dev/3b01de6", []],
+    ["a UUID", "550e8400-e29b-41d4-a716-446655440000", []],
+    ["a query and an address", "https://x.dev/?sha=3b01de6&b=19ae020 3b01de6@host", []],
+  ];
+  test.each(cases)("%s", (_name, text, refs) => {
+    expect(agentReferences(text, REPO).map((ref) => [ref.text, ref.href])).toEqual(refs);
+  });
+
+  test("a commit needs the repository; an HQ reference does not", () => {
+    expect(agentReferences("hq#3 at 19ae020").map((ref) => ref.text)).toEqual(["hq#3"]);
+  });
+
+  test("in order of the text", () => {
+    expect(agentReferences("19ae020 then hq#4", REPO).map((ref) => [ref.start, ref.end])).toEqual([
+      [0, 7],
+      [13, 17],
+    ]);
   });
 });

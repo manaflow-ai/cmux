@@ -26,7 +26,7 @@ import { codePath, linkPath } from "../chips/paths";
 import { OpenableImage, ReplyImage } from "../chips/ReplyImage";
 import "../../../markdown-task-checkbox.css";
 import { TaskCheckbox } from "../../../ui/TaskCheckbox";
-import { githubReferences } from "../../../githubReferences";
+import { agentReferences, githubReferences } from "../../../githubReferences";
 import { acpmuxPerf } from "../perf";
 import { StartedSessionChip, useStartedMentions, type StartedMentions } from "../started/StartedSessionCard";
 import { splitMentions } from "../started/startedSessions";
@@ -269,6 +269,8 @@ export type InlineOptions = {
   githubRepository?: string;
   /** Link GitHub references in prose; labels of an outer link disable this. */
   linkGithubReferences?: boolean;
+  /** Also link `hq#123` and commit names (agentReferences): another agent's message. */
+  agentReferences?: boolean;
   /** The chats the open chat started, whose names draw as chips (started/startedSessions.ts). */
   started?: StartedMentions;
 };
@@ -367,10 +369,16 @@ export const linkIcon = (href: string) => {
   return <Globe size={16} strokeWidth={1.1} className="cv-link__icon" />;
 };
 
-function linkedGithubText(text: string, key: string, repository?: string, enabled = true): ReactNode[] {
+function linkedGithubText(text: string, key: string, repository?: string, enabled = true, agent = false): ReactNode[] {
   if (!enabled) return linkedText(text, key);
   // A pull request address, so the chip opens the pull request card (an issue redirects there).
   const refs = githubReferences(text, repository, "pull");
+  if (agent) {
+    // The two never overlap as written; one that would is dropped, so no text draws twice.
+    for (const extra of agentReferences(text, repository))
+      if (!refs.some((ref) => extra.start < ref.end && ref.start < extra.end)) refs.push(extra);
+    refs.sort((a, b) => a.start - b.start);
+  }
   if (!refs.length) return linkedText(text, key);
   const out: ReactNode[] = [];
   let at = 0;
@@ -396,7 +404,13 @@ function proseText(text: string, key: string, opts: InlineOptions): ReactNode[] 
   const pieces = opts.started?.mentions.length ? splitMentions(text, opts.started.mentions) : [text];
   return pieces.flatMap((piece, index): ReactNode[] =>
     typeof piece === "string"
-      ? linkedGithubText(piece, `${key}-${index}`, opts.githubRepository, opts.linkGithubReferences !== false)
+      ? linkedGithubText(
+          piece,
+          `${key}-${index}`,
+          opts.githubRepository,
+          opts.linkGithubReferences !== false,
+          opts.agentReferences,
+        )
       : [
           <StartedSessionChip
             key={`${key}-${index}`}
@@ -760,6 +774,7 @@ export function Markdown({
   fresh,
   now = 0,
   githubRepository,
+  agentReferences,
   plainCode = false,
 }: MarkdownProps) {
   const parser = useRef<IncrementalMarkdown | null>(null);
@@ -787,11 +802,12 @@ export function Markdown({
     return {
       linkIcon,
       githubRepository,
+      ...(agentReferences ? { agentReferences } : {}),
       notes: { numbers, anchor: (id) => `${notePrefix}fn-${id}` },
       overBudget,
       ...(started ? { started } : {}),
     };
-  }, [githubRepository, linkIcon, noteIds, notePrefix, overBudget, started]);
+  }, [agentReferences, githubRepository, linkIcon, noteIds, notePrefix, overBudget, started]);
   // Fences this reply drew open: they hand over to the highlighted card once, when they close.
   const streamedFences = useRef(new Set<string>());
   const freshChars = fresh?.reduce((sum, step) => sum + step.count, 0) ?? 0;
