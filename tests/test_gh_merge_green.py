@@ -32,6 +32,23 @@ os.environ["GH_MERGE_GREEN_FREEZE_ISSUES"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_FREEZE_EVENTS"] = _NO_FREEZES.name
 os.environ["GH_MERGE_GREEN_TEST"] = "1"
 HEAD = "a" * 40
+# Under GH_MERGE_GREEN_TEST the review receipt check reads GH_MERGE_GREEN_REVIEWS, never the
+# pull request. Every run gets an independent review's SHIP receipt on HEAD unless a test
+# passes its own; a test run without the fixture refuses.
+
+
+def reviews_fixture(*comments, head=HEAD):
+    """A pull request read for scripts/ci/review_receipt.py: comments are (body, createdAt)."""
+    handle = tempfile.NamedTemporaryFile("w", suffix="-reviews.json", delete=False)
+    json.dump({"headRefOid": head, "reviews": {"nodes": []}, "comments": {"nodes": [
+        {"createdAt": at, "body": body, "authorAssociation": "MEMBER", "author": {"__typename": "User", "login": "teamleaderleo"}}
+        for body, at in comments]}}, handle)
+    handle.close()
+    return handle.name
+
+
+SHIP_RECEIPT = f"Review (subagent, correctness first): SHIP at {HEAD[:12]}"
+os.environ["GH_MERGE_GREEN_REVIEWS"] = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"))
 MERGED_SHA = "d" * 40
 BASE = "b" * 40
 ANCESTOR = "c" * 40
@@ -379,7 +396,7 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertTrue(marker.exists(), result.stderr)
 
-    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None):
+    def run_helper(self, directory, marker, *, check_name="ci-status", check_conclusion="success", extra_checks=(), extra_args=(), event_log=None, labels=(), cmux_next_runs=(("completed", "success", 1),), changed_files=("docs/README.md",), cmux_next_workflow=None, is_cross_repository=False, pr_fields=None, base="feat-cmux-next", full=True, rollup=(), rollup_head=HEAD, excuse=None, files_rest_fails=False, rollup_base=None, base_after=None, base_workflow=None, protected_paths=PROTECTED_PATHS, rollup_files_limit=None, terminate_after=None, rate_limit=None, reviews=None):
         """full=True keeps a feat-cmux-next merge on the full gate (--full) these
         tests were written for; full=False runs the default fast gate, whose
         `gh pr view --json statusCheckRollup` read returns rollup. excuse=(status, output)
@@ -463,6 +480,8 @@ class InstalledHelperRegression(unittest.TestCase):
         gh.chmod(0o755)
         argv = [str(ROOT / "scripts/gh-merge-green"), "manaflow-ai/cmux#42", *extra_args, "--squash"]
         env = {**os.environ, "PATH": directory + os.pathsep + os.environ["PATH"], "MERGE_MARKER": str(marker), "EVENT_LOG": str(event_log or Path(directory) / "events"), "MERGE_ARGS_LOG": str(Path(directory) / "merge-args"), "GH_MERGE_GREEN_NO_AUTO_UPDATE": "1"}
+        if reviews is not None:
+            env["GH_MERGE_GREEN_REVIEWS"] = reviews
         if terminate_after is None:
             return subprocess.run(argv, env=env, capture_output=True, text=True)
         # A caller's timeout: SIGTERM to the whole group while the gate still waits.
@@ -987,6 +1006,68 @@ class InstalledHelperRegression(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
             self.assertFalse(marker.exists())
             self.assertIn("react-apps-check", result.stderr)
+
+    def test_feat_next_refuses_a_head_with_no_review_receipt(self):
+        """2026-10-21: cmux#22899 merged before its re-review, which then found cmux#22988, and
+        #22911 merged before its green run. Into feat-cmux-next a head merges only with an
+        independent review's SHIP receipt for that exact head, as next-autoland requires."""
+        old = reviews_fixture((f"Review (subagent, correctness first): SHIP at {'b' * 12}", "2026-10-21T05:00:00Z"))
+        for name, reviews in (("none", reviews_fixture()), ("an older head", old)):
+            for full in (False, True):
+                with self.subTest(receipt=name, full=full), tempfile.TemporaryDirectory() as directory:
+                    marker = Path(directory) / "merged"
+                    result = self.run_helper(directory, marker, full=full, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                             reviews=reviews)
+                    self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+                    self.assertFalse(marker.exists())
+                    self.assertIn("no SHIP review receipt", result.stderr)
+                    self.assertIn(f"Review (subagent, correctness first): SHIP at {HEAD[:12]}", result.stderr)
+
+    def test_override_cannot_waive_the_review_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker, events = Path(directory) / "merged", Path(directory) / "events"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     extra_args=("--override", self.OVERRIDE), event_log=events, reviews=reviews_fixture())
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+            self.assertIn("--override cannot waive", result.stderr)
+            self.assertFalse(events.exists() and "comment" in events.read_text(), "posted an override for a refused merge")
+
+    def test_a_newer_block_on_the_head_beats_its_ship(self):
+        reviews = reviews_fixture((SHIP_RECEIPT, "2026-10-21T05:00:00Z"),
+                                  (f"Independent review (codex): BLOCK at {HEAD[:12]}: drops a lock", "2026-10-21T06:00:00Z"))
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     reviews=reviews)
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("no SHIP review receipt", result.stderr)
+
+    def test_the_receipt_is_named_when_the_head_merges(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN)
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+            self.assertIn("review receipt", result.stderr)
+
+    def test_main_does_not_need_a_review_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, base="main", reviews=reviews_fixture())
+            self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertTrue(marker.exists())
+
+    def test_a_test_run_without_the_reviews_fixture_refuses(self):
+        with tempfile.TemporaryDirectory() as directory:
+            marker = Path(directory) / "merged"
+            result = self.run_helper(directory, marker, full=False, changed_files=self.SWIFT, rollup=self.FAST_GREEN,
+                                     reviews="")
+            self.assertNotEqual(result.returncode, 0, result.stdout + result.stderr)
+            self.assertFalse(marker.exists())
+            self.assertIn("GH_MERGE_GREEN_REVIEWS", result.stderr)
 
     def test_main_keeps_the_full_wait_without_full(self):
         """Only feat-cmux-next gets the fast gate: a main PR with green fast lanes and a
