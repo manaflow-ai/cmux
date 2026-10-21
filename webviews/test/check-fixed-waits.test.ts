@@ -50,7 +50,82 @@ test("a fixed-wait comment with a reason, on the line or the line above, lets on
   expect(lines(findFixedWaits(file, source))).toEqual([5]);
 });
 
+test("a helper with no delay parameter counts at each call, and helpers built on helpers too", () => {
+  const source = [
+    "const settle = () => new Promise((resolve) => setTimeout(resolve, 50));",
+    "const twice = async () => {",
+    "  await settle();",
+    "  await settle();",
+    "};",
+    "await settle();",
+    "await twice();",
+    "await twice();",
+  ].join("\n");
+  expect(lines(findFixedWaits(file, source))).toEqual([6, 7, 8]);
+});
+
+test("a helper whose delay defaults to 0 waits only when a call passes a delay", () => {
+  const source = [
+    "async function settle(ms = 0) {",
+    "  await new Promise((resolve) => setTimeout(resolve, ms));",
+    "}",
+    "await settle();",
+    "await settle(0);",
+    "await settle(80);",
+  ].join("\n");
+  expect(lines(findFixedWaits(file, source))).toEqual([6]);
+});
+
+test("a timer callback with a block body, and window.setTimeout, are fixed waits", () => {
+  const source = [
+    "await new Promise((resolve) =>",
+    "  setTimeout(() => {",
+    "    seen.push(1);",
+    "    resolve(undefined);",
+    "  }, 600),",
+    ");",
+    "await new Promise((resolve) => window.setTimeout(resolve, 40));",
+  ].join("\n");
+  expect(lines(findFixedWaits(file, source))).toEqual([2, 7]);
+});
+
+test("an exported helper counts at its definition, since its callers are elsewhere", () => {
+  const source = "export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));";
+  expect(lines(findFixedWaits(file, source))).toEqual([1]);
+});
+
+test("a marker covers its whole statement, and a helper's marker covers its calls", () => {
+  const source = [
+    "// fixed-wait: the card's 250 ms delay is the behavior; measured against it below",
+    "await new Promise((resolve) =>",
+    "  setTimeout(resolve, 250),",
+    ");",
+    "await page.waitForTimeout(",
+    "  100, // fixed-wait: nothing fires when the list stays put",
+    ");",
+    "await step(); // fixed-wait: this marker is for step() only",
+    "await page.waitForTimeout(20);",
+    "const nap = () => new Promise((resolve) => setTimeout(resolve, 30)); // fixed-wait: a 30 ms debounce under test",
+    "await nap();",
+  ].join("\n");
+  expect(lines(findFixedWaits(file, source))).toEqual([9]);
+});
+
 test("TSX sources parse", () => {
   const source = "const view = <div />;\nawait page.waitForTimeout(10);";
   expect(lines(findFixedWaits(path.resolve(import.meta.dir, "a.test.tsx"), source))).toEqual([2]);
+});
+
+test("a helper passed or returned as a value counts where it is passed", () => {
+  const source = [
+    "const settle = () => new Promise((resolve) => setTimeout(resolve, 80));",
+    "await act(settle);",
+    "export function chat() {",
+    "  const open = async () => {",
+    "    await page.waitForTimeout(500);",
+    "  };",
+    "  return { open };",
+    "}",
+  ].join("\n");
+  expect(lines(findFixedWaits(file, source))).toEqual([2, 3]);
 });
