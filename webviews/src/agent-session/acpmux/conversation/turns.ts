@@ -665,6 +665,8 @@ function codexLiveTurn(
       call.kind === "execute" && !call.description && (Boolean(call.command) || isBareShellName(call, call.title));
     line.doing = shell ? (call.command ? shortCommand(call.command) : "") : runningLabel(call, "");
     line.doingShell = shell;
+    // A command shows "⌃B to run in background" on the line, where its own row would (Thinking.tsx).
+    if (call.kind === "execute") line.doingCommand = true;
     line.doingAt = (call.startedAt ?? last.at) + clockOffset;
     line.untimed = false;
   } else if (last.kind === "assistant") line.quietKey = `${last.id}:${last.version}`;

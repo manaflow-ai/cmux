@@ -790,6 +790,7 @@ const ThinkingRow = memo(
         untimed={row.untimed}
         quietKey={row.quietKey}
         below={row.below}
+        command={row.doingCommand}
         onCancel={
           queued
             ? () => void window.cmuxAcpmuxActions?.["chat.harness.cancelPrompt"]?.({ promptId: queued })
@@ -810,7 +811,8 @@ const ThinkingRow = memo(
     a.row.doingShell === b.row.doingShell &&
     a.row.untimed === b.row.untimed &&
     a.row.quietKey === b.row.quietKey &&
-    a.row.below === b.row.below,
+    a.row.below === b.row.below &&
+    a.row.doingCommand === b.row.doingCommand,
 );
 const WorkingRow = memo(
   function WorkingRow({ row, sessionId }: RowProps) {

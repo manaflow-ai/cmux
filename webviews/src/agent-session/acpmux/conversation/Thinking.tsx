@@ -10,6 +10,7 @@
 // never "Thinking" while the agent is blocked on them.
 import { useContext, useEffect, useState } from "react";
 import { useT } from "../i18n";
+import { BackgroundHint } from "./BackgroundHint";
 import { formatDuration } from "./turns";
 import { WAITING_LABEL, WaitingOnContext } from "./waitingOn";
 import { useTicking } from "./WorkingFor";
@@ -48,6 +49,7 @@ export function Thinking({
   untimed = false,
   quietKey,
   below = false,
+  command = false,
 }: {
   status?: string;
   onCancel?: () => void;
@@ -60,6 +62,9 @@ export function Thinking({
   quietKey?: string;
   /// The turn's last row (conversation/turns.ts): as tall as the footer that replaces it.
   below?: boolean;
+  /// The call in flight is a command: the line offers ⌃B, as the command's own row does
+  /// (BackgroundHint.tsx), since the row is not drawn while it runs.
+  command?: boolean;
 } = {}) {
   const t = useT();
   const waiting = useContext(WaitingOnContext);
@@ -86,6 +91,8 @@ export function Thinking({
         <output className={status ? "cv-thinking" : "cv-thinking is-shimmer"}>{label}</output>
       )}
       {timed && <span className="cv-worked__time">{formatDuration(Math.max(0, time - from))}</span>}
+      {/* Keyed by the call, so each command's hint waits its moment again. */}
+      {command && !waiting && doing !== undefined && <BackgroundHint key={doingAt} />}
       {status && onCancel && (
         <button type="button" className="cv-thinking__cancel" onClick={onCancel}>
           {t("switch.cancelPrompt")}
