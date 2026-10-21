@@ -34,9 +34,20 @@ pub(super) fn mark_stale(summary: &mut Value, last_seen: Option<u64>) -> bool {
 }
 
 impl Hub {
-    /// Save `peer`'s rows; unless `now`, at most once per `SAVE_EVERY_MS`.
-    pub(super) fn save_peer_cache(&self, peer: &str, now: bool) {
-        let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), self.peer(peer)) else { return };
+    /// Save `peer`'s rows, while `generation` is the instance registered
+    /// under that name; unless `now`, at most once per `SAVE_EVERY_MS`.
+    pub(super) fn save_peer_cache(&self, peer: &str, generation: u64, now: bool) {
+        // Held to the end: a lease, `add_peer` taking a leased name over and
+        // `remove_peer` change who holds the name under this lock, so a save
+        // of a replaced or removed instance never lands (lock order:
+        // `peer_leases` first).
+        let leases = self.peer_leases.lock().unwrap_or_else(|e| e.into_inner());
+        // A leased peer leaves nothing on disk (`peer_lease.rs`).
+        if leases.contains_key(peer) {
+            return;
+        }
+        let p = self.peer(peer).filter(|p| p.generation == generation);
+        let (Some(dir), Some(p)) = (self.store.peer_cache_dir(), p) else { return };
         let Some(path) = cache_path(&dir, peer) else { return };
         let at = now_ms();
         let last = p.cache_saved_at.load(std::sync::atomic::Ordering::SeqCst);
@@ -60,6 +71,7 @@ impl Hub {
         if let Err(e) = write() {
             tracing::warn!(peer = %peer, "saving the peer's last-known sessions failed: {e}");
         }
+        drop(leases);
     }
 
     /// A peer that starts with no rows here (this daemon just started) lists
@@ -132,14 +144,22 @@ mod tests {
     fn a_down_peer_keeps_its_sessions_listed_as_stale_and_restarts_list_them_again() {
         let (hub, dir) = test_hub();
         let peer = add_idle_peer(&hub, "huge-blue");
-        hub.apply_peer_notice("huge-blue", PeerNotice::Sessions(vec![remote("m1", "lane")]));
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
         let fresh = hub.remote_sessions();
         assert_eq!(fresh.len(), 1);
         assert_eq!(fresh[0]["stale"], false, "{fresh:?}");
         assert_eq!(fresh[0]["peer"], "huge-blue");
 
         peer.seed_last_seen(Some(now_ms() - 40_000));
-        hub.apply_peer_notice("huge-blue", PeerNotice::Disconnected("connect timed out".into()));
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Disconnected("connect timed out".into()),
+        );
         let stale = hub.remote_sessions();
         assert_eq!(stale.len(), 1, "kept, not dropped");
         assert_eq!(stale[0]["status"], "unreachable", "what older clients read");
@@ -161,7 +181,11 @@ mod tests {
         assert_eq!(peer.state(), crate::peer_link::PeerState::Reconnecting);
 
         // Its first handshake replaces the saved rows with fresh ones.
-        again.apply_peer_notice("huge-blue", PeerNotice::Sessions(vec![remote("m1", "lane")]));
+        again.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
         let back = again.remote_sessions();
         assert_eq!(back[0]["stale"], false, "{back:?}");
         assert_eq!(back[0]["status"], "idle");
@@ -176,8 +200,16 @@ mod tests {
         let peer = add_idle_peer(&hub, "huge-blue");
         *peer.last_error.lock().unwrap() = Some("connect timed out".into());
         peer.seed_last_seen(Some(now_ms() - 40_000));
-        hub.apply_peer_notice("huge-blue", PeerNotice::Sessions(vec![remote("m1", "lane")]));
-        hub.apply_peer_notice("huge-blue", PeerNotice::Disconnected("connect timed out".into()));
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Sessions(vec![remote("m1", "lane")]),
+        );
+        hub.apply_peer_notice(
+            "huge-blue",
+            peer.generation,
+            PeerNotice::Disconnected("connect timed out".into()),
+        );
 
         let (found, id, _) = hub.resolve_remote("huge-blue/lane").expect("still listed");
         let e = found.request(method::SESSION_PROMPT, json!({"sessionId": id})).await.unwrap_err();

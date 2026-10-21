@@ -608,6 +608,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::WsListen(params) => page_listener::ws_listen(mux, client, params),
         Command::CloudInboxList(params) => cloud_conversations::inbox_list(mux, client, params),
         Command::CloudRequestsList(_) => cloud_conversations::requests_list(mux, client),
+        Command::CloudSelfhostInfo(_) => cloud_conversations::selfhost_info(mux, client),
         Command::CloudConversationSnapshot(params) => {
             cloud_conversations::snapshot(mux, client, params)
         }

@@ -102,6 +102,8 @@ const customValues: Record<string, unknown> = Object.fromEntries(
     else if (setting.kind === "font_family") value = "Menlo";
     else if (setting.kind === "sound") value = "Glass";
     else if (setting.kind === "choice_or_number") value = 45;
+    else if (setting.kind === "choice_or_url")
+      value = { [setting.url_key ?? "url"]: "http://mini.tail1234.ts.net:7320" };
     else if (setting.kind === "host_list") value = ["docs.example.test", "*.research.example.test"];
     else if (setting.kind === "folder_list")
       // Chat roots take absolute paths only (validate.ts); the other folder lists also take ~/.
@@ -722,12 +724,12 @@ Object.assign(variants, {
     steps: [wait("[data-agent-harness]")],
     note: "Every harness acpmux knows: kind, source, a probe problem; Check and Remove on user profiles.",
   }),
-  // Settings > Agents > Chiefs (u2586): every Chief; a row opens the same editor as Home.
-  "agents-chiefs": variant("agents", {
+  // Settings > Chief > Chiefs (u2586): every Chief; a row opens the same editor as Home.
+  "chief-chiefs": variant("chief", {
     steps: [wait('[data-card="chiefs"] [data-chief]')],
     note: "Chiefs: picture, name, role, backend and a Locked badge; New Chief opens the editor.",
   }),
-  "agents-chief-editor": variant("agents", {
+  "chief-editor": variant("chief", {
     steps: [click('[data-chief="agent_release"]'), wait('[data-card="chiefs"] section.chief-editor')],
     note: "A Chief row opens its editor in the card: backend, lock and history, never a dialog.",
   }),
@@ -929,6 +931,7 @@ export default settingsPageEntry({
     "pages/settings/editors/SegmentedEditor.tsx",
     "pages/settings/editors/Select.tsx",
     "pages/settings/editors/SoundEditor.tsx",
+    "pages/settings/editors/StringMapEditor.tsx",
     "pages/settings/editors/TextEditor.tsx",
     "pages/settings/editors/TimeRangeEditor.tsx",
     "pages/settings/editors/ToggleEditor.tsx",

@@ -196,7 +196,9 @@ def changed_files(repo: str, base: str | None, head: str) -> list[str] | None:
     if not base:
         return None
     try:
-        subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", "--depth=1", "--filter=blob:none", "origin", base], capture_output=True, timeout=300)
+        # --depth only in an already-shallow checkout; it would make a full clone shallow.
+        depth = ["--depth=1"] if _git(repo, "rev-parse", "--is-shallow-repository").strip() == "true" else []
+        subprocess.run(["git", "-C", repo, "fetch", "-q", "--no-tags", *depth, "--filter=blob:none", "origin", base], capture_output=True, timeout=300)
         return [line for line in _git(repo, "diff", "--no-renames", "--name-only", base, head).splitlines() if line]
     except (subprocess.CalledProcessError, subprocess.TimeoutExpired):
         return None
