@@ -411,6 +411,17 @@ test("Changes lists the pull requests the chat opened or touched, newest first, 
   );
 });
 
+test("a pull request named only inside a quoted --body or --title is not the one the command touched", () => {
+  const made = sessionSummary(
+    chat([
+      activity([ran('gh pr comment 12 -R acme/a --body "dup of https://github.com/acme/b/pull/9"')], 2),
+      activity([ran("gh pr edit 5 -R acme/c --title 'Follow acme/d#3'")], 1),
+    ]).rows,
+  );
+  const urls = made.pullRequests.map((pr) => pr.url).sort();
+  expect(urls).toEqual(["https://github.com/acme/a/pull/12", "https://github.com/acme/c/pull/5"]);
+});
+
 test("a pull request row shows its line counts, the failing checks already on base dimmed, and its owner", async () => {
   const container = installDom(true);
   const url = "https://github.com/acme/atlas-web/pull/12";

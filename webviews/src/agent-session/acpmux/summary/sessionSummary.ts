@@ -58,9 +58,12 @@ const TOUCH =
 const REPO_REF = /(?:^|\s)([\w.-]+\/[\w.-]+)#(\d+)\b/;
 const REPO_FLAG = /(?:^|\s)(?:-R|--repo)[= ]([\w.-]+\/[\w.-]+)\b/;
 const BARE_NUMBER = /(?:^|\s)#?(\d+)(?=\s|$)/;
+const QUOTED = /"(?:[^"\\]|\\.)*"|'[^']*'/g;
 
 /// The pull request a touching command names by URL or repository and number, if it names one.
-function touched(command: string): { url: string; repo: string; number: number } | undefined {
+function touched(call: string): { url: string; repo: string; number: number } | undefined {
+  // Quoted text (a comment's --body, an edit's --title) can name other pull requests.
+  const command = call.replace(QUOTED, " ");
   const url = new RegExp(PR_URL.source).exec(command);
   if (url) return { url: url[0], repo: url[1]!, number: Number(url[2]) };
   const ref = REPO_REF.exec(command);
