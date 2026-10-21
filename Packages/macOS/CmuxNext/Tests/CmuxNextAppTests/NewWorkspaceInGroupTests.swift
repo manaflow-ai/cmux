@@ -58,7 +58,14 @@ struct NewWorkspaceInGroupTests {
         let store = services.daemon.store, personal = services.machines.local.store.personal
         let window = try #require(services.windows.active?.state.id)
         let sidebar = try #require(services.windows.controller(for: window)?.sidebar.model)
-        let first = try #require(services.windows.states[window]?.workspaceID)
+        // A fresh loose workspace to group (the launch workspace may be Home, which no group holds).
+        let launched = Set(store.workspaces.map(\.id))
+        _ = services.registry.perform("newTab", invocation: ActionInvocation(origin: .user))
+        func fresh() -> String? { store.workspaces.first { !launched.contains($0.id) }?.id }
+        await Self.wait(within: .seconds(30)) {
+            fresh().map { id in services.windows.states[window]?.workspaceID == id && sidebar.workspace(CmuxNextSidebar.WorkspaceID(id)) != nil } ?? false
+        }
+        let first = try #require(fresh())
 
         // Group Workspace on the window's workspace.
         _ = services.registry.perform("newWorkspaceGroup", invocation: ActionInvocation(
@@ -70,7 +77,7 @@ struct NewWorkspaceInGroupTests {
         }
         func members() -> [String] { header().flatMap { sidebar.group($0)?.workspaces.map(\.id.rawValue) } ?? [] }
         await Self.wait(within: .seconds(30)) { members() == [first] }
-        try #require(members() == [first], "the group lists \(members())")
+        try #require(members() == [first], "the group lists \(members()); groups \(personal.groups.map(\.name)); header \(String(describing: header()))")
         let group = try #require(personal.groups.first { $0.name == "keep-group" }?.id)
         /// The group the home session's personal state files workspace `id` under.
         func filed(_ id: String) -> WorkspaceGroupID? {
