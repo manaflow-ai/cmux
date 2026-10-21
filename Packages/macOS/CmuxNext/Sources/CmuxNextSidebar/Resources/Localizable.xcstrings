@@ -525,68 +525,68 @@
         }
       }
     },
-    "sidebar.priority.needYouCount": {
-      "comment": "Sidebar: muted workspace mark tooltip and the Priority bell's attention count.",
+    "sidebar.priority.attentionCount": {
+      "comment": "Sidebar: after the Priority bell's label while its dot shows; counts chats waiting on the person, finished unseen, failed or lost.",
       "extractionState": "manual",
       "localizations": {
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "بحاجة إليك: %lld"
+            "value": "بحاجة إلى انتباه: %lld"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Treba vas: %lld"
+            "value": "Traži pažnju: %lld"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Kræver dig: %lld"
+            "value": "Kræver opmærksomhed: %lld"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Braucht dich: %lld"
+            "value": "Braucht Aufmerksamkeit: %lld"
           }
         },
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "Needs you: %lld"
+            "value": "Needs attention: %lld"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Te necesitan: %lld"
+            "value": "Requieren atención: %lld"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Vous attendent : %lld"
+            "value": "À examiner : %lld"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ti aspettano: %lld"
+            "value": "Da controllare: %lld"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "対応待ち %lld 件"
+            "value": "要確認 %lld 件"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "ត្រូវការអ្នក៖ %lld"
+            "value": "ត្រូវការការយកចិត្តទុកដាក់៖ %lld"
           }
         },
         "ko": {
@@ -598,61 +598,61 @@
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Trenger deg: %lld"
+            "value": "Trenger oppmerksomhet: %lld"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Czeka na ciebie: %lld"
+            "value": "Wymaga uwagi: %lld"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Precisam de você: %lld"
+            "value": "Precisam de atenção: %lld"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ждут вас: %lld"
+            "value": "Требуют внимания: %lld"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "รอคุณ %lld"
+            "value": "ต้องดู %lld"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Sizi bekliyor: %lld"
+            "value": "İlgi bekliyor: %lld"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Чекають на вас: %lld"
+            "value": "Потребують уваги: %lld"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Cần bạn: %lld"
+            "value": "Cần chú ý: %lld"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等你处理：%lld"
+            "value": "需要关注：%lld"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "等你處理：%lld"
+            "value": "需要關注：%lld"
           }
         }
       }

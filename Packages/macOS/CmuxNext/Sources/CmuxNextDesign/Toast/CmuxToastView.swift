@@ -21,6 +21,13 @@ public final class CmuxToastView: NSView {
 
     private let reduceTransparency: ReduceTransparency
 
+    /// Cmd-Z runs this Undo (`CmuxToast.Action.isUndo`): its tooltip shows the key. Only the
+    /// window's newest undo toast takes the key (`CmuxToastStack.newestUndo`), so the center turns
+    /// it off on the older ones.
+    public var showsUndoKey = false {
+        didSet { if showsUndoKey != oldValue { applyUndoKey() } }
+    }
+
     /// `reduceTransparency` decides glass or the opaque surface (tests pass their own).
     public init(toast: CmuxToast, reduceTransparency: ReduceTransparency = .shared) {
         self.toast = toast
@@ -28,6 +35,8 @@ public final class CmuxToastView: NSView {
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
         build()
+        showsUndoKey = toast.action?.isUndo == true
+        applyUndoKey() // an initializer's own assignment runs no didSet
         setAccessibilityElement(true)
         setAccessibilityRole(.group)
         setAccessibilityLabel(toast.message)
@@ -63,11 +72,7 @@ public final class CmuxToastView: NSView {
         if let action = toast.action {
             let button = CmuxToastButton(style: .action, title: action.title, target: self, action: #selector(runAction))
             actionButton = button
-            // Cmd-Z runs an Undo while the toast shows (`CmuxToast.Action.isUndo`): its tooltip says so.
-            if action.isUndo {
-                button.themedToolTip = action.title
-                button.themedToolTipShortcut = CmuxToastStrings.undoShortcut
-            }
+            if action.isUndo { button.themedToolTip = action.title }
             row.addArrangedSubview(button)
             row.setCustomSpacing(Metrics.space5, after: label)
         }
@@ -121,6 +126,13 @@ public final class CmuxToastView: NSView {
         // CoreGraphics refuses a corner wider than half the rect.
         let radius = min(Self.cornerRadius, min(bounds.width, bounds.height) / 2)
         layer?.shadowPath = CGPath(roundedRect: bounds, cornerWidth: radius, cornerHeight: radius, transform: nil)
+    }
+
+    private func applyUndoKey() {
+        guard let button = actionButton, toast.action?.isUndo == true else { return }
+        button.themedToolTipShortcut = showsUndoKey ? CmuxToastStrings.undoShortcut : nil
+        // The tooltip's text is the title VoiceOver already reads; the help says only the key.
+        button.setAccessibilityHelp(showsUndoKey ? CmuxToastStrings.undoShortcut : nil)
     }
 
     @objc private func runAction() { onAction?() }
