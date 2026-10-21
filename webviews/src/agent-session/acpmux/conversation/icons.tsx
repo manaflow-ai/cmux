@@ -166,7 +166,8 @@ export const Check = (p: CvIconProps) => (
   </Svg>
 );
 
-/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx). */
+/** A clock: a prompt still on its way (conversation/PromptDelivery.tsx), or a steer waiting for the
+ * agent's current step to end (PendingSteer.tsx). */
 export const Clock = (p: CvIconProps) => (
   <Svg {...p}>
     <circle cx="8" cy="8" r="5.5" />

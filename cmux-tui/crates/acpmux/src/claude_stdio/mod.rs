@@ -183,6 +183,8 @@ mod edit_diff_tests;
 mod inbound;
 mod outbound;
 #[cfg(test)]
+mod steer_now_tests;
+#[cfg(test)]
 mod subagent_tests;
 #[cfg(test)]
 mod tests;

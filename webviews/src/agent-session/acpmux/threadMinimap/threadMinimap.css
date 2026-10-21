@@ -285,10 +285,25 @@
   height: 1px;
   opacity: 0.35;
 }
+/* Marks under the view bar: where the reader is, brighter than the rest, and still while the
+   pointer is on the rail (unlike the compact rail). The hovered or previewed mark is the text. */
+.acpmux-scrollmap__mark[data-tone="current"],
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] {
+  color: var(--acpmux-minimap-text);
+}
+.acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-tone="current"] .acpmux-minimap__bar {
+  opacity: 0.8;
+}
+.acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-kind="agent"][data-tone="current"] .acpmux-minimap__bar {
+  opacity: 0.55;
+}
 .acpmux-scrollmap__mark[data-tone="active"] .acpmux-minimap__bar {
   opacity: 1;
 }
 /* A bookmarked prompt's tick stays at full opacity on the full map too. */
-.acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar {
+.acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar,
+.acpmux-minimap__rail[data-hovering] .acpmux-scrollmap__mark[data-bookmarked] .acpmux-minimap__bar {
   opacity: 1;
 }
