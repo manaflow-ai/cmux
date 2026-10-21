@@ -5,10 +5,14 @@ public struct ImportPlan: Sendable, Equatable {
     public struct Item: Sendable, Equatable {
         public var profile: BrowserSourceProfile
         public var kinds: Set<ImportDataKind>
+        /// The existing cmux browser profile this source goes into; nil
+        /// makes (or reuses) the source's own matching profile.
+        public var target: String?
 
-        public init(profile: BrowserSourceProfile, kinds: Set<ImportDataKind>) {
+        public init(profile: BrowserSourceProfile, kinds: Set<ImportDataKind>, target: String? = nil) {
             self.profile = profile
             self.kinds = kinds.filter { profile.availability(of: $0).isImportable }
+            self.target = target
         }
     }
 
@@ -18,13 +22,17 @@ public struct ImportPlan: Sendable, Equatable {
     /// Set: every source goes into this one cmux profile instead of a new
     /// profile per source ("merge into one").
     public var mergeTarget: String?
+    /// Keep in Sync: each source's history is read again whenever its
+    /// browser writes it (``ImportHistorySync``).
+    public var keepsHistoryInSync: Bool
 
     public static let defaultHistoryLimit = 5_000
 
-    public init(items: [Item], historyLimit: Int = ImportPlan.defaultHistoryLimit, mergeTarget: String? = nil) {
+    public init(items: [Item], historyLimit: Int = ImportPlan.defaultHistoryLimit, mergeTarget: String? = nil, keepsHistoryInSync: Bool = false) {
         self.items = items.filter { !$0.kinds.isEmpty }
         self.historyLimit = historyLimit
         self.mergeTarget = mergeTarget
+        self.keepsHistoryInSync = keepsHistoryInSync
     }
 }
 
@@ -59,25 +67,31 @@ public struct ImportCounts: Sendable, Equatable, Codable {
     public var cookies = 0
     /// Passwords newly saved (never the values).
     public var passwords = 0
+    /// Default search engines read (one per profile at most).
+    public var searchEngines = 0
 
-    public init(bookmarks: Int = 0, history: Int = 0, openTabs: Int = 0, extensions: Int = 0, cookies: Int = 0, passwords: Int = 0) {
+    public init(bookmarks: Int = 0, history: Int = 0, openTabs: Int = 0, extensions: Int = 0, cookies: Int = 0, passwords: Int = 0,
+                searchEngines: Int = 0) {
         self.bookmarks = bookmarks
         self.history = history
         self.openTabs = openTabs
         self.extensions = extensions
         self.cookies = cookies
         self.passwords = passwords
+        self.searchEngines = searchEngines
     }
 
-    public var total: Int { bookmarks + history + openTabs + extensions + cookies + passwords }
+    public var total: Int { bookmarks + history + openTabs + extensions + cookies + passwords + searchEngines }
 
     public static func + (lhs: ImportCounts, rhs: ImportCounts) -> ImportCounts {
         ImportCounts(bookmarks: lhs.bookmarks + rhs.bookmarks, history: lhs.history + rhs.history, openTabs: lhs.openTabs + rhs.openTabs,
-                     extensions: lhs.extensions + rhs.extensions, cookies: lhs.cookies + rhs.cookies, passwords: lhs.passwords + rhs.passwords)
+                     extensions: lhs.extensions + rhs.extensions, cookies: lhs.cookies + rhs.cookies, passwords: lhs.passwords + rhs.passwords,
+                     searchEngines: lhs.searchEngines + rhs.searchEngines)
     }
 
     public static func - (lhs: ImportCounts, rhs: ImportCounts) -> ImportCounts {
         ImportCounts(bookmarks: lhs.bookmarks - rhs.bookmarks, history: lhs.history - rhs.history, openTabs: lhs.openTabs - rhs.openTabs,
-                     extensions: lhs.extensions - rhs.extensions, cookies: lhs.cookies - rhs.cookies, passwords: lhs.passwords - rhs.passwords)
+                     extensions: lhs.extensions - rhs.extensions, cookies: lhs.cookies - rhs.cookies, passwords: lhs.passwords - rhs.passwords,
+                     searchEngines: lhs.searchEngines - rhs.searchEngines)
     }
 }

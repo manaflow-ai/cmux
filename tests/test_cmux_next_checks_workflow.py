@@ -107,6 +107,82 @@ class ChecksJobStructure(unittest.TestCase):
         result = self.run_aggregate("success|Lint\nsuccess|Crash safety\n")
         self.assertEqual(result.returncode, 0, result.stdout)
 
+    # Correctness and safety checks: never on the warn-only style list (Leo, 2026-10-19).
+    BLOCKING = {
+        "No literal state roots (per-build isolation S7, cx-is1kf.8)",
+        "Main-thread concurrency",
+        "Crash safety",
+        "Tests inject their notification center",
+        "String tables (21 languages)",
+        "Module resource bundles",
+        "Phone lane field allowlist",
+        "Stale scheme PCM cleanup",
+        "Script tests (pin-cmux-tui, embed-cef, ensure-cef store)",
+        "Ghostty resources bundle",
+        "Bundled terminfo",
+        "Checks job structure",
+        "Tier routing",
+        "Web bundle key inputs",
+        "Companion workflows",
+        "DEV update and classic import scripts",
+        "Routing replay (router changes)",
+        "Check the app FFI pin",
+        "Daemon capabilities export is fresh",
+        "App capability references are listed",
+        "Capability texts never say update the app",
+    }
+
+    def style_checks(self) -> list[str]:
+        _, _, aggregate = self.split()
+        return [line for line in aggregate["env"]["STYLE_CHECKS"].splitlines() if line.strip()]
+
+    def test_style_checks_name_real_steps_and_no_blocking_check(self):
+        _, checks, _ = self.split()
+        names = {step["name"] for step in checks}
+        style = self.style_checks()
+        self.assertTrue(style)
+        self.assertLessEqual(set(style), names)
+        self.assertFalse(set(style) & self.BLOCKING)
+        self.assertLessEqual(self.BLOCKING, names)
+        for name in ("Package conventions lint", "Motion tokens", "Type scale", "CmuxNextApp size cap",
+                     "God files and types (Swift)", "Scrollbars thin, one style"):
+            with self.subTest(name=name):
+                self.assertIn(name, style)
+        document = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+        self.assertEqual(document["env"]["CMUX_NEXT_STYLE_GUARDS"], "warn")
+
+    def run_warn_aggregate(self, outcomes: str, guards: str = "warn") -> subprocess.CompletedProcess:
+        _, _, aggregate = self.split()
+        with tempfile.NamedTemporaryFile() as summary:
+            return subprocess.run(
+                ["bash", "-c", aggregate["run"]],
+                env={**os.environ, "OUTCOMES": outcomes, "GITHUB_STEP_SUMMARY": summary.name,
+                     "STYLE_CHECKS": aggregate["env"]["STYLE_CHECKS"], "CMUX_NEXT_STYLE_GUARDS": guards},
+                capture_output=True,
+                text=True,
+            )
+
+    def test_a_red_style_check_only_warns(self):
+        result = self.run_warn_aggregate("failure|Package conventions lint\nfailure|Type scale\nsuccess|Crash safety\n")
+        self.assertEqual(result.returncode, 0, result.stdout)
+        self.assertIn("::warning title=cmux-next style guard (warn-only)::Package conventions lint", result.stdout)
+        self.assertNotIn("::error", result.stdout)
+
+    def test_a_red_blocking_check_still_fails_beside_a_style_warning(self):
+        result = self.run_warn_aggregate("failure|Package conventions lint\nfailure|Crash safety\n")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("::error title=cmux-next check::red check: Crash safety", result.stdout)
+        self.assertNotIn("red check: Package conventions lint", result.stdout)
+
+    def test_a_style_check_that_never_ran_still_fails(self):
+        result = self.run_warn_aggregate("|Package conventions lint\n")
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertIn("- Package conventions lint (not run)", result.stdout)
+
+    def test_style_checks_fail_again_when_the_switch_is_fail(self):
+        result = self.run_warn_aggregate("failure|Package conventions lint\n", guards="fail")
+        self.assertEqual(result.returncode, 1, result.stdout)
+
     def test_ratchet_ceilings_are_set_only_on_their_own_steps(self):
         # Job-wide, the warning ceilings reach the script tests in this job, which
         # expect every hit to fail (#18894's first run: check-scrollbars.test.sh and
@@ -165,6 +241,40 @@ class ChecksJobStructure(unittest.TestCase):
         self.assertEqual(len(godfile_runs), 2, godfile_runs)
         self.assertEqual(sum("--only swift" in run for run in godfile_runs), 1, godfile_runs)
         self.assertEqual(sum("--only rust" in run for run in godfile_runs), 1, godfile_runs)
+
+
+class WebviewsWarnSplitCoversCheck(unittest.TestCase):
+    """Under CMUX_NEXT_STYLE_GUARDS=warn, ci-web runs `bun run check` as separate commands.
+
+    A check added to package.json's `check` script but not to that list would stop
+    running on feat-cmux-next without a warning or a failure (#22492's
+    check:switch-fetches did).
+    """
+
+    def test_every_part_of_bun_run_check_runs_in_the_warn_branch(self) -> None:
+        package = json.loads((ROOT / "webviews/package.json").read_text(encoding="utf-8"))
+        parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
+        jobs = yaml.safe_load((ROOT / ".github/workflows/ci-web.yml").read_text(encoding="utf-8"))["jobs"]
+        runs = [
+            step["run"]
+            for job in jobs.values()
+            for step in job.get("steps", [])
+            if step.get("id") == "webviews-check"
+        ]
+        self.assertEqual(len(runs), 1, "one webviews-check step")
+        warn_branch = runs[0].split("fi\n", 1)[1]
+        loop = re.search(r"for check in ([^;]+); do", warn_branch)
+        self.assertIsNotNone(loop, "the warn branch loops over the style checks")
+        looped = set(loop.group(1).split())
+        for part in parts:
+            if part == "vp check":
+                self.assertIn("vp check", warn_branch)
+                continue
+            name = part.removeprefix("bun run ").strip()
+            self.assertTrue(
+                name in looped or f"bun run {name} || status=1" in warn_branch,
+                f"`{part}` from webviews/package.json check does not run when CMUX_NEXT_STYLE_GUARDS=warn",
+            )
 
 
 class ReferencedFilesExist(unittest.TestCase):
@@ -540,6 +650,10 @@ class PathRoutingStructure(unittest.TestCase):
             with self.subTest(job=job_id):
                 self.assertIn("push-head-preflight", needs)
                 self.assertIn("needs.push-head-preflight.outputs.current == 'true'", job["if"])
+        # The Release compile is the base's compile check: a superseded feat-cmux-next push still
+        # compiles (ReleaseCompileRouting covers it); its job group keeps one running, the newest waiting.
+        self.assertIn("|| github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next')",
+                      jobs["release-compile"]["if"])
 
     def test_bot_attempt_three_drops_stale_owned_pool_placement(self):
         """Rescue attempt 3 must use the Blacksmith fallback instead of a stale mini label."""
@@ -1559,6 +1673,24 @@ class ReleaseCompileOnCmuxNextSwiftPullRequests(unittest.TestCase):
 
     def runs(self, context: dict) -> bool:
         return bool(evaluate(self.job()["if"], context))
+
+    def test_a_superseded_base_push_still_compiles_one_at_a_time(self):
+        """Merges land about once a minute, so nearly every feat-cmux-next push is superseded before its
+        preflight runs; it still compiles, one running and the newest waiting (2026-10-21: 0 of 40 compiled)."""
+        context = self.context([], event="push")
+        context["needs.push-head-preflight.outputs.current"] = "false"
+        self.assertTrue(self.runs(context))
+        self.assertEqual(evaluate(self.job()["runs-on"], context), "reserved-promotion-runner")
+        group = self.job()["concurrency"]
+        self.assertEqual(evaluate(group["group"], context), "cmux-next-push-refs/heads/feat-cmux-next-release-compile")
+        self.assertIs(group["cancel-in-progress"], False)
+        # A superseded pull request run is still skipped (its run is cancelled anyway), and so is a main push.
+        for event, ref in (("pull_request", "refs/pull/1/merge"), ("push", "refs/heads/main")):
+            with self.subTest(event=event, ref=ref):
+                other = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"], event=event)
+                other["github.ref"] = ref
+                other["needs.push-head-preflight.outputs.current"] = "false"
+                self.assertFalse(self.runs(other))
 
     def test_a_cmuxnext_swift_pr_runs_the_release_compile_on_the_shared_route(self):
         context = self.context(["Packages/macOS/CmuxNext/Sources/CmuxNextApp/WorkspaceSpawn.swift"])
