@@ -55,6 +55,24 @@ test("keeps a coordination message visible beside settled tool calls", () => {
   expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
 });
 
+test("keeps a sub-session card visible beside settled tool calls", () => {
+  const start: AcpmuxActivity = {
+    kind: "tool",
+    text: "mcp__cmux-subsessions__start_session",
+    tool: {
+      id: "start",
+      title: "mcp__cmux-subsessions__start_session",
+      status: "completed",
+      inputSummary: JSON.stringify({ name: "tests", prompt: "Run the tests" }),
+      output: "Started sub-session tests (sessionId 0199a-child, depth 1).",
+    },
+  };
+  const items = [start, command("command", "bun test")];
+  const groups = toolGroups(items);
+  expect(groups.some((group) => group.type === "subsession")).toBe(true);
+  expect(shouldFoldToolRun(row(items), groups, items)).toBe(false);
+});
+
 // Consecutive thoughts in one step are one row (Leo 2026-10-20): a call a permission ask holds out
 // of the transcript (permissions/askRows.ts) can leave two thoughts side by side.
 test("merges consecutive thoughts into one item with their texts and summed durations", () => {

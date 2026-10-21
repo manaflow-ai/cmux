@@ -73,6 +73,7 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
           if (message.method === "initialize")
             result = { protocolVersion: 1, _meta: { acpmux: { origin: "local", extensions: [], operations: [] } } };
           else if (message.method === "_acpmux/watch") {
+            // fixed-wait: the chat list arriving late is the state under test, not a wait for one
             await Bun.sleep(LIST_DELAY);
             result = { sessions };
           } else if (message.method === "_acpmux/sessions") result = { sessions: [] };
@@ -95,6 +96,9 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
     await daemon?.stop(true);
   });
 
+  /// Each page's chat list arriving (see load).
+  const listed = new WeakMap<Page, Promise<void>>();
+
   /// A New Tab page as a new workspace opens one (no folder of its own), recording the composer
   /// card's rect and the field's top and left edge, labelled with the step that was running.
   async function load(name: string, template: string, height: number): Promise<Page> {
@@ -109,11 +113,15 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
         };
         w.__cmuxNewTabContext = context;
         const later = (ms: number, value: unknown) =>
+          // fixed-wait: the stand-in host answers late on purpose; the composer must hold through it
           new Promise((resolve) => setTimeout(() => resolve({ ok: true, value }), ms));
         const answer = (request: { method: string }): unknown => {
           switch (request.method) {
             case "ready":
-              setTimeout(() => w.cmuxAcpmuxBridge?.applyDeviceChats?.(device), 350);
+              setTimeout(() => {
+                w.cmuxAcpmuxBridge?.applyDeviceChats?.(device);
+                w.__deviceChats = true;
+              }, 350);
               return later(300, {
                 protocolVersion: 1,
                 transport: "acpmux-websocket",
@@ -163,6 +171,17 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
       },
       { endpoint, context, device },
     );
+    // The page has the chat list once the daemon's watch answer (the list of sessions) reaches it.
+    listed.set(
+      page,
+      new Promise((resolve) =>
+        page.on("websocket", (socket) =>
+          socket.on("framereceived", (frame) => {
+            if (String(frame.payload).includes('"sessions":[{')) resolve();
+          }),
+        ),
+      ),
+    );
     const { port } = vite!.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}/`);
     return page;
@@ -174,7 +193,9 @@ await requireBrowserLane("new-tab-composer-still.test.ts", async () => {
   async function walk(page: Page) {
     await step(page, "loading");
     await page.locator(".nt-field").waitFor({ timeout: 30_000 });
-    await page.waitForTimeout(LIST_DELAY + 1_500);
+    // The chats and the device chats arrive.
+    await listed.get(page);
+    await page.waitForFunction(() => (window as unknown as { __deviceChats?: boolean }).__deviceChats === true);
     await step(page, "typing");
     await page.locator(".nt-field").click();
     await page.keyboard.type("how do I fix the build");
