@@ -1,6 +1,6 @@
 import React from "react";
 import { projectName } from "./EmptyState";
-import { useT } from "./i18n";
+import { type Translate, useT } from "./i18n";
 import { isAgentHome } from "./sessionList";
 import type { FolderTrustAsk } from "./useFolderTrustAsk";
 
@@ -18,6 +18,16 @@ export function trustSubject(ask: Pick<FolderTrustAsk, "cwd" | "repo" | "via">) 
     /// The folder is the repository's main working tree: trusting it and the repository are one.
     atRoot: Boolean(ask.repo && ask.repo.root === ask.cwd),
   };
+}
+
+/// What a trusted folder's answer says: through its repository, its worktree's root, the
+/// repository itself, or the folder.
+export function trustedLabel(t: Translate, scope: Pick<FolderTrustAsk, "cwd" | "repo" | "via">) {
+  const { folder, repo, viaRepo, viaFolder, atRoot } = trustSubject(scope);
+  if (viaRepo && repo) return t("trust.trustedViaRepo", { repo });
+  if (viaFolder) return t("trust.trustedVia", { folder: viaFolder });
+  if (atRoot && repo) return t("trust.trustedRepo", { repo });
+  return t("trust.trusted", { folder });
 }
 
 /// The folder trust question among the chat's permission asks, above the composer. It says what
@@ -60,13 +70,7 @@ export function TrustAsk({
             {ask.level === "trusted"
               ? owned
                 ? t("trust.trustedPrivate")
-                : subject.viaRepo && repo
-                  ? t("trust.trustedViaRepo", { repo })
-                  : subject.viaFolder
-                    ? t("trust.trustedVia", { folder: subject.viaFolder })
-                    : subject.atRoot && repo
-                      ? t("trust.trustedRepo", { repo })
-                      : t("trust.trusted", { folder })
+                : trustedLabel(t, ask)
               : owned
                 ? t("trust.untrustedPrivate")
                 : (subject.viaRepo || subject.atRoot) && repo

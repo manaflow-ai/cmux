@@ -30,7 +30,8 @@ const { act } = React;
 const { createRoot } = await import("react-dom/client");
 const { useFolderTrustAsk } = await import("../src/agent-session/acpmux/useFolderTrustAsk");
 const { readTrust } = await import("../src/agent-session/acpmux/folderTrust");
-const { TrustAsk } = await import("../src/agent-session/acpmux/TrustAsk");
+const { TrustAsk, trustedLabel } = await import("../src/agent-session/acpmux/TrustAsk");
+const { translatorFor } = await import("../src/agent-session/acpmux/i18n");
 type TrustSource = import("../src/agent-session/acpmux/folderTrust").TrustSource;
 
 const host = dom.window.document.getElementById("root")!;
@@ -198,4 +199,15 @@ test("a worktree answered by its repository says so, with Undo", async () => {
   expect(host.querySelector(".acpmux-trust-ask-text")!.textContent).toBe(
     "Not trusted: Claude Code won't run in the atlas-web repo",
   );
+});
+
+test("the Access grant names where the answer lives: the repository, not the chat's private folder", () => {
+  const t = translatorFor("en");
+  expect(trustedLabel(t, { cwd: worktree, repo: { root: repoRoot, worktree: true }, via: repoRoot })).toBe(
+    "Trusted via repo atlas-web",
+  );
+  expect(trustedLabel(t, { cwd: repoRoot, repo: { root: repoRoot, worktree: false } })).toBe(
+    "Trusted the atlas-web repo and its worktrees",
+  );
+  expect(trustedLabel(t, { cwd: "/Users/you/Downloads/thing" })).toBe("Trusted thing");
 });

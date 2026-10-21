@@ -172,6 +172,13 @@ async fn a_worktree_of_a_trusted_repo_starts_and_prompts_with_no_question() {
     let forged = d.join("forged");
     std::fs::create_dir_all(&forged).unwrap();
     std::fs::write(forged.join(".git"), format!("gitdir: {}\n", gitdir.display())).unwrap();
+    // A gitdir of its own that names the file back and claims the repository as its commondir.
+    let own = d.join("forged-own");
+    std::fs::create_dir_all(own.join("meta")).unwrap();
+    std::fs::write(own.join(".git"), "gitdir: meta\n").unwrap();
+    std::fs::write(own.join("meta/gitdir"), format!("{}\n", own.join(".git").display())).unwrap();
+    std::fs::write(own.join("meta/commondir"), format!("{}\n", main.join(".git").display()))
+        .unwrap();
 
     let mut app = Client::new(&hub, Origin::LocalApp);
     let new = |cwd: &Path| json!({"cwd": cwd, "mcpServers": [], "_meta": {"acpmux": {"harness": "fclaude"}}});
@@ -187,6 +194,7 @@ async fn a_worktree_of_a_trusted_repo_starts_and_prompts_with_no_question() {
     assert_eq!(r["result"]["via"], json!(main.to_string_lossy()), "{r}");
 
     assert_eq!(reason(&app.call("session/new", new(&forged)).await), "trust.pending");
+    assert_eq!(reason(&app.call("session/new", new(&own)).await), "trust.pending");
     let _ = std::fs::remove_dir_all(&d);
 }
 
@@ -390,17 +398,14 @@ async fn a_fork_into_a_folder_without_trust_waits_for_it() {
     let hub = hub(&d);
     let mut app = Client::new(&hub, Origin::LocalApp);
     let work = d.join("work");
-    let other = d.join("sibling");
-    std::fs::create_dir_all(&other).unwrap();
+    let other = work.join("other");
     app.trust(&work, "trusted").await;
     let s = app.new_session(&work, "fcodex").await;
     // Its own (trusted) folder: the fork goes.
     let r = app.call("session/fork", json!({"sessionId": s})).await;
     assert!(r.get("error").is_none(), "{r}");
-    // A folder inside it takes its answer: the fork goes there too.
-    let r = app.call("session/fork", json!({"sessionId": s, "cwd": work.join("other")})).await;
-    assert!(r.get("error").is_none(), "{r}");
-    // Another folder with no answer: refused before any agent runs there.
+    // Another folder with no answer (a plain folder's answer covers only itself): refused
+    // before any agent runs there.
     let r = app.call("session/fork", json!({"sessionId": s, "cwd": other})).await;
     assert_eq!(reason(&r), "trust.pending", "{r}");
     assert_eq!(r["error"]["data"]["cwd"], json!(other.to_string_lossy()), "{r}");
