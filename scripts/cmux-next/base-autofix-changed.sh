@@ -24,7 +24,10 @@ scratch="$(mktemp -d)"
 trap 'rm -rf "$scratch"' EXIT
 git init -q --bare "$scratch"
 git -C "$root" rev-parse --path-format=absolute --git-common-dir | sed 's#$#/objects#' > "$scratch/objects/info/alternates"
-git -C "$scratch" fetch --quiet --no-tags --depth=1 "$(git -C "$root" remote get-url origin)" "$since" \
+# core.alternateRefsCommand=true: the checkout's refs (actions/checkout makes a remote ref and a branch) are
+# not offered as commits the scratch repository has; it has none of their history, and the remote would
+# leave out objects it needs ("remote did not send all necessary objects").
+git -C "$scratch" -c core.alternateRefsCommand=true fetch --quiet --no-tags --depth=1 "$(git -C "$root" remote get-url origin)" "$since" \
   || { echo "cannot fetch ${since:0:12}" >&2; exit 1; }
 git -C "$scratch" diff --name-only --no-renames "$since" "$head"
 if [[ -f "$root/scripts/ci/defaults_guard.py" ]] \
